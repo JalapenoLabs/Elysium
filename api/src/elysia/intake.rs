@@ -22,6 +22,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::trigger;
+use crate::connectors::ConnectorKind;
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn};
 use crate::models::user::SYSTEM_USER_ID;
@@ -75,10 +76,17 @@ fn history_is_relevant(data: &Value) -> bool {
     if actor == "elysia" || actor.starts_with("session:") {
         return false;
     }
-    if actor.starts_with("watcher:") {
-        return true;
-    }
     let kind = data.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if let Some(watched) = actor.strip_prefix("watcher:") {
+        // The inbox item a message read through a browser raises is that message's: the message
+        // joined its conversation, whose request run handles it (`crate::conversations`), so
+        // she is not woken for it twice.
+        let raised_for_a_message = kind == "created"
+            && ConnectorKind::BROWSER_READ
+                .iter()
+                .any(|browser_read| browser_read.as_str() == watched);
+        return !raised_for_a_message;
+    }
     PERSON_KINDS.contains(&kind)
 }
 
@@ -262,6 +270,30 @@ mod tests {
             &json!({ "id": "x", "conversationId": "0199a3c4-0000-7000-8000-00000000beef" }),
         );
         assert!(classify(&gathered).is_none());
+
+        // Nor is the inbox item the message raised.
+        for watcher in [
+            "watcher:slack",
+            "watcher:teams",
+            "watcher:outlook",
+            "watcher:gmail",
+        ] {
+            let raised = bus(
+                "history.appended",
+                &json!({ "actor": watcher, "kind": "created" }),
+            );
+            assert!(classify(&raised).is_none(), "{watcher}");
+        }
+        // What the other watchers record, and a later change to a message's item, still are.
+        for (actor, kind) in [
+            ("watcher:confluence", "created"),
+            ("watcher:youtrack", "created"),
+            ("watcher:jira", "state_changed"),
+            ("watcher:slack", "state_changed"),
+        ] {
+            let change = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
+            assert!(classify(&change).is_some(), "{actor} {kind}");
+        }
     }
 
     #[test]

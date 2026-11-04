@@ -282,7 +282,8 @@ rows are `conversations` and `conversation_messages` (`docs/database.md`).
   nothing. Only a baselined connector's messages gather, as only they raise items, so connecting an account starts no
   work on its backlog. Confluence and YouTrack records are not messages and gather nowhere.
 - A message that wakes signals `conversations`, and its `timelineRecord.created` names the conversation
-  (`conversationId`), which is how Elysia's intake leaves it to the run (`docs/elysia.md`, Triggers).
+  (`conversationId`), which is how Elysia's intake leaves it to the run; she skips the inbox item its watcher raised
+  for it too (`docs/elysia.md`, Triggers).
 
 ### The quiet window
 
@@ -350,6 +351,9 @@ What it gives (`Handled`) is the conversation, its turns and messages, and the i
 - Ingest still raises an inbox item for each message that wants attention, so a direct message's question shows as
   that message's item and as the agent's. Whether the agent's item replaces the message's is open.
 - Drafting a reply with each item, for the person to Send.
+- A reply the person sends through Elysium joining its conversation as context: today a sent message's record is
+  written by `crate::drafts`, which gathers nothing, and reading it back records nothing twice, so the agent never
+  sees it.
 - Readers that hear a message as it arrives (IMAP `IDLE`, webhooks): the window is already measured from when a
   message is read, so a reader faster than once a minute makes it matter.
 
