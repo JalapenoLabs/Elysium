@@ -4,10 +4,11 @@
 //!
 //! Ory Kratos owns identities: passwords, passkeys, authenticator apps, lookup codes,
 //! sessions, and recovery. Browsers talk to it directly, through nginx at `/api/identity/`,
-//! for every sign-in and account change. The API only reads the session cookie Kratos sets,
-//! asks Kratos whose it is ([`sessions`]), and maps the identity to a row in `users`
-//! (`crate::models::user`), which holds the role and status Elysium decides. See
-//! `docs/auth.md` for the whole design.
+//! for every sign-in and account change. The API reads the session cookie Kratos sets, asks
+//! Kratos whose it is ([`sessions`]), and maps the identity to a row in `users`
+//! (`crate::models::user`), which holds the role and status Elysium decides. Ending a session is
+//! the one thing browsers ask the API for instead, so the API can forget what it cached about
+//! it at once. See `docs/auth.md` for the whole design.
 //!
 //! Requests pass through two layers ([`middleware`]):
 //!
@@ -23,6 +24,9 @@ pub mod hook_key;
 pub mod identity_schemas;
 pub mod kratos;
 pub mod middleware;
+pub mod revocable_cache;
+#[cfg(test)]
+mod revocation_tests;
 pub mod sessions;
 
 use axum::extract::FromRequestParts;
@@ -30,6 +34,7 @@ use axum::http::StatusCode;
 use axum::http::request::Parts;
 use secrecy::SecretString;
 use url::Url;
+use uuid::Uuid;
 
 use self::kratos::{AssuranceLevel, Kratos};
 use crate::action_items::Actor;
@@ -55,6 +60,10 @@ pub struct Auth {
 pub struct Principal {
     pub user: User,
     pub assurance: AssuranceLevel,
+    /// The Kratos session the request came with.
+    pub session_id: Uuid,
+    /// The Kratos identity that session signs in.
+    pub identity_id: Uuid,
 }
 
 /// The person a handler acts for: signed in, approved, and active.

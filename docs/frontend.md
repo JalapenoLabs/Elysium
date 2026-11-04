@@ -244,6 +244,8 @@ offers them in autofill. See `docs/auth.md`.
   - **Refusals.** Any request's `401` or coded `403` lands in Redux through the ky hook in `src/api/index.ts`, and the
     gate routes on it the same way.
   - **Event stream.** The stream opens only once the person may use the workspace, and closes on sign-out.
+  - **Ending sessions.** Sign out (`src/auth/signOut.ts`) and the Sessions tab's End buttons ask the API, never Kratos,
+    so the ended session is refused at once (`docs/auth.md`, Ending a session). The tab still lists from Kratos.
 - **The waiting page.** `/pending` asks `/me` every 5 seconds. It is the one page that polls: a pending person may not
   open the event stream.
 - **Kratos settings flows.** My profile and Sign-in & security each run one through `useKratosSettingsFlow`

@@ -8,7 +8,9 @@
 //! challenge here, as the person Kratos says is signed in. The API also introspects the access
 //! tokens MCP clients present, and lists and revokes people's grants.
 //!
-//! The admin API is on the compose network alone; browsers and MCP clients never reach it.
+//! The admin API is on the compose network alone; browsers and MCP clients never reach it. The
+//! calls that revoke tokens are visible to `crate::oauth` alone, so the rest of the API revokes
+//! only through `super::tokens`, which forgets what it cached in the same step.
 
 use std::time::Duration;
 
@@ -26,7 +28,8 @@ use uuid::Uuid;
 const CLIENT_LIST_LIMIT: usize = 500;
 
 /// How long one call may take. Every call is a single row lookup or write on Hydra's side.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+/// `crate::auth::revocable_cache::REVOCATION_GRACE` outlasts it.
+pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Hydra refused a call or could not be reached.
 #[derive(Debug, thiserror::Error)]
@@ -300,7 +303,7 @@ impl Hydra {
     /// # Errors
     /// Returns [`HydraError::Refused`] when Hydra cannot be reached. Nothing to revoke is not an
     /// error.
-    pub async fn revoke_consent(
+    pub(super) async fn revoke_consent(
         &self,
         subject: Uuid,
         client_id: Option<&str>,
@@ -352,7 +355,7 @@ impl Hydra {
     ///
     /// # Errors
     /// Returns [`HydraError::NotFound`] for an unknown client.
-    pub async fn delete_client(&self, client_id: &str) -> Result<(), HydraError> {
+    pub(super) async fn delete_client(&self, client_id: &str) -> Result<(), HydraError> {
         self.send::<Value>(Method::DELETE, self.client_url(client_id), None)
             .await
             .map(drop)

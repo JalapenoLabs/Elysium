@@ -55,8 +55,8 @@ A client is granted what it asked for from this list; anything else it asked for
 
 - **Lifetimes.** Access tokens last an hour. Refresh tokens rotate on every use and expire after 720 hours without one.
 - **Opaque.** Tokens are opaque and checked by introspection against Hydra's admin API
-  (`api/src/mcp/bearer.rs`). The answer is cached in Redis for 20 seconds under a hash of the token, so a revoked grant
-  stops working within that time.
+  (`api/src/mcp/bearer.rs`). The answer is cached in Redis for 20 seconds under a hash of the token, filed under the
+  person and the client it was issued to (`api/src/oauth/tokens.rs`). With Redis unreachable, every call asks Hydra.
 - **Audience.** Every token is bound to `https://<host>/api/mcp`. Hydra ignores the `resource` parameter MCP clients
   send (RFC 8707), so consent grants that audience itself, and also allows it on the client so a refresh carrying it
   is accepted. `/api/mcp` refuses any token whose audience does not include it.
@@ -66,12 +66,20 @@ A client is granted what it asked for from this list; anything else it asked for
   insufficient_scope`. Both carry `WWW-Authenticate: Bearer resource_metadata="...", scope="workspace:read"`, as the MCP
   authorization spec requires.
 
-Revoking happens in three places:
+Revoking happens in three places, and a revoked token is refused on its very next call:
 
 - A person disconnects a client under Settings, MCP (`DELETE /api/v1/oauth/grants/{client_id}`).
 - An admin deletes a client for everyone (`DELETE /api/v1/oauth/clients/{client_id}`).
 - Disabling someone, signing them out everywhere, or resetting their authenticator also disconnects every client
   they connected.
+
+Each tells Hydra first, which revokes the tokens, then forgets what was cached under the person (disconnecting, signing
+out) or the client (deleting it), and marks them for a minute so an introspection in flight cannot cache its answer
+again, as for sessions (`docs/auth.md`, Ending a session). Hydra's revoking calls are visible to `crate::oauth` alone,
+so nothing revokes without forgetting.
+
+What the API never hears is a client revoking its own token (`/oauth2/revoke`) or replacing it by refreshing: the old
+token's cached answer lives out its 20 seconds. Only the client holding the token can do either.
 
 Approving a client is remembered: the same client asking for the same scopes again connects without asking, until the
 person disconnects it. The consent page still answers that through `POST /api/v1/oauth/consent/accept`, so every change

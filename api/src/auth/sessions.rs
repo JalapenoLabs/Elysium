@@ -1,12 +1,19 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Whose session a cookie is, asked of Kratos and remembered briefly in Redis.
+//! Whose session a cookie is, asked of Kratos and cached in Redis, and every way a session ends.
 //!
 //! Every API request carries the session cookie, and asking Kratos each time would put a
 //! network round trip in front of every one. Kratos's answer is cached for
-//! [`SESSION_CACHE_TTL`] under a hash of the cookie, so a session Kratos revokes keeps working
-//! for at most that long. Disabling a person is immediate regardless: their `users` row is
+//! [`SESSION_CACHE_TTL`] under a hash of the cookie, filed under the person's Kratos identity
+//! ([`super::revocable_cache`]). Disabling a person is immediate regardless: their `users` row is
 //! read on every request. See `docs/auth.md`.
+//!
+//! A session ends only through this module, so the cache always hears of it: signing out,
+//! ending one's own other sessions, an admin signing someone out everywhere, deleting an
+//! identity, and Kratos's own revocations on a settings change, which its webhook reports
+//! (`crate::routes::internal`). Each asks Kratos first and then forgets every session the person
+//! has cached, so the ended one is refused on its very next request. The person's other sessions
+//! simply ask Kratos again once.
 //!
 //! Sessions roll: Kratos only extends a session when asked, so the first request after a
 //! session is [`EXTEND_AFTER`] old asks, which resets it to a full lifespan.
@@ -14,14 +21,19 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
-use sha2::{Digest, Sha256};
+use reqwest::header::HeaderValue;
 use tracing::{Level, event};
+use uuid::Uuid;
 
-use super::kratos::{Kratos, KratosError, Session};
+use super::kratos::{self, Kratos, KratosError, Session};
+use super::revocable_cache::{Owner, REVOCATION_GRACE, RevocableCache};
 
-/// How long a Kratos answer is trusted. Also the longest a revoked session keeps working.
+// A revocation must keep answers out for longer than a `whoami` in flight can take to return
+// one from before it.
+const _: () = assert!(REVOCATION_GRACE.as_secs() > kratos::REQUEST_TIMEOUT.as_secs());
+
+/// How long a Kratos answer is trusted, unless a revocation drops it first.
 const SESSION_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// `session.lifespan` in `kratos/kratos.yml`: how long a session lasts from its last
@@ -33,7 +45,8 @@ const SESSION_LIFESPAN: chrono::Duration = chrono::Duration::hours(72);
 /// one extension write an hour while still meaning "72 hours from the last use".
 const EXTEND_AFTER: chrono::Duration = chrono::Duration::hours(1);
 
-const CACHE_PREFIX: &str = "elysium:auth:session:";
+/// Kratos's answers, each filed under the identity whose session it is.
+const SESSIONS: RevocableCache = RevocableCache::new("elysium:auth:sessions");
 
 /// The session `cookie` belongs to, from the cache or from Kratos.
 ///
@@ -44,41 +57,20 @@ pub async fn resolve(
     kratos: &Kratos,
     cookie: &str,
 ) -> Result<Session, KratosError> {
-    let key = cache_key(cookie);
-    let mut redis = redis.clone();
-
-    match redis.get::<_, Option<String>>(&key).await {
-        Ok(Some(cached)) => match serde_json::from_str(&cached) {
-            Ok(session) => return Ok(session),
-            Err(error) => event!(
-                name: "auth.session_cache.unreadable",
-                Level::WARN,
-                error.message = %error,
-                "a cached session did not parse; asking Kratos",
-            ),
-        },
-        Ok(None) => {}
-        Err(error) => event!(
-            name: "auth.session_cache.failure",
-            Level::WARN,
-            error.message = %error,
-            "the session cache is unreachable; asking Kratos",
-        ),
+    if let Some(session) = SESSIONS.get(redis, cookie).await {
+        return Ok(session);
     }
 
     let session = kratos.whoami(cookie).await?;
-    let serialized = serde_json::to_string(&session).expect("a session always serializes");
-    if let Err(error) = redis
-        .set_ex::<_, _, ()>(&key, serialized, SESSION_CACHE_TTL.as_secs())
-        .await
-    {
-        event!(
-            name: "auth.session_cache.failure",
-            Level::WARN,
-            error.message = %error,
-            "could not cache a session",
-        );
-    }
+    SESSIONS
+        .put(
+            redis,
+            cookie,
+            &session,
+            SESSION_CACHE_TTL,
+            &[person(session.identity.id)],
+        )
+        .await;
     Ok(session)
 }
 
@@ -104,15 +96,103 @@ pub async fn extend_if_due(
         );
         return;
     }
-    let mut redis = redis.clone();
-    if let Err(error) = redis.del::<_, ()>(cache_key(cookie)).await {
-        event!(
-            name: "auth.session_cache.failure",
-            Level::WARN,
-            error.message = %error,
-            "could not drop an extended session from the cache",
-        );
+    SESSIONS.remove(redis, cookie).await;
+}
+
+/// Signs the session `cookie` holds out, and answers the `Set-Cookie` headers Kratos sent to
+/// clear the cookie in the browser. A session still waiting on its second factor signs out too.
+///
+/// # Errors
+/// Returns [`KratosError::NoSession`] when the cookie holds no session, and what else
+/// [`Kratos`] does when it cannot sign it out.
+pub async fn sign_out(
+    redis: &ConnectionManager,
+    kratos: &Kratos,
+    cookie: &str,
+) -> Result<Vec<HeaderValue>, KratosError> {
+    // Whose session it is, asked while it still exists. One waiting on its second factor has no
+    // answer to give, and Kratos never answered for it, so nothing of it was cached. Any other
+    // failure is Kratos's, which the logout reports in turn.
+    let identity = resolve(redis, kratos, cookie)
+        .await
+        .ok()
+        .map(|session| session.identity.id);
+    let clearing = kratos.log_out(cookie).await?;
+    if let Some(identity) = identity {
+        forget(redis, identity).await;
     }
+    Ok(clearing)
+}
+
+/// Ends `session_id`, one of `identity`'s other sessions, at the request of the session `cookie`
+/// holds, which Kratos checks is the same person's.
+///
+/// # Errors
+/// Returns [`KratosError::NotFound`] for a session that is not theirs.
+pub async fn end_session(
+    redis: &ConnectionManager,
+    kratos: &Kratos,
+    cookie: &str,
+    identity: Uuid,
+    session_id: Uuid,
+) -> Result<(), KratosError> {
+    kratos.revoke_own_session(cookie, session_id).await?;
+    forget(redis, identity).await;
+    Ok(())
+}
+
+/// Ends every session of `identity` but the one `cookie` holds.
+///
+/// # Errors
+/// Returns what [`Kratos`] does when it cannot end them.
+pub async fn end_other_sessions(
+    redis: &ConnectionManager,
+    kratos: &Kratos,
+    cookie: &str,
+    identity: Uuid,
+) -> Result<(), KratosError> {
+    kratos.revoke_own_other_sessions(cookie).await?;
+    forget(redis, identity).await;
+    Ok(())
+}
+
+/// Signs `identity` out everywhere, for an admin.
+///
+/// # Errors
+/// Returns [`KratosError::Refused`] when Kratos cannot be reached.
+pub async fn end_all_sessions(
+    redis: &ConnectionManager,
+    kratos: &Kratos,
+    identity: Uuid,
+) -> Result<(), KratosError> {
+    kratos.revoke_sessions(identity).await?;
+    forget(redis, identity).await;
+    Ok(())
+}
+
+/// Deletes `identity` from Kratos, with its credentials and sessions.
+///
+/// # Errors
+/// Returns [`KratosError::Refused`] when Kratos cannot be reached.
+pub async fn delete_identity(
+    redis: &ConnectionManager,
+    kratos: &Kratos,
+    identity: Uuid,
+) -> Result<(), KratosError> {
+    kratos.delete_identity(identity).await?;
+    forget(redis, identity).await;
+    Ok(())
+}
+
+/// Forgets every session of `identity` that is cached, so each asks Kratos again on its next
+/// request. For what Kratos changed on its own, such as revoking the other sessions when a
+/// password changes; everything else here calls it once Kratos has answered.
+///
+/// It runs after Kratos's change, never before: forgetting first would let a request in between
+/// cache Kratos's answer from before the change. A failure is logged, not answered (see
+/// [`RevocableCache::revoke`]).
+pub async fn forget(redis: &ConnectionManager, identity: Uuid) {
+    SESSIONS.revoke(redis, &person(identity)).await;
 }
 
 /// Caches `session` for `cookie` as if Kratos had just answered for it, so router tests sign
@@ -120,32 +200,18 @@ pub async fn extend_if_due(
 /// outlives its session.
 #[cfg(test)]
 pub async fn remember(redis: &ConnectionManager, cookie: &str, session: &Session) {
-    let serialized = serde_json::to_string(session).expect("a session always serializes");
-    let mut redis = redis.clone();
-    redis
-        .set_ex::<_, _, ()>(cache_key(cookie), serialized, 600)
-        .await
-        .expect("Redis caches the session");
+    SESSIONS
+        .put(
+            redis,
+            cookie,
+            session,
+            Duration::from_mins(10),
+            &[person(session.identity.id)],
+        )
+        .await;
 }
 
-/// The cache key for a cookie. Hashed, so Redis never holds a usable session token.
-fn cache_key(cookie: &str) -> String {
-    format!("{CACHE_PREFIX}{}", hex::encode(Sha256::digest(cookie)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cache_keys_never_contain_the_cookie() {
-        let key = cache_key("ory_st_secret-token-value");
-        assert!(key.starts_with(CACHE_PREFIX));
-        assert!(!key.contains("secret-token-value"));
-        assert_eq!(
-            key,
-            cache_key("ory_st_secret-token-value"),
-            "stable per cookie"
-        );
-    }
+/// What a cached session is filed under: the Kratos identity it signs in.
+fn person(identity: Uuid) -> Owner {
+    Owner::new("identity", &identity)
 }

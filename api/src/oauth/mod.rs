@@ -9,10 +9,12 @@
 //! under `/api/v1/oauth` as whoever Kratos says is signed in. Only an approved, active person can
 //! answer, so OAuth reaches no one admins have not let in. See `docs/mcp.md`.
 //!
-//! [`hydra`] is the admin API client. The scopes Elysium grants are below; the MCP server checks
-//! them on every call (`crate::mcp`).
+//! [`hydra`] is the admin API client, and [`tokens`] caches what it says about access tokens and
+//! revokes grants. The scopes Elysium grants are below; the MCP server checks them on every call
+//! (`crate::mcp`).
 
 pub mod hydra;
+pub mod tokens;
 
 use url::Url;
 

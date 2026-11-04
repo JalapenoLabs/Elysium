@@ -202,7 +202,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
 | GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
+| POST   | `/api/v1/auth/sign-out`               | `204`, clearing the session cookie; needs no session |
 | GET    | `/api/v1/me`                          | `200` `{ user, hasSecondFactor, mfaEnrollmentRequired }`; pending people too |
+| DELETE | `/api/v1/me/sessions`                 | `204`; ends every other session of yours; pending people too |
+| DELETE | `/api/v1/me/sessions/{id}`            | `204`; ends one other session of yours, `400` for the one asking |
 | GET    | `/api/v1/users`                       | `200` `{ users: User[] }`, by name, machines included |
 | PATCH  | `/api/v1/users/{id}`                  | `200` `{ user }`; admins: `role`, `disabled`         |
 | DELETE | `/api/v1/users/{id}`                  | `204`; admins reject a pending sign-up               |
@@ -233,8 +236,9 @@ Each route lives in its own file under `api/src/routes/`, and the directory mirr
 
 ## Authentication
 
-Every route under `/api/v1` needs a Kratos session cookie, except `GET /api/v1/auth/status`. Every route but that and
-`/me` needs an active, approved person; admin routes need an admin. Unsafe methods must carry Elysium's own `Origin`.
+Every route under `/api/v1` needs a Kratos session cookie, except `GET /api/v1/auth/status` and
+`POST /api/v1/auth/sign-out`. Every route but those and `/me` needs an active, approved person; admin routes need an
+admin. Unsafe methods must carry Elysium's own `Origin`.
 Refusals carry a stable `code` beside the `message`:
 
 | Status | `code`                     | Meaning                                                        |
@@ -248,9 +252,10 @@ Refusals carry a stable `code` beside the `message`:
 | `403`  | `members_only`             | A guest asked for the knowledge base, which only admins and members reach |
 | `403`  | `cross_origin`             | An unsafe request from another origin                          |
 
-`/internal/kratos/registration` and `/internal/kratos/courier` answer Kratos alone, on the compose network, with the
-hook key it carries. `/internal/updater/instruction` and `/internal/updater/outcome` answer the deployment's updater
-alone, with a key derived the same way (`docs/infrastructure.md`). `/internal/backups` and `/internal/backups/{id}`
+`/internal/kratos/registration`, `/internal/kratos/registered`, `/internal/kratos/settings`, and
+`/internal/kratos/courier` answer Kratos alone, on the compose network, with the hook key it carries.
+`/internal/updater/instruction` and `/internal/updater/outcome` answer the deployment's updater alone, with a key
+derived the same way (`docs/infrastructure.md`). `/internal/backups` and `/internal/backups/{id}`
 take the same key and let tooling on the host back up before a deploy (`docs/infrastructure.md`, Backups). nginx
 never forwards any of them. See `docs/auth.md`.
 

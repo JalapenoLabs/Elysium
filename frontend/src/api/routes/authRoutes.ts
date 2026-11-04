@@ -37,6 +37,25 @@ export function getMe() {
     .json<Me>()
 }
 
+// Ends the session this browser holds and clears its cookie. Asked of the API rather than
+// Kratos, so the API forgets the session at once. See docs/auth.md.
+export function signOutSession() {
+  return apiClient
+    .post('v1/auth/sign-out')
+}
+
+// Ends one of this person's other sessions, as Kratos lists them.
+export function endSession(sessionId: string) {
+  return apiClient
+    .delete(`v1/me/sessions/${sessionId}`)
+}
+
+// Ends every session of this person but this browser's.
+export function endOtherSessions() {
+  return apiClient
+    .delete('v1/me/sessions')
+}
+
 // Answers 409 when Kratos holds no authenticator app to name.
 export function setAuthenticatorNickname(nickname: string) {
   return apiClient

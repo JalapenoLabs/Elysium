@@ -159,10 +159,41 @@ selfservice:
       # Changing a password, passkey, or authenticator needs a sign-in this recent.
       privileged_session_max_age: 15m
       required_aal: highest_available
+      # Every change tells Elysium, which forgets the sessions it cached for the person: a new
+      # password signs the other sessions out, a new authenticator changes what a session must
+      # have done, and a new name is in what was cached. Kratos runs the global hooks only for
+      # methods with none of their own, so the password method names the webhook as well, after
+      # the revocation it reports. Without `parse` or `ignore`, Kratos calls it once the change
+      # is stored and waits for the answer.
       after:
+        hooks:
+          - hook: web_hook
+            config:
+              id: elysium-settings
+              url: http://api:8080/internal/kratos/settings
+              method: POST
+              body: file:///etc/elysium-kratos/settings.jsonnet
+              auth:
+                type: api_key
+                config:
+                  name: X-Elysium-Hook-Key
+                  value: @HOOK_KEY@
+                  in: header
         password:
           hooks:
             - hook: revoke_active_sessions
+            - hook: web_hook
+              config:
+                id: elysium-settings-password
+                url: http://api:8080/internal/kratos/settings
+                method: POST
+                body: file:///etc/elysium-kratos/settings.jsonnet
+                auth:
+                  type: api_key
+                  config:
+                    name: X-Elysium-Hook-Key
+                    value: @HOOK_KEY@
+                    in: header
 
 session:
   # 72 hours from the last use. Kratos only extends when asked; the API asks once a

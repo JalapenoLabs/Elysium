@@ -19,10 +19,11 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{UserResponse, identity_of};
-use crate::auth::AdminUser;
 use crate::auth::kratos::IdentityState;
+use crate::auth::{AdminUser, sessions};
 use crate::errors::ApiError;
 use crate::models::user::{self, PersonRole};
+use crate::oauth::tokens;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -82,9 +83,11 @@ pub async fn handle(
 
     // An inactive identity's sessions already fail, and the disabled row refuses every request,
     // the MCP server's included, so this is thoroughness rather than the lock: a failure is
-    // logged, not answered.
+    // logged, not answered. It still matters: without it, the cached sessions would work again
+    // if the person were enabled before they expired.
     if body.disabled == Some(true) {
-        if let Err(error) = kratos.revoke_sessions(identity_of(&changed)?).await {
+        let identity = identity_of(&changed)?;
+        if let Err(error) = sessions::end_all_sessions(&state.redis, kratos, identity).await {
             event!(
                 name: "auth.sessions.revoke_failure",
                 Level::WARN,
@@ -92,7 +95,9 @@ pub async fn handle(
                 "disabled a person but could not sign their sessions out",
             );
         }
-        if let Err(error) = state.auth.hydra.revoke_consent(changed.id, None).await {
+        if let Err(error) =
+            tokens::revoke_all_grants(&state.redis, &state.auth.hydra, changed.id).await
+        {
             event!(
                 name: "oauth.grants.revoke_failure",
                 Level::WARN,

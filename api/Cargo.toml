@@ -32,7 +32,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 instant-xml = "0.7.6"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 mimalloc = "0.1.52"
-redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 # Redaction of problem reports: deterministic patterns, compiled once. See `crate::issue_reports`.
 regex = "1.13.1"
 # rustls on ring with webpki roots, as the rest of the TLS stack uses.

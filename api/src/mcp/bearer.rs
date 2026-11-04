@@ -5,38 +5,29 @@
 //! A token is good when Hydra says it is active, it is an access token, its audience includes
 //! the MCP server's own URI (so a token issued for anything else is refused), it grants at least
 //! `workspace:read`, and the person it was issued to is still an active, approved user. Each
-//! check runs on every request; only Hydra's answer is cached, for [`INTROSPECTION_CACHE_TTL`].
+//! check runs on every request; only Hydra's answer is cached, until it expires or a revocation
+//! drops it (`crate::oauth::tokens`).
 //!
 //! A refusal follows the MCP authorization spec: `401` with a `WWW-Authenticate` challenge that
 //! names the protected resource metadata, so a client without a token discovers where to get
 //! one, and `403 insufficient_scope` for a token that lacks a scope.
-
-use std::time::Duration;
 
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
-use redis::AsyncCommands;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::models::user::{self, User};
 use crate::oauth::hydra::Introspection;
-use crate::oauth::{SCOPE_READ, mcp_resource, mcp_resource_metadata_url};
+use crate::oauth::{SCOPE_READ, mcp_resource, mcp_resource_metadata_url, tokens};
 use crate::state::AppState;
-
-/// How long Hydra's answer about a token is trusted. Also the longest a revoked grant keeps
-/// working.
-const INTROSPECTION_CACHE_TTL: Duration = Duration::from_secs(20);
 
 /// How stale `users.last_seen_at` may get, as for sessions in the browser.
 const LAST_SEEN_GRANULARITY: chrono::Duration = chrono::Duration::minutes(5);
-
-const CACHE_PREFIX: &str = "mcp:token:";
 
 /// Who an MCP request is for, and what their token grants. Inserted for the MCP server, which
 /// reaches it through the request's extensions.
@@ -80,7 +71,18 @@ async fn caller(state: &AppState, headers: &HeaderMap) -> Result<McpCaller, Refu
         return Err(Refusal::Missing);
     };
 
-    let introspection = introspect(state, token).await.ok_or(Refusal::Invalid)?;
+    // A token Hydra cannot vouch for is no token: Hydra unreachable refuses the request.
+    let introspection = tokens::introspect(&state.redis, &state.auth.hydra, token)
+        .await
+        .map_err(|error| {
+            event!(
+                name: "mcp.token.introspection_failure",
+                Level::WARN,
+                error.message = %error,
+                "could not introspect an MCP token",
+            );
+            Refusal::Invalid
+        })?;
     let audience = mcp_resource(&state.auth.public_url);
     let scopes: Vec<String> = introspection
         .scope
@@ -180,44 +182,6 @@ fn check(
         .and_then(|subject| Uuid::parse_str(subject).ok())
         .ok_or(Refusal::Invalid)?;
     Ok(Checked { user_id })
-}
-
-/// Hydra's answer about `token`, from the cache or from Hydra. `None` when Hydra cannot be
-/// reached, which refuses the request: a token Hydra cannot vouch for is no token.
-async fn introspect(state: &AppState, token: &str) -> Option<Introspection> {
-    let key = format!("{CACHE_PREFIX}{}", hex::encode(Sha256::digest(token)));
-    let mut redis = state.redis.clone();
-    if let Ok(Some(cached)) = redis.get::<_, Option<String>>(&key).await
-        && let Ok(introspection) = serde_json::from_str(&cached)
-    {
-        return Some(introspection);
-    }
-
-    let introspection = match state.auth.hydra.introspect(token).await {
-        Ok(introspection) => introspection,
-        Err(error) => {
-            event!(
-                name: "mcp.token.introspection_failure",
-                Level::WARN,
-                error.message = %error,
-                "could not introspect an MCP token",
-            );
-            return None;
-        }
-    };
-    let serialized = serde_json::to_string(&introspection).expect("an introspection serializes");
-    if let Err(error) = redis
-        .set_ex::<_, _, ()>(&key, serialized, INTROSPECTION_CACHE_TTL.as_secs())
-        .await
-    {
-        event!(
-            name: "mcp.token.cache_failure",
-            Level::WARN,
-            error.message = %error,
-            "could not cache a token introspection",
-        );
-    }
-    Some(introspection)
 }
 
 /// The token in `Authorization: Bearer <token>`. The scheme is case-insensitive (RFC 6750).

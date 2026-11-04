@@ -1,8 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `POST /api/v1/users/{id}/revoke-sessions`: sign a person out everywhere, and disconnect every
-//! MCP client they connected. Pages and clients they have open stop working within the session
-//! and token caches' lifetimes (`crate::auth::sessions`, `crate::mcp::bearer`).
+//! MCP client they connected. Pages and clients they have open are refused from their next
+//! request on (`crate::auth::sessions`, `crate::oauth::tokens`).
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -11,9 +11,10 @@ use axum::http::StatusCode;
 use uuid::Uuid;
 
 use super::identity_of;
-use crate::auth::AdminUser;
+use crate::auth::{AdminUser, sessions};
 use crate::errors::ApiError;
 use crate::models::user::{self, UserEventKind};
+use crate::oauth::tokens;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -29,16 +30,12 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let person = user::find(&mut connection, id).await?;
-    state
-        .auth
-        .kratos
-        .revoke_sessions(identity_of(&person)?)
-        .await?;
+    sessions::end_all_sessions(&state.redis, &state.auth.kratos, identity_of(&person)?).await?;
     // Everywhere includes the MCP clients they connected. Signing out is the whole of this
     // action, so a failure of either fails the request and records nothing, for the admin to
     // retry. Disabling (`update_user`) only logs one, since the disabled row already refuses
     // everything.
-    state.auth.hydra.revoke_consent(person.id, None).await?;
+    tokens::revoke_all_grants(&state.redis, &state.auth.hydra, person.id).await?;
     user::record_account_action(
         &mut connection,
         id,

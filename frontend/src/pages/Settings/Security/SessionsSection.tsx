@@ -12,12 +12,12 @@ import { LuLogOut, LuMonitorSmartphone } from 'react-icons/lu'
 
 // Misc
 import { formatDateTime } from '../../../format/dates'
-import { kratos } from '../../../api/kratos'
+import { endOtherSessions, endSession } from '../../../api/routes/authRoutes'
 import { useSignedInSessions } from './useSignedInSessions'
 import { toast } from '../../../toast/toast'
 
-// Where this person is signed in, on the Sessions tab. Signing a device out ends its session;
-// the workspace notices within half a minute.
+// Where this person is signed in, on the Sessions tab, listed by Kratos. Signing a device out
+// goes through the API, which ends its session and refuses it from its next request on.
 export function SessionsSection() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ isEnding, setIsEnding ] = useState(false)
@@ -26,7 +26,7 @@ export function SessionsSection() {
   async function endOthers() {
     setIsEnding(true)
     try {
-      await kratos.disableMyOtherSessions()
+      await endOtherSessions()
       toast.success(t('security.sessions.othersEnded'))
       await signedIn.reload()
     }
@@ -39,7 +39,7 @@ export function SessionsSection() {
 
   async function end(session: Session) {
     try {
-      await kratos.disableMySession({ id: session.id })
+      await endSession(session.id)
       toast.success(t('security.sessions.ended'))
       await signedIn.reload()
     }

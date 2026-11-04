@@ -101,6 +101,9 @@ Everything else follows these rules:
 - Kratos (`kratos/`) owns identities: passwords, passkeys, authenticator apps, lookup codes, sessions, and recovery.
   Elysium never re-implements any of it. The frontend renders Kratos's flows through its JSON API at
   `/api/identity/`; the API calls Kratos's admin API alone. See `docs/auth.md`.
+- A session or MCP token that ends is refused on its next request, though the API caches what Kratos and Hydra say:
+  sessions end only through the API (`crate::auth::sessions`, `crate::oauth::tokens`), which forgets them in the same
+  step, and nginx keeps browsers from ending one through Kratos directly.
 - An identity holds an email and a first and last name. A change to what identities hold is a new Kratos schema
   registered beside the old one, never an edit of it, and the API moves each identity onto it when it starts
   (`api/src/auth/identity_schemas.rs`). See `docs/auth.md`, Identity schemas.

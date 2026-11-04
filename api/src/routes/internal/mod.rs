@@ -11,6 +11,7 @@ mod backups;
 mod courier;
 mod registered;
 mod registration;
+mod settings;
 mod updater;
 
 use axum::Router;
@@ -31,6 +32,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/kratos/registration", post(registration::handle))
         .route("/kratos/registered", post(registered::handle))
+        .route("/kratos/settings", post(settings::handle))
         .route("/kratos/courier", post(courier::handle))
         .route_layer(from_fn_with_state(state.clone(), require_hook_key))
         .nest("/updater", updater::router(state))

@@ -24,10 +24,12 @@ pub mod llms;
 pub mod mail;
 mod me;
 pub mod meetings;
+mod my_sessions;
 pub mod oauth;
 pub mod password_vault;
 pub mod projects;
 mod runs;
+mod sign_out;
 pub mod storage_locations;
 pub mod studio_items;
 pub mod timeline;
@@ -37,13 +39,14 @@ pub mod workspace_settings;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
-use axum::routing::{get, put};
+use axum::routing::{delete, get, post, put};
 
 use crate::auth::middleware::{authenticate, require_access, require_same_origin};
 use crate::state::AppState;
 
-/// Every route but `/auth/status` needs a session; every route but that and `/me` needs an
-/// active person with whatever the workspace requires of them. See `crate::auth`.
+/// Every route but `/auth/status` and `/auth/sign-out` needs a session; every route but those
+/// and `/me` needs an active person with whatever the workspace requires of them. See
+/// `crate::auth`.
 pub fn router(state: &AppState) -> Router<AppState> {
     let workspace =
         workspace_router().route_layer(from_fn_with_state(state.clone(), require_access));
@@ -53,13 +56,17 @@ pub fn router(state: &AppState) -> Router<AppState> {
             "/me/authenticator-nickname",
             put(authenticator_nickname::set).delete(authenticator_nickname::clear),
         )
+        .route("/me/sessions", delete(my_sessions::end_others))
+        .route("/me/sessions/{id}", delete(my_sessions::end_one))
         .merge(workspace)
-        .route_layer(from_fn_with_state(state.clone(), authenticate))
-        .route_layer(from_fn_with_state(state.clone(), require_same_origin));
+        .route_layer(from_fn_with_state(state.clone(), authenticate));
 
     Router::new()
-        .route("/auth/status", get(auth_status::handle))
+        // Signing out needs no session of its own: one waiting on its second factor signs out too.
+        .route("/auth/sign-out", post(sign_out::handle))
         .merge(signed_in)
+        .route_layer(from_fn_with_state(state.clone(), require_same_origin))
+        .route("/auth/status", get(auth_status::handle))
 }
 
 fn workspace_router() -> Router<AppState> {

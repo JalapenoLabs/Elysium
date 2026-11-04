@@ -12,7 +12,7 @@ use diesel_async::AsyncConnection;
 use uuid::Uuid;
 
 use super::identity_of;
-use crate::auth::AdminUser;
+use crate::auth::{AdminUser, sessions};
 use crate::errors::ApiError;
 use crate::models::user;
 use crate::realtime::ServerEvent;
@@ -32,11 +32,12 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     // Kratos deletes the identity inside the transaction: if it refuses, the account stays,
-    // and the admin can reject it again.
+    // and the admin can reject it again. Its cached sessions go with it, or one could reach the
+    // API before it expired, which would create the account again (`user::provision`).
     connection
         .transaction(async |connection| {
             let rejected = user::reject(connection, id, admin.id()).await?;
-            kratos.delete_identity(identity_of(&rejected)?).await?;
+            sessions::delete_identity(&state.redis, kratos, identity_of(&rejected)?).await?;
             Ok::<_, ApiError>(())
         })
         .await?;

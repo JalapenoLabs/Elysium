@@ -189,6 +189,8 @@ async fn principal(
     Ok(Principal {
         user: person,
         assurance: session.authenticator_assurance_level,
+        session_id: session.id,
+        identity_id: session.identity.id,
     })
 }
 
@@ -222,7 +224,7 @@ async fn check_access(state: &AppState, principal: &Principal) -> Result<(), Api
 }
 
 /// The value of the session cookie, if the request carries one.
-fn session_cookie(headers: &HeaderMap) -> Option<&str> {
+pub fn session_cookie(headers: &HeaderMap) -> Option<&str> {
     headers
         .get_all(header::COOKIE)
         .iter()

@@ -18,8 +18,9 @@ Elysium never stores or sees a password. Kratos has no UI of its own here: the R
 through Kratos's JSON API.
 
 - **Reaching it.** Browsers reach Kratos's public API on Elysium's own origin at `/api/identity/`, which nginx
-  proxies with the prefix stripped. The admin API (port 4434) is reachable on the compose network alone, and only
-  the API calls it (`api/src/auth/kratos.rs`).
+  proxies with the prefix stripped, for everything but ending a session, which they ask the API for (Ending a
+  session, below). The admin API (port 4434) is reachable on the compose network alone, and only the API calls it
+  (`api/src/auth/kratos.rs`).
 - **Configuration.** `kratos/kratos.yml` is a template. `kratos/entrypoint.sh` fills it from two variables the stack
   already has, `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, so the environment file holds nothing for Kratos.
   - Kratos's cookie, cipher, and default secrets, and the key its webhooks carry, are each the hex SHA-256 of
@@ -146,13 +147,48 @@ app holds Elysium's codes. Kratos holds one app per identity and has nowhere for
 - **Cookie.** `elysium_session` is first-party and `HttpOnly`, with `SameSite=Lax`, and set without a `Domain`
   attribute.
 - **Caching.** The API asks Kratos whose each session is (`whoami`) and caches the answer in Redis for 30 seconds,
-  under a hash of the cookie (`api/src/auth/sessions.rs`). A session Kratos revokes keeps working for at most those
-  30 seconds.
+  under a hash of the cookie, filed under the person's Kratos identity (`api/src/auth/sessions.rs`). A session that
+  ends is forgotten at once (below). With Redis unreachable, every request asks Kratos, and nothing is refused for it.
 - **Disabling is immediate.** Each request reads the person's `users` row, so a person disabled by an admin is
   refused on their next request.
 - **Password changes.** Changing a password signs out every other session.
 - **Recent sign-in.** Changing a password, passkey, or authenticator requires having signed in within the last 15
   minutes. Kratos asks for a fresh sign-in otherwise.
+
+### Ending a session
+
+A session that ends is refused on its very next request. Kratos tells nothing about a sign-out or a session ended
+through its own routes: its logout flow and session routes take no webhooks. So the API ends sessions itself, and
+every way one ends forgets the person's cached sessions in the same step:
+
+| What ends it                              | How                                                                  |
+|-------------------------------------------|----------------------------------------------------------------------|
+| Signing out                               | `POST /api/v1/auth/sign-out` runs Kratos's logout flow with the browser's cookie and passes Kratos's cleared cookie back |
+| Ending one of one's other sessions        | `DELETE /api/v1/me/sessions/{id}`, Kratos's own route asked with the person's cookie, so Kratos checks the session is theirs |
+| Ending all of one's other sessions        | `DELETE /api/v1/me/sessions`, the same way                           |
+| An admin signing someone out, resetting their authenticator, or disabling them | Kratos's admin API |
+| An admin rejecting a sign-up              | Deleting the identity, which would otherwise come back as a new pending account from a cached session |
+| A settings change, such as a new password | Kratos's settings webhook, `POST /internal/kratos/settings`         |
+
+- **One way in.** nginx answers browsers Kratos's logout flow (`/api/identity/self-service/logout`) with a `404`, and
+  its session routes (`/api/identity/sessions`) for reading alone, so these are the only ways a session ends. Sign-out
+  needs no session of its own, so a session still waiting on its second factor signs out too. Ending one's own
+  sessions sits beside `/me`, outside the workspace's access rule.
+- **The settings webhook.** A new password signs the other sessions out (`revoke_active_sessions`), a new
+  authenticator changes what a session must have done, and a new name is in the cached answer. Kratos calls the
+  webhook once any settings change is stored and waits for it. Its global hooks run only for methods without hooks of
+  their own, so the password method names the webhook too, after the revocation (`kratos/kratos.yml`).
+- **Kratos first.** The API tells Kratos, then forgets every cached session of the person, so their other sessions
+  ask Kratos once more. Forgetting first would let a request in between cache Kratos's answer from before.
+- **The race.** A request that asked Kratos just before the session ended could cache the answer just after the
+  person's sessions were forgotten. So forgetting also marks the person for a minute, longer than any call to Kratos
+  may take, and nothing is cached for them while the mark stands; their requests still work, each asking Kratos. The
+  check and the write are one Lua script (`api/src/auth/revocable_cache.rs`).
+- **Redis unreachable.** Forgetting that fails is logged as an error (`auth.cache.revoke_failure`). The session has
+  still ended in Kratos, and while Redis is unreachable nothing is read from it; only answers a Redis that comes back
+  still holds could let the session through, until they expire.
+- **What the API never hears.** A change made in Kratos directly, such as an operator using its admin API, reaches
+  requests once the cached answer expires.
 
 ## Requests
 

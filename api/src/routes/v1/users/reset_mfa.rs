@@ -12,10 +12,11 @@ use axum::http::StatusCode;
 use uuid::Uuid;
 
 use super::identity_of;
-use crate::auth::AdminUser;
+use crate::auth::{AdminUser, sessions};
 use crate::errors::ApiError;
 use crate::models::authenticator_nickname;
 use crate::models::user::{self, UserEventKind};
+use crate::oauth::tokens;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -37,9 +38,9 @@ pub async fn handle(
     kratos.delete_credentials(identity, "totp").await?;
     authenticator_nickname::clear(&mut connection, person.id).await?;
     kratos.delete_credentials(identity, "lookup_secret").await?;
-    kratos.revoke_sessions(identity).await?;
+    sessions::end_all_sessions(&state.redis, kratos, identity).await?;
     // Part of the reset itself, so a failure fails the request, as in `revoke_sessions`.
-    state.auth.hydra.revoke_consent(person.id, None).await?;
+    tokens::revoke_all_grants(&state.redis, &state.auth.hydra, person.id).await?;
     user::record_account_action(&mut connection, id, admin.id(), UserEventKind::MfaReset).await?;
 
     Ok(StatusCode::NO_CONTENT)

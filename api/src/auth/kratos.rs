@@ -2,14 +2,19 @@
 
 //! Ory Kratos's public and admin APIs, reached through one [`Kratos`] handle.
 //!
-//! The public API answers whose session a cookie is; the admin API manages identities and
-//! sessions for admins. Both are on the compose network, and browsers never reach the admin
-//! API. Kratos is the source of truth for everything it stores: this client only asks and
-//! tells, and caches nothing (`super::sessions` caches what it answers).
+//! The public API answers whose session a cookie is, and ends a person's own sessions, asked
+//! with their cookie as their browser would ask; the admin API manages identities and sessions
+//! for admins. Both are on the compose network, and browsers never reach the admin API. Kratos is
+//! the source of truth for everything it stores: this client only asks and tells, and caches
+//! nothing (`super::sessions` caches what it answers).
+//!
+//! Every call that ends a session is visible to `crate::auth` alone, so the rest of the API ends
+//! one only through `super::sessions`, which forgets what it cached in the same step.
 
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use reqwest::header::{HeaderValue, SET_COOKIE};
 use reqwest::{Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -18,7 +23,8 @@ use url::Url;
 use uuid::Uuid;
 
 /// How long one call may take. Every call is a single row lookup or write on Kratos's side.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// `super::revocable_cache::REVOCATION_GRACE` outlasts it.
+pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How many identities one listing page holds. Kratos's admin API pages its listings; a
 /// workspace is a few dozen people, so this is one page in practice, well under its limit.
@@ -177,16 +183,8 @@ impl Kratos {
     /// [`KratosError::SecondFactorRequired`] for one waiting on a second factor, and
     /// [`KratosError::Refused`] when Kratos cannot be reached.
     pub async fn whoami(&self, cookie: &str) -> Result<Session, KratosError> {
-        let url = join(&self.public, "sessions/whoami");
         let response = self
-            .http
-            .get(url)
-            .header(
-                reqwest::header::COOKIE,
-                format!("{SESSION_COOKIE}={cookie}"),
-            )
-            .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(REQUEST_TIMEOUT)
+            .as_person(Method::GET, "sessions/whoami", cookie)
             .send()
             .await
             .map_err(|error| KratosError::Refused(error.without_url().to_string()))?;
@@ -203,6 +201,71 @@ impl Kratos {
             }
             status => Err(KratosError::Refused(format!("whoami answered {status}"))),
         }
+    }
+
+    /// Signs the session `cookie` holds out through Kratos's logout flow, as the browser would,
+    /// and answers the `Set-Cookie` headers that clear the cookie, for the browser. A session
+    /// still waiting on its second factor signs out too.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::NoSession`] when the cookie holds no session, and
+    /// [`KratosError::Refused`] when Kratos cannot be reached or answers otherwise.
+    pub(super) async fn log_out(&self, cookie: &str) -> Result<Vec<HeaderValue>, KratosError> {
+        /// The part of a logout flow the API needs: the token that ends the session.
+        #[derive(Deserialize)]
+        struct LogoutFlow {
+            logout_token: String,
+        }
+
+        let flow: LogoutFlow =
+            answer(self.as_person(Method::GET, "self-service/logout/browser", cookie)).await?;
+        let response = self
+            .as_person(Method::GET, "self-service/logout", cookie)
+            .query(&[("token", flow.logout_token)])
+            .send()
+            .await
+            .map_err(|error| KratosError::Refused(error.without_url().to_string()))?;
+        match response.status() {
+            StatusCode::NO_CONTENT => Ok(response
+                .headers()
+                .get_all(SET_COOKIE)
+                .iter()
+                .cloned()
+                .collect()),
+            StatusCode::UNAUTHORIZED => Err(KratosError::NoSession),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(KratosError::Refused(format!(
+                    "logout answered {status}: {body}"
+                )))
+            }
+        }
+    }
+
+    /// Ends `id`, one of the person's other sessions, asked with the `cookie` of the one they
+    /// are using. Kratos checks the session is theirs, and refuses to end the one asking.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::NotFound`] for a session that is not theirs, and
+    /// [`KratosError::NoSession`] when the cookie holds no session.
+    pub(super) async fn revoke_own_session(
+        &self,
+        cookie: &str,
+        id: Uuid,
+    ) -> Result<(), KratosError> {
+        answer::<Value>(self.as_person(Method::DELETE, &format!("sessions/{id}"), cookie))
+            .await
+            .map(drop)
+    }
+
+    /// Ends every session of the person but the one `cookie` holds.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::NoSession`] when the cookie holds no session.
+    pub(super) async fn revoke_own_other_sessions(&self, cookie: &str) -> Result<(), KratosError> {
+        answer::<Value>(self.as_person(Method::DELETE, "sessions", cookie))
+            .await
+            .map(drop)
     }
 
     /// Pushes a session's expiry out to a full lifespan from now. Kratos ignores a call made
@@ -303,7 +366,7 @@ impl Kratos {
     /// # Errors
     /// Returns [`KratosError::Refused`] when Kratos cannot be reached. An identity with no
     /// sessions is not an error.
-    pub async fn revoke_sessions(&self, id: Uuid) -> Result<(), KratosError> {
+    pub(super) async fn revoke_sessions(&self, id: Uuid) -> Result<(), KratosError> {
         let path = format!("admin/identities/{id}/sessions");
         match self.admin_call::<Value>(Method::DELETE, &path, None).await {
             Ok(_) | Err(KratosError::NotFound) => Ok(()),
@@ -329,7 +392,7 @@ impl Kratos {
     /// # Errors
     /// Returns [`KratosError::Refused`] when Kratos cannot be reached. An identity that is
     /// already gone is not an error.
-    pub async fn delete_identity(&self, id: Uuid) -> Result<(), KratosError> {
+    pub(super) async fn delete_identity(&self, id: Uuid) -> Result<(), KratosError> {
         match self
             .admin_call::<Value>(Method::DELETE, &format!("admin/identities/{id}"), None)
             .await
@@ -362,38 +425,52 @@ impl Kratos {
         path: &str,
         body: Option<Value>,
     ) -> Result<Response, KratosError> {
-        self.send(method, join(&self.admin, path), body).await
-    }
-
-    async fn send<Response: DeserializeOwned>(
-        &self,
-        method: Method,
-        url: Url,
-        body: Option<Value>,
-    ) -> Result<Response, KratosError> {
-        let mut request = self
-            .http
-            .request(method, url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .timeout(REQUEST_TIMEOUT);
+        let mut request = self.request(method, join(&self.admin, path));
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| KratosError::Refused(error.without_url().to_string()))?;
+        answer(request).await
+    }
 
-        match response.status() {
-            StatusCode::NOT_FOUND => Err(KratosError::NotFound),
-            // Deletes answer with no body; reading it as JSON `null` keeps one code path.
-            StatusCode::NO_CONTENT => serde_json::from_value(Value::Null)
-                .map_err(|error| KratosError::Refused(format!("unexpected empty answer: {error}"))),
-            status if status.is_success() => read(response).await,
-            status => {
-                let body = response.text().await.unwrap_or_default();
-                Err(KratosError::Refused(format!("{status}: {body}")))
-            }
+    /// A request to the public API carrying the person's session cookie, as their browser
+    /// sends it.
+    fn as_person(&self, method: Method, path: &str, cookie: &str) -> reqwest::RequestBuilder {
+        self.request(method, join(&self.public, path)).header(
+            reqwest::header::COOKIE,
+            format!("{SESSION_COOKIE}={cookie}"),
+        )
+    }
+
+    /// A request asking for JSON, which Kratos's self-service routes then answer with, rather
+    /// than redirecting as they would a browser.
+    fn request(&self, method: Method, url: Url) -> reqwest::RequestBuilder {
+        self.http
+            .request(method, url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .timeout(REQUEST_TIMEOUT)
+    }
+}
+
+/// Sends `request` and reads Kratos's answer.
+async fn answer<Response: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+) -> Result<Response, KratosError> {
+    let response = request
+        .send()
+        .await
+        .map_err(|error| KratosError::Refused(error.without_url().to_string()))?;
+
+    match response.status() {
+        StatusCode::NOT_FOUND => Err(KratosError::NotFound),
+        // Only the public API answers it: the cookie holds no session.
+        StatusCode::UNAUTHORIZED => Err(KratosError::NoSession),
+        // Deletes answer with no body; reading it as JSON `null` keeps one code path.
+        StatusCode::NO_CONTENT => serde_json::from_value(Value::Null)
+            .map_err(|error| KratosError::Refused(format!("unexpected empty answer: {error}"))),
+        status if status.is_success() => read(response).await,
+        status => {
+            let body = response.text().await.unwrap_or_default();
+            Err(KratosError::Refused(format!("{status}: {body}")))
         }
     }
 }

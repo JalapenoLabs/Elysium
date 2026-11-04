@@ -174,11 +174,16 @@ impl From<crate::models::user::AccountError> for ApiError {
 
 impl From<crate::auth::kratos::KratosError> for ApiError {
     fn from(error: crate::auth::kratos::KratosError) -> Self {
+        use crate::auth::AccessRefusal;
         use crate::auth::kratos::KratosError;
 
         match error {
             KratosError::NotFound => Self::NotFound,
-            other => Self::BadGateway(other.to_string()),
+            KratosError::NoSession => Self::AccessRefused(AccessRefusal::Unauthenticated),
+            KratosError::SecondFactorRequired => {
+                Self::AccessRefused(AccessRefusal::SecondFactorRequired)
+            }
+            refused @ KratosError::Refused(_) => Self::BadGateway(refused.to_string()),
         }
     }
 }
