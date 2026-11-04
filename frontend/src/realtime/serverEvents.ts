@@ -58,6 +58,9 @@ export type ServerEvent =
   // A workspace learning category was added, edited, reordered, or removed. Nothing more, for
   // the same reason; members load the list again.
   | { type: 'learningCategories.changed' }
+  // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
+  // same reason; members load it again.
+  | { type: 'companyDoc.changed' }
   // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
   | {
     type: 'connectorCheckRun.updated'

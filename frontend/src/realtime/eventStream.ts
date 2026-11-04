@@ -60,6 +60,7 @@ import { HTTPError } from 'ky'
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
+import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
@@ -196,6 +197,14 @@ const handlers: Handlers = {
       return
     }
     void mutate(LEARNING_CATEGORIES_KEY)
+  },
+  // The doc is one record, loaded again whole with its history, by the company's members only.
+  'companyDoc.changed': () => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    void mutate(COMPANY_DOC_KEY)
+    void mutate(COMPANY_DOC_HISTORY_KEY)
   },
   'connector.deleted': (event) => {
     store.dispatch(connectorDeleted(event.data.id))

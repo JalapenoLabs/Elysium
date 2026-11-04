@@ -2,14 +2,17 @@
   "title": "Runs",
   "names": {
     "workflows": {
-      "meeting": "Meeting"
+      "meeting": "Meeting",
+      "company_doc_review": "Company doc review"
     },
     "steps": {
       "fetch_meeting": "Fetch transcript and recording",
-      "transcribe_meeting": "Transcribe the recording"
+      "transcribe_meeting": "Transcribe the recording",
+      "review_company_doc": "Read what was ingested and propose changes"
     },
     "sources": {
-      "meeting": "Meeting"
+      "meeting": "Meeting",
+      "company_doc": "Company doc"
     }
   },
   "runStates": {

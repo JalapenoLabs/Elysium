@@ -78,6 +78,7 @@ describe('SettingsDirectoryPage', () => {
         section: 'Knowledge base',
         tiles: [
           [ 'Meetings', '/settings/meetings' ],
+          [ 'Company doc', '/settings/company-doc' ],
           [ 'Learnings', '/settings/learnings' ],
           [ 'Learning categories', '/settings/learning-categories' ],
         ],

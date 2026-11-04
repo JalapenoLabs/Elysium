@@ -55,6 +55,7 @@ export const UrlTree = {
   // The MCP page's old address, kept as a redirect so links and bookmarks to it still land.
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
+  settingsCompanyDoc: '/settings/company-doc',
   settingsLearnings: '/settings/learnings',
   settingsLearningNew: '/settings/learnings/new',
   settingsLearning: '/settings/learnings/:learningId',

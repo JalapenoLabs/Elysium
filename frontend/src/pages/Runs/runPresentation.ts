@@ -52,13 +52,16 @@ export const stepActionsByState = {
 export const runNameKeys = {
   workflows: new Map<string, ParseKeys<'runs'>>([
     [ 'meeting', 'names.workflows.meeting' ],
+    [ 'company_doc_review', 'names.workflows.company_doc_review' ],
   ]),
   steps: new Map<string, ParseKeys<'runs'>>([
     [ 'fetch_meeting', 'names.steps.fetch_meeting' ],
     [ 'transcribe_meeting', 'names.steps.transcribe_meeting' ],
+    [ 'review_company_doc', 'names.steps.review_company_doc' ],
   ]),
   sources: new Map<string, ParseKeys<'runs'>>([
     [ 'meeting', 'names.sources.meeting' ],
+    [ 'company_doc', 'names.sources.company_doc' ],
   ]),
 } as const
 export type RunNameKind = keyof typeof runNameKeys

@@ -297,6 +297,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
+| `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
 | `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
 | `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
 | `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
@@ -308,10 +309,10 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings; learnings, hidden from guests; learning categories, for admins alone; and the knowledge
-base's own settings as they are built), and Workspace settings. Each entry is a tile, its icon and title and nothing
-more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on keyboard focus. Every entry
-has an icon of its own.
+settings, Knowledge base (meetings; the company doc and learnings, hidden from guests; learning categories, for admins
+alone; and the knowledge base's own settings as they are built), and Workspace settings. Each entry is a tile, its icon
+and title and nothing more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on
+keyboard focus. Every entry has an icon of its own.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
 
 ### Settings pages
@@ -748,6 +749,31 @@ page folds it in, in the settings frame:
   is kept as a draft until it is saved; a key put back that its name would not make was typed by hand.
   `learningCategoryFormSchema.ts` mirrors the API's bounds.
 
+### Company doc
+
+`src/pages/Settings/CompanyDoc/` is the company doc (`docs/knowledge.md`, The company doc), in the settings frame, for
+the company's members; anyone else is told the knowledge base is for members.
+
+- **The page** (`CompanyDocPage`) loads the doc for members, counts the proposals waiting in a chip beside the title,
+  explains itself behind `help`, and has Look for updates as its one action, which starts the review and says so in a
+  toast linking to its run. The history follows the form.
+- **The form** (`CompanyDocForm`) is every section in order, one text area each (`company-doc-<section>`, the first
+  focused), saved by the page's Save, which sends only the sections that changed. A section the person has not
+  touched follows the doc as it changes, so an approval made here or in another tab shows at once; one they edited
+  keeps their text.
+- **Proposals** (`ProposalCard`) sit beside the section they would change, from `lg` up, and below it on narrower
+  screens: who proposed and through which agent, when, the review's run it came from, its reason, the change as a
+  `TextDiff` from the text it was made against, and its quote and source. One made against an earlier version of the
+  section says that approving merges both. Approve and Reject act at once with a toast; Approve waits, with a tooltip,
+  while the section has unsaved edits, and a `409 proposal_overlaps` says the section changed in the same lines.
+- **History** (`CompanyDocHistory`) lists every change newest first, each a sentence naming who and which sections,
+  with Undo. It is read from SWR alone, since no other view shows it.
+- **Data.** The doc flows through SWR (`useCompanyDocLoader`), then `companyDocSlice`, then `companyDoc.changed`,
+  which carries nothing, so the stream revalidates the doc's key and the history's for members. Every write answers
+  the doc whole, which replaces the slice's.
+- `companyDocPresentation.ts` holds the section labels and hints, the history sentences, and how an agent is named,
+  tested beside it.
+
 ### Action items
 
 `src/pages/ActionItems/`, `src/pages/Initiatives/`, and `src/pages/Changesets/` build the area `docs/action-items.md`
@@ -868,8 +894,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   (`getNewCodingSessionUrl`), New session started from the item; see [Coding](#coding).
 
 The shared `src/components/` pieces are `DayPicker` (a date without a time), `MultiPicker` (tags from a searchable
-list), `OptionSelect` (a labelled select over a short list), and `EmptyNotice` (what a list shows instead of an empty
-table).
+list), `OptionSelect` (a labelled select over a short list), `EmptyNotice` (what a list shows instead of an empty
+table), and `TextDiff` (two versions of a text line by line, added lines green, removed ones red,
+long unchanged runs folded; `textDiff.ts`, on the `diff` package, decides the rows).
 
 ### Coding
 
@@ -1122,6 +1149,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `learnings`      | Live and deleted learnings in separate halves, last changed first       |
+| `companyDoc`     | The company doc, each section with its pending proposals, replaced whole |
 | `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `studioItems`    | Live and deleted Studio items in separate halves, newest first          |
@@ -1145,6 +1173,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
    `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useLearningsLoader`, `useDeletedLearningsLoader`, `useLearningLoader`,
+   `useCompanyDocLoader`,
    `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
@@ -1345,7 +1374,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `projects`, `coding`,
+  `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `companyDoc`, `projects`, `coding`,
   `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

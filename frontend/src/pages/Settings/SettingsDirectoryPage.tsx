@@ -9,6 +9,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import {
+  LuBookOpen,
   LuBot,
   LuCable,
   LuDatabaseBackup,
@@ -71,6 +72,11 @@ export function SettingsDirectoryPage() {
           title={t('items.meetings.title')}
           href={UrlTree.settingsMeetings}
         />
+        {isCompanyMember && <SettingsDirectoryItem
+          icon={LuBookOpen}
+          title={t('items.companyDoc.title')}
+          href={UrlTree.settingsCompanyDoc}
+        />}
         {isCompanyMember && <SettingsDirectoryItem
           icon={LuLightbulb}
           title={t('items.learnings.title')}

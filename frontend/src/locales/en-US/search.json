@@ -49,6 +49,7 @@
     "sessions": "devices signed in browsers",
     "mcp": "connected apps clients oauth claude codex model context protocol",
     "meetings": "fireflies transcripts recordings calls",
+    "companyDoc": "knowledge base glossary people names spelling leadership stakeholders products jargon",
     "learnings": "knowledge base takeaways lessons",
     "learningCategories": "knowledge base tags",
     "users": "people members team accounts approvals sign ups admins roles",
