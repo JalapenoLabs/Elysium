@@ -21,10 +21,12 @@ import { useConfirm } from '../../../hooks/useConfirm'
 
 type Props = {
   browserSession: BrowserSession
+  // What the person knows the browser as: its connector's kind, such as Outlook.
+  name: string
 }
 
-// The ways out of a browser stuck somewhere: back to its sign-in page, still signed in; or an
-// empty profile, signed out of everything.
+// The ways out of a connector's browser stuck somewhere: back to its sign-in page, still
+// signed in; or an empty profile, signed out of everything.
 export function BrowserSessionActions(props: Props) {
   const { t } = useTranslation([ 'browsers', 'common' ])
   const dispatch = useAppDispatch()
@@ -36,7 +38,7 @@ export function BrowserSessionActions(props: Props) {
     setIsStartingOver(true)
     try {
       await startOverBrowserSession(props.browserSession.id)
-      toast.success(t('toasts.startedOver', { name: props.browserSession.name }))
+      toast.success(t('toasts.startedOver', { name: props.name }))
     }
     catch (error) {
       console.debug('BrowserSessionActions failed to start a browser over', { error, id: props.browserSession.id })
@@ -49,7 +51,7 @@ export function BrowserSessionActions(props: Props) {
 
   function confirmReset() {
     confirm({
-      title: t('reset.title', { name: props.browserSession.name }),
+      title: t('reset.title', { name: props.name }),
       message: t('reset.body'),
       tone: 'danger',
       confirmText: t('reset.confirm'),
@@ -64,7 +66,7 @@ export function BrowserSessionActions(props: Props) {
           // Keeps the dialog open to try again.
           throw error
         }
-        toast.success(t('toasts.reset', { name: props.browserSession.name }))
+        toast.success(t('toasts.reset', { name: props.name }))
       },
     })
   }

@@ -13,10 +13,6 @@
       "title": "Sign-in & security",
       "description": "Your password, two-factor authentication, passkeys, lookup codes, and where you're signed in."
     },
-    "browsers": {
-      "title": "Browser sign-ins",
-      "description": "Sign in to Outlook, Gmail, and other sites in a browser Elysium runs and keeps signed in for you."
-    },
     "mcp": {
       "title": "MCP",
       "description": "Connect Claude Code, Codex, and other MCP clients, and disconnect the ones you've allowed."

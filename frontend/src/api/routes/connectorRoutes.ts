@@ -17,19 +17,12 @@ export const CONNECTOR_KINDS = [
 ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
-// The kinds a browser's own page can start reading. Each is read through one of the person's
-// browsers (`ConnectorKind::BROWSER_READ`); Teams is connected in the hub, through a Microsoft
-// browser started for Outlook.
-export const BROWSER_CONNECTOR_KINDS = [ 'outlook', 'gmail', 'slack' ] as const satisfies readonly ConnectorKind[]
-export type BrowserConnectorKind = typeof BROWSER_CONNECTOR_KINDS[number]
-
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
 export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies', 'youtrack' ] as const
 export type AccountKind = typeof ACCOUNT_KINDS[number]
 
-// Mirrors `AccountChoices` in api/src/connectors/kinds/mod.rs: whether a new connector takes a new
-// account, one the person already has, or either.
-export type AccountChoices = 'new' | 'existing' | 'either'
+// Mirrors `Provides` in api/src/connectors/kinds/mod.rs: the kinds of thing a connector reads.
+export type ConnectorProvides = 'issues' | 'pages' | 'mail' | 'messages' | 'meetings'
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'
 export type ConnectorScope = 'workspace' | 'personal'
@@ -66,9 +59,10 @@ export type AccountField = {
 export type ConnectorKindDefinition = {
   kind: ConnectorKind
   scope: ConnectorScope
+  provides: ConnectorProvides[]
+  // The account each of its connectors owns.
   account: AccountKind
-  accounts: AccountChoices
-  // The page a new browser opens at, for a kind that reads through one.
+  // The page its browser opens at, for a kind that reads through one.
   startUrl: string | null
   content: ContentField[]
   checks: CheckSpec[]
@@ -76,7 +70,7 @@ export type ConnectorKindDefinition = {
 
 export type AccountDefinition = {
   kind: AccountKind
-  // Empty for a browser, which is signed in to on its own page.
+  // Empty for a browser, which is signed in to on its stream.
   fields: AccountField[]
 }
 
@@ -116,6 +110,7 @@ export type Connector = {
   id: string
   kind: ConnectorKind
   scope: ConnectorScope
+  // The account it owns; null for one read through a browser while it waits for one.
   account: AccountSummary | null
   status: ConnectorStatus
   isActive: boolean
@@ -134,26 +129,6 @@ export type Connector = {
   createdAt: string
 }
 
-export type AccountUse = {
-  connectorId: string
-  kind: ConnectorKind
-}
-
-// An account as the hub lists it. Never carries a secret.
-export type Account = {
-  id: string
-  kind: AccountKind
-  name: string
-  // Who the provider says it is, such as a login or an address.
-  identity: string
-  checkedAt: string | null
-  // The workspace default token coding sessions start with, for a GitHub account.
-  isDefault: boolean
-  createdBy: string
-  createdAt: string
-  usedBy: AccountUse[]
-}
-
 export type CheckProgress = CheckOutcome & {
   checkId: string
   required: boolean
@@ -169,8 +144,8 @@ export type CheckRun = {
   checks: CheckProgress[]
 }
 
-// The account a connector being set up reads through: one the person has, or a new one in
-// its kind's own fields.
+// The account a request names: a new one in its kind's own fields, for a connector being set
+// up, or the account a stored connector owns, to list what its content can pick from.
 export type AccountChoice =
   | { id: string }
   | { new: Record<string, unknown> }
@@ -253,6 +228,13 @@ export function syncConnector(connectorId: string) {
   return apiClient.post(`v1/connectors/${connectorId}/sync`)
 }
 
+// Starts a browser for a connector read through one that is waiting for its browser.
+export function signInConnector(connectorId: string) {
+  return apiClient
+    .post(`v1/connectors/${connectorId}/sign-in`)
+    .json<ConnectorResponse>()
+}
+
 type CheckRunResponse = {
   run: CheckRun
 }
@@ -295,16 +277,3 @@ export function listConnectorActivity() {
     .json<ListActivityResponse>()
 }
 
-type ListAccountsResponse = {
-  accounts: Account[]
-}
-
-export function listAccounts() {
-  return apiClient
-    .get('v1/accounts')
-    .json<ListAccountsResponse>()
-}
-
-export function deleteTokenAccount(accountId: string) {
-  return apiClient.delete(`v1/accounts/tokens/${accountId}`)
-}

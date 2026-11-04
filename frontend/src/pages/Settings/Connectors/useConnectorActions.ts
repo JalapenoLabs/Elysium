@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Connector } from '../../../api/routes/connectorRoutes'
+import type { ParseKeys } from 'i18next'
+import type { AccountKind, Connector } from '../../../api/routes/connectorRoutes'
 import type { ConnectorAction } from './ConnectorRow'
 
 // Core
@@ -23,12 +24,24 @@ import {
 } from '../../../api/routes/connectorRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 
-// The kinds whose connector goes with its account.
-const REMOVES_ACCOUNT = new Set([ 'jira', 'github' ])
+// What removing a connector removes with it, by the account it owns.
+const deleteBodyKeyByAccount = {
+  atlassian: 'actions.deleteBody.atlassian',
+  github: 'actions.deleteBody.github',
+  browser: 'actions.deleteBody.browser',
+  fireflies: 'actions.deleteBody.token',
+  youtrack: 'actions.deleteBody.token',
+} as const satisfies Record<AccountKind, ParseKeys<'connectors'>>
 
-// What the hub's gear menu does, shared by the list and a connector's page. Running checks
-// answers the run, which the caller follows.
-export function useConnectorActions(onRunStarted?: (runId: string) => void) {
+type Options = {
+  // A run of checks started, which the caller follows.
+  onRunStarted?: (runId: string) => void
+  // The connector was removed, so a page about it can leave.
+  onDeleted?: () => void
+}
+
+// What the hub's gear menu does, shared by the list and a connector's page.
+export function useConnectorActions(options: Options = {}) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
@@ -48,7 +61,7 @@ export function useConnectorActions(onRunStarted?: (runId: string) => void) {
       runChecks: () => attempt(async () => {
         const response = await runConnectorChecks(connector.id)
         dispatch(checkRunLoaded(response.run))
-        onRunStarted?.(response.run.id)
+        options.onRunStarted?.(response.run.id)
       }, { action, connectorId: connector.id }),
       sync: () => attempt(async () => {
         await syncConnector(connector.id)
@@ -61,15 +74,15 @@ export function useConnectorActions(onRunStarted?: (runId: string) => void) {
       }, { action, connectorId: connector.id }),
       delete: () => confirm({
         title: t('actions.deleteTitle'),
-        message: REMOVES_ACCOUNT.has(connector.kind)
-          ? t('actions.deleteBodyWithAccount', { kind: t(`kinds.${connector.kind}.name`) })
-          : t('actions.deleteBody'),
+        // Only a connector read through a browser is ever without its account, while it waits.
+        message: t(deleteBodyKeyByAccount[connector.account?.kind ?? 'browser']),
         tone: 'danger',
         confirmText: t('actions.delete'),
         onConfirm: () => attempt(async () => {
           await deleteConnector(connector.id)
           dispatch(connectorDeleted(connector.id))
           toast.success(t('actions.deleted'))
+          options.onDeleted?.()
         }, { action, connectorId: connector.id }),
       }),
     } as const satisfies Record<ConnectorAction, () => unknown>

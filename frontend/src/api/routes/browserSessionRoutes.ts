@@ -8,8 +8,9 @@ import { API_BASE_PATH } from '../../constants'
 export const BROWSER_STATES = [ 'starting', 'running', 'failed' ] as const
 export type BrowserState = typeof BROWSER_STATES[number]
 
-// A browser the host runs for its owner to sign in to an account in. Only its owner ever
-// receives it; the password is never returned.
+// A browser the host runs as a connector's account, for its owner to sign in on. It starts and
+// is removed with its connector. Only its owner ever receives it; the password is never
+// returned.
 export type BrowserSession = {
   id: string
   name: string
@@ -45,21 +46,6 @@ export function getBrowserSession(browserSessionId: string) {
   return apiClient
     .get(`v1/browser-sessions/${browserSessionId}`)
     .json<BrowserSessionResponse>()
-}
-
-type CreateBrowserSessionRequest = {
-  name: string
-  startUrl: string
-}
-
-export function createBrowserSession(body: CreateBrowserSessionRequest) {
-  return apiClient
-    .post('v1/browser-sessions', { json: body })
-    .json<BrowserSessionResponse>()
-}
-
-export function deleteBrowserSession(browserSessionId: string) {
-  return apiClient.delete(`v1/browser-sessions/${browserSessionId}`)
 }
 
 // Back to its start page in a fresh tab, every other tab closed, still signed in.

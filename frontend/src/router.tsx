@@ -7,8 +7,10 @@ import { createBrowserRouter, Navigate } from 'react-router'
 
 // User interface
 import { AuthGate } from './auth/AuthGate'
-import { AddConnectorPage } from './pages/Settings/Connectors/AddConnectorPage'
+import { BrowserSignInRedirect } from './pages/Settings/Connectors/BrowserSignInRedirect'
+import { ConnectorPickerPage } from './pages/Settings/Connectors/ConnectorPickerPage'
 import { ConnectorPage } from './pages/Settings/Connectors/ConnectorPage'
+import { NewConnectorPage } from './pages/Settings/Connectors/NewConnectorPage'
 import { ConnectorsPage } from './pages/Settings/Connectors/ConnectorsPage'
 import { AppShell } from './layout/AppShell'
 import { AuthErrorPage } from './pages/Auth/AuthErrorPage'
@@ -48,8 +50,6 @@ import { JiraDoneTransitionsPage } from './pages/Settings/Jira/JiraDoneTransitio
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
-import { BrowserSessionPage } from './pages/Settings/Browsers/BrowserSessionPage'
-import { ManageBrowsersPage } from './pages/Settings/Browsers/ManageBrowsersPage'
 import { McpPage } from './pages/Settings/Mcp/McpPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
@@ -178,13 +178,14 @@ const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsSecurity,
       element: <SecurityPage />,
     },
+    // A browser is a connector's account, shown on the connector's page.
     {
       path: UrlTree.settingsBrowsers,
-      element: <ManageBrowsersPage />,
+      element: <Navigate to={UrlTree.settingsConnectors} replace />,
     },
     {
       path: UrlTree.settingsBrowser,
-      element: <BrowserSessionPage />,
+      element: <BrowserSignInRedirect />,
     },
     {
       path: UrlTree.settingsMcp,
@@ -245,7 +246,11 @@ const workspaceRoutes: RouteObject = {
     },
     {
       path: UrlTree.settingsConnectorNew,
-      element: <AddConnectorPage />,
+      element: <ConnectorPickerPage />,
+    },
+    {
+      path: UrlTree.settingsConnectorNewKind,
+      element: <NewConnectorPage />,
     },
     {
       path: UrlTree.settingsConnector,

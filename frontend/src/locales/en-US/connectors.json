@@ -1,12 +1,7 @@
 {
   "page": {
     "title": "Connectors",
-    "description": "Every service Elysium reads as you, the accounts it reads them through, and whether each one works.",
     "add": "Add connector",
-    "tabs": {
-      "connectors": "Connectors",
-      "accounts": "Accounts"
-    },
     "search": "Search connectors",
     "allStatuses": "All statuses",
     "empty": "No connectors yet. Add one to start reading a service.",
@@ -34,14 +29,14 @@
     "paused": "Paused"
   },
   "row": {
-    "account": "Through {{name}}",
-    "noAccount": "Account removed",
+    "account": "Signed in as {{name}}",
     "lastSync": "Last synced {{when}}",
     "neverSynced": "Not synced yet",
     "records_one": "{{count}} record",
     "records_other": "{{count}} records",
     "workspace": "Workspace",
-    "personal": "Yours"
+    "personal": "Yours",
+    "waiting": "Waiting for its browser"
   },
   "actions": {
     "menu": "Actions for {{name}}",
@@ -55,17 +50,21 @@
     "deleted": "Connector removed",
     "syncing": "Syncing now",
     "deleteTitle": "Remove this connector?",
-    "deleteBody": "Elysium stops reading through it. What it already recorded stays on the timeline.",
-    "deleteBodyWithAccount": "A {{kind}} connector goes with its account, so the account is removed too, along with anything else that uses it, such as coding sessions' GitHub token."
+    "deleteBody": {
+      "atlassian": "Its Atlassian account is removed with it, along with any action item links made through it. The token stays valid on Atlassian until you revoke it there. What it recorded stays on the timeline.",
+      "github": "Its GitHub account is removed with it, along with any coding session or action item link that uses its token. The token stays valid on GitHub until you revoke it there.",
+      "browser": "Its browser is removed with it, signing it out of everything it was signed in to on this host. What it recorded stays on the timeline.",
+      "token": "Its key is forgotten. The key stays valid with its provider until you revoke it there. What it recorded stays on the timeline."
+    }
   },
   "kinds": {
     "jira": {
       "name": "Jira",
-      "description": "Issues on a Jira Cloud site, bounded to the projects and boards you pick."
+      "description": "Issues on a Jira Cloud site, bounded to the projects and boards you pick, read with an Atlassian API token."
     },
     "confluence": {
       "name": "Confluence",
-      "description": "Pages and comments in the spaces you pick, read through a Jira connector's Atlassian account."
+      "description": "Pages and comments in the spaces you pick, read with an Atlassian API token."
     },
     "github": {
       "name": "GitHub",
@@ -73,48 +72,28 @@
     },
     "outlook": {
       "name": "Outlook",
-      "description": "Your Outlook inbox, read through a browser you sign in to."
+      "description": "Your Outlook inbox, read through a browser Elysium runs, which you sign in to once. Reading never marks your mail read."
     },
     "gmail": {
       "name": "Gmail",
-      "description": "Your Gmail inbox, read through a browser you sign in to."
+      "description": "Your Gmail inbox, read through a browser Elysium runs, which you sign in to once. Reading never marks your mail read."
     },
     "teams": {
       "name": "Teams",
-      "description": "Your Teams chats and channels, read through a browser you sign in to."
+      "description": "Your Teams chats and channels, read through a browser Elysium runs, which you sign in to once. Unread chats, mentions, and replies in your threads land in your inbox."
     },
     "fireflies": {
       "name": "Fireflies",
-      "description": "Your recorded meetings, cut into segments on each project's timeline."
+      "description": "Your recorded meetings, read with your Fireflies API key and cut into segments on each project's timeline."
     },
     "slack": {
       "name": "Slack",
-      "description": "Your Slack workspaces, read through a browser you sign in to. Direct messages, mentions, and thread replies land in your inbox."
+      "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox."
     },
     "youtrack": {
       "name": "YouTrack",
       "description": "Issues and comments on a YouTrack Cloud site, read with your own permanent token."
     }
-  },
-  "accountKinds": {
-    "atlassian": "Atlassian account",
-    "github": "GitHub account",
-    "browser": "Browser",
-    "fireflies": "Fireflies key",
-    "youtrack": "YouTrack token"
-  },
-  "accounts": {
-    "empty": "No accounts yet. Adding a connector adds its account.",
-    "usedBy_one": "Used by {{count}} connector",
-    "usedBy_other": "Used by {{count}} connectors",
-    "unused": "Not used by any connector",
-    "default": "Default for coding",
-    "checked": "Checked {{when}}",
-    "edit": "Edit",
-    "delete": "Delete",
-    "deleted": "Account removed",
-    "deleteTitle": "Remove this account?",
-    "deleteBody": "Every connector it feeds stops. The key stays valid with its provider until you revoke it there."
   },
   "fields": {
     "name": "Name",
@@ -126,7 +105,7 @@
     "projects": "Projects",
     "boards": "Boards",
     "spaces": "Spaces",
-    "conversations": "Chats and channels",
+    "conversations": "Conversations",
     "storageLocationId": "Storage location",
     "choices": {
       "classic": "Classic",
@@ -137,39 +116,12 @@
     "noOptions": "Nothing to pick from yet. Fill in the account first.",
     "loadOptions": "Load options",
     "noStorageLocations": "Add a storage location under Settings, Storage first.",
-    "conversations": "Conversations",
     "options": {
       "slack_workspace": "Whole workspace",
       "slack_direct_messages": "Direct and group messages"
-    }
-  },
-  "wizard": {
-    "title": "Add connector",
-    "steps": {
-      "kind": "Kind",
-      "account": "Account",
-      "content": "Content",
-      "checks": "Checks"
     },
-    "chooseKind": "What should Elysium read?",
-    "chooseAccount": "Which account does it read through?",
-    "newAccount": "A new account",
-    "browserSignIn": "This is read through a browser you sign in to. Sign in to one under Settings, Browser sign-ins, then pick it here.",
-    "openBrowsers": "Open Browser sign-ins",
-    "noBrowsers": "No browser yet.",
-    "noAccount": {
-      "atlassian": "No Atlassian account yet. One comes with a Jira connector: add the site as Jira first, then pick its account here.",
-      "github": "No GitHub account yet. One comes with a GitHub connector: add it first, then pick its account here.",
-      "fireflies": "No Fireflies key yet. Add a Fireflies connector with a new key first, then pick it here.",
-      "youtrack": "No YouTrack token yet. Add a YouTrack connector with a new token first, then pick it here."
-    },
-    "back": "Back",
-    "next": "Next",
-    "runChecks": "Run checks",
-    "save": "Save connector",
-    "saveAnyway": "Save anyway",
-    "requiredFailed": "A required check failed. Fix it, or save anyway and come back to it.",
-    "created": "Connector added"
+    "revealSecret": "Show",
+    "hideSecret": "Hide"
   },
   "checks": {
     "title": "Connector checks",
@@ -275,6 +227,39 @@
     "save": "Save",
     "editAccount": "Edit account",
     "doneStatuses": "Done statuses",
-    "lastError": "Last error"
+    "lastError": "Last error",
+    "missingTitle": "Connector not found",
+    "missing": "This connector does not exist, or it is not yours."
+  },
+  "picker": {
+    "title": "Add connector",
+    "search": "Search connectors",
+    "noMatches": "No connector matches.",
+    "about": "About {{name}}"
+  },
+  "form": {
+    "signIn": "Sign in",
+    "browserSignIn": "Elysium opens {{name}} in a browser of its own. You sign in to it once, on the real page, and it stays signed in.",
+    "startBrowser": "Start browser",
+    "testConnection": "Test connection",
+    "runChecks": "Run checks",
+    "checkFirst": "Run the checks first.",
+    "create": "Create connector",
+    "createAnyway": "Create anyway",
+    "requiredFailed": "A required check failed. Fix it, or create the connector anyway and come back to it.",
+    "created": "Connector added"
+  },
+  "signIn": {
+    "title": "Sign in",
+    "waiting": "{{name}} needs a browser of its own. Start one, then sign in to it here.",
+    "states": {
+      "signedIn": "Signed in",
+      "signedOut": "Signed out",
+      "unknown": "Not read yet"
+    }
+  },
+  "errors": {
+    "browserPortsExhausted": "Every browser this host can stream is in use. Remove a connector read through a browser first.",
+    "browserNotStarted": "This connector has no browser yet. Start one from its page."
   }
 }

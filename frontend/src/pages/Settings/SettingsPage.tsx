@@ -26,6 +26,8 @@ export type SettingsCrumb = {
 
 type Props = {
   title: string
+  // Leads the title, such as a connector kind's logo.
+  icon?: ReactNode
   // The pages between Settings and this one, such as Manage LLMs above an LLM's edit page.
   // Esc goes back to the last of them, or to Settings.
   parents?: SettingsCrumb[]
@@ -111,9 +113,12 @@ export function SettingsPage(props: Props) {
         <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
       </Breadcrumbs>
       <header className='relaxed level flex-wrap'>
-        <h1 className='min-w-0 text-3xl font-bold'>{
-          props.title
-        }</h1>
+        <div className='flex min-w-0 items-center gap-3'>
+          {props.icon}
+          <h1 className='min-w-0 text-3xl font-bold'>{
+            props.title
+          }</h1>
+        </div>
         {(props.actions || save) && <div className='level-right flex-wrap'>
           {props.actions}
           {save && <SettingsSaveButton ref={headerSaveRef} save={save} />}

@@ -45,7 +45,7 @@ export function CheckList(props: Props) {
       props.specs.map((spec) => {
         const outcome = byId.get(spec.id)
         const state = outcome?.state ?? 'queued'
-        return <li key={spec.id} className='grid grid-cols-[1.5rem_1fr_auto] items-start gap-3'>
+        return <li key={spec.id} className='grid grid-cols-[4.5rem_1fr_auto] items-start gap-3'>
           <span className='pt-0.5'>{
             state === 'running'
               ? <Spinner size='sm' />

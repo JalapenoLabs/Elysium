@@ -10,10 +10,12 @@ import i18next from 'i18next'
 
 // Misc
 import {
+  connectorOwningBrowser,
   describeOutcome,
   filterConnectors,
   hasRequiredFailure,
-  offeredAccounts,
+  searchKinds,
+  startingContent,
   summarize,
 } from './connectorPresentation'
 
@@ -112,27 +114,56 @@ describe('hasRequiredFailure', () => {
   })
 })
 
-describe('offeredAccounts', () => {
-  const browsers = [{ id: 'browser-1', name: 'Work Outlook' }]
-  const accounts = [
-    { id: 'atlassian-1', kind: 'atlassian' as const, name: 'Work' },
-    { id: 'fireflies-1', kind: 'fireflies' as const, name: 'Fireflies' },
-  ]
+describe('searchKinds', () => {
+  const words = {
+    jira: 'Jira Issues on a Jira Cloud site',
+    outlook: 'Outlook Your Outlook inbox, read as mail',
+    gmail: 'Gmail Your Gmail inbox, read as mail',
+  } as const
+  const kinds = [ 'jira', 'outlook', 'gmail' ] as const
 
-  it('offers nothing for a kind that always makes its own account', () => {
-    expect(offeredAccounts({ account: 'atlassian', accounts: 'new' }, browsers, accounts)).toEqual([])
+  it('keeps every kind, in order, for an empty search', () => {
+    expect(searchKinds([ ...kinds ], '  ', (kind) => words[kind as keyof typeof words])).toEqual(kinds)
   })
 
-  it('offers the person\'s browsers for a kind read through one', () => {
-    expect(offeredAccounts({ account: 'browser', accounts: 'existing' }, browsers, accounts)).toEqual(browsers)
+  it('matches a kind by its name or what it reads, ignoring case', () => {
+    expect(searchKinds([ ...kinds ], 'MAIL', (kind) => words[kind as keyof typeof words]))
+      .toEqual([ 'outlook', 'gmail' ])
+    expect(searchKinds([ ...kinds ], 'jira', (kind) => words[kind as keyof typeof words])).toEqual([ 'jira' ])
+  })
+})
+
+describe('startingContent', () => {
+  it('reads everything each selection can pick, and leaves other fields to be chosen', () => {
+    expect(startingContent({
+      content: [
+        { id: 'conversations', field: { type: 'selection' }, required: true },
+        { id: 'storageLocationId', field: { type: 'storage_location' }, required: true },
+      ],
+    })).toEqual({ conversations: '*' })
   })
 
-  // Confluence reads through the Atlassian account a Jira connector made, so the wizard must
-  // offer it; before kinds declared their account choice, only Fireflies keys were offered.
-  it('offers the hub\'s accounts of the kind\'s account kind', () => {
-    expect(offeredAccounts({ account: 'atlassian', accounts: 'existing' }, browsers, accounts))
-      .toEqual([{ id: 'atlassian-1', name: 'Work' }])
-    expect(offeredAccounts({ account: 'fireflies', accounts: 'either' }, browsers, accounts))
-      .toEqual([{ id: 'fireflies-1', name: 'Fireflies' }])
+  it('reads nothing chosen for a kind that reads its whole account', () => {
+    expect(startingContent({ content: []})).toEqual({})
+  })
+})
+
+describe('connectorOwningBrowser', () => {
+  const outlook = makeConnector({
+    id: 'outlook',
+    kind: 'outlook',
+    account: { id: 'browser-1', kind: 'browser', name: 'outlook' },
+  })
+  // An account of another kind with the same id is not a browser: the account's kind decides.
+  const jira = makeConnector({ id: 'jira', account: { id: 'browser-2', kind: 'atlassian', name: 'Work' }})
+  const waiting = makeConnector({ id: 'teams', kind: 'teams', account: null })
+
+  it('finds the connector whose account is the browser', () => {
+    expect(connectorOwningBrowser([ jira, waiting, outlook ], 'browser-1')).toBe(outlook)
+  })
+
+  it('finds nothing for an id no browser connector owns', () => {
+    expect(connectorOwningBrowser([ jira, waiting, outlook ], 'browser-2')).toBeNull()
+    expect(connectorOwningBrowser([ jira, waiting, outlook ], 'gone')).toBeNull()
   })
 })

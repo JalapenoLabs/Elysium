@@ -17,12 +17,12 @@ import { FirefliesConnectForm } from './FirefliesConnectForm'
 import { getApiErrorMessage } from '../../../api/errors'
 import { deleteConnector } from '../../../api/routes/connectorRoutes'
 import { useConnectorsLoader, useStorageLocationsLoader } from '../../../hooks/useServerData'
-import { signInChipColors, signInLabelKeys } from '../Browsers/connectorPresentation'
+import { signInChipColors, signInLabelKeys } from '../Connectors/connectorPresentation'
 
 // The person's Fireflies account: the form to connect it, or how its reads are going and the
 // button to disconnect it. Its meetings stay on the timeline either way.
 export function FirefliesSection() {
-  const { t } = useTranslation([ 'meetings', 'browsers', 'common' ])
+  const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const accountsStatus = useConnectorsLoader()
   const locationsStatus = useStorageLocationsLoader()
@@ -60,7 +60,7 @@ export function FirefliesSection() {
         <div className='flex items-center gap-2'>
           <h2 className='text-base font-semibold'>{t('fireflies.title')}</h2>
           {account && <Chip size='sm' variant='soft' color={signInChipColors[account.signInState]}>{
-            t(`browsers:${signInLabelKeys[account.signInState]}`)
+            t(`connectors:${signInLabelKeys[account.signInState]}`)
           }</Chip>}
         </div>
         <p className='text-sm opacity-70'>{
