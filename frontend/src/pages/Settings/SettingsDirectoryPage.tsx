@@ -16,7 +16,6 @@ import {
   LuDatabaseBackup,
   LuHardDrive,
   LuKeyRound,
-  LuLightbulb,
   LuMail,
   LuPlug,
   LuRefreshCw,
@@ -77,11 +76,6 @@ export function SettingsDirectoryPage() {
           icon={LuBookOpen}
           title={t('items.companyDoc.title')}
           href={UrlTree.settingsCompanyDoc}
-        />}
-        {isCompanyMember && <SettingsDirectoryItem
-          icon={LuLightbulb}
-          title={t('items.learnings.title')}
-          href={UrlTree.settingsLearnings}
         />}
         {isAdmin && <SettingsDirectoryItem
           icon={LuTags}

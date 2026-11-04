@@ -185,6 +185,13 @@ export const RECORD_SEARCH_TOPBAR_LIMIT = 5
 // Records of each kind the search page asks for, the most one search answers (`MAX_LIMIT`).
 export const RECORD_SEARCH_PAGE_LIMIT = 50
 
+// The longest query the knowledge search searches, as `MAX_QUERY_CHARS` in
+// api/src/knowledge/search.rs: a few words, or an agent's question in a sentence or two.
+export const KNOWLEDGE_SEARCH_MAX_CHARACTERS = 500
+
+// Documents the Knowledge page shows for a search, the most one search answers (`MAX_LIMIT`).
+export const KNOWLEDGE_SEARCH_PAGE_LIMIT = 50
+
 // The content field every meeting source declares, as `WAIT_FOR_APPROVAL_FIELD` in
 // api/src/meetings/mod.rs names it: whether its meetings wait for their person to approve each
 // corrected transcript before Elysium acts on them.

@@ -34,7 +34,7 @@ import {
 } from '../../../api/routes/learningCategoryRoutes'
 import { useLearningCategoriesLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
-import { presentLearningCategory } from '../Learnings/learningPresentation'
+import { presentLearningCategory } from '../../Knowledge/Learnings/learningPresentation'
 import { toast } from '../../../toast/toast'
 
 // `/settings/learning-categories`: every category learnings are filed under, in the order they

@@ -11,8 +11,17 @@ import type { AppDispatch } from '../store'
 export type TranslationKey = Extract<ParseKeys<TranslationNamespace[]>, `${string}:${string}`>
 
 // The kinds of result search shows, each a section of its own, in the order the search page
-// offers them as filters: the registry's pages and actions, then the records the API finds.
-export const SEARCH_GROUPS = [ 'pages', 'actions', 'actionItems', 'projects', 'codingSessions', 'initiatives' ] as const
+// offers them as filters: the registry's pages and actions, the records the API finds by their
+// titles, then the knowledge base's documents.
+export const SEARCH_GROUPS = [
+  'pages',
+  'actions',
+  'actionItems',
+  'projects',
+  'codingSessions',
+  'initiatives',
+  'knowledge',
+] as const
 export type SearchGroup = typeof SEARCH_GROUPS[number]
 
 // Who an entry is for, matching who the page or action itself admits: members are the
@@ -78,6 +87,10 @@ export type SearchResult = {
   icon: IconType
   // Higher ranks first, across every source.
   score: number
+  // Where the source that found it ranked it, from 0, for a source that ranks by more than
+  // the title (the knowledge search): between two of its results that score alike, its order
+  // decides.
+  sourceRank?: number
   target: SearchTarget
 }
 

@@ -1,0 +1,73 @@
+{
+  "title": "Knowledge",
+  "membersOnly": "The knowledge base is for the company's members.",
+  "tabs": {
+    "label": "Knowledge base",
+    "search": "Search",
+    "learnings": "Learnings"
+  },
+  "search": {
+    "label": "Search the knowledge base",
+    "placeholder": "Search mail, chat, pages, meetings, and learnings",
+    "loading": "Searching…",
+    "results": "Results",
+    "none": "Nothing in the knowledge base matches “{{query}}”",
+    "failed": "The knowledge base can't be searched right now.",
+    "wordsOnly": "Searched by exact words only for now, so results that match in meaning may be missing."
+  },
+  "filters": {
+    "open": "Filters",
+    "openActive_one": "Filters, {{count, compact}} on",
+    "openActive_other": "Filters, {{count, compact}} on",
+    "title": "Filters",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "clear": "Clear filters",
+    "sources": "Sources",
+    "project": "Project",
+    "anyProject": "Any project",
+    "person": "Recorded by",
+    "anyone": "Anyone",
+    "since": "Since",
+    "until": "Until",
+    "calendar": "Pick a day",
+    "removeTag": "Remove the filter {{filter}}",
+    "tags": {
+      "label": "Filters on",
+      "source": "Source: {{source}}",
+      "project": "Project: {{name}}",
+      "person": "Recorded by {{name}}",
+      "since": "Since {{date}}",
+      "until": "Until {{date}}"
+    }
+  },
+  "result": {
+    "detail": "{{source}} · {{person}}",
+    "alsoRecordedBy": "Also recorded by {{names}}",
+    "unknownProject": "A project",
+    "unknownPerson": "Someone"
+  },
+  "sources": {
+    "outlook": "Outlook",
+    "gmail": "Gmail",
+    "mail": "Sent mail",
+    "slack": "Slack",
+    "teams": "Teams",
+    "confluence": "Confluence",
+    "youtrack": "YouTrack",
+    "meeting": "Meetings",
+    "learning": "Learnings",
+    "company_doc": "Company doc"
+  },
+  "document": {
+    "notFound": "This document is no longer in the knowledge base.",
+    "loadError": "This document can't be loaded right now.",
+    "backToSearch": "Back to the search",
+    "recordedBy": "Recorded by {{name}}",
+    "projects": "Projects",
+    "openSource": "Open in {{source}}",
+    "openLearning": "Open the learning",
+    "openCompanyDoc": "Open the company doc",
+    "passages": "Text"
+  }
+}

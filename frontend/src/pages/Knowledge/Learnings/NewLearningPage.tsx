@@ -5,25 +5,28 @@ import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { SettingsPage } from '../SettingsPage'
+import { Page } from '../../../layout/page/Page'
 import { LearningForm } from './LearningForm'
 
 // Misc
 import { getLearningUrl, UrlTree } from '../../../urls'
 
-// `/settings/learnings/new`: saving a learning by hand. Saving opens the learning, a new one or
+// `/knowledge/learnings/new`: saving a learning by hand. Saving opens the learning, a new one or
 // the one whose takeaway it named.
 export function NewLearningPage() {
-  const { t } = useTranslation('learnings')
+  const { t } = useTranslation([ 'learnings', 'knowledge' ])
   const navigate = useNavigate()
 
-  return <SettingsPage
+  return <Page
     title={t('new')}
-    parents={[{ label: t('title'), href: UrlTree.settingsLearnings }]}
+    parents={[
+      { label: t('knowledge:title'), href: UrlTree.knowledge },
+      { label: t('title'), href: UrlTree.knowledgeLearnings },
+    ]}
   >
     <LearningForm
       learning={null}
       onSaved={(learning) => navigate(getLearningUrl(learning.id), { replace: true })}
     />
-  </SettingsPage>
+  </Page>
 }

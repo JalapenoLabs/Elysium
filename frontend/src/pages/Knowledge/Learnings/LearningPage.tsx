@@ -15,7 +15,7 @@ import { learningUpserted, selectLearningById } from '../../../store/learningsSl
 // User interface
 import { Alert, Button, Chip, Link, Spinner } from '@heroui/react'
 import { LuRotateCcw, LuTrash2 } from 'react-icons/lu'
-import { SettingsPage } from '../SettingsPage'
+import { Page } from '../../../layout/page/Page'
 import { LearningForm } from './LearningForm'
 import { LearningHistory } from './LearningHistory'
 
@@ -28,11 +28,11 @@ import { useUserNames } from '../../../hooks/useUserNames'
 import { UrlTree } from '../../../urls'
 import { toast } from '../../../toast/toast'
 
-// `/settings/learnings/:learningId`: one learning, corrected in place and saved from the header,
+// `/knowledge/learnings/:learningId`: one learning, corrected in place and saved from the header,
 // with its history below. Deleting is soft, so it happens at once with Undo in its toast; a
 // deleted learning reads as it was, with Restore.
 export function LearningPage() {
-  const { t } = useTranslation([ 'learnings', 'common' ])
+  const { t } = useTranslation([ 'learnings', 'knowledge', 'common' ])
   const dispatch = useAppDispatch()
   const { learningId = '' } = useParams()
   const status = useLearningLoader(learningId)
@@ -87,7 +87,7 @@ export function LearningPage() {
     }
     return <div className='container py-10 text-center text-sm'>
       <p className='compact opacity-70'>{t('page.notFound')}</p>
-      <Link href={UrlTree.settingsLearnings} className='text-link'>{t('page.backToList')}</Link>
+      <Link href={UrlTree.knowledgeLearnings} className='text-link'>{t('page.backToList')}</Link>
     </div>
   }
 
@@ -96,9 +96,12 @@ export function LearningPage() {
     ? 'page.savedByAgent'
     : 'page.savedBy'
 
-  return <SettingsPage
+  return <Page
     title={learning.title}
-    parents={[{ label: t('title'), href: UrlTree.settingsLearnings }]}
+    parents={[
+      { label: t('knowledge:title'), href: UrlTree.knowledge },
+      { label: t('title'), href: UrlTree.knowledgeLearnings },
+    ]}
     primaryAction={learning.deletedAt && <Button
       variant='outline'
       isPending={isChanging}
@@ -156,5 +159,5 @@ export function LearningPage() {
       <h2 className='compact text-base font-semibold'>{t('history.title')}</h2>
       <LearningHistory learningId={learning.id} />
     </section>
-  </SettingsPage>
+  </Page>
 }

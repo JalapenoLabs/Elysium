@@ -17,23 +17,29 @@ import { TRANSLATION_NAMESPACES } from '../i18n'
 import { findRegistryResults, prepareSearchEntries } from './registrySearch'
 import { registeredSearchEntries } from './searchRegistry'
 import { rankSearchResults } from './searchRanking'
+import { useKnowledgeResults } from './useKnowledgeResults'
 import { useRecordSearch } from './useRecordSearch'
 
 // Everything search finds for the query, closest first, from every source. A source is a
 // hook that answers for the query with its results, whether it is still loading, and whether
 // it could not answer. The registry's pages and actions answer at once, in the browser; the
-// API's records (`useRecordSearch`) answer 300ms after typing stops, `recordLimit` of each
+// API's records (`useRecordSearch`) and, for the company's members, the knowledge base's
+// documents (`useKnowledgeResults`) answer 300ms after typing stops, `recordLimit` of each
 // kind. The topbar and the search page show every source's results, loading, and failure
 // alike.
 export function useGlobalSearch(query: string, recordLimit = RECORD_SEARCH_TOPBAR_LIMIT) {
   const registry = useRegistrySearch(query)
   const records = useRecordSearch(query, recordLimit)
+  const knowledge = useKnowledgeResults(query, recordLimit)
 
-  return useMemo(() => ({
-    results: rankSearchResults([ ...registry.results, ...records.results ]),
-    isLoading: registry.isLoading || records.isLoading,
-    hasFailed: registry.hasFailed || records.hasFailed,
-  }), [ registry, records ])
+  return useMemo(() => {
+    const sources = [ registry, records, knowledge ]
+    return {
+      results: rankSearchResults(sources.flatMap((source) => source.results)),
+      isLoading: sources.some((source) => source.isLoading),
+      hasFailed: sources.some((source) => source.hasFailed),
+    }
+  }, [ registry, records, knowledge ])
 }
 
 // The pages and actions registered beside each part of the app (`searchRegistry.ts`), in the

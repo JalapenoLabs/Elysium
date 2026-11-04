@@ -43,6 +43,9 @@ import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
 import { SearchPage } from './pages/Search/SearchPage'
+import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
+import { KnowledgeLayout } from './pages/Knowledge/KnowledgeLayout'
+import { KnowledgeSearchPage } from './pages/Knowledge/KnowledgeSearchPage'
 import { NewStudioItemPage } from './pages/Studio/NewStudioItemPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
@@ -81,12 +84,12 @@ import { CompanyDocPage } from './pages/Settings/CompanyDoc/CompanyDocPage'
 import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/EditLearningCategoryPage'
 import { LearningCategoriesPage } from './pages/Settings/LearningCategories/LearningCategoriesPage'
 import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/NewLearningCategoryPage'
-import { LearningPage } from './pages/Settings/Learnings/LearningPage'
-import { LearningsPage } from './pages/Settings/Learnings/LearningsPage'
+import { LearningPage } from './pages/Knowledge/Learnings/LearningPage'
+import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
 import { MeetingPage } from './pages/Settings/Meetings/MeetingPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
-import { NewLearningPage } from './pages/Settings/Learnings/NewLearningPage'
+import { NewLearningPage } from './pages/Knowledge/Learnings/NewLearningPage'
 
 // Misc
 import { llmSlugByType } from './pages/Settings/Llms/llmProviders'
@@ -215,6 +218,33 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.runView,
       element: <RunPage />,
     },
+    // The knowledge base's search and its learnings share the area's heading and tabs.
+    {
+      path: UrlTree.knowledge,
+      element: <KnowledgeLayout />,
+      children: [
+        {
+          index: true,
+          element: <KnowledgeSearchPage />,
+        },
+        {
+          path: UrlTree.knowledgeLearnings,
+          element: <LearningsPage />,
+        },
+      ],
+    },
+    {
+      path: UrlTree.knowledgeLearningNew,
+      element: <NewLearningPage />,
+    },
+    {
+      path: UrlTree.knowledgeLearning,
+      element: <LearningPage />,
+    },
+    {
+      path: UrlTree.knowledgeDocument,
+      element: <KnowledgeDocumentPage />,
+    },
     {
       path: UrlTree.search,
       element: <SearchPage />,
@@ -304,17 +334,10 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsCompanyDoc,
       element: <CompanyDocPage />,
     },
+    // Learnings moved to the Knowledge page; a page under the old address lands on its list.
     {
       path: UrlTree.settingsLearnings,
-      element: <LearningsPage />,
-    },
-    {
-      path: UrlTree.settingsLearningNew,
-      element: <NewLearningPage />,
-    },
-    {
-      path: UrlTree.settingsLearning,
-      element: <LearningPage />,
+      element: <Navigate to={UrlTree.knowledgeLearnings} replace />,
     },
     {
       path: UrlTree.settingsLearningCategories,

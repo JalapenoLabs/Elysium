@@ -11,4 +11,5 @@ export const searchGroupLabelKeys = {
   projects: 'groups.projects',
   codingSessions: 'groups.codingSessions',
   initiatives: 'groups.initiatives',
+  knowledge: 'groups.knowledge',
 } as const satisfies Record<SearchGroup, ParseKeys<'search'>>

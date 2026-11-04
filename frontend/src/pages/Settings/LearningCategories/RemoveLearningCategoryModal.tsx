@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { PresentedLearningCategory } from '../Learnings/learningPresentation'
+import type { PresentedLearningCategory } from '../../Knowledge/Learnings/learningPresentation'
 import type { LearningCategory } from '../../../api/routes/learningCategoryRoutes'
 
 // Core

@@ -34,6 +34,12 @@ vi.mock('../../search/useRecordSearch', () => ({
   },
 }))
 
+// The knowledge base's documents, which this page's tests leave empty: `knowledgeSearch.test.ts`
+// covers how they become results, and `GlobalSearch.test.tsx` how they show.
+vi.mock('../../search/useKnowledgeResults', () => ({
+  useKnowledgeResults: () => ({ results: [], isLoading: false, hasFailed: false }),
+}))
+
 // jsdom has neither observer, nor the Web Animations API, which the tabs and the page use.
 class InertObserver {
   observe() {}

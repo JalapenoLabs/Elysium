@@ -36,6 +36,13 @@ export const UrlTree = {
   studioItem: '/studio/:itemId',
   runs: '/runs',
   runView: '/runs/:runId',
+  // The knowledge base: its search first, then its learnings, and every document a citation
+  // opens.
+  knowledge: '/knowledge',
+  knowledgeLearnings: '/knowledge/learnings',
+  knowledgeLearningNew: '/knowledge/learnings/new',
+  knowledgeLearning: '/knowledge/learnings/:learningId',
+  knowledgeDocument: '/knowledge/documents/:documentId',
   // Every result of the topbar's search, for its query.
   search: '/search',
   settings: '/settings',
@@ -58,9 +65,8 @@ export const UrlTree = {
   settingsMeetings: '/settings/meetings',
   settingsMeeting: '/settings/meetings/:meetingId',
   settingsCompanyDoc: '/settings/company-doc',
+  // Learnings' earlier address, which redirects to the Knowledge page's, as do the pages under it.
   settingsLearnings: '/settings/learnings',
-  settingsLearningNew: '/settings/learnings/new',
-  settingsLearning: '/settings/learnings/:learningId',
   settingsLearningCategories: '/settings/learning-categories',
   settingsLearningCategoryNew: '/settings/learning-categories/new',
   // Under its key and `/edit`, since a workspace may name a category `new`.
@@ -118,6 +124,9 @@ export const NEW_SESSION_ITEM_PARAM = 'item'
 // The query parameter that holds what the search page searches for. Its kind of result is its
 // open tab (`TAB_PARAM`).
 export const SEARCH_QUERY_PARAM = 'q'
+
+// The query parameter naming the passage a knowledge document opens at, which a citation names.
+export const KNOWLEDGE_PASSAGE_PARAM = 'passage'
 
 // The query parameters the sign-in page reads: where to go afterwards, whether to ask for
 // the second factor or to confirm a recent sign-in, and a notice to show.
@@ -224,7 +233,22 @@ export function getEnvironmentVariableEditUrl(variableId: string) {
 }
 
 export function getLearningUrl(learningId: string) {
-  return UrlTree.settingsLearning.replace(':learningId', learningId)
+  return UrlTree.knowledgeLearning.replace(':learningId', learningId)
+}
+
+// A document of the knowledge base, opened at one of its passages when a citation names one.
+export function getKnowledgeDocumentUrl(documentId: string, passage?: number) {
+  const url = UrlTree.knowledgeDocument.replace(':documentId', documentId)
+  if (passage === undefined) {
+    return url
+  }
+  return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
+}
+
+// The Knowledge page searching for `query`, as the topbar's results open it.
+export function getKnowledgeSearchUrl(query: string) {
+  const params = new URLSearchParams({ [SEARCH_QUERY_PARAM]: query })
+  return `${UrlTree.knowledge}?${params.toString()}`
 }
 
 export function getLearningCategoryEditUrl(categoryKey: string) {

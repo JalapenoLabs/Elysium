@@ -3,7 +3,7 @@
 import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { Row } from '@tanstack/react-table'
 import type { LearningCategory } from '../../../api/routes/learningCategoryRoutes'
-import type { PresentedLearningCategory } from '../Learnings/learningPresentation'
+import type { PresentedLearningCategory } from '../../Knowledge/Learnings/learningPresentation'
 
 // Core
 import { useMemo, useState } from 'react'

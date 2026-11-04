@@ -56,6 +56,7 @@ export function SearchPage() {
     projects: 0,
     codingSessions: 0,
     initiatives: 0,
+    knowledge: 0,
   }
   for (const section of sections) {
     countByKind[section.group] = section.results.length

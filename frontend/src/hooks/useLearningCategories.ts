@@ -10,7 +10,7 @@ import { useAppSelector } from '../store/hooks'
 import { selectLearningCategories } from '../store/learningCategoriesSlice'
 
 // Misc
-import { presentLearningCategory } from '../pages/Settings/Learnings/learningPresentation'
+import { presentLearningCategory } from '../pages/Knowledge/Learnings/learningPresentation'
 import { useLearningCategoriesLoader } from './useServerData'
 
 // Every learning category as people read it, built-in ones first, loaded for the company's

@@ -5,13 +5,14 @@
     "actionItems": "Action items",
     "projects": "Projects",
     "codingSessions": "Coding sessions",
-    "initiatives": "Initiatives"
+    "initiatives": "Initiatives",
+    "knowledge": "Knowledge"
   },
   "results": {
     "label": "Search results",
     "loading": "Loading…",
     "none": "No results for “{{query}}”",
-    "failed": "Action items, projects, sessions, and initiatives are unavailable right now.",
+    "failed": "Some results are unavailable right now.",
     "viewAll": "View all results",
     "askElysia": "Ask Elysia about “{{query}}”"
   },
@@ -50,6 +51,7 @@
     "mcp": "connected apps clients oauth claude codex model context protocol",
     "meetings": "fireflies transcripts recordings calls",
     "companyDoc": "knowledge base glossary people names spelling leadership stakeholders products jargon",
+    "knowledge": "knowledge base search documents mail chat messages pages meetings transcripts citations",
     "learnings": "knowledge base takeaways lessons",
     "learningCategories": "knowledge base tags",
     "users": "people members team accounts approvals sign ups admins roles",

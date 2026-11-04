@@ -4,7 +4,7 @@ import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
 
 // User interface
-import { LuCodeXml, LuFolderKanban, LuListTodo, LuShapes, LuWorkflow } from 'react-icons/lu'
+import { LuCodeXml, LuFolderKanban, LuLibrary, LuListTodo, LuShapes, LuWorkflow } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -49,6 +49,13 @@ export const primaryNavigation: NavigationItem[] = [
     icon: LuShapes,
     end: false,
     membersOnly: false,
+  },
+  {
+    labelKey: 'primary.knowledge',
+    href: UrlTree.knowledge,
+    icon: LuLibrary,
+    end: false,
+    membersOnly: true,
   },
   {
     labelKey: 'primary.runs',

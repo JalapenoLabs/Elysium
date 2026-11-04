@@ -1,0 +1,62 @@
+// Copyright © 2026 Jalapeno Labs
+
+import type { KnowledgeResult } from '../api/routes/knowledgeRoutes'
+
+// Core
+import i18next from 'i18next'
+import { describe, expect, it } from 'vitest'
+
+// Misc
+import { toKnowledgeResults } from './knowledgeSearch'
+import { rankSearchResults } from './searchRanking'
+
+function result(documentId: string, title: string, source = 'slack'): KnowledgeResult {
+  return {
+    citation: {
+      documentId,
+      source,
+      title,
+      url: null,
+      occurredAt: '2026-11-01T10:00:00Z',
+      person: { id: 'u1', name: 'Maya Chen' },
+    },
+    passages: [
+      { position: 2, content: 'The sign-in loop on Safari.' },
+      { position: 0, content: 'WAY-123.' },
+    ],
+    alsoRecordedBy: [],
+    score: 0.03,
+  }
+}
+
+const t = i18next.getFixedT('en-US', 'knowledge')
+
+describe('toKnowledgeResults', () => {
+  it('opens each document at its best passage, naming its source and person', () => {
+    const [ found ] = toKnowledgeResults([ result('d1', '#web') ], 'safari', t)
+
+    expect(found.id).toBe('knowledge:d1')
+    expect(found.group).toBe('knowledge')
+    expect(found.title).toBe('#web')
+    expect(found.detail).toBe('Slack · Maya Chen')
+    expect(found.target).toEqual({ kind: 'link', href: '/knowledge/documents/d1?passage=2' })
+  })
+
+  it('names a document without a title by its source', () => {
+    const [ found ] = toKnowledgeResults([ result('d1', '', 'meeting') ], 'plans', t)
+
+    expect(found.title).toBe('Meetings')
+  })
+
+  it('scores a title that matches above one found by what it says, keeping the search\'s order otherwise', () => {
+    const found = toKnowledgeResults([
+      result('d1', '#web'),
+      result('d2', '#ops'),
+      result('d3', 'Safari sign-in'),
+    ], 'safari', t)
+
+    const ranked = rankSearchResults(found).map((each) => each.id)
+
+    expect(ranked).toEqual([ 'knowledge:d3', 'knowledge:d1', 'knowledge:d2' ])
+  })
+})

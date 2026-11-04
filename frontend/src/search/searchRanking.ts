@@ -7,11 +7,20 @@ export type SearchResultSection = {
   results: SearchResult[]
 }
 
-// Every source's results in one order: the closest match first, then by title, so equal
-// matches read alphabetically whichever source found them.
+// Every source's results in one order: the closest match first; then, between two results one
+// source ranked itself, that source's order; then by title, so other equal matches read
+// alphabetically whichever source found them.
 export function rankSearchResults(results: SearchResult[]) {
   return [ ...results ].sort((first, second) => second.score - first.score
+    || compareSourceRanks(first, second)
     || first.title.localeCompare(second.title))
+}
+
+function compareSourceRanks(first: SearchResult, second: SearchResult) {
+  if (first.group !== second.group || first.sourceRank === undefined || second.sourceRank === undefined) {
+    return 0
+  }
+  return first.sourceRank - second.sourceRank
 }
 
 // Ranked results as sections by kind, each section placed where its best result ranks and

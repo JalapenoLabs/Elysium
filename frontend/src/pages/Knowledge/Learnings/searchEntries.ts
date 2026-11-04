@@ -13,12 +13,12 @@ export const searchEntries: SearchEntry[] = [
   {
     id: 'learnings',
     group: 'pages',
-    title: 'settings:items.learnings.title',
+    title: 'learnings:title',
     tags: 'search:tags.learnings',
-    parent: 'settings:title',
+    parent: 'knowledge:title',
     icon: LuLightbulb,
     audience: 'members',
-    href: UrlTree.settingsLearnings,
+    href: UrlTree.knowledgeLearnings,
   },
   {
     id: 'newLearning',
@@ -28,6 +28,6 @@ export const searchEntries: SearchEntry[] = [
     parent: 'learnings:title',
     icon: LuPlus,
     audience: 'members',
-    href: UrlTree.settingsLearningNew,
+    href: UrlTree.knowledgeLearningNew,
   },
 ]

@@ -37,8 +37,18 @@ vi.mock('./useRecordSearch', () => ({
   useRecordSearch: () => records.answer,
 }))
 
+// What the knowledge base answers, set by each test as the records are; `useDebouncedRequest`
+// and the knowledge search's own tests cover how it asks.
+const knowledge = vi.hoisted(() => ({
+  answer: { results: [], isLoading: false, hasFailed: false } as SearchSourceAnswer,
+}))
+vi.mock('./useKnowledgeResults', () => ({
+  useKnowledgeResults: () => knowledge.answer,
+}))
+
 beforeEach(() => {
   records.answer = { results: [], isLoading: false, hasFailed: false }
+  knowledge.answer = { results: [], isLoading: false, hasFailed: false }
   vi.mocked(sendElysiaMessage).mockReset()
 })
 
@@ -190,6 +200,30 @@ describe('GlobalSearch', () => {
     expect(within(menu).getByText('Projects')).toBeTruthy()
     const project = within(menu).getByRole('menuitem', { name: 'Billing migration' })
     expect(project.getAttribute('href')).toBe('/projects/p1')
+  })
+
+  it('lists the knowledge base\'s documents in a section of their own, opening each document', () => {
+    knowledge.answer = {
+      isLoading: false,
+      hasFailed: false,
+      results: [{
+        id: 'knowledge:d1',
+        group: 'knowledge',
+        title: '#web',
+        detail: 'Slack · Maya Chen',
+        icon: LuFolderKanban,
+        score: 0,
+        sourceRank: 0,
+        target: { kind: 'link', href: '/knowledge/documents/d1?passage=0' },
+      }],
+    }
+    renderSearch()
+    type('safari login loop')
+
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByText('Knowledge')).toBeTruthy()
+    const document = within(menu).getByRole('menuitem', { name: /#web/ })
+    expect(document.getAttribute('href')).toBe('/knowledge/documents/d1?passage=0')
   })
 
   it('says when the records could not be searched, rather than that nothing matched', () => {

@@ -265,6 +265,11 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
+| `/knowledge`                  | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
+| `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
+| `/knowledge/learnings/new`    | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
+| `/knowledge/learnings/:learningId` | `LearningPage`      | One learning, corrected in place, with its history and Undo |
+| `/knowledge/documents/:documentId` | `KnowledgeDocumentPage` | One document whole, as every citation opens it; `?passage=` scrolls to one |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -308,9 +313,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
 | `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its transcript as heard beside its corrections, Approve, and its hold |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
-| `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
-| `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
-| `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
+| `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
 | `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from their rows; admins |
 | `/settings/learning-categories/new` | `NewLearningCategoryPage` | Add one of the workspace's own categories; admins |
 | `/settings/learning-categories/:categoryKey/edit` | `EditLearningCategoryPage` | Rename or describe one; under `/edit`, since a key may be `new` |
@@ -319,8 +322,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings; the company doc and learnings, hidden from guests; learning categories, for admins
-alone; and the knowledge base's own settings as they are built), and Workspace settings. Each entry is a tile, its icon
+settings, Knowledge base (meetings; the company doc, hidden from guests; learning categories, for admins alone; and the
+knowledge base's own settings as they are built), and Workspace settings. Learnings are content rather than a setting,
+so they live on the Knowledge page. Each entry is a tile, its icon
 and title and nothing more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on
 keyboard focus. Every entry has an icon of its own.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
@@ -511,8 +515,9 @@ searchbars); there is no separate command palette.
   the field), Enter opens the one highlighted, the first by default, and Esc clears the field, then leaves it; an Esc
   it used never reaches the page's Esc (`readPageShortcut`).
 - **Results.** The closest five, in sections by kind (Pages, Actions, then the records the API finds: Action items,
-  Projects, Coding sessions, Initiatives), each with its icon and a quieter line (the page it sits under, a record's
-  state, a session's number), then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing
+  Projects, Coding sessions, Initiatives, then, for the company's members, the knowledge base's documents), each with
+  its icon and a quieter line (the page it sits under, a record's state, a session's number, a document's source and
+  person), then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing
   matching says so, above Ask Elysia; records the API could not search say that instead. Choosing a result, clicking
   anywhere else, or tabbing away clears it. Every result that goes somewhere is a real link; an action runs in place,
   and one that needs it asks first, as Sign out does. On phones the results span the screen under the topbar.
@@ -534,17 +539,20 @@ searchbars); there is no separate command palette.
   while it is on, read from `/me`'s `hasSecondFactor`.
 - **Matching.** `searchMatch.ts`: every typed word must begin a word of the title, the tags, or the parent, accents
   and punctuation ignored; the title counts most, then tags, then the parent, and a title that begins with what was
-  typed ranks first. Ties read alphabetically (`searchRanking.ts`). The API matches records by the same rule on their
+  typed ranks first. Between two results one source ranked itself (`sourceRank`, the knowledge search's order), that
+  order decides; other ties read alphabetically (`searchRanking.ts`). The API matches records by the same rule on their
   titles, accents aside (`docs/api.md`, `/api/v1/search`).
 - **Sources.** `useGlobalSearch(query, recordLimit)` merges every source into one ranked list. A source answers
   `{ results, isLoading, hasFailed }` (`SearchSourceAnswer`) with results in the shared `SearchResult` shape. The
-  registry answers at once in the browser. `useRecordSearch` asks `GET /api/v1/search` 300ms after typing stops
-  (`RECORD_SEARCH_DELAY_MS`), aborts the request a newer query replaces, and never retries, so an older answer can
-  never land over a newer one; it reports loading from the keystroke until its own query's answer arrives. Its hits
-  become results in `recordSearch.ts`, scored by their titles with the registry's own `scoreSearchMatch`, so every
-  source ranks alike, and a kind of record the build does not know is logged and left out. While any source loads,
-  the field's magnifying glass is a spinner and the results show Loading…. Each kind takes a `SearchGroup` of its own,
-  named in `searchGroupLabelKeys`.
+  registry answers at once in the browser. The API's sources ask through `useDebouncedRequest`, 300ms after typing
+  stops (`RECORD_SEARCH_DELAY_MS`), aborting the request a newer query replaces and never retrying, so an older answer
+  can never land over a newer one; each reports loading from the keystroke until its own query's answer arrives.
+  `useRecordSearch` asks `GET /api/v1/search`; `useKnowledgeResults` asks the knowledge search, for the company's
+  members alone, and its documents become results in `knowledgeSearch.ts`, each opening its document at its best
+  passage. The records' hits become results in `recordSearch.ts`, scored by their titles with the registry's own
+  `scoreSearchMatch`, so every source ranks alike, and a kind of record the build does not know is logged and left
+  out. While any source loads, the field's magnifying glass is a spinner and the results show Loading…. Each kind
+  takes a `SearchGroup` of its own, named in `searchGroupLabelKeys`.
 - **Ask Elysia.** `useAskElysia` opens her panel on the conversation (`elysiaSlice`'s `panelView`) and sends what was
   typed as the person's message, which queues her turn. A message that fails to send says so in a toast and stays
   typed in the search.
@@ -754,16 +762,43 @@ admin, and the directory hides the entry. The order a turn's model is resolved i
   shows it; `kindModelSetting.changed` revalidates that project's key, or with no project every project's, which
   refetches only while a page holds it. `modelSettingsPresentation.ts` holds the rules and labels, tested beside it.
 
+### Knowledge
+
+`src/pages/Knowledge/` is the knowledge base (`docs/knowledge.md`), a top-level area in the sidebar for the company's
+members. `KnowledgeLayout` draws its header and its tabs, Search and Learnings, as the Action items area does; a guest
+is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`). Ask joins as a tab of its
+own with `knowledge_ask` (#97).
+
+- **The search** (`KnowledgeSearchPage`) is one field, focused as the page opens and by Ctrl+F, with the filters
+  button beside it, the filters in force as tags below (`KnowledgeFilterTags`, each removed with one click), then the
+  documents found, best first (`KnowledgeResultCard`): its source's logo, its title opening the document at its best
+  passage, its source, person, and date, up to three passages cut to three lines, each opening the document at
+  itself, and who else recorded the same text. While the embedding model cannot answer, a quiet line says the search
+  ran on exact words alone. `useKnowledgeSearch` asks through `useDebouncedRequest`, like the global search.
+- **Filters** (`KnowledgeFiltersDrawer`) open in a drawer from the right and apply together: sources (checkboxes, each
+  with its logo), project, the person who recorded it, and a period of days, since and until, both included. The
+  address keeps the query and the filters as days (`knowledgeFilters.ts`), and `toKnowledgeQuery` turns the days into
+  instants in the viewer's zone, the last day lasting until it ends.
+- **A document** (`KnowledgeDocumentPage`) is read from SWR alone, since no other view shares it: its source, person,
+  date, and projects, who else recorded it, then every passage in order, the one `?passage=` names scrolled to and
+  marked. Its one action opens where it lives (`KnowledgeOriginLink`): the provider's page in a new tab, the learning's
+  page, or the company doc. A record's recording and clips stay with its owner, so it shows text alone.
+- `knowledgePresentation.ts` names every source and gives it its logo (connectors' own from `connectorLogos.ts`), and
+  leaves a document's title out of its first passage, which the page shows above it; a source this build does not
+  know reads as its own name.
+
 ### Learnings
 
-`src/pages/Settings/Learnings/` is the minimal view of learnings (`docs/knowledge.md`, Learnings) until the Knowledge
-page folds it in, in the settings frame:
+`src/pages/Knowledge/Learnings/` is the Knowledge page's Learnings tab (`docs/knowledge.md`, Learnings), under its
+heading, with New learning in the header:
 
 - **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning; its
   category; who first saved it and through which agent; and when it last changed. Both lists filter by category, any
-  built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a tab of their own, and admins get a
-  third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show older. A guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
-- **New learning** (`NewLearningPage`, `LearningForm`) saves from the header's Save and opens the learning saved,
+  built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a nested tab of their own, and
+  admins get a third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show
+  older.
+- **New learning** (`NewLearningPage`, `LearningForm`), under Knowledge and Learnings in the breadcrumbs, saves from
+  the header's Save and opens the learning saved,
   saying whether it was new or revised one whose takeaway it named. What is typed is kept as a draft until it is
   saved (see Forms, Drafts).
 - **A learning's page** (`LearningPage`) corrects it with the same form, remounted whenever the learning changes so it
@@ -1425,7 +1460,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `companyDoc`, `projects`, `coding`,
+  `email`, `storage`, `github`, `jira`, `environment`, `knowledge`, `learnings`, `companyDoc`, `projects`, `coding`,
   `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`, `models`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

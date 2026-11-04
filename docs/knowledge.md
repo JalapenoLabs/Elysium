@@ -8,10 +8,11 @@ benefits from what anyone's agent saves.
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
 far: the index's tables in Postgres (Search, below); every timeline record indexed as it is stored, with the engine's
 backfill for what was stored before (Timeline records, below); learnings, saved through the routes, the MCP server, and
-Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
-(Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole
-(Hybrid search, below); the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
-agents, read by every agent, and indexed as it changes (The company doc, below); and the embedding model, with the
+the Knowledge page, filed under the built-in categories and the workspace's own, and indexed as they are saved
+(Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole, on the
+Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited in Settings, Company doc,
+proposed to by its scheduled review and by agents, read by every agent, and indexed as it changes (The company doc,
+below); and the embedding model, with the
 engine's embedder giving every passage its embedding as it arrives (Embeddings, below).
 
 ## What is indexed
@@ -109,7 +110,9 @@ search like the others.
   `search_document: ` on passages and `search_query: ` on queries. See Embeddings, below.
 - The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
-- The web app has a Knowledge page: search, browse learnings, and ask.
+- The web app has a Knowledge page (`/knowledge`, for members): search, browse learnings, and, with `knowledge_ask`
+  (#97), ask. Its search and each document are in `docs/frontend.md`, Knowledge; the topbar's search lists the
+  knowledge base's documents beside its other results for members.
 
 ## Hybrid search
 
@@ -467,12 +470,11 @@ guest reaches none of it (Who sees what, above). Admins see a feed of every chan
 
 ### In the web app
 
-Settings, Learnings (`/settings/learnings`, in the Knowledge base section) lists the learnings and the deleted ones,
-and for admins the feed, each a tab. A learning's page corrects it, deletes or restores it, and lists its history,
+The Knowledge page's Learnings tab (`/knowledge/learnings`) lists the learnings and the deleted ones, and for admins
+the feed, each a tab of its own. A learning's page corrects it, deletes or restores it, and lists its history,
 each change with Undo. New learning is its own page. Both lists filter by category. Settings, Learning categories
-(`/settings/learning-categories`, beside it, for admins) lists every category and manages the workspace's own. The
-Knowledge page (Search, above) folds these in once it is built; see `docs/frontend.md`, Learnings and Learning
-categories.
+(`/settings/learning-categories`, in the Knowledge base section, for admins) lists every category and manages the
+workspace's own; it is a setting, so it stays in Settings. See `docs/frontend.md`, Learnings and Learning categories.
 
 ## The company doc
 
