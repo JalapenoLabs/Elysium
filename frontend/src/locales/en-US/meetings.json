@@ -15,6 +15,7 @@
     "connectSource": "Connect one",
     "untitled": "Untitled meeting",
     "noRecording": "Transcript only",
+    "awaitingApproval": "Waiting for your approval",
     "retry": "Retry",
     "retried": "Elysium will try this meeting again within a minute."
   },
@@ -32,5 +33,39 @@
     "segmented": "Cutting clips",
     "done": "On the timeline",
     "failed": "Failed"
+  },
+  "page": {
+    "missingTitle": "Meeting not found",
+    "missing": "This meeting is gone, or it is someone else's.",
+    "openAtSource": "Open in {{source}}",
+    "openRun": "Open its run",
+    "approve": "Approve",
+    "approved": "Transcript approved",
+    "hold": "Wait for my approval",
+    "release": "Stop waiting for my approval",
+    "held": "This meeting waits for your approval",
+    "released": "This meeting no longer waits for your approval",
+    "correctedMeanwhile": "This meeting was just corrected. Review its transcript and approve it.",
+    "transcriptHeading": "Transcript",
+    "diffLabel": "Corrections to the transcript",
+    "foldedLines_one": "{{count, compact}} unchanged line",
+    "foldedLines_other": "{{count, compact}} unchanged lines",
+    "nothingChanged": "Nothing needed correcting.",
+    "nothingHeard": "Nothing was heard in this meeting."
+  },
+  "correction": {
+    "status": {
+      "uncorrected": "Not corrected yet",
+      "awaitingApproval": "Waiting for your approval",
+      "approved": "Approved",
+      "unapproved": "Not approved"
+    },
+    "approvedBy": "By {{who}}",
+    "sourceWaits": "Its source waits for your approval before acting on meetings.",
+    "heldByHand": "Waits for your approval once corrected."
+  },
+  "review": {
+    "heading": "Meeting",
+    "open": "Review the transcript"
   }
 }

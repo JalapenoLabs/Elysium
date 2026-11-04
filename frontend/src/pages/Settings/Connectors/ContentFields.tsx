@@ -39,7 +39,7 @@ type Props = {
 
 // What a connector reads, drawn from its kind's content fields. A selection picks from what
 // the account reaches now, read from the provider on request; a storage location is one of
-// the workspace's.
+// the workspace's; a toggle is a switch, off until turned on.
 export function ContentFields(props: Props) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   useStorageLocationsLoader()
@@ -102,6 +102,22 @@ export function ContentFields(props: Props) {
             }</ListBox>
           </Select.Popover>
         </Select>
+      }
+
+      if (field.field.type === 'toggle') {
+        return <Switch
+          key={field.id}
+          id={`connector-content-${field.id}`}
+          isSelected={props.value[field.id] === true}
+          onChange={(isSelected) => set(field.id, isSelected)}
+        >
+          <Switch.Content>
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+            <Label>{label}</Label>
+          </Switch.Content>
+        </Switch>
       }
 
       const current = props.value[field.id]

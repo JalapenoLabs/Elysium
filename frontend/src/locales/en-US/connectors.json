@@ -108,6 +108,7 @@
     "spaces": "Spaces",
     "conversations": "Conversations",
     "storageLocationId": "Storage location",
+    "waitForApproval": "Wait for my approval before acting on meetings",
     "choices": {
       "classic": "Classic",
       "fine-grained": "Fine-grained"

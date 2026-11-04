@@ -86,14 +86,20 @@ describe('MeetingTable', () => {
     expect(rowOrder([ 'Long', 'Unknown', 'Short' ])).toEqual([ 'Short', 'Long', 'Unknown' ])
   })
 
-  it('opens a meeting at its source in a new tab, and links its source to its connector', () => {
+  it('opens a meeting\'s page from its title, and links its source to its connector', () => {
     renderTable([ makeMeeting({ id: 'linked', title: 'Design review', url: 'https://app.fireflies.ai/view/1' }) ])
 
     const title = screen.getByText('Design review').closest('a')
-    expect(title?.getAttribute('href')).toBe('https://app.fireflies.ai/view/1')
-    expect(title?.getAttribute('target')).toBe('_blank')
+    expect(title?.getAttribute('href')).toBe('/settings/meetings/linked')
+    expect(title?.getAttribute('target')).toBeNull()
     const source = screen.getByRole('link', { name: 'Fireflies' })
     expect(source.getAttribute('href')).toBe('/settings/connectors/connector-1')
+  })
+
+  it('says under its state that a meeting\'s run waits for the person\'s approval', () => {
+    renderTable([ makeMeeting({ id: 'held', state: 'recorded', awaitingApproval: true }) ])
+
+    expect(screen.getByText('Waiting for your approval')).toBeTruthy()
   })
 
   it('names a meeting whose connector is gone by its source, without a link', () => {

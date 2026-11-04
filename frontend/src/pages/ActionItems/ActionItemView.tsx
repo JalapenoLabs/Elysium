@@ -17,6 +17,7 @@ import { ActionItemDetailsPanel } from './ActionItemDetailsPanel'
 import { ActionItemHistory } from './ActionItemHistory'
 import { ActionItemLinks } from './ActionItemLinks'
 import { ActionItemSessions } from './ActionItemSessions'
+import { MeetingReviewLink } from './MeetingReviewLink'
 import { RestoreActionItemButton } from './RestoreActionItemButton'
 import { SnoozeDateModal } from './SnoozeDateModal'
 
@@ -35,8 +36,8 @@ type Props = {
 // One item, edited in place and kept by the page's Save. The title is the page's title,
 // renamed where it is shown; the state change its state leads with is the page's primary
 // action, and everything else it can do is its Actions menu. Its notes and fields sit side by
-// side, and its links to Jira and GitHub, the reply box of the message that raised it, its
-// conversation, the coding sessions started from it, and its history follow. Those act at
+// side, and its links to Jira and GitHub, the meeting it asks to review, the reply box of the
+// message that raised it, its conversation, the coding sessions started from it, and its history follow. Those act at
 // once, as actions do; only the fields wait for Save. A deleted item is read-only, with
 // Restore.
 export function ActionItemView(props: Props) {
@@ -108,6 +109,7 @@ export function ActionItemView(props: Props) {
             />}
         </section>
         <ActionItemLinks item={item} />
+        {!isDeleted && <MeetingReviewLink itemId={item.id} />}
         {!isDeleted && <ActionItemReply itemId={item.id} />}
         <section className='relaxed'>
           <h2 className='compact text-lg font-semibold'>{t('comments.heading')}</h2>

@@ -55,6 +55,7 @@ export const UrlTree = {
   // The MCP page's old address, kept as a redirect so links and bookmarks to it still land.
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
+  settingsMeeting: '/settings/meetings/:meetingId',
   settingsCompanyDoc: '/settings/company-doc',
   settingsLearnings: '/settings/learnings',
   settingsLearningNew: '/settings/learnings/new',
@@ -180,6 +181,10 @@ export function getProjectViewUrl(projectId: string) {
 
 export function getRunViewUrl(runId: string) {
   return UrlTree.runView.replace(':runId', runId)
+}
+
+export function getMeetingUrl(meetingId: string) {
+  return UrlTree.settingsMeeting.replace(':meetingId', meetingId)
 }
 
 export function getConnectorUrl(connectorId: string) {

@@ -29,7 +29,7 @@ import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
-import { meetingsLoaded } from '../store/meetingsSlice'
+import { meetingsLoaded, meetingUpserted } from '../store/meetingsSlice'
 import { modelSettingsLoaded } from '../store/modelSettingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { runLoaded, runsPageLoaded, stepLogLoaded } from '../store/runsSlice'
@@ -75,7 +75,7 @@ import { LEARNING_CATEGORIES_KEY, listLearningCategories } from '../api/routes/l
 import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
-import { listMeetings } from '../api/routes/meetingRoutes'
+import { getMeeting, listMeetings } from '../api/routes/meetingRoutes'
 import { listModelSettings, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
@@ -270,6 +270,17 @@ export function useMeetingsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/meetings', async () => {
     const response = await listMeetings()
     dispatch(meetingsLoaded(response.meetings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One of the person's meetings, for its page, however far back it was.
+export function useMeetingLoader(meetingId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/meetings/${meetingId}`, async () => {
+    const response = await getMeeting(meetingId)
+    dispatch(meetingUpserted(response.meeting))
     return response
   })
   return toLoadStatus(data !== undefined, error)

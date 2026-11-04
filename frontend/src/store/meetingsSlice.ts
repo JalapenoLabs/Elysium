@@ -24,4 +24,5 @@ export const { meetingsLoaded, meetingUpserted } = meetingsSlice.actions
 
 export const {
   selectAll: selectAllMeetings,
+  selectById: selectMeetingById,
 } = meetingsAdapter.getSelectors((state: RootState) => state.meetings)

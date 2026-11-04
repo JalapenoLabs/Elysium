@@ -7,11 +7,15 @@ import { describe, expect, it } from 'vitest'
 
 // Misc
 import { MEETING_STATES } from '../../../api/routes/meetingRoutes'
-import { makeConnector } from '../../../testFixtures'
+import { makeConnector, makeMeeting } from '../../../testFixtures'
 import {
+  correctionStatusChipColors,
+  correctionStatusLabelKeys,
+  correctionStatusOf,
   meetingSourcesOf,
   meetingStateChipColors,
   meetingStateLabelKeys,
+  transcriptText,
 } from './meetingsPresentation'
 
 describe('meeting states', () => {
@@ -67,5 +71,45 @@ describe('meetingSourcesOf', () => {
 
     expect(sources.kinds).toEqual([ 'fireflies' ])
     expect(sources.connectors).toEqual([])
+  })
+})
+
+describe('correctionStatusOf', () => {
+  const correction = {
+    changedLines: 2,
+    approvedAt: null,
+    approvedBy: null,
+    reviewItemId: null,
+    createdAt: '2026-11-04T12:00:00Z',
+  }
+
+  it('says a meeting is waiting on its person only while its run is held', () => {
+    expect(correctionStatusOf(makeMeeting({ id: 'm' }))).toBe('uncorrected')
+    expect(correctionStatusOf(makeMeeting({ id: 'm', correction, awaitingApproval: true })))
+      .toBe('awaitingApproval')
+    // Resumed from the Runs page, the run went on without an approval.
+    expect(correctionStatusOf(makeMeeting({ id: 'm', correction }))).toBe('unapproved')
+    expect(correctionStatusOf(makeMeeting({
+      id: 'm',
+      correction: { ...correction, approvedAt: '2026-11-04T13:00:00Z', approvedBy: 'u' },
+    }))).toBe('approved')
+  })
+
+  it('has a label and a color for every status', () => {
+    for (const status of [ 'uncorrected', 'awaitingApproval', 'approved', 'unapproved' ] as const) {
+      expect(correctionStatusLabelKeys[status]).toBe(`correction.status.${status}`)
+      expect(correctionStatusChipColors[status]).toBeTruthy()
+    }
+  })
+})
+
+describe('transcriptText', () => {
+  it('reads one line per transcript line, at its time, with its speaker when it names one', () => {
+    const text = transcriptText([
+      { startMs: 61_000, endMs: 64_000, speaker: 'Ada', text: 'Launch is\nFriday.' },
+      { startMs: 3_723_000, endMs: 3_725_000, speaker: '', text: '  Heard by Whisper ' },
+    ])
+
+    expect(text).toBe('[1:01] Ada: Launch is Friday.\n[1:02:03] Heard by Whisper')
   })
 })

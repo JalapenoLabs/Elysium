@@ -82,6 +82,7 @@ import { LearningCategoriesPage } from './pages/Settings/LearningCategories/Lear
 import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/NewLearningCategoryPage'
 import { LearningPage } from './pages/Settings/Learnings/LearningPage'
 import { LearningsPage } from './pages/Settings/Learnings/LearningsPage'
+import { MeetingPage } from './pages/Settings/Meetings/MeetingPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
 import { NewLearningPage } from './pages/Settings/Learnings/NewLearningPage'
@@ -289,6 +290,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsMeetings,
       element: <MeetingsPage />,
+    },
+    {
+      path: UrlTree.settingsMeeting,
+      element: <MeetingPage />,
     },
     {
       path: UrlTree.settingsCompanyDoc,

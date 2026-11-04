@@ -41,7 +41,8 @@ export type CheckSpec = {
 
 export type ContentField = {
   id: string
-  field: { type: 'selection' } | { type: 'storage_location' }
+  // A selection picks from what the account reaches; a toggle is on or off, off unless saved.
+  field: { type: 'selection' } | { type: 'storage_location' } | { type: 'toggle' }
   required: boolean
 }
 

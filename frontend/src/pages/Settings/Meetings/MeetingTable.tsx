@@ -15,7 +15,7 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 // User interface
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
-import { LuExternalLink, LuRotateCcw } from 'react-icons/lu'
+import { LuRotateCcw } from 'react-icons/lu'
 import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 
 // Misc
@@ -26,7 +26,7 @@ import { formatDateTime } from '../../../format/dates'
 import { formatDuration } from '../../../format/durations'
 import { formatNumber } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
-import { getConnectorUrl } from '../../../urls'
+import { getConnectorUrl, getMeetingUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
 import { meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
 
@@ -65,11 +65,11 @@ const columnSizes = {
 // uikit holds a column to 160 pixels unless it sets its own floor, and most of these need less.
 const COLUMN_MIN_SIZE = 100
 
-// The person's recent meetings in a table: each one's title (opening it at its source), the
-// source it came from, how far its processing got and why it failed, when it was, how long it
-// ran, and how many topics Elysia found. A failed one can be tried again from its row. No row
-// opens a page of its own, so a click expands the row, which is how a long failure reads in
-// full.
+// The person's recent meetings in a table: each one's title (opening its page, with its
+// transcript and corrections), the source it came from, how far its processing got and why it
+// failed or what it waits for, when it was, how long it ran, and how many topics Elysia found.
+// A failed one can be tried again from its row. A click on a row expands it, which is how a
+// long failure reads in full; its title is the link.
 export function MeetingTable(props: Props) {
   const { t, i18n } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -86,11 +86,14 @@ export function MeetingTable(props: Props) {
     function stateText(meeting: Meeting) {
       return t(meetingStateLabelKeys[meeting.state])
     }
-    // Under the state: why the last attempt failed, or, for a finished meeting, that it was
-    // published from its transcript alone.
+    // Under the state: why the last attempt failed, that its run waits for the person's approval,
+    // or, for a finished meeting, that it was published from its transcript alone.
     function stateNote(meeting: Meeting) {
       if (meeting.lastError) {
         return meeting.lastError
+      }
+      if (meeting.awaitingApproval) {
+        return t('list.awaitingApproval')
       }
       if (meeting.state === 'done' && !meeting.hasRecording) {
         return t('list.noRecording')
@@ -113,17 +116,12 @@ export function MeetingTable(props: Props) {
     }
 
     const renderCell = {
-      meeting: (meeting: Meeting) => meeting.url
-        ? <Link
-          href={meeting.url}
-          target='_blank'
-          rel='noreferrer'
-          className='font-medium text-link no-underline hover:underline'
-        >
-          <span>{titleText(meeting)}</span>
-          <LuExternalLink className='ml-1 inline size-3.5 shrink-0' aria-hidden />
-        </Link>
-        : <span className='font-medium'>{titleText(meeting)}</span>,
+      meeting: (meeting: Meeting) => <Link
+        href={getMeetingUrl(meeting.id)}
+        className='font-medium text-link no-underline hover:underline'
+      >{
+          titleText(meeting)
+        }</Link>,
       // The connector is gone once removed; its kind still names where the meeting came from.
       source: (meeting: Meeting) => <span className='inline-flex items-center gap-1.5'>
         <ConnectorLogo kind={meeting.sourceKind} className='size-4' />

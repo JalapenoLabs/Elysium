@@ -33,7 +33,7 @@ import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSl
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { draftRemoved, draftUpserted } from '../store/draftsSlice'
-import { meetingUpserted } from '../store/meetingsSlice'
+import { meetingUpserted, selectAllMeetings } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
   passwordVaultStatusUpdated,
@@ -324,6 +324,17 @@ const handlers: Handlers = {
   // runs loads it by id, as does one that shows this run already.
   'workflowRun.changed': (event) => {
     const state = store.getState()
+    // A meeting says whether its run waits for its person's approval, which only its run's
+    // change tells.
+    const meeting = selectAllMeetings(state).find((candidate) => candidate.runId === event.data.id)
+    if (meeting) {
+      getMeeting(meeting.id)
+        .then((response) => store.dispatch(meetingUpserted(response.meeting)))
+        .catch((error: unknown) => console.debug('A meeting whose run changed could not be loaded', {
+          error,
+          meetingId: meeting.id,
+        }))
+    }
     if (!selectIsCompanyMember(state)) {
       return
     }
