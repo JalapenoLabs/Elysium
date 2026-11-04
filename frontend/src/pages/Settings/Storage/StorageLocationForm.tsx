@@ -26,6 +26,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { ProjectScopePicker } from '../../../components/ProjectScopePicker'
+import { SecretInput } from '../../../components/SecretInput'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { StorageSetupChecklist } from './StorageSetupChecklist'
 
@@ -424,23 +425,17 @@ export function StorageLocationForm(props: Props) {
       </TextField>}
 
       {/* Secret */}
-      <TextField
+      <SecretInput
         isRequired={!keepsStoredSecret}
-        isInvalid={Boolean(errors.accessKey)}
-        type='password'
-        autoComplete='off'
-        value={values.accessKey}
+        isMonospace
+        label={t(labels.secret)}
+        description={keepsStoredSecret
+          ? t('form.accessKeyKeep')
+          : t(labels.secretHint)}
+        errorMessage={errors.accessKey?.message}
+        value={values.accessKey ?? ''}
         onChange={setText('accessKey')}
-      >
-        <Label>{t(labels.secret)}</Label>
-        <Input />
-        <Description>{
-          keepsStoredSecret
-            ? t('form.accessKeyKeep')
-            : t(labels.secretHint)
-        }</Description>
-        <FieldError>{errors.accessKey?.message}</FieldError>
-      </TextField>
+      />
 
       {!props.location && <PageCreateFooter />}
     </Form>

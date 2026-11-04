@@ -1,18 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PasswordAssessment } from '../hooks/usePasswordAssessment'
+import type { PasswordRequirement } from './passwordRules'
 
 // Core
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, FieldError, InputGroup, Label, TextField, Tooltip } from '@heroui/react'
-import { LuCheck, LuEye, LuEyeOff, LuX } from 'react-icons/lu'
+import { Description } from '@heroui/react'
+import { LuCheck, LuX } from 'react-icons/lu'
+import { SecretInput } from './SecretInput'
 
 // Misc
 import { PASSWORD_MIN_LENGTH } from '../constants'
-import { PASSWORD_RULES } from './passwordRules'
+import { PASSWORD_REQUIREMENTS } from './passwordRules'
 
 type Props = {
   label: string
@@ -23,6 +25,8 @@ type Props = {
   // A refusal from Kratos, such as a breached password.
   errorMessage?: string
   isDisabled?: boolean
+  // Focuses the field once it mounts, with a ref rather than the attribute, which is unreliable
+  // in a modal that animates in.
   autoFocus?: boolean
 }
 
@@ -36,65 +40,40 @@ const scoreLabelKeys = [
   'password.strength.veryStrong',
 ] as const
 
-const ruleLabelKeys = {
+const requirementLabelKeys = {
   length: 'password.rules.length',
   uppercase: 'password.rules.uppercase',
   special: 'password.rules.special',
-} as const
+  strength: 'password.rules.strength',
+} as const satisfies Record<PasswordRequirement, string>
 
-// Every field that sets a new password: a reveal toggle, a strength meter from zxcvbn, and
-// the rules as a live checklist. The form stays disabled until the assessment accepts it.
+// Every field that sets a new password: a reveal toggle, a strength meter from zxcvbn, and every
+// requirement as a live checklist, a check for each one met and a red X for each one not
+// (`~/.claude/docs/ux.md`, Password inputs). The form stays disabled until all are met.
 export function PasswordInput(props: Props) {
   const { t } = useTranslation('auth')
-  const [ isVisible, setIsVisible ] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const score = props.assessment.strength?.score ?? null
   const hasValue = props.value.length > 0
+  const shouldFocus = props.autoFocus
 
-  const revealLabel = isVisible
-    ? t('password.hide')
-    : t('password.show')
+  useEffect(() => {
+    if (shouldFocus) {
+      inputRef.current?.focus()
+    }
+  }, [ shouldFocus ])
 
   return <div>
-    <TextField
+    <SecretInput
       isRequired
-      autoFocus={props.autoFocus}
-      isDisabled={props.isDisabled}
-      isInvalid={Boolean(props.errorMessage)}
-      type={isVisible
-        ? 'text'
-        : 'password'}
+      label={props.label}
       autoComplete='new-password'
+      isDisabled={props.isDisabled}
+      errorMessage={props.errorMessage}
       value={props.value}
       onChange={props.onChange}
-    >
-      <Label>{props.label}</Label>
-      <InputGroup>
-        <InputGroup.Input />
-        <InputGroup.Suffix>
-          <Tooltip delay={200}>
-            <Tooltip.Trigger>
-              <div>
-                <Button
-                  isIconOnly
-                  size='sm'
-                  variant='ghost'
-                  aria-label={revealLabel}
-                  onPress={() => setIsVisible((visible) => !visible)}
-                >
-                  {isVisible
-                    ? <LuEyeOff className='size-4' aria-hidden />
-                    : <LuEye className='size-4' aria-hidden />}
-                </Button>
-              </div>
-            </Tooltip.Trigger>
-            <Tooltip.Content>
-              <span>{revealLabel}</span>
-            </Tooltip.Content>
-          </Tooltip>
-        </InputGroup.Suffix>
-      </InputGroup>
-      <FieldError>{props.errorMessage}</FieldError>
-    </TextField>
+      inputRef={inputRef}
+    />
 
     {hasValue && <div className='mt-2'>
       <div className='level-left gap-1' aria-hidden>{
@@ -119,15 +98,19 @@ export function PasswordInput(props: Props) {
     </div>}
 
     <ul className='mt-2 flex flex-col gap-1 text-xs'>{
-      PASSWORD_RULES.map((rule) => {
-        const isMet = props.assessment.rules[rule]
-        return <li key={rule} className={isMet
+      PASSWORD_REQUIREMENTS.map((requirement) => {
+        const isMet = props.assessment.requirements[requirement]
+        return <li key={requirement} className={isMet
           ? 'level-left gap-1.5 text-success'
-          : 'level-left gap-1.5 opacity-70'}>
+          : 'level-left gap-1.5'}>
           {isMet
             ? <LuCheck className='size-3.5' aria-hidden />
-            : <LuX className='size-3.5' aria-hidden />}
-          <span>{t(ruleLabelKeys[rule], { count: PASSWORD_MIN_LENGTH })}</span>
+            : <LuX className='size-3.5 text-danger' aria-hidden />}
+          <span className={isMet
+            ? undefined
+            : 'opacity-70'}>{
+              t(requirementLabelKeys[requirement], { count: PASSWORD_MIN_LENGTH })
+            }</span>
         </li>
       })
     }</ul>

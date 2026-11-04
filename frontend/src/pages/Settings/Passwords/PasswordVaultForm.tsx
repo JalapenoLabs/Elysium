@@ -24,6 +24,7 @@ import {
   Select,
   TextField,
 } from '@heroui/react'
+import { SecretInput } from '../../../components/SecretInput'
 import { SetupChecklist } from '../../../components/SetupChecklist'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
@@ -184,38 +185,27 @@ export function PasswordVaultForm(props: Props) {
       </TextField>
 
       {/* client_secret */}
-      <TextField
+      <SecretInput
         isRequired={!stored}
-        isInvalid={Boolean(errors.clientSecret)}
-        type='password'
-        autoComplete='off'
-        value={values.clientSecret}
+        isMonospace
+        label={t('form.clientSecret')}
+        description={stored && t('form.clientSecretKeep')}
+        errorMessage={errors.clientSecret?.message}
+        value={values.clientSecret ?? ''}
         onChange={(value) => form.setValue('clientSecret', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('form.clientSecret')}</Label>
-        <Input />
-        {stored && <Description>{t('form.clientSecretKeep')}</Description>}
-        <FieldError>{errors.clientSecret?.message}</FieldError>
-      </TextField>
+      />
 
       {/* Master password */}
-      <TextField
+      <SecretInput
         isRequired={!stored}
-        isInvalid={Boolean(errors.masterPassword)}
-        type='password'
-        autoComplete='off'
-        value={values.masterPassword}
+        label={t('form.masterPassword')}
+        description={stored
+          ? t('form.masterPasswordKeep')
+          : t('form.masterPasswordHint')}
+        errorMessage={errors.masterPassword?.message}
+        value={values.masterPassword ?? ''}
         onChange={(value) => form.setValue('masterPassword', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('form.masterPassword')}</Label>
-        <Input />
-        <Description>{
-          stored
-            ? t('form.masterPasswordKeep')
-            : t('form.masterPasswordHint')
-        }</Description>
-        <FieldError>{errors.masterPassword?.message}</FieldError>
-      </TextField>
+      />
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
 

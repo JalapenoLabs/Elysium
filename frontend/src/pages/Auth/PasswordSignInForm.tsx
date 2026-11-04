@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, FieldError, Form, Input, Label, Separator, TextField } from '@heroui/react'
 import { LuFingerprint } from 'react-icons/lu'
+import { SecretInput } from '../../components/SecretInput'
 
 // Utility
 import { browserSupportsWebAuthnAutofill, startAuthentication, WebAuthnAbortService } from '@simplewebauthn/browser'
@@ -36,13 +37,16 @@ export function PasswordSignInForm(props: Props) {
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ passkeyError, setPasskeyError ] = useState<string | null>(null)
   const emailRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
   const hasPasskey = hasGroup(props.flow, 'passkey')
   const challenge = inputValue(props.flow, 'passkey_challenge')
   const messages = collectMessages(props.flow)
   const { onSubmit } = props
 
+  // Confirming a sign-in fixes the email, so the password is what is typed first.
   useEffect(() => {
     if (props.isRefresh) {
+      passwordRef.current?.focus()
       return
     }
     emailRef.current?.focus()
@@ -115,21 +119,17 @@ export function PasswordSignInForm(props: Props) {
         <Input ref={emailRef} />
         <FieldError>{fieldErrorText(messages.byField.identifier, t)}</FieldError>
       </TextField>
-      <TextField
+      <SecretInput
         isRequired
-        autoFocus={props.isRefresh}
         className='relaxed'
-        type='password'
         name='password'
+        label={t('fields.password')}
         autoComplete='current-password'
-        isInvalid={Boolean(messages.byField.password)}
+        errorMessage={fieldErrorText(messages.byField.password, t)}
         value={password}
         onChange={setPassword}
-      >
-        <Label>{t('fields.password')}</Label>
-        <Input />
-        <FieldError>{fieldErrorText(messages.byField.password, t)}</FieldError>
-      </TextField>
+        inputRef={passwordRef}
+      />
       <Button
         fullWidth
         type='submit'

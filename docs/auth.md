@@ -56,8 +56,8 @@ separately from the CSRF cookie, so both are configured.
 
 ## Signing up
 
-Sign-up is one form: first and last name side by side, then email, and a password. Passkeys are added from Settings
-afterwards, so every account has a password and one way to recover it.
+Sign-up is one form: first and last name side by side, then email, and a password typed twice. Passkeys are added
+from Settings afterwards, so every account has a password and one way to recover it.
 
 Before Kratos stores a new identity, it asks the API (`POST /internal/kratos/registration`, a pre-persist webhook).
 The API refuses in two cases:

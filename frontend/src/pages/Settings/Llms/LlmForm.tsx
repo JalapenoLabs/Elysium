@@ -4,7 +4,7 @@ import type { Llm, LlmType } from '../../../api/routes/llmRoutes'
 import type { LlmFormValues } from './llmFormSchema'
 
 // Core
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -22,7 +22,6 @@ import {
   FieldError,
   Form,
   Input,
-  InputGroup,
   Label,
   NumberField,
   Switch,
@@ -30,7 +29,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
-import { LuEye, LuEyeOff } from 'react-icons/lu'
+import { SecretInput } from '../../../components/SecretInput'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -60,7 +59,6 @@ type Props = {
 export function LlmForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
-  const [ isTokenRevealed, setIsTokenRevealed ] = useState(false)
   const mode = props.llm
     ? 'edit'
     : 'create'
@@ -186,43 +184,16 @@ export function LlmForm(props: Props) {
     </TextField>
 
     {/* Secret token */}
-    {isTokenTyped && <TextField
+    {isTokenTyped && <SecretInput
       isRequired={mode === 'create'}
-      isInvalid={Boolean(errors.secretToken)}
-      type={isTokenRevealed
-        ? 'text'
-        : 'password'}
-      autoComplete='off'
+      isMonospace
+      label={t('form.secretToken')}
+      placeholder={t('form.secretTokenPlaceholder')}
+      description={mode === 'edit' && t('form.secretTokenKeep')}
+      errorMessage={errors.secretToken?.message}
       value={secretToken}
       onChange={(value) => form.setValue('secretToken', value, { shouldDirty: true, shouldValidate: true })}
-    >
-      <Label>{t('form.secretToken')}</Label>
-      <InputGroup>
-        <InputGroup.Input
-          className='font-mono'
-          spellCheck={false}
-          placeholder={t('form.secretTokenPlaceholder')}
-        />
-        <InputGroup.Suffix>
-          <Button
-            isIconOnly
-            size='sm'
-            variant='ghost'
-            aria-label={isTokenRevealed
-              ? t('form.hideToken')
-              : t('form.revealToken')}
-            aria-pressed={isTokenRevealed}
-            onPress={() => setIsTokenRevealed((revealed) => !revealed)}
-          >
-            {isTokenRevealed
-              ? <LuEyeOff className='size-4' aria-hidden />
-              : <LuEye className='size-4' aria-hidden />}
-          </Button>
-        </InputGroup.Suffix>
-      </InputGroup>
-      {mode === 'edit' && <Description>{t('form.secretTokenKeep')}</Description>}
-      <FieldError>{errors.secretToken?.message}</FieldError>
-    </TextField>}
+    />}
 
     {/* Expiry, entered and shown in the viewer's local time zone */}
     {isTokenTyped && <div>

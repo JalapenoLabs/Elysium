@@ -3,12 +3,11 @@
 import type { AccountDefinition } from '../../../api/routes/connectorRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Input, InputGroup, Label, ListBox, Select, TextField, Tooltip } from '@heroui/react'
-import { LuEye, LuEyeOff } from 'react-icons/lu'
+import { Input, Label, ListBox, Select, TextField } from '@heroui/react'
+import { SecretInput } from '../../../components/SecretInput'
 
 type Props = {
   definition: AccountDefinition
@@ -27,15 +26,6 @@ const inputTypes = {
 // toggle to show what was typed.
 export function AccountFields(props: Props) {
   const { t } = useTranslation('connectors')
-  const [ revealed, setRevealed ] = useState<ReadonlySet<string>>(new Set())
-
-  function toggleReveal(fieldId: string) {
-    const next = new Set(revealed)
-    if (!next.delete(fieldId)) {
-      next.add(fieldId)
-    }
-    setRevealed(next)
-  }
 
   function set(fieldId: string, value: string) {
     props.onChange({ ...props.values, [fieldId]: value })
@@ -67,42 +57,14 @@ export function AccountFields(props: Props) {
         </Select>
       }
       if (field.field.type === 'secret') {
-        const isRevealed = revealed.has(field.id)
-        const toggleLabel = isRevealed
-          ? t('fields.hideSecret')
-          : t('fields.revealSecret')
-        return <TextField
+        return <SecretInput
           key={field.id}
           isRequired={field.required}
-          type={isRevealed ? 'text' : 'password'}
-          autoComplete='off'
+          isMonospace
+          label={label}
           value={props.values[field.id] ?? ''}
           onChange={(value) => set(field.id, value)}
-        >
-          <Label>{label}</Label>
-          <InputGroup>
-            <InputGroup.Input className='font-mono' spellCheck={false} />
-            <InputGroup.Suffix>
-              <Tooltip delay={400}>
-                <Tooltip.Trigger>
-                  <Button
-                    isIconOnly
-                    size='sm'
-                    variant='ghost'
-                    aria-label={toggleLabel}
-                    aria-pressed={isRevealed}
-                    onPress={() => toggleReveal(field.id)}
-                  >
-                    {isRevealed
-                      ? <LuEyeOff className='size-4' aria-hidden />
-                      : <LuEye className='size-4' aria-hidden />}
-                  </Button>
-                </Tooltip.Trigger>
-                <Tooltip.Content>{toggleLabel}</Tooltip.Content>
-              </Tooltip>
-            </InputGroup.Suffix>
-          </InputGroup>
-        </TextField>
+        />
       }
       return <TextField
         key={field.id}

@@ -25,8 +25,24 @@ export function checkPasswordRules(password: string): Record<PasswordRule, boole
   }
 }
 
-// A password the form may submit: every rule met, and zxcvbn thinks it strong enough.
-export function isPasswordAcceptable(rules: Record<PasswordRule, boolean>, score: number | null) {
-  const meetsRules = PASSWORD_RULES.every((rule) => rules[rule])
-  return meetsRules && score !== null && score >= PASSWORD_MIN_SCORE
+// What the checklist under a new password lists: the rules, then strong enough by zxcvbn's
+// score, so every condition that holds the form back is one the person can see.
+export const PASSWORD_REQUIREMENTS = [ ...PASSWORD_RULES, 'strength' ] as const
+export type PasswordRequirement = typeof PASSWORD_REQUIREMENTS[number]
+
+// Whether each requirement is met. The score is null until zxcvbn has judged the password, which
+// leaves strength unmet rather than guessed.
+export function checkPasswordRequirements(
+  rules: Record<PasswordRule, boolean>,
+  score: number | null,
+): Record<PasswordRequirement, boolean> {
+  return {
+    ...rules,
+    strength: score !== null && score >= PASSWORD_MIN_SCORE,
+  }
+}
+
+// A password the form may submit: every requirement met.
+export function isPasswordAcceptable(requirements: Record<PasswordRequirement, boolean>) {
+  return PASSWORD_REQUIREMENTS.every((requirement) => requirements[requirement])
 }

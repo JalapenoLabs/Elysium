@@ -380,9 +380,12 @@ offers them in autofill. See `docs/auth.md`.
   page's Save; Nowhere turns backups off), the last backup stored, the next one or that backups are off, how long
   they are kept, Back up now in the header, and every attempt. The status flows through SWR, then `backupsSlice`, then
   the `backups.status` event. The directory entry is hidden from others. See `docs/infrastructure.md`, Backups.
-- **Password field.** `PasswordInput` is the one password field. It shows a zxcvbn strength meter
-  (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and a checklist: 12 or more characters, an
-  uppercase letter, and a symbol. Forms stay disabled until every rule passes and the score is at least 3.
+- **Password field.** `PasswordInput` is the one field that sets a password, on `SecretInput`. It shows a zxcvbn
+  strength meter (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and every requirement as a
+  checklist: 12 or more characters, an uppercase letter, a symbol, and hard to guess (a score of at least 3). A met
+  one is green with a check, an unmet one grey with a red X. Forms stay disabled until all are met. Sign-up and Change
+  password ask for it twice, and say so under the second field once the two differ. Signing in has the same reveal
+  toggle.
 - **Names.** `UserName` and `useActorNames` turn a user id or a recorded actor into a name: `user:<id>` is the
   person, and "You" for oneself. A bare `user` is from before accounts. Resources show who created them with
   `createdBy`.
@@ -1072,7 +1075,15 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
   `Description` sits beside `Switch.Content`, inside the `Switch`. A control outside `Switch.Content` looks right but
   does nothing when clicked; `src/bugs/switchClickTarget.test.tsx` fails the build on one.
 - Server conflicts map back to fields. For example, a `409` on create or edit sets an error on `name`.
-- Secret tokens are write-only. The edit form leaves the field blank and sends a token only when one is typed.
+- Every secret field is `SecretInput` (`src/components/SecretInput.tsx`): hidden while typed, with an eye button
+  to show it and an eye with a slash to hide it, and `autoComplete='off'` unless it is the account's own password
+  (`current-password` or `new-password`). Tokens, keys, and secret values set `isMonospace`. Passwords, API tokens,
+  storage keys, the vault's secret and master password, connector accounts' secrets, and secret environment values
+  all use it.
+- Secret tokens are write-only. The edit form leaves the field blank and sends a token only when one is typed, with
+  the field's description saying a blank one keeps the stored token. This is a deliberate exception to
+  `~/.claude/docs/ux.md`, which avoids "leave blank to keep" for passwords: an API token is replaced in its own
+  provider and pasted here, never typed from memory or reset, so a separate replace dialog would only add a step.
 
 ## Overlays
 

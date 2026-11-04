@@ -6,7 +6,7 @@ import type { PasswordStrength } from '../components/passwordStrength'
 import { useEffect, useState } from 'react'
 
 // Misc
-import { checkPasswordRules, isPasswordAcceptable } from '../components/passwordRules'
+import { checkPasswordRequirements, checkPasswordRules, isPasswordAcceptable } from '../components/passwordRules'
 import { estimatePasswordStrength } from '../components/passwordStrength'
 
 // Judges a new password as it is typed: the rules at once, zxcvbn's strength as soon as its
@@ -37,10 +37,12 @@ export function usePasswordAssessment(password: string, userInputs: string[]) {
     ? strength.result
     : null
 
+  const requirements = checkPasswordRequirements(rules, current?.score ?? null)
+
   return {
-    rules,
+    requirements,
     strength: current,
-    isAcceptable: isPasswordAcceptable(rules, current?.score ?? null),
+    isAcceptable: isPasswordAcceptable(requirements),
   } as const
 }
 

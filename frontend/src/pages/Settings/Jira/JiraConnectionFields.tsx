@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Description, FieldError, Input, Label, TextField } from '@heroui/react'
+import { SecretInput } from '../../../components/SecretInput'
 
 type Props = {
   form: UseFormReturn<JiraFormInput, unknown, JiraFormValues>
@@ -84,18 +85,14 @@ export function JiraConnectionFields(props: Props) {
     </TextField>
 
     {/* API token */}
-    <TextField
+    <SecretInput
       isRequired={!props.keepsStoredToken}
-      isInvalid={Boolean(errors.token)}
-      type='password'
-      autoComplete='off'
-      value={values.token}
+      isMonospace
+      label={t('form.token')}
+      description={tokenHint}
+      errorMessage={errors.token?.message}
+      value={values.token ?? ''}
       onChange={(value) => props.form.setValue('token', value, { shouldDirty: true, shouldValidate: true })}
-    >
-      <Label>{t('form.token')}</Label>
-      <Input />
-      <Description>{tokenHint}</Description>
-      <FieldError>{errors.token?.message}</FieldError>
-    </TextField>
+    />
   </>
 }

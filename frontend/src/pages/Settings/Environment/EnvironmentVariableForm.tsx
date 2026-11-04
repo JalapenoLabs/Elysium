@@ -25,6 +25,7 @@ import {
 } from '@heroui/react'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
+import { SecretInput } from '../../../components/SecretInput'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -169,23 +170,28 @@ export function EnvironmentVariableForm(props: Props) {
         <Description>{t('form.isSecretHint')}</Description>
       </Switch>
 
-      {/* Value: a password field for a secret, so it is not shown while typed */}
-      <TextField
-        isRequired={isRevealingSecret || (isSecret && !keepsStoredSecret)}
-        isInvalid={Boolean(errors.value)}
-        value={values.value}
-        type={isSecret
-          ? 'password'
-          : 'text'}
-        onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('form.value')}</Label>
-        {isSecret
-          ? <Input className='font-mono' autoComplete='off' />
-          : <TextArea className='font-mono' rows={3} spellCheck={false} />}
-        <Description>{valueHint()}</Description>
-        <FieldError>{errors.value?.message}</FieldError>
-      </TextField>
+      {/* Value: a secret's is hidden while typed, with a toggle to show it */}
+      {isSecret
+        ? <SecretInput
+          isRequired={!keepsStoredSecret}
+          isMonospace
+          label={t('form.value')}
+          description={valueHint()}
+          errorMessage={errors.value?.message}
+          value={values.value ?? ''}
+          onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
+        />
+        : <TextField
+          isRequired={isRevealingSecret}
+          isInvalid={Boolean(errors.value)}
+          value={values.value}
+          onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
+        >
+          <Label>{t('form.value')}</Label>
+          <TextArea className='font-mono' rows={3} spellCheck={false} />
+          <Description>{valueHint()}</Description>
+          <FieldError>{errors.value?.message}</FieldError>
+        </TextField>}
 
       {/* Description */}
       <TextField

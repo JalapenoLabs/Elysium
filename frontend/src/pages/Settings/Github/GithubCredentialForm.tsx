@@ -24,6 +24,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { GithubSetupChecklist } from './GithubSetupChecklist'
+import { SecretInput } from '../../../components/SecretInput'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -175,23 +176,17 @@ export function GithubCredentialForm(props: Props) {
       </Select>
 
       {/* Token */}
-      <TextField
+      <SecretInput
         isRequired={!keepsStoredToken}
-        isInvalid={Boolean(errors.token)}
-        type='password'
-        autoComplete='off'
-        value={values.token}
+        isMonospace
+        label={t('form.token')}
+        description={keepsStoredToken
+          ? t('form.tokenKeep')
+          : t(githubTokenLabelKeys[kind].hint)}
+        errorMessage={errors.token?.message}
+        value={values.token ?? ''}
         onChange={(value) => form.setValue('token', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('form.token')}</Label>
-        <Input />
-        <Description>{
-          keepsStoredToken
-            ? t('form.tokenKeep')
-            : t(githubTokenLabelKeys[kind].hint)
-        }</Description>
-        <FieldError>{errors.token?.message}</FieldError>
-      </TextField>
+      />
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
     </Form>

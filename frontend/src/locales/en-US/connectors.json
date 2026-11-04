@@ -120,9 +120,7 @@
     "options": {
       "slack_workspace": "Whole workspace",
       "slack_direct_messages": "Direct and group messages"
-    },
-    "revealSecret": "Show",
-    "hideSecret": "Hide"
+    }
   },
   "checks": {
     "title": "Connector checks",

@@ -12,6 +12,7 @@ import { useKratosMessageToasts } from '../../hooks/useKratosMessageToasts'
 // User interface
 import { Alert, Button, FieldError, Form, Input, Label, Link, Spinner, TextField } from '@heroui/react'
 import { PasswordInput } from '../../components/PasswordInput'
+import { SecretInput } from '../../components/SecretInput'
 import { PersonNameFields } from '../../components/PersonNameFields'
 
 // Misc
@@ -37,6 +38,7 @@ export function SignupPage() {
   const [ lastName, setLastName ] = useState('')
   const [ email, setEmail ] = useState('')
   const [ password, setPassword ] = useState('')
+  const [ confirmation, setConfirmation ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const assessment = usePasswordAssessment(password, [ firstName, lastName, email ])
 
@@ -119,7 +121,10 @@ export function SignupPage() {
     && firstName.trim().length > 0
     && email.trim().length > 0
     && assessment.isAcceptable
+    && confirmation === password
     && !isSubmitting
+  // Said only once something is typed, so the empty field never starts out in red.
+  const isMismatched = confirmation.length > 0 && confirmation !== password
 
   return <div>
     <h1 className='text-2xl font-bold'>{t('signup.heading')}</h1>
@@ -165,7 +170,7 @@ export function SignupPage() {
         <Input />
         <FieldError>{fieldErrorText(messages.byField['traits.email'], t)}</FieldError>
       </TextField>
-      <div className='relaxed'>
+      <div className='compact'>
         <PasswordInput
           label={t('fields.password')}
           value={password}
@@ -174,6 +179,17 @@ export function SignupPage() {
           errorMessage={fieldErrorText(messages.byField.password, t)}
         />
       </div>
+      <SecretInput
+        isRequired
+        className='relaxed'
+        label={t('fields.confirmPassword')}
+        autoComplete='new-password'
+        errorMessage={isMismatched
+          ? t('security.password.mismatch')
+          : null}
+        value={confirmation}
+        onChange={setConfirmation}
+      />
       <Button fullWidth type='submit' isDisabled={!canSubmit} isPending={isSubmitting}>
         <span>{t('signup.submit')}</span>
       </Button>

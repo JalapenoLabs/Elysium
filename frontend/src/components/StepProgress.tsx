@@ -69,7 +69,7 @@ export function StepProgress(props: Props) {
               {marker}
               <span>{step.label}</span>
             </span>}
-          {index < props.steps.length - 1 && <span className='h-px w-8 bg-separator' aria-hidden />}
+          {index < props.steps.length - 1 && <span className='hidden h-px w-8 bg-separator sm:block' aria-hidden />}
         </li>
       })
     }</ol>

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { checkPasswordRules, isPasswordAcceptable } from './passwordRules'
+import { checkPasswordRequirements, checkPasswordRules, isPasswordAcceptable } from './passwordRules'
 
 describe('checkPasswordRules', () => {
   it('meets every rule with twelve characters, an uppercase letter, and a special one', () => {
@@ -29,17 +29,25 @@ describe('checkPasswordRules', () => {
   })
 })
 
-describe('isPasswordAcceptable', () => {
+describe('checkPasswordRequirements', () => {
   const allRules = { length: true, uppercase: true, special: true }
 
-  it('needs every rule and a score of at least three', () => {
-    expect(isPasswordAcceptable(allRules, 3)).toBe(true)
-    expect(isPasswordAcceptable(allRules, 4)).toBe(true)
-    expect(isPasswordAcceptable(allRules, 2)).toBe(false)
-    expect(isPasswordAcceptable({ ...allRules, special: false }, 4)).toBe(false)
+  it('lists strength beside the rules, met from a score of three', () => {
+    expect(checkPasswordRequirements(allRules, 3)).toEqual({ ...allRules, strength: true })
+    expect(checkPasswordRequirements(allRules, 2).strength).toBe(false)
   })
 
-  it('waits for the strength estimate before accepting anything', () => {
-    expect(isPasswordAcceptable(allRules, null)).toBe(false)
+  it('leaves strength unmet until zxcvbn has judged the password', () => {
+    expect(checkPasswordRequirements(allRules, null).strength).toBe(false)
+  })
+})
+
+describe('isPasswordAcceptable', () => {
+  const allMet = { length: true, uppercase: true, special: true, strength: true }
+
+  it('needs every requirement, strength included', () => {
+    expect(isPasswordAcceptable(allMet)).toBe(true)
+    expect(isPasswordAcceptable({ ...allMet, strength: false })).toBe(false)
+    expect(isPasswordAcceptable({ ...allMet, special: false })).toBe(false)
   })
 })

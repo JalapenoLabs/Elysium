@@ -66,8 +66,6 @@
       "secretTokenTooLong": "Tokens can be at most 16 KB."
     },
     "secretTokenPlaceholder": "Paste the token",
-    "revealToken": "Show token",
-    "hideToken": "Hide token",
     "oneYearFromNow": "One year from now",
     "expiresAtPicker": "Choose an expiry date"
   },

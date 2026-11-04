@@ -10,8 +10,9 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, Modal, TextField } from '@heroui/react'
+import { Button, Form, Modal } from '@heroui/react'
 import { PasswordInput } from '../../../components/PasswordInput'
+import { SecretInput } from '../../../components/SecretInput'
 
 // Misc
 import { collectMessages } from '../../../api/kratosFlows'
@@ -68,18 +69,16 @@ export function ChangePasswordModal(props: Props) {
               assessment={assessment}
               errorMessage={fieldErrorText(messages.byField.password, t)}
             />
-            <TextField
+            <SecretInput
               isRequired
-              type='password'
+              label={t('fields.confirmNewPassword')}
               autoComplete='new-password'
-              isInvalid={isMismatched}
+              errorMessage={isMismatched
+                ? t('security.password.mismatch')
+                : null}
               value={confirmation}
               onChange={setConfirmation}
-            >
-              <Label>{t('fields.confirmPassword')}</Label>
-              <Input />
-              <FieldError>{t('security.password.mismatch')}</FieldError>
-            </TextField>
+            />
           </Modal.Body>
           <Modal.Footer>
             <Button slot='close' variant='tertiary'>
