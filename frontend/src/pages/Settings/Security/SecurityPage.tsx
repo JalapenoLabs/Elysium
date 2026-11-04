@@ -1,11 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Key } from '@heroui/react'
 import type { ParseKeys } from 'i18next'
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
@@ -22,6 +20,7 @@ import { TwoFactorCard } from './TwoFactorCard'
 
 // Misc
 import { useKratosSettingsFlow } from '../../../hooks/useKratosSettingsFlow'
+import { useTabParam } from '../../../hooks/useTabParam'
 import { UrlTree } from '../../../urls'
 import { readPasskeys } from './securityPresentation'
 import { useSignedInSessions } from './useSignedInSessions'
@@ -36,9 +35,6 @@ const tabLabelKeys = {
   sessions: 'security.tabs.sessions',
 } as const satisfies Record<Tab, ParseKeys<'auth'>>
 
-// The open tab lives in the address, so a sign-in a change asked for comes back to it.
-const TAB_PARAM = 'tab'
-
 // Security: the password and two-factor authentication on General, then passkeys,
 // lookup codes, and where this person is signed in, each on its own tab. Every change runs
 // through Kratos. When the workspace requires an authenticator app, this is the one page
@@ -47,12 +43,12 @@ export function SecurityPage() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const me = useAppSelector(selectMe)
   const refusal = useAppSelector(selectAccessRefusal)
-  const [ params, setParams ] = useSearchParams()
   const settings = useKratosSettingsFlow(UrlTree.settingsSecurity)
   const signedIn = useSignedInSessions()
   const flow = settings.flow
   const mustEnroll = refusal === 'mfa_enrollment_required' || Boolean(me?.mfaEnrollmentRequired)
-  const selectedTab = TABS.find((tab) => tab === params.get(TAB_PARAM)) ?? 'general'
+  // In the address, so a sign-in a change asked for comes back to the tab it left.
+  const [ selectedTab, selectTab ] = useTabParam(TABS)
 
   // Lists show their totals beside their names, once they are known.
   const countByTab: Record<Tab, number | null> = {
@@ -64,19 +60,6 @@ export function SecurityPage() {
     sessions: signedIn.isLoaded
       ? signedIn.sessions.length
       : null,
-  }
-
-  function selectTab(key: Key) {
-    const tab = TABS.find((candidate) => candidate === key)
-    if (!tab) {
-      console.debug('SecurityPage ignored an unknown tab', { key })
-      return
-    }
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      next.set(TAB_PARAM, tab)
-      return next
-    }, { replace: true })
   }
 
   return <SettingsPage title={t('security.title')}>
