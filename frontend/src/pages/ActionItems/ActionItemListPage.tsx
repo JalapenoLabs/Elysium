@@ -15,21 +15,31 @@ import { selectDeletedActionItems, selectLiveActionItems } from '../../store/act
 import { Spinner } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
 import { EmptyNotice } from '../../components/EmptyNotice'
-import { ActionItemFiltersBar } from './ActionItemFiltersBar'
 import { ActionItemTable } from './ActionItemTable'
 
 // Misc
 import { useActionItemsLoader, useDeletedActionItemsLoader } from '../../hooks/useServerData'
 import { useNow } from '../../hooks/useNow'
-import { filterActionItems, readActionItemFilters, writeActionItemFilters } from './actionItemFilters'
+import { usePageToolsContainer } from '../../layout/page/pageTools'
+import {
+  filterActionItems,
+  fromActionItemFilterValues,
+  readActionItemFilters,
+  toActionItemFilterValues,
+  writeActionItemFilters,
+} from './actionItemFilters'
 import { useActionItemActions } from './useActionItemActions'
+import { useActionItemFilterDefinitions } from './useActionItemFilterDefinitions'
 
-// `/action-items/all`: every item in a table, filtered from the address so a filtered view
-// survives opening an item and coming back. Deleted items show in place of the rest when
-// asked for, each with Restore.
+// `/action-items/all`: every item in a table, its search, filters, Columns, and export in the
+// titlebar. Filters are read from the address and written back to it, so a filtered view
+// survives opening an item and coming back, and can be linked to. Deleted items show in
+// place of the rest when asked for, each with Restore.
 export function ActionItemListPage() {
   const { t } = useTranslation('actionItems')
   const actions = useActionItemActions()
+  const toolsContainer = usePageToolsContainer()
+  const filterDefinitions = useActionItemFilterDefinitions()
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readActionItemFilters(searchParams)
   const now = useNow()
@@ -61,31 +71,38 @@ export function ActionItemListPage() {
   }]
 
   return <div>
-    <ActionItemFiltersBar
-      filters={filters}
-      onChange={(next) => setSearchParams(writeActionItemFilters(next), { replace: true })}
-    />
-
     {status === 'loading' && <div className='grid place-items-center py-16'>
       <Spinner />
     </div>}
 
     {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{t('list.loadError')}</p>}
 
-    {status === 'loaded' && !items.length && <EmptyNotice>{
-      filters.deleted
-        ? t('list.emptyDeleted')
-        : t('list.empty')
-    }</EmptyNotice>}
-
-    {status === 'loaded' && items.length > 0 && <ActionItemTable
+    {/* Rendered with no rows too, so the titlebar keeps the filters that emptied it. */}
+    {status === 'loaded' && <ActionItemTable
+      // The live and deleted lists keep their own layouts, so switching starts the other fresh.
+      key={filters.deleted
+        ? 'deleted'
+        : 'live'}
       items={items}
       now={now}
       label={t('nav.all')}
       storageId={filters.deleted
         ? 'elysium.action-items.deleted.table.v1'
         : 'elysium.action-items.all.table.v1'}
-      isSearchable
+      controlsContainer={toolsContainer}
+      filters={{
+        definitions: filterDefinitions,
+        values: toActionItemFilterValues(filters),
+        onValuesChange: (values) => setSearchParams(
+          writeActionItemFilters(fromActionItemFilterValues(values)),
+          { replace: true },
+        ),
+      }}
+      emptyNotice={<EmptyNotice>{
+        filters.deleted
+          ? t('list.emptyDeleted')
+          : t('list.empty')
+      }</EmptyNotice>}
       rowActions={filters.deleted
         ? deletedRowActions
         : undefined}

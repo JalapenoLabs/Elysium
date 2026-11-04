@@ -10,8 +10,10 @@ import { makeActionItem } from '../../testFixtures'
 import {
   DEFAULT_STATES,
   filterActionItems,
+  fromActionItemFilterValues,
   NO_PROJECT,
   readActionItemFilters,
+  toActionItemFilterValues,
   writeActionItemFilters,
 } from './actionItemFilters'
 
@@ -76,6 +78,63 @@ describe('writeActionItemFilters', () => {
     }
 
     expect(readActionItemFilters(writeActionItemFilters(filters))).toEqual(filters)
+  })
+})
+
+describe('toActionItemFilterValues', () => {
+  it('shows the default states as a filter, and every state as none', () => {
+    expect(toActionItemFilterValues({ ...ANYTHING, states: DEFAULT_STATES })).toMatchObject({
+      state: DEFAULT_STATES,
+    })
+    expect(toActionItemFilterValues(ANYTHING)).toEqual({
+      state: null,
+      project: null,
+      initiative: null,
+      waiting: null,
+      snoozed: null,
+      deleted: null,
+    })
+  })
+
+  it('gives yes and no filters as booleans', () => {
+    const values = toActionItemFilterValues({ ...ANYTHING, waiting: 'yes', snoozed: 'no', deleted: true })
+
+    expect(values).toMatchObject({ waiting: true, snoozed: false, deleted: true })
+  })
+})
+
+describe('fromActionItemFilterValues', () => {
+  it('reads back what the drawer was given', () => {
+    const filters: ActionItemFilters = {
+      states: [ 'open', 'resolved' ],
+      project: NO_PROJECT,
+      initiative: 'i1',
+      waiting: 'no',
+      snoozed: 'yes',
+      deleted: true,
+    }
+
+    expect(fromActionItemFilterValues(toActionItemFilterValues(filters))).toEqual(filters)
+  })
+
+  it('takes a removed tag as that filter off', () => {
+    const values = toActionItemFilterValues({ ...ANYTHING, states: DEFAULT_STATES, project: 'p1' })
+
+    expect(fromActionItemFilterValues({ ...values, state: null })).toEqual({ ...ANYTHING, project: 'p1' })
+  })
+
+  it('lists live items when deleted is no or unset, and ignores states it does not know', () => {
+    expect(fromActionItemFilterValues({ deleted: false, state: [ 'open', 'archived' ]})).toEqual({
+      ...ANYTHING,
+      states: [ 'open' ],
+    })
+  })
+
+  it('writes every state as state=all, so removing the default states sticks', () => {
+    const filters = fromActionItemFilterValues({ state: null })
+
+    expect(writeActionItemFilters(filters).toString()).toBe('state=all')
+    expect(readActionItemFilters(writeActionItemFilters(filters)).states).toEqual([])
   })
 })
 

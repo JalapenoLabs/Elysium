@@ -1,53 +1,85 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { DataTableAction } from '@jalapenolabs/uikit'
+import type { DataTableAction, SmartTableFilter } from '@jalapenolabs/uikit'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
 import { selectDeletedInitiatives, selectLiveInitiatives } from '../../store/initiativesSlice'
+import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Label, Spinner, Switch } from '@heroui/react'
+import { Spinner } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
 import { EmptyNotice } from '../../components/EmptyNotice'
-import { OptionSelect } from '../../components/OptionSelect'
 import { InitiativeTable } from './InitiativeTable'
 
 // Misc
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
-import { useDeletedInitiativesLoader, useInitiativesLoader } from '../../hooks/useServerData'
+import { useDeletedInitiativesLoader, useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
+import { usePageToolsContainer } from '../../layout/page/pageTools'
+import { NO_PROJECT } from '../ActionItems/actionItemFilters'
+import {
+  filterInitiatives,
+  fromInitiativeFilterValues,
+  INITIATIVE_FILTER_IDS,
+  readInitiativeFilters,
+  toInitiativeFilterValues,
+  writeInitiativeFilters,
+} from './initiativeFilters'
 import { initiativeStateLabelKeys } from './initiativePresentation'
 import { useInitiativeActions } from './useInitiativeActions'
 
-// Every state, as the state filter's key.
-const ALL_STATES = 'all'
-
-// `/action-items/initiatives`: every initiative with its progress, the active ones first
-// by default. Deleted ones show in their place when asked for, each with Restore.
+// `/action-items/initiatives`: every initiative with its progress, its search, filters,
+// Columns, and export in the titlebar, the active ones by default. Filters live in the address,
+// like the item list's. Deleted ones show in their place when asked for, each with Restore.
 export function InitiativesPage() {
   const { t } = useTranslation('initiatives')
   const actions = useInitiativeActions()
-  const [ stateFilter, setStateFilter ] = useState<string>('active')
-  const [ isShowingDeleted, setIsShowingDeleted ] = useState(false)
+  const toolsContainer = usePageToolsContainer()
+  const [ searchParams, setSearchParams ] = useSearchParams()
+  const filters = readInitiativeFilters(searchParams)
   const liveStatus = useInitiativesLoader()
-  const deletedStatus = useDeletedInitiativesLoader(isShowingDeleted)
+  const deletedStatus = useDeletedInitiativesLoader(filters.deleted)
+  useProjectsLoader()
   const liveInitiatives = useAppSelector(selectLiveInitiatives)
   const deletedInitiatives = useAppSelector(selectDeletedInitiatives)
+  const projects = useAppSelector(selectAllProjects)
 
-  const status = isShowingDeleted
+  const status = filters.deleted
     ? deletedStatus
     : liveStatus
-  const shown = isShowingDeleted
-    ? deletedInitiatives
-    : liveInitiatives
-  const initiatives = stateFilter === ALL_STATES
-    ? shown
-    : shown.filter((initiative) => initiative.state === stateFilter)
+  const initiatives = filterInitiatives(
+    filters.deleted
+      ? deletedInitiatives
+      : liveInitiatives,
+    filters,
+  )
+
+  // None carries `matches`: the page applies them itself, so it knows when nothing matches.
+  const filterDefinitions = useMemo((): SmartTableFilter<Initiative>[] => [
+    {
+      id: INITIATIVE_FILTER_IDS.states,
+      label: t('list.state'),
+      kind: 'multiSelect',
+      options: INITIATIVE_STATES.map((state) => ({ value: state, label: t(initiativeStateLabelKeys[state]) })),
+    },
+    {
+      id: INITIATIVE_FILTER_IDS.project,
+      label: t('list.project'),
+      kind: 'select',
+      options: [
+        { value: NO_PROJECT, label: t('list.noProject') },
+        ...projects.map((project) => ({ value: project.id, label: project.name })),
+      ],
+    },
+    { id: INITIATIVE_FILTER_IDS.deleted, label: t('list.deleted'), kind: 'boolean' },
+  ], [ t, projects ])
 
   // Only a deleted initiative has anything to do from its row. Restoring resolves once the answer
   // is in, so its button spins until then.
@@ -60,50 +92,39 @@ export function InitiativesPage() {
     },
   }]
 
-  const stateOptions = [
-    { id: ALL_STATES, label: t('list.allStates') },
-    ...INITIATIVE_STATES.map((state) => ({ id: state, label: t(initiativeStateLabelKeys[state]) })),
-  ]
-
   return <div>
-    <div className='relaxed flex flex-wrap items-end gap-3'>
-      <OptionSelect
-        className='w-48'
-        label={t('list.state')}
-        options={stateOptions}
-        value={stateFilter}
-        onChange={setStateFilter}
-      />
-      <Switch className='h-10 justify-center' isSelected={isShowingDeleted} onChange={setIsShowingDeleted}>
-        <Switch.Content>
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-          <Label>{t('list.deleted')}</Label>
-        </Switch.Content>
-      </Switch>
-    </div>
-
     {status === 'loading' && <div className='grid place-items-center py-16'>
       <Spinner />
     </div>}
 
     {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{t('list.loadError')}</p>}
 
-    {status === 'loaded' && !initiatives.length && <EmptyNotice>{
-      isShowingDeleted
-        ? t('list.emptyDeleted')
-        : t('list.empty')
-    }</EmptyNotice>}
-
-    {status === 'loaded' && initiatives.length > 0 && <InitiativeTable
+    {/* Rendered with no rows too, so the titlebar keeps the filters that emptied it. */}
+    {status === 'loaded' && <InitiativeTable
+      // The live and deleted lists keep their own layouts, so switching starts the other fresh.
+      key={filters.deleted
+        ? 'deleted'
+        : 'live'}
       initiatives={initiatives}
       label={t('title')}
-      storageId={isShowingDeleted
+      storageId={filters.deleted
         ? 'elysium.initiatives.deleted.table.v1'
         : 'elysium.initiatives.table.v1'}
-      isSearchable
-      rowActions={isShowingDeleted
+      controlsContainer={toolsContainer}
+      filters={{
+        definitions: filterDefinitions,
+        values: toInitiativeFilterValues(filters),
+        onValuesChange: (values) => setSearchParams(
+          writeInitiativeFilters(fromInitiativeFilterValues(values)),
+          { replace: true },
+        ),
+      }}
+      emptyNotice={<EmptyNotice>{
+        filters.deleted
+          ? t('list.emptyDeleted')
+          : t('list.empty')
+      }</EmptyNotice>}
+      rowActions={filters.deleted
         ? deletedRowActions
         : undefined}
     />}

@@ -23,7 +23,8 @@
   },
   "list": {
     "state": "State",
-    "allStates": "Every state",
+    "project": "Project",
+    "noProject": "No project",
     "deleted": "Deleted initiatives",
     "loadError": "Initiatives could not be loaded.",
     "empty": "No initiatives match these filters.",

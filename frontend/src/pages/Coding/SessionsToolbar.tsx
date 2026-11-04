@@ -1,14 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Selection } from '@heroui/react'
+import type { RefCallback } from 'react'
 import type { SessionsView } from './sessionsView'
 
 // Core
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { SearchField, ToggleButton, ToggleButtonGroup } from '@heroui/react'
+import { ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import { LuLayoutGrid, LuTable2 } from 'react-icons/lu'
+import { ListSearchField } from '../../components/ListSearchField'
 
 // Misc
 import { SESSIONS_VIEWS } from './sessionsView'
@@ -19,10 +21,13 @@ type Props = {
   resultsCount: number
   view: SessionsView
   onViewChange: (view: SessionsView) => void
+  // Receives the element the sessions table renders its filters, Columns, and export into.
+  controlsRef: RefCallback<HTMLDivElement>
 }
 
-// The Sessions panel's header: search, the result count, and the table or tiles switch.
-// It drives both views, so switching keeps the same sessions listed.
+// The Sessions panel's titlebar: search, the result count, the table's filters, Columns, and
+// export, and the table or tiles switch. Search and filters drive both views, so switching
+// keeps the same sessions listed.
 export function SessionsToolbar(props: Props) {
   const { t } = useTranslation('coding')
 
@@ -40,22 +45,18 @@ export function SessionsToolbar(props: Props) {
   }
 
   return <div className='relaxed flex flex-wrap items-center gap-3'>
-    <SearchField
-      className='min-w-48 flex-1 @2xl:max-w-64'
-      aria-label={t('sessions.toolbar.search')}
+    <ListSearchField
+      label={t('sessions.toolbar.search')}
       value={props.search}
       onChange={props.onSearchChange}
-    >
-      <SearchField.Group>
-        <SearchField.SearchIcon />
-        <SearchField.Input className='w-full' placeholder={t('sessions.toolbar.search')} />
-        <SearchField.ClearButton />
-      </SearchField.Group>
-    </SearchField>
+    />
 
     <span className='text-sm opacity-70'>{
       t('sessions.toolbar.results', { count: props.resultsCount })
     }</span>
+
+    {/* Holds no box of its own, so the table's controls line up with the rest. */}
+    <div ref={props.controlsRef} className='contents' />
 
     <ToggleButtonGroup
       className='ml-auto'

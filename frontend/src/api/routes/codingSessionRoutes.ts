@@ -7,12 +7,10 @@ import { apiClient } from '../index'
 // Mirrors the views in api/src/sessions/views.rs. Timestamps are UTC ISO 8601 strings.
 
 // What a session is doing now. Sessions never end on their own: one is idle until it is given a
-// prompt, and stays until it is deleted.
-export type ActivityState =
-  | 'idle'
-  // Turns are waiting for a free slot behind other sessions'.
-  | 'queued'
-  | 'running'
+// prompt, and stays until it is deleted. `queued` means turns wait for a free slot behind other
+// sessions'.
+export const ACTIVITY_STATES = [ 'idle', 'queued', 'running' ] as const
+export type ActivityState = typeof ACTIVITY_STATES[number]
 
 export type SessionActivity = {
   state: ActivityState

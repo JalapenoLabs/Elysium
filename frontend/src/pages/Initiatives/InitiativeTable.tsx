@@ -1,10 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CsvValue, DataTableAction } from '@jalapenolabs/uikit'
+import type { CsvValue, DataTableAction, DataTableSelectionAction, SmartTableFilters } from '@jalapenolabs/uikit'
+import type { ReactNode } from 'react'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { shallowEqual } from 'react-redux'
@@ -32,9 +33,19 @@ type Props = {
   label: string
   // Where column widths and order are remembered; each place the table appears has its own.
   storageId: string
-  isSearchable?: boolean
+  // The page's titlebar, where the page's own list renders its search, filters, Columns, and
+  // export (`usePageToolsContainer`). Without it the table is one section of its page: no
+  // search, and its Columns and export sit just above it.
+  controlsContainer?: Element | null
+  // The filters drawer and its tags, for the page's own list.
+  filters?: SmartTableFilters<Initiative>
+  // Said in place of the rows when there are none. The table itself stays, so its controls
+  // and filter tags stay too, and a filter that matches nothing can be taken off again.
+  emptyNotice?: ReactNode
   // Shown over a row while it is hovered, such as restoring a deleted initiative.
   rowActions?: DataTableAction<Initiative>[]
+  // Turns on multi-select, with these actions on the floating selection bar.
+  selectionActions?: DataTableSelectionAction<Initiative>[]
 }
 
 const INITIATIVE_COLUMN_KEYS = [ 'name', 'state', 'progress', 'target', 'projects' ] as const
@@ -62,7 +73,8 @@ export function InitiativeTable(props: Props) {
   const { t, i18n } = useTranslation([ 'initiatives', 'common' ])
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
-  const [ search, setSearch ] = useState('')
+  const isPageList = props.controlsContainer !== undefined
+  const hasInitiatives = props.initiatives.length > 0
   useProjectsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
 
@@ -152,37 +164,45 @@ export function InitiativeTable(props: Props) {
     })
   }, [ t, i18n.language, projectNames ])
 
-  return <SmartTable
-    ids={{
-      tableElementId: props.storageId,
-      tableLocalStorageId: props.storageId,
-    }}
-    className='[&_tbody_tr]:cursor-pointer'
-    tableAriaLabel={props.label}
-    data={props.initiatives}
-    managedColumns={managedColumns}
-    getRowId={(initiative) => initiative.id}
-    labels={labels}
-    search={props.isSearchable
-      ? { value: search, onChange: setSearch }
-      : undefined}
-    toolbar={props.isSearchable
-      ? undefined
-      : { show: false }}
-    rowActions={props.rowActions}
-    csvExport={{ fileName: 'initiatives' }}
-    pagination={{ show: true }}
-    enableSorting
-    // A row click opens the initiative; nothing is ever shown as highlighted. Since a click goes
-    // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
-    cellOverflow='modal'
-    enableRowHighlight
-    highlightedRowId={null}
-    onHighlightedRowChange={(initiativeId) => {
-      if (initiativeId) {
-        navigate(getInitiativeViewUrl(initiativeId))
-      }
-    }}
-    stickyHeader={false}
-  />
+  return <>
+    <SmartTable
+      ids={{
+        tableElementId: props.storageId,
+        tableLocalStorageId: props.storageId,
+      }}
+      className={hasInitiatives
+        ? '[&_tbody_tr]:cursor-pointer'
+        : 'hidden'}
+      tableAriaLabel={props.label}
+      data={props.initiatives}
+      managedColumns={managedColumns}
+      getRowId={(initiative) => initiative.id}
+      labels={labels}
+      controls={isPageList
+        ? { container: props.controlsContainer ?? null }
+        : undefined}
+      toolbar={isPageList
+        ? undefined
+        : { show: false }}
+      filters={props.filters}
+      rowActions={props.rowActions}
+      enableSelection={Boolean(props.selectionActions?.length)}
+      selectionActions={props.selectionActions}
+      csvExport={{ fileName: 'initiatives' }}
+      pagination={{ show: true }}
+      enableSorting
+      // A row click opens the initiative; nothing is ever shown as highlighted. Since a click goes
+      // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
+      cellOverflow='modal'
+      enableRowHighlight
+      highlightedRowId={null}
+      onHighlightedRowChange={(initiativeId) => {
+        if (initiativeId) {
+          navigate(getInitiativeViewUrl(initiativeId))
+        }
+      }}
+      stickyHeader={false}
+    />
+    {!hasInitiatives && props.emptyNotice}
+  </>
 }

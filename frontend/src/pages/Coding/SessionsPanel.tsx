@@ -1,17 +1,18 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { DataTableAction } from '@jalapenolabs/uikit'
+import type { DataTableAction, SmartTableFilter } from '@jalapenolabs/uikit'
 import type { SessionSummary } from './sessionPresentation'
 
 // Core
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 
 // Redux
 import { shallowEqual } from 'react-redux'
 import { selectCodingSessions } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { selectProjectNamesById } from '../../store/projectsSlice'
+import { selectAllProjects, selectProjectNamesById } from '../../store/projectsSlice'
 import { selectSessionsView, sessionsViewChanged } from '../../store/sessionsViewSlice'
 
 // User interface
@@ -22,6 +23,7 @@ import { SessionsToolbar } from './SessionsToolbar'
 import { SessionTiles } from './SessionTiles'
 
 // Misc
+import { ACTIVITY_STATES } from '../../api/routes/codingSessionRoutes'
 import { formatShortDateTime } from '../../format/dates'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
@@ -32,7 +34,16 @@ import {
   searchSessionSummaries,
   SESSION_NUMBER_COLUMN_SIZING,
   activityStateChipColors,
+  activityStateLabelKeys,
 } from './sessionPresentation'
+import {
+  filterSessionSummaries,
+  fromSessionFilterValues,
+  readSessionFilters,
+  SESSION_FILTER_IDS,
+  toSessionFilterValues,
+  writeSessionFilters,
+} from './sessionFilters'
 
 const SESSION_COLUMN_KEYS = [
   'number',
@@ -71,18 +82,24 @@ const sortValue = {
 } as const satisfies Record<SessionColumnKey, (summary: SessionSummary) => string>
 
 // The overview panel: every coding session, with what it is doing now, as a table or as
-// tiles. Opening one focuses its conversation panel.
+// tiles. Opening one focuses its conversation panel. Search and filters list the same
+// sessions in both views; the filters live in the Coding page's address.
 export function SessionsPanel() {
   const { t } = useTranslation([ 'coding', 'common' ])
   const actions = useCodingActions()
   const labels = useSmartTableLabels()
   const dispatch = useAppDispatch()
   const [ search, setSearch ] = useState('')
+  const [ searchParams, setSearchParams ] = useSearchParams()
+  const filters = readSessionFilters(searchParams)
+  // The toolbar's slot for the table's filters, Columns, and export.
+  const [ controlsContainer, setControlsContainer ] = useState<HTMLDivElement | null>(null)
   const view = useAppSelector(selectSessionsView)
 
   const sessions = useAppSelector(selectCodingSessions)
   const sessionsStatus = useCodingSessionsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
+  const projects = useAppSelector(selectAllProjects)
   const projectsStatus = useProjectsLoader()
 
   // Both views and the search read the same summaries, derived once per change.
@@ -94,10 +111,23 @@ export function SessionsPanel() {
     return sessions.map((session) => describeSession(session, t, context))
   }, [ sessions, projectNames, t ])
 
-  const listedSummaries = useMemo(
-    () => searchSessionSummaries(summaries, search),
-    [ summaries, search ],
-  )
+  const listedSummaries = filterSessionSummaries(searchSessionSummaries(summaries, search), filters)
+
+  // None carries `matches`: the panel applies them itself, for the tiles as for the table.
+  const filterDefinitions = useMemo((): SmartTableFilter<SessionSummary>[] => [
+    {
+      id: SESSION_FILTER_IDS.states,
+      label: t('sessions.state'),
+      kind: 'multiSelect',
+      options: ACTIVITY_STATES.map((state) => ({ value: state, label: t(activityStateLabelKeys[state]) })),
+    },
+    {
+      id: SESSION_FILTER_IDS.project,
+      label: t('sessions.project'),
+      kind: 'select',
+      options: projects.map((project) => ({ value: project.id, label: project.name })),
+    },
+  ], [ t, projects ])
 
   // The columns read only the summaries, so activity updates never rebuild them, which
   // would reset the table's sorting.
@@ -194,6 +224,8 @@ export function SessionsPanel() {
     </div>
   }
 
+  const isTable = view === 'table'
+
   // A container, so the toolbar and tiles fit the panel's width rather than the window's.
   return <div className='@container h-full overflow-auto p-4'>
     <SessionsToolbar
@@ -202,31 +234,47 @@ export function SessionsPanel() {
       resultsCount={listedSummaries.length}
       view={view}
       onViewChange={(nextView) => dispatch(sessionsViewChanged(nextView))}
+      controlsRef={setControlsContainer}
+    />
+
+    {/* The table stays in both views, hidden behind the tiles or the empty message, since its
+        filters drawer, their tags, and the export serve the tiles too. Columns are its own. */}
+    <SmartTable
+      ids={{
+        tableElementId: 'coding-sessions-table',
+        tableLocalStorageId: 'elysium.coding.sessions.table.v3',
+      }}
+      className={isTable && listedSummaries.length
+        ? undefined
+        : 'hidden'}
+      tableAriaLabel={t('sessions.label')}
+      data={listedSummaries}
+      managedColumns={managedColumns}
+      getRowId={(summary) => String(summary.session.id)}
+      labels={labels}
+      search={{ show: false }}
+      controls={{ container: controlsContainer }}
+      columnControls={{ show: isTable }}
+      filters={{
+        definitions: filterDefinitions,
+        values: toSessionFilterValues(filters),
+        onValuesChange: (values) => setSearchParams(
+          writeSessionFilters(searchParams, fromSessionFilterValues(values)),
+          { replace: true },
+        ),
+      }}
+      rowActions={rowActions}
+      csvExport={{ fileName: 'coding-sessions' }}
+      pagination={{ show: true }}
+      enableSorting
+      stickyHeader={false}
     />
 
     {!listedSummaries.length && <p className='py-10 text-center text-sm opacity-70'>{
       t('sessions.noMatches')
     }</p>}
 
-    {listedSummaries.length > 0 && view === 'table' && <SmartTable
-      ids={{
-        tableElementId: 'coding-sessions-table',
-        tableLocalStorageId: 'elysium.coding.sessions.table.v3',
-      }}
-      tableAriaLabel={t('sessions.label')}
-      data={listedSummaries}
-      managedColumns={managedColumns}
-      getRowId={(summary) => String(summary.session.id)}
-      labels={labels}
-      toolbar={{ show: false }}
-      rowActions={rowActions}
-      csvExport={{ fileName: 'coding-sessions' }}
-      pagination={{ show: true }}
-      enableSorting
-      stickyHeader={false}
-    />}
-
-    {listedSummaries.length > 0 && view === 'tiles' && <SessionTiles
+    {listedSummaries.length > 0 && !isTable && <SessionTiles
       summaries={listedSummaries}
     />}
   </div>

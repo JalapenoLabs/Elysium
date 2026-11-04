@@ -21,6 +21,7 @@ import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
 import { DateText } from '../../format/DateText'
 import { formatNumber } from '../../format/numbers'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
+import { usePageToolsContainer } from '../../layout/page/pageTools'
 import { getProjectViewUrl } from '../../urls'
 import { DEFAULT_PROJECT_SORT, PROJECT_SORT_KEYS } from './projectListing'
 
@@ -56,6 +57,7 @@ export function ProjectTable(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
+  const toolsContainer = usePageToolsContainer()
 
   const sorting: SortingState = [{ id: props.sort.key, desc: props.sort.descending }]
   const onSortingChange: OnChangeFn<SortingState> = (updater) => {
@@ -172,9 +174,10 @@ export function ProjectTable(props: Props) {
     managedColumns={managedColumns}
     getRowId={(project) => project.id}
     labels={labels}
+    // The page searches, counts, and sorts for both views, so the titlebar gets the table's
+    // Columns and export alone.
     search={{ show: false }}
-    // The page's toolbar searches, counts, and sorts for both views.
-    toolbar={{ show: false }}
+    controls={{ container: toolsContainer }}
     sorting={sorting}
     onSortingChange={onSortingChange}
     csvExport={{ fileName: 'projects' }}

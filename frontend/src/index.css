@@ -70,6 +70,12 @@
   justify-content: center;
 }
 
+/* Every page's titlebar holds a slot for its list's table controls (`pageTools.ts`); on a page
+   with nothing else on the right and no list, the empty slot takes no room. */
+.page-actions:has(> .page-tools-slot:only-child:empty) {
+  display: none;
+}
+
 @media (width >= 40rem) {
   .page-actions {
     flex-direction: row;

@@ -7,15 +7,13 @@ import type { ProjectSort, ProjectSortKey, ProjectView } from './projectListing'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Label, ListBox, SearchField, Select, ToggleButton, ToggleButtonGroup } from '@heroui/react'
+import { Button, Label, ListBox, Select, ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import { LuArrowDownNarrowWide, LuArrowUpNarrowWide, LuLayoutGrid, LuTable2 } from 'react-icons/lu'
 
 // Misc
 import { PROJECT_SORT_KEYS } from './projectListing'
 
 type Props = {
-  search: string
-  onSearchChange: (search: string) => void
   sort: ProjectSort
   onSortChange: (sort: ProjectSort) => void
   view: ProjectView
@@ -29,8 +27,8 @@ const sortLabelKeys = {
   updated: 'sort.updated',
 } as const satisfies Record<ProjectSortKey, string>
 
-// Search, sort, and the table or tiles switch. It drives both views, so switching views
-// keeps the same results in the same order.
+// The result count, sort, and the table or tiles switch, above either view. It drives both
+// views with the titlebar's search, so switching views keeps the same results in the same order.
 export function ProjectsToolbar(props: Props) {
   const { t } = useTranslation('projects')
 
@@ -49,18 +47,6 @@ export function ProjectsToolbar(props: Props) {
   }
 
   return <div className='relaxed flex flex-wrap items-center gap-3'>
-    <SearchField
-      aria-label={t('toolbar.search')}
-      value={props.search}
-      onChange={props.onSearchChange}
-    >
-      <SearchField.Group>
-        <SearchField.SearchIcon />
-        <SearchField.Input className='w-64' placeholder={t('toolbar.search')} />
-        <SearchField.ClearButton />
-      </SearchField.Group>
-    </SearchField>
-
     <span className='text-sm opacity-70'>{
       t('toolbar.results', { count: props.resultsCount })
     }</span>

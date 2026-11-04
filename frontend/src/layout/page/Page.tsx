@@ -25,9 +25,10 @@ import {
   usePageSave,
 } from './pageSave'
 import { isModalOpen, readPageShortcut } from './pageShortcuts'
+import { PageToolsContext } from './pageTools'
 import { toast } from '../../toast/toast'
 
-type Props = Omit<PageHeaderProps, 'save' | 'className'> & {
+type Props = Omit<PageHeaderProps, 'save' | 'className' | 'toolsSlotRef'> & {
   // The page's save, for a page whose own component holds its form, such as a record edited
   // in place, whose fields sit in the header and beside other sections. A form deeper down
   // registers with `usePageSave` instead.
@@ -53,6 +54,8 @@ export function Page(props: Props) {
   const [ isHeaderSaveVisible, setIsHeaderSaveVisible ] = useState(true)
   const [ isCardDismissed, setIsCardDismissed ] = useState(false)
   const [ isCreateFooterVisible, setIsCreateFooterVisible ] = useState(false)
+  // The titlebar's slot for the page's list table, given to everything inside the page.
+  const [ toolsContainer, setToolsContainer ] = useState<HTMLDivElement | null>(null)
   const headerSaveRef = useRef<HTMLDivElement>(null)
   // The blocker asks outside of rendering, so it reads the save and its progress from refs.
   const saveRef = useRef<PageSave | null>(null)
@@ -210,6 +213,7 @@ export function Page(props: Props) {
       <div className='container'>
         <PageHeader
           {...headerProps}
+          toolsSlotRef={setToolsContainer}
           save={save && <PageSaveButton
             ref={headerSaveRef}
             save={save}
@@ -217,7 +221,9 @@ export function Page(props: Props) {
             onPress={() => void runSave()}
           />}
         />
-        {children}
+        <PageToolsContext value={toolsContainer}>
+          {children}
+        </PageToolsContext>
       </div>
     </PageSaveStateContext>
 

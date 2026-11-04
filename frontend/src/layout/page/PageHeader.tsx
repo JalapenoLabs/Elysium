@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ReactNode } from 'react'
+import type { ReactNode, RefCallback } from 'react'
 import type { PageAction } from './pageActions'
 
 // Core
@@ -41,8 +41,11 @@ export type PageHeaderProps = {
   // The pages above this one, outermost first. The last is where the back button goes.
   // Omit on a top-level page, which has neither breadcrumbs nor a back button.
   parents?: PageCrumb[]
-  // Leads the titlebar's right side, such as a list's search field and filters button.
+  // Leads the titlebar's right side, such as a list's own search field.
   tools?: ReactNode
+  // Receives the element after `tools` that the page's list table renders its search,
+  // filters, Columns, and export into (`pageTools.ts`). `Page` passes it.
+  toolsSlotRef?: RefCallback<HTMLDivElement>
   // The one action that stands on its own, such as Apply or New project.
   primaryAction?: ReactNode
   // The page's Save. `Page` fills it from the form that registered one.
@@ -61,7 +64,9 @@ export type PageHeaderProps = {
 export function PageHeader(props: PageHeaderProps) {
   const { t } = useTranslation('common')
   const parent = props.parents?.at(-1)
-  const hasEnd = Boolean(props.tools || props.primaryAction || props.save || props.actions?.length)
+  const hasEnd = Boolean(
+    props.tools || props.toolsSlotRef || props.primaryAction || props.save || props.actions?.length,
+  )
 
   return <header className={props.className ?? 'relaxed'}>
     {parent && <nav aria-label={t('page.breadcrumbs')} className='compact flex min-w-0 items-center gap-1'>
@@ -113,6 +118,8 @@ export function PageHeader(props: PageHeaderProps) {
       </div>
       {hasEnd && <div className='page-actions'>
         {props.tools}
+        {/* Holds no box of its own, so what a table renders into it lines up with the rest. */}
+        {props.toolsSlotRef && <div ref={props.toolsSlotRef} className='page-tools-slot contents' />}
         {props.primaryAction}
         <PageActions actions={props.actions ?? []} save={props.save} />
       </div>}

@@ -15,6 +15,7 @@ import { selectAllProjects } from '../../store/projectsSlice'
 // User interface
 import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { ListSearchField } from '../../components/ListSearchField'
 import { Page } from '../../layout/page/Page'
 import { ProjectsToolbar } from './ProjectsToolbar'
 import { ProjectTable } from './ProjectTable'
@@ -39,7 +40,8 @@ function readStoredView(): ProjectView {
   }
 }
 
-// `/projects`: every project, as a table or tiles, searched and sorted in one toolbar.
+// `/projects`: every project, as a table or tiles. The titlebar's search and the toolbar's sort
+// drive both views; the table puts its Columns and export in the titlebar beside the search.
 export function ProjectsPage() {
   const { t } = useTranslation('projects')
   const projects = useAppSelector(selectAllProjects)
@@ -66,8 +68,15 @@ export function ProjectsPage() {
     }
   }
 
+  const hasProjects = status === 'loaded' && projects.length > 0
+
   return <Page
     title={t('title')}
+    tools={hasProjects && <ListSearchField
+      label={t('toolbar.search')}
+      value={search}
+      onChange={setSearch}
+    />}
     primaryAction={<Link href={UrlTree.projectsNew} className={buttonVariants({ variant: 'primary' })}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('add')}</span>
@@ -88,10 +97,8 @@ export function ProjectsPage() {
       t('table.empty')
     }</p>}
 
-    {status === 'loaded' && projects.length > 0 && <>
+    {hasProjects && <>
       <ProjectsToolbar
-        search={search}
-        onSearchChange={setSearch}
         sort={sort}
         onSortChange={setSort}
         view={view}

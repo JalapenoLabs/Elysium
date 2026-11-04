@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { SmartTableFilterValue, SmartTableFilterValues } from '@jalapenolabs/uikit'
 import type { ActionItem, ActionItemState } from '../../api/routes/actionItemRoutes'
 
 // Misc
@@ -8,10 +9,13 @@ import { isSnoozed } from './actionItemPresentation'
 
 // The All items list's filters, kept in the address so a filtered list survives opening an
 // item and coming back, and can be linked to. The semantics mirror the API's list query.
+// They are edited in the table's filters drawer and shown as its tags (uikit's `filters`),
+// which speak `SmartTableFilterValues`; `toActionItemFilterValues` and
+// `fromActionItemFilterValues` translate. Elysium applies them itself (`filterActionItems`),
+// so the page knows when nothing matches and can say so.
 
 // Any, only those that are, or only those that are not.
-export const TRISTATE_CHOICES = [ 'any', 'yes', 'no' ] as const
-export type Tristate = typeof TRISTATE_CHOICES[number]
+export type Tristate = 'any' | 'yes' | 'no'
 
 // `project` filters on items in no project.
 export const NO_PROJECT = 'none'
@@ -25,7 +29,8 @@ export type ActionItemFilters = {
   initiative: string | null
   waiting: Tristate
   snoozed: Tristate
-  // Deleted items only, instead of the rest.
+  // Deleted items only, instead of the rest. In the drawer this is Yes; Any and No both list
+  // the live items, the plain list.
   deleted: boolean
 }
 
@@ -33,12 +38,22 @@ export type ActionItemFilters = {
 // items.
 export const DEFAULT_STATES: ActionItemState[] = [ 'inbox', 'open' ]
 
-const STATE_PARAM = 'state'
-const PROJECT_PARAM = 'project'
-const INITIATIVE_PARAM = 'initiative'
-const WAITING_PARAM = 'waiting'
-const SNOOZED_PARAM = 'snoozed'
-const DELETED_PARAM = 'deleted'
+// Each filter's id in the drawer, which is also its parameter in the address.
+export const ACTION_ITEM_FILTER_IDS = {
+  states: 'state',
+  project: 'project',
+  initiative: 'initiative',
+  waiting: 'waiting',
+  snoozed: 'snoozed',
+  deleted: 'deleted',
+} as const satisfies Record<keyof ActionItemFilters, string>
+
+const STATE_PARAM = ACTION_ITEM_FILTER_IDS.states
+const PROJECT_PARAM = ACTION_ITEM_FILTER_IDS.project
+const INITIATIVE_PARAM = ACTION_ITEM_FILTER_IDS.initiative
+const WAITING_PARAM = ACTION_ITEM_FILTER_IDS.waiting
+const SNOOZED_PARAM = ACTION_ITEM_FILTER_IDS.snoozed
+const DELETED_PARAM = ACTION_ITEM_FILTER_IDS.deleted
 
 // `state=all` shows every state; an absent `state` shows the defaults.
 const ALL_STATES = 'all'
@@ -103,6 +118,70 @@ export function writeActionItemFilters(filters: ActionItemFilters) {
     params.set(DELETED_PARAM, 'true')
   }
   return params
+}
+
+// A yes or no filter in the drawer: unset is either.
+function tristateToValue(choice: Tristate) {
+  if (choice === 'any') {
+    return null
+  }
+  return choice === 'yes'
+}
+
+function tristateFromValue(value: SmartTableFilterValue | undefined): Tristate {
+  if (typeof value !== 'boolean') {
+    return 'any'
+  }
+  if (value) {
+    return 'yes'
+  }
+  return 'no'
+}
+
+function idFromValue(value: SmartTableFilterValue | undefined) {
+  if (typeof value === 'string' && value) {
+    return value
+  }
+  return null
+}
+
+// The filters as the drawer and its tags show them. The default states are a filter like any
+// other, so their tag says what the plain list leaves out; every state is no filter at all.
+// Showing live items is the plain list too, so only showing deleted ones has a tag.
+export function toActionItemFilterValues(filters: ActionItemFilters): SmartTableFilterValues {
+  return {
+    [ACTION_ITEM_FILTER_IDS.states]: filters.states.length
+      ? filters.states
+      : null,
+    [ACTION_ITEM_FILTER_IDS.project]: filters.project,
+    [ACTION_ITEM_FILTER_IDS.initiative]: filters.initiative,
+    [ACTION_ITEM_FILTER_IDS.waiting]: tristateToValue(filters.waiting),
+    [ACTION_ITEM_FILTER_IDS.snoozed]: tristateToValue(filters.snoozed),
+    [ACTION_ITEM_FILTER_IDS.deleted]: filters.deleted || null,
+  }
+}
+
+// The filters the drawer applied, or a tag removed. Values come from the drawer, which only
+// offers the states it was given, but are checked like the address is.
+export function fromActionItemFilterValues(values: SmartTableFilterValues): ActionItemFilters {
+  const stateValue = values[ACTION_ITEM_FILTER_IDS.states]
+  const states: ActionItemState[] = []
+  if (Array.isArray(stateValue)) {
+    for (const state of ACTION_ITEM_STATES) {
+      if (stateValue.includes(state)) {
+        states.push(state)
+      }
+    }
+  }
+
+  return {
+    states,
+    project: idFromValue(values[ACTION_ITEM_FILTER_IDS.project]),
+    initiative: idFromValue(values[ACTION_ITEM_FILTER_IDS.initiative]),
+    waiting: tristateFromValue(values[ACTION_ITEM_FILTER_IDS.waiting]),
+    snoozed: tristateFromValue(values[ACTION_ITEM_FILTER_IDS.snoozed]),
+    deleted: values[ACTION_ITEM_FILTER_IDS.deleted] === true,
+  }
 }
 
 function matchesTristate(choice: Tristate, value: boolean) {

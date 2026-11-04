@@ -249,17 +249,11 @@
   },
   "filters": {
     "state": "State",
-    "allStates": "Every state",
     "project": "Project",
-    "anyProject": "Any project",
     "noProject": "No project",
     "initiative": "Initiative",
-    "anyInitiative": "Any initiative",
     "waiting": "Waiting",
     "snoozed": "Snoozed",
-    "any": "Any",
-    "yes": "Yes",
-    "no": "No",
     "deleted": "Deleted items"
   },
   "table": {
