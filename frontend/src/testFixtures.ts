@@ -16,6 +16,7 @@ import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
+import type { Meeting } from './api/routes/meetingRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { RunStep, WorkflowRun } from './api/routes/runRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
@@ -459,6 +460,27 @@ export function makeRun(overrides: Partial<WorkflowRun> & Pick<WorkflowRun, 'id'
     createdAt: CREATED_AT,
     startedAt: CREATED_AT,
     finishedAt: null,
+    ...overrides,
+  }
+}
+
+export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): Meeting {
+  return {
+    connectorId: 'connector-1',
+    sourceKind: 'fireflies',
+    title: 'Weekly planning',
+    startedAt: CREATED_AT,
+    durationMs: 30 * 60 * 1000,
+    organizer: 'sam@example.com',
+    participants: [],
+    url: null,
+    state: 'done',
+    attempts: 0,
+    lastError: null,
+    hasRecording: true,
+    segmentCount: 3,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
     ...overrides,
   }
 }

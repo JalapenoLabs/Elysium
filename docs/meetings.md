@@ -282,8 +282,11 @@ streams the clip from storage to the record's owner alone.
     kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the tab
     shows each kind that provides meetings as a card opening its own form, and an empty Recent meetings tab links to
     it.
-  - **Recent meetings.** Each with the source it came from (linking to its connector while there is one), when it was
-    and how long, its state, and the reason and a retry for one that failed.
+  - **Recent meetings.** A table (`MeetingTable`) whose search, Columns, and export sit in the page's titlebar: each
+    meeting's title, opening it at its source in a new tab; the source it came from, linking to its connector while
+    there is one; its state, with why it failed, or that a finished one was published from its transcript alone; when
+    it started, how long it ran, and how many topics Elysia found. A failed meeting's row has Retry, which resumes it
+    from the step it failed at.
 - **A project's timeline** (`ProjectTimeline`, the project page's Timeline tab, which counts every record): every
   record attributed to the project, newest first, fifty at a time with "Show older". A meeting segment shows its
   title, its place in the meeting, its summary, its clip (video or audio, loaded only when played), and its

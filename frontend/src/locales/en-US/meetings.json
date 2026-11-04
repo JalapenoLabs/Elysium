@@ -14,12 +14,17 @@
     "noSources": "No meeting source yet.",
     "connectSource": "Connect one",
     "untitled": "Untitled meeting",
-    "segments_one": "{{count, compact}} topic",
-    "segments_other": "{{count, compact}} topics",
     "noRecording": "Transcript only",
     "retry": "Retry",
-    "retried": "Elysium will try this meeting again within a minute.",
-    "open": "Open at the source"
+    "retried": "Elysium will try this meeting again within a minute."
+  },
+  "table": {
+    "meeting": "Meeting",
+    "source": "Source",
+    "state": "State",
+    "started": "Started",
+    "duration": "Duration",
+    "topics": "Topics"
   },
   "states": {
     "pending": "Reading",

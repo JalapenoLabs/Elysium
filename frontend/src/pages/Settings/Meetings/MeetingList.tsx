@@ -10,9 +10,10 @@ import { Link } from 'react-router'
 // User interface
 import { Spinner } from '@heroui/react'
 import { EmptyNotice } from '../../../components/EmptyNotice'
-import { MeetingRow } from './MeetingRow'
+import { MeetingTable } from './MeetingTable'
 
 // Misc
+import { usePageToolsContainer } from '../../../layout/page/pageTools'
 import { getTabUrl, UrlTree } from '../../../urls'
 
 type Props = {
@@ -24,10 +25,11 @@ type Props = {
   hasSources: boolean
 }
 
-// The person's recent meetings, newest first, each with the source it came from and how far its
-// processing got. The Meetings page loads them, since its tab counts them too.
+// The Recent meetings tab: the person's meetings as the page's list, its search, Columns, and
+// export in the titlebar. The Meetings page loads them, since its tab counts them too.
 export function MeetingList(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
+  const toolsContainer = usePageToolsContainer()
 
   if (props.status === 'loading') {
     return <div className='grid place-items-center py-10'>
@@ -37,8 +39,11 @@ export function MeetingList(props: Props) {
   if (props.status === 'failed') {
     return <p className='text-sm text-danger'>{t('common:errors.unexpected')}</p>
   }
-  if (!props.meetings.length) {
-    return <EmptyNotice>{
+
+  return <MeetingTable
+    meetings={props.meetings}
+    controlsContainer={toolsContainer}
+    emptyNotice={<EmptyNotice>{
       props.hasSources
         ? t('list.empty')
         : <>
@@ -48,10 +53,6 @@ export function MeetingList(props: Props) {
             t('list.connectSource')
           }</Link>
         </>
-    }</EmptyNotice>
-  }
-
-  return <ul className='divide-y divide-separator rounded-xl border border-separator'>{
-    props.meetings.map((meeting) => <MeetingRow key={meeting.id} meeting={meeting} />)
-  }</ul>
+    }</EmptyNotice>}
+  />
 }

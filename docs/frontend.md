@@ -788,9 +788,11 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   Jira epic by search, a saved filter from `JiraFilterList`, or a repository's milestone or label from
   `GithubContainerList`, and goes back to the initiative once it follows it. `containerPresentation.ts` holds
   which kinds each provider has.
-- **Changesets** (`ChangesetsPage`, `ChangesetListItem`) has two tabs, Waiting for review and Reviewed, each with
-  its count, the open one in `?tab=`, listing each changeset with its summary, proposer, when it was proposed, its
-  decisions so far, and its state.
+- **Changesets** (`ChangesetsPage`) has two tabs, Waiting for review and Reviewed, each with its count, the open one
+  in `?tab=`, and each a `ChangesetTable` whose search, Columns, and export sit in the Action items titlebar. Both
+  list the summary (opening the review, as a click on the row does), who proposed it, its project, and how many
+  changes it holds. Waiting for review counts the decisions so far under the changes and says when it was proposed;
+  Reviewed shows the state and when it was decided, over who decided it.
 - **Changeset review** (`ChangesetPage`, `ChangesetOperationCard`) has Apply as its header's primary action while
   the changeset waits, Approve all and Reject all, or Undo once applied, as its actions, and who proposed and decided
   it with the tally under the header. It shows each operation as a sentence and, for an edit,
@@ -997,7 +999,7 @@ filters drawer, and selection bar the kit renders into the body.
   flips, such as Activate and Deactivate, is two actions with `isVisible`. Actions are buttons and cannot be links,
   so a row's edit or view page is its name's `Link`, a real address that opens in a new tab too.
 - **Long cells** clamp to three lines (`cellLineClamp`, a column's `lineClamp`). A click expands the row; tables
-  whose rows navigate (action items, initiatives, projects, and a project's or item's sessions) set
+  whose rows navigate (action items, initiatives, changesets, projects, and a project's or item's sessions) set
   `cellOverflow: 'modal'`, so a double-click opens a clamped cell instead. Cells leave clamping to the kit: an inner
   `truncate` or `line-clamp` would clip text the kit cannot see overflow, leaving no way to read it.
 - **Columns** hold one data point, or two stacked and left aligned, such as a name over its email; never two side by
@@ -1013,8 +1015,8 @@ filters drawer, and selection bar the kit renders into the body.
   lists declare them without `matches` and apply them themselves, from the address, so a page knows when nothing
   matches.
 - **Export.** `csvExport` adds a one-click CSV of the filtered, sorted rows; `exportValue` gives a column whose
-  accessor is a sort key its real value. The data tables export (action items, initiatives, projects, coding
-  sessions, runs, and learnings); the settings tables do not. A CSV holds states and other labels as words, dates as
+  accessor is a sort key its real value. The data tables export (action items, initiatives, changesets, projects,
+  coding sessions, runs, learnings, and meetings); the settings tables do not. A CSV holds states and other labels as words, dates as
   their UTC instants, and leaves images out.
 - **Multi-select.** `enableSelection` with `selectionActions` and `bulkEdit` gives the floating selection bar, its
   hotkeys, and select-everything across pages. Phones get none. The kit draws the checkboxes but holds no selection,
