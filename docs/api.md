@@ -43,6 +43,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |
 | DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`                            |
+| GET    | `/api/v1/drafts?recordId=`            | `200` `{ drafts: Draft[] }`: the caller's unsent drafts answering a record, newest first |
+| POST   | `/api/v1/drafts`                      | `201` `{ draft }`: a reply or a new mail, sent nowhere yet |
+| GET    | `/api/v1/drafts/{id}`                 | `200` `{ draft }`                                   |
+| PATCH  | `/api/v1/drafts/{id}`                 | `200` `{ draft }`; its `body`; `409` while sending or once sent |
+| DELETE | `/api/v1/drafts/{id}`                 | `204`; `409` while it is being sent                 |
+| POST   | `/api/v1/drafts/{id}/send`            | `200` `{ draft }`, `sent` or `failed` with `lastError`; `409` while sending or once sent |
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
 | POST   | `/api/v1/action-items`                | `201` `{ item }`                                    |
 | GET    | `/api/v1/action-items/next`           | `200` `{ items: ActionItem[], inboxCount }`, in Next's order |
@@ -319,9 +325,22 @@ not served; its segments reach the timeline. See `docs/meetings.md`.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
-attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `before` (an
-`occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
+attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `actionItemId` (the record
+that raised that item), `before` (an `occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
 `media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
+
+### `/api/v1/drafts`
+
+A `Draft` has `id`, `replyToRecordId`, `connectorId` or `mailAccountId` (what sends it), `target` (where it goes, in its
+sender's terms; a mail's holds `to` and `subject`), `place` (`thread` or `conversation`, for a chat reply), `body`,
+`state` (`draft`, `sending`, `sent`, or `failed`), `lastError`, `attemptedAt`, `sentAt`, `sentRecordId`, `createdBy`,
+`createdAt`, and `updatedAt`. `POST` takes `{ kind: "reply", recordId, place?, mailAccountId?, body }`, answering one of
+the caller's records through what its kind declares (`replies`), or `{ kind: "mail", mailAccountId, to, subject, body }`.
+A reply by mail without `mailAccountId` goes from the caller's only active mailbox, and answers `400` with
+`no_mailbox` when they have none and `mailbox_required` when they have several. A body is 1 to 20,000 characters.
+`POST /{id}/send` answers the draft as the send left it: a send the provider refused is `200` with the draft
+`failed`, its reason in `lastError` and its text kept. Every route answers the draft's writer alone. See
+`docs/connectors.md`, Sending.
 
 ### `/api/v1/mail`
 

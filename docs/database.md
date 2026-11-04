@@ -266,6 +266,33 @@ item is recorded once per connector.
 | `created_by`           | `UUID`        | References `users`; whose timeline it is on                             |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 
+A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
+reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,
+so a reply can be sent to it. A record of a sent message also names the draft it was sent from (`draftId`). A mail sent
+from a mailbox is recorded with `source_kind` `mail` and no connector.
+
+### `drafts`
+
+Messages a person sends as themselves, a draft until sent and kept after; see `docs/connectors.md`, Sending. Indexed by
+record and by person.
+
+| Column               | Type          | Notes                                                                   |
+|----------------------|---------------|-------------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7, primary key                                                     |
+| `reply_to_record_id` | `UUID`        | References `timeline_records`, `SET NULL`: the record it answers        |
+| `connector_id`       | `UUID`        | References `connectors`, cascading: the connector that sends a chat reply |
+| `mail_account_id`    | `UUID`        | References `mail_accounts`, cascading: the mailbox mail goes from; exactly one sender is set (`drafts_one_sender`) |
+| `target`             | `JSONB`       | Where it goes, in its sender's terms: a Slack channel and thread, a Teams conversation and thread, or a mail's recipients and subject |
+| `place`              | `reply_place` | `thread` or `conversation`, for a chat reply                            |
+| `body`               | `TEXT`        | 1 to 20,000 characters                                                  |
+| `state`              | `draft_state` | `draft`, `sending`, `sent`, or `failed`                                 |
+| `last_error`         | `TEXT`        | Why the last send failed, set exactly while `failed`; up to 2000 characters |
+| `attempted_at`       | `TIMESTAMPTZ` | When a send last started                                                |
+| `sent_at`            | `TIMESTAMPTZ` | Set exactly while `sent`                                                |
+| `sent_record_id`     | `UUID`        | References `timeline_records`, `SET NULL`: what the sent message became |
+| `created_by`         | `UUID`        | References `users`; the person it is sent as                            |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                 |
+
 ### `timeline_record_projects`
 
 Which projects a record is about. Primary key `(timeline_record_id, project_id)`, both cascading; indexed by project.

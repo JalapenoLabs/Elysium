@@ -42,6 +42,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
 | `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
+| `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |
 | `meeting.changed`        | `{ id, state, createdBy }` | A meeting was read or its processing moved on; never its title or transcript, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |

@@ -450,6 +450,15 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   `useChangesetActions` the writes. A history entry a changeset made links to its review (`HistoryTimeline`).
 - **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
   button that presets the project, and a link to every item of the project in All items.
+- **Reply** (`src/replies/`). An item a message raised shows a reply box under its links (`ActionItemReply`, loading
+  the record with `GET /timeline?actionItemId=`), and a project's timeline offers Reply on each message
+  (`RecordReply`). Both appear only where the record's kind declares `replies` other than `never`
+  (`useRecordReplies`), so no page names a provider. `ReplyComposer` picks where a chat reply goes (in the thread or
+  the conversation), or for mail the person's own mailbox, pointing at Settings, Email when they have none; it
+  continues the record's newest unsent draft from the `drafts` slice, and Send writes or edits that draft and sends it
+  (`docs/connectors.md`, Sending). A send that failed shows its reason under the text it kept, with Report. What is
+  typed is kept in session storage per record (`REPLY_DRAFT_STORAGE_PREFIX`) until it is sent or discarded.
+  `draft.changed` reloads a draft by id, and drops one that is gone.
 - **Start a coding session**, on the item page and in Next, goes to `/coding?item=<id>` (`getNewCodingSessionUrl`). The
   Coding page opens New session started from the item once Dockview is ready, then returns to `/coding`; see
   [Coding](#coding).
@@ -634,6 +643,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `studioAssets`   | Every version of the files of the Studio items viewed, newest first     |
 | `studioFeedback` | Drawn prompts of the Studio items viewed, oldest first                  |
 | `codingSessions` | Coding and Studio sessions with what each is doing, newest first        |
+| `drafts`         | The person's drafts of the records viewed, newest first                 |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
 | `sessionsView`   | Whether the Coding page's Sessions panel shows a table or tiles         |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |

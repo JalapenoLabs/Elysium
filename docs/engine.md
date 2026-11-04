@@ -100,7 +100,8 @@ event stream through Redis pub/sub.
 - When a step finds a promise the person made ("I'll let you know on Slack when it's done"), it is recorded on the
   project with who it is for and where they asked. When the Project Manager sees that work finish, it drafts the
   message in the person's voice as an action item with Send, Edit, and Dismiss. Send posts it through the connector it
-  came from, as the person. Nothing is sent without that click. Connectors gain send actions for this.
+  came from, as the person. Nothing is sent without that click. The drafted message is a draft
+  (`docs/connectors.md`, Sending) answering the record the promise was made in, and Send is `crate::drafts::send`.
 
 ## Elysia
 

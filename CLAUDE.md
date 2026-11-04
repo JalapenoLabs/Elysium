@@ -236,6 +236,12 @@ Everything else follows these rules:
   watcher. The first read baselines the mailbox without raising anything.
 - `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
   seam Elysia's triage builds on.
+- A person answers what a connector read as themselves: each kind declares `replies` (through the connector itself,
+  from a mailbox, or never). Everything sent is a draft (`drafts`), sent by the person through `crate::drafts::send`,
+  the one way anything leaves in someone's name: Slack by `chat.postMessage` and Teams by its chat service, each from
+  a send-only script in the connector's browser, and mail over SMTP from the person's own mailbox. A send that fails
+  keeps the draft and its reason and is never retried on its own; one that lands is a timeline record named as the
+  reader names it. See `docs/connectors.md`, Sending.
 - A new account's secret is checked with its provider before it is stored, sealed bound to its row, and never
   returned.
 

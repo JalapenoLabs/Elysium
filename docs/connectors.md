@@ -98,21 +98,22 @@ answered `404`.
 Each kind is one module under `api/src/connectors/kinds/` that declares its `Definition` and fills the hub's verbs for
 it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web app never do.
 
-| Kind         | Module                 | Provides   | Signs in with | Content                      | Read by                     |
-|--------------|------------------------|------------|---------------|------------------------------|-----------------------------|
-| `jira`       | `kinds/jira.rs`        | `issues`   | `atlassian`   | `projects`, `boards`         | The link watcher            |
-| `confluence` | `kinds/confluence.rs`  | `pages`    | `atlassian`   | `spaces`                     | `crate::confluence::reader` |
-| `github`     | `kinds/github.rs`      | `issues`   | `github`      | None: what the token reaches | The link watcher            |
-| `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    |
-| `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    |
-| `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    |
-| `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    |
-| `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`          | `crate::meetings`           |
-| `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader`   |
+| Kind         | Module                 | Provides   | Signs in with | Content                      | Read by                     | Replies |
+|--------------|------------------------|------------|---------------|------------------------------|-----------------------------|---------|
+| `jira`       | `kinds/jira.rs`        | `issues`   | `atlassian`   | `projects`, `boards`         | The link watcher            | Never   |
+| `confluence` | `kinds/confluence.rs`  | `pages`    | `atlassian`   | `spaces`                     | `crate::confluence::reader` | Never   |
+| `github`     | `kinds/github.rs`      | `issues`   | `github`      | None: what the token reaches | The link watcher            | Never   |
+| `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
+| `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
+| `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
+| `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
+| `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`          | `crate::meetings`           | Never   |
+| `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader`   | Never   |
 
 A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
 kind's start page, its content fields (a `selection` picked from what the account reaches, or a `storage_location`),
-and its ordered checks. Account definitions say what a new account asks for (text, email, URL, secret, or a choice).
+its ordered checks, and how what it reads is answered (`replies`: never, through the connector itself in the places it
+names, or from a mailbox; see [Sending](#sending)). Account definitions say what a new account asks for (text, email, URL, secret, or a choice).
 `GET /connectors/kinds` serves both, and the web app draws its forms and check lists from them, naming every id from
 its `connectors` translations.
 
@@ -132,6 +133,8 @@ A kind fills these verbs:
 | Sync            | Reads it now, in the loop that reads its kind                                                |
 | Sign in         | Starts a browser for a browser connector waiting for its own                                 |
 | Remove          | Removes it with its account                                                                  |
+| Reply target    | Where a reply to one of its records goes, in the kind's terms, for a kind that replies through itself |
+| Send            | Posts a draft's text to that target as its person, through the account it reads with        |
 
 A new connector of a token kind can be checked before it is stored, with the fields it was given; one of a browser kind
 cannot, since there is nothing to check until its person signs in on its browser, so its checks run on its page. Jira
@@ -299,7 +302,8 @@ chat, so unread messages stay unread. The store is the web client's own, not a p
 fields defensively. When it finds no store it says so (`chats_readable` fails as `teams_store_not_found` and its message
 lists the databases the page does hold), so a change to the layout shows up in the checks rather than as silence.
 
-The script only reads. The connector decides what the records mean:
+The script only reads; posting is a script of its own ([Sending](#sending)). The connector decides what the records
+mean:
 
 - **What it reads.** Its content is `conversations`, `"*"` for every chat and channel the person sees (the default)
   or a list of conversation ids, picked from what the browser's Teams has stored (`POST /connectors/options`).
@@ -314,7 +318,9 @@ The script only reads. The connector decides what the records mean:
   own messages are recorded too. System events (members added, calls) are not recorded.
 - **Each record** is titled with its conversation (a channel's or group's topic, or for a chat without one, who else
   wrote in it), comes from its sender, holds the message as plain text (the browser parses its HTML), and links to it
-  with Teams' documented message link, `https://teams.microsoft.com/l/message/<conversation>/<message>`.
+  with Teams' documented message link, `https://teams.microsoft.com/l/message/<conversation>/<message>`. Its
+  `metadata` keeps where it was said (`conversationId`, `messageId`, `parentId` for a message in a thread, and
+  `isChat`), which a reply to it needs.
 
 The script was checked against `api/src/connectors/fixtures/teams.html`, a page that seeds IndexedDB the way Teams lays
 it out, in headless Chromium (`fixtures/evaluate.mjs` runs any page script against a fixture). Its answer,
@@ -335,7 +341,7 @@ Slack's web API on the workspace's own host. `api/src/connectors/slack.js` runs 
 with that session, then answers what Slack said; the token never leaves the page, and a workspace stored at any host
 that is not `*.slack.com` is never called. Only read methods can be called (`client.counts`, `conversations.history`,
 `subscriptions.thread.getView`, `users.info`, `conversations.info`, `users.conversations`, `auth.test`), so reading
-never posts and never marks a conversation read. The API was chosen over the DOM because the DOM shows only the
+never posts and never marks a conversation read. Posting is a script of its own ([Sending](#sending)). The API was chosen over the DOM because the DOM shows only the
 conversation on screen and its markup changes freely, while the API answers every conversation, by id, with Slack's
 own timestamps, whatever the page shows.
 
@@ -353,7 +359,8 @@ active first; the rest keep their place and are read next time.
   An option whose words are Elysium's rather than Slack's names them by key (`labelKey`, `detailKey`) for the web app.
 - **Each message** becomes a record, its id `team/conversation/ts`, its sender's name as actor, a title naming where
   it was said (`#launch in Mooreslab`, `Reply in #launch in Mooreslab`, `Ada in a direct message in Mooreslab`),
-  Slack's markup as plain text, and the link Slack's Copy link gives. Joins, topic changes, and similar notices are
+  Slack's markup as plain text, the link Slack's Copy link gives, and in `metadata` where it was said (`team`,
+  `conversation`, `ts`, and `threadTs` for a reply), which a reply to it needs. Joins, topic changes, and similar notices are
   not recorded.
 - **What wants attention:** a direct or group message, a message that mentions the person, and an unread reply in a
   thread they follow, unless they wrote it. Other channel messages are only recorded.
@@ -459,6 +466,59 @@ The cursor is the newest update read, in YouTrack's own clock (`{"baselined": tr
 records nothing and only sets it, so connecting a site does not fill the timeline and the inbox with its history. A
 read the site refuses marks the connector `signed_out`; any other failure keeps the cursor and records the reason.
 
+## Sending
+
+A person answers what a connector read as themselves, through what the record's kind declares (`Definition.replies`).
+`crate::drafts` is the one way anything leaves Elysium in someone's name: the web app's Send calls it, and the
+follow-ups the engine drafts (`docs/engine.md`, Follow-ups) will call the same `drafts::send` once the person presses
+Send. Sending is the person's own act, so it needs no changeset; anything else can only write a draft for them.
+
+- **A draft first.** Everything sent is a draft (`drafts`, `docs/database.md`): its text, what sends it (a connector or
+  a mailbox), and where it goes (`target`, in the sender's own terms, decided when it is written from the record it
+  answers through `kinds::reply_target`). A draft is the person's alone.
+- **One send at a time.** Sending claims the draft (`draft` or `failed` to `sending`) in one statement, so a second
+  press cannot post twice. A send has 20 seconds, inside the request's own limit, and answers how it ended. A draft
+  left `sending` by a process that stopped mid-send can be sent again after two minutes.
+- **A failure keeps the draft.** A send the provider refused, or that could not reach it, leaves the draft `failed`
+  with the reason in words its person can act on (Slack signed out in this browser, Teams has not loaded its chats
+  yet), and its text untouched. Nothing is retried on its own: posting to a person twice is worse than not posting, and
+  a send that timed out may have gone out, which its reason says.
+- **A success is on the timeline.** The sent message becomes one of the person's records, named the way the kind's
+  reader names what it reads (Slack's `team/conversation/ts`, Teams' `conversation/message`), so reading it back later
+  records nothing twice; the draft points at that record. Its actor is the person, its title the conversation it
+  answers, and its metadata names the draft (`draftId`).
+
+| Kind              | Replies                  | Sent through                                                         |
+|-------------------|--------------------------|----------------------------------------------------------------------|
+| Slack             | In the thread, or in the conversation | `slack_send.js`, in the connector's browser: Slack's published `chat.postMessage` with the web client's session |
+| Teams             | In the thread, or in the conversation; a chat has no threads | `teams_send.js`, in the connector's browser: the chat service the web client posts to |
+| Outlook and Gmail | To the sender            | SMTP, from a mailbox of the person's own (`docs/mail.md`)            |
+
+**Slack.** `slack_send.js` can call `chat.postMessage` and nothing else, so the reader's script stays read-only. It
+finds the workspace's session in `localConfig_v2` as the reader does, posts on the workspace's own host, and answers
+Slack's `ok`, `error`, `channel`, and `ts`, never the token. A reply in the thread names the thread's first message as
+`thread_ts` (the record's `threadTs`, or its own `ts`), as Slack asks. Typed text is plain: `&`, `<`, and `>` are
+escaped, so nothing typed becomes a mention or a link. The script is tested in Node against a fake web API
+(`slack_send.test.mjs`); it has not yet posted to a signed-in Slack.
+
+**Teams.** `teams_send.js` posts to `<teams host>/api/chatsvc/<region>/v1/users/ME/conversations/<id>/messages`, the
+web client's own chat service, which is not a published API. A channel reply posts to `<channel>;messageid=<first
+message>`. Its token is the web client's access token for `ic3.teams.office.com` from the MSAL cache in localStorage,
+and its address, region included, is taken from a call the page already made; each missing piece is named
+(`token_expired`, `token_not_found`, which is also what an encrypted cache looks like, and `region_unknown`) and becomes
+a reason the person can act on. The text is sent as HTML, escaped, with its line breaks. The chat service names the
+posted message by its arrival time, which is also its id. This follows what the web client is known to do (the
+open-source `teams-api` client posts the same way) and is tested in Node against a fake chat service
+(`teams_send.test.mjs`); none of it has yet been checked against a signed-in Teams.
+
+**Mail.** Outlook and Gmail are read through a browser, which has no way to send that is not the page's own markup or
+the services' internal calls, so mail is answered over SMTP from a mailbox the person connected under Settings, Email
+(`mail_accounts`; `docs/mail.md`): the one named, or their only active one. A mailbox sends only for the person who
+connected it. A reply goes to the record's sender under its subject with `Re: ` in front, and carries the answered
+message's `Message-ID` and `References` when its record keeps them; the browser readers keep neither, so those replies
+do not thread in the recipient's client until mail is read over IMAP. A new mail names its mailbox, recipients, and
+subject. A mail sent is recorded as `mail`, with no connector.
+
 ## What is published
 
 | Event                        | When                                                                          |
@@ -466,7 +526,8 @@ read the site refuses marks the connector `signed_out`; any other failure keeps 
 | `connector.changed`          | A connector was added or changed: paused, its content, a sync starting or ending, a read finding something, its checks. Its id alone |
 | `connector.deleted`          | A connector was removed, or the account it read through                       |
 | `connectorCheckRun.updated`  | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`) |
-| `timelineRecord.created`     | A record was stored: its id, kind, owner, and the item it raised. Never its content |
+| `timelineRecord.created`     | A record was stored, read or sent: its id, kind, owner, and the item it raised. Never its content |
+| `draft.changed`              | A draft was written, edited, discarded, or a send of it began, landed, or failed: its id and writer |
 | `actionItem.upserted`        | The item a record raised, like any item write                                 |
 
 `connector.changed` carries the id alone because a connector's view names whose mailbox or meetings it reads and every
@@ -510,4 +571,9 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing
   records to projects.
+- Sending checked against a signed-in Slack and Teams: Slack's `chat.postMessage` with the web client's session, and
+  Teams' chat service token, address, and message shape.
+- Replies that thread in the recipient's mail client, once mail is read over IMAP and records keep `Message-ID`.
+- Writing a new message to a conversation picked rather than answered, and new mail, from the web app; the API takes
+  new mail today.
 - History for attributions, so a correction can be undone like any other edit.

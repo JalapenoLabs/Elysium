@@ -37,6 +37,11 @@ The API exposes two checks:
   (`last_checked_at`, `last_error`) and published, so a failure is data, not an error response.
 - **Send test message** sends a plain-text message from the mailbox to itself, proving the send path end to end.
 
+`transport::send` sends any plain-text message (recipients, subject, body, and, for a reply, `In-Reply-To` and
+`References`) under a `Message-ID` generated on the mailbox's own domain, and answers that id, so the sent message is
+recorded under the id its recipients see. Replies and new mail a person writes go through it from their own mailbox
+alone; see `docs/connectors.md`, Sending.
+
 ## OAuth broker
 
 Google and Microsoft issue tokens only to registered OAuth apps, and the client secret is needed both to exchange a
@@ -214,7 +219,8 @@ At startup Stalwart downloads its web interface and spam-filter data from GitHub
 
 ## Roadmap
 
-- Receiving: an IMAP `IDLE` watcher per active mailbox that ingests new mail, feeding the upcoming mail UI.
+- Receiving: an IMAP `IDLE` watcher per active mailbox that ingests new mail, feeding the upcoming mail UI. Its records
+  will keep each message's `Message-ID` and `References`, which a reply then carries so it threads.
 - The community broker deployment, then a default `OAUTH_BROKER_URL` pointing at it.
 - Google's security assessment for the restricted `https://mail.google.com/` scope, and Microsoft publisher
   verification, so the consent screens stop warning and Gmail's 100-user cap lifts.
