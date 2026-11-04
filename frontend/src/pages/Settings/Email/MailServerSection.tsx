@@ -48,8 +48,9 @@ const stepLabelKeys = {
   'adding-domain': 'server.steps.adding-domain',
 } as const satisfies Record<MailServerStep, string>
 
-// The mail server and the domains it hosts. Before the server exists this links to creating
-// it; while it is created, it follows the steps the event stream reports.
+// The mail server and the domains it hosts, the Email page's Domains tab. Before the server
+// exists this links to creating it; while it is created, it follows the steps the event stream
+// reports.
 export function MailServerSection() {
   const { t } = useTranslation([ 'email', 'common' ])
   const server = useAppSelector(selectMailServer)
@@ -160,12 +161,9 @@ export function MailServerSection() {
         </Alert.Content>
       </Alert>}
       <div className='compact flex flex-wrap items-center justify-between gap-2'>
-        <div>
-          <h3 className='font-semibold'>{t('domains.heading')}</h3>
-          <p className='text-sm opacity-70'>{
-            t('server.hostname', { hostname: server.hostname ?? '' })
-          }</p>
-        </div>
+        <p className='text-sm opacity-70'>{
+          t('server.hostname', { hostname: server.hostname ?? '' })
+        }</p>
         {/* A link once the server can take a domain; until then, a button that cannot be pressed. */}
         {server.state === 'ready'
           ? <Link href={UrlTree.settingsEmailDomainNew} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
@@ -189,13 +187,7 @@ export function MailServerSection() {
     </>
   }
 
-  return <section className='relaxed'>
-    <div className='compact'>
-      <h2 className='text-xl font-semibold'>{t('server.heading')}</h2>
-      <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-        t('server.description')
-      }</p>
-    </div>
+  return <section>
     {body}
 
     <MailDomainDnsModal

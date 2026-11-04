@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Changeset } from '../../api/routes/changesetRoutes'
+
 // Core
 import { useTranslation } from 'react-i18next'
 
@@ -8,19 +10,24 @@ import { useAppSelector } from '../../store/hooks'
 import { selectChangesets } from '../../store/changesetsSlice'
 
 // User interface
-import { Spinner } from '@heroui/react'
+import { Spinner, Tabs } from '@heroui/react'
 import { EmptyNotice } from '../../components/EmptyNotice'
+import { PageTabs } from '../../components/PageTabs'
 import { ChangesetListItem } from './ChangesetListItem'
 
 // Misc
 import { useChangesetsLoader } from '../../hooks/useServerData'
+import { useTabParam } from '../../hooks/useTabParam'
 
-// `/action-items/changesets`: every changeset, the ones waiting for review first, then the
-// ones already decided, each newest first.
+const TABS = [ 'pending', 'reviewed' ] as const
+
+// `/action-items/changesets`: the changesets waiting for review, and on a tab of their own the
+// ones already decided, each newest first. The open tab lives in the address.
 export function ChangesetsPage() {
   const { t } = useTranslation('changesets')
   const status = useChangesetsLoader()
   const changesets = useAppSelector(selectChangesets)
+  const [ selectedTab, selectTab ] = useTabParam(TABS)
 
   if (status === 'loading') {
     return <div className='grid place-items-center py-16'>
@@ -30,15 +37,9 @@ export function ChangesetsPage() {
   if (status === 'failed' && !changesets.length) {
     return <p className='text-sm text-danger'>{t('list.loadError')}</p>
   }
-  if (!changesets.length) {
-    return <EmptyNotice>
-      <span className='block font-semibold'>{t('list.emptyTitle')}</span>
-      <span>{t('list.emptyBody')}</span>
-    </EmptyNotice>
-  }
 
-  const pending = []
-  const reviewed = []
+  const pending: Changeset[] = []
+  const reviewed: Changeset[] = []
   for (const changeset of changesets) {
     if (changeset.state === 'pending') {
       pending.push(changeset)
@@ -48,14 +49,27 @@ export function ChangesetsPage() {
     }
   }
 
-  return <div>
-    {pending.length > 0 && <section className='relaxed'>
-      <h2 className='compact text-lg font-semibold'>{t('list.pendingHeading')}</h2>
-      {pending.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)}
-    </section>}
-    {reviewed.length > 0 && <section className='relaxed'>
-      <h2 className='compact text-lg font-semibold'>{t('list.reviewedHeading')}</h2>
-      {reviewed.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)}
-    </section>}
-  </div>
+  return <PageTabs
+    label={t('tabs.label')}
+    selectedKey={selectedTab}
+    onSelectionChange={selectTab}
+    tabs={[
+      { id: 'pending', label: t('tabs.pending'), count: pending.length, isWaiting: true },
+      { id: 'reviewed', label: t('tabs.reviewed'), count: reviewed.length },
+    ]}
+  >
+    <Tabs.Panel id='pending'>{
+      pending.length
+        ? pending.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)
+        : <EmptyNotice>
+          <span className='block font-semibold'>{t('list.emptyTitle')}</span>
+          <span>{t('list.emptyBody')}</span>
+        </EmptyNotice>
+    }</Tabs.Panel>
+    <Tabs.Panel id='reviewed'>{
+      reviewed.length
+        ? reviewed.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)
+        : <EmptyNotice>{t('list.noneReviewed')}</EmptyNotice>
+    }</Tabs.Panel>
+  </PageTabs>
 }

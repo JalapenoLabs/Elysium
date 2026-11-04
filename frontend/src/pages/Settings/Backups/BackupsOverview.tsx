@@ -14,7 +14,8 @@ type Props = {
   status: BackupsStatus
 }
 
-// The last backup stored, when the next one runs, and how long backups are kept.
+// Where backups go, the last backup stored, when the next one runs, and how long backups are
+// kept.
 export function BackupsOverview(props: Props) {
   const { t } = useTranslation('backups')
   const status = props.status
@@ -40,7 +41,15 @@ export function BackupsOverview(props: Props) {
       : formatDateTime(nextAttemptAt)
   }
 
-  return <section className='relaxed grid gap-6 rounded-xl border border-separator p-6 sm:grid-cols-3'>
+  return <section className='relaxed grid gap-6 rounded-xl border border-separator p-6 sm:grid-cols-2 lg:grid-cols-4'>
+    <div>
+      <p className='text-sm opacity-70'>{t('overview.destination')}</p>
+      <p className={status.destination
+        ? 'font-semibold'
+        : 'font-semibold text-warning'}>{
+          status.destination?.name ?? t('destination.none')
+        }</p>
+    </div>
     <div>
       <p className='text-sm opacity-70'>{t('overview.lastStored')}</p>
       <p className='font-semibold'>{lastStoredText}</p>

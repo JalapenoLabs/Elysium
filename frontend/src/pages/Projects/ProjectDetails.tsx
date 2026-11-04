@@ -11,17 +11,13 @@ import { selectCodingSessionsByProjectId } from '../../store/codingSessionsSlice
 import { useAppSelector } from '../../store/hooks'
 
 // User interface
-import { Spinner } from '@heroui/react'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { Page } from '../../layout/page/Page'
-import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
 import { ProjectBanner } from './ProjectBanner'
 import { ProjectGithubField } from './ProjectGithubField'
-import { ProjectTimeline } from './ProjectTimeline'
-import { ProjectWork } from './ProjectWork'
+import { ProjectLists } from './ProjectLists'
 
 // Misc
-import { useCodingSessionsLoader } from '../../hooks/useServerData'
 import { useUserNames } from '../../hooks/useUserNames'
 import { formatDate } from '../../format/dates'
 import { UrlTree } from '../../urls'
@@ -36,8 +32,8 @@ type Props = {
 // One project, edited in place and kept by the page's Save. The name is the page's title and
 // is renamed where it is shown; the cover runs across the page below it, then what the
 // project is about and its GitHub token, and the Actions menu holds what cannot be done in
-// place: removing the cover and deleting the project. Its action items and initiatives, its
-// timeline, then its coding sessions, follow.
+// place: removing the cover and deleting the project. Its lists follow, one per tab: action
+// items, initiatives, the timeline, and coding sessions.
 export function ProjectDetails(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const project = props.project
@@ -47,7 +43,7 @@ export function ProjectDetails(props: Props) {
     control: form.control,
     name: [ 'name', 'description', 'coverFit', 'githubKey' ],
   })
-  const sessionsStatus = useCodingSessionsLoader()
+  // Deleting explains while sessions remain; the Sessions tab loads them.
   const sessions = useAppSelector((state) => selectCodingSessionsByProjectId(state, project.id))
   const userNames = useUserNames()
   const actions = useProjectActions({ project, sessionCount: sessions.length })
@@ -98,25 +94,6 @@ export function ProjectDetails(props: Props) {
       onChange={(key) => form.setValue('githubKey', key, { shouldDirty: true })}
     />
 
-    <ProjectWork projectId={project.id} />
-
-    <ProjectTimeline projectId={project.id} />
-
-    <section>
-      <h2 className='compact text-xl font-semibold'>{t('page.sessionsHeading')}</h2>
-      {sessionsStatus === 'loading'
-        ? <div className='grid place-items-center py-10'>
-          <Spinner />
-        </div>
-        : <CodingSessionsTable
-          sessions={sessions}
-          ids={{
-            tableElementId: 'project-sessions-table',
-            tableLocalStorageId: 'elysium.projects.sessions.table.v2',
-          }}
-          ariaLabel={t('page.sessionsHeading')}
-          emptyMessage={t('page.sessionsEmpty')}
-        />}
-    </section>
+    <ProjectLists projectId={project.id} />
   </Page>
 }

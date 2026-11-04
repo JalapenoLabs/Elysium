@@ -29,7 +29,7 @@ export function MeetingSources(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
 
   if (!props.connectors.length) {
-    return <section className='relaxed'>
+    return <section>
       <p className='compact opacity-70'>{t('sources.none')}</p>
       <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>{
         props.kinds.map((kind) => <ConnectorKindCard key={kind} kind={kind} />)
@@ -37,8 +37,7 @@ export function MeetingSources(props: Props) {
     </section>
   }
 
-  return <section className='relaxed'>
-    <h2 className='compact text-xl font-semibold'>{t('sources.heading')}</h2>
+  return <section>
     <ul className='flex flex-wrap gap-3'>{
       props.connectors.map((connector) => {
         const accountName = accountNameOf(connector)

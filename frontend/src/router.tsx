@@ -60,6 +60,7 @@ import { EditJiraCredentialPage } from './pages/Settings/Jira/EditJiraCredential
 import { JiraDoneTransitionsPage } from './pages/Settings/Jira/JiraDoneTransitionsPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
+import { AgentConfigurationPage } from './pages/Settings/Llms/AgentConfigurationPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { McpPage } from './pages/Settings/Mcp/McpPage'
 import { AddTwoFactorPage } from './pages/Settings/Security/AddTwoFactorPage'
@@ -67,10 +68,12 @@ import { ChangeTwoFactorPage } from './pages/Settings/Security/ChangeTwoFactorPa
 import { RemoveTwoFactorPage } from './pages/Settings/Security/RemoveTwoFactorPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
+import { WorkspaceAccessPage } from './pages/Settings/Users/WorkspaceAccessPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
+import { BackupDestinationPage } from './pages/Settings/Backups/BackupDestinationPage'
 import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
 import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/EditLearningCategoryPage'
@@ -262,12 +265,20 @@ export const workspaceRoutes: RouteObject = {
       element: <ManageUsersPage />,
     },
     {
+      path: UrlTree.settingsUsersAccess,
+      element: <WorkspaceAccessPage />,
+    },
+    {
       path: UrlTree.settingsUpdates,
       element: <UpdatesPage />,
     },
     {
       path: UrlTree.settingsBackups,
       element: <BackupsPage />,
+    },
+    {
+      path: UrlTree.settingsBackupsDestination,
+      element: <BackupDestinationPage />,
     },
     {
       path: UrlTree.settingsPasswords,
@@ -317,6 +328,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsLlmsEdit,
       element: <EditLlmPage />,
+    },
+    {
+      path: UrlTree.settingsLlmsAgentConfiguration,
+      element: <AgentConfigurationPage />,
     },
     {
       path: UrlTree.settingsEnvironment,

@@ -142,6 +142,13 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   renders the footer only when creating. A `/new` page whose create needs nothing typed (starting a connector's
   browser, starting a Claude sign-in, a coding session whose only project is preselected) registers its save with
   `canSaveUnchanged`, so Save can be pressed at once while leaving still asks only about real changes.
+- **Lists.** A page shows one list (`~/.claude/docs/ux.md`, Lists of data). A page with more puts each on a tab of
+  `PageTabs` (`src/components/PageTabs.tsx`), each tab named with its total beside it, zero included, and none while
+  it is still loading; a count of what waits on the person (the inbox, sign-ups) is accented while above zero. The
+  open tab lives in the address through `useTabParam` (`src/hooks/useTabParam.ts`): `?tab=`, plain for the first tab,
+  replacing the history entry, so a tab survives a reload and a link can open one (`getTabUrl`). A form never shares
+  a page with a list: one that belongs beside a list is a page of its own, reached from the list page's actions and
+  going back to it once saved (Workspace access, Agent configuration, Backup destination).
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
   alone in its top bar, with the same props, and passes `className` for its spacing. It has no Save, so nothing on it
   is a field: a Studio item is renamed from its Actions menu, in a dialog with its own button.
@@ -178,7 +185,8 @@ or menu item that does one thing, such as Resolve, Approve, Link, Forget, or Del
   it in the bottom right, unless a `/new` page's Create below the form is in view. Dismissing it lasts until the
   header's Save is back in view.
 - **Leaving.** While the form is dirty, every way out of the page (a link, the sidebar, the breadcrumbs, Esc, the
-  browser's Back, or a change of the page's query, which can swap what it edits) is held by React Router's
+  browser's Back, or a change of the page's query other than its tab, which can swap what it edits; switching tabs
+  keeps the form mounted, so it never asks, `swapsWhatPageEdits`) is held by React Router's
   `useBlocker` and asks in `LeavePageDialog`, with a warning icon: Discard work, Save and continue, or Keep editing.
   Enter saves and continues; Esc keeps editing. A save that fails stays on the page. Closing or reloading the tab gets
   the browser's own warning. A form's own navigation after it saves (a `/new` page opening what it created, an edit
@@ -232,11 +240,11 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/action-items/initiatives`   | `InitiativesPage`        | Initiatives with their progress                          |
 | `/action-items/initiatives/new` | `CreateInitiativePage` | Start an initiative; `?project=` presets it              |
 | `/action-items/initiatives/:initiativeId` | `InitiativePage` | One initiative: progress, burnup, items, history  |
-| `/action-items/changesets`    | `ChangesetsPage`         | Changesets, those waiting for review first               |
+| `/action-items/changesets`    | `ChangesetsPage`         | Changesets waiting for review and reviewed, as tabs in `?tab=` |
 | `/action-items/changesets/:changesetId` | `ChangesetPage` | One changeset's review, outcome, and undo         |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
-| `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
+| `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its lists as tabs in `?tab=` |
 | `/action-items/initiatives/:initiativeId/containers/new` | `NewInitiativeContainerPage` | Follow a Jira epic or filter, or a GitHub milestone or label |
 | `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` redirects to `/coding/new?item=` |
 | `/coding/new`                 | `NewCodingSessionPage`   | New session; `?item=` starts it from that action item    |
@@ -255,13 +263,18 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/security/two-factor/new` | `AddTwoFactorPage` | Add 2FA: name, backup codes, then the app; `?step=` resumes it |
 | `/settings/security/two-factor/edit` | `ChangeTwoFactorPage` | Rename the app, or move to a new one        |
 | `/settings/security/two-factor/remove` | `RemoveTwoFactorPage` | Remove 2FA, and its backup codes          |
+| `/settings/users`             | `ManageUsersPage`        | People and sign-ups as tabs in `?tab=`; admins           |
+| `/settings/users/access`      | `WorkspaceAccessPage`    | Whether anyone can sign up and must use an authenticator app; admins |
+| `/settings/backups`           | `BackupsPage`            | Where backups go, the next one, and every attempt; admins |
+| `/settings/backups/destination` | `BackupDestinationPage` | The storage location backups go to; admins             |
 | `/settings/browsers`          | redirect                 | To `/settings/connectors`                                |
 | `/settings/browsers/:browserSessionId` | `BrowserSignInRedirect` | To the connector that owns the browser, else the list |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
 | `/settings/llms/new/:provider` | `AddLlmPage`            | One per provider, see below                              |
 | `/settings/llms/add-<provider>` | redirect               | To `/settings/llms/new/<provider>`                       |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
-| `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from; admins |
+| `/settings/email`             | `ManageEmailPage`        | Mailboxes and domains as tabs in `?tab=`                 |
 | `/settings/email/server/new`  | `NewMailServerPage`      | Create the mail server, or try again after it failed     |
 | `/settings/email/domains/new` | `NewMailDomainPage`      | Add a domain to the mail server                          |
 | `/settings/email/mailboxes/new` | `NewMailboxPage`       | Create a mailbox on the mail server                      |
@@ -280,7 +293,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/new`          | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
-| `/settings/meetings`          | `MeetingsPage`           | The person's meeting sources and recent meetings         |
+| `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
 | `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
 | `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
 | `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
@@ -374,18 +387,20 @@ offers them in autofill. See `docs/auth.md`.
     enabled after a five-second countdown.
   - **Copying.** The setup key and backup codes copy with `CopyButton`, an icon-only button that confirms with a
     toast.
-- **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
-  approved. The access switches and each person's role are the page's fields, kept by its Save; a role the API
-  refuses, such as the last admin's, stays picked. Approving, disabling, and the rest of a row's actions act at once.
-  Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from others and
-  badges the pending count.
+- **Users** (`/settings/users`). Admins only. Two tabs: People, everyone approved, and Sign-ups, those waiting for
+  an admin. Each person's role is a field of the page, kept by its Save; a role the API refuses, such as the last
+  admin's, stays picked. Approving, disabling, and the rest of a row's actions act at once. Workspace access
+  (`/settings/users/access`), opened from the page's actions, holds the sign-up and authenticator switches with a Save
+  of its own, and goes back to Users once saved. Users flow through SWR, then `usersSlice`, then the `user.*` events.
+  The directory entry is hidden from others and badges the pending count.
 - **Updates** (`/settings/updates`). Admins only. The release running, auto-update's state with what it waits for, a
   warning when no updater is connected, Check now, Update now for a release that rolled back, and the update history.
   The status flows through SWR, then `updatesSlice`, then the `updates.status` event. The directory entry is hidden
   from others.
-- **Backups** (`/settings/backups`). Admins only. The storage location the databases are backed up to (saved with the
-  page's Save; Nowhere turns backups off), the last backup stored, the next one or that backups are off, how long
-  they are kept, Back up now in the header, and every attempt. The status flows through SWR, then `backupsSlice`, then
+- **Backups** (`/settings/backups`). Admins only. Where the databases are backed up to, the last backup stored, the
+  next one or that backups are off, and how long they are kept, then every attempt, with Back up now and Change
+  destination in the header. The destination is its own page (`/settings/backups/destination`): a storage location,
+  or Nowhere, which turns backups off, kept by its Save, going back to Backups once saved. The status flows through SWR, then `backupsSlice`, then
   the `backups.status` event. The directory entry is hidden from others. See `docs/infrastructure.md`, Backups.
 - **Password field.** `PasswordInput` is the one field that sets a password, on `SecretInput`. It shows a zxcvbn
   strength meter (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and every requirement as a
@@ -407,8 +422,9 @@ offers them in autofill. See `docs/auth.md`.
   - `/oauth/consent` shows the client and the scopes it asks for, then Allow or Deny.
 - **MCP** (`/settings/mcp`), in the settings frame with no Save:
   - The MCP server's URL, with the `claude mcp add` and `codex mcp add` commands.
-  - Tabs: the person's connected clients, with Disconnect, and, for admins, every registered client, with Delete.
-    Each tab carries its count, so both lists load with the page rather than when a tab opens.
+  - Tabs (`PageTabs`, the open one in `?tab=`): the person's connected clients, with Disconnect, and, for admins,
+    every registered client, with Delete. Each tab carries its count, so both lists load with the page rather than
+    when a tab opens.
   - This data is loaded with SWR and revalidated after a change; no event stream carries it.
   - The page is named for the protocol, so its address is too. `/settings/connected-apps`, its earlier address,
     redirects to it, so links and bookmarks to it still land.
@@ -532,8 +548,10 @@ Manage LLMs is split into these files:
   `DatePicker` (typed segments plus a calendar) at day granularity, saved as midnight at the start of that day in
   the viewer's zone. One year from now picks the date 365 days after today.
 
-Below the credentials, admins see Agent configuration (`AgentConfigurationSettings`): the https repository every
-agent's Claude Code configuration is checked out from, saved to the workspace settings (see `docs/coding.md`).
+Admins reach Agent configuration (`/settings/llms/agent-configuration`, `AgentConfigurationPage`) from the list's
+actions: the https repository every agent's Claude Code configuration is checked out from, in
+`AgentConfigurationSettings`, saved to the workspace settings by the page's Save (see `docs/coding.md`). The list's
+Add LLM menu sits in its header.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
 bucket with directory, projects, limit, and a Default chip on Studio's default). The name links to the edit page, and
@@ -605,11 +623,12 @@ While editing a secret the value is optional and keeps the stored one, and it tu
 off, mirroring the API. `environmentPresentation.ts` mirrors the API's refused-key rules (`getKeyRefusal`), so a key
 Elysium would refuse is flagged before saving. See `docs/environment.md`.
 
-Email under `src/pages/Settings/Email/` has two sections.
+Email under `src/pages/Settings/Email/` has two tabs, Mailboxes and Domains, each with its count, the open one in
+`?tab=`. The page loads the mail server and its domains for both, since creating a mailbox needs them.
 
-`MailServerSection` follows the mail server's state from Redux. With no server it links to creating one
+The Domains tab is `MailServerSection`, which follows the mail server's state from Redux. With no server it links to creating one
 (`NewMailServerPage`, `MailServerForm`: the first domain, and a hostname that follows it as `mail.<domain>` until
-edited, which goes back to Email once creation starts); while it is created it shows the current step from
+edited, which goes back to Email's Domains tab once creation starts); while it is created it shows the current step from
 `mailServer.updated` events; once ready it lists domains in `MailDomainTable` (the default domain marked in its own
 column, whose row action to remove it is disabled), with Add domain (`NewMailDomainPage`, `MailDomainForm`), a remove
 confirmation (which only explains while the domain has mailboxes), and `MailDomainDnsModal`, which checks the
@@ -617,7 +636,7 @@ domain's records through SWR each time it opens and lists them with copy buttons
 says why when the server cannot take what it creates (`mailServerBlockerKeys`, `getMailboxBlockerKey` in
 `mailPresentation.ts`) instead of showing its form.
 
-The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
+The Mailboxes tab shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
 Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
 no ready mail server, or no domain. Create mailbox links to `NewMailboxPage`, whose `CreateMailboxForm` picks one of
 the server's domains. The Connect buttons are plain anchors to the API's OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
@@ -683,7 +702,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   modifier held. Acting takes the item out of Next, so the next one takes its place without a request. Skip sets an
   item aside for the visit only, and skipping the last one starts the round again (`nextRotation.ts`). While the inbox
   holds anything, `InboxLeadCard` leads the page, and while changesets wait for review, `ChangesetsLeadCard` leads it
-  above that. The Inbox and Changesets tabs each carry a count of what waits in them. An empty Next says how many items wait on someone or are snoozed.
+  above that. Every tab carries the total it lists when it opens (`countActionItemsSections`): Next, the inbox, All
+  items under its default filter, the active initiatives, and the changesets waiting for review; the Inbox and
+  Changesets counts are accented while anything waits. An empty Next says how many items wait on someone or are snoozed.
 - **Next is computed in the browser.** `src/store/nextOrder.ts` mirrors the API's Next (which items, and
   `api/src/action_items/next.rs`'s order) and is tested against the same cases, the way `environmentPresentation.ts`
   mirrors the API's key rules; keep the two in step. `selectNextActionItems(state, now)` applies it to every live
@@ -749,8 +770,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   Jira epic by search, a saved filter from `JiraFilterList`, or a repository's milestone or label from
   `GithubContainerList`, and goes back to the initiative once it follows it. `containerPresentation.ts` holds
   which kinds each provider has.
-- **Changesets** (`ChangesetsPage`, `ChangesetListItem`) lists the changesets waiting for review, then the reviewed
-  ones, each with its summary, proposer, when it was proposed, its decisions so far, and its state.
+- **Changesets** (`ChangesetsPage`, `ChangesetListItem`) has two tabs, Waiting for review and Reviewed, each with
+  its count, the open one in `?tab=`, listing each changeset with its summary, proposer, when it was proposed, its
+  decisions so far, and its state.
 - **Changeset review** (`ChangesetPage`, `ChangesetOperationCard`) has Apply as its header's primary action while
   the changeset waits, Approve all and Reject all, or Undo once applied, as its actions, and who proposed and decided
   it with the tally under the header. It shows each operation as a sentence and, for an edit,
@@ -763,8 +785,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   Undo confirms first, saying that a posted comment and a closed issue stay; afterwards each change says what undo
   kept. `changesetPresentation.ts` holds the sentences, labels, and rules, tested beside it, and
   `useChangesetActions` the writes. A history entry a changeset made links to its review (`HistoryTimeline`).
-- **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
-  button that presets the project, and a link to every item of the project in All items.
+- **Project page** (`ProjectItems`, `ProjectInitiatives`) lists, on its Action items and Initiatives tabs, the
+  project's inbox and open items and its initiatives, each with a New button that presets the project, and a link to
+  every item of the project in All items.
 - **Reply** (`src/replies/`). An item a message raised shows a reply box under its links (`ActionItemReply`, loading
   the record with `GET /timeline?actionItemId=`), and a project's timeline offers Reply on each message
   (`RecordReply`). Both appear only where the record's kind declares `replies` other than `never`
@@ -898,7 +921,9 @@ the banner, holds the description and who created the project. The name and desc
 Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
 uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Remove cover,
 at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
-`CodingSessionsTable` lists the project's coding sessions; a row or title opens the session on the Coding page.
+`ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), and Coding sessions
+(`CodingSessionsTable`; a row or title opens the session on the Coding page). Switching tabs keeps unsaved edits.
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
 clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with

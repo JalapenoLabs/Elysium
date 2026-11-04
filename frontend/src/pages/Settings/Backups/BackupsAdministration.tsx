@@ -10,17 +10,19 @@ import { selectAllStorageLocations } from '../../../store/storageLocationsSlice'
 
 // User interface
 import { Spinner } from '@heroui/react'
+import { LuHardDriveUpload } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { BackUpNowButton } from './BackUpNowButton'
-import { BackupDestinationForm } from './BackupDestinationForm'
 import { BackupHistoryTable } from './BackupHistoryTable'
 import { BackupsOverview } from './BackupsOverview'
 
 // Misc
 import { useBackupsLoader, useStorageLocationsLoader } from '../../../hooks/useServerData'
+import { UrlTree } from '../../../urls'
 
 // Loads the backups' status and the storage locations once; the event stream keeps both
-// current from then on.
+// current from then on. Where backups go is chosen on its own page, Destination, from the
+// page's actions.
 export function BackupsAdministration() {
   const { t } = useTranslation('backups')
   const loadStatus = useBackupsLoader()
@@ -42,11 +44,13 @@ export function BackupsAdministration() {
   return <SettingsPage
     title={t('title')}
     primaryAction={<BackUpNowButton status={status} />}
+    actions={[{
+      id: 'destination',
+      label: t('destination.change'),
+      icon: LuHardDriveUpload,
+      href: UrlTree.settingsBackupsDestination,
+    }]}
   >
-    <BackupDestinationForm
-      destinationId={status.destination?.id ?? null}
-      locations={locations}
-    />
     <BackupsOverview status={status} />
     <section>
       <h2 className='compact text-xl font-semibold'>{t('history.heading')}</h2>

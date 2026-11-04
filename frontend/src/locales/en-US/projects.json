@@ -104,6 +104,9 @@
     "inheritNone": "Workspace default (none set)",
     "orphaned": "The token this project used was deleted, so its sessions use the workspace default until you pick another."
   },
+  "lists": {
+    "label": "The project's lists"
+  },
   "work": {
     "itemsHeading": "Action items",
     "seeAllItems_one": "See the {{count, compact}} item",

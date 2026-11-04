@@ -1,8 +1,12 @@
 {
   "title": "Email",
+  "help": "Elysium reads and sends mail from these mailboxes. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all. Self-hosted mailboxes live on Elysium's one mail server, which hosts any number of domains on the same ports.",
+  "tabs": {
+    "label": "Mailboxes and domains",
+    "mailboxes": "Mailboxes",
+    "domains": "Domains"
+  },
   "server": {
-    "heading": "Mail server",
-    "description": "Elysium runs one mail server for self-hosted mailboxes. It hosts any number of domains, all on the same ports.",
     "empty": {
       "title": "No mail server yet",
       "description": "Creating one starts a Stalwart mail server on this host through Docker. Mail arrives through Elysium's nginx on ports 25, 465, and 993.",
@@ -43,7 +47,6 @@
     }
   },
   "domains": {
-    "heading": "Domains",
     "add": "Add domain",
     "default": "Default",
     "defaultHint": "The domain the server was created with. It cannot be removed.",
@@ -112,8 +115,6 @@
     }
   },
   "mailboxes": {
-    "heading": "Mailboxes",
-    "description": "The mailboxes Elysium reads and sends mail from. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all.",
     "connect": "Connect {{provider}}",
     "create": "Create mailbox"
   },

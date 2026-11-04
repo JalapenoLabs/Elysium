@@ -24,7 +24,7 @@ import { HTTPError } from 'ky'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailDomain } from '../../../api/routes/mailRoutes'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
-import { UrlTree } from '../../../urls'
+import { getTabUrl, UrlTree } from '../../../urls'
 import { createMailDomainFormSchema } from './mailFormSchemas'
 import { toast } from '../../../toast/toast'
 
@@ -51,7 +51,7 @@ export function MailDomainForm() {
       const response = await createMailDomain(values.name)
       dispatch(mailDomainUpserted(response.domain))
       toast.success(t('toasts.domainAdded', { name: response.domain.name }))
-      void navigate(UrlTree.settingsEmail)
+      void navigate(getTabUrl(UrlTree.settingsEmail, 'domains'))
       return true
     }
     catch (error) {

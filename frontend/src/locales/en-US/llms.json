@@ -1,18 +1,18 @@
 {
   "title": "Manage LLMs",
   "credentials": {
-    "heading": "Credentials",
-    "description": "Elysium tries active credentials in priority order, lowest number first. Tokens are encrypted and never shown again after saving. A signed-in Claude account is kept signed in by Elysium, which also shows its usage.",
+    "help": "Elysium tries active credentials in priority order, lowest number first. Tokens are encrypted and never shown again after saving. A signed-in Claude account is kept signed in by Elysium, which also shows its usage.",
     "add": "Add LLM",
     "addMenu": "Choose a provider"
   },
   "agentConfiguration": {
-    "heading": "Agent configuration",
-    "description": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when the API starts and whenever this changes. A github.com repository is read with the default GitHub token.",
+    "title": "Agent configuration",
+    "help": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when the API starts and whenever this changes. A github.com repository is read with the default GitHub token.",
     "repository": "Configuration repository",
     "repositoryHint": "An https git URL without credentials. Leave blank to use Claude Code's defaults.",
     "saved": "Agent configuration saved",
-    "loadError": "The agent configuration could not be loaded."
+    "loadError": "The agent configuration could not be loaded.",
+    "adminOnly": "Only admins change the agent configuration."
   },
   "table": {
     "label": "LLM credentials",

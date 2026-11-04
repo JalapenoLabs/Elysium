@@ -3,43 +3,72 @@
 import type { WorkspaceSettings } from '../../../api/routes/userRoutes'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
 import { selectMe } from '../../../store/authSlice'
-import { useAppSelector } from '../../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
+import { workspaceSettingsUpdated } from '../../../store/workspaceSettingsSlice'
 
 // User interface
-import { Label, Link, Switch } from '@heroui/react'
+import { Form, Label, Link, Switch } from '@heroui/react'
 
 // Misc
+import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
+import { usePageSave } from '../../../layout/page/pageSave'
+import { toast } from '../../../toast/toast'
 import { UrlTree } from '../../../urls'
 
-export type AccessSettings = Pick<WorkspaceSettings, 'signupOpen' | 'requireMfa'>
+type AccessSettings = Pick<WorkspaceSettings, 'signupOpen' | 'requireMfa'>
 
 type Props = {
   settings: WorkspaceSettings
-  // The switches changed on this page and not yet saved.
-  changes: Partial<AccessSettings>
-  onChange: (changes: Partial<AccessSettings>) => void
+  // Once saved, as an edit page goes back to its list.
+  onSaved: () => void
 }
 
 // Who may join, and what everyone must set up: open or close sign-up, and require an
-// authenticator app of every person. Fields of the Users page, kept by its Save.
+// authenticator app of every person. Kept by the page's Save. Only the switches changed here
+// are held and sent, so a change another admin makes meanwhile shows at once and is never
+// undone.
 export function WorkspaceAccessSettings(props: Props) {
-  const { t } = useTranslation('users')
-  const signupOpen = props.changes.signupOpen ?? props.settings.signupOpen
-  const requireMfa = props.changes.requireMfa ?? props.settings.requireMfa
+  const { t } = useTranslation([ 'users', 'common' ])
+  const dispatch = useAppDispatch()
+  const [ changes, setChanges ] = useState<Partial<AccessSettings>>({})
+  const signupOpen = changes.signupOpen ?? props.settings.signupOpen
+  const requireMfa = changes.requireMfa ?? props.settings.requireMfa
   // Requiring an authenticator applies to the admin turning it on too. Without one of their
   // own, they would be sent to set one up before they could reach this page again.
   const hasSecondFactor = Boolean(useAppSelector(selectMe)?.hasSecondFactor)
   const canRequireMfa = props.settings.requireMfa || hasSecondFactor
 
-  return <div className='relaxed grid gap-6 rounded-xl border border-separator p-6 md:grid-cols-2'>
+  async function save() {
+    try {
+      const response = await updateWorkspaceSettings(changes)
+      dispatch(workspaceSettingsUpdated(response.settings))
+      setChanges({})
+      toast.success(t('access.saved'))
+      props.onSaved()
+      return true
+    }
+    catch (error) {
+      console.debug('WorkspaceAccessSettings could not save the access settings', { error })
+      toast.danger(t('common:errors.unexpected'))
+      return false
+    }
+  }
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: signupOpen !== props.settings.signupOpen || requireMfa !== props.settings.requireMfa,
+  })
+
+  return <Form className='grid gap-6 rounded-xl border border-separator p-6 md:grid-cols-2' onSubmit={onSubmit}>
     <div>
       <Switch
         isSelected={signupOpen}
-        onChange={(isSelected) => props.onChange({ ...props.changes, signupOpen: isSelected })}
+        onChange={(isSelected) => setChanges({ ...changes, signupOpen: isSelected })}
       >
         <Switch.Content>
           <Switch.Control>
@@ -54,7 +83,7 @@ export function WorkspaceAccessSettings(props: Props) {
       <Switch
         isSelected={requireMfa}
         isDisabled={!canRequireMfa}
-        onChange={(isSelected) => props.onChange({ ...props.changes, requireMfa: isSelected })}
+        onChange={(isSelected) => setChanges({ ...changes, requireMfa: isSelected })}
       >
         <Switch.Content>
           <Switch.Control>
@@ -70,5 +99,5 @@ export function WorkspaceAccessSettings(props: Props) {
         <Link href={UrlTree.settingsSecurity} className='text-link'>{t('access.setUpYours')}</Link>
       </p>}
     </div>
-  </div>
+  </Form>
 }

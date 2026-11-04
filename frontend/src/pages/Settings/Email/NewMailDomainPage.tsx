@@ -15,7 +15,7 @@ import { MailDomainForm } from './MailDomainForm'
 
 // Misc
 import { useMailServerLoader } from '../../../hooks/useServerData'
-import { UrlTree } from '../../../urls'
+import { getTabUrl, UrlTree } from '../../../urls'
 import { mailServerBlockerKeys } from './mailPresentation'
 
 // `/settings/email/domains/new`: adding a domain to the mail server. A server that cannot take
@@ -30,7 +30,7 @@ export function NewMailDomainPage() {
 
   return <SettingsPage
     title={t('domainForm.title')}
-    parents={[{ label: t('title'), href: UrlTree.settingsEmail }]}
+    parents={[{ label: t('title'), href: getTabUrl(UrlTree.settingsEmail, 'domains') }]}
     help={t('domainForm.description')}
   >
     {!server && status !== 'failed' && <div className='grid place-items-center py-16'>

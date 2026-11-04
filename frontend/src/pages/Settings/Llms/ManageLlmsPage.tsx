@@ -9,24 +9,25 @@ import { useTranslation } from 'react-i18next'
 import { selectIsAdmin } from '../../../store/authSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { llmDeleted, llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
-import { selectWorkspaceSettings } from '../../../store/workspaceSettingsSlice'
 
 // User interface
 import { Button, Dropdown, Label, Spinner } from '@heroui/react'
-import { LuChevronDown, LuPlus } from 'react-icons/lu'
+import { LuChevronDown, LuFolderGit2, LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
-import { AgentConfigurationSettings } from './AgentConfigurationSettings'
 import { LlmTable } from './LlmTable'
 
 // Misc
 import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
-import { useLlmsLoader, useWorkspaceSettingsLoader } from '../../../hooks/useServerData'
+import { useLlmsLoader } from '../../../hooks/useServerData'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
-import { getNewLlmUrl } from '../../../urls'
+import { getNewLlmUrl, UrlTree } from '../../../urls'
 import { llmSlugByType } from './llmProviders'
 import { toast } from '../../../toast/toast'
 
+// `/settings/llms`: every LLM credential, activated, deactivated, and deleted from its row, and
+// added from the Add LLM menu, one page per provider. Admins also reach the agent
+// configuration, a form of its own, from the page's actions.
 export function ManageLlmsPage() {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
@@ -68,73 +69,50 @@ export function ManageLlmsPage() {
     }
   }
 
-  return <SettingsPage title={t('title')}>
-    <section>
-      <div className='level compact items-start'>
-        <div>
-          <h2 className='text-xl font-semibold'>{
-            t('credentials.heading')
-          }</h2>
-          <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-            t('credentials.description')
-          }</p>
-        </div>
-        <Dropdown>
-          <Button
-            size='sm'
-            variant='outline'
-            className='shrink-0'
+  return <SettingsPage
+    title={t('title')}
+    help={t('credentials.help')}
+    primaryAction={<Dropdown>
+      <Button variant='outline'>
+        <LuPlus className='size-4' aria-hidden />
+        <span>{t('credentials.add')}</span>
+        <LuChevronDown className='size-4' aria-hidden />
+      </Button>
+      <Dropdown.Popover placement='bottom end'>
+        {/* Each provider is a link to its own add page, so it opens in a new tab too. */}
+        <Dropdown.Menu aria-label={t('credentials.addMenu')}>{
+          LLM_TYPES.map((type) => <Dropdown.Item
+            key={type}
+            id={type}
+            textValue={t(llmTypeLabelKeys[type])}
+            href={getNewLlmUrl(llmSlugByType[type])}
           >
-            <LuPlus className='size-4' aria-hidden />
-            <span>{t('credentials.add')}</span>
-            <LuChevronDown className='size-4' aria-hidden />
-          </Button>
-          <Dropdown.Popover placement='bottom end'>
-            {/* Each provider is a link to its own add page, so it opens in a new tab too. */}
-            <Dropdown.Menu aria-label={t('credentials.addMenu')}>{
-              LLM_TYPES.map((type) => <Dropdown.Item
-                key={type}
-                id={type}
-                textValue={t(llmTypeLabelKeys[type])}
-                href={getNewLlmUrl(llmSlugByType[type])}
-              >
-                <Label>{t(llmTypeLabelKeys[type])}</Label>
-              </Dropdown.Item>)
-            }</Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
-      </div>
+            <Label>{t(llmTypeLabelKeys[type])}</Label>
+          </Dropdown.Item>)
+        }</Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>}
+    actions={isAdmin
+      ? [{
+        id: 'agentConfiguration',
+        label: t('agentConfiguration.title'),
+        icon: LuFolderGit2,
+        href: UrlTree.settingsLlmsAgentConfiguration,
+      }]
+      : []}
+  >
+    {status === 'loading' && <div className='grid place-items-center py-16'>
+      <Spinner />
+    </div>}
 
-      {status === 'loading' && <div className='grid place-items-center py-16'>
-        <Spinner />
-      </div>}
+    {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
+      t('table.loadError')
+    }</p>}
 
-      {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
-        t('table.loadError')
-      }</p>}
-
-      {status === 'loaded' && <LlmTable
-        llms={llms}
-        onToggleActive={toggleActive}
-        onDelete={confirmDelete}
-      />}
-    </section>
-
-    {isAdmin && <AgentConfigurationSection />}
+    {status === 'loaded' && <LlmTable
+      llms={llms}
+      onToggleActive={toggleActive}
+      onDelete={confirmDelete}
+    />}
   </SettingsPage>
-}
-
-// Admins only, as the workspace settings are.
-function AgentConfigurationSection() {
-  const { t } = useTranslation('llms')
-  const status = useWorkspaceSettingsLoader()
-  const settings = useAppSelector(selectWorkspaceSettings)
-
-  return <section className='relaxed pt-10'>
-    <h2 className='text-xl font-semibold'>{t('agentConfiguration.heading')}</h2>
-    <p className='compact mt-1 max-w-2xl text-sm opacity-70'>{t('agentConfiguration.description')}</p>
-    {settings && <AgentConfigurationSettings settings={settings} />}
-    {!settings && status === 'loading' && <Spinner size='sm' />}
-    {status === 'failed' && <p className='text-sm text-danger'>{t('agentConfiguration.loadError')}</p>}
-  </section>
 }

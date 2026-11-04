@@ -1,6 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Key } from '@heroui/react'
 import type { ParseKeys } from 'i18next'
 
 // Core
@@ -13,10 +12,11 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectDeletedLearnings, selectLiveLearnings } from '../../../store/learningsSlice'
 
 // User interface
-import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
+import { buttonVariants, Link, Spinner, Tabs } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { EmptyNotice } from '../../../components/EmptyNotice'
 import { OptionSelect } from '../../../components/OptionSelect'
+import { PageTabs } from '../../../components/PageTabs'
 import { SettingsPage } from '../SettingsPage'
 import { LearningFeed } from './LearningFeed'
 import { LearningTable } from './LearningTable'
@@ -24,6 +24,7 @@ import { LearningTable } from './LearningTable'
 // Misc
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useDeletedLearningsLoader, useLearningsLoader } from '../../../hooks/useServerData'
+import { useTabParam } from '../../../hooks/useTabParam'
 import { UrlTree } from '../../../urls'
 
 const TABS = [ 'live', 'deleted', 'feed' ] as const
@@ -35,9 +36,8 @@ const tabLabelKeys = {
   feed: 'tabs.feed',
 } as const satisfies Record<Tab, ParseKeys<'learnings'>>
 
-// The open tab and the category filter live in the address, so coming back from a learning
-// returns to them.
-const TAB_PARAM = 'tab'
+// The category filter lives in the address, as the open tab does, so coming back from a
+// learning returns to both.
 const CATEGORY_PARAM = 'category'
 
 // The filter's choice for every category, as the select's key; the address then names none.
@@ -52,11 +52,8 @@ export function LearningsPage() {
   const isAdmin = useAppSelector(selectIsAdmin)
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const [ params, setParams ] = useSearchParams()
-  const requestedTab = TABS.find((tab) => tab === params.get(TAB_PARAM)) ?? 'live'
-  // Someone who is not an admin keeps the tabs they can see.
-  const selectedTab = requestedTab === 'feed' && !isAdmin
-    ? 'live'
-    : requestedTab
+  const shownTabs = TABS.filter((tab) => tab !== 'feed' || isAdmin)
+  const [ selectedTab, selectTab ] = useTabParam(shownTabs)
 
   const liveStatus = useLearningsLoader()
   const deletedStatus = useDeletedLearningsLoader(isCompanyMember)
@@ -77,19 +74,6 @@ export function LearningsPage() {
     }, { replace: true })
   }
 
-  function selectTab(key: Key) {
-    const tab = TABS.find((candidate) => candidate === key)
-    if (!tab) {
-      console.debug('LearningsPage ignored an unknown tab', { key })
-      return
-    }
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      next.set(TAB_PARAM, tab)
-      return next
-    }, { replace: true })
-  }
-
   if (!isCompanyMember) {
     return <SettingsPage title={t('title')}>
       <EmptyNotice>{t('membersOnly')}</EmptyNotice>
@@ -106,7 +90,6 @@ export function LearningsPage() {
       : null,
     feed: null,
   }
-  const shownTabs = TABS.filter((tab) => tab !== 'feed' || isAdmin)
 
   function renderList(status: typeof liveStatus, isDeletedList: boolean) {
     if (status === 'loading') {
@@ -157,18 +140,12 @@ export function LearningsPage() {
       <span>{t('new')}</span>
     </Link>}
   >
-    <Tabs variant='secondary' selectedKey={selectedTab} onSelectionChange={selectTab}>
-      <Tabs.ListContainer className='relaxed'>
-        <Tabs.List aria-label={t('tabs.label')}>{
-          shownTabs.map((tab) => <Tabs.Tab key={tab} id={tab}>
-            <span>{t(tabLabelKeys[tab])}</span>
-            {countByTab[tab] !== null && <Chip size='sm' variant='soft' className='ml-2'>{
-              countByTab[tab]
-            }</Chip>}
-            <Tabs.Indicator />
-          </Tabs.Tab>)
-        }</Tabs.List>
-      </Tabs.ListContainer>
+    <PageTabs
+      label={t('tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={shownTabs.map((tab) => ({ id: tab, label: t(tabLabelKeys[tab]), count: countByTab[tab] }))}
+    >
       <Tabs.Panel id='live'>{
         renderList(liveStatus, false)
       }</Tabs.Panel>
@@ -178,6 +155,6 @@ export function LearningsPage() {
       {isAdmin && <Tabs.Panel id='feed'>
         <LearningFeed />
       </Tabs.Panel>}
-    </Tabs>
+    </PageTabs>
   </SettingsPage>
 }

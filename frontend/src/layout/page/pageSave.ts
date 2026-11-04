@@ -8,6 +8,9 @@ import type { RefCallback } from 'react'
 // Core
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 
+// Misc
+import { TAB_PARAM } from '../../urls'
+
 // The one save a page has, as the form that owns it describes it. `Page` draws its Save
 // button from this in the header and on the floating card, presses it for Ctrl+S and
 // Enter, and runs it from the leave prompt's Save and continue.
@@ -111,6 +114,20 @@ export function leavesWithoutAsking(state: unknown) {
     && state !== null
     && 'leavesWithoutAsking' in state
     && state.leavesWithoutAsking === true
+}
+
+// Whether going from one address of a page to another, both on the same path, can swap what
+// the page edits, so the leave prompt must ask first. A query such as Jira's `?project=` picks
+// the record a form edits. The open tab (`?tab=`) never does: it shows another part of the
+// same page, its form still mounted, so nothing typed is lost by switching.
+export function swapsWhatPageEdits(currentSearch: string, nextSearch: string) {
+  const current = new URLSearchParams(currentSearch)
+  const next = new URLSearchParams(nextSearch)
+  current.delete(TAB_PARAM)
+  next.delete(TAB_PARAM)
+  current.sort()
+  next.sort()
+  return current.toString() !== next.toString()
 }
 
 // Whether the Save button can be pressed.

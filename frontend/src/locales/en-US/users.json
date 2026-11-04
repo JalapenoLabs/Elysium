@@ -19,9 +19,13 @@
     "totp": "Authenticator app",
     "lookupSecret": "Lookup codes"
   },
+  "tabs": {
+    "label": "People and sign-ups",
+    "people": "People",
+    "signups": "Sign-ups"
+  },
   "access": {
-    "heading": "Access",
-    "description": "Who may join this workspace, and what everyone must set up.",
+    "title": "Workspace access",
     "signupOpen": "Anyone can sign up",
     "signupOpenHint": "New accounts still wait for an admin's approval. Off, the sign-up page is closed.",
     "requireMfa": "Require an authenticator app",
@@ -32,15 +36,11 @@
     "loadError": "Access settings could not load."
   },
   "pending": {
-    "heading_one": "{{count, compact}} sign-up waiting",
-    "heading_other": "{{count, compact}} sign-ups waiting",
+    "empty": "No sign-ups are waiting.",
     "signedUp": "{{email}} · signed up {{date}}",
     "role": "Role",
     "approve": "Approve",
     "reject": "Reject"
-  },
-  "people": {
-    "heading": "People"
   },
   "table": {
     "label": "People in this workspace",

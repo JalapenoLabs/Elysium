@@ -13,7 +13,8 @@ import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Spinner } from '@heroui/react'
+import { Alert, Spinner, Tabs } from '@heroui/react'
+import { PageTabs } from '../../../components/PageTabs'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
 import { MailServerSection } from './MailServerSection'
@@ -28,11 +29,16 @@ import {
   testMailAccount,
 } from '../../../api/routes/mailRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
-import { useMailAccountsLoader } from '../../../hooks/useServerData'
+import { useMailAccountsLoader, useMailDomainsLoader, useMailServerLoader } from '../../../hooks/useServerData'
+import { useTabParam } from '../../../hooks/useTabParam'
 import { mailAccountKindLabelKeys } from './mailPresentation'
 import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
 import { toast } from '../../../toast/toast'
 
+const TABS = [ 'mailboxes', 'domains' ] as const
+
+// `/settings/email`: every mailbox Elysium reads and sends from, and on a tab of its own the
+// mail server with the domains it hosts. The open tab lives in the address.
 export function ManageEmailPage() {
   const { t } = useTranslation([ 'email', 'common' ])
   const dispatch = useAppDispatch()
@@ -40,6 +46,10 @@ export function ManageEmailPage() {
   const server = useAppSelector(selectMailServer)
   const domains = useAppSelector(selectAllMailDomains)
   const status = useMailAccountsLoader()
+  // The Mailboxes tab reads both too: creating a mailbox needs a ready server and a domain.
+  useMailServerLoader()
+  const domainsStatus = useMailDomainsLoader()
+  const [ selectedTab, selectTab ] = useTabParam(TABS)
   // Only this page asks, so it stays in SWR rather than Redux.
   const { data: capabilitiesResponse } = useSWR('v1/mail/capabilities', getMailCapabilities)
   const capabilities = capabilitiesResponse?.capabilities
@@ -126,52 +136,67 @@ export function ManageEmailPage() {
     }
   }
 
-  return <SettingsPage title={t('title')}>
-    <MailServerSection />
-
-    <section>
-      <div className='compact flex flex-wrap items-start justify-between gap-4'>
-        <div>
-          <h2 className='text-xl font-semibold'>{
-            t('mailboxes.heading')
-          }</h2>
-          <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-            t('mailboxes.description')
-          }</p>
+  return <SettingsPage title={t('title')} help={t('help')}>
+    <PageTabs
+      label={t('tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={[
+        {
+          id: 'mailboxes',
+          label: t('tabs.mailboxes'),
+          count: status === 'loaded'
+            ? accounts.length
+            : null,
+        },
+        {
+          id: 'domains',
+          label: t('tabs.domains'),
+          count: domainsStatus === 'loaded'
+            ? domains.length
+            : null,
+        },
+      ]}
+    >
+      <Tabs.Panel id='mailboxes'>
+        <div className='compact'>
+          <MailboxSourceActions
+            capabilities={capabilities}
+            server={server}
+            hasDomains={domains.length > 0}
+          />
         </div>
-        <MailboxSourceActions
-          capabilities={capabilities}
-          server={server}
-          hasDomains={domains.length > 0}
-        />
-      </div>
 
-      {capabilities?.brokerError && <Alert status='warning' className='compact'>
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>{
-            t('availability.brokerUnreachable.title')
-          }</Alert.Title>
-          <Alert.Description>{
-            t('availability.brokerUnreachable.description', { error: capabilities.brokerError })
-          }</Alert.Description>
-        </Alert.Content>
-      </Alert>}
+        {capabilities?.brokerError && <Alert status='warning' className='compact'>
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>{
+              t('availability.brokerUnreachable.title')
+            }</Alert.Title>
+            <Alert.Description>{
+              t('availability.brokerUnreachable.description', { error: capabilities.brokerError })
+            }</Alert.Description>
+          </Alert.Content>
+        </Alert>}
 
-      {status === 'loading' && <div className='grid place-items-center py-16'>
-        <Spinner />
-      </div>}
+        {status === 'loading' && <div className='grid place-items-center py-16'>
+          <Spinner />
+        </div>}
 
-      {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
-        t('table.loadError')
-      }</p>}
+        {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
+          t('table.loadError')
+        }</p>}
 
-      {status === 'loaded' && <MailAccountTable
-        accounts={accounts}
-        onTest={runConnectionTest}
-        onSendTest={sendTestMessage}
-        onDisconnect={confirmDisconnect}
-      />}
-    </section>
+        {status === 'loaded' && <MailAccountTable
+          accounts={accounts}
+          onTest={runConnectionTest}
+          onSendTest={sendTestMessage}
+          onDisconnect={confirmDisconnect}
+        />}
+      </Tabs.Panel>
+      <Tabs.Panel id='domains'>
+        <MailServerSection />
+      </Tabs.Panel>
+    </PageTabs>
   </SettingsPage>
 }

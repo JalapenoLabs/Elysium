@@ -32,12 +32,16 @@
     "remove-from-initiative": "Remove from initiative",
     "create-initiative": "New initiative"
   },
+  "tabs": {
+    "label": "Changesets by review",
+    "pending": "Waiting for review",
+    "reviewed": "Reviewed"
+  },
   "list": {
     "loadError": "Changesets could not be loaded.",
     "emptyTitle": "Nothing to review",
     "emptyBody": "When Elysia or a coding session proposes changes to your items, they wait here until you decide.",
-    "pendingHeading": "Waiting for review",
-    "reviewedHeading": "Reviewed",
+    "noneReviewed": "Nothing reviewed yet.",
     "review": "Review",
     "open": "Open"
   },

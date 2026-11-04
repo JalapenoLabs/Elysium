@@ -22,7 +22,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { createMailServer } from '../../../api/routes/mailRoutes'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
-import { UrlTree } from '../../../urls'
+import { getTabUrl, UrlTree } from '../../../urls'
 import { createMailServerFormSchema } from './mailFormSchemas'
 import { toast } from '../../../toast/toast'
 
@@ -52,7 +52,7 @@ export function MailServerForm() {
     try {
       const response = await createMailServer(values)
       dispatch(mailServerUpdated(response.server))
-      void navigate(UrlTree.settingsEmail)
+      void navigate(getTabUrl(UrlTree.settingsEmail, 'domains'))
       return true
     }
     catch (error) {

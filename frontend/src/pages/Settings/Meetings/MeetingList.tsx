@@ -1,51 +1,57 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Meeting } from '../../../api/routes/meetingRoutes'
+import type { LoadStatus } from '../../../hooks/useServerData'
+
 // Core
 import { useTranslation } from 'react-i18next'
-
-// Redux
-import { useAppSelector } from '../../../store/hooks'
-import { selectAllMeetings } from '../../../store/meetingsSlice'
+import { Link } from 'react-router'
 
 // User interface
 import { Spinner } from '@heroui/react'
+import { EmptyNotice } from '../../../components/EmptyNotice'
 import { MeetingRow } from './MeetingRow'
 
 // Misc
-import { useMeetingsLoader } from '../../../hooks/useServerData'
+import { getTabUrl, UrlTree } from '../../../urls'
 
 type Props = {
-  // Whether any meeting source is connected. Without one, the sources above already say what
-  // to do, so the list shows only while it holds meetings read before.
+  status: LoadStatus
+  // Newest first.
+  meetings: Meeting[]
+  // Whether any meeting source is connected. Without one, an empty list points to the Sources
+  // tab, where one is connected.
   hasSources: boolean
 }
 
 // The person's recent meetings, newest first, each with the source it came from and how far its
-// processing got.
+// processing got. The Meetings page loads them, since its tab counts them too.
 export function MeetingList(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
-  const status = useMeetingsLoader()
-  const meetings = useAppSelector(selectAllMeetings)
 
-  if (status === 'loaded' && !meetings.length && !props.hasSources) {
-    return null
+  if (props.status === 'loading') {
+    return <div className='grid place-items-center py-10'>
+      <Spinner />
+    </div>
+  }
+  if (props.status === 'failed') {
+    return <p className='text-sm text-danger'>{t('common:errors.unexpected')}</p>
+  }
+  if (!props.meetings.length) {
+    return <EmptyNotice>{
+      props.hasSources
+        ? t('list.empty')
+        : <>
+          <span>{t('list.noSources')}</span>
+          {' '}
+          <Link to={getTabUrl(UrlTree.settingsMeetings, 'sources')} className='text-link'>{
+            t('list.connectSource')
+          }</Link>
+        </>
+    }</EmptyNotice>
   }
 
-  return <section className='relaxed'>
-    <h2 className='compact text-xl font-semibold'>{t('list.heading')}</h2>
-    {status === 'loading' && <div className='grid place-items-center py-10'>
-      <Spinner />
-    </div>}
-    {status === 'failed' && <p className='text-sm text-danger'>{t('common:errors.unexpected')}</p>}
-    {status === 'loaded' && !meetings.length && <p
-      className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'
-    >{
-      t('list.empty')
-    }</p>}
-    {status === 'loaded' && Boolean(meetings.length) && <ul
-      className='divide-y divide-separator rounded-xl border border-separator'
-    >{
-      meetings.map((meeting) => <MeetingRow key={meeting.id} meeting={meeting} />)
-    }</ul>}
-  </section>
+  return <ul className='divide-y divide-separator rounded-xl border border-separator'>{
+    props.meetings.map((meeting) => <MeetingRow key={meeting.id} meeting={meeting} />)
+  }</ul>
 }

@@ -3,7 +3,7 @@
 import type { WorkspaceSettings } from '../../../api/routes/userRoutes'
 
 // Core
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -21,16 +21,20 @@ import { toast } from '../../../toast/toast'
 
 type Props = {
   settings: WorkspaceSettings
+  // Once saved, as an edit page goes back to its list.
+  onSaved: () => void
 }
 
 // The git repository every agent's Claude Code configuration (CLAUDE.md, skills, settings) is
 // checked out from before its turns. The API validates the URL, so its refusal is shown as is.
-// Saved from the page's Save, in the header.
+// Saved from the page's Save, in the header. The field is focused as the page opens, since it is
+// the page's one field.
 export function AgentConfigurationSettings(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
   const saved = props.settings.agentConfigurationRepository ?? ''
   const [ repository, setRepository ] = useState(saved)
+  const repositoryRef = useRef<HTMLInputElement>(null)
   const trimmed = repository.trim()
 
   async function save() {
@@ -39,6 +43,7 @@ export function AgentConfigurationSettings(props: Props) {
       const response = await updateWorkspaceSettings({ agentConfigurationRepository: trimmed || null })
       dispatch(workspaceSettingsUpdated(response.settings))
       toast.success(t('agentConfiguration.saved'))
+      props.onSaved()
       return true
     }
     catch (error) {
@@ -56,13 +61,19 @@ export function AgentConfigurationSettings(props: Props) {
     isDirty: trimmed !== saved,
   })
 
+  useEffect(() => {
+    repositoryRef.current?.focus()
+  }, [])
+
   return <Form className='compact max-w-2xl' onSubmit={onSubmit}>
     <TextField
+      id='agent-configuration-repository'
       value={repository}
+      autoComplete='url'
       onChange={setRepository}
     >
       <Label>{t('agentConfiguration.repository')}</Label>
-      <Input placeholder='https://github.com/acme/agent-configuration.git' />
+      <Input ref={repositoryRef} placeholder='https://github.com/acme/agent-configuration.git' />
       <Description>{t('agentConfiguration.repositoryHint')}</Description>
     </TextField>
   </Form>

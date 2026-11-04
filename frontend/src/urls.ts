@@ -48,6 +48,7 @@ export const UrlTree = {
   settingsTwoFactorEdit: '/settings/security/two-factor/edit',
   settingsTwoFactorRemove: '/settings/security/two-factor/remove',
   settingsUsers: '/settings/users',
+  settingsUsersAccess: '/settings/users/access',
   settingsBrowsers: '/settings/browsers',
   settingsBrowser: '/settings/browsers/:browserSessionId',
   settingsMcp: '/settings/mcp',
@@ -69,6 +70,7 @@ export const UrlTree = {
   // One add page per provider, named by its slug in `llmSlugByType`, as connectors are by kind.
   settingsLlmNew: '/settings/llms/new/:provider',
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
+  settingsLlmsAgentConfiguration: '/settings/llms/agent-configuration',
   settingsEnvironment: '/settings/environment',
   settingsEnvironmentNew: '/settings/environment/new',
   settingsEnvironmentEdit: '/settings/environment/:variableId/edit',
@@ -89,6 +91,7 @@ export const UrlTree = {
   settingsStorageEdit: '/settings/storage/:locationId/edit',
   settingsUpdates: '/settings/updates',
   settingsBackups: '/settings/backups',
+  settingsBackupsDestination: '/settings/backups/destination',
   settingsPasswords: '/settings/passwords',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
@@ -123,6 +126,10 @@ export const LOGIN_NOTICE_PARAM = 'notice'
 
 // Kratos names the flow a page continues in this parameter when it sends the browser to one.
 export const KRATOS_FLOW_PARAM = 'flow'
+
+// The query parameter naming a page's open tab (`useTabParam`), so a tab survives a reload and
+// a link can open one.
+export const TAB_PARAM = 'tab'
 
 // Settings
 // The first page in the sidebar; the app has no home page.
@@ -185,6 +192,13 @@ export function getNewConnectorUrl(kind: string) {
 
 export function getConnectorPickerUrl(provides: ConnectorProvides) {
   return `${UrlTree.settingsConnectorNew}?${CONNECTOR_PROVIDES_PARAM}=${encodeURIComponent(provides)}`
+}
+
+// A page opened on one of its tabs (`useTabParam`), such as Email's Domains after adding a
+// domain.
+export function getTabUrl(path: UrlValue, tab: string) {
+  const params = new URLSearchParams({ [TAB_PARAM]: tab })
+  return `${path}?${params.toString()}`
 }
 
 export function getNewLlmUrl(providerSlug: string) {

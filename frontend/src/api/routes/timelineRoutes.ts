@@ -61,6 +61,8 @@ export type TimelineQuery = {
 
 type ListTimelineResponse = {
   records: TimelineRecord[]
+  // Every record the query matches across all pages, `before` and `limit` aside.
+  total: number
 }
 
 // The SWR key a page of the timeline loads under. The event stream revalidates every key

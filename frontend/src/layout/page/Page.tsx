@@ -22,6 +22,7 @@ import {
   leavesWithoutAsking,
   PageSaveContext,
   PageSaveStateContext,
+  swapsWhatPageEdits,
   usePageSave,
 } from './pageSave'
 import { isModalOpen, readPageShortcut } from './pageShortcuts'
@@ -127,9 +128,8 @@ export function Page(props: Props) {
     if (isSavingRef.current || !saveRef.current?.isDirty || leavesWithoutAsking(nextLocation.state)) {
       return false
     }
-    // A search change can swap what the page edits, such as Jira's `?project=`.
     return currentLocation.pathname !== nextLocation.pathname
-      || currentLocation.search !== nextLocation.search
+      || swapsWhatPageEdits(currentLocation.search, nextLocation.search)
   }, [])
   const blocker = useBlocker(shouldBlock)
 

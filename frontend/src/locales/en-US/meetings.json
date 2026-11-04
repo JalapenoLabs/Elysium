@@ -1,13 +1,18 @@
 {
   "title": "Meetings",
+  "tabs": {
+    "label": "Meetings and their sources",
+    "meetings": "Recent meetings",
+    "sources": "Sources"
+  },
   "sources": {
-    "heading": "Sources",
     "add": "Add a source",
     "none": "No meeting source yet. Connect one to read your meetings:"
   },
   "list": {
-    "heading": "Recent meetings",
     "empty": "No meetings yet. They appear here as your sources finish them.",
+    "noSources": "No meeting source yet.",
+    "connectSource": "Connect one",
     "untitled": "Untitled meeting",
     "segments_one": "{{count, compact}} topic",
     "segments_other": "{{count, compact}} topics",

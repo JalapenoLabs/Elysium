@@ -3,6 +3,8 @@
   "adminOnly": "Only admins can manage backups.",
   "loadError": "Elysium could not load the backups. Reload the page to try again.",
   "destination": {
+    "title": "Backup destination",
+    "change": "Change destination",
     "label": "Back up to",
     "none": "Nowhere",
     "addLocation": "Add a storage location",
@@ -11,6 +13,7 @@
     "failed": "Elysium could not reach that location."
   },
   "overview": {
+    "destination": "Backed up to",
     "lastStored": "Last backup",
     "nothingStored": "None yet",
     "storedAt": "{{storedAt}}, {{size}}",

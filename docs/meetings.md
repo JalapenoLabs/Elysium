@@ -274,17 +274,20 @@ streams the clip from storage to the record's owner alone.
 ## In the web app
 
 - **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section, `MeetingsPage`): the
-  person's meeting sources and their recent meetings. The page names no source itself; it finds them from the kinds
-  whose definitions provide meetings (`GET /connectors/kinds`), so a new source appears on it unchanged.
+  person's recent meetings and their meeting sources, as two tabs with their counts, the open one in `?tab=`. The page
+  names no source itself; it finds them from the kinds whose definitions provide meetings (`GET /connectors/kinds`), so
+  a new source appears on it unchanged.
   - **Sources.** Each of the person's meeting connectors, with its logo, account, and status, linking to its connector's
     page, where it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the
-    kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the page
-    says so and shows each kind that provides meetings as a card opening its own form.
+    kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the tab
+    shows each kind that provides meetings as a card opening its own form, and an empty Recent meetings tab links to
+    it.
   - **Recent meetings.** Each with the source it came from (linking to its connector while there is one), when it was
     and how long, its state, and the reason and a retry for one that failed.
-- **A project's timeline** (`ProjectTimeline` on the project page): every record attributed to the project, newest
-  first, fifty at a time with "Show older". A meeting segment shows its title, its place in the meeting, its summary,
-  its clip (video or audio, loaded only when played), and its transcript excerpt on request. Elysia's attribution
+- **A project's timeline** (`ProjectTimeline`, the project page's Timeline tab, which counts every record): every
+  record attributed to the project, newest first, fifty at a time with "Show older". A meeting segment shows its
+  title, its place in the meeting, its summary, its clip (video or audio, loaded only when played), and its
+  transcript excerpt on request. Elysia's attribution
   says how sure she was; the person can confirm it, which makes it theirs, or take the record off the project.
 - Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created` and
   `meeting.changed`, each loading what it names by id (`docs/frontend.md`).

@@ -28,6 +28,8 @@ type Props = {
   // The location backups go to now, or null for none.
   destinationId: string | null
   locations: StorageLocation[]
+  // Once saved, as an edit page goes back to its list.
+  onSaved: () => void
 }
 
 // Where the databases are backed up to, saved from the page's Save in the header. The API
@@ -50,6 +52,7 @@ export function BackupDestinationForm(props: Props) {
       toast.success(destination
         ? t('destination.saved', { name: destination.name })
         : t('destination.turnedOff'))
+      props.onSaved()
       return true
     }
     catch (error) {

@@ -15,7 +15,7 @@ import { MailServerForm } from './MailServerForm'
 
 // Misc
 import { useMailServerLoader } from '../../../hooks/useServerData'
-import { UrlTree } from '../../../urls'
+import { getTabUrl, UrlTree } from '../../../urls'
 
 // `/settings/email/server/new`: creating the one mail server, or trying again after it failed.
 // Once one exists or is being created there is nothing to make here, and the page says so. It
@@ -29,7 +29,7 @@ export function NewMailServerPage() {
 
   return <SettingsPage
     title={t('serverForm.title')}
-    parents={[{ label: t('title'), href: UrlTree.settingsEmail }]}
+    parents={[{ label: t('title'), href: getTabUrl(UrlTree.settingsEmail, 'domains') }]}
     help={t('serverForm.description')}
   >
     {!server && status !== 'failed' && <div className='grid place-items-center py-16'>

@@ -1,6 +1,5 @@
 {
-  "heading": "Timeline",
-  "description": "Everything about this project, newest first: mail, meeting topics, and more.",
+  "title": "Timeline",
   "empty": "Nothing on this project's timeline yet. Meeting topics and mail about it arrive here as Elysium reads them.",
   "loadOlder": "Show older",
   "failed": "The timeline could not be loaded.",

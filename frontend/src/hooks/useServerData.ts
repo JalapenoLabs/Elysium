@@ -287,6 +287,8 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
     status: toLoadStatus(data !== undefined, error),
     pageSize: data?.records.length ?? 0,
     oldest: data?.records.at(-1)?.occurredAt ?? null,
+    // How many records the project's timeline holds over every page, once this page arrived.
+    total: data?.total ?? null,
   } as const
 }
 
