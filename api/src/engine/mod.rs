@@ -59,7 +59,6 @@ use crate::connectors::activity::Activity;
 use crate::connectors::ingest::Ingest;
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
-use crate::embeddings::Embeddings;
 use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
 use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
@@ -292,10 +291,7 @@ pub async fn run() -> Result<()> {
     ));
 
     // The knowledge base: every passage embedded as it arrives, by the embedding service.
-    let embedder = Embedder::new(
-        database.clone(),
-        Embeddings::new(http.clone(), config.embeddings.clone()),
-    );
+    let embedder = Embedder::new(database.clone(), foundation.embeddings.clone());
     loops.push(("knowledge.embedder", embedder.start(shutdown.clone())));
     // Records stored before they were indexed on write; ends once every one is indexed.
     let backfill = Backfill::new(database.clone());

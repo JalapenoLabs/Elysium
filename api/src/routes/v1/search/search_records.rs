@@ -10,8 +10,8 @@
 //! does too. A result carries what a row of results shows and no more: its kind, id, title,
 //! and, for items and initiatives, their state.
 //!
-//! The knowledge base joins as a kind of its own once a search reads it, answering admins
-//! and members alone, as its own routes do (`docs/knowledge.md`, Who sees what).
+//! The knowledge base has a search of its own, `/api/v1/knowledge/search`, which answers admins
+//! and members alone (`docs/knowledge.md`, Who sees what); the web app asks it beside this one.
 
 use anyhow::Context;
 use axum::Json;

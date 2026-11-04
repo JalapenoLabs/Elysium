@@ -6,8 +6,11 @@
 //! model it serves, and `POST /embed`, giving each input a vector of its own made from the
 //! input's bytes, so equal texts embed equally and different ones differently. Every input is
 //! recorded as it arrived, prefix included, so a test asserts on what left the process. A test
-//! can make it serve another model, answer vectors of the wrong size, or refuse every request.
+//! can make it serve another model, answer vectors of the wrong size, or refuse every request,
+//! and can pin the vector of an exact input, so a query and a passage that share no word still
+//! embed side by side, as a model puts a paraphrase beside what it paraphrases.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::extract::State;
@@ -27,6 +30,8 @@ struct FakeState {
     dimensions: usize,
     refusing: bool,
     received: Vec<String>,
+    /// The vector answered for an exact input, prefix included, in place of its bytes' one.
+    pinned: HashMap<String, Vec<f32>>,
 }
 
 /// The fake, running on a free local port until the test's runtime ends.
@@ -49,6 +54,7 @@ impl FakeEmbeddings {
             dimensions: DIMENSIONS,
             refusing: false,
             received: Vec::new(),
+            pinned: HashMap::new(),
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -90,6 +96,11 @@ impl FakeEmbeddings {
         self.lock().refusing = refusing;
     }
 
+    /// Answers `vector` for exactly `input`, prefix included, from now on.
+    pub(crate) fn pin(&self, input: &str, vector: Vec<f32>) {
+        self.lock().pinned.insert(input.to_owned(), vector);
+    }
+
     /// Every text `/embed` received, in order, as it arrived.
     pub(crate) fn received(&self) -> Vec<String> {
         self.lock().received.clone()
@@ -127,7 +138,13 @@ async fn embed(
     let vectors: Vec<Vec<f32>> = body
         .inputs
         .iter()
-        .map(|input| FakeEmbeddings::vector_for(input, state.dimensions))
+        .map(|input| {
+            state
+                .pinned
+                .get(input)
+                .cloned()
+                .unwrap_or_else(|| FakeEmbeddings::vector_for(input, state.dimensions))
+        })
         .collect();
     Json(vectors).into_response()
 }

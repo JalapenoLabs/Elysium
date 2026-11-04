@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
+use crate::embeddings::Embeddings;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
@@ -73,6 +74,9 @@ pub struct Foundation {
     /// storage providers share its connection pool.
     pub http: reqwest::Client,
     pub events: EventBus,
+    /// The embedding model, which the engine embeds passages with and the API embeds searches'
+    /// queries with. See `crate::embeddings`.
+    pub embeddings: Embeddings,
     pub storage: Storage,
     pub github: Github,
     pub jira: Jira,
@@ -146,6 +150,7 @@ impl Foundation {
         http: reqwest::Client,
         events: EventBus,
     ) -> Self {
+        let embeddings = Embeddings::new(http.clone(), config.embeddings.clone());
         let storage = Storage::new(http.clone());
         let github = Github::new(http.clone());
         let jira = Jira::new(http.clone());
@@ -164,6 +169,7 @@ impl Foundation {
             redis,
             http,
             events,
+            embeddings,
             storage,
             github,
             jira,

@@ -76,6 +76,7 @@ The database-backed tests give each test its own database. They cover up, down, 
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
 index's cascades and columns, timeline records indexed as they are stored with a page's newest version alone, the
 backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
+the knowledge search's two rankings, filters, folding, documents, refusal of guests, and budget through the router,
 learnings saved, revised, undone, deleted, and indexed with them, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
@@ -439,6 +440,9 @@ company doc.
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
 | `created_by`         | `UUID`        | References `users`: whose record it came from, for the person filter; never access control |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger              |
+
+`knowledge_documents_copies` on `content_sha256` finds the documents holding the same text, which two people's
+connectors reading one channel or space make (`docs/knowledge.md`, Hybrid search, The same text twice).
 
 ### `knowledge_backfills`
 

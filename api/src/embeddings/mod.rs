@@ -43,10 +43,17 @@ const DOCUMENT_PREFIX: &str = "search_document: ";
 /// What the model is told a query is, ahead of its text.
 const QUERY_PREFIX: &str = "search_query: ";
 
-/// How long one request may take. A full batch took about seven seconds on 4 CPUs of a Ryzen 9
-/// 7950X (`docs/knowledge.md`, Embeddings); this covers a much slower host and the model still
-/// warming up, and still lets go of a service that hangs.
+/// How long one request for passages may take. A full batch took about seven seconds on 4 CPUs
+/// of a Ryzen 9 7950X (`docs/knowledge.md`, Embeddings); this covers a much slower host and the
+/// model still warming up, and still lets go of a service that hangs.
 const REQUEST_TIMEOUT: Duration = Duration::from_mins(2);
+
+/// How long a search waits for its query's embedding before it searches by words alone. A
+/// query embeds in about 15ms, but the service queues requests in the order they arrive, so a
+/// query waits behind the embedder's batch in flight: about a second for its 8 passages on the
+/// development host, two on the production VM (`crate::knowledge::embedder`, Batches). Past
+/// this a person is kept waiting for a service that is struggling, and words alone answer now.
+const QUERY_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// How much of a refusal's body an error keeps. The service answers a short JSON error.
 const ERROR_BODY_LIMIT: usize = 500;
@@ -186,36 +193,35 @@ impl Embeddings {
             .iter()
             .map(|passage| format!("{DOCUMENT_PREFIX}{}", passage.as_ref()))
             .collect();
-        self.embed(&inputs).await
+        self.embed(&inputs, REQUEST_TIMEOUT).await
     }
 
-    /// Embeds `query` as a search for passages.
+    /// Embeds `query` as a search for passages, waiting at most [`QUERY_TIMEOUT`], since a
+    /// person is waiting for the search.
     ///
     /// # Errors
-    /// As [`Embeddings::embed_passages`].
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "hybrid search embeds its query with it (#94), from the API"
-        )
-    )]
+    /// As [`Embeddings::embed_passages`]; a service that takes longer than [`QUERY_TIMEOUT`] is
+    /// [`EmbeddingsError::Unreachable`].
     pub async fn embed_query(&self, query: &str) -> Result<Embedding, EmbeddingsError> {
         let inputs = [format!("{QUERY_PREFIX}{query}")];
-        let mut embeddings = self.embed(&inputs).await?;
+        let mut embeddings = self.embed(&inputs, QUERY_TIMEOUT).await?;
         Ok(embeddings.remove(0))
     }
 
     /// One `/embed` request for `inputs`, each prefixed already, read back as one checked
-    /// embedding per input.
-    async fn embed(&self, inputs: &[String]) -> Result<Vec<Embedding>, EmbeddingsError> {
+    /// embedding per input, given up after `timeout`.
+    async fn embed(
+        &self,
+        inputs: &[String],
+        timeout: Duration,
+    ) -> Result<Vec<Embedding>, EmbeddingsError> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
         let response = self
             .http
             .post(self.url("embed"))
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(timeout)
             .json(&EmbedRequest {
                 inputs,
                 normalize: true,

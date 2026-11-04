@@ -14,7 +14,7 @@
 //! # A pass
 //!
 //! Once the service answers that it serves [`MODEL`] ([`Embeddings::check_model`]), a pass
-//! takes up to [`MAX_BATCH`] waiting passages, newest documents first, embeds them in one
+//! takes up to [`BATCH`] waiting passages, newest documents first, embeds them in one
 //! request, and records each embedding as made by [`MODEL`], then takes the next batch, until
 //! none waits ([`Embedder::drain`]). A passage is recorded only while its text is still what
 //! was embedded (`knowledge_document::store_embeddings`): one rewritten since it was taken waits
@@ -24,6 +24,15 @@
 //! Between passes it looks every [`IDLE_INTERVAL`], an index scan of an empty partial index
 //! when nothing waits. A passage saved now is therefore found by meaning within seconds, and by
 //! its words at once.
+//!
+//! # Batches
+//!
+//! The service answers requests in the order they arrive, and a search embeds its query on the
+//! same service while a person waits (`crate::knowledge::search`). So a batch is small: a query
+//! that arrives behind a batch of 32 passages waited 5.6 seconds for it on 4 CPUs of a Ryzen 9
+//! 7950X, and behind 8 about one. Small batches cost nothing: the service batches the model's
+//! work by its own token budget whatever a request holds, and 8 at a time embedded 5.8 passages
+//! a second against 5.3 for 32, since shorter batches pad less.
 //!
 //! # Another model
 //!
@@ -56,6 +65,11 @@ use crate::models::knowledge_document;
 /// index scan of an empty partial index, and what was just saved should be found by meaning
 /// soon after it is found by its words.
 const IDLE_INTERVAL: Duration = Duration::from_secs(10);
+
+/// How many passages one request embeds: few, so a search's query never waits long behind one
+/// (Batches, above). At most the [`MAX_BATCH`] the service takes.
+const BATCH: usize = 8;
+const _: () = assert!(BATCH <= MAX_BATCH);
 
 /// How long the embedder waits after a pass that failed: long enough not to hammer a service
 /// that is warming up (about 15 seconds on 4 CPUs) or a database that is restarting.
@@ -185,8 +199,7 @@ impl Embedder {
         let started = Instant::now();
         let mut checked = false;
         let mut stored = 0;
-        // As many as one request to the service carries.
-        let batch_size = i64::try_from(MAX_BATCH).expect("a batch is a few dozen passages");
+        let batch_size = i64::try_from(BATCH).expect("a batch is a few passages");
         loop {
             let mut connection = self
                 .database

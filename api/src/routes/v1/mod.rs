@@ -20,6 +20,7 @@ pub mod github_credentials;
 pub mod initiatives;
 pub mod issue_reports;
 pub mod jira_credentials;
+mod knowledge;
 pub mod learning_categories;
 pub mod learnings;
 pub mod llms;
@@ -97,6 +98,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/initiatives", initiatives::router())
         .nest("/issue-reports", issue_reports::router())
         .nest("/jira-credentials", jira_credentials::router())
+        .nest("/knowledge", knowledge::router())
         .nest("/learning-categories", learning_categories::router())
         .nest("/learnings", learnings::router())
         .nest("/llms", llms::router())

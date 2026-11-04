@@ -10,6 +10,7 @@
 //! - [`passages`]: how a source's text is cut into the passages the index searches and the
 //!   embedding model embeds;
 //! - [`records`]: the document each timeline record becomes;
+//! - [`search`]: the one search of the index, by words and by meaning, ranked together;
 //!
 //! and the loops it runs in the engine:
 //!
@@ -22,3 +23,4 @@ pub mod backfill;
 pub mod embedder;
 pub mod passages;
 pub mod records;
+pub mod search;

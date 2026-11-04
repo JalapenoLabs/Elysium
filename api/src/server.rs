@@ -40,6 +40,7 @@ use crate::connectors::activity::Activity;
 use crate::connectors::checks::CheckRuns;
 use crate::connectors::ingest::Ingest;
 use crate::issue_reports::IssueReports;
+use crate::knowledge::search::KnowledgeSearch;
 use crate::meetings::sources::Sources;
 use crate::passwords::remote::RemoteVault;
 use crate::services::{self, Foundation};
@@ -106,6 +107,10 @@ pub async fn serve() -> Result<()> {
 ///
 /// # Errors
 /// Fails when `DOCKER_URL` is not a URL, or a client cannot be built.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one field per service a request reaches, read best as the one struct it builds"
+)]
 pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHandle<()>)> {
     let config = &foundation.config;
     let database = &foundation.database;
@@ -182,6 +187,7 @@ pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHand
         grants: Grants::new(database.clone()),
         issue_reports: IssueReports::default(),
         jira: foundation.jira.clone(),
+        knowledge: KnowledgeSearch::new(foundation.embeddings.clone()),
         links: foundation.links.clone(),
         mail: services::build_mail(
             config,

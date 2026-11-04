@@ -184,6 +184,10 @@ A route can hold a budget of its own on the same limiter, keyed by something oth
 (`PER_PERSON` in `api/src/search/mod.rs`), and answers `429` with the code `search_rate_limited` past it. Its keys
 are signed-in people, whom the `users` table bounds, so nothing sweeps them.
 
+The knowledge search (`GET /api/v1/knowledge/search`) has a budget of its own per person, lower since each search
+embeds its query on the embedding service: 20 at once, refilling 2 a second (`PER_PERSON` in
+`api/src/knowledge/search.rs`), answered `429` with the code `knowledge_search_rate_limited`.
+
 The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
 `X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick
 its own bucket. Behind a proxy, that address is the client's only when `TRUSTED_PROXY_ADDRESSES` names the proxy.

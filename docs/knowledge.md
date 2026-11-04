@@ -9,7 +9,8 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
 far: the index's tables in Postgres (Search, below); every timeline record indexed as it is stored, with the engine's
 backfill for what was stored before (Timeline records, below); learnings, saved through the routes, the MCP server, and
 Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
-(Learnings, below); the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
+(Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole
+(Hybrid search, below); the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
 agents, read by every agent, and indexed as it changes (The company doc, below); and the embedding model, with the
 engine's embedder giving every passage its embedding as it arrives (Embeddings, below).
 
@@ -73,9 +74,10 @@ Access is checked once, on the caller's role: admins, members, and agents acting
 tools refuse a guest themselves from the first build, rather than waiting on guest rooms, because until roles are
 built out a guest has a member's access (`docs/auth.md`).
 
-The learning routes and tools are the first built to this rule: they answer admins and members, and refuse a guest
-with `403` and the code `members_only` (`MemberUser` in `api/src/auth/`). No search reads the index yet; each one
-is built to the same rule.
+The learning routes and tools, and the knowledge routes (`/api/v1/knowledge`, the search and a document), are built to
+this rule: they answer admins and members, and refuse a guest with `403` and the code `members_only` (`MemberUser` in
+`api/src/auth/`). The search and a document carry no per-owner predicate; the `person` filter is a parameter of the
+search like the others.
 
 ## Search
 
@@ -108,6 +110,78 @@ is built to the same rule.
 - The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
 - The web app has a Knowledge page: search, browse learnings, and ask.
+
+## Hybrid search
+
+`KnowledgeSearch::search` (`api/src/knowledge/search.rs`) is the one search of the index. `GET
+/api/v1/knowledge/search` answers it (`docs/api.md`, Knowledge), and the MCP server's `knowledge_search` calls the same
+function, so every caller finds the same passages in the same order. `knowledge_document::get` opens one document
+whole (`GET /api/v1/knowledge/documents/{id}`), as every citation does.
+
+### Two rankings, fused
+
+- **Words.** The query is parsed with `websearch_to_tsquery('english', ...)`, the parser and stemmer the passages'
+  `search_vector` is generated with, so both sides cut text alike: `WAY-123` is the phrase `'way' <-> '-123'` on both,
+  and "what is WAY-123 about?" loses its stop words to the same phrase. It never fails on what was typed, and reads
+  quotes as a phrase, `or` as either, and a leading `-` as without, as a search box does. Every word left must match.
+  Matches rank by `ts_rank_cd`, which favours passages whose matched words sit close together. A key typed without its
+  dash (`WAY 123`) is the words `way` and `123`, which a passage holding `WAY-123` does not have (its `-123` is a
+  signed number to the parser); meaning still finds it, ranked lower.
+- **Meaning.** The query is embedded with the `search_query: ` prefix and the nearest passages are read by cosine
+  distance through the HNSW index, `hnsw.ef_search` raised to the 100 asked for and `hnsw.iterative_scan` on, so a
+  filter that leaves out most neighbours still answers in full. Only passages within 0.45 of the query count
+  (`MAX_MEANING_DISTANCE`, a cosine similarity of 0.55): the nearest passages are always some distance away, and on
+  realistic mail, chat, pages, meeting segments, and learnings, related passages lay 0.23 to 0.40 from their query
+  and unrelated ones 0.42 to 0.53. Past it a passage can still be found by its words. The distance belongs to the
+  model; another model is measured again.
+- **Fusion.** Each ranking takes its closest 100 passages under the same filters, and the two lists are merged by
+  Reciprocal Rank Fusion (Cormack, Clarke, and Büttcher, 2009): a passage scores `1 / (60 + rank)` in each list it is
+  in, summed. RRF reads ranks alone, so `ts_rank_cd`'s unbounded numbers and cosine distances never need weighing
+  against each other, and a passage one ranking cannot see (not embedded yet, or sharing no word with the query)
+  still scores from the other. It is the method Elasticsearch and Azure AI Search ship for merging lexical and vector
+  results, and 60 is the constant it was published and validated with. A weighted sum of normalized scores was the
+  alternative, which needs its weights tuned to the score distributions of one model and one corpus.
+- **Documents.** A document ranks by its best passage, so a long one is not favoured for matching often, and shows
+  up to three of its passages, best first. Ties read newest first.
+
+### The same text twice
+
+Two people whose connectors read the same channel or space each have the record (Timeline records, The same text
+twice), so the index holds two documents of one source with the same `content_sha256`. Their passages are the same
+text at the same positions and rank alike, so a result folds them: the earliest recorded is cited, and the others are
+listed as also recorded by their people. A document's own page lists its copies, found through
+`knowledge_documents_copies`.
+
+### Filters
+
+Every filter applies to both rankings, inside the query, and narrows; none is access control.
+
+| Filter    | Keeps                                                                                            |
+|-----------|--------------------------------------------------------------------------------------------------|
+| `source`  | Documents of these sources (`slack`, `outlook`, `meeting`, `learning`, `company_doc`, and the rest) |
+| `project` | Timeline records attributed to it, at any confidence; learnings and the company doc have none  |
+| `person`  | Documents whose record, learning, or section edit came from this person (`created_by`)          |
+| `from`, `to` | What was said from one moment and before the other, with offsets                             |
+
+### When meaning is not available
+
+A query the embedding model cannot embed within 4 seconds (the service is starting, stopped, or busy) is searched by
+its words alone, and the answer says so (`searchedByMeaning: false`). A passage not embedded yet is found by its words
+alone. Nothing about the model ever fails a search. The service going away is logged once at warn
+(`knowledge.search.meaning_unavailable`) and its return once at info (`knowledge.search.meaning_restored`); each
+search logs its counts and durations at debug (`knowledge.search.answered`), never the query or a passage.
+
+### Budget and cost
+
+- Each person may search 20 times at once, refilling 2 a second (`PER_PERSON`), however they search: the route, and
+  the MCP tool once built, spend the same budget through `KnowledgeSearch::admit`. Past it, `429` with the code
+  `knowledge_search_rate_limited`. It is lower than the global search's titles because every search embeds its query
+  on the service the embedder shares.
+- On the development host a query embeds in about 15ms when the service is idle. Over 30,000 passages, the meaning
+  ranking read the HNSW index in 8ms, and a filter keeping a third of them was answered exactly, by a scan, in 11ms;
+  a word matching a fifth of the passages ranked in 20ms. A word matching a large share of a much larger index ranks
+  every match before taking the best, which grows with the index; a ranked full-text index (RUM) is the answer if it
+  is ever slow.
 
 ## Timeline records
 
@@ -143,7 +217,8 @@ Confluence pages and comments, YouTrack issues and comments, meeting segments, a
 - **Deleted records** leave the index with their document, which cascades. A provider deleting a message or a page is
   not read by any reader today, so it leaves the record, and its document, in place.
 - **The same text twice.** Two people whose connectors read the same channel or space each have the record, and the
-  index has both documents, with the same `content_sha256`. Search collapses them (on the roadmap with hybrid search).
+  index has both documents, with the same `content_sha256`. Search folds them into one result (Hybrid search, The same
+  text twice).
 
 ### The backfill
 
@@ -215,15 +290,16 @@ Whisper images (`docs/infrastructure.md`). It is about 2 GB, 550 MB of it the mo
 ### A service, not a container per job
 
 Unlike Whisper (`docs/meetings.md`, Transcription), the model runs as a long-lived compose service, `embeddings`
-(container `elysium-embeddings`). It is called all day, by the engine for every passage and, once hybrid search is
-built, by the API for every search; it holds 1.5 GiB and starts in seconds, and a container per call would pay the
+(container `elysium-embeddings`). It is called all day, by the engine for every passage and by the API for every
+search; it holds 1.5 GiB and starts in seconds, and a container per call would pay the
 warm-up on every search.
 
 - **Network.** Its only network, `embeddings`, is internal: it has no route out of the host, so nothing sent to the
   model can leave it. Only the engine and the API join it, and reach it at `EMBEDDINGS_URL`
   (`http://embeddings:8080`). nginx does not, so nothing public reaches it. See `docs/security.md`, Embeddings.
-- **The API joins it** so hybrid search, on the roadmap, embeds its query directly (`Embeddings::embed_query`)
-  rather than asking the engine over the bus: a person is waiting, and the service holds nothing secret.
+- **The API joins it** so a search embeds its query directly (`Embeddings::embed_query`) rather than asking the
+  engine over the bus: a person is waiting, and the service holds nothing secret. A query waits at most 4 seconds
+  (`QUERY_TIMEOUT`), then is searched by its words alone (Hybrid search, When meaning is not available).
 - **Limits.** Four CPUs, which is also how many threads ONNX Runtime works on, since it counts the container's CPU
   quota, so a host needs at least four. A quarter of Docker's default CPU weight, so the API, Postgres, and agents'
   turns win under contention and a backfill takes what is left. 3 GiB of memory with no swap, 256 processes, a
@@ -238,12 +314,17 @@ of the engine's own rather than a workflow step: a run is one workflow on one so
 embedding is the same small job for every passage of every source, so a run per document would fill the Runs page
 with thousands of one-step runs. Its queue is the index itself.
 
-- **A pass.** It takes up to 32 passages without an embedding, newest documents first, through the partial index
+- **A pass.** It takes up to 8 passages without an embedding, newest documents first, through the partial index
   `knowledge_passages_unembedded`, embeds them in one request with the document prefix, and records each embedding
   with its `embedding_model`, then takes the next batch, until none waits. Newest first, so what was just saved is
   found by meaning within a pass even during a backfill. No connection or lock is held while the model works.
 - **Rewritten meanwhile.** An embedding is recorded only while its passage's text is still what was embedded:
   indexing a source again may rewrite a passage during the pass, and the new text waits for an embedding of its own.
+- **Small batches.** The service answers requests in the order they arrive, so a search's query waits behind the
+  batch in flight. Behind 32 passages it waited 5.6 seconds on 4 CPUs of the development host; behind 8, about one
+  (two on the production VM). Eight cost nothing: the service batches the model's work by its own token budget
+  whatever a request holds, and 8 at a time embedded 5.8 passages a second against 5.3 for 32, since shorter batches
+  pad less.
 - **When.** Between passes it looks every 10 seconds, an index scan of an empty partial index when nothing waits, so
   a passage saved now is found by its words at once and by meaning within seconds.
 - **Another model.** As the engine starts, every embedding another model made is forgotten (`embedding` and
@@ -503,7 +584,8 @@ and the history below with Undo. Look for updates starts a review at once. See `
 ## MCP
 
 - Tools return evidence: `knowledge_search` (hybrid search with source, project, person, and date filters, returning
-  ranked passages with citations), `knowledge_get` (a whole document or meeting transcript, or a span of it),
+  ranked passages with citations, through `KnowledgeSearch::search` and its budget), `knowledge_get` (a whole
+  document or meeting transcript, or a span of it),
   `meetings_list`, `learning_save`, `learning_delete`, `company_doc_read`, and `company_doc_propose`.
 - `company_doc_read` and `company_doc_propose` are built (`api/src/mcp/company_doc.rs`; The company doc, above).
 - `learning_save` and `learning_delete` are built (`api/src/mcp/learnings.rs`). They call the routes' own `save` and

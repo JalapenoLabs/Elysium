@@ -12,17 +12,23 @@
 //! is cheap when nothing changed: the SHA-256 of its text says so and its passages are left
 //! alone. When something did, passages are rewritten by position, and one whose text held keeps
 //! its embedding while one whose text moved waits for the embedding model again.
+//!
+//! [`get`] reads one document whole, as a citation opens it; the search that finds documents is
+//! `crate::knowledge::search`.
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::{Nullable, Text};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::database::schema::sql_types::Vector;
-use crate::database::schema::{knowledge_documents, knowledge_passages};
+use crate::database::schema::{
+    knowledge_documents, knowledge_passages, projects, timeline_record_projects, users,
+};
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
 
@@ -246,6 +252,212 @@ pub async fn remove(
         }
     }
     Ok(())
+}
+
+/// Whose words a document holds: the person whose record, learning, or edit it came from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Person {
+    pub id: Uuid,
+    pub name: String,
+}
+
+/// How a document is named and linked to wherever it is cited.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Citation {
+    pub document_id: Uuid,
+    /// The search's source filter's name for it, such as `slack`, `learning`, or `company_doc`.
+    pub source: String,
+    pub title: String,
+    /// Where it lives outside Elysium, when it does.
+    pub url: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+    pub person: Person,
+}
+
+/// Another document of the same source holding the same text: two people's connectors read the
+/// same channel or space, and each has the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Copy {
+    pub document_id: Uuid,
+    pub person: Person,
+}
+
+/// One passage of a document, at its place in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Queryable)]
+#[serde(rename_all = "camelCase")]
+pub struct Passage {
+    pub position: i32,
+    pub content: String,
+}
+
+/// What a document was made from, as a reader opens it in Elysium.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Origin {
+    /// A timeline record. The record itself stays its owner's (`docs/knowledge.md`, The index is
+    /// shared; records stay their owner's), so the document is what a reader opens, and the
+    /// record's id is not given.
+    TimelineRecord,
+    Learning {
+        learning_id: Uuid,
+    },
+    CompanyDoc {
+        section: String,
+    },
+}
+
+/// A project a timeline record is attributed to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Queryable)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectReference {
+    pub id: Uuid,
+    pub name: String,
+}
+
+/// One document whole, as a citation opens it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentView {
+    pub citation: Citation,
+    pub origin: Origin,
+    /// Every passage, in order.
+    pub passages: Vec<Passage>,
+    /// The projects its timeline record is attributed to, by name; none for any other source.
+    pub projects: Vec<ProjectReference>,
+    /// Others whose records hold the same text, earliest first.
+    pub also_recorded_by: Vec<Copy>,
+}
+
+/// A document's row as [`get`] reads it, with its person's name.
+#[derive(Queryable)]
+struct DocumentRow {
+    id: Uuid,
+    source: String,
+    title: String,
+    url: Option<String>,
+    occurred_at: DateTime<Utc>,
+    created_by: Uuid,
+    person_name: String,
+    content_sha256: String,
+    timeline_record_id: Option<Uuid>,
+    learning_id: Option<Uuid>,
+    company_doc_section: Option<String>,
+}
+
+/// The document `id` whole: its citation, what it was made from, every passage in order, its
+/// projects, and the other documents holding the same text. `None` when the index holds no such
+/// document, such as one whose source was deleted.
+///
+/// It answers any document: callers check that whoever asks is one of the company's members
+/// (`docs/knowledge.md`, Who sees what).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn get(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<Option<DocumentView>> {
+    let row: Option<DocumentRow> = knowledge_documents::table
+        .inner_join(users::table)
+        .filter(knowledge_documents::id.eq(id))
+        .select((
+            knowledge_documents::id,
+            knowledge_documents::source,
+            knowledge_documents::title,
+            knowledge_documents::url,
+            knowledge_documents::occurred_at,
+            knowledge_documents::created_by,
+            users::name,
+            knowledge_documents::content_sha256,
+            knowledge_documents::timeline_record_id,
+            knowledge_documents::learning_id,
+            knowledge_documents::company_doc_section,
+        ))
+        .first(connection)
+        .await
+        .optional()?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let passages: Vec<Passage> = knowledge_passages::table
+        .filter(knowledge_passages::document_id.eq(row.id))
+        .select((knowledge_passages::position, knowledge_passages::content))
+        .order(knowledge_passages::position.asc())
+        .load(connection)
+        .await?;
+
+    let projects: Vec<ProjectReference> = match row.timeline_record_id {
+        Some(record_id) => {
+            timeline_record_projects::table
+                .inner_join(projects::table)
+                .filter(timeline_record_projects::timeline_record_id.eq(record_id))
+                .select((projects::id, projects::name))
+                .order(projects::name.asc())
+                .load(connection)
+                .await?
+        }
+        None => Vec::new(),
+    };
+
+    // Through `knowledge_documents_copies`, so copies are found however large the index grows.
+    let copies: Vec<(Uuid, Uuid, String)> = knowledge_documents::table
+        .inner_join(users::table)
+        .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
+        .filter(knowledge_documents::source.eq(&row.source))
+        .filter(knowledge_documents::id.ne(row.id))
+        .select((
+            knowledge_documents::id,
+            knowledge_documents::created_by,
+            users::name,
+        ))
+        .order((
+            knowledge_documents::occurred_at.asc(),
+            knowledge_documents::id.asc(),
+        ))
+        .load(connection)
+        .await?;
+
+    // Exactly one source column is set (`knowledge_documents_one_source`).
+    let origin = match (row.learning_id, row.company_doc_section) {
+        (Some(learning_id), _) => Origin::Learning { learning_id },
+        (None, Some(section)) => Origin::CompanyDoc { section },
+        (None, None) => Origin::TimelineRecord,
+    };
+
+    Ok(Some(DocumentView {
+        citation: Citation {
+            document_id: row.id,
+            source: row.source,
+            title: row.title,
+            url: row.url,
+            occurred_at: row.occurred_at,
+            person: Person {
+                id: row.created_by,
+                name: row.person_name,
+            },
+        },
+        origin,
+        passages,
+        projects,
+        also_recorded_by: copies
+            .into_iter()
+            .map(|(document_id, person_id, name)| Copy {
+                document_id,
+                person: Person {
+                    id: person_id,
+                    name,
+                },
+            })
+            .collect(),
+    }))
 }
 
 /// A passage the embedding model has still to embed, as it read when it was taken.

@@ -19,6 +19,7 @@ use crate::database::Pool;
 use crate::github::Github;
 use crate::issue_reports::IssueReports;
 use crate::jira::Jira;
+use crate::knowledge::search::KnowledgeSearch;
 use crate::mail::Mail;
 use crate::meetings::sources::Sources;
 use crate::middleware::rate_limit::Limiter;
@@ -59,6 +60,9 @@ pub struct AppState {
     /// Files problem reports on Elysium's own GitHub repository. See `crate::issue_reports`.
     pub issue_reports: IssueReports,
     pub jira: Jira,
+    /// The knowledge base's search, by words and by meaning, with each person's budget for it.
+    /// See `crate::knowledge::search`.
+    pub knowledge: KnowledgeSearch,
     /// Action item links, through one provider trait, and the watcher's wake signal.
     pub links: Links,
     pub mail: Mail,

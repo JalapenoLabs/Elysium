@@ -69,8 +69,8 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
 - The knowledge base's embedding model (nomic-embed-text-v1.5 on text-embeddings-inference, `embeddings/Dockerfile`,
   pinned and checked) is the compose service `embeddings`, on an internal network only the engine and the API join,
   so no text leaves the host. The engine's embedder (`crate::knowledge::embedder`) embeds passages as they arrive.
-  The API joins the network so hybrid search (on the roadmap) embeds its query directly. See `docs/knowledge.md`,
-  Embeddings.
+  The API joins the network so the knowledge search (`crate::knowledge::search`) embeds its query directly, and
+  searches by words alone when the model cannot answer in time. See `docs/knowledge.md`, Embeddings and Search.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the engine
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's or the engine's own container.
   Callers in the engine submit turns to `crate::runner`. See `docs/coding.md`.

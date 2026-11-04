@@ -146,6 +146,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learnings/{id}/restore`      | `200` `{ learning }`                                |
 | GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
 | POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
+| GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
+| GET    | `/api/v1/knowledge/documents/{id}`    | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
 | GET    | `/api/v1/learning-categories`         | `200` `{ categories: LearningCategory[] }`, built-in ones first, each kind in its order |
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
@@ -790,12 +792,37 @@ add their `state`. Nothing more is returned: a result is a row, and its page loa
   then alphabetically. The web app ranks every source's results again with one score.
 - **Visibility.** Each kind is searched among exactly what its list route shows: items and initiatives not deleted,
   every project, and the Coding area's sessions (Studio's are left out). Those lists answer everyone with access to
-  the workspace, guests included, so search does too. The knowledge base joins as a kind for admins and members alone
-  once a search reads it (`docs/knowledge.md`, Who sees what).
+  the workspace, guests included, so search does too. The knowledge base has a search of its own,
+  `/api/v1/knowledge/search` (below), which the web app asks beside this one for admins and members alone
+  (`docs/knowledge.md`, Who sees what).
 - **Budget.** Each person may search 20 times at once, refilling 5 a second, on top of the limit per client address;
   past it, `429` with the code `search_rate_limited`. Both are constants (`PER_PERSON` in `src/search/mod.rs`).
 
 The pieces every kind's query shares are in `src/search/`; each model's `search` owns its own query.
+
+### `/api/v1/knowledge`
+
+The knowledge base's search and its documents (`docs/knowledge.md`, Hybrid search). Both answer admins and members,
+and a guest `403 members_only`; neither is limited by whose record a document came from.
+
+`GET /search` takes `q` (up to 500 characters; nothing but spaces answers no results), `source` (comma-separated
+source names, up to 32, each a lowercase letter then letters, digits, or underscores), `project` and `person` (ids),
+`from` and `to` (moments with an offset; `from` before `to`), and `limit` (1 to 50, default 10). Anything else is
+`400`, a value out of bounds `422`. It answers the documents found best first, and whether the query was searched by
+meaning as well as by words.
+
+A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Citation` (`documentId`, `source`,
+`title`, `url` or `null`, `occurredAt`, and `person`, `{ id, name }`), up to three `{ position, content }` passages
+best first, the other documents holding the same text (`{ documentId, person }`, earliest first), and its fused score,
+comparable within one answer only.
+
+A `KnowledgeDocument` is `{ citation, origin, passages, projects, alsoRecordedBy }`: every passage in order, the
+projects its timeline record is attributed to (`{ id, name }`), and `origin`, what it was made from:
+`{ kind: "timelineRecord" }`, whose record stays its owner's and is not named, `{ kind: "learning", learningId }`, or
+`{ kind: "companyDoc", section }`. An id the index does not hold is `404`.
+
+- **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address;
+  past it, `429` with the code `knowledge_search_rate_limited` (`PER_PERSON` in `src/knowledge/search.rs`).
 
 ### `/api/v1/coding-sessions/{id}/desktop`
 
@@ -869,8 +896,8 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 
 Rate limits are deliberately not configurable. The limit is 10 requests per second per client IP, with a burst
-of 30. Both are constants in `src/middleware/rate_limit.rs`. The search has a budget per person besides
-(`/api/v1/search`, Budget).
+of 30. Both are constants in `src/middleware/rate_limit.rs`. The search and the knowledge search have a budget per
+person besides (`/api/v1/search` and `/api/v1/knowledge`, Budget).
 
 ## Code layout
 
