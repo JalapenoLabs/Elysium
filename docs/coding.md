@@ -51,7 +51,9 @@ disk. A fetch that fails fails the turns that need it, with git's message.
 2. **Prepare.** The first turn after the engine starts (the engine also starts this at boot) ensures the container,
    kills turns a previous run left behind, and fetches `~/.claude`. Changing the configuration repository signals the
    engine to fetch it again.
-3. **Attempt.** One `claude` process on one credential. Secrets travel only in the exec's environment: the
+3. **Attempt.** One `claude` process on one credential, with `--model` and `--effort` when the request names them
+   (a workflow step's turn names both, from its setting: `docs/engine.md`, Models; others leave them to Claude Code,
+   or name a model alone). Secrets travel only in the exec's environment: the
    credential as `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, and the MCP configuration, which the turn script
    writes to a private file in the turn's directory. `claude` runs in its own process group, so stopping it stops
    its tools too.

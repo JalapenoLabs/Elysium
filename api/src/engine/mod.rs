@@ -149,7 +149,9 @@ pub async fn run() -> Result<()> {
         "claude_accounts.keeper",
         claude_accounts.start(shutdown.clone()),
     ));
-    // Workflow runs, step by step. Their steps are registered by the workflows that use them.
+    // Workflow runs, step by step. Every step a declared workflow names is registered here, once
+    // by its name with what it needs, and each workflow is checked against them with
+    // `Steps::assert_runs` before the workers start. No workflow is declared yet.
     let workers = Workers::new(WorkersDeps {
         database: database.clone(),
         events: events.clone(),

@@ -596,6 +596,7 @@ impl Meetings {
             system_prompt_append: None,
             environment: Vec::new(),
             model: Some(segmentation::SEGMENTATION_MODEL.to_owned()),
+            effort: None,
             mode: TurnMode::Text {
                 system_prompt: segmentation::SYSTEM_PROMPT.to_owned(),
             },

@@ -80,7 +80,8 @@ storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, workflow runs claimed by two claimers at
-once, leased, taken back, backed off, retried, skipped, and resumed, accounts and their guardrails, and the
+once, leased, taken back, backed off, retried, skipped, and resumed, workflows composed from the same steps, entered
+at a later step, and read on their steps' model settings, accounts and their guardrails, and the
 router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
 `TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 
@@ -1264,6 +1265,20 @@ Each step of a run, in order, and the engine's queue; see `docs/engine.md`, Runs
 | `started_at`       | `TIMESTAMPTZ`    | When its last attempt started                                          |
 | `finished_at`      | `TIMESTAMPTZ`    | When its last attempt ended                                            |
 | `updated_at`       | `TIMESTAMPTZ`    | Maintained by trigger                                                  |
+
+### `step_model_settings`
+
+The model and effort a workflow step's agent turn runs on, one row per step an admin changed; a step without a row
+runs on the default in code, Opus 5.5 at high effort. See `docs/engine.md`, Models.
+
+| Column       | Type          | Notes                                                                       |
+|--------------|---------------|-----------------------------------------------------------------------------|
+| `step`       | `TEXT`        | The step's name in code, `snake_case`, primary key                          |
+| `model`      | `TEXT`        | What the CLI's `--model` takes; starts with a letter or digit, so never a flag |
+| `effort`     | `TEXT`        | `low`, `medium`, `high`, `xhigh`, or `max`; text, so a new level needs no enum migration |
+| `created_by` | `UUID`        | The admin who first set it                                                  |
+| `created_at` | `TIMESTAMPTZ` | When it was first set                                                       |
+| `updated_at` | `TIMESTAMPTZ` | Maintained by trigger                                                       |
 
 ### `workflow_run_events`
 

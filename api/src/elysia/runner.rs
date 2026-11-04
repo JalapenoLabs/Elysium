@@ -126,6 +126,7 @@ async fn run_on_host(
             system_prompt_append: Some(turn.instructions),
             environment: Vec::new(),
             model: None,
+            effort: None,
             mode: TurnMode::Agent,
         })
         .map_err(|error| RunnerError::Refused(error.to_string()))?;

@@ -31,11 +31,11 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::{Level, event};
 
-use super::{StepCall, StepLog, StepOutcome, Steps, announce};
+use super::step::StepFuture;
+use super::{StepContext, StepLog, Steps, announce};
 use crate::activity::{Activities, ActivityKind};
 use crate::database::Pool;
-use crate::models::step_job::{self, Claim};
-use crate::models::workflow_run;
+use crate::models::step_job::{self, Claim, StepOutcome};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 
 /// How many steps one engine runs at once. A step that runs an agent turn waits for the
@@ -220,13 +220,19 @@ impl Workers {
         );
         let log = StepLog::default();
         let ending = match self.inner.steps.find(&claim.job.step) {
-            Some(step) => {
-                let call = self.call_for(&claim, log.clone()).await;
-                match call {
-                    Some(call) => self.drive(&claim, step(call), &log, &shutdown).await,
-                    // Its run is gone: there is nothing left to record it on.
-                    None => Ending::Lost,
-                }
+            Some((name, step)) => {
+                let context = StepContext {
+                    run_id: claim.job.run_id,
+                    step_job_id: claim.job.id,
+                    attempt: claim.job.attempts,
+                    log: log.clone(),
+                    step: name,
+                    database: self.inner.database.clone(),
+                };
+                // The row's check keeps input set on every step its run reached.
+                let input = claim.job.input.clone().unwrap_or_default();
+                self.drive(&claim, step(input, context), &log, &shutdown)
+                    .await
             }
             None => Ending::Returned(StepOutcome::Failed {
                 reason: format!(
@@ -253,45 +259,13 @@ impl Workers {
         self.inner.finished.notify_one();
     }
 
-    /// What `claim`'s step is called with: its run's workflow and source with its own input.
-    /// `None` when the run cannot be read, so the step cannot be run as it was queued.
-    async fn call_for(&self, claim: &Claim, log: StepLog) -> Option<StepCall> {
-        let found = async {
-            let mut connection = self.inner.database.get().await?;
-            anyhow::Ok(workflow_run::find(&mut connection, claim.job.run_id).await?)
-        };
-        match found.await {
-            Ok(run) => Some(StepCall {
-                run_id: run.id,
-                step_job_id: claim.job.id,
-                workflow: run.workflow,
-                source_kind: run.source_kind,
-                source_id: run.source_id,
-                step: claim.job.step.clone(),
-                input: claim.job.input.clone().unwrap_or_default(),
-                attempt: claim.job.attempts,
-                log,
-            }),
-            Err(error) => {
-                event!(
-                    name: "workflows.step.run_unreadable",
-                    Level::ERROR,
-                    workflow.run.id = %claim.job.run_id,
-                    error.message = %format!("{error:#}"),
-                    "cannot read the run a claimed step belongs to; its lease lapses and it is claimed again",
-                );
-                None
-            }
-        }
-    }
-
     /// Polls the step's attempt until it returns, the engine stops, or the claim is lost,
     /// renewing the lease and storing the log meanwhile. The attempt is dropped where it is
     /// unless it returned.
     async fn drive(
         &self,
         claim: &Claim,
-        mut attempt: super::StepFuture,
+        mut attempt: StepFuture,
         log: &StepLog,
         shutdown: &CancellationToken,
     ) -> Ending {

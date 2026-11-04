@@ -6,8 +6,9 @@ hours later, done. Elysium is built around one company or major prospect per ins
 company.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
-event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, and workflow
-runs on a Postgres queue of step jobs, with the Runs page (Runs, below).
+event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
+on a Postgres queue of step jobs with the Runs page (Runs, below), and the step and workflow framework over that queue,
+with each step's model setting (Workflows and steps, and Models, below).
 
 ## A service of its own
 
@@ -89,20 +90,58 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   never numbered. A meeting workflow starts by fetching; a Slack request workflow starts at segmenting.
 - A run is one workflow on one source. Each step of a run is its own job row with state, attempts, input, and output,
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
-- The step trait and workflow declarations are next on the roadmap. They build on the queue below, registering their
-  steps by name and starting runs; nothing in the queue knows what a step does.
+
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below. No production workflow is
+declared yet; the first is the meeting workflow, on the roadmap. Tests declare their own.
+
+### A step
+
+- A step is a type implementing `workflows::Step`: its name (`NAME`, `snake_case`), the input it takes and the output
+  it gives (serde types), and `run`, one attempt, which answers `Done::Succeeded` (its output and a one-line summary),
+  `Done::Held` (its output and what a person should look at), or a `StepFailure` (its reason, and whether another
+  attempt may get past it).
+- A step is given its input and a `StepContext`: its run's id and its own row's id, which attempt this is, a log, and
+  its model setting (Models, below). It is never told which workflow runs it, or its run's source: what it needs is in
+  its input. One instance runs every attempt, so it holds what it needs (a pool, a client, the runner) and keeps no
+  state of one attempt, and works idempotently, since one success may take more than one attempt.
+- Every step this build runs is registered once, by name, in `workflows::Steps`, with what it needs, as the engine
+  starts. `Steps::assert_runs` checks a workflow against it: a step the workflow names that is not registered, or is
+  registered as another type by that name, is a programming error that stops the engine at once rather than failing
+  runs.
+
+### A workflow
+
+- A workflow is declared in code from step types, first to last:
+  `workflows::declare("meeting").first::<FetchTranscript>().then::<CorrectTranscript>().build()`. Each `then` takes only
+  a step whose input is the type the step before it gives, so a declaration that compiles hands every step what it
+  takes. Any steps compose, in any order and subset their types allow, and one step serves many workflows.
+- A workflow holds names in order, never instances, so the API can start runs as well as the engine.
+- A run starts from a workflow's first step (`Workflow::new_run`) or enters it at any later step it declares
+  (`Workflow::new_run_at::<Step>`), with that step's own input type, then goes to `workflows::start`. Its steps are
+  the workflow's from there on; the ones before are not part of the run. Entering at a step the workflow lacks is a
+  programming error.
+
+### Where types meet the queue
+
+- The queue stores each step's input and output as JSON. Registering a step is where the JSON becomes its types again:
+  before each attempt its row's input is read as the step's input type, and its output is written back as JSON.
+- Input that does not read as the step's type fails the step for good, with a reason naming it, rather than reaching
+  it. Only a person's skip can cause that inside a declared workflow: the step after a skipped one receives the
+  skipped step's input. A step a person may want to skip, such as correction, is written to take and give one type,
+  so skipping it hands the next step what it reads.
 
 ## Runs
 
 Built: the queue every workflow runs on (`api/src/workflows/`, `api/src/models/workflow_run.rs` and `step_job.rs`), and
-the Runs page. No workflow is declared on it yet.
+the Runs page.
 
 ### A run and its steps
 
 - A run (`workflow_runs`) is one workflow, by its name in code, on one source: a kind and an id, such as a meeting. It
   holds the input its first step receives and who or what started it (`created_by`: a person, or the system user or
   Elysia for what Elysium starts itself).
-- A run is started with its steps' names in order (`workflows::start`), and each becomes a job row (`step_jobs`). The
+- A run is started with its steps' names in order (`workflows::start`, given what a declared workflow builds), and each
+  becomes a job row (`step_jobs`). The
   first receives the run's input; each after it receives the output of the step before, or that step's own input when
   it was skipped. Steps are named; their order is a position the web app never shows.
 - A workflow has one live run per source until it succeeds: starting it again answers the run already there, so
@@ -131,14 +170,14 @@ the Runs page. No workflow is declared on it yet.
   waits for it.
 - The limits (attempts, lease, backoff, concurrency, the log's size) are constants in code.
 
-### Steps
+### Steps on the queue
 
-- A step is found by its name in a registry (`workflows::Steps`) and called with a `StepCall`: its run, the run's
-  workflow and source, its input as JSON, which attempt it is, and a log to write lines to, stored every second, the
-  newest 64 KiB kept across attempts. A run naming a step this build lacks fails that step.
-- A step answers how its attempt ended: succeeded, with its output and a one-line summary its row collapses to; held,
-  with its output and what a person should look at, which stops the run without failing it; or failed, with its reason
-  and whether it may be retried.
+- A claimed step is found by its name in `workflows::Steps` and called with its row's input as JSON and its
+  `StepContext` (A step, above), whose log is stored every second, the newest 64 KiB kept across attempts. The worker
+  reads nothing else for it. A run naming a step this build lacks fails that step.
+- An attempt ends succeeded, with its output and a one-line summary its row collapses to; held, with its output and
+  what a person should look at, which stops the run without failing it; or failed, with its reason and whether it may
+  be retried.
 
 ### A person's actions
 
@@ -220,8 +259,17 @@ the Runs page. No workflow is declared on it yet.
 
 ## Models
 
-- Model and effort are global settings per step, defaulting to Opus 5.5 at high effort, running through the same
-  credential failover stack and usage-aware skipping as every turn.
+- Model and effort are global settings per step, defaulting to Opus 5.5 (`claude-opus-5-5`) at high effort, running
+  through the same credential failover stack and usage-aware skipping as every turn.
+- Built: the setting and where steps read it. `step_model_settings` holds a row for each step an admin changed (its
+  model, and its effort as the CLI's `--effort` names it: `low`, `medium`, `high`, `xhigh`, or `max`); a step without
+  one runs on the default in code (`api/src/models/step_model_setting.rs`).
+- A step whose work is an agent turn asks for its setting as the turn starts (`StepContext::model`), which reads it
+  then and writes it to the step's log, so a change applies from the next turn, a retry's included. It passes both to
+  the runner (`TurnRequest::model` and `effort`).
+- `step_model_setting::for_step` is the one place a step's model is resolved. The admin settings page that lists each
+  step and agent with its model and effort is on the roadmap, and so are overrides per agent kind and per project;
+  both change what it answers, never what a step does.
 
 ## Follow-ups
 

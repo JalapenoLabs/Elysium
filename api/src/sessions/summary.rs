@@ -127,6 +127,7 @@ fn request(session_id: i64, digest: &Digest, outcome: &TurnOutcome) -> TurnReque
         system_prompt_append: None,
         environment: Vec::new(),
         model: Some(SUMMARY_MODEL.to_owned()),
+        effort: None,
         mode: TurnMode::Text {
             system_prompt: SYSTEM_PROMPT.to_owned(),
         },

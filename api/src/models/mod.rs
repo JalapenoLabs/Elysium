@@ -41,6 +41,7 @@ pub mod secret_copy;
 pub mod session_event;
 pub mod session_turn;
 pub mod step_job;
+pub mod step_model_setting;
 pub mod storage_location;
 pub mod studio_asset;
 pub mod studio_feedback;

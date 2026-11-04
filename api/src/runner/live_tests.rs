@@ -53,6 +53,7 @@ async fn a_turn_without_a_credential_reports_that_it_is_not_logged_in() {
             system_prompt_append: None,
             environment: Vec::new(),
             model: None,
+            effort: None,
             mode: TurnMode::Agent,
         })
         .expect("accepted");

@@ -1067,6 +1067,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    step_model_settings (step) {
+        step -> Text,
+        model -> Text,
+        effort -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     storage_location_projects (storage_location_id, project_id) {
         storage_location_id -> Uuid,
         project_id -> Uuid,
@@ -1412,6 +1425,7 @@ diesel::joinable!(session_events -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
 diesel::joinable!(step_jobs -> workflow_runs (run_id));
+diesel::joinable!(step_model_settings -> users (created_by));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
@@ -1493,6 +1507,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     session_events,
     session_turns,
     step_jobs,
+    step_model_settings,
     storage_location_projects,
     storage_locations,
     studio_assets,

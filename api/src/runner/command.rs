@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 
 use super::events::HarnessSessionId;
 use super::{EnvironmentEntry, McpServer, TurnMode};
+use crate::models::step_model_setting::Effort;
 
 /// The variable [`TURN_SCRIPT`] reads the MCP configuration from.
 const MCP_CONFIG_VARIABLE: &str = "ELYSIUM_MCP_CONFIG";
@@ -87,6 +88,7 @@ pub struct AttemptCommand {
     pub prompt: String,
     pub resume: Option<HarnessSessionId>,
     pub model: Option<String>,
+    pub effort: Option<Effort>,
     pub allowed_tools: Option<Vec<String>>,
     pub system_prompt_append: Option<String>,
     pub mcp_servers: Vec<McpServer>,
@@ -133,6 +135,10 @@ impl AttemptCommand {
         if let Some(model) = &self.model {
             argv.push("--model".to_owned());
             argv.push(model.clone());
+        }
+        if let Some(effort) = self.effort {
+            argv.push("--effort".to_owned());
+            argv.push(effort.as_str().to_owned());
         }
         if let Some(tools) = &self.allowed_tools {
             argv.push(format!("--allowedTools={}", tools.join(",")));
@@ -244,7 +250,8 @@ mod tests {
             working_directory: "/workspace/sessions/7".to_owned(),
             prompt: "--allowedTools looks like a flag but is the prompt".to_owned(),
             resume: Some("session-a".parse().expect("an id")),
-            model: Some("claude-opus-5".to_owned()),
+            model: Some("claude-opus-5-5".to_owned()),
+            effort: Some(Effort::Xhigh),
             allowed_tools: Some(vec!["Read".to_owned(), "mcp__elysia".to_owned()]),
             system_prompt_append: None,
             mcp_servers: vec![McpServer::Http {
@@ -300,6 +307,30 @@ mod tests {
             .position(|argument| argument == "--system-prompt")
             .expect("--system-prompt");
         assert_eq!(argv[system_prompt + 1], "Summarize the log.");
+    }
+
+    #[test]
+    fn the_model_and_effort_are_passed_when_chosen_and_left_to_the_cli_otherwise() {
+        let argv = command().argv();
+        let model = argv
+            .iter()
+            .position(|argument| argument == "--model")
+            .expect("--model");
+        assert_eq!(argv[model + 1], "claude-opus-5-5");
+        let effort = argv
+            .iter()
+            .position(|argument| argument == "--effort")
+            .expect("--effort");
+        assert_eq!(argv[effort + 1], "xhigh");
+
+        let unchosen = AttemptCommand {
+            model: None,
+            effort: None,
+            ..command()
+        }
+        .argv();
+        assert!(!unchosen.contains(&"--model".to_owned()));
+        assert!(!unchosen.contains(&"--effort".to_owned()));
     }
 
     #[test]

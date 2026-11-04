@@ -325,6 +325,7 @@ impl TurnQueue {
             system_prompt_append: turn.system_prompt_append,
             environment,
             model: None,
+            effort: None,
             mode: TurnMode::Agent,
         };
         let ticket = self

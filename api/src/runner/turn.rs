@@ -192,6 +192,7 @@ async fn run_attempts(
             prompt: prompt.clone(),
             resume: resume.clone(),
             model: request.model.clone(),
+            effort: request.effort,
             allowed_tools: request.allowed_tools.clone(),
             system_prompt_append: request.system_prompt_append.clone(),
             mcp_servers: request.mcp_servers.clone(),
@@ -597,6 +598,7 @@ mod tests {
             system_prompt_append: None,
             environment: Vec::new(),
             model: None,
+            effort: None,
             mode: TurnMode::Agent,
         }
     }

@@ -1,117 +1,25 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Workflow runs against Postgres (#75): a test workflow run end to end by the step workers,
-//! claims that never overlap, leases that lapse and are taken back, attempts and their backoff,
-//! a person's retry, skip, and resume, and the workers giving steps back at shutdown.
+//! The queue against Postgres (#75): runs worked end to end by the step workers, claims that
+//! never overlap, leases that lapse and are taken back, attempts and their backoff, a person's
+//! retry, skip, and resume, and the workers giving steps back at shutdown.
 //!
 //! Instants are passed in rather than read from the clock, so a lease lapsing or a backoff
 //! passing is a later `at`, not a wait.
-//!
-//! `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs them.
 
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
-use diesel_async::AsyncPgConnection;
-use secrecy::SecretString;
+use chrono::{TimeDelta, Utc};
 use serde_json::{Value, json};
-use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use super::workers::{Workers, WorkersDeps};
-use super::{StepCall, StepOutcome, Steps};
-use crate::activity::Activities;
-use crate::database::Pool;
-use crate::models::step_job::{self, LEASE, MAX_ATTEMPTS, StepActionError, StepJobState};
-use crate::models::user::SYSTEM_USER_ID;
-use crate::models::workflow_run::{self, Actor, NewRun, Started, WorkflowRunState};
+use super::{new_run, person, pool, running_workers, start, test_steps, until_run_is};
+use crate::models::step_job::{
+    self, LEASE, MAX_ATTEMPTS, StepActionError, StepJobState, StepOutcome,
+};
+use crate::models::workflow_run::{self, WorkflowRunState};
 use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
-
-/// The test workflow's steps: `double` doubles `n`, `describe` answers what it was called with,
-/// and `wait_forever` never returns.
-fn test_steps() -> Steps {
-    let mut steps = Steps::new();
-    steps.register("double", |call: StepCall| async move {
-        let n = call.input["n"].as_i64().unwrap_or_default();
-        call.log.line(&format!("doubling {n}"));
-        StepOutcome::Succeeded {
-            output: json!({ "n": n * 2 }),
-            summary: Some(format!("Doubled {n}")),
-        }
-    });
-    steps.register("describe", |call: StepCall| async move {
-        StepOutcome::Succeeded {
-            output: json!({
-                "input": call.input,
-                "runId": call.run_id,
-                "stepJobId": call.step_job_id,
-                "about": [call.workflow, call.source_kind, call.source_id],
-                "step": call.step,
-                "attempt": call.attempt,
-            }),
-            summary: None,
-        }
-    });
-    steps.register("wait_forever", |_call: StepCall| async move {
-        std::future::pending::<()>().await;
-        unreachable!("a pending future never resolves")
-    });
-    steps
-}
-
-fn new_run(source_id: &str, steps: &[&str]) -> NewRun {
-    NewRun {
-        workflow: "test".to_owned(),
-        source_kind: "test_source".to_owned(),
-        source_id: source_id.to_owned(),
-        input: json!({ "n": 21 }),
-        steps: steps.iter().map(|step| (*step).to_owned()).collect(),
-        created_by: SYSTEM_USER_ID,
-    }
-}
-
-async fn start(connection: &mut AsyncPgConnection, source_id: &str, steps: &[&str]) -> Started {
-    workflow_run::start(connection, new_run(source_id, steps), Utc::now())
-        .await
-        .expect("the run starts")
-}
-
-fn person(at: DateTime<Utc>) -> Actor {
-    Actor {
-        user_id: TEST_PERSON_ID,
-        at,
-    }
-}
-
-async fn pool(url: &SecretString) -> Pool {
-    crate::connections::connect_postgres(url, 4)
-        .await
-        .expect("Postgres accepts connections")
-}
-
-/// Waits up to ten seconds for run `id` to reach `state`.
-async fn until_run_is(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    state: WorkflowRunState,
-) -> workflow_run::WorkflowRun {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let run = workflow_run::find(connection, id)
-            .await
-            .expect("the run reads");
-        if run.state == state {
-            return run;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "run {id} is {:?}, not {state:?}",
-            run.state
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
@@ -119,16 +27,9 @@ async fn the_workers_run_a_workflow_step_by_step_each_receiving_the_last_output(
     let (url, mut connection) = migrated_database().await;
     let events = EventBus::in_process();
     let mut heard = events.subscribe();
-    let workers = Workers::new(WorkersDeps {
-        database: pool(&url).await,
-        events: events.clone(),
-        activity: Activities::new(),
-        steps: test_steps(),
-    });
-    let shutdown = CancellationToken::new();
-    let running = workers.start(shutdown.clone());
+    let (shutdown, running) = running_workers(&url, &events, test_steps().0).await;
 
-    let started = super::start(
+    let started = crate::workflows::start(
         &mut connection,
         &events,
         new_run("m-1", &["double", "describe"]),
@@ -160,11 +61,9 @@ async fn the_workers_run_a_workflow_step_by_step_each_receiving_the_last_output(
             "input": { "n": 42 },
             "runId": run.id,
             "stepJobId": steps[1].id,
-            "about": ["test", "test_source", "m-1"],
-            "step": "describe",
             "attempt": 1,
         })),
-        "a step is called with its run, its source, and which attempt it is"
+        "a step is called with its run, its own row, and which attempt it is"
     );
     let log = step_job::log_of(&mut connection, run.id, steps[0].id)
         .await
@@ -690,12 +589,6 @@ async fn a_released_step_is_queued_again_without_counting_the_attempt() {
 async fn the_workers_fail_a_step_this_build_does_not_have_and_release_one_at_shutdown() {
     let (url, mut connection) = migrated_database().await;
     let events = EventBus::in_process();
-    let workers = Workers::new(WorkersDeps {
-        database: pool(&url).await,
-        events: events.clone(),
-        activity: Activities::new(),
-        steps: test_steps(),
-    });
     let unknown = start(&mut connection, "m-1", &["transcribe"])
         .await
         .settled
@@ -706,8 +599,7 @@ async fn the_workers_fail_a_step_this_build_does_not_have_and_release_one_at_shu
         .settled
         .run
         .id;
-    let shutdown = CancellationToken::new();
-    let running = workers.start(shutdown.clone());
+    let (shutdown, running) = running_workers(&url, &events, test_steps().0).await;
 
     let failed = until_run_is(&mut connection, unknown, WorkflowRunState::Failed).await;
     assert_eq!(

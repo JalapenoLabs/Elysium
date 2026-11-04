@@ -143,14 +143,8 @@ pub struct Claim {
     pub token: Uuid,
 }
 
-/// How one attempt at a step ended.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the step and workflow framework (#76) writes the first steps"
-    )
-)]
+/// How one attempt at a step ended, its output as the queue stores it. Steps answer in their
+/// own types (`crate::workflows::Done`), which their registration turns into this.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StepOutcome {
     /// It did its work. `output` is what the next step receives; `summary` is the one line its

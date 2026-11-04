@@ -51,6 +51,10 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   workers claim with `FOR UPDATE SKIP LOCKED` under a lease they renew, retry with backoff, and record. A person
   retries, skips, or resumes a step on the Runs page (`/runs`); clients hear ids and states only. See
   `docs/engine.md`, Runs.
+- A step implements `workflows::Step` (a name, typed input and output) and never knows its workflow; a workflow is
+  declared from step types (`workflows::declare`), each taking what the one before gives, and a run may enter it at
+  any step with that step's input. A step's turn runs on its model setting, Opus 5.5 at high effort by default. See
+  `docs/engine.md`, Workflows and steps, and Models.
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.
