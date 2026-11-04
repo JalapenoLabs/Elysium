@@ -6,8 +6,8 @@ on the host afterwards, which keeps the session alive. Connectors then read and 
 Elysium uses each service as its user does and never installs anything into an organization.
 
 Today every Outlook, Gmail, Teams, and Slack connector owns a browser of its own, started with it and removed with it
-(`docs/connectors.md`). The API runs each browser and relays its stream, and the connector's page streams it to its
-owner to sign in on. The facts below were verified against the pinned versions.
+(`docs/connectors.md`). The engine runs each browser and reads pages in it, the API relays its stream, and the
+connector's page streams it to its owner to sign in on. The facts below were verified against the pinned versions.
 
 ## Neko
 
@@ -123,23 +123,25 @@ Elysia and the connectors reach the browser over the Chrome DevTools Protocol, v
 - Chromium refuses any `Host` header that is not an IP address or `localhost`, so the API's client sends
   `Host: localhost` whatever name it dials.
 - The DevTools port has no authentication of its own. Each browser therefore has its own Docker network, which only
-  the API and nginx join, and nginx forwards nothing to a browser but its media port. No browser can reach another.
+  the engine, the API, and nginx join, and nginx forwards nothing to a browser but its media port. No browser can
+  reach another.
 
 Per-browser networks are what Stalwart never needed, and they change two things:
 
 - `docker-proxy` must answer the network endpoints (`NETWORKS: 1`), to create a network per browser and connect the
-  API and nginx to it. That adds no reach the API lacks today: creating a container is already root on the host,
+  engine, the API, and nginx to it. That adds no reach they lack: creating a container is already root on the host,
   which `docs/security.md` names as the reason every account is approved by an admin.
-- nginx is a compose service, so `docker compose up` resets its networks to the ones `compose.yml` lists and drops
-  the ones the API added. The API's reconciler checks every browser's network every 10 seconds and joins nginx and
-  itself back. Until it does, that browser's media port refuses connections and an open stream reconnects. A shared
+- nginx, the API, and the engine are compose services, so `docker compose up` resets their networks to the ones
+  `compose.yml` lists and drops the ones the engine added. The engine's reconciler checks every browser's network every
+  10 seconds and joins back itself, nginx, and every container of the compose project's `api` service, found by its
+  compose labels. Until it does, that browser's media port refuses connections and an open stream reconnects. A shared
   network would avoid it, but would let every browser reach every other's DevTools port.
 - Docker routes a container's default gateway, and the ports it publishes, through its network of highest gateway
   priority, ties broken by name. At the default priority a browser's network can win for nginx, so the host's
   requests to the web port arrive through it, and removing that browser cuts them mid-request (seen as nginx `499`s).
-  nginx and the API therefore join every browser network at priority `-1`, below their compose networks. Gateway
-  priority needs Docker Engine 28.0 (API 1.48) or later; an older engine ignores it, and the API warns at startup
-  (`browser.engine.outdated`).
+  Every container joined to a browser network joins it at priority `-1`, below its compose networks. Gateway
+  priority needs Docker Engine 28.0 (API 1.48) or later; an older Docker Engine ignores it, and the engine warns at
+  startup (`browser.engine.outdated`).
 
 The forwarder and Chromium's command line are copied into the container before it first starts, through Docker's
 archive endpoint, so the upstream image runs as published. Neko's supervisord loads every file in
@@ -158,7 +160,7 @@ the sign-in on every restart, and both are overridden:
 Replacing a container moves the profile to a container with another hostname, and Chromium then refuses to start:
 its profile lock names the old one ("in use by another Chromium process on another computer"). Chromium therefore
 starts through `start-chromium.sh`, which clears the lock first; only one container ever runs on a profile, so a lock
-found at start is always left over. The API also stops a container, giving Chromium 15 seconds to write its cookies
+found at start is always left over. Elysium also stops a container, giving Chromium 15 seconds to write its cookies
 and release the lock, before it removes it.
 
 The policy file (`api/src/browser/neko/policies.json`) is Neko's own with four changes: cookies are kept, pop-ups
@@ -168,18 +170,21 @@ extension is installed, so the browser is a plain Chromium.
 ## Browser sessions
 
 `api/src/browser/` runs them; `/api/v1/browser-sessions` exposes them (`docs/api.md`); `browser_sessions` stores them
-(`docs/database.md`).
+(`docs/database.md`). The engine's reconciler brings every browser up; the API adds, resets, and removes them. Every
+change to a browser's Docker resources, in either process, holds one Postgres advisory lock (`browsers:docker`), so a
+browser being created, checked, reset, and removed at once never races itself.
 
 - **Adding one** happens only with its connector (`connectors::kinds::browser`), named for the connector's kind and
   started at the kind's start page; nothing adds a browser on its own. It stores it on the lowest free port with a
-  generated member password and answers at once as `starting`. In the background the API pulls Neko's image if Docker
-  lacks it, creates the browser's network, volume, and container, joins itself and nginx to the network, copies the
-  setup files in, and starts it. Once Chromium's DevTools port answers, it opens the browser's start page in a new tab
-  and records that in `start_page_opened_at`. Until it is recorded, every reconcile pass tries again, so a DevTools
-  port that answered late or an API restart does not lose it. Each change of status is published as
+  generated member password, answers at once as `starting`, and signals the engine. The engine's reconciler pulls
+  Neko's image if Docker lacks it, creates the browser's network, volume, and container, joins the network as above,
+  copies the setup files in, and starts it. Once Chromium's DevTools port answers, it opens the browser's start page in
+  a new tab and records that in `start_page_opened_at`. Until it is recorded, every reconcile pass tries again, so a
+  DevTools port that answered late or an engine restart does not lose it. Each change of status is published as
   `browserSession.upserted`.
-- **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
-  missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
+- **The reconciler** runs in the engine, once at startup, then every 10 seconds and whenever a browser is owed one, over
+  every browser. It recreates whatever is missing, starts a stopped container, rejoins each network, and replaces a
+  container whose spec
   changed: another image, public address, or setup file. The spec is a hash in the container's
   `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A container that never started
   is replaced too, and one whose setup files fail to copy in is removed at once, since the label claims they are in
@@ -196,15 +201,16 @@ extension is installed, so the browser is a plain Chromium.
   window closes). The profile stays, so whatever the browser is signed in to stays signed in. It is the way out of a
   sign-in that landed somewhere with nowhere to go, such as a provider's error page after its MFA was reset, and is
   announced as `browserSession.startedOver`.
-- **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock it marks the
-  start page as owed, removes the container and the profile volume, and reports the browser `starting`; the network
-  stays, so nginx and the API stay joined to it. Then it brings the browser up as if new, and so would any reconcile
-  pass that got there first. The row, its port, and its connector stay; the connector reads
+- **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock the API marks
+  the start page as owed, removes the container and the profile volume, and reports the browser `starting`; the
+  network stays, so everything joined to it stays joined. Then it signals the engine, which brings the browser up as if
+  new. The row, its port, and its connector stay; the connector reads
   `signed_out` until the person signs in again. Removing the volume, rather than clearing data over DevTools, is
   what makes the reset complete: Chromium's own clearing reaches cookies and site storage, but not service workers,
   saved passwords, or whatever else a sign-in left in the profile, and it cannot repair a profile left half written.
   An empty volume holds nothing.
-- **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
+- **Status** is on the browser's row (`state`, `state_error`), as the reconciler last found it, so every process and
+  replica shows the same. A new browser is `starting` until the first pass.
 - **Removing one** happens only with its connector: removing the connector removes its browser. It removes the
   container, network, and volume, then the row (and with it the connector, by its foreign key), in a task of its own so
   a request that is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass

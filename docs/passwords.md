@@ -27,12 +27,12 @@ Elysium's check, and the account is bounded by Bitwarden's own permissions.
 |-----------------------------|------------------------------------------------------------------------|
 | `client_secret`             | `password_vault.client_secret_encrypted`, sealed like every application secret (`docs/secrets.md`) |
 | Master password             | `password_vault.master_password_encrypted`, sealed under its own associated data |
-| The CLI's state             | The API's data volume, `api-data` at `/var/lib/elysium/bitwarden`      |
+| The CLI's state             | The engine's data volume, `engine-data` at `/var/lib/elysium/bitwarden` |
 
 The CLI's state is what any Bitwarden client keeps: the access and refresh tokens of its sign-in, its device
 identifier, and the vault as downloaded, still encrypted under the account's key. The master password is never written
 there; the CLI is unlocked after every start. The volume keeps the CLI signed in as the same device across restarts, so
-Bitwarden does not see a new device, or mail its "new device" notice, every time the API restarts or updates.
+Bitwarden does not see a new device, or mail its "new device" notice, every time the engine restarts or updates.
 
 Neither secret is ever returned. Changing the vault's credentials with a field left blank keeps the stored secret.
 
@@ -40,25 +40,34 @@ Neither secret is ever returned. Changing the vault's credentials with a field l
 
 The API image carries the CLI's OSS build (`bw-oss-linux`, GPL-3.0, run as a separate program), pinned to a release
 at least two weeks old and checked against the digest GitHub publishes (`api/Dockerfile`, stage `bitwarden-cli`). It
-runs inside the API's own container, never the agents' workspace, so no agent can read its process, its state, or its
-environment.
+runs inside the engine's own container, never the agents' workspace, so no agent can read its process, its state, or
+its environment.
+
+The API never runs it. Its routes and the agents' password tools, which the API answers, ask the engine over the bus
+(`api/src/passwords/remote.rs`): each request and its answer is a signal sealed with the encryption key and bound to
+its id and direction, so Redis never holds a secret and a sealed message cannot be replayed as another. An engine that
+does not answer within 3 seconds for its status, 10 for anything else, or 90 for connecting, reads as
+a vault that is not answering: the settings page shows
+the vault `failed` with that reason, a route answers `503`, and a tool tells the agent to try again shortly. Every login
+and code is handed out in the engine, which remembers it for scrubbing in the same process that runs every turn.
 
 - **Signing in** is one-shot commands: `bw config server`, then `bw login --apikey` with the key in the environment.
   Secrets travel only in a process's environment or a request body, never on a command line.
-- **Everything else** goes through one long-running `bw serve` on the API container's loopback (`127.0.0.1:8087`),
-  unlocked once with the master password. Nothing outside the container can reach that address, only Elysium runs
+- **Everything else** goes through one long-running `bw serve` on the engine container's loopback
+  (`127.0.0.1:8087`), unlocked once with the master password. Nothing outside the container can reach that address, only Elysium runs
   inside it, and the CLI refuses any request whose `Host` is not loopback or that carries an `Origin`.
 - **Connecting** (`PUT /api/v1/password-vault`) signs in, starts `bw serve`, unlocks, syncs, and lists the
   collections before anything is stored, so every stored vault names the account it reaches. A refused key or master
   password answers `400` with Bitwarden's own words, and whatever vault was stored before is brought back.
-- **At startup** the API brings the stored vault up. When the CLI is still signed in as the same account on the same
+- **At startup** the engine brings the stored vault up. When the CLI is still signed in as the same account on the same
   server, it only unlocks; otherwise it signs in again.
-- **Keeping it up.** Every minute the API checks `bw serve` and restarts it if it exited or the vault failed. Every
+- **Keeping it up.** Every minute the engine checks `bw serve` and restarts it if it exited or the vault failed. Every
   five minutes it syncs, so items added in Bitwarden reach agents; admins can sync at once.
 - **Removing** the vault stops the CLI, signs it out, and deletes the row. The Bitwarden account and its API key are
   untouched; revoke the key in Bitwarden to be sure it is never used again.
 
-What the CLI is doing is kept in memory, published as `passwordVault.status`, and shown on the settings page:
+What the CLI is doing is kept in the engine's memory, published as `passwordVault.status`, and shown on the settings
+page, which asks the engine for it:
 
 | State          | Meaning                                                            |
 |----------------|--------------------------------------------------------------------|
@@ -79,7 +88,7 @@ Elysia's turns, while the vault is ready; a vault that becomes ready mid-turn is
 | `passwords_totp`  | One login's current TOTP code, by id. The seed is never shown        |
 
 Every call reads the chosen collection from the database as it is now, and every item is checked against it before
-anything of it leaves the API: a login, not in the trash, in that collection (`api/src/passwords/items.rs`). The
+anything of it leaves the engine: a login, not in the trash, in that collection (`api/src/passwords/items.rs`). The
 CLI's own filter only decides what is fetched. A login moved out of the collection, or a collection changed mid-turn,
 is refused at the next call. Calls are logged by caller (a session or one of Elysia's turns), tool, and item id,
 never by what they answered.

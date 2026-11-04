@@ -42,21 +42,26 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
   development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
   with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
+- The API serves clients alone and starts no loop. The engine (`elysium-engine`, a second binary of the same crate, run
+  from the same image as the `engine` service, one container) does all background work: the runner, sessions' turns,
+  Elysia, every connector's reader, the keepers, update checks, and backups. It serves nothing but `/health`. They
+  meet only in Postgres and on the bus: the API records what it asks for as a row and signals the engine
+  (`crate::realtime::Signal`). See `docs/engine.md`.
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.
 - `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`, and
   `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z`
   tag. See `docs/ci.md`.
-- Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the API
-  creates through `docker-proxy` and reaches by `docker exec`, never inside the API's own container. Callers submit
-  turns to `crate::runner`. See `docs/coding.md`.
+- Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the engine
+  creates through `docker-proxy` and reaches by `docker exec`, never inside the API's or the engine's own container.
+  Callers in the engine submit turns to `crate::runner`. See `docs/coding.md`.
 - Releases update themselves: the API decides when, and the updater (compose profile `auto-update`) carries it out,
   backing up the databases and rolling back a release that does not come up healthy. It never restarts the stack
   while work is running; anything a restart would cut short, such as an agent turn, holds an activity
-  (`api/src/activity.rs`) while it runs. Each API image carries the deployment's configuration, so a release brings
+  (`api/src/activity.rs`) while it runs, which the engine mirrors to Postgres for the API to read. Each API image carries the deployment's configuration, so a release brings
   its own, and the updater owns `ELYSIUM_VERSION` in `.env`. See `docs/infrastructure.md`.
-- The API backs up Elysium's, Kratos's, and Hydra's databases every night (`api/src/backups/`) to the storage
+- The engine backs up Elysium's, Kratos's, and Hydra's databases every night (`api/src/backups/`) to the storage
   location an admin chose, keeping 30 days, whether or not the updater runs. A night that fails raises an inbox item;
   the restore is step by step in `docs/infrastructure.md`, Backups, and needs the same `ELYSIUM_ENCRYPTION_KEY`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
@@ -124,9 +129,10 @@ Everything else follows these rules:
 ## Agents run on the host
 
 - Agent turns run the official Claude Code CLI, on a subscription token or an API key, in the `elysium-workspace`
-  container the API owns. The Agent SDK is never used with subscription credentials. See `docs/coding.md`.
-- Agents never run in the API's container, and the workspace shares a network with the API alone. Workspace files
-  are read and written through `docker exec` as `agent`, confined by `realpath`; the API never mounts the volume.
+  container the engine owns. The Agent SDK is never used with subscription credentials. See `docs/coding.md`.
+- Agents never run in the API's or the engine's container, and the workspace shares a network with the API alone.
+  Workspace files are read and written through `docker exec` as `agent`, confined by `realpath`; nothing mounts the
+  volume.
 - A session is a directory in the workspace (`sessions/<id>`), the Claude session its turns resume, and its events in
   `session_events`. Turns of one session run one at a time; at most eight run at once.
 - A turn runs on Elysium's active Claude credentials as an ordered failover stack, highest priority first, so a
@@ -173,7 +179,7 @@ Everything else follows these rules:
 - Signing in to a service without an app of Elysium's own happens in a real browser the host runs and streams to the
   user over WebRTC: Neko (`ghcr.io/m1k1o/neko/chromium`, pinned by digest), run unchanged, one container, profile
   volume, Docker network, and media port per browser connector. A browser starts with its connector and is removed
-  with it. The API runs and reconciles them; see `docs/browser.md`.
+  with it. The engine runs and reconciles them; see `docs/browser.md`.
 - A browser belongs to the person who created it. Its routes answer that person alone, and the stream relays a Neko
   member session, never an administrator's.
 - nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
@@ -331,9 +337,9 @@ Everything else follows these rules:
 - Agents sign in to things on their own with logins from one Bitwarden or Vaultwarden account, managed under Settings,
   Passwords by admins. Its API key and master password are application secrets, sealed in Postgres. See
   `docs/passwords.md`.
-- The official CLI (`bw`, pinned in the API image) runs inside the API's own container, never the workspace: one-shot
+- The official CLI (`bw`, pinned in the API image) runs inside the engine's own container, never the workspace: one-shot
   commands sign it in, and one `bw serve` on the container's loopback answers everything else. Its state is on the
-  API's data volume, so a restart keeps it signed in as the same device.
+  engine's data volume, so a restart keeps it signed in as the same device. The API asks it over the bus, sealed.
 - Agents read one collection, chosen from those the account reaches, through the `elysium_passwords` tools. Every call
   re-checks the item against the collection in the database. TOTP seeds are never shown, only current codes.
 - Every password and code handed to an agent is scrubbed from every turn's recorded output, as secret environment
@@ -410,7 +416,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - `hello` is sent only while the process holds its subscription; while it is down the stream answers `503`. Any event
   that may have been lost on the way through Redis (a dropped subscription, a failed publish, a full queue) ends in
   `resync`, never in silence.
-- The API still runs as a single replica, because its background loops run in it until they move into the engine.
+- The API runs as one replica, for the request-scoped state `docs/engine.md` lists (One replica of the API); nothing
+  it serves is held in the engine's memory.
 
 ## Time is UTC on the server
 

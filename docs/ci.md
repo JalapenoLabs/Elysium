@@ -138,8 +138,8 @@ no Postgres client library, and it needs glibc 2.34, which Rocky 9 ships.
 
 `API image` builds the default `app` stage of `api/Dockerfile` from the repository root, as the publish workflow
 does, checks its `FROM rust:` and `FROM node:` lines against the pins, checks the image carries the web app's
-`index.html`, and runs `elysium-api --help` in it.
-That proves the runtime stage links. Booting the server would need Postgres, Redis, and an encryption key, which the
+`index.html`, and runs `elysium-api --help` and `elysium-engine --help` in it.
+That proves the runtime stage links both binaries. Booting either would need Postgres, Redis, and an encryption key, which the
 checks above already cover.
 
 ## OAuth broker

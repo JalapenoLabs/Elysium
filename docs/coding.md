@@ -1,24 +1,27 @@
 # Coding
 
 The Coding area runs agent sessions on Elysium's own host: the official Claude Code CLI, in a workspace container
-the API owns. Sessions are started and followed on the Coding page; Studio items (`docs/studio.md`) are sessions too.
+the engine owns (`docs/engine.md`). Sessions are started and followed on the Coding page; Studio items (`docs/studio.md`) are sessions too.
 
 ## The runner
 
 `api/src/runner/` runs agent turns on Elysium's own host: the official `claude` CLI, headless
-(`claude -p --output-format stream-json --verbose`), in the agent workspace container. Coding sessions, Studio, and
-Elysia all submit turns to it (`state.runner.submit(TurnRequest)`) and read the turn's events from the ticket it
-returns. Only the CLI itself runs turns, on a subscription token or an API key; the Agent SDK is never used with
-subscription credentials.
+(`claude -p --output-format stream-json --verbose`), in the agent workspace container. It runs in the engine, and
+everything that submits turns to it does too: sessions' turn queue, Elysia's dispatcher, turn summaries, and
+meetings' segmentation (`runner.submit(TurnRequest)`, or `submit_as` for a turn that already has an id). Each reads the
+turn's events from the ticket it returns. Only the CLI itself runs turns, on a subscription token or an API key; the
+Agent SDK is never used with subscription credentials.
 
 ### Where turns run, and why there
 
-Turns never run inside the API's container: it holds `ELYSIUM_ENCRYPTION_KEY` and the database's credentials, and an
-agent with every permission could read them. They run in one long-lived sibling container, `elysium-workspace`, that
-the API creates through `docker-proxy` like Stalwart, from the `elysium-workspace` image of its own release
-(`workspace/Dockerfile`). A sibling container keeps the API image small and lets the agents' toolchain change without
-touching the API. Per-turn containers were not chosen: a turn would pay a container start, and work that spans turns
-(clones, build caches, Claude's own transcripts) would need its own volume per conversation.
+Turns never run inside the API's or the engine's container: both hold `ELYSIUM_ENCRYPTION_KEY` and the database's
+credentials, and an agent with every permission could read them. They run in one long-lived sibling container,
+`elysium-workspace`, that the engine creates through `docker-proxy` like Stalwart, from the `elysium-workspace` image
+of its own release (`workspace/Dockerfile`). Only the engine creates or replaces it; the API works in it once it
+runs, for a session's files, a new session's clones, and Claude sign-ins, and answers `503` while it does not. A
+sibling container keeps the API image small and lets the agents' toolchain change without touching the API. Per-turn
+containers were not chosen: a turn would pay a container start, and work that spans turns (clones, build caches,
+Claude's own transcripts) would need its own volume per conversation.
 
 | Path                    | Holds                                                                         |
 |-------------------------|-------------------------------------------------------------------------------|
@@ -45,8 +48,9 @@ disk. A fetch that fails fails the turns that need it, with git's message.
 
 1. **Queue.** Turns of one conversation (`ConversationId`, chosen by the caller) run one after another; different
    conversations run side by side, at most `MAX_CONCURRENT_TURNS` (8) at once.
-2. **Prepare.** The first turn after the API starts (the API also starts this at boot) ensures the container, kills
-   turns a previous run left behind, and fetches `~/.claude`.
+2. **Prepare.** The first turn after the engine starts (the engine also starts this at boot) ensures the container,
+   kills turns a previous run left behind, and fetches `~/.claude`. Changing the configuration repository signals the
+   engine to fetch it again.
 3. **Attempt.** One `claude` process on one credential. Secrets travel only in the exec's environment: the
    credential as `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, and the MCP configuration, which the turn script
    writes to a private file in the turn's directory. `claude` runs in its own process group, so stopping it stops
@@ -95,7 +99,8 @@ rules ported from the `~/.claude/accounts` desktop switcher.
   FIFO from a separate exec, as an environment variable rather than an argument. Elysium then reads the
   `.credentials.json` the CLI wrote, asks Anthropic's profile endpoint whose account it is, seals the tokens, and
   removes the directory. A wrong code ends the sign-in; the CLI exits on any answer. A sign-in waits at most 15
-  minutes, and at most eight wait at once.
+  minutes, and at most eight wait at once. What is waiting is kept in the API process that started it, which is one of
+  the things that keep the API to one replica (`docs/engine.md`).
 - **One refresher.** A turn is handed only the access token, as `CLAUDE_CODE_OAUTH_TOKEN`, never the refresh token:
   Claude Code rotates the refresh token on every refresh, so a second refresher would strand the first. The keeper
   (`keeper.rs`) runs every five minutes, after every turn, and after a sign-in. It renews an access token once
@@ -116,7 +121,7 @@ rules ported from the `~/.claude/accounts` desktop switcher.
 |-------------------|------------|---------------------------------------------------------------|
 | Heartbeat         | 20 minutes | A model call or a quiet build takes minutes; twenty without a line is a hang |
 | Concurrent turns  | 8          | Each is a `claude` process with its own tools on a shared host |
-| Shutdown grace    | 15 seconds | Turns are killed and report `interrupted` before the API exits |
+| Shutdown grace    | 15 seconds | Turns are killed and report `interrupted` before the engine exits |
 
 A turn that prints nothing for the heartbeat is killed and finishes `interrupted`. A cancelled turn
 (`runner.cancel(turn_id)`) is killed and finishes `cancelled`; one still queued finishes without running. Docker
@@ -138,14 +143,17 @@ CLI to report that it is not logged in. It creates the real `elysium-workspace` 
   stays until the session is deleted.
 - **A Claude session**, `harness_session_id` on the row: the session id the last turn reported, resumed by the next
   turn with `--resume`. Claude keeps the transcript in `/workspace/.claude`, so a session carries on across restarts
-  of the API and of the workspace.
+  of the API, the engine, and the workspace.
 - **Its events**, recorded in `session_events` (see History).
 
 Each session is its own conversation on the runner, so its turns run one after another and never two at once.
 
 ### A turn
 
-`POST /api/v1/coding-sessions/{id}/turns` queues a turn and answers at once. The turn carries:
+`POST /api/v1/coding-sessions/{id}/turns` queues a turn as a `session_turns` row, signals the engine, and answers at
+once. The engine's turn queue (`api/src/sessions/queue.rs`) takes each session's oldest queued turn once the session
+has none running, so each turn resumes the Claude session the one before it reported, and builds the turn's request
+then. A turn queued while the engine is down waits for it. The turn carries:
 
 - **The environment:** every workspace environment variable, then the session's GitHub token as `GH_TOKEN` with the
   git config that routes git through `gh` (`docs/environment.md`, `docs/github.md`).
@@ -160,9 +168,12 @@ published as `session.event`. A client that refetches history after a live event
 the turn ends, the Claude session it reported is kept on the row, a Studio session's deliverables are collected, and
 the grant is revoked.
 
-What a session is doing (`idle`, `queued`, or `running`, with its queue depth and current turn) is kept in memory
-and published as `session.upserted` whenever it changes. A restart forgets it, and every session reads `idle`, which
-is true: a restart ends every turn.
+What a session is doing (`idle`, `queued`, or `running`, with its queue depth and current turn) is read from its
+turns' rows, so every process shows the same, and published as `session.upserted` whenever it changes. A turn is
+`running` once its CLI started; one the engine took that waits for a slot still counts as queued. Stopping a session
+(a Studio item hidden, a session deleted) finishes its queued turns unrun and marks the running one, which the engine
+cancels. An engine that starts finishes a turn its predecessor's stop cut short, whose history then ends where it
+stopped, and queues again one that was only waiting for a slot.
 
 ### Elysium's tools
 
@@ -175,11 +186,13 @@ agents sign in with (`docs/passwords.md`), given to every turn while the passwor
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.
 
-Before each turn the API mints a grant (`api/src/tools/grants.rs`): a 256-bit bearer token naming the session's
-scope and the servers the turn may use. The token travels in the turn's MCP configuration; only its SHA-256 is held.
-A request without a live grant answers `401`, and one for a server the grant does not name `404`. Every call is then
-checked against the database as before: the session's project, its action item, its storage locations. The grant is
-revoked when the turn ends, and a restart revokes them all.
+Before each turn the engine mints a grant (`api/src/tools/grants.rs`): a 256-bit bearer token naming the session's
+scope and the servers the turn may use, stored in `agent_tool_grants`, since the API checks it. The token travels in
+the turn's MCP configuration; only its SHA-256 is stored. A request without a live grant answers `401`, and one for a
+server the grant does not name `404`. Every call is then checked against the database as before: the session's
+project, its action item, its storage locations. The grant is revoked when the turn ends, and an engine that starts
+revokes them all. The API answers these calls, so while it is down an agent's calls to Elysium's tools fail and its
+turn carries on without them.
 
 Logs name each call by session, server, tool, and call id, never by its arguments, which can be large.
 

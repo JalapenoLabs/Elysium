@@ -3,14 +3,14 @@
 Three stacks share one compose file:
 
 - **Production**, `compose.yml` alone: runs the published `jalapenolabs/elysium-api` image, which serves the API and
-  the web app's production build. `docker compose up --wait` pulls it.
+  the web app's production build and, as the `engine` service, runs the engine. `docker compose up --wait` pulls it.
 - **Production from a checkout**, `compose.yml` with `compose.build.yml` layered over it: the same production images,
   built from the checkout under local tags, for a deployment that runs `main` rather than a release. Set
   `COMPOSE_FILE=compose.yml:compose.build.yml` in `.env` (adding `compose.override.yml` when the deployment has one),
   leave the `auto-update` profile off, and deploy with `git pull --ff-only && docker compose up --detach --build --wait`.
   The work instance at alex.mooreslab.ai runs this way.
-- **Development**, `compose.yml` with `compose.dev.yml` layered over it: builds the API from the checkout and runs
-  the web app on the Vite dev server with hot reload.
+- **Development**, `compose.yml` with `compose.dev.yml` layered over it: builds the API and the engine from the
+  checkout and runs the web app on the Vite dev server with hot reload.
   `docker compose -f compose.yml -f compose.dev.yml up --build --wait`.
 
 Either way the stack needs its configuration beside `compose.yml`: `nginx/`, `kratos/`, `hydra/`, and `updater/`,
@@ -20,7 +20,10 @@ every API image, which carries the configuration it was released with (see Auto-
 `ELYSIUM_VERSION` in `.env` pins the release the production stack runs, such as `1.4.2`. Unset, it runs `latest`,
 the newest release; pin it for a deployment that must not change under a `docker compose pull`.
 
-Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline. `.env`
+Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline, once for the API and the engine together
+(`x-server-environment`): they are one crate and read the same configuration. A `compose.override.yml` that sets a
+variable for one must set it for both, such as `OAUTH_BROKER_URL`, which the engine needs to keep mailboxes signed in.
+`.env`
 supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`, and
 `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`, and `ELYSIUM_PUBLIC_URL`, the origin browsers reach Elysium at,
 which defaults to `http://localhost:${WEB_PORT}` (see `docs/auth.md`). Compose refuses to start when a required value is
@@ -46,36 +49,40 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `hydra-migrate` | `hydra/Dockerfile` (`oryd/hydra:v26.2.0`) | `elysium-hydra-migrate` | One-shot: Hydra's own migrations; builds Hydra's image |
 | `hydra`    | Hydra's image, built by `hydra-migrate` | `elysium-hydra` | OAuth for MCP clients; see `docs/mcp.md` |
 | `api`      | the API image              | none               | One replica; reachable only via nginx   |
+| `engine`   | the API image, `elysium-engine` | `elysium-engine` | Every loop, schedule, and agent turn; one runs. Health on its own port 8080, `/health` |
 | `postgres` | `pgvector/pgvector:0.8.7-pg18-trixie` (by digest) | `elysium-postgres` | Postgres 18.6 with pgvector; volume `postgres-data`, `timezone=UTC` |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
-| `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's filtered Docker API |
+| `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's and the engine's filtered Docker API |
 | `updater`  | `updater/Dockerfile` (`docker:29.9.1-cli`) | `elysium-updater` | Profile `auto-update` only; holds the Docker socket |
 
-The `docker-control` network is internal and joins only the API and `docker-proxy`. The `elysium-mail` network
-(subnet `172.29.53.0/24`) joins nginx at the fixed address `172.29.53.2`, the API, and the Stalwart container; every
-other address comes from `172.29.53.128/25`. Change the subnet, the range, and `x-mail-ingress-address` together if
+The `docker-control` network is internal and joins only the API, the engine, and `docker-proxy`. The `elysium-mail`
+network (subnet `172.29.53.0/24`) joins nginx at the fixed address `172.29.53.2`, the API, the engine, and the Stalwart
+container; every other address comes from `172.29.53.128/25`. Change the subnet, the range, and `x-mail-ingress-address` together if
 the subnet collides with one on the host.
 
 The mail server is not a compose service. The API creates its container (`elysium-stalwart`), volumes, and network
 through `docker-proxy` when the mail server is created on the Email settings page, and they live outside the
-compose project. See `docs/mail.md`.
+compose project; the engine brings it back up when it starts. See `docs/mail.md`.
 
-Browsers are not compose services either. The API creates each one's container, profile volume, and network, all
-named `elysium-browser-<id>`, through `docker-proxy`, and joins itself and nginx to that network. Compose drops
-those joins whenever it recreates nginx or the API; the API's reconciler restores them within 10 seconds. The media
+Browsers are not compose services either. The engine creates each one's container, profile volume, and network, all
+named `elysium-browser-<id>`, through `docker-proxy`, and joins itself, nginx, and every API replica to that network.
+Compose drops those joins whenever it recreates nginx, the API, or the engine; the engine's reconciler restores them
+within 10 seconds. The media
 ports `59000-59007` are published on every interface, and a cloud host needs a firewall rule allowing them over UDP
 and TCP. Browsers need Docker Engine 28.0 or later; see `docs/browser.md`.
 
-The agent workspace is not a compose service either. The API creates its container (`elysium-workspace`) and volume
+The agent workspace is not a compose service either. The engine creates its container (`elysium-workspace`) and volume
 (`elysium-workspace`) through `docker-proxy` when it starts, from `WORKSPACE_IMAGE`, the `elysium-workspace` image of
-the same release, and runs every agent turn in it by `docker exec`; `docker-proxy` allows exec for that. The
-`elysium-agents` network joins only the API, which answers there as `api`, and the workspace. It is a plain bridge,
-because agents need the internet, and nginx is not on it. The development stack builds the image as
-`elysium-workspace:dev` (service `workspace-image`) before the API starts. See `docs/coding.md`.
+the same release, and runs every agent turn in it by `docker exec`; `docker-proxy` allows exec for that. The API works
+in the running workspace too, for a session's files and a new session's clones, but never creates or replaces it. The
+`elysium-agents` network joins only the API, which answers agents' tool calls there as `api`, and the workspace. It is
+a plain bridge, because agents need the internet, and nginx is not on it. The development stack builds the image as
+`elysium-workspace:dev` (service `workspace-image`) before the engine starts. See `docs/coding.md`.
 
-The API keeps one volume of its own, `api-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays signed
-in as the same device across restarts, and each database dump of a running backup until it is uploaded (see Backups
-below). Removing it only makes the CLI sign in again at the next start. See `docs/passwords.md`.
+The engine keeps one volume of its own, `engine-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays
+signed in as the same device across restarts, and each database dump of a running backup until it is uploaded (see
+Backups below). Removing it only makes the CLI sign in again at the next start. The API keeps nothing; the image
+declares no volume, so it gets none. See `docs/passwords.md`.
 
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack.
@@ -110,21 +117,23 @@ stream, a browser's stream), so each file holds only what differs. `nginx/mail.c
 Stalwart with the PROXY protocol; see `docs/mail.md`. `nginx/browser.conf` passes each media port to the browser
 that owns it; see `docs/browser.md`.
 
-The API has no container name so it could scale, but it must run as one replica today: its background loops run
-in-process until they move into the engine (`docs/engine.md`). The event bus already spans processes through Redis
-pub/sub (`docs/realtime.md`).
+The API has no container name so it can scale; it runs one replica today, for what `docs/engine.md` lists under One
+replica of the API. The engine has a container name, which holds it to one: Elysia's intake must hear each event
+once.
 
 ## Startup order
 
-`migrate` waits for `postgres` health. `api`, `kratos-migrate`, and `hydra-migrate` wait for `migrate` to exit
-successfully; `api` also waits for `redis` health, `kratos` for `kratos-migrate`, and `hydra` for `hydra-migrate`.
-`nginx` waits for `api`, `kratos`, and `hydra` health. The API also retries its own connections, so a store restart
-mid-run does not require restarting the API.
+`migrate` waits for `postgres` health. `api`, `engine`, `kratos-migrate`, and `hydra-migrate` wait for `migrate` to
+exit successfully; `api` and `engine` also wait for `redis` health, `kratos` for `kratos-migrate`, and `hydra` for
+`hydra-migrate`. `nginx` waits for `api`, `kratos`, and `hydra` health, never the engine's: the web app does not need
+it. Neither the API nor the engine waits for the other. Both retry their own connections, so a store restart mid-run
+does not require restarting either.
 
-`migrate` and `api` share one image, which has the migrations compiled in: `jalapenolabs/elysium-api` in production,
-`elysium-api:local` in production from a checkout, and `elysium-api` in development. Built from a checkout, `migrate`
-alone builds it and `api` runs it with `pull_policy: never`, for the reason each configuration image has one builder
-(see Configuration images): two builders would make every deploy recreate both, changed or not.
+`migrate`, `api`, and `engine` share one image, which has the migrations compiled in: `jalapenolabs/elysium-api` in
+production, `elysium-api:local` in production from a checkout, and `elysium-api` in development. Built from a
+checkout, `migrate` alone builds it and `api` and `engine` run it with `pull_policy: never`, for the reason each
+configuration image has one builder (see Configuration images): two builders would make every deploy recreate both,
+changed or not.
 
 ## Configuration images
 
@@ -173,7 +182,8 @@ stage, pinned and checked against its published digest; see `docs/passwords.md`)
 
 `api/Dockerfile` ends in two stages:
 
-- `server`, the API alone. The development stack builds this one, so a frontend edit never rebuilds the API.
+- `server`, the API and the engine, the crate's two binaries (`elysium-api`, the default command, and
+  `elysium-engine`). The development stack builds this one, so a frontend edit never rebuilds the API.
   The build argument `ELYSIUM_RELEASE` names the release it is published as; build.rs bakes it in, and it is empty
   outside a release.
 - `app`, the default and the published image: `server` plus the web app. A `frontend` stage runs `yarn build` on
@@ -198,8 +208,8 @@ the build inside the API image.
 
 | Image                                  | Built from                         | Runs                                       |
 |----------------------------------------|------------------------------------|--------------------------------------------|
-| `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app                    |
-| `jalapenolabs/elysium-workspace`       | `workspace/Dockerfile`             | Agent turns, in the container the API makes |
+| `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app, and the engine    |
+| `jalapenolabs/elysium-workspace`       | `workspace/Dockerfile`             | Agent turns, in the container the engine makes |
 | `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone               |
 
 Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
@@ -237,15 +247,17 @@ directory, such as `compose.override.yml`.
 
 ### When it updates
 
-The API asks Docker Hub for the API image's release tags every hour, and on Settings, Updates, Check now. It tells
-the updater to apply the newest release when all of these hold:
+The engine asks Docker Hub for the API image's release tags every hour, and the API on Settings, Updates, Check now;
+either records the answer in `update_checks`. The API tells the updater to apply the newest release when all of these
+hold:
 
 - the running build is a release: its image was published from a `vX.Y.Z` tag, which bakes the version in
   (`/api/version` reports it as `release`). `main` and development builds never update themselves;
 - the newest release is newer, and has not rolled back here before, unless an admin asks for it with Update now;
 - no update is applying;
 - nothing is running that a restart would cut short. Work such as an agent turn holds an activity
-  (`api/src/activity.rs`) for as long as it runs, and the update waits until none is held.
+  (`api/src/activity.rs`) for as long as it runs, which the engine mirrors into `process_activities` on a lease it
+  renews, and the update waits until no live lease lists one.
 
 The updater asks every minute over `GET /internal/updater/instruction`, which answers `wait` or
 `apply <target> from <running>`, and reports with `POST /internal/updater/outcome`: `succeeded <version>` or
@@ -286,8 +298,8 @@ path to it, so compose runs at the path the daemon knows.
 
 ## Backups
 
-Every night the API backs up the three databases on the stack's Postgres (Elysium's own, Kratos's, and Hydra's) to a
-storage location off the host, whether or not auto-update is on. The code is `api/src/backups/`.
+Every night the engine backs up the three databases on the stack's Postgres (Elysium's own, Kratos's, and Hydra's) to
+a storage location off the host, whether or not auto-update is on. The code is `api/src/backups/`.
 
 ### Turning them on
 
@@ -300,8 +312,8 @@ chosen.
 ### What a backup does
 
 1. Dumps each database with the server's own `pg_dump --format custom`, run in the `postgres` container
-   (`docker exec` through `docker-proxy`), exactly as the updater does, into `/var/lib/elysium/backups` on the API's
-   volume. The server's own binary always matches its version, and the custom format is compressed.
+   (`docker exec` through `docker-proxy`), exactly as the updater does, into `/var/lib/elysium/backups` on the
+   engine's volume. The server's own binary always matches its version, and the custom format is compressed.
 2. Uploads each dump to `database-backups/<started>-<database>.dump` under the location's directory, such as
    `database-backups/20261103T080000Z-elysium.dump`, and removes it from the volume.
 3. Once all three are stored, removes every backup in `database-backups/` older than 30 days (`RETENTION_DAYS`).
@@ -311,10 +323,13 @@ A backup holds an activity while it runs, so auto-update never restarts the stac
 
 ### When it runs
 
-- **Nightly** at 08:00 UTC (`BACKUP_TIME`), checked every ten minutes, so an API that was down at 08:00 backs up as
-  soon as it starts. Any backup that succeeded since 08:00, whatever started it, is that night's.
+- **Nightly** at 08:00 UTC (`BACKUP_TIME`), checked every ten minutes, so an engine that was down at 08:00 backs up
+  as soon as it starts. Any backup that succeeded since 08:00, whatever started it, is that night's.
 - **Back up now** on Settings, Backups.
 - **Before a deploy**, by the deployment's own tooling, over `/internal/backups` (see below).
+
+The last two are the API's: it records the backup as running and signals the engine, which takes it and runs it. One
+asked for while the engine is down runs when it starts.
 
 Every attempt is a `database_backups` row (`docs/database.md`), listed on Settings, Backups, and every change is
 published as `backups.status`.
@@ -325,7 +340,7 @@ A failed attempt is logged at error level (`backups.run.failure`) with its reaso
 Settings, Backups. Whatever it had uploaded is removed again, so the location only ever holds whole backups. A
 scheduled attempt that fails is retried an hour later, three attempts a night in all; when the last fails, an inbox
 item, "Last night's database backup failed", says why, raised as `system`. A backup that a restart cut short is
-recorded as failed when the API next starts, and its files are removed.
+recorded as failed when the engine next starts, and its files are removed.
 
 ### From a script
 
@@ -351,7 +366,7 @@ A backup is the three databases alone. Without the same `ELYSIUM_ENCRYPTION_KEY`
 in Elysium's database is sealed with it, and Kratos and Hydra derive their own secrets from it. Keep a copy of `.env`
 somewhere safe off the host; no backup includes it.
 
-Nothing outside Postgres is backed up: not `api-data` (the Bitwarden CLI signs in again), not the agent workspace's
+Nothing outside Postgres is backed up: not `engine-data` (the Bitwarden CLI signs in again), not the agent workspace's
 volume (session directories and agents' checkouts), not the mail server's volumes, and not the browsers' profiles
 (each browser must be signed in again).
 
@@ -383,7 +398,7 @@ backup is lost.
 
    ```sh
    docker compose up --detach --wait postgres
-   docker compose stop nginx api kratos hydra
+   docker compose stop nginx api engine kratos hydra
    ```
 
 5. **Recreate each database from its dump.** `own` is Elysium's database: `POSTGRES_DB` in `.env`. If the dump came
@@ -487,5 +502,5 @@ Formatting, lints, tests, migrations, and every image are checked on each pull r
 
 ## Roadmap
 
-- The `elysium-engine` service, which takes over the API's background loops so the API can run more than one replica
-  (`docs/engine.md`).
+- More than one API replica, once what `docs/engine.md` lists under One replica of the API is kept in Postgres or
+  Redis.

@@ -188,6 +188,8 @@ one connector that reads through it.
 | `start_page_opened_at`      | `TIMESTAMPTZ` | When `start_url` was opened in it; null until Chromium first answers |
 | `port`                      | `INTEGER`     | Unique, 59000 to 59007: its media port, and its name on its network |
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
+| `state`                     | `browser_state` | `starting`, `running`, or `failed`, as the engine's reconciler last found it |
+| `state_error`               | `TEXT`        | Why it failed; set exactly while `failed`                       |
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
@@ -229,6 +231,7 @@ shared its browser before every connector owned its own: it has none while it wa
 | `last_polled_at`            | `TIMESTAMPTZ` | When it was last read                                           |
 | `last_error`                | `TEXT`        | Why the last read failed, or `NULL`                             |
 | `is_active`                 | `BOOLEAN`     | False while paused                                              |
+| `syncing_since`             | `TIMESTAMPTZ` | Set while a read someone asked for waits or runs, or a meeting's processing runs; the engine clears it |
 | `created_by`                | `UUID`        | References `users`; its creator                                 |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
@@ -1116,6 +1119,68 @@ serves the schedule's and Settings' reads.
 | `size_bytes`          | `BIGINT`                  | Every dump together; set exactly when it succeeded               |
 | `error`               | `TEXT`                    | Why it failed, 1 to 2000 characters; set exactly when it failed  |
 | `created_by`          | `UUID`                    | The admin who asked for it, or the system user for the schedule and a deploy |
+| `claimed_at`          | `TIMESTAMPTZ`             | When the engine took it. One the API asked for is `running` and untaken until then; one taken and still `running` when the engine starts was cut short |
+
+### `session_turns`
+
+Every turn a coding or Studio session was given, and the engine's queue; see `docs/coding.md`, A turn. The API queues
+a turn; the engine takes each session's oldest queued turn once the session has none running, and finishes it.
+`session_turns_unfinished` serves both the queue and what a session is doing.
+
+| Column                 | Type                  | Notes                                                              |
+|------------------------|-----------------------|--------------------------------------------------------------------|
+| `id`                   | `UUID`                | UUIDv7, primary key; the runner's turn id, which its events carry   |
+| `session_id`           | `BIGINT`              | References `coding_sessions`, cascading                            |
+| `prompt`               | `TEXT`                | What the person asked                                              |
+| `system_prompt_append` | `TEXT`                | Appended to the agent's system prompt, such as Studio's instructions |
+| `status`               | `session_turn_status` | `queued`, `running` (the engine took it), or `finished`            |
+| `stop_requested`       | `BOOLEAN`             | Someone asked it to stop: never started if queued, cancelled if running |
+| `queued_at`            | `TIMESTAMPTZ`         | When it was queued                                                 |
+| `started_at`           | `TIMESTAMPTZ`         | When its CLI started, once it had a slot; never while `queued`     |
+| `finished_at`          | `TIMESTAMPTZ`         | Set exactly when it is `finished`                                  |
+| `created_by`           | `UUID`                | References `users`; the person who gave the prompt                 |
+
+### `agent_tool_grants`
+
+Each running turn's access to Elysium's tool servers; see `docs/coding.md`, Elysium's tools. The engine grants and
+revokes; the API checks every call. Only the SHA-256 of each bearer token is stored.
+
+| Column         | Type          | Notes                                                                   |
+|----------------|---------------|-------------------------------------------------------------------------|
+| `token_sha256` | `BYTEA`       | Primary key, 32 bytes                                                   |
+| `scope`        | `JSONB`       | Who calls: a session with its project, item, and directory, or one of Elysia's turns |
+| `servers`      | `TEXT[]`      | The tool servers it may call, by name                                   |
+| `created_by`   | `UUID`        | The coding agent or Elysia                                              |
+| `created_at`   | `TIMESTAMPTZ` | When it was granted                                                     |
+
+### `process_activities`
+
+What each process runs that a restart of the stack would cut short, which auto-update waits for; see
+`api/src/activity.rs`. A row counts only until `expires_at`, which its process renews every 15 seconds while it holds
+anything, so a process that died holds nothing a minute later.
+
+| Column         | Type          | Notes                                                                   |
+|----------------|---------------|-------------------------------------------------------------------------|
+| `process_id`   | `UUID`        | Primary key; new at every start of the process                          |
+| `activities`   | `JSONB`       | `[{ "kind", "label", "startedAt" }]`, oldest first                      |
+| `expires_at`   | `TIMESTAMPTZ` | The lease                                                               |
+| `created_by`   | `UUID`        | The system user                                                         |
+
+### `update_checks`
+
+What auto-update learned, in one row, wherever it learned it: what Docker Hub listed at the engine's last check, when
+the updater last asked, and a release an admin asked for; see `docs/infrastructure.md`, Auto-update.
+
+| Column              | Type          | Notes                                                             |
+|---------------------|---------------|-------------------------------------------------------------------|
+| `singleton`         | `BOOLEAN`     | Primary key, always true                                          |
+| `newest_release`    | `TEXT`        | The newest release at the last check that answered                |
+| `last_checked_at`   | `TIMESTAMPTZ` | When Docker Hub was last asked                                    |
+| `last_check_error`  | `TEXT`        | Why the last check failed, until one succeeds                     |
+| `updater_seen_at`   | `TIMESTAMPTZ` | When the updater last asked what to do                            |
+| `requested_release` | `TEXT`        | A release an admin asked for with Update now; cleared when its update ends |
+| `requested_by`      | `UUID`        | Who asked; set exactly with `requested_release`                   |
+| `updated_by`, `updated_at` | `UUID`, `TIMESTAMPTZ` | The last change                                    |
 
 ### `deployment_updates`
 

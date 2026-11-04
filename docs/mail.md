@@ -110,10 +110,10 @@ domains, accounts, and listeners, is a JMAP object in Stalwart's own datastore.
 
 ### Docker
 
-The API reaches Docker only through `docker-proxy` in `compose.yml` (`tecnativa/docker-socket-proxy:v0.5.0`), which
-answers the container, image, and volume endpoints and refuses the rest. The proxy is on the internal
-`docker-control` network, shared with the API alone. `api/src/mail/stalwart/container.rs` owns everything the API
-creates, all labelled `dev.elysium.managed=mail-server`:
+The API and the engine reach Docker only through `docker-proxy` in `compose.yml`
+(`tecnativa/docker-socket-proxy:v0.5.0`), which answers the container, image, volume, network, and exec endpoints and
+refuses the rest. The proxy is on the internal `docker-control` network, shared with the API and the engine alone.
+`api/src/mail/stalwart/container.rs` owns everything they create, all labelled `dev.elysium.managed=mail-server`:
 
 | Kind      | Name                      | Holds                                                   |
 |-----------|---------------------------|---------------------------------------------------------|
@@ -121,8 +121,8 @@ creates, all labelled `dev.elysium.managed=mail-server`:
 | volume    | `elysium-stalwart-data`   | `/var/lib/stalwart`: domains, accounts, keys, and mail  |
 | container | `elysium-stalwart`        | The server, `restart: unless-stopped`, no published ports |
 
-The container joins `elysium-mail`, which `compose.yml` defines for nginx, the API, and Stalwart; Stalwart answers
-there as `stalwart`. None of the API's resources belong to the compose project, so `docker compose down` leaves the
+The container joins `elysium-mail`, which `compose.yml` defines for nginx, the API, the engine, and Stalwart; Stalwart
+answers there as `stalwart`. None of these resources belong to the compose project, so `docker compose down` leaves the
 server running and its data in place (compose reports `elysium-mail` still in use and keeps it for the next `up`),
 and `docker compose down --volumes` does not remove them either.
 
@@ -150,7 +150,7 @@ whose first domain can be added like any other.
 
 ### Keeping it running
 
-At every API start, when a server exists, the API pulls the image if it is gone, starts the container
+At every engine start, when a server exists, the engine pulls the image if it is gone, starts the container
 (recreating it from its volumes if it was removed), and makes sure Stalwart trusts nginx's current address,
 restarting it when that changed. `GET /api/v1/mail/server` signs in with the stored administrator on every call,
 so a server that stopped answering reads `unreachable`, as does one whose volumes were removed, which no longer

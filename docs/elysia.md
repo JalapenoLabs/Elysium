@@ -26,8 +26,9 @@ The code is `api/src/elysia/` (status, availability, intake, dispatcher, prompt,
 
 ## Turns
 
-The dispatcher (`api/src/elysia/dispatcher.rs`) looks at the queue whenever something is queued or a hold changes,
-and every minute. A turn starts when none is running and nothing holds her back, people first: a queued message or
+The dispatcher (`api/src/elysia/dispatcher.rs`) and the intake run in the engine (`docs/engine.md`): the intake hears
+every event on the bus, so it runs in that one process. The dispatcher looks at the queue whenever something is queued
+or a hold changes, which the API's routes signal over the bus, and every minute. A turn starts when none is running and nothing holds her back, people first: a queued message or
 answer starts before any queued event. Every turn:
 
 - runs as one runner conversation, so the runner never starts two of hers at once, in the workspace's `elysia/`
@@ -43,8 +44,8 @@ conversation as her reply; for every turn, the summary is stored for her activit
 
 When every Claude credential has reached its usage limit, the turn fails and an identical one is queued, and nothing
 starts before the limit resets: the time Claude's rate-limit report names, or an hour when it names none. A turn
-left running when the API stops is failed at the next start; its trigger is not lost, because the messages or work it
-was about are still there for the next turn.
+left running when the engine stops is failed at its next start; its trigger is not lost, because the messages or work
+it was about are still there for the next turn.
 
 ## Tools
 

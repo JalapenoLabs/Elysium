@@ -300,7 +300,8 @@ How the watcher reads:
   an owner the user set by hand stays until the assignee changes again.
 - A credential that cannot be read records why on its cursor and is read again from the same point next pass; a
   container that cannot be read records why on itself. Neither stops the rest of the pass.
-- The watcher stops with the process's shutdown token, and the API awaits it before closing the database.
+- The watcher runs in the engine (`docs/engine.md`). It stops with the engine's shutdown token, and the engine awaits it
+  before closing the database. A write that owes a provider something wakes it from any process, over the bus.
 
 The watcher is not a proposer and needs no changeset: it records what already happened in a provider. Besides
 retrying pending writes that were already approved, the only provider write it causes is the one the user chose for

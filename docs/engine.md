@@ -6,21 +6,76 @@ hours later, done. Elysium is built around one company or major prospect per ins
 company.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
-event stream through Redis pub/sub.
+event stream through Redis pub/sub, and the engine as a service of its own that runs every background loop.
 
 ## A service of its own
 
-- The engine is a separate process, `elysium-engine`, built from the same Rust crate as the API and run as its own
-  compose service. The API serves clients alone (the web app, MCP clients); the engine does all background work.
-- Every background loop the API runs today moves into the engine: the link watcher, connector ingest, the meeting
-  reader, the Claude account keeper, the vault keeper, the browser reconciler, mail server hosting, update checks, the
-  nightly database backups, and Elysia's dispatcher, along with the runner and the worker pool. Either process can crash and restart without the
-  other.
-- Postgres is the job queue: steps are claimed with `FOR UPDATE SKIP LOCKED`, with attempts and states on the row.
+- The engine is a separate process, `elysium-engine`, a second binary of the API's crate (`api/src/bin/`), shipped in
+  the same image and run as its own compose service, `engine`, in every stack. The crate is a library with two thin
+  binaries, so each module is compiled once and checked for dead code across both (`api/src/lib.rs`).
+- The API serves clients alone: the web app, its `/api`, and MCP clients, and agents' calls to Elysium's tools
+  (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
+  check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
+  the Claude account keeper, the link watcher, connector ingest, the Confluence and YouTrack readers, meetings, every
+  read someone asked for, the browser reconciler, the mail server brought back up, the password vault, update checks,
+  the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
+- One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
+  bus, which every process hears in full, so it must run in exactly one process, and the engine is it.
+- Either process can crash and restart without the other. Stopping the engine leaves the web app working: every page
+  reads from Postgres, and what the engine would do waits for it. Stopping the API leaves every reader, keeper, and
+  turn running; only agents' tool calls, which the API answers, fail meanwhile.
 - The event stream runs through Redis pub/sub, so the engine's changes reach every browser through the API exactly as
   the API's own do. The engine publishes with `EventBus::connect` and `publish`, which need no HTTP server, and calls
   `EventBus::close` last on the way out; its in-process listeners, such as Elysia's intake, subscribe the same way the
   API's do (`docs/realtime.md`, The bus).
+
+### How the API and the engine meet
+
+They share nothing but Postgres and the bus. What the API asks of the engine is a row the engine takes, followed by a
+signal (`docs/realtime.md`, Signals) so it takes it at once rather than at its next look; a lost signal costs latency,
+never work, since every loop also looks on a timer. What the engine knows that a page shows is on a row too.
+
+| The API                                   | The row                                  | The engine                                   |
+|-------------------------------------------|------------------------------------------|----------------------------------------------|
+| Queues a session's turn, or stops it      | `session_turns`                          | Takes each session's next turn, runs it, finishes it |
+| Checks every agent tool call's bearer     | `agent_tool_grants`                      | Grants a turn its tools, revokes them when it ends |
+| Asks for a backup (Back up now, `/internal/backups`) | `database_backups.claimed_at` unset | Takes it and runs it                         |
+| Asks for a connector to be read (Sync now) | `connectors.syncing_since`              | Reads it with its kind's reader, clears it   |
+| Adds a browser, or resets one             | `browser_sessions`                       | Brings its container up; records its state   |
+| Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
+| Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
+
+- **Taking work** is one engine's, so a row is taken with a conditional update on its state. #75's workflow runs
+  generalize this into a queue of step jobs claimed with `FOR UPDATE SKIP LOCKED`, with attempts on the row.
+- **Settling after a restart.** An engine that starts finishes what its predecessor cut short: a turn whose CLI had
+  started is finished (its history ends where the turn stopped), one still waiting for a slot is queued again, a backup
+  it had taken fails, every tool grant is revoked, and every connector still marked syncing is read.
+- **The password vault** is the one thing the API asks while a request waits: its CLI and `bw serve` run in the
+  engine, on its data volume and its loopback, and the API's routes and agents' password tools ask it over the bus,
+  sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds
+  (3 for its status, 90 for connecting) reads as a vault that is not answering.
+- **Docker.** Both reach the filtered `docker-proxy`. The engine creates and replaces everything: the workspace, the
+  mail server's reconcile, browsers' containers, and backups' dumps. The API works in what exists while a person
+  waits: files in the workspace, cloning a new session's repositories, Claude sign-ins, creating the mail server, and
+  resetting or removing a browser. Every change to a browser's containers, in either process, holds one Postgres
+  advisory lock (`api/src/database/advisory.rs`).
+- **Auto-update** waits for both: the engine mirrors what it runs that a restart would cut short into
+  `process_activities` on a lease it renews every 15 seconds (`api/src/activity.rs`), and the API reads every live
+  lease before it tells the updater to apply a release. An engine that dies stops counting once its lease runs out,
+  60 seconds later.
+
+### One replica of the API
+
+The API can run as more than one replica as far as the engine is concerned: nothing it serves is held in the engine's
+memory. What still holds it to one is its own request-scoped state:
+
+- a Claude sign-in's pending CLI, which finishing must reach the replica that started it;
+- connector check runs, which a page follows by id;
+- the mail server's creation progress;
+- the lock that keeps two problem reports of one failure from both opening an issue;
+- the rate limiter, whose buckets are per process.
+
+Each moves to Postgres or Redis when the API scales; until then it runs one replica.
 
 ## Workflows and steps
 

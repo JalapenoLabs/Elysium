@@ -22,17 +22,22 @@ only component that can set `X-Real-IP` and `X-Forwarded-For`. The rate limiter 
 the logs trust those headers for that reason alone. Publishing the API port directly
 would let a client forge them.
 
+The engine publishes nothing either, and answers nothing but its health check, which nginx never routes to. It sits
+behind the same trust boundary as the API: both hold the encryption key and the database's credentials, and the bus
+between them carries nothing secret in the clear (`docs/realtime.md`, Signals).
+
 ## Agents
 
-- Agents run with every permission, as `agent` in the `elysium-workspace` container, never in the API's container,
-  which holds `ELYSIUM_ENCRYPTION_KEY` and the database's credentials. See `docs/coding.md`.
+- Agents run with every permission, as `agent` in the `elysium-workspace` container, never in the API's or the
+  engine's container, which hold `ELYSIUM_ENCRYPTION_KEY` and the database's credentials. See `docs/coding.md`.
 - An agent can read everything its turn was given: the model credential, the session's GitHub token, and every
   environment variable. Nothing that must stay hidden from agents is given to a turn.
 - The workspace shares `elysium-agents` with the API alone, so it reaches no other service: not Postgres, Redis,
   Kratos, Hydra, or `docker-proxy`. Agents reach Elysium only at `/api/agent-tools`, with a per-turn grant scoped to
   their session, and nginx answers `404` for that path on the public origin.
 - The API reads and writes workspace files through `docker exec` as `agent`, confined to a session's directory by
-  `realpath`, so a symlink an agent plants cannot point the API elsewhere. The API never mounts the volume.
+  `realpath`, so a symlink an agent plants cannot point the API elsewhere. Neither the API nor the engine mounts the
+  volume.
 - The event stream carries agent output, including tool input and output previews. It is served on the same
   origin as everything else and shares the API's trust boundary.
 
@@ -51,14 +56,19 @@ would let a client forge them.
 
 ## Docker access
 
-The API creates and runs the mail server and the browsers through Docker. It never mounts the Docker socket: it reaches
-`docker-proxy`, which answers only the container, image, volume, and network endpoints, on an internal network no
-other service joins. Exec, build, swarm, secrets, and system endpoints are refused.
+The engine and the API run the agent workspace, the mail server, and the browsers through Docker. Neither mounts the
+Docker socket: both reach `docker-proxy`, which answers only the container, image, volume, network, and exec
+endpoints, on an internal network no other service joins. Build, swarm, secrets, and system endpoints are refused.
+
+- **The engine** creates and replaces everything: the workspace and every turn in it, browsers' containers and
+  networks, the mail server brought back up, and backups' dumps (`pg_dump` in the Postgres container).
+- **The API** works in what exists while a person waits: files in the workspace and a new session's clones, Claude
+  sign-ins, creating the mail server, and resetting or removing a browser. It never creates or replaces the workspace.
 
 The proxy narrows the surface but does not make it safe: creating a container is enough to control the host. Anyone
 signed in can therefore reach the host through the mail and browser routes, which is one more reason every account
-is approved by an admin. The network endpoints, which create a network per browser and join the API and nginx to it,
-add nothing to that.
+is approved by an admin. The network endpoints, which create a network per browser and join the engine, the API, and
+nginx to it, add nothing to that.
 
 ## Browsers
 
@@ -88,7 +98,7 @@ See `docs/browser.md`.
 - `timelineRecord.created` carries ids and kinds, never a message's content, since every client of the event stream
   hears every event. The inbox item a message raises is an action item like any other, which every workspace member
   can see; per-person items are on the roadmap with owners as users.
-- A connector reads a page over the browser's DevTools port, which only the API reaches (above).
+- A connector reads a page over the browser's DevTools port, which only the engine and the API reach (above).
 
 See `docs/connectors.md`.
 

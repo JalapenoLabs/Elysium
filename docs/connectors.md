@@ -200,16 +200,20 @@ A connector's status is, in order:
 | Status    | When                                                                  |
 |-----------|-----------------------------------------------------------------------|
 | `paused`  | `is_active` is false                                                  |
-| `syncing` | A sync someone asked for is running, or one of its meetings is being processed |
+| `syncing` | A sync someone asked for waits or runs, or one of its meetings is being processed |
 | `error`   | Its last read failed, or its account is asking to be signed in again  |
 | `active`  | Otherwise                                                             |
 
-`syncing` is kept in memory, since it is only ever true while this process is working on it. A paused Jira or GitHub
-connector's account is skipped by the link watcher's reads; writes the user already approved still land. A paused
-mailbox or meeting source is not read.
+`syncing` is a mark on the connector's row (`syncing_since`), so the API shows what the engine is doing. A paused Jira
+or GitHub connector's account is skipped by the link watcher's reads; writes the user already approved still land. A
+paused mailbox or meeting source is not read.
 
-`POST /connectors/{id}/sync` reads a connector now, which is also how a failed sync is retried: a mailbox is read once,
-a meeting source lists and processes, and Jira and GitHub wake the watcher.
+`POST /connectors/{id}/sync` reads a connector now, which is also how a failed sync is retried. Every reader runs in the
+engine (`docs/engine.md`), so the API marks the connector syncing and signals the engine, which reads it with its kind's
+reader and clears the mark: a mailbox is read once, a meeting source lists and processes, and a Confluence space or
+YouTrack site is read. Jira and GitHub wake the link watcher instead, which reads every Atlassian and GitHub account in
+one pass. A sync asked for while the engine is down runs when it starts, as does one an engine that stopped left
+marked.
 
 ## In the web app
 

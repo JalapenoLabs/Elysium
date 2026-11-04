@@ -62,9 +62,10 @@ The version byte identifies the envelope format and key generation. Today only v
 
 A migration that splits one row into two, such as an Atlassian account two connectors shared, cannot seal: the key is
 the API's alone, and the migrator runs without it. So it copies the envelope as it is, still bound to the row it came
-from, and lists the copy in `secret_copies` with the id it is sealed for. When the API starts, after checking the schema
-and before anything reads a secret, `crate::models::secret_copy::reseal_all` opens each copy under its source's context,
-seals it under its own row's, and removes it from the list, one transaction per copy. Until then a copy refuses to open,
+from, and lists the copy in `secret_copies` with the id it is sealed for. When the API or the engine starts, after
+checking the schema and before anything reads a secret, `crate::models::secret_copy::reseal_all` opens each copy under
+its source's context, seals it under its own row's, and removes it from the list, one transaction per copy, holding
+the copy's row lock so that whichever process gets to it first re-seals it. Until then a copy refuses to open,
 like any value sealed for another row, so the binding is never relaxed. A copy that cannot be re-sealed is logged and
 tried again at the next start.
 

@@ -139,13 +139,31 @@ Pub/sub channels span the whole Redis server, so the store-backed tests each use
 on its own connections stands in for a second process in `api/src/realtime/tests.rs`, and a TCP proxy the test cuts
 proves that a dropped subscription and a failed publish each end in `resync`, and that no stream opens meanwhile.
 
-The bus serves any number of processes. The API's background loops still run inside it, so the API runs as a single
-replica until they move into the engine.
+The bus serves any number of processes: today the API and the engine (`docs/engine.md`). What else holds the API to
+one replica is in `docs/engine.md`, One replica of the API.
+
+## Signals
+
+Beside the events, the bus carries signals between processes on a channel of their own, `elysium:signals`, which no
+event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells a loop to look at work that is
+already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), a link owes its
+provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
+container (`browsers`), a Claude account was signed in (`claudeAccounts`), or the agents' configuration repository
+changed (`agentConfiguration`).
+
+- A signal carries no state, so a lost one costs latency and never work: every loop that listens also looks on a
+  timer. `EventBus::signal` sends like `publish`, without waiting, and the same link to Redis carries it, so a lost
+  subscription ends in `resync` here too, which every listener treats as the signal it waits for.
+- A loop takes its `Wake` (`EventBus::wake_on`) before its first pass, so a signal sent during a pass wakes the next
+  one; any number arriving meanwhile wake it once, since one pass serves them all.
+- The one exception to carrying no state is the password vault: the API's requests and the engine's answers travel as
+  `vaultRequest` and `vaultReply`, each sealed with the encryption key and bound to its id and direction, so Redis
+  never holds a secret (`docs/passwords.md`).
 
 ## Shutdown
 
-Streams end when shutdown begins. The shutdown signal cancels a token that every stream, agent turn, and the link
-watcher observes, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
+Streams end when shutdown begins. The shutdown signal cancels a token that every stream observes in the API, and every
+loop and agent turn in the engine, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
 from the next process. The bus itself closes last, as above.
 
 ## Frontend
