@@ -195,6 +195,40 @@ every way one ends forgets the person's cached sessions in the same step:
 - **What the API never hears.** A change made in Kratos directly, such as an operator using its admin API, reaches
   requests once the cached answer expires, within 15 minutes. That bound is what the cache's length is chosen for.
 
+### The per-request `users` read
+
+Every request reads the person's `users` row from Postgres (`user::provision` in the browser, `user::find` over MCP),
+which is what makes disabling someone immediate. The row is not cached: measured, a cache would save a few
+microseconds a request and cost an invalidation on every change to a person.
+
+- **Last seen.** The row read already says when the person was last seen, so `touch_last_seen` writes only once that
+  is five minutes old, and sends nothing otherwise. Sending its guarded update on every request, matching no row, was
+  the costliest part of a request's `users` work, and skipping it took a third off a whole request.
+- **Measured** with a release build against Postgres 18.6 (the `compose.yml` image) and Redis 8.10 in Docker on the
+  same host, an AMD Ryzen 9 7950X, over loopback, with the production pool of 10 connections, 51 people in `users`,
+  and the session cached. Sequential figures are 5,000 warm rounds each; the loads are the same request fired 16 and
+  64 at once, as a page load fires its reads, repeated to 4,992 requests.
+
+| What                                              | p50      | p99      |
+|---------------------------------------------------|----------|----------|
+| The row by Kratos identity (`provision`)          | 36 µs    | 55 µs    |
+| The row by id (`find`, MCP)                       | 36 µs    | 53 µs    |
+| A Redis `GET` of the row, what a cache hit costs  | 30 µs    | 42 µs    |
+| `touch_last_seen`'s update when it was still sent | 98 µs    | 131 µs   |
+| A whole `GET /api/v1/me`, the update still sent   | 344 µs   | 456 µs   |
+| A whole `GET /api/v1/me`, the update skipped      | 236 µs   | 321 µs   |
+| The same, 16 at once                              | 708 µs   | 1.3 ms   |
+| `provision` under that load                       | 206 µs   | 344 µs   |
+| The same, 64 at once                              | 2.4 ms   | 4.2 ms   |
+
+- **Why no cache.** A cache hit replaces a 36 µs read with a 30 µs one: about 3% of a request. Under load the read
+  grows with waiting for one of the pool's connections, which the request takes for its own work anyway, so a cache
+  would not spare it. The event stream's 30-second checks and MCP calls are each one read too. Against
+  that, every write to a person (approving, disabling, a role, a rename, Kratos's profile copied over) would have to
+  drop the cached row in the same step, or disabling would stop being immediate.
+- **When to measure again.** If a request ever reads more of the person than their row, or the pool is routinely
+  exhausted by people rather than work.
+
 ## Requests
 
 Every `/api/v1` route needs a session, except `GET /api/v1/auth/status`, which the sign-in and sign-up pages read.

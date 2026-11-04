@@ -175,13 +175,7 @@ async fn principal(
         .await
         .context("no database connection available")?;
     let person = user::provision(&mut connection, &profile).await?;
-    user::touch_last_seen(
-        &mut connection,
-        person.id,
-        Utc::now(),
-        LAST_SEEN_GRANULARITY,
-    )
-    .await?;
+    user::touch_last_seen(&mut connection, &person, Utc::now(), LAST_SEEN_GRANULARITY).await?;
     if activity == Activity::Use {
         sessions::extend_if_due(&state.redis, &state.auth.kratos, cookie, &session).await;
     }

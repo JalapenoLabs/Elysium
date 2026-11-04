@@ -438,19 +438,31 @@ async fn refresh_profile(
         .await
 }
 
-/// Notes that the user made a request, at most once per `granularity`, so a busy user costs
-/// one write every few minutes rather than one per request.
+/// Notes that `user`, just read, made a request, at most once per `granularity`, so a busy user
+/// costs one write every few minutes rather than one per request.
+///
+/// The row just read already says when the user was last seen, so a request within the
+/// granularity sends nothing at all. Sending the guarded update anyway, matching no row, was the
+/// costliest part of a request's `users` work: three times the read itself (`docs/auth.md`, The
+/// per-request `users` read). The guard stays for requests racing past that check together.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn touch_last_seen(
     connection: &mut AsyncPgConnection,
-    id: Uuid,
+    user: &User,
     now: DateTime<Utc>,
     granularity: chrono::Duration,
 ) -> QueryResult<()> {
+    if user
+        .last_seen_at
+        .is_some_and(|seen| seen >= now - granularity)
+    {
+        return Ok(());
+    }
+
     diesel::update(
-        users::table.find(id).filter(
+        users::table.find(user.id).filter(
             users::last_seen_at
                 .is_null()
                 .or(users::last_seen_at.lt(now - granularity)),
@@ -866,6 +878,39 @@ mod tests {
         let again = provision(&mut connection, &ada).await.expect("again");
         assert_eq!(again.id, first.id, "an identity always maps to one account");
         assert_eq!(event_kinds(&mut connection, first.id).await, ["signed_up"]);
+    }
+
+    /// #189: a user seen within the granularity is noted once, and a later request past it is
+    /// noted again. A request in between sends no write (see [`touch_last_seen`]).
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn last_seen_moves_once_per_granularity() {
+        let (_url, mut connection) = workspace_without_people().await;
+        let granularity = chrono::Duration::minutes(5);
+        let ada = provision(&mut connection, &profile("Ada"))
+            .await
+            .expect("ada");
+        let start = Utc::now();
+
+        touch_last_seen(&mut connection, &ada, start, granularity)
+            .await
+            .expect("first touch");
+        let seen = find(&mut connection, ada.id).await.expect("ada");
+        assert!(seen.last_seen_at.is_some(), "a first request is noted");
+
+        let soon = start + chrono::Duration::minutes(2);
+        touch_last_seen(&mut connection, &seen, soon, granularity)
+            .await
+            .expect("second touch");
+        let unchanged = find(&mut connection, ada.id).await.expect("ada");
+        assert_eq!(unchanged.last_seen_at, seen.last_seen_at);
+
+        let later = start + chrono::Duration::minutes(6);
+        touch_last_seen(&mut connection, &unchanged, later, granularity)
+            .await
+            .expect("third touch");
+        let moved = find(&mut connection, ada.id).await.expect("ada");
+        assert!(moved.last_seen_at > unchanged.last_seen_at, "noted again");
     }
 
     #[tokio::test]

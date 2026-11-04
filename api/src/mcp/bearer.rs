@@ -126,13 +126,8 @@ async fn caller(state: &AppState, headers: &HeaderMap) -> Result<McpCaller, Refu
         );
         return Err(Refusal::Invalid);
     }
-    if let Err(error) = user::touch_last_seen(
-        &mut connection,
-        person.id,
-        Utc::now(),
-        LAST_SEEN_GRANULARITY,
-    )
-    .await
+    if let Err(error) =
+        user::touch_last_seen(&mut connection, &person, Utc::now(), LAST_SEEN_GRANULARITY).await
     {
         event!(
             name: "mcp.last_seen.failure",
