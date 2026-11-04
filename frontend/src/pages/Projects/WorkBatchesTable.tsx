@@ -7,13 +7,14 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Chip } from '@heroui/react'
+import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
 import { DateText } from '../../format/DateText'
 import { formatShortDateTime } from '../../format/dates'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
+import { getWorkBatchViewUrl } from '../../urls'
 import {
   batchPriorityChipColors,
   batchPriorityLabelKeys,
@@ -46,7 +47,8 @@ const columnSizes = {
 } as const satisfies Record<BatchColumnKey, number>
 
 // The batches a project's Project Manager submitted for workers, newest first: what each is,
-// when it should run, where it stands, and what its worker reported.
+// when it should run, where it stands, and what its worker reported, each title opening the
+// batch's own page.
 export function WorkBatchesTable(props: Props) {
   const { t } = useTranslation('projects')
   const labels = useSmartTableLabels()
@@ -60,7 +62,12 @@ export function WorkBatchesTable(props: Props) {
     }
 
     const renderCell = {
-      title: (batch: WorkBatch) => <span className='font-medium'>{batch.title}</span>,
+      title: (batch: WorkBatch) => <Link
+        href={getWorkBatchViewUrl(batch.id)}
+        className='font-medium text-inherit no-underline'
+      >{
+          batch.title
+        }</Link>,
       // A scheduled batch names its time beneath its priority.
       priority: (batch: WorkBatch) => <div className='flex flex-col items-start gap-1'>
         <Chip size='sm' variant='soft' color={batchPriorityChipColors[batch.priority]}>{

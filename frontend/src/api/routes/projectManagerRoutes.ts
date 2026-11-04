@@ -20,7 +20,15 @@ export const WORK_BATCH_PRIORITIES = [ 'asap', 'normal', 'scheduled' ] as const
 export type WorkBatchPriority = typeof WORK_BATCH_PRIORITIES[number]
 
 // Mirrors `BatchState` in api/src/models/work_batch.rs.
-export const WORK_BATCH_STATES = [ 'queued', 'running', 'succeeded', 'failed', 'cancelled' ] as const
+export const WORK_BATCH_STATES = [
+  'queued',
+  'paused',
+  'assigned',
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const
 export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 
 // One thing that woke a turn: a message with its text, a record, or a batch, by id.
@@ -57,6 +65,7 @@ export type WorkBatchRepository = {
 // One batch of work a Project Manager submitted for a worker.
 export type WorkBatch = {
   id: string
+  projectId: string
   title: string
   goal: string
   repositories: WorkBatchRepository[]
@@ -71,6 +80,10 @@ export type WorkBatch = {
   sourceRecordIds: string[]
   actionItemIds: string[]
   timelineRecordId: string | null
+  // While someone asked for it to run next.
+  pinnedAt: string | null
+  // When the pool gave it a slot.
+  assignedAt: string | null
   createdAt: string
   startedAt: string | null
   finishedAt: string | null

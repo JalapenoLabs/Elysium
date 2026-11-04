@@ -38,6 +38,9 @@
     "models": {
       "title": "Models"
     },
+    "workerPool": {
+      "title": "Worker pool"
+    },
     "email": {
       "title": "Email"
     },

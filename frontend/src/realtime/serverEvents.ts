@@ -17,6 +17,7 @@ import type { MeetingState } from '../api/routes/meetingRoutes'
 import type { AgentKind } from '../api/routes/modelSettingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
+import type { WorkBatchState } from '../api/routes/projectManagerRoutes'
 import type { RunState, StepState } from '../api/routes/runRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
@@ -116,6 +117,8 @@ export type ServerEvent =
   // A project's Project Manager changed: something woke it, a turn started or ended, or a batch
   // of its was submitted or moved on. The project's id alone; its page loads it.
   | { type: 'projectManager.changed', data: { projectId: string } }
+  | { type: 'workBatch.changed', data: { id: string, projectId: string, state: WorkBatchState } }
+  | { type: 'workerPool.changed' }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

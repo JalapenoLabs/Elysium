@@ -37,6 +37,8 @@
     "coding": "sessions agents claude code repositories",
     "studio": "3d models renders images assets blender",
     "runs": "workflows engine jobs steps logs",
+    "workQueue": "batches workers pool slots project managers pause cancel reorder priority",
+    "workerPool": "workers slots size cpu cores parallel",
     "settings": "preferences configuration options",
     "account": "profile name email me personal details",
     "security": "login sign in protection",

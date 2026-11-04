@@ -68,9 +68,13 @@ password and code it handed out before they are stored, as coding sessions' even
 | `elysia_work_update` | Updates that record: where it stands, its status, its estimate                |
 | `elysia_propose_changes` | Proposes a changeset of changes to items and initiatives, for a person to approve |
 | `elysia_message_project_manager` | Writes to a project's Project Manager, which wakes at once and answers on its turn (`docs/engine.md`, Project Managers) |
+| `elysia_work_queue`  | The worker pool and its queue in order, with each batch's project (`docs/engine.md`, Workers and the pool) |
+| `elysia_change_batch` | Runs a waiting batch next or back in its place, changes its priority, or pauses or resumes it |
+| `elysia_cancel_batch` | Withdraws a batch no worker started on, with a reason its Project Manager is told |
 
 What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
-the whole workspace. She changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
+the whole workspace. She changes the work queue directly, as a person may, each change recorded in the batch's history as hers. She
+changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
 proposed as `elysia`, which may name any live item, initiative, or project; what she creates joins the projects she
 names. Linking provider issues and pull requests stays a person's to do.
 

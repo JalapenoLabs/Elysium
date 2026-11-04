@@ -177,6 +177,8 @@
     },
     "states": {
       "queued": "Queued",
+      "paused": "Paused",
+      "assigned": "Waiting for a worker",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",

@@ -97,6 +97,9 @@ export type WorkspaceSettings = {
   requireMfa: boolean
   // The https git repository agents' Claude Code configuration is checked out from, if any.
   agentConfigurationRepository: string | null
+  // How many workers run at once; null follows the default the engine derives from its CPU
+  // cores, which the work queue reports.
+  workerPoolSize: number | null
   updatedBy: string
   updatedAt: string
 }
@@ -116,6 +119,8 @@ type UpdateWorkspaceSettingsRequest = {
   requireMfa?: boolean
   // Null clears it.
   agentConfigurationRepository?: string | null
+  // Null follows the default.
+  workerPoolSize?: number | null
 }
 
 export function updateWorkspaceSettings(body: UpdateWorkspaceSettingsRequest) {

@@ -41,6 +41,7 @@ import studio from './locales/en-US/studio.json'
 import timeline from './locales/en-US/timeline.json'
 import updates from './locales/en-US/updates.json'
 import users from './locales/en-US/users.json'
+import workQueue from './locales/en-US/workQueue.json'
 
 export const DEFAULT_LOCALE = 'en-US'
 export const DEFAULT_NAMESPACE = 'common'
@@ -84,6 +85,7 @@ export const resources = {
     timeline,
     updates,
     users,
+    workQueue,
   },
 } as const
 

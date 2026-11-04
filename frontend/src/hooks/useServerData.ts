@@ -44,6 +44,7 @@ import { timelineRecordsLoaded } from '../store/timelineRecordsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
+import { workBatchLoaded, workQueueLoaded } from '../store/workQueueSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
@@ -89,6 +90,7 @@ import {
   getProjectManagerTurn,
   getProjectManagerTurnKey,
 } from '../api/routes/projectManagerRoutes'
+import { getWorkBatch, getWorkBatchKey, getWorkQueue, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
 import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
@@ -513,6 +515,35 @@ export function useProjectManagerTurnLoader(projectId: string, turnId: string, i
   const { data, error } = useSWR(key, async () => {
     const response = await getProjectManagerTurn(projectId, turnId)
     dispatch(turnLogLoaded({ turnId, log: response.log }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The worker pool and its queue, for the company's members: a batch's title quotes what was
+// ingested. The response replaces the queue whole, since its order is the server's.
+export function useWorkQueueLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? WORK_QUEUE_KEY
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getWorkQueue()
+    dispatch(workQueueLoaded(response.workQueue))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One batch with its history, for its own page; the event stream reads it again as it moves.
+export function useWorkBatchLoader(batchId: string, isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? getWorkBatchKey(batchId)
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getWorkBatch(batchId)
+    dispatch(workBatchLoaded(response))
     return response
   })
   return toLoadStatus(data !== undefined, error)

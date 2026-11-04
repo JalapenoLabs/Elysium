@@ -13,8 +13,10 @@ steps, and Models, below), the meeting workflow, which fetches each meeting, tra
 Whisper, corrects its transcript against everything Elysium knows, waiting for its person's approval when asked, and
 segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), the request workflow,
 which gathers every direct message and mention per conversation and starts work once it goes quiet (Conversations,
-below), the company doc's scheduled review (The company doc, below), and every project's Project Manager, which
-submits work batches for the worker pool (Project Managers, below).
+below), the company doc's scheduled review (The company doc, below), every project's Project Manager, which
+submits work batches for the worker pool (Project Managers, below), and the pool's scheduler, which hands its slots to
+those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
+below).
 
 ## A service of its own
 
@@ -54,6 +56,8 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
 | Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
 | Writes to a project's Project Manager     | `project_manager_wakes`                  | Starts its turn, runs it, records it         |
+| Runs a waiting batch next, reprioritizes, pauses, resumes, or cancels it; sizes the pool | `work_batches`, `workspace_settings.worker_pool_size` | Hands out the slots that are free, takes back any the pool lost |
+| Shows the work queue                      | `worker_pool`                            | Records the CPU cores it sees and any usage hold |
 | Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
 | Asks the knowledge base a question        | `knowledge_asks`                         | Takes each queued ask, answers it, ends it   |
 
@@ -64,7 +68,9 @@ never work, since every loop also looks on a timer. What the engine knows that a
   started is finished (its history ends where the turn stopped), one still waiting for a slot is queued again, a backup
   it had taken fails, and every connector still marked syncing is read. A run's step that an engine still held when it
   died is claimed again once its lease lapses. A Project Manager's turn left running is failed and gives what woke it
-  back, so its next turn takes it again. Tool grants are not revoked at start, since the sessions queue, Elysia's
+  back, so its next turn takes it again. A slot of the worker pool an engine held is taken over by the next once its
+  lease lapses, or at once when the engine let it go as it stopped; its batch keeps its state, since a worker's
+  container outlives the engine (Workers and the pool, below). Tool grants are not revoked at start, since the sessions queue, Elysia's
   dispatcher, and the Project Managers' dispatcher start together and each grants its first turn's tools at once: every
   grant is leased instead, renewed while its turn runs, so one a stopped engine left lapses within a minute and is
   swept by the next grant minted (`docs/coding.md`, Elysium's tools).
@@ -442,7 +448,7 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
   heads it; the text before it is its reply.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
   `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
-  `manager_submit_batch` submits one, and `manager_cancel_batch` withdraws one still queued. It also gets
+  `manager_submit_batch` submits one, and `manager_cancel_batch` withdraws one no worker has started on. It also gets
   `elysium_work`, scoped to its project, and `elysium_knowledge`. Every call is checked against the project in the
   database, under a grant for the turn alone.
 - **Outward work is proposed.** Until it writes to the trackers itself (#83), anything it wants changed (an item, a
@@ -459,7 +465,7 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
   knowledge base does.
 - **On the roadmap.** Writing to the trackers itself, choosing the tracker by the project's precedent unless the
   project names one, every write recorded on the timeline with what caused it, and a per-project switch back to
-  changesets (#83). Turning its issues into batches the pool runs (#84, #85).
+  changesets (#83). Workers that run its batches in containers of their own (#85).
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
 
@@ -472,11 +478,28 @@ provenance: the turn that submitted it, the timeline records that called for it,
 each checked to be on its project. Submitting stores it, puts it on the timeline, and announces both in one place
 (`project_managers::batches`).
 
-A batch moves one way: `queued`, `running` once a worker takes it (`work_batch::start`), then `succeeded` or `failed`
-with what its worker reported (`work_batch::finish`, which wakes its Project Manager in the same transaction; its
-caller then signals `projectManagers` and publishes `projectManager.changed`). A queued
-batch may be `cancelled` instead, with why. The scheduler (#84) claims queued batches over `work_batches_queue`, which
-orders them as it hands out slots: due scheduled batches, then ASAP, then normal, oldest first within each.
+Where a batch stands (`api/src/models/work_batch.rs`):
+
+| State       | Means                                                             | Moves on by                        |
+|-------------|-------------------------------------------------------------------|------------------------------------|
+| `queued`    | Waits for a slot                                                  | The scheduler's `assign`; a pause; a cancel |
+| `paused`    | Held back by a person, Elysia, or its Project Manager             | A resume, back to `queued`; a cancel |
+| `assigned`  | Holds a slot; no worker has started on it                         | A worker's `start`; a pause or cancel, which gives the slot back; `unassign` when the pool shrank |
+| `running`   | A worker has it                                                   | Its worker's `finish`              |
+| `succeeded`, `failed` | Its worker ended it, saying what it did                 | Nothing                            |
+| `cancelled` | Withdrawn before a worker started, with why                       | Nothing                            |
+
+`work_batch::finish` wakes its Project Manager in the same transaction, as does a cancel by anyone but the Project
+Manager itself, so it learns its work was withdrawn and why; the caller then signals `workerPool` and `projectManagers`
+and publishes `workBatch.changed` and `projectManager.changed`.
+
+- **History.** Every change is written to the batch's history (`work_batch_events`) in the transaction that makes it,
+  with who made it: `submitted` by its Project Manager; `pinned` and `unpinned` (run next, and back to its place),
+  `reprioritized` (`{ before, after }`, each `{ priority, scheduledFor }`), `paused` (`{ from }`), `resumed`, and
+  `cancelled` (`{ reason }`) by a person, Elysia, or its Project Manager; `assigned` and `unassigned` by the pool, as the
+  system user; `started` and `finished` (`{ succeeded }`) by its worker. A change that moves nothing writes nothing.
+- **One way in.** The work queue's routes, Elysia's tools, and a Project Manager's tools all change a batch through
+  `worker_pool::actions`, so each change is checked, recorded, announced, and signalled alike.
 
 ## Workers and the pool
 
@@ -489,6 +512,67 @@ orders them as it hands out slots: due scheduled batches, then ASAP, then normal
   ASAP, then normal, oldest first within each, round robin across projects. It hands out none while every Claude
   account is at its usage limit, and resumes at the earliest reset. The person and Elysia can reorder, pause, or
   cancel anything queued.
+
+Built: the scheduler, its order, its leases, the usage gate, the admin's size, and the work queue people and Elysia
+change it from (`api/src/worker_pool/`). The workers themselves, which start a container for each batch the pool holds,
+are #85.
+
+### The order
+
+`worker_pool::order` is a pure function of the queued batches, how many slots each project holds, and the time, tested
+alone. The order is derived again on every look, so an engine that restarts hands out slots exactly as its predecessor
+would have.
+
+1. **Run next.** A batch someone asked to run next goes before everything else, the earliest asked first. Asking is
+   how a person or Elysia reorders the queue: any order is reached by asking in turn, and a priority change moves a
+   batch between the tiers. Only a batch that is due may run next; one scheduled for later is made ASAP instead.
+2. **Tiers.** Then due scheduled batches, then ASAP, then normal. A scheduled batch is never handed a slot before its
+   time.
+3. **Round robin.** Within a tier the next slot goes to the project holding the fewest slots, counting those it holds
+   and those it is handed ahead in this order, so a project that submits twenty batches never starves one that submits
+   one. Each project's batches go oldest first (a scheduled one by when it came due), and a tie goes to the project whose
+   next batch has waited longest.
+
+### Slots and their leases
+
+- **The hand-off.** A slot handed out is a batch moved from `queued` to `assigned`, claimed under a token of its own and
+  a 60 second lease (`work_batch::assign`). The engine's pool holds it and renews its lease on every look, every 15
+  seconds. A worker (#85) takes it by starting the batch (`work_batch::start`, `assigned` to `running`) and gives it
+  back by finishing it (`work_batch::finish`). Every write a holder makes is fenced by its token, so an engine whose
+  lease lapsed records nothing over the one that took the slot over.
+- **Giving a slot back.** Finishing, failing, pausing or cancelling a batch no worker started on, and taking back the
+  newest unstarted slots when an admin shrinks the pool (`work_batch::unassign`). A running batch keeps its slot until
+  its worker ends it, so a smaller pool shrinks as slots come back.
+- **Restarts.** An engine that stops lets its leases lapse at once (`work_batch::release`); one that dies stops
+  renewing them. The next engine takes every lapsed slot over under a new token (`work_batch::adopt`), keeping the
+  batch's state: unlike a step, a slot taken over is never started again from the beginning, since a running batch's
+  worker lives in a container that outlives the engine, and the engine that adopts it finds that worker again.
+- **Any number of claimers.** Each pass that hands out slots holds one transaction-scoped advisory lock, so two never
+  count the same free slot, and skips a batch someone is changing rather than waiting on them.
+
+### Each look
+
+The scheduler (`worker_pool::scheduler`) looks when it is signalled (`workerPool`: a batch submitted, resumed, or
+reprioritized, a slot given back, the size changed), when the next scheduled batch comes due, when a usage hold ends,
+and every 15 seconds. It renews and adopts leases, records the CPU cores it sees and any usage hold on the `worker_pool`
+row, which the queue's page reads, takes back slots the pool lost, then, unless a usage limit holds the pool, hands each
+free slot to the next batch in order.
+
+- **Size.** `workspace_settings.worker_pool_size`, or by default one worker per CPU core the engine sees
+  (`available_parallelism`, which follows the container's CPU quota) minus two, at least one (`worker_pool::size`).
+- **The usage gate.** No slot is handed out while every Claude credential that could serve a turn is an account at its
+  usage limit (`runner::credentials::usage_hold`, the runner's own rule, read without decrypting anything). An API key or
+  a subscription token still serves, and with no credential at all a turn runs on the workspace's login, so neither
+  holds the pool. The scheduler looks again at the earliest reset.
+
+### The work queue
+
+`GET /api/v1/work-queue` (`worker_pool::queue`) answers the pool (its size, the size an admin chose, the default, the
+CPU cores, the slots in use, and a usage hold's end), the batches in its slots, every batch it may hand a slot now in
+order, those scheduled for later, and those paused. People change a batch with `PATCH /api/v1/work-batches/{id}` and
+`POST /api/v1/work-batches/{id}/cancel`; admins size the pool from Settings, Worker pool. The page is `/work-queue`
+(`docs/frontend.md`, Work queue). A batch's goal and title quote what was ingested, so the queue and its batches
+answer the company's members alone.
 - A project declares its repositories, each with an optional setup script, and one setup script for tools. A batch
   names the repositories it needs; the engine clones them with `--recurse-submodules`, runs their setup, and starts
   Claude Code with `~/.claude` from the configuration repository. A submodule the token cannot read stops setup with
@@ -595,5 +679,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 ## Elysia
 
 - Elysia does not orchestrate the engine. Asked, she can see and change anything in it: inspect runs, pause, cancel,
-  or reorder work, and talk to a project's Project Manager. Built: talking to one (`elysia_message_project_manager`).
+  or reorder work, and talk to a project's Project Manager. Built: talking to one (`elysia_message_project_manager`),
+  and the work queue: reading it (`elysia_work_queue`), running a batch next, reprioritizing, pausing, or resuming it
+  (`elysia_change_batch`), and cancelling one (`elysia_cancel_batch`), each recorded in the batch's history as hers.
 - Questions for the person, from any step, become action items.

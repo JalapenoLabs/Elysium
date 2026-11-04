@@ -215,6 +215,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
 | POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
+| GET    | `/api/v1/work-queue`                  | `200` `{ workQueue }`: the pool, its slots, and every batch waiting, in order; members only |
+| GET    | `/api/v1/work-batches/{id}`           | `200` `{ batch, history }`; members only            |
+| PATCH  | `/api/v1/work-batches/{id}`           | `200` as `GET`; `priority` (with `scheduledFor`), `paused`, `runNext`; `409` `work_batch_moved_on`; members only |
+| POST   | `/api/v1/work-batches/{id}/cancel`    | `200` as `GET`; an optional `reason`; `409` `work_batch_moved_on`; members only |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -241,7 +245,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/reset-mfa`        | `204`; admins                                        |
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
-| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa`, `agentConfigurationRepository` (`null` clears) |
+| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa`, `agentConfigurationRepository` (`null` clears), `workerPoolSize` (at least 1; `null` follows the default) |
 | GET    | `/api/v1/backups`                     | `200` `{ backups }`: where backups go, the next attempt, and history; admins |
 | POST   | `/api/v1/backups`                     | `202` `{ backup }`; admins back up now; `409` `backup_running` or `no_backup_destination` |
 | PUT    | `/api/v1/backups/destination`         | `200` `{ backups }`; admins choose `storageLocationId`, or `null` to stop, after the location answers |
@@ -456,8 +460,9 @@ newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`), `sum
 `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind, timelineRecordId,
 workBatchId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, or `message`. A batch has `id`, `title`,
 `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`, `scheduled`), `scheduledFor`, `state`
-(`queued`, `running`, `succeeded`, `failed`, `cancelled`), `result`, `turnId`, `sourceRecordIds`, `actionItemIds`,
-`timelineRecordId`, `createdAt`, `startedAt`, and `finishedAt`. A project nothing woke yet answers `idle` with none.
+(`queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`), `result`, `turnId`, `sourceRecordIds`,
+`actionItemIds`, `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`, `createdAt`, `startedAt`, and
+`finishedAt`, as `/api/v1/work-batches` answers it. A project nothing woke yet answers `idle` with none.
 `POST /{id}/project-manager/messages` takes `{ body }` (1 to 20,000 characters, not blank) as the person's message,
 which wakes it at once, and answers it as `GET` does. `GET /{id}/project-manager/turns/{turnId}` answers one turn with
 its `log`. Its turns quote what was ingested, so all three answer the company's members alone (`403` for a guest).
@@ -466,6 +471,31 @@ its `log`. Its turns quote what was ingested, so all three answer the company's 
 but its image is kept until a new cover replaces it, so a project keeps at most one removed cover.
 `POST /{id}/cover/restore` shows it again with its old `coverUpdatedAt`, so the cached image still serves. Both answer
 the project as it is when there is nothing to remove or restore, so an Undo after a new upload keeps the new cover.
+
+### `/api/v1/work-queue` and `/api/v1/work-batches`
+
+The worker pool and the batches it runs (`docs/engine.md`, Workers and the pool). A batch quotes what was ingested, so
+every route answers admins and members, and a guest `403 members_only`.
+
+`GET /work-queue` answers `{ workQueue: { pool, inSlots, next, scheduled, paused } }`. `pool` is `{ size,
+configuredSize, defaultSize, cpuCount, inUse, usageHeldUntil }`: `size` is what is in force, `configuredSize` an
+admin's choice (`null` follows the default), `defaultSize` and `cpuCount` what the engine last saw (`null` before it
+has looked, when `size` is `null` too unless an admin chose one), and `usageHeldUntil` set while every Claude account is
+at its usage limit. `inSlots` lists the batches holding slots, in the order they got them; `next` every batch the pool
+may hand a slot now, first first; `scheduled` the scheduled batches not yet due, soonest first; `paused` the paused
+ones. Each entry is `{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt }`,
+without its goal; at most the 1,000 oldest waiting batches are read.
+
+`GET /work-batches/{id}` answers `{ batch, history }`: the batch whole, as `GET /projects/{id}/project-manager` lists
+it, and its history oldest first, each entry `{ id, kind, data, createdBy, createdAt }` (`docs/engine.md`, Work
+batches). `PATCH` takes any of `priority` (`asap`, `normal`, or `scheduled` with `scheduledFor`, with its offset, in the
+future and within a year), `paused` (true holds back a batch no worker started on, giving back a slot it held; false
+lets a paused one wait again), and `runNext` (true runs a due, queued batch before everything else; false puts it back
+in its place), applied in that order in one transaction, each recorded as the caller; a change that moves nothing
+records nothing. `POST /cancel` takes an optional `reason` (up to 20,000 characters), which its Project Manager is
+told. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with `code`
+`work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running next at
+once) `400`.
 
 ### `/api/v1/storage-locations`
 

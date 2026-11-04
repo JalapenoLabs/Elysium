@@ -6,7 +6,8 @@
     "coding": "Coding",
     "studio": "Studio",
     "knowledge": "Knowledge",
-    "runs": "Runs"
+    "runs": "Runs",
+    "workQueue": "Work queue"
   },
   "sidebar": {
     "collapse": "Collapse sidebar",

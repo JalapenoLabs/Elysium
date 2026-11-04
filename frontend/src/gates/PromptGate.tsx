@@ -25,6 +25,8 @@ export type PromptOptions = {
   description?: string
   // Defaults to "Save".
   submitText?: string
+  // Defaults to "Cancel"; named otherwise when the answer itself cancels something.
+  cancelText?: string
   // Whether an empty answer may be submitted.
   isOptional?: boolean
   maxLength?: number
@@ -130,7 +132,7 @@ export function PromptGate(props: Props) {
                 isDisabled={isPending}
                 onPress={() => onOpenChange(false)}
               >
-                <span>{t('actions.cancel')}</span>
+                <span>{options?.cancelText ?? t('actions.cancel')}</span>
               </Button>
               <Button
                 type='submit'

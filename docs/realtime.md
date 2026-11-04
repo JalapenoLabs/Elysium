@@ -78,12 +78,14 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `updates.status`     | `UpdatesStatus`          | Auto-update checked, began or finished an update, or what it waits for changed |
 | `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
 | `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
-| `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |
+| `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, the authenticator rule changed, or the worker pool was sized |
 | `passwordVault.updated` | `PasswordVault`  | The vault was connected, its credentials replaced, or its collection chosen |
 | `passwordVault.deleted` | none             | The vault was removed                                      |
 | `passwordVault.status`  | `VaultStatus`    | The vault's CLI began starting, became ready, failed, or synced |
 | `workflowRun.changed`   | `{ id, state }`  | A run started, it or one of its steps moved on, or a person acted on a step; never its input, output, or logs, see `docs/engine.md`, Runs |
 | `stepJob.changed`       | `{ id, runId, state }` | A run's step moved on, or wrote to its log; members load what they show by id |
+| `workBatch.changed`     | `{ id, projectId, state }` | A work batch was submitted, changed while it waited, given or relieved of a slot, or moved on; never its title or goal; members load the work queue and the batch again, see `docs/engine.md`, Workers and the pool |
+| `workerPool.changed`    | none             | The pool's size, the CPU cores it follows, or a usage hold changed; members load the work queue again |
 
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
 
@@ -157,7 +159,7 @@ one replica is in `docs/engine.md`, One replica of the API.
 Beside the events, the bus carries signals between processes on a channel of their own, `elysium:signals`, which no
 event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells a loop to look at work that is
 already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), something woke
-a project's Project Manager (`projectManagers`), a link owes its
+a project's Project Manager (`projectManagers`), a batch was queued or a pool slot freed (`workerPool`), a link owes its
 provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
 container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository
 changed (`agentConfiguration`), a workflow run was started or a person retried, skipped, or resumed one of its

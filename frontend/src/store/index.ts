@@ -50,6 +50,7 @@ import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
 import { versionSlice } from './versionSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
+import { workQueueSlice } from './workQueueSlice'
 
 // The one store for all global state, and the source of truth components render. Server
 // data enters it two ways: SWR loaders that fetch it once (`src/hooks/useServerData.ts`),
@@ -91,6 +92,7 @@ export function createAppStore() {
       [modelSettingsSlice.name]: modelSettingsSlice.reducer,
       [notificationsSlice.name]: notificationsSlice.reducer,
       [projectManagersSlice.name]: projectManagersSlice.reducer,
+      [workQueueSlice.name]: workQueueSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [runsSlice.name]: runsSlice.reducer,

@@ -36,6 +36,9 @@ export const UrlTree = {
   studioItem: '/studio/:itemId',
   runs: '/runs',
   runView: '/runs/:runId',
+  // The worker pool's queue, and each batch's own page.
+  workQueue: '/work-queue',
+  workBatchView: '/work-queue/:batchId',
   // The knowledge base: its search first, then asking it, its learnings, and every document a
   // citation opens.
   knowledge: '/knowledge',
@@ -83,6 +86,7 @@ export const UrlTree = {
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsLlmsAgentConfiguration: '/settings/llms/agent-configuration',
   settingsModels: '/settings/models',
+  settingsWorkerPool: '/settings/worker-pool',
   settingsEnvironment: '/settings/environment',
   settingsEnvironmentNew: '/settings/environment/new',
   settingsEnvironmentEdit: '/settings/environment/:variableId/edit',
@@ -197,6 +201,10 @@ export function getProjectModelsUrl(projectId: string) {
 
 export function getRunViewUrl(runId: string) {
   return UrlTree.runView.replace(':runId', runId)
+}
+
+export function getWorkBatchViewUrl(batchId: string) {
+  return UrlTree.workBatchView.replace(':batchId', batchId)
 }
 
 export function getMeetingUrl(meetingId: string) {

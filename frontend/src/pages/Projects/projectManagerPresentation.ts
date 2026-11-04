@@ -50,6 +50,8 @@ export const batchPriorityChipColors = {
 
 export const batchStateLabelKeys = {
   queued: 'batches.states.queued',
+  paused: 'batches.states.paused',
+  assigned: 'batches.states.assigned',
   running: 'batches.states.running',
   succeeded: 'batches.states.succeeded',
   failed: 'batches.states.failed',
@@ -58,6 +60,8 @@ export const batchStateLabelKeys = {
 
 export const batchStateChipColors = {
   queued: 'default',
+  paused: 'warning',
+  assigned: 'accent',
   running: 'accent',
   succeeded: 'success',
   failed: 'danger',

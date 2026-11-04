@@ -42,6 +42,8 @@ import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
+import { WorkBatchPage } from './pages/WorkQueue/WorkBatchPage'
+import { WorkQueuePage } from './pages/WorkQueue/WorkQueuePage'
 import { SearchPage } from './pages/Search/SearchPage'
 import { KnowledgeAskPage } from './pages/Knowledge/Ask/KnowledgeAskPage'
 import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
@@ -66,6 +68,7 @@ import { JiraDoneTransitionsPage } from './pages/Settings/Jira/JiraDoneTransitio
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { AgentConfigurationPage } from './pages/Settings/Llms/AgentConfigurationPage'
+import { WorkerPoolPage } from './pages/Settings/WorkerPool/WorkerPoolPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { McpPage } from './pages/Settings/Mcp/McpPage'
 import { AddTwoFactorPage } from './pages/Settings/Security/AddTwoFactorPage'
@@ -219,6 +222,14 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.runView,
       element: <RunPage />,
+    },
+    {
+      path: UrlTree.workQueue,
+      element: <WorkQueuePage />,
+    },
+    {
+      path: UrlTree.workBatchView,
+      element: <WorkBatchPage />,
     },
     // The knowledge base's search, asking it, and its learnings share the area's heading and tabs.
     {
@@ -385,6 +396,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsModels,
       element: <ModelSettingsPage />,
+    },
+    {
+      path: UrlTree.settingsWorkerPool,
+      element: <WorkerPoolPage />,
     },
     {
       path: UrlTree.settingsEnvironment,

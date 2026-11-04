@@ -16,6 +16,7 @@ import {
   LuDatabaseBackup,
   LuHardDrive,
   LuKeyRound,
+  LuListOrdered,
   LuMail,
   LuPlug,
   LuRefreshCw,
@@ -105,6 +106,11 @@ export function SettingsDirectoryPage() {
           icon={LuBrainCircuit}
           title={t('items.models.title')}
           href={UrlTree.settingsModels}
+        />}
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuListOrdered}
+          title={t('items.workerPool.title')}
+          href={UrlTree.settingsWorkerPool}
         />}
         <SettingsDirectoryItem
           icon={LuMail}

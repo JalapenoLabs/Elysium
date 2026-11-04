@@ -496,6 +496,21 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Until it writes to the trackers itself (#83), anything outward it proposes as a changeset, as
   `project_manager:<project id>`.
 
+## The worker pool
+
+- One global pool of worker slots (`api/src/worker_pool/`); Project Managers never start containers. The engine's
+  scheduler hands each free slot to the first batch in order: run next, then due scheduled, ASAP, and normal, oldest
+  first, round robin across projects by the slots each holds (`worker_pool::order`, a pure function). None is handed
+  out while every Claude account is at its usage limit. See `docs/engine.md`, Workers and the pool.
+- Its size is an admin setting (`workspace_settings.worker_pool_size`), by default one worker per CPU core the engine
+  sees minus two, at least one, with no maximum.
+- A slot is a batch `assigned` under a lease the engine renews, fenced by its token and taken over by the next engine
+  once it lapses or is released at shutdown. A worker (#85) takes it with `work_batch::start` and gives it back with
+  `work_batch::finish`.
+- People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (run next, priority,
+  pause, resume, cancel), each change recorded in `work_batch_events` with who made it. The work queue is `/work-queue`,
+  for members.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a

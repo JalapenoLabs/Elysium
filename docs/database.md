@@ -1275,6 +1275,7 @@ One row, always present (`singleton` is its key and must be true).
 | `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
 | `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
+| `worker_pool_size` | `INTEGER` | Nullable; how many workers run at once, at least one with no maximum, `NULL` for the default (one per CPU core the engine sees minus two, at least one) |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |
 
@@ -1421,8 +1422,9 @@ NULL; a turn takes every waiting wake of its project as it starts. Indexed for w
 
 ### `work_batches`
 
-Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work batches. `work_batches_queue` on
-`(priority, scheduled_for, created_at)` while `queued` is the scheduler's queue.
+Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work batches and Workers and the pool.
+`work_batches_queue` on `(priority, scheduled_for, created_at)` while `queued` reads what waits, which the scheduler
+orders in code; `work_batches_in_slots` on `project_id` while claimed counts each project's slots.
 
 | Column               | Type                  | Notes                                                             |
 |----------------------|-----------------------|-------------------------------------------------------------------|
@@ -1433,7 +1435,7 @@ Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work
 | `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
 | `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
 | `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
-| `state`              | `work_batch_state`    | `queued`, `running`, `succeeded`, `failed`, or `cancelled`        |
+| `state`              | `work_batch_state`    | `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, or `cancelled` |
 | `result`             | `TEXT`                | What its worker reported, or why it was cancelled                 |
 | `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
 | `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
@@ -1441,8 +1443,37 @@ Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work
 | `timeline_record_id` | `UUID`                | Its record on the project's timeline; `SET NULL`                  |
 | `created_by`         | `UUID`                | References `users`: the Project Managers' machine user            |
 | `created_at`, `updated_at` | `TIMESTAMPTZ`   | Set on insert; `updated_at` maintained by trigger                 |
-| `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker took it, so never for a cancelled batch |
+| `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker started on it, so never for a waiting or cancelled batch |
 | `finished_at`        | `TIMESTAMPTZ`         | Set exactly once it ended or was cancelled                        |
+| `pinned_at`          | `TIMESTAMPTZ`         | Set while someone asked for it to run next; only while `queued`   |
+| `assigned_at`        | `TIMESTAMPTZ`         | When the pool gave it a slot; set while `assigned` or `running`, kept once it ended, never while it waits |
+| `claim_token`        | `UUID`                | The engine holding its slot; set exactly while `assigned` or `running` |
+| `lease_expires_at`   | `TIMESTAMPTZ`         | Until when that engine holds the slot unless it renews; set exactly with `claim_token` |
+
+### `work_batch_events`
+
+A batch's history, one row per change, shaped like `workflow_run_events`; see `docs/engine.md`, Work batches.
+
+| Column          | Type          | Notes                                                                  |
+|-----------------|---------------|------------------------------------------------------------------------|
+| `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
+| `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
+| `kind`          | `TEXT`        | `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, or `finished` |
+| `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
+| `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, or the system user for the pool |
+| `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
+
+### `worker_pool`
+
+What the engine's worker pool knows that the work queue shows. One row (`singleton` is its key and must be true),
+written by the engine as it looks; absent until an engine first has.
+
+| Column             | Type          | Notes                                                                 |
+|--------------------|---------------|-----------------------------------------------------------------------|
+| `cpu_count`        | `INTEGER`     | The CPU cores the engine sees, at least one; the default size follows it |
+| `usage_held_until` | `TIMESTAMPTZ` | Set while every Claude credential that could serve is at its usage limit: no slot is handed out before it |
+| `created_by`       | `UUID`        | References `users`: the system user                                   |
+| `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
 ### `database_backups`
 

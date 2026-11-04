@@ -1,0 +1,111 @@
+{
+  "title": "Work queue",
+  "help": "Project Managers' batches wait here for a worker. Each free worker takes the first queued batch: one asked to run next, then scheduled work that is due, then ASAP, then normal, oldest first, with projects taking turns.",
+  "loadError": "The work queue could not be loaded.",
+  "pool": {
+    "busy_one": "{{inUse, compact}} of {{count, compact}} worker busy",
+    "busy_other": "{{inUse, compact}} of {{count, compact}} workers busy",
+    "busyUnsized_one": "{{count, compact}} worker busy",
+    "busyUnsized_other": "{{count, compact}} workers busy",
+    "usageHeld": "Every Claude account is at its usage limit. Workers start again {{time}}.",
+    "size": "Pool size"
+  },
+  "tabs": {
+    "label": "Work queue",
+    "queued": "Queued",
+    "running": "Running",
+    "scheduled": "Scheduled",
+    "paused": "Paused"
+  },
+  "table": {
+    "label": "Work batches",
+    "runsNext": "Runs next",
+    "columns": {
+      "position": "Place",
+      "title": "Batch",
+      "project": "Project",
+      "priority": "Priority",
+      "state": "State",
+      "submitted": "Submitted"
+    },
+    "empty": {
+      "queued": "Nothing waits for a worker.",
+      "running": "No worker is busy.",
+      "scheduled": "Nothing is scheduled for later.",
+      "paused": "Nothing is paused."
+    }
+  },
+  "actions": {
+    "runNext": "Run next",
+    "returnToPlace": "Back to its place",
+    "makeAsap": "Run as soon as possible",
+    "makeNormal": "Run at normal priority",
+    "pause": "Pause",
+    "resume": "Resume",
+    "cancel": "Cancel batch",
+    "done": {
+      "runNext": "{{title}} runs next",
+      "returnToPlace": "{{title}} is back in its place",
+      "makeAsap": "{{title}} runs as soon as possible",
+      "makeNormal": "{{title}} runs at normal priority",
+      "pause": "{{title}} is paused",
+      "resume": "{{title}} waits for a worker again",
+      "cancel": "{{title}} is cancelled"
+    },
+    "conflict": "This batch moved on, so it no longer allows that. It shows as it is now.",
+    "cancelPrompt": {
+      "title": "Cancel {{title}}?",
+      "message": "Its Project Manager is told, with your reason.",
+      "irreversible": "A cancelled batch can't be restarted.",
+      "reason": "Reason",
+      "keep": "Keep it"
+    }
+  },
+  "batch": {
+    "project": "Project",
+    "priority": "Priority",
+    "state": "State",
+    "submitted": "Submitted",
+    "started": "Started",
+    "finished": "Finished",
+    "goal": "Goal",
+    "repositories": "Repositories",
+    "noRepositories": "None named. Its worker clones what it needs.",
+    "fromBranch": "from {{branch}}",
+    "result": "What its worker reported",
+    "cancelledBecause": "Why it was cancelled",
+    "history": "History",
+    "loadError": "This batch could not be loaded."
+  },
+  "history": {
+    "kinds": {
+      "submitted": "{{name}} submitted it",
+      "pinned": "{{name}} asked for it to run next",
+      "unpinned": "{{name}} put it back in its place",
+      "reprioritized": "{{name}} changed its priority from {{before}} to {{after}}",
+      "paused": "{{name}} paused it",
+      "resumed": "{{name}} resumed it",
+      "cancelled": "{{name}} cancelled it",
+      "assigned": "It got a worker's slot",
+      "unassigned": "It went back to the queue when the pool shrank",
+      "started": "A worker started on it",
+      "finished": "Its worker finished it"
+    },
+    "failed": "Its worker reported it failed",
+    "unknown": "It changed ({{kind}})",
+    "scheduledFor": "{{priority}} for {{time}}"
+  },
+  "poolSettings": {
+    "title": "Worker pool",
+    "help": "How many workers run Project Managers' batches at once. By default, one per CPU core Elysium's host gives it, minus two for Elysium itself, and at least one.",
+    "adminOnly": "Only an admin can size the worker pool.",
+    "loadError": "The worker pool could not be loaded.",
+    "useDefault": "Use the default",
+    "defaultSize_one": "{{count, compact}} worker, from {{cores, compact}} CPU cores",
+    "defaultSize_other": "{{count, compact}} workers, from {{cores, compact}} CPU cores",
+    "defaultUnknown": "Known once the engine has started",
+    "size": "Workers",
+    "sizeHint": "At least one.",
+    "saved": "Worker pool saved"
+  }
+}

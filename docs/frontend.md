@@ -265,6 +265,8 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
+| `/work-queue`                 | `WorkQueuePage`          | The worker pool and its batches, as tabs in `?tab=`; members only |
+| `/work-queue/:batchId`        | `WorkBatchPage`          | One batch whole, with its history and what may still be done to it; members only |
 | `/knowledge`                  | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
 | `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
 | `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
@@ -292,6 +294,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from; admins |
 | `/settings/models`            | `ModelSettingsPage`      | The model and effort each kind, step, and agent runs on, as tabs in `?tab=`; admins |
+| `/settings/worker-pool`       | `WorkerPoolPage`         | How many workers run at once, or the default; admins     |
 | `/settings/email`             | `ManageEmailPage`        | Mailboxes and domains as tabs in `?tab=`                 |
 | `/settings/email/server/new`  | `NewMailServerPage`      | Create the mail server, or try again after it failed     |
 | `/settings/email/domains/new` | `NewMailDomainPage`      | Add a domain to the mail server                          |
@@ -1117,6 +1120,33 @@ sidebar's Runs link and both pages are for members alone; a guest who opens one 
   pages name each by its words in `runs.json` (`names`, looked up through `runNameKeys` by `useRunNames`), and one the
   web app has no words for yet as its name in code read as words (`nameFromIdentifier`).
 
+### Work queue
+
+`src/pages/WorkQueue/` shows the worker pool and the batches it runs (`docs/engine.md`, Workers and the pool). A batch
+quotes what was ingested, so the sidebar's Work queue link and both pages are for members alone; a guest is sent to the
+start.
+
+- **The queue.** `WorkQueuePage` opens with how many workers are busy of how many, and, while every Claude account is
+  at its usage limit, a standing warning saying when workers start again (`WorkerPoolSummary`). Its tabs, each with
+  its count, are Queued (in the order slots are handed out, each row with its place), Running (the batches holding
+  slots, one waiting for its worker reading so), Scheduled (not yet due), and Paused. Each is a `WorkQueueTable`:
+  the title, linking to the batch's page, with Runs next on a batch asked to; its project, linking to the project; its
+  priority with a scheduled one's time; its state; and when it was submitted. Admins get Pool size in the header,
+  linking to Settings, Worker pool.
+- **Actions.** A row's actions are those its batch allows now (`availableActions` in `workQueuePresentation.ts`, a pure
+  function tested beside): Run next or Back to its place, Run as soon as possible or Run at normal priority, Pause or
+  Resume, and Cancel batch, last and red. A batch scheduled for later cannot run next, but can run as soon as possible.
+  `useWorkBatchActions` sends each, lands the batch it answers in Redux, reloads the queue, and confirms with a toast;
+  a `409`, from a batch that moved on, says so and reloads both. Cancelling asks first in the prompt gate, for an
+  optional reason its Project Manager is told, saying in bold that it can't be restarted, with Keep it beside it.
+- **A batch.** `WorkBatchPage` shows its state, project, priority, when it was submitted, started, and finished, what
+  its worker reported or why it was cancelled, its goal, its repositories, and its history (`WorkBatchHistory`), each
+  line naming who did it; its header's Actions are the row's. A project's Work batches tab links each title here.
+- **Live.** `workBatch.changed` reloads the queue and the batch, and `workerPool.changed` the queue, each only while a
+  page holds it: the queue's order is the server's to derive, so it is never patched in place.
+- **The pool's size.** `src/pages/Settings/WorkerPool/` is admins' alone: a Use the default switch, saying the default
+  and the CPU cores it comes from, over the number of workers, at least one, kept by the page's Save.
+
 ### Projects page
 
 `src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
@@ -1277,6 +1307,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
 | `projectManagers` | Each viewed project's Project Manager, replaced whole by every load, and the turn logs opened |
+| `workQueue`      | The worker pool and its queue, replaced whole by every load, and each batch opened with its history |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `learnings`      | Live and deleted learnings in separate halves, last changed first       |
@@ -1311,6 +1342,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
    `useChangesetsLoader`, `useChangesetLoader`, `useElysiaLoader`, `useElysiaMessagesLoader`, `useElysiaTurnsLoader`,
    `useStudioItemsLoader`, `useDeletedStudioItemsLoader`, `useProjectManagerLoader`, `useProjectManagerTurnLoader`,
+   `useWorkQueueLoader`, `useWorkBatchLoader`,
    `useStudioItemLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
@@ -1506,7 +1538,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `email`, `storage`, `github`, `jira`, `environment`, `knowledge`, `learnings`, `companyDoc`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`, `models`.
+  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`, `models`, `workQueue`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
