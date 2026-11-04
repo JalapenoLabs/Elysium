@@ -13,6 +13,7 @@ import { useAppDispatch } from '../../../store/hooks'
 // User interface
 import { Card } from '@heroui/react'
 import { LuAppWindow } from 'react-icons/lu'
+import { HelpPopover } from '../../../components/HelpPopover'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Misc
@@ -65,9 +66,9 @@ export function NewBrowserConnector(props: Props) {
     <Card className='relaxed p-6'>
       <div className='flex min-w-0 gap-3'>
         <LuAppWindow className='mt-0.5 size-5 shrink-0 text-accent' aria-hidden />
-        <div className='min-w-0'>
-          <h2 className='font-semibold'>{t('form.signIn')}</h2>
-          <p className='text-sm opacity-70'>{t('form.browserSignIn', { name })}</p>
+        <div className='flex min-w-0 items-center gap-1'>
+          <h2 className='font-semibold'>{t('form.signInTo', { name })}</h2>
+          <HelpPopover>{t('form.browserSignIn', { name })}</HelpPopover>
         </div>
       </div>
     </Card>

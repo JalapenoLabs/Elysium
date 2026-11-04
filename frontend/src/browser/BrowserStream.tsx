@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Spinner } from '@heroui/react'
+import { HelpPopover } from '../components/HelpPopover'
 
 // Misc
 import { getBrowserStreamUrl } from '../api/routes/browserSessionRoutes'
@@ -151,11 +152,14 @@ export function BrowserStream(props: Props) {
       className='absolute inset-0 grid place-items-center bg-black/70 p-4'
     >
       <div className='max-w-lg text-center'>
-        <p className='compact text-sm text-white opacity-80'>{
-          t(state === 'unreachable'
-            ? 'stream.unreachable'
-            : 'stream.disconnected')
-        }</p>
+        <div className='compact flex items-center justify-center gap-1 text-sm text-white'>
+          <p className='opacity-80'>{
+            t(state === 'unreachable'
+              ? 'stream.unreachable'
+              : 'stream.disconnected')
+          }</p>
+          {state === 'unreachable' && <HelpPopover>{t('stream.unreachableHelp')}</HelpPopover>}
+        </div>
         <Button size='sm' onPress={() => setAttempt((previous) => previous + 1)}>
           <span>{t('stream.reconnect')}</span>
         </Button>

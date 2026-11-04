@@ -15,7 +15,6 @@ import { studioFeedbackCreated } from '../../store/studioFeedbackSlice'
 // User interface
 import {
   Button,
-  Description,
   Form,
   Label,
   Modal,
@@ -326,7 +325,6 @@ export function AnnotateModal(props: Props) {
             >
               <Label>{t('annotate.prompt')}</Label>
               <TextArea ref={promptRef} rows={2} />
-              <Description>{t('annotate.promptHint')}</Description>
             </TextField>
             <Button
               type='submit'

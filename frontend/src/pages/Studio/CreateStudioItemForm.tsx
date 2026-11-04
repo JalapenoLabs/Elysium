@@ -158,7 +158,6 @@ export function CreateStudioItemForm() {
     >
       <Label>{t('create.prompt')}</Label>
       <TextArea ref={promptRef} rows={5} />
-      <Description>{t('create.promptHint')}</Description>
       <FieldError>{errors.prompt?.message}</FieldError>
     </TextField>
 
@@ -172,7 +171,6 @@ export function CreateStudioItemForm() {
     >
       <Label>{t('create.itemTitle')}</Label>
       <Input />
-      <Description>{t('create.itemTitleHint')}</Description>
       <FieldError>{errors.title?.message}</FieldError>
     </TextField>
 
@@ -203,7 +201,6 @@ export function CreateStudioItemForm() {
           </ListBox.Item>)}
         </ListBox>
       </Select.Popover>
-      <Description>{t('create.projectHint')}</Description>
     </Select>
 
     {/* Storage location */}
@@ -237,11 +234,7 @@ export function CreateStudioItemForm() {
           </ListBox.Item>)
         }</ListBox>
       </Select.Popover>
-      <Description>{
-        locationChoices.length
-          ? t('create.locationHint')
-          : t(noLocationKey)
-      }</Description>
+      {!locationChoices.length && <Description>{t(noLocationKey)}</Description>}
       <FieldError>{errors.storageLocationId?.message}</FieldError>
     </Select>
 

@@ -90,21 +90,14 @@ export function BrowserSessionActions(props: Props) {
         t('session.startOverHint')
       }</Tooltip.Content>
     </Tooltip>
-    <Tooltip delay={400}>
-      <Tooltip.Trigger>
-        <Button
-          size='sm'
-          variant='danger-soft'
-          isDisabled={state === 'starting'}
-          onPress={confirmReset}
-        >
-          <LuTrash2 aria-hidden />
-          <span>{t('session.reset')}</span>
-        </Button>
-      </Tooltip.Trigger>
-      <Tooltip.Content placement='bottom' className='max-w-xs break-normal'>{
-        t('session.resetHint')
-      }</Tooltip.Content>
-    </Tooltip>
+    <Button
+      size='sm'
+      variant='danger-soft'
+      isDisabled={state === 'starting'}
+      onPress={confirmReset}
+    >
+      <LuTrash2 aria-hidden />
+      <span>{t('session.reset')}</span>
+    </Button>
   </div>
 }

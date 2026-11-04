@@ -33,9 +33,6 @@ export function MissingAgentCredentialAlert() {
       <Alert.Title>{
         t('create.missingCredential.title')
       }</Alert.Title>
-      <Alert.Description>{
-        t('create.missingCredential.body')
-      }</Alert.Description>
       <Link href={UrlTree.settingsLlms} className='text-link text-sm'>{
         t('create.missingCredential.link')
       }</Link>

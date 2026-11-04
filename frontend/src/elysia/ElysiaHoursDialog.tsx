@@ -100,7 +100,6 @@ export function ElysiaHoursDialog(props: Props) {
           }}
         >
           <Modal.Body className='mt-2 flex flex-col gap-4'>
-            <p className='text-sm opacity-80'>{t('hours.description')}</p>
             {Boolean(props.availability.length) && !saved && <p className='text-sm text-warning'>{
               t('hours.custom')
             }</p>}

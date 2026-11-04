@@ -51,10 +51,8 @@
     "project": "Project",
     "projectPlaceholder": "Choose a project",
     "sessionTitle": "Title",
-    "sessionTitleHint": "Defaults to the first line of the prompt.",
     "missingCredential": {
-      "title": "No Claude credential is set up",
-      "body": "The agent signs in to Claude with one. Without it, this session's turns fail.",
+      "title": "Agents need a Claude credential",
       "link": "Add one under Settings, LLMs"
     },
     "repositories": {
@@ -70,7 +68,6 @@
         "selected_one": "{{count, compact}} repository picked",
         "selected_other": "{{count, compact}} repositories picked",
         "noMatches": "No repositories match your search.",
-        "hint": "Optional. Cloned into the session's directory, most recently pushed first.",
         "loading": "Loading the token's repositories…",
         "failed": "GitHub could not be reached to list repositories. Add them by URL instead.",
         "empty": "This token cannot see any repositories. Add them by URL instead.",
@@ -94,15 +91,12 @@
       }
     },
     "prompt": "First prompt",
-    "promptHint": "Optional. Sent as soon as the session starts.",
     "untitled": "Untitled session",
     "fromItem": {
       "title": "Start a coding session",
       "label": "Started from the action item",
-      "hint": "The first prompt carries this item, its comments, initiatives, and project, ahead of what you write below.",
       "projectFixed": "The item's project.",
       "projectChoices": "One of the item's projects.",
-      "promptHint": "What the agent should do about the item.",
       "missing": "This action item could not be found.",
       "deleted": "This action item is deleted. Restore it before starting a session from it.",
       "presetFailed": "Projects could not be loaded. Reload the page to try again."
@@ -117,7 +111,6 @@
     },
     "github": {
       "label": "GitHub token",
-      "hint": "The agent works with it through gh and git.",
       "inherit": "Project's choice ({{name}})",
       "inheritNone": "Project's choice (no token)",
       "access": {
@@ -155,7 +148,7 @@
     "missing": "This session no longer exists.",
     "loading": "Loading conversation…",
     "loadError": "The conversation could not be loaded.",
-    "truncated": "Older events are not shown.",
+    "truncated": "Showing the latest events.",
     "empty": "No messages yet. Send a prompt to start.",
     "you": "You",
     "agent": "Agent",
@@ -193,7 +186,7 @@
   "desktop": {
     "watch": "Watch desktop",
     "hide": "Hide desktop",
-    "ended": "The turn's desktop is not running. A desktop exists only while a turn runs.",
+    "ended": "The desktop runs while a turn does. Send a prompt to start one.",
     "reconnect": "Reconnect"
   }
 }

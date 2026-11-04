@@ -211,7 +211,6 @@ export function CreateSessionForm(props: Props) {
         >{
           actionItem.title
         }</Link>
-        <p className='mt-1 text-xs opacity-70'>{t('create.fromItem.hint')}</p>
       </div>
     </div>}
 
@@ -264,7 +263,6 @@ export function CreateSessionForm(props: Props) {
     >
       <Label>{t('create.sessionTitle')}</Label>
       <Input ref={titleRef} />
-      <Description>{t('create.sessionTitleHint')}</Description>
       <FieldError>{errors.title?.message}</FieldError>
     </TextField>
 
@@ -273,7 +271,6 @@ export function CreateSessionForm(props: Props) {
       <GithubTokenSelect
         id='coding-session-github-token'
         label={t('create.github.label')}
-        description={t('create.github.hint')}
         inheritLabel={projectCredential
           ? t('create.github.inherit', { name: projectCredential.name })
           : t('create.github.inheritNone')}
@@ -303,11 +300,6 @@ export function CreateSessionForm(props: Props) {
     >
       <Label>{t('create.prompt')}</Label>
       <TextArea ref={promptRef} rows={5} />
-      <Description>{
-        actionItem
-          ? t('create.fromItem.promptHint')
-          : t('create.promptHint')
-      }</Description>
       <FieldError>{errors.prompt?.message}</FieldError>
     </TextField>
 

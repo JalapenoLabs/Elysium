@@ -201,23 +201,23 @@
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
       "no_repositories": "The token reaches no repository to sample.",
-      "no_projects_allowed": "No project is allowed, so there is nothing to search.",
-      "allowlist_unresolved": "The allowlist was not resolved.",
-      "sample_unread": "The sample could not be read.",
-      "browser_not_running": "The browser is not running.",
+      "no_projects_allowed": "Allow at least one project to search it.",
+      "allowlist_unresolved": "Couldn't confirm which projects and boards it may read. Run the checks again.",
+      "sample_unread": "The sample could not be read. Run the checks again.",
+      "browser_not_running": "The browser is not running. Start it over, then run the checks again.",
       "signed_out": "The service is asking you to sign in again.",
-      "mailbox_not_open": "No tab in the browser shows the mailbox.",
+      "mailbox_not_open": "Open the mailbox in the browser, then run the checks again.",
       "teams_not_open": "Teams is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
-      "teams_store_not_found": "Teams is open, but Elysium did not find the chats it stores.",
+      "teams_store_not_found": "Teams is open, but its chats were not found. Open a chat, then run the checks again.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
-      "meeting_unavailable": "The newest meeting is not available yet.",
-      "spaces_unresolved": "The chosen spaces were not resolved.",
-      "no_spaces_chosen": "No space is chosen, so there is nothing to search.",
+      "meeting_unavailable": "The newest meeting is still being processed. Run the checks again later.",
+      "spaces_unresolved": "Couldn't confirm the chosen spaces. Run the checks again.",
+      "no_spaces_chosen": "Choose at least one space to search it.",
       "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",
-      "no_workspace_reached": "The browser is signed in to none of the chosen workspaces.",
+      "no_workspace_reached": "Sign the browser in to one of the chosen workspaces.",
       "no_conversations": "No conversation it reads has a message to sample.",
-      "projects_unreachable": "The token reaches none of the chosen projects.",
+      "projects_unreachable": "The token reaches none of the chosen projects. Choose ones it can reach.",
       "no_issues": "The chosen projects have no issue to sample."
     }
   },
@@ -238,7 +238,7 @@
   },
   "form": {
     "signIn": "Sign in",
-    "browserSignIn": "Elysium opens {{name}} in a browser of its own. You sign in to it once, on the real page, and it stays signed in.",
+    "browserSignIn": "Elysium opens {{name}} in a browser of its own. You sign in once, on the real page, and it stays signed in.",
     "startBrowser": "Start browser",
     "testConnection": "Test connection",
     "runChecks": "Run checks",
@@ -246,7 +246,8 @@
     "create": "Create connector",
     "createAnyway": "Create anyway",
     "requiredFailed": "A required check failed. Fix it, or create the connector anyway and come back to it.",
-    "created": "Connector added"
+    "created": "Connector added",
+    "signInTo": "Sign in to {{name}}"
   },
   "signIn": {
     "title": "Sign in",

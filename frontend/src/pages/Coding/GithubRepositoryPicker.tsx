@@ -59,7 +59,7 @@ export function GithubRepositoryPicker(props: Props) {
       }</Autocomplete.Value>
       <Autocomplete.Indicator />
     </Autocomplete.Trigger>
-    <Description>{props.description}</Description>
+    {props.description && <Description>{props.description}</Description>}
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
         <SearchField

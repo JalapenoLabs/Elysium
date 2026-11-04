@@ -7,8 +7,9 @@ import type { PageAction } from './pageActions'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs, Button, buttonVariants, Link, Popover, Tooltip } from '@heroui/react'
-import { LuArrowLeft, LuCircleHelp } from 'react-icons/lu'
+import { Breadcrumbs, buttonVariants, Link, Tooltip } from '@heroui/react'
+import { LuArrowLeft } from 'react-icons/lu'
+import { HelpPopover } from '../../components/HelpPopover'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { PageActions } from './PageActions'
 
@@ -115,7 +116,7 @@ export function PageHeader(props: PageHeaderProps) {
           : <h1 className='min-w-0 text-3xl font-bold break-words'>{
             props.title
           }</h1>}
-        {props.help && <PageHelp>{props.help}</PageHelp>}
+        {props.help && <HelpPopover>{props.help}</HelpPopover>}
         {props.badges}
       </div>
       {hasEnd && <div className='page-actions'>
@@ -127,29 +128,4 @@ export function PageHeader(props: PageHeaderProps) {
       </div>}
     </div>
   </header>
-}
-
-type HelpProps = {
-  children: ReactNode
-}
-
-// The `?` beside a title that needs explaining, opening the explanation in a popover.
-function PageHelp(props: HelpProps) {
-  const { t } = useTranslation('common')
-
-  return <Popover>
-    <Tooltip delay={300}>
-      <Button isIconOnly size='sm' variant='ghost' aria-label={t('page.help')}>
-        <LuCircleHelp className='size-4' aria-hidden />
-      </Button>
-      <Tooltip.Content>
-        <span>{t('page.help')}</span>
-      </Tooltip.Content>
-    </Tooltip>
-    <Popover.Content placement='bottom start' className='max-w-sm'>
-      <Popover.Dialog className='text-sm'>{
-        props.children
-      }</Popover.Dialog>
-    </Popover.Content>
-  </Popover>
 }

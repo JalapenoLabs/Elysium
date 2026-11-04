@@ -96,7 +96,6 @@ export function BrowserSignIn(props: Props) {
       </div>
       <BrowserSessionActions browserSession={browserSession} name={name} />
     </div>
-    <p className='compact text-sm opacity-70'>{t('browsers:session.hint')}</p>
 
     {state === 'starting' && <div className='grid place-items-center gap-3 py-16'>
       <Spinner />

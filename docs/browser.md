@@ -246,8 +246,8 @@ own offers **Start browser** instead (`POST /api/v1/connectors/{id}/sign-in`). A
 - A stream whose media never connects says so. Wherever the media ports are reachable the peer connects within a
   few seconds; a firewall that drops them leaves ICE checking for half a minute or more. So when the peer fails
   before it ever connected, or has not connected 20 seconds after opening (`MEDIA_CONNECT_TIMEOUT_MS`), the
-  connection ends as `unreachable`, and the panel names the likely cause, the media ports `59000-59007` over UDP and
-  TCP, beside Reconnect. A peer that connected and later failed is an ordinary disconnect.
+  connection ends as `unreachable`: the panel says the picture can't reach the person, beside Reconnect, and its `?`
+  names the likely cause, the media ports `59000-59007` over UDP and TCP. A peer that connected and later failed is an ordinary disconnect.
 - `nekoInput` encodes the data channel's binary messages; its tests pin the byte layouts.
 
 Every client hears every browser's events, so the event stream keeps only the signed-in person's own browsers in

@@ -161,9 +161,6 @@ export function SessionRepositoriesField(props: Props) {
   else if (listing.data?.truncated) {
     pickerDescription = t('create.repositories.picker.truncated', { shown: repositories.length })
   }
-  else {
-    pickerDescription = t('create.repositories.picker.hint')
-  }
 
   return <div className='flex flex-col gap-3'>
     <GithubRepositoryPicker

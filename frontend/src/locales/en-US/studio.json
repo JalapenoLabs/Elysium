@@ -25,22 +25,17 @@
   },
   "noStorage": {
     "title": "Studio needs a storage location",
-    "body": "Every file an agent makes is kept in a storage location. Add one under Settings, Storage, then come back to start an item.",
     "action": "Go to Storage settings"
   },
   "create": {
     "title": "New Studio item",
     "loadError": "The storage locations could not be loaded.",
     "prompt": "What should the agent make?",
-    "promptHint": "Describe the asset. The agent starts on it as soon as the item is created.",
     "itemTitle": "Title",
-    "itemTitleHint": "Optional. Left blank, the item is named after the start of the prompt.",
     "project": "Project",
     "noProject": "No project",
-    "projectHint": "Optional. With a project, the agent can read and propose changes to its action items.",
     "location": "Storage location",
     "locationPlaceholder": "Choose a location",
-    "locationHint": "Where every file of the item is kept.",
     "noLocationForProject": "No storage location saves files for this project or for every project.",
     "noLocationForEveryProject": "No storage location saves files for every project. Choose a project, or link a location to every project under Settings, Storage.",
     "errors": {
@@ -56,7 +51,7 @@
     "renameTitle": "Rename item",
     "renameLabel": "Item title",
     "deletedTitle": "This item is deleted",
-    "deletedBody": "It stays read-only until it is restored. Its files and conversation are kept.",
+    "deletedBody": "Restore it to work on it again. Its files and conversation are kept.",
     "pullError": "The latest file could not be kept: {{reason}}"
   },
   "layout": {
@@ -112,7 +107,6 @@
     "undo": "Undo",
     "clear": "Clear",
     "prompt": "What should change?",
-    "promptHint": "The agent sees your drawing over this view, with what you write here.",
     "send": "Send",
     "loadError": "The image could not be opened for drawing.",
     "errors": {

@@ -15,19 +15,18 @@
     "reset": "{{name}} is starting again with an empty profile."
   },
   "session": {
-    "hint": "Click the picture to use it. Typing and pasting go to the page, so a password manager on this computer works there too.",
     "starting": "Starting the browser. The first one can take a minute.",
-    "failed": "The browser failed to start.",
+    "failed": "The browser failed to start. Start over, or reset it.",
     "startOver": "Start over",
-    "startOverHint": "Back to the sign-in page, closing every other tab. You stay signed in to whatever you already signed in to.",
-    "reset": "Reset browser",
-    "resetHint": "Sign this browser out of everything and start again from an empty profile."
+    "startOverHint": "Back to the sign-in page, staying signed in.",
+    "reset": "Reset browser"
   },
   "stream": {
     "label": "The browser's screen",
     "connecting": "Connecting",
-    "disconnected": "The stream disconnected.",
-    "unreachable": "The browser is running, but its picture could not reach you. The host must accept its media ports, 59000 to 59007, over both UDP and TCP, from your network.",
-    "reconnect": "Reconnect"
+    "disconnected": "Lost the connection to the browser.",
+    "unreachable": "The browser is running, but its picture can't reach you.",
+    "reconnect": "Reconnect",
+    "unreachableHelp": "The host must accept the browser media ports, 59000 to 59007, over both UDP and TCP, from your network. Whoever runs Elysium can open them."
   }
 }

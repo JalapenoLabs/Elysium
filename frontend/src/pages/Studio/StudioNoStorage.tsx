@@ -16,8 +16,7 @@ export function StudioNoStorage() {
 
   return <Card className='mx-auto max-w-lg items-center p-8 text-center'>
     <LuHardDrive className='compact size-8 opacity-60' aria-hidden />
-    <h2 className='compact text-lg font-semibold'>{t('noStorage.title')}</h2>
-    <p className='relaxed text-sm opacity-70'>{t('noStorage.body')}</p>
+    <h2 className='relaxed text-lg font-semibold'>{t('noStorage.title')}</h2>
     <Link href={UrlTree.settingsStorage} className='text-link'>{
       t('noStorage.action')
     }</Link>

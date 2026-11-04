@@ -118,7 +118,8 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Titlebar.** The large title on the left, everything else on the right, centered on one line, in this order:
   `tools`, the page's list controls, `primaryAction`, a lone action's button, Save, then the Actions menu, so Save
   keeps the top right corner unless the menu is there. There are no subtitles; a page that truly needs explaining
-  puts it behind `help`.
+  puts it behind `help`, a `?` opening `HelpPopover` (`src/components/`), which a section or message whose detail
+  only some people need uses too (the new browser connector's sign-in, a stream the media ports block).
 - **List controls.** Every `Page` holds a slot after `tools` for its list (`pageTools.ts`): the page's list table
   renders its search, filters button, Columns, and export there through uikit's `controls`
   (`~/.claude/docs/ux.md`, Table layout). `usePageToolsContainer` hands the slot to anything inside the page, so a
@@ -1408,6 +1409,11 @@ first render.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
 - Logs and `console.debug` messages stay in English.
+- **Copy** (`~/.claude/docs/ux.md`, Brevity, Positive wording, Dev babble). A page never opens with a paragraph about
+  itself: what truly needs explaining goes behind `help`. A field's hint gives its format or an example, never what
+  saving does next. A message that says what can't be done says what can, and nothing names Elysium's parts (Docker,
+  nginx, ports outside the instructions that need them, configuration files, the OAuth broker). A destructive
+  confirmation always keeps saying what can't be undone.
 
 ## Dates and numbers
 
