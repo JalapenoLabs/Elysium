@@ -25,7 +25,7 @@ use uuid::Uuid;
 use super::{CallScope, SERVERS, ToolServer};
 use crate::database::Pool;
 use crate::database::schema::agent_tool_grants;
-use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID};
+use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::runner::{AGENT_API_URL, McpServer};
 
 /// Where the tool servers are mounted, under [`AGENT_API_URL`].
@@ -95,6 +95,7 @@ impl Grants {
         let created_by = match scope {
             CallScope::Session(_) => CODING_AGENT_USER_ID,
             CallScope::Elysia(_) => ELYSIA_USER_ID,
+            CallScope::ProjectManager(_) => PROJECT_MANAGER_USER_ID,
         };
 
         let mut connection = self

@@ -61,8 +61,14 @@ pub fn classify(message: &str) -> Option<Value> {
         }
         // Mail, chat, and meetings arrive here once connectors ingest them. A message that
         // joined a conversation is that conversation's request run's to handle
-        // (`crate::conversations`), so she is not woken for it too.
-        "timelineRecord.created" => data.get("conversationId").is_none_or(Value::is_null),
+        // (`crate::conversations`), so she is not woken for it too. What a Project Manager
+        // records of its own turns and batches is agents' work, as a session's is.
+        "timelineRecord.created" => {
+            let in_conversation = data.get("conversationId").is_some_and(|id| !id.is_null());
+            let is_project_managers = data.get("sourceKind").and_then(Value::as_str)
+                == Some(crate::project_managers::timeline::SOURCE_KIND);
+            !in_conversation && !is_project_managers
+        }
         _ => false,
     };
     relevant.then_some(change)
@@ -73,7 +79,9 @@ fn history_is_relevant(data: &Value) -> bool {
         .get("actor")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if actor == "elysia" || actor.starts_with("session:") {
+    let is_agent =
+        actor == "elysia" || actor.starts_with("session:") || actor.starts_with("project_manager:");
+    if is_agent {
         return false;
     }
     let kind = data.get("kind").and_then(Value::as_str).unwrap_or_default();
@@ -297,14 +305,32 @@ mod tests {
     }
 
     #[test]
+    fn a_project_managers_own_records_are_not_news_to_her() {
+        let decided = bus(
+            "timelineRecord.created",
+            &json!({ "id": "x", "sourceKind": "project_manager" }),
+        );
+        assert!(classify(&decided).is_none());
+        let segment = bus(
+            "timelineRecord.created",
+            &json!({ "id": "x", "sourceKind": "meeting" }),
+        );
+        assert!(classify(&segment).is_some());
+    }
+
+    #[test]
     fn a_resync_reaches_her_so_lost_changes_are_never_silent() {
         let resync = ServerEvent::Resync.to_json();
         assert_eq!(classify(&resync), Some(json!({ "type": "resync" })));
     }
 
     #[test]
-    fn her_own_changes_and_coding_agents_are_ignored() {
-        for actor in ["elysia", "session:12"] {
+    fn her_own_changes_and_other_agents_are_ignored() {
+        for actor in [
+            "elysia",
+            "session:12",
+            "project_manager:0199a3c4-0000-7000-8000-00000000beef",
+        ] {
             let change = bus(
                 "history.appended",
                 &json!({ "actor": actor, "kind": "created" }),

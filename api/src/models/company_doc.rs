@@ -42,7 +42,7 @@ use crate::database::schema::{
 use crate::knowledge::passages;
 use crate::models::agent::Agent;
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
-use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID};
+use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// The longest a section may be, in characters, as `company_doc_sections.content` allows. Seven
 /// of them fit the review's one prompt beside what it reads (`crate::company_doc::review`).
@@ -241,6 +241,8 @@ pub enum Proposer<'a> {
     },
     /// The agent of the coding or Studio session with this number.
     Session(i64),
+    /// The Project Manager of the project with this id.
+    ProjectManager(Uuid),
     /// Elysia: one of her turns, or a run of the scheduled review, which she carries out.
     Elysia { workflow_run_id: Option<Uuid> },
 }
@@ -251,6 +253,7 @@ impl Proposer<'_> {
         match self {
             Self::Person { user_id, .. } => user_id,
             Self::Session(_) => CODING_AGENT_USER_ID,
+            Self::ProjectManager(_) => PROJECT_MANAGER_USER_ID,
             Self::Elysia { .. } => ELYSIA_USER_ID,
         }
     }
@@ -260,6 +263,7 @@ impl Proposer<'_> {
         match self {
             Self::Person { agent, .. } => agent.map(|agent| agent.id().to_owned()),
             Self::Session(number) => Some(format!("session:{number}")),
+            Self::ProjectManager(project) => Some(format!("project_manager:{project}")),
             Self::Elysia { .. } => None,
         }
     }
@@ -267,14 +271,14 @@ impl Proposer<'_> {
     fn agent_name(&self) -> Option<&str> {
         match self {
             Self::Person { agent, .. } => agent.and_then(Agent::name),
-            Self::Session(_) | Self::Elysia { .. } => None,
+            Self::Session(_) | Self::ProjectManager(_) | Self::Elysia { .. } => None,
         }
     }
 
     const fn workflow_run_id(self) -> Option<Uuid> {
         match self {
             Self::Elysia { workflow_run_id } => workflow_run_id,
-            Self::Person { .. } | Self::Session(_) => None,
+            Self::Person { .. } | Self::Session(_) | Self::ProjectManager(_) => None,
         }
     }
 }

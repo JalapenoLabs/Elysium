@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/timeline/{id}`: one of the signed-in person's records, with its attributions,
-//! which their pages load when `timelineRecord.created` names it.
+//! `GET /api/v1/timeline/{id}`: one of the signed-in person's records, or one of the
+//! workspace's (a Project Manager's), with its attributions, which their pages load when
+//! `timelineRecord.created` names it.
 
 use anyhow::Context;
 use axum::Json;
@@ -27,8 +28,13 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let (record, attributions) =
-        timeline_record::find_owned(&mut connection, id, current.id()).await?;
+    let (record, attributions) = timeline_record::find_readable(
+        &mut connection,
+        id,
+        current.id(),
+        current.0.is_company_member(),
+    )
+    .await?;
     Ok(Json(
         json!({ "record": TimelineRecordResponse::new(record, attributions) }),
     ))

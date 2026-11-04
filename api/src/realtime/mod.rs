@@ -235,6 +235,11 @@ pub enum ServerEvent {
     /// One of her turns was queued, started, ended, or cancelled.
     #[serde(rename = "elysiaTurn.upserted")]
     ElysiaTurnUpserted(TurnResponse),
+    /// A project's Project Manager changed: something woke it, a turn started or ended, or a
+    /// batch of its was submitted or moved on. The project's id alone, since its turns quote what
+    /// they read; its page loads it by id.
+    #[serde(rename = "projectManager.changed")]
+    ProjectManagerChanged { project_id: Uuid },
     #[serde(rename = "environmentVariable.upserted")]
     EnvironmentVariableUpserted(EnvironmentVariableResponse),
     #[serde(rename = "environmentVariable.deleted")]

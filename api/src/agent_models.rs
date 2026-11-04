@@ -8,8 +8,9 @@
 //! - **a workflow step** whose work is an agent turn, which says which kind of agent it is
 //!   ([`crate::workflows::Step::AGENT_KIND`]), named by its step name, such as
 //!   `correct_transcript`;
-//! - **an agent outside the step framework** ([`Agent`]): Elysia, coding sessions, Studio
-//!   sessions, turn summaries, and the knowledge base's answers to questions.
+//! - **an agent outside the step framework** ([`Agent`]): Elysia, every project's Project
+//!   Manager, coding sessions, Studio sessions, turn summaries, and the knowledge base's answers
+//!   to questions.
 //!
 //! Every agent belongs to one [`AgentKind`]: the workers, the Project Managers, correction,
 //! segmenting, triage, Elysia, and the summaries. A kind is what an admin tunes once for all of
@@ -116,7 +117,8 @@ pub enum AgentKind {
     /// Agents that do a project's work: today coding sessions and Studio sessions, in the
     /// shared workspace; the engine's pooled workers (#82) join them.
     Worker,
-    /// Each project's Project Manager, which plans its work and files its issues (#84, #85).
+    /// Each project's Project Manager, which plans its work and submits it as batches
+    /// (`crate::project_managers`).
     ProjectManager,
     /// Correcting a meeting's transcripts against the company doc and other meetings.
     Correction,
@@ -202,6 +204,9 @@ impl AgentKind {
 pub enum Agent {
     /// Elysia's own turns: messages, answers, events, and her idle work (`crate::elysia`).
     Elysia,
+    /// Every project's Project Manager's turns (`crate::project_managers`), resolved with its
+    /// project.
+    ProjectManager,
     /// A coding session's turns (`crate::sessions`).
     CodingSession,
     /// A Studio item's session's turns, which make single assets (`crate::studio`).
@@ -216,8 +221,9 @@ pub enum Agent {
 
 impl Agent {
     /// Every agent, in the order the settings page lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Elysia,
+        Self::ProjectManager,
         Self::CodingSession,
         Self::StudioSession,
         Self::TurnSummary,
@@ -228,6 +234,7 @@ impl Agent {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Elysia => "elysia",
+            Self::ProjectManager => "project_manager",
             Self::CodingSession => "coding_session",
             Self::StudioSession => "studio_session",
             Self::TurnSummary => "turn_summary",
@@ -239,6 +246,7 @@ impl Agent {
     pub const fn kind(self) -> AgentKind {
         match self {
             Self::Elysia => AgentKind::Elysia,
+            Self::ProjectManager => AgentKind::ProjectManager,
             Self::CodingSession | Self::StudioSession => AgentKind::Worker,
             Self::TurnSummary => AgentKind::Summaries,
             // Reading what was said across the whole workspace, for no one project, and answering
@@ -803,6 +811,7 @@ mod tests {
         assert_eq!(Agent::StudioSession.kind(), AgentKind::Worker);
         assert_eq!(Agent::TurnSummary.kind(), AgentKind::Summaries);
         assert_eq!(Agent::Elysia.kind(), AgentKind::Elysia);
+        assert_eq!(Agent::ProjectManager.kind(), AgentKind::ProjectManager);
         assert_eq!(Agent::KnowledgeAsk.kind(), AgentKind::Triage);
         assert!(
             !Agent::KnowledgeAsk.kind().runs_in_projects(),

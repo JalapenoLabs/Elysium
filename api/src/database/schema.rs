@@ -122,6 +122,14 @@ pub mod sql_types {
     pub struct ProjectCoverFit;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "project_manager_turn_status"))]
+    pub struct ProjectManagerTurnStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "project_manager_wake_kind"))]
+    pub struct ProjectManagerWakeKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "reply_place"))]
     pub struct ReplyPlace;
 
@@ -160,6 +168,14 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "vector"))]
     pub struct Vector;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "work_batch_priority"))]
+    pub struct WorkBatchPriority;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "work_batch_state"))]
+    pub struct WorkBatchState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "workflow_run_state"))]
@@ -1195,6 +1211,55 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::ProjectManagerTurnStatus;
+
+    project_manager_turns (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        status -> ProjectManagerTurnStatus,
+        summary -> Nullable<Text>,
+        reply -> Nullable<Text>,
+        error -> Nullable<Text>,
+        log -> Text,
+        timeline_record_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ProjectManagerWakeKind;
+
+    project_manager_wakes (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        kind -> ProjectManagerWakeKind,
+        timeline_record_id -> Nullable<Uuid>,
+        work_batch_id -> Nullable<Uuid>,
+        body -> Nullable<Text>,
+        turn_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    project_managers (project_id) {
+        project_id -> Uuid,
+        runner_session_id -> Nullable<Text>,
+        usage_paused_until -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
 
@@ -1509,6 +1574,33 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::WorkBatchPriority;
+    use super::sql_types::WorkBatchState;
+
+    work_batches (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        title -> Text,
+        goal -> Text,
+        repositories -> Jsonb,
+        priority -> WorkBatchPriority,
+        scheduled_for -> Nullable<Timestamptz>,
+        state -> WorkBatchState,
+        result -> Nullable<Text>,
+        turn_id -> Nullable<Uuid>,
+        source_record_ids -> Jsonb,
+        action_item_ids -> Jsonb,
+        timeline_record_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     workflow_run_events (id) {
         id -> Uuid,
@@ -1660,6 +1752,16 @@ diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));
+diesel::joinable!(project_manager_turns -> project_managers (project_id));
+diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id));
+diesel::joinable!(project_manager_turns -> users (created_by));
+diesel::joinable!(project_manager_wakes -> project_manager_turns (turn_id));
+diesel::joinable!(project_manager_wakes -> projects (project_id));
+diesel::joinable!(project_manager_wakes -> timeline_records (timeline_record_id));
+diesel::joinable!(project_manager_wakes -> users (created_by));
+diesel::joinable!(project_manager_wakes -> work_batches (work_batch_id));
+diesel::joinable!(project_managers -> projects (project_id));
+diesel::joinable!(project_managers -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
@@ -1689,6 +1791,10 @@ diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
+diesel::joinable!(work_batches -> project_manager_turns (turn_id));
+diesel::joinable!(work_batches -> projects (project_id));
+diesel::joinable!(work_batches -> timeline_records (timeline_record_id));
+diesel::joinable!(work_batches -> users (created_by));
 diesel::joinable!(workflow_run_events -> step_jobs (step_job_id));
 diesel::joinable!(workflow_run_events -> users (created_by));
 diesel::joinable!(workflow_run_events -> workflow_runs (run_id));
@@ -1759,6 +1865,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     model_settings,
     password_vault,
     process_activities,
+    project_manager_turns,
+    project_manager_wakes,
+    project_managers,
     projects,
     secret_copies,
     session_events,
@@ -1778,6 +1887,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     update_checks,
     user_events,
     users,
+    work_batches,
     workflow_run_events,
     workflow_runs,
     workspace_settings,

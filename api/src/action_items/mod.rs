@@ -34,7 +34,9 @@ use uuid::Uuid;
 use crate::connectors::ConnectorKind;
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::LinkProvider;
-use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, SYSTEM_USER_ID};
+use crate::models::user::{
+    CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID,
+};
 
 /// Who made a change. Every history entry and comment names one.
 ///
@@ -43,8 +45,9 @@ use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, SYSTEM_USER_ID};
 /// and a session's agent also act when a person applies a changeset they proposed
 /// ([`changesets`]).
 ///
-/// Written as `user:<id>`, `elysia`, `session:<n>`, `watcher:<provider>`, or `system`. Rows
-/// written before accounts existed say `user` alone, meaning the one person there was.
+/// Written as `user:<id>`, `elysia`, `session:<n>`, `project_manager:<project id>`,
+/// `watcher:<provider>`, or `system`. Rows written before accounts existed say `user` alone,
+/// meaning the one person there was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
     /// The person with this user id.
@@ -53,6 +56,8 @@ pub enum Actor {
     Elysia,
     /// The agent of the coding session with this number.
     Session(i64),
+    /// The Project Manager of the project with this id (`crate::project_managers`).
+    ProjectManager(Uuid),
     /// The watcher, recording a change it read from this provider.
     Watcher(LinkProvider),
     /// A connector, raising an item for something it read, such as new mail. Written as the
@@ -64,12 +69,13 @@ pub enum Actor {
 
 impl Actor {
     /// The user a row this actor creates names in `created_by`: the person, or the machine
-    /// that stands for Elysia, every coding agent, or the watcher.
+    /// that stands for Elysia, every coding agent, every Project Manager, or the watcher.
     pub const fn user_id(self) -> Uuid {
         match self {
             Self::User(id) => id,
             Self::Elysia => ELYSIA_USER_ID,
             Self::Session(_) => CODING_AGENT_USER_ID,
+            Self::ProjectManager(_) => PROJECT_MANAGER_USER_ID,
             Self::Watcher(_) | Self::Connector(_) | Self::System => SYSTEM_USER_ID,
         }
     }
@@ -85,6 +91,7 @@ impl fmt::Display for Actor {
             Self::User(id) => write!(formatter, "user:{id}"),
             Self::Elysia => formatter.write_str("elysia"),
             Self::Session(number) => write!(formatter, "session:{number}"),
+            Self::ProjectManager(project) => write!(formatter, "project_manager:{project}"),
             Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
             Self::Connector(kind) => write!(formatter, "watcher:{}", kind.as_str()),
             Self::System => formatter.write_str("system"),
@@ -351,6 +358,14 @@ mod tests {
         assert_eq!(Actor::User(person).user_id(), person);
         assert_eq!(Actor::Elysia.to_string(), "elysia");
         assert_eq!(Actor::Session(12).to_string(), "session:12");
+        assert_eq!(
+            Actor::ProjectManager(person).to_string(),
+            "project_manager:0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6071"
+        );
+        assert_eq!(
+            Actor::ProjectManager(person).user_id(),
+            PROJECT_MANAGER_USER_ID
+        );
         assert_eq!(Actor::System.to_string(), "system");
         assert_eq!(Actor::System.user_id(), SYSTEM_USER_ID);
         assert_eq!(

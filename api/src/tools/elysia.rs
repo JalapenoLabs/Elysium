@@ -6,7 +6,9 @@
 //! item, initiative, and project. What she writes is her own record: the questions she asks
 //! a person and the work she has taken on, which her panel shows the moment she writes it.
 //! Changes to items and initiatives she proposes as changesets ([`propose`]), which a person
-//! approves before anything is written; she cannot change them directly.
+//! approves before anything is written; she cannot change them directly. She talks to a
+//! project's Project Manager by writing to it (`elysia_message_project_manager`), which wakes it
+//! as a person's message does (`crate::project_managers`).
 //!
 //! Each tool's database work is a function of a connection, so it is tested against Postgres
 //! without a turn; the `run_*` wrappers only parse, connect, and announce.
@@ -30,6 +32,7 @@ use crate::models::elysia::{self, NewQuestion, NewWork, WorkChanges, WorkStatus}
 use crate::models::initiative::{self, InitiativeFilter, InitiativeState};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::{action_item_comment, project};
+use crate::project_managers;
 use crate::routes::v1::elysia::publish_snapshot;
 
 pub const SERVER: ToolServer = ToolServer {
@@ -44,12 +47,15 @@ pub const SERVER: ToolServer = ToolServer {
         turn. When action items or initiatives should be created, updated, resolved, dismissed, \
         commented on, or moved between initiatives, propose it with elysia_propose_changes, \
         giving each change its reason: a person reviews it and applies what they approve. \
-        People see all of this in your panel and the changeset review as soon as you write it.",
+        People see all of this in your panel and the changeset review as soon as you write it. \
+        Each project has a Project Manager that plans its work and hands it to workers; when \
+        you learn something a project's work should follow, such as a changed deadline or a \
+        priority, tell it with elysia_message_project_manager.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 6] = [
+const TOOLS: [Tool; 7] = [
     Tool {
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
@@ -97,7 +103,21 @@ const TOOLS: [Tool; 6] = [
         input_schema: propose::schema,
         run: |context, scope, arguments| propose::run(context, scope, arguments).boxed(),
     },
+    Tool {
+        name: "elysia_message_project_manager",
+        description: "Writes to a project's Project Manager, which plans the project's work and \
+            hands it to workers. It wakes at once and answers on its turn, which the project's \
+            page shows. Tell it what its project's work should follow: a changed deadline or \
+            priority, a decision, a request that reached you.",
+        input_schema: message_project_manager_schema,
+        run: |context, scope, arguments| {
+            run_message_project_manager(context, scope, arguments).boxed()
+        },
+    },
 ];
+
+/// The longest message to a Project Manager, matching `project_manager_wakes.body`.
+const MESSAGE_MAX_CHARACTERS: usize = 20_000;
 
 /// The most items the overview lists. A workspace's open work fits; she reads one with
 /// `elysia_item` for its full record.
@@ -113,6 +133,27 @@ const DETAIL_MAX_CHARACTERS: usize = 2_000;
 
 fn no_arguments_schema() -> Value {
     json!({ "type": "object", "properties": {}, "additionalProperties": false })
+}
+
+fn message_project_manager_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "projectId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "The project, from elysia_overview.",
+            },
+            "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MESSAGE_MAX_CHARACTERS,
+                "description": "What to tell it, complete enough to act on alone.",
+            },
+        },
+        "required": ["projectId", "message"],
+        "additionalProperties": false,
+    })
 }
 
 fn item_schema() -> Value {
@@ -408,6 +449,48 @@ async fn item(connection: &mut AsyncPgConnection, item_id: Uuid) -> Result<Value
             "body": comment.body,
             "createdAt": comment.created_at,
         })).collect::<Vec<Value>>(),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MessageProjectManagerArguments {
+    project_id: Uuid,
+    message: String,
+}
+
+async fn run_message_project_manager(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    scope.elysia()?;
+    let arguments: MessageProjectManagerArguments = parse_arguments(arguments)?;
+    check_text("message", &arguments.message, MESSAGE_MAX_CHARACTERS)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    project_managers::message(
+        &mut connection,
+        &context.events,
+        arguments.project_id,
+        arguments.message.trim(),
+        ELYSIA_USER_ID,
+    )
+    .await
+    .map_err(|error| match error {
+        diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+            _,
+        ) => ToolError::Invalid(
+            "the project named does not exist; call elysia_overview for the projects".to_owned(),
+        ),
+        error => internal(scope, "elysia.message_project_manager", &error),
+    })?;
+    Ok(json!({
+        "note": "Sent. The project's Project Manager wakes now and answers on its turn.",
     }))
 }
 

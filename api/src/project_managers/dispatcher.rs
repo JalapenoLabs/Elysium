@@ -1,0 +1,519 @@
+// Copyright © 2026 Jalapeno Labs
+
+//! Starts each project's Project Manager when what woke it is due, and records how its turns end.
+//!
+//! The dispatcher looks when it is signalled ([`Signal::ProjectManagers`]), when a turn it runs
+//! ends, when the next project's wakes go quiet ([`super::queue`]), and every [`TICK`] in case a
+//! signal was lost. Each look starts a turn for every project that is due, the longest waiting
+//! first, while fewer than [`MAX_CONCURRENT_TURNS`] run, each in a task of its own. A project's
+//! turns run one at a time, which the database holds too (`project_manager_turns_one_running`).
+//!
+//! A turn that ends records its outcome: the session it left, kept for the next turn to resume;
+//! its reply and summary; and, when it did its work, a record on the project's timeline. A turn
+//! refused because every credential is spent holds its project until the limit resets and gives
+//! its wakes back; so does one the engine stopped in the middle of, failed at the next start
+//! ([`run`]), so no wake is lost to a restart. A turn that failed of itself keeps its wakes, since
+//! another try at once would most likely fail the same way; its failure shows beside them.
+
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
+
+use chrono::Utc;
+use diesel_async::{AsyncConnection, AsyncPgConnection};
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+use tracing::{Level, event};
+use uuid::Uuid;
+
+use super::prompt::{self, ProjectBrief, PromptBatch, PromptMessage, PromptRecord, TurnContext};
+use super::queue;
+use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
+use super::timeline;
+use crate::agent_models::{self, Agent};
+use crate::database::Pool;
+use crate::elysia::prompt::read_back;
+use crate::elysia::runner::{ElysiaOutcome, RunnerError};
+use crate::models::attribution::ELYSIA_ACTOR;
+use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
+use crate::models::user::{self, ELYSIA_USER_ID};
+use crate::models::{project, timeline_record, work_batch};
+use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::tools::grants::Grants;
+use crate::tools::{self, CallScope, ProjectManagerScope};
+
+/// How often the dispatcher looks without being signalled.
+pub const TICK: Duration = Duration::from_secs(30);
+
+/// The most Project Manager turns running at once, across every project. They share the
+/// runner's eight turn slots with coding sessions, Elysia, and summaries, and a meeting about
+/// many projects wakes all of their Project Managers together; two keeps most slots for the
+/// work people are watching.
+pub const MAX_CONCURRENT_TURNS: usize = 2;
+
+/// The most records and batch results one turn takes. Messages are always taken whole. The
+/// rest waits for the next turn, which is due as soon as this one ends; forty keeps each
+/// record's excerpt in the prompt.
+pub const MAX_WAKES_PER_TURN: i64 = 40;
+
+/// The error recorded for a turn the engine stopped in the middle of.
+const INTERRUPTED_ERROR: &str =
+    "Elysium stopped while this turn ran; what woke it waits for the next turn";
+
+/// The longest error, reply, and summary stored, matching their columns.
+const MAX_ERROR_CHARACTERS: usize = 2_000;
+const MAX_REPLY_CHARACTERS: usize = 20_000;
+const MAX_SUMMARY_CHARACTERS: usize = 1_000;
+
+/// What the dispatcher needs. Cheap to clone; clones share every connection.
+#[derive(Clone)]
+pub struct DispatchContext {
+    pub database: Pool,
+    pub events: EventBus,
+    pub runner: ManagerRunner,
+    /// Where each turn's grant to its tools is minted.
+    pub grants: Grants,
+}
+
+/// Runs every Project Manager's turns until `shutdown`.
+pub async fn run(context: DispatchContext, shutdown: CancellationToken) {
+    if let Err(error) = recover_interrupted(&context).await {
+        event!(
+            name: "project_managers.recover.failure",
+            Level::ERROR,
+            error.message = %format!("{error:#}"),
+            "could not fail the turns the last stop left running",
+        );
+    }
+
+    // Taken before the first look, so a wake written during any look wakes the next.
+    let mut wake = context
+        .events
+        .wake_on(|signal| *signal == Signal::ProjectManagers);
+    let mut running: JoinSet<()> = JoinSet::new();
+    loop {
+        let next_due_at = match dispatch(&context, &mut running, &shutdown).await {
+            Ok(next_due_at) => next_due_at,
+            Err(error) => {
+                event!(
+                    name: "project_managers.dispatch.failure",
+                    Level::ERROR,
+                    error.message = %format!("{error:#}"),
+                    "the dispatcher failed; it looks again on its next tick",
+                );
+                None
+            }
+        };
+        let until_due = next_due_at
+            .and_then(|at| (at - Utc::now()).to_std().ok())
+            .map_or(TICK, |until| until.min(TICK));
+        tokio::select! {
+            () = shutdown.cancelled() => break,
+            () = wake.woken() => {}
+            Some(_) = running.join_next(), if !running.is_empty() => {}
+            () = tokio::time::sleep(until_due) => {}
+        }
+    }
+    // Each turn's task sees the same cancellation and leaves its turn running, for the next start
+    // to fail and give its wakes back.
+    while running.join_next().await.is_some() {}
+    event!(
+        name: "project_managers.dispatcher.stopped",
+        Level::INFO,
+        "the Project Managers' dispatcher stopped",
+    );
+}
+
+async fn recover_interrupted(context: &DispatchContext) -> anyhow::Result<()> {
+    let mut connection = context.database.get().await?;
+    let interrupted =
+        project_manager::fail_interrupted_turns(&mut connection, INTERRUPTED_ERROR).await?;
+    for turn in &interrupted {
+        event!(
+            name: "project_managers.turn.interrupted",
+            Level::WARN,
+            project.id = %turn.project_id,
+            project_manager.turn.id = %turn.id,
+            "a turn the last stop left running was failed; its wakes wait for the next turn",
+        );
+        context.events.publish(&ServerEvent::ProjectManagerChanged {
+            project_id: turn.project_id,
+        });
+    }
+    Ok(())
+}
+
+/// Starts a turn for every project that is due while slots are free, and answers when the next
+/// project not due yet will be.
+pub(super) async fn dispatch(
+    context: &DispatchContext,
+    running: &mut JoinSet<()>,
+    shutdown: &CancellationToken,
+) -> anyhow::Result<Option<chrono::DateTime<Utc>>> {
+    let mut connection = context.database.get().await?;
+    let now = Utc::now();
+    let waiting = project_manager::waiting(&mut connection).await?;
+    if waiting.is_empty() {
+        return Ok(None);
+    }
+    let busy: HashSet<Uuid> = project_manager::running_projects(&mut connection)
+        .await?
+        .into_iter()
+        .collect();
+    let held: HashMap<Uuid, chrono::DateTime<Utc>> = project_manager::held(&mut connection, now)
+        .await?
+        .into_iter()
+        .collect();
+    let plan = queue::plan(&waiting, &busy, &held, now);
+
+    for project_id in plan.due {
+        if running.len() >= MAX_CONCURRENT_TURNS || shutdown.is_cancelled() {
+            // A turn's end looks again.
+            break;
+        }
+        let Some((turn, wakes)) =
+            project_manager::start_turn(&mut connection, project_id, MAX_WAKES_PER_TURN).await?
+        else {
+            continue;
+        };
+        event!(
+            name: "project_managers.turn.started",
+            Level::INFO,
+            project.id = %project_id,
+            project_manager.turn.id = %turn.id,
+            project_manager.turn.wakes = wakes.len(),
+            "a Project Manager's turn started",
+        );
+        context
+            .events
+            .publish(&ServerEvent::ProjectManagerChanged { project_id });
+        running.spawn(follow_turn(context.clone(), turn, wakes, shutdown.clone()));
+    }
+    Ok(plan.next_due_at)
+}
+
+/// Runs `turn` and records how it ended. A shutdown leaves it running, for the next start.
+async fn follow_turn(
+    context: DispatchContext,
+    turn: Turn,
+    wakes: Vec<Wake>,
+    shutdown: CancellationToken,
+) {
+    let carried = tokio::select! {
+        biased;
+        () = shutdown.cancelled() => return,
+        carried = carry_out(&context, &turn, &wakes) => carried,
+    };
+    if let Err(error) = carried {
+        event!(
+            name: "project_managers.turn.failure",
+            Level::ERROR,
+            project.id = %turn.project_id,
+            project_manager.turn.id = %turn.id,
+            error.message = %format!("{error:#}"),
+            "a Project Manager's turn could not be carried out",
+        );
+        let error = format!("Elysium could not carry out this turn: {error:#}");
+        if let Err(recording) = fail(&context, &turn, &error).await {
+            event!(
+                name: "project_managers.turn.record_failure",
+                Level::ERROR,
+                project_manager.turn.id = %turn.id,
+                error.message = %format!("{recording:#}"),
+                "a failed turn could not be recorded; the next start fails it",
+            );
+        }
+    }
+}
+
+/// Builds the turn's prompt, runs it, and records its outcome.
+async fn carry_out(context: &DispatchContext, turn: &Turn, wakes: &[Wake]) -> anyhow::Result<()> {
+    let project_id = turn.project_id;
+    let mut connection = context.database.get().await?;
+    let turn_context = load_context(&mut connection, turn, wakes).await?;
+    // Read as the turn starts, so a change to the setting applies from the next turn.
+    let model = agent_models::for_agent(&mut connection, Agent::ProjectManager, Some(project_id))
+        .await?
+        .choice;
+    let resume = project_manager::find(&mut connection, project_id)
+        .await?
+        .and_then(|manager| manager.runner_session_id);
+    drop(connection);
+
+    let scope = CallScope::ProjectManager(ProjectManagerScope {
+        project_id,
+        turn_id: turn.id,
+    });
+    let grant = match context.grants.grant(&scope, &tool_servers()).await {
+        Ok(grant) => grant,
+        Err(error) => {
+            let error = format!("Its tools could not be granted: {error:#}");
+            return fail(context, turn, &error).await;
+        }
+    };
+    let ran = context
+        .runner
+        .run(ManagerTurn {
+            project_id,
+            turn_id: turn.id,
+            prompt: prompt::render(&turn_context, Utc::now()),
+            instructions: prompt::INSTRUCTIONS.to_owned(),
+            resume,
+            mcp_servers: grant.mcp_servers(),
+            model,
+        })
+        .await;
+    grant.revoke().await;
+    record_outcome(context, turn, ran).await
+}
+
+/// A Project Manager's tool servers: its own, its project's work, and the knowledge base.
+fn tool_servers() -> [&'static tools::ToolServer; 3] {
+    [
+        &tools::project_manager::SERVER,
+        &tools::work::SERVER,
+        &tools::knowledge::SERVER,
+    ]
+}
+
+/// Everything the turn's wakes carry, read as it starts.
+async fn load_context(
+    connection: &mut AsyncPgConnection,
+    turn: &Turn,
+    wakes: &[Wake],
+) -> anyhow::Result<TurnContext> {
+    let project = project::find(connection, turn.project_id).await?;
+    let names = user::names(connection).await?;
+
+    let mut messages = Vec::new();
+    let mut record_ids = Vec::new();
+    let mut batch_ids = Vec::new();
+    for wake in wakes {
+        match wake.kind {
+            WakeKind::Message => messages.push(PromptMessage {
+                author: names
+                    .get(&wake.created_by)
+                    .cloned()
+                    .unwrap_or_else(|| "Someone".to_owned()),
+                from_elysia: wake.created_by == ELYSIA_USER_ID,
+                body: wake.body.clone().unwrap_or_default(),
+                sent_at: wake.created_at,
+            }),
+            WakeKind::Record => record_ids.extend(wake.timeline_record_id),
+            WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
+        }
+    }
+
+    // A record taken off the project since it woke it is left out: it is no longer news here.
+    let mut records: Vec<PromptRecord> =
+        timeline_record::attributed_among(connection, turn.project_id, &record_ids)
+            .await?
+            .into_iter()
+            .map(|(record, attribution)| PromptRecord {
+                id: record.id,
+                summary: record.metadata["summary"].as_str().map(str::to_owned),
+                source_kind: record.source_kind,
+                occurred_at: record.occurred_at,
+                actor: record.actor,
+                title: record.title,
+                body: record.body,
+                confidence: attribution.confidence,
+                attributed_by_person: attribution.attributed_by != ELYSIA_ACTOR,
+            })
+            .collect();
+    records.sort_by_key(|record| record.occurred_at);
+    let batches = work_batch::find_many(connection, &batch_ids)
+        .await?
+        .into_iter()
+        .map(|batch| PromptBatch {
+            id: batch.id,
+            title: batch.title,
+            state: batch.state,
+            result: batch.result,
+        })
+        .collect();
+
+    // Wakes from before the project's previous turn started, which that turn failed without
+    // doing, were handed back to this one.
+    let previous = project_manager::list_turns(connection, turn.project_id, 2)
+        .await?
+        .into_iter()
+        .find(|candidate| candidate.id != turn.id);
+    let retried = previous.is_some_and(|previous| {
+        previous.status == TurnStatus::Failed
+            && wakes
+                .iter()
+                .any(|wake| wake.created_at < previous.started_at)
+    });
+
+    Ok(TurnContext {
+        project: ProjectBrief {
+            id: project.id,
+            name: project.name,
+            description: project.description,
+        },
+        messages,
+        records,
+        batches,
+        retried,
+        still_waiting: project_manager::waiting_count(connection, turn.project_id).await?,
+    })
+}
+
+/// Records how the turn ended, and announces it.
+async fn record_outcome(
+    context: &DispatchContext,
+    turn: &Turn,
+    ran: Result<Ran, RunnerError>,
+) -> anyhow::Result<()> {
+    let Ran { outcome, log } = match ran {
+        Ok(ran) => ran,
+        Err(error) => return fail(context, turn, &error.to_string()).await,
+    };
+    let mut connection = context.database.get().await?;
+    let (ElysiaOutcome::Completed { session_id, .. }
+    | ElysiaOutcome::UsageLimited { session_id, .. }
+    | ElysiaOutcome::Failed { session_id, .. }) = &outcome;
+    if let Some(session_id) = session_id {
+        project_manager::set_runner_session_id(&mut connection, turn.project_id, session_id)
+            .await?;
+    }
+
+    match outcome {
+        ElysiaOutcome::Completed { result, .. } => {
+            record_completed(context, &mut connection, turn, result.as_deref(), &log).await?;
+        }
+        ElysiaOutcome::UsageLimited { resets_at, .. } => {
+            project_manager::hold_until(&mut connection, turn.project_id, resets_at).await?;
+            let error = format!(
+                "Every Claude credential reached its usage limit. What woke this turn waits until \
+                 {}.",
+                resets_at.to_rfc3339()
+            );
+            project_manager::finish_turn(
+                &mut connection,
+                turn.id,
+                Finished::Failed {
+                    error: &error,
+                    retry: true,
+                },
+                log.as_str(),
+            )
+            .await?;
+        }
+        ElysiaOutcome::Failed { error, .. } => {
+            let error = truncate(&error, MAX_ERROR_CHARACTERS);
+            project_manager::finish_turn(
+                &mut connection,
+                turn.id,
+                Finished::Failed {
+                    error: &error,
+                    retry: false,
+                },
+                log.as_str(),
+            )
+            .await?;
+        }
+    }
+    context.events.publish(&ServerEvent::ProjectManagerChanged {
+        project_id: turn.project_id,
+    });
+    Ok(())
+}
+
+/// Records a turn that did its work: its reply and summary, and its record on the project's
+/// timeline, in one transaction, then announces the record.
+async fn record_completed(
+    context: &DispatchContext,
+    connection: &mut AsyncPgConnection,
+    turn: &Turn,
+    result: Option<&str>,
+    log: &TurnLog,
+) -> anyhow::Result<()> {
+    let read = read_back(result.unwrap_or_default());
+    let reply = read
+        .reply
+        .map(|reply| truncate(&reply, MAX_REPLY_CHARACTERS));
+    // A turn that wrote no summary line is headed by its reply's first line.
+    let summary = read
+        .summary
+        .or_else(|| {
+            reply
+                .as_deref()
+                .and_then(|reply| reply.lines().next())
+                .map(str::to_owned)
+        })
+        .map(|summary| truncate(&summary, MAX_SUMMARY_CHARACTERS));
+    let record = connection
+        .transaction(async |connection| {
+            let record = match &summary {
+                Some(summary) => Some(
+                    timeline::record_turn(
+                        connection,
+                        turn.project_id,
+                        turn.id,
+                        summary,
+                        reply.as_deref(),
+                        Utc::now(),
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
+            project_manager::finish_turn(
+                connection,
+                turn.id,
+                Finished::Succeeded {
+                    summary: summary.as_deref(),
+                    reply: reply.as_deref(),
+                    timeline_record_id: record.as_ref().map(|record| record.id),
+                },
+                log.as_str(),
+            )
+            .await?;
+            diesel::QueryResult::Ok(record)
+        })
+        .await?;
+    if let Some(record) = record {
+        context.events.publish(&ServerEvent::TimelineRecordCreated {
+            id: record.id,
+            source_kind: record.source_kind,
+            created_by: record.created_by,
+            action_item_id: None,
+            conversation_id: None,
+        });
+    }
+    event!(
+        name: "project_managers.turn.finished",
+        Level::INFO,
+        project.id = %turn.project_id,
+        project_manager.turn.id = %turn.id,
+        "a Project Manager's turn finished",
+    );
+    Ok(())
+}
+
+/// Fails `turn` with `error`, and announces it. Its wakes stay with it: trying again at once
+/// would most likely fail the same way, and the failure shows on the project's page beside what
+/// woke it.
+async fn fail(context: &DispatchContext, turn: &Turn, error: &str) -> anyhow::Result<()> {
+    let mut connection = context.database.get().await?;
+    let error = truncate(error, MAX_ERROR_CHARACTERS);
+    project_manager::finish_turn(
+        &mut connection,
+        turn.id,
+        Finished::Failed {
+            error: &error,
+            retry: false,
+        },
+        "",
+    )
+    .await?;
+    context.events.publish(&ServerEvent::ProjectManagerChanged {
+        project_id: turn.project_id,
+    });
+    Ok(())
+}
+
+fn truncate(text: &str, characters: usize) -> String {
+    text.chars().take(characters).collect()
+}

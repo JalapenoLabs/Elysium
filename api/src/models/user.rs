@@ -32,6 +32,11 @@ pub const ELYSIA_USER_ID: Uuid = uuid!("00000000-0000-0000-0000-000000000002");
 /// Every coding session's agent. History names the session as well (`session:<n>`).
 pub const CODING_AGENT_USER_ID: Uuid = uuid!("00000000-0000-0000-0000-000000000003");
 
+/// Every project's Project Manager. History names the project as well
+/// (`project_manager:<project id>`), and what it puts on a timeline is the workspace's, not one
+/// person's (`crate::models::timeline_record`).
+pub const PROJECT_MANAGER_USER_ID: Uuid = uuid!("00000000-0000-0000-0000-000000000004");
+
 /// Serializes the first sign-up: two people signing up at once must not both become the
 /// first admin. The value is arbitrary but constant; it spells "Users" in ASCII.
 const PROVISION_LOCK_ID: i64 = 0x0055_7365_7273;
@@ -1115,7 +1120,12 @@ mod tests {
             .await
             .expect("ada");
 
-        for machine in [SYSTEM_USER_ID, ELYSIA_USER_ID, CODING_AGENT_USER_ID] {
+        for machine in [
+            SYSTEM_USER_ID,
+            ELYSIA_USER_ID,
+            CODING_AGENT_USER_ID,
+            PROJECT_MANAGER_USER_ID,
+        ] {
             assert!(matches!(
                 approve(&mut connection, machine, PersonRole::Admin, ada.id).await,
                 Err(AccountError::Invalid(_))

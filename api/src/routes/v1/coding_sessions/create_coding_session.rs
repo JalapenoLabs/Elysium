@@ -280,7 +280,10 @@ fn repository_directory(url: &str) -> Option<&str> {
     Some(name)
 }
 
-fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
+/// Refuses a URL Elysium cannot clone: one that is not https, http, ssh, or `git@`, an SSH remote
+/// off github.com, or one that names no repository. A Project Manager's batches name their
+/// repositories by the same rule (`crate::project_managers::batches`).
+pub(crate) fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
     let has_git_scheme = ["https://", "http://", "ssh://", "git@"]
         .iter()
         .any(|scheme| url.starts_with(scheme));

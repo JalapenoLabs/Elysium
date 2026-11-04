@@ -61,6 +61,8 @@ pub enum Proposer {
     Elysia,
     /// The agent of the coding session with this number.
     Session(i64),
+    /// The Project Manager of the project with this id.
+    ProjectManager(Uuid),
 }
 
 impl Proposer {
@@ -69,13 +71,18 @@ impl Proposer {
         match self {
             Self::Elysia => Actor::Elysia,
             Self::Session(number) => Actor::Session(number),
+            Self::ProjectManager(project) => Actor::ProjectManager(project),
         }
     }
 
-    /// Reads a proposer in the form it is stored: `elysia` or `session:<number>`.
+    /// Reads a proposer in the form it is stored: `elysia`, `session:<number>`, or
+    /// `project_manager:<project id>`.
     pub fn parse(text: &str) -> Option<Self> {
         if text == "elysia" {
             return Some(Self::Elysia);
+        }
+        if let Some(project) = text.strip_prefix("project_manager:") {
+            return Some(Self::ProjectManager(project.parse().ok()?));
         }
         let number = text.strip_prefix("session:")?.parse().ok()?;
         Some(Self::Session(number))
@@ -700,13 +707,19 @@ mod tests {
     }
 
     #[test]
-    fn proposers_are_elysia_or_a_session_and_act_as_themselves() {
+    fn proposers_are_elysia_a_session_or_a_project_manager_and_act_as_themselves() {
         assert_eq!(Proposer::parse("elysia"), Some(Proposer::Elysia));
         assert_eq!(Proposer::parse("session:12"), Some(Proposer::Session(12)));
         assert_eq!(Proposer::parse("user"), None, "the user acts directly");
         assert_eq!(Proposer::parse("session:twelve"), None);
         assert_eq!(Proposer::Session(12).actor(), Actor::Session(12));
         assert_eq!(Proposer::Elysia.actor().to_string(), "elysia");
+
+        let project = Uuid::now_v7();
+        let manager = Proposer::ProjectManager(project);
+        assert_eq!(Proposer::parse(&manager.actor().to_string()), Some(manager));
+        assert_eq!(manager.actor(), Actor::ProjectManager(project));
+        assert_eq!(Proposer::parse("project_manager:launch"), None);
     }
 
     #[test]

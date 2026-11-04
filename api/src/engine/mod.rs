@@ -7,8 +7,9 @@
 //! runs:
 //!
 //! - **agent turns**: the runner and the workspace it prepares, sessions' turns
-//!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), and the Claude
-//!   account keeper that refreshes what turns run on (`crate::claude_accounts`);
+//!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), every project's
+//!   Project Manager (`crate::project_managers`), and the Claude account keeper that refreshes
+//!   what turns run on (`crate::claude_accounts`);
 //! - **workflow runs**: the step workers that claim each run's steps from the queue and run them
 //!   (`crate::workflows`), and the schedule that starts the company doc's review
 //!   (`crate::company_doc::workflow`);
@@ -72,6 +73,7 @@ use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
 use crate::meetings::{Meetings, MeetingsDeps};
 use crate::passwords::remote;
+use crate::project_managers::{self, runner::ManagerRunner};
 use crate::realtime::Signal;
 use crate::runner::Runner;
 use crate::services::{self, Foundation};
@@ -240,6 +242,17 @@ pub async fn run() -> Result<()> {
     loops.push((
         "company_doc.review",
         company_doc_review::schedule(database.clone(), events.clone(), shutdown.clone()),
+    ));
+    // Every project's Project Manager, one turn per project at a time.
+    loops.push((
+        "project_managers.dispatcher",
+        project_managers::start(
+            database.clone(),
+            events.clone(),
+            ManagerRunner::Host(runner.clone()),
+            grants.clone(),
+            shutdown.clone(),
+        ),
     ));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
     let elysia_tasks = elysia.start(

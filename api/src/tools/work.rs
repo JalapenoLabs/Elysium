@@ -158,26 +158,56 @@ const HISTORY_MAX: usize = 50;
 /// The longest comment an agent may write, matching the database's limit.
 const COMMENT_MAX_CHARACTERS: usize = 20_000;
 
-/// What a call reaches: the session and its project, and the item it was started from.
+/// Which agent a call is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkAgent {
+    /// The agent of the coding session with this number.
+    Session(i64),
+    /// The project's Project Manager.
+    ProjectManager,
+}
+
+/// What a call reaches: the agent and its project, and the item a session was started from.
 /// The parts of [`CallScope`] that need no workspace, so the queries are testable alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each field is an id, named as on CallScope and the session"
-)]
 struct WorkScope {
-    session_id: i64,
+    agent: WorkAgent,
     project_id: Uuid,
     action_item_id: Option<Uuid>,
+}
+
+impl WorkScope {
+    /// Who the agent's writes are recorded as.
+    const fn actor(self) -> Actor {
+        match self.agent {
+            WorkAgent::Session(number) => Actor::Session(number),
+            WorkAgent::ProjectManager => Actor::ProjectManager(self.project_id),
+        }
+    }
 }
 
 impl TryFrom<&CallScope> for WorkScope {
     type Error = ToolError;
 
-    /// Work is scoped to a project. A Studio session without one never declares these tools,
-    /// so a call from one is refused rather than answered from no project at all.
+    /// Work is scoped to a project: a session's, or a Project Manager's own. A Studio session
+    /// without one never declares these tools, so a call from one is refused rather than
+    /// answered from no project at all.
     fn try_from(scope: &CallScope) -> Result<Self, ToolError> {
-        let session = scope.session()?;
+        let session = match scope {
+            CallScope::Session(session) => session,
+            CallScope::ProjectManager(manager) => {
+                return Ok(Self {
+                    agent: WorkAgent::ProjectManager,
+                    project_id: manager.project_id,
+                    action_item_id: None,
+                });
+            }
+            CallScope::Elysia(_) => {
+                return Err(ToolError::WrongAgent(
+                    "coding sessions and Project Managers",
+                ));
+            }
+        };
         let Some(project_id) = session.project_id else {
             return Err(ToolError::Invalid(
                 "this session belongs to no project, so it has no action items or initiatives"
@@ -185,7 +215,7 @@ impl TryFrom<&CallScope> for WorkScope {
             ));
         };
         Ok(Self {
-            session_id: session.session_id,
+            agent: WorkAgent::Session(session.session_id),
             project_id,
             action_item_id: session.action_item_id,
         })
@@ -625,6 +655,13 @@ async fn pull_request_target(
     connection: &mut AsyncPgConnection,
     scope: WorkScope,
 ) -> Result<(Uuid, Uuid), Failure> {
+    let WorkAgent::Session(session_id) = scope.agent else {
+        return Err(ToolError::Invalid(
+            "a Project Manager opens no pull requests of its own; the workers of its batches do"
+                .to_owned(),
+        )
+        .into());
+    };
     let Some(item_id) = scope.action_item_id else {
         return Err(ToolError::Invalid(
             "this session was not started from an action item, so it has none to link a pull \
@@ -634,17 +671,17 @@ async fn pull_request_target(
         .into());
     };
     find_item(connection, scope, item_id).await?;
-    let credential_id = pull_request_credential(connection, scope).await?;
+    let credential_id = pull_request_credential(connection, session_id).await?;
     Ok((item_id, credential_id))
 }
 
-/// The GitHub token the session started with, which reads the pull requests its agent
+/// The GitHub token session `session_id` started with, which reads the pull requests its agent
 /// names.
 async fn pull_request_credential(
     connection: &mut AsyncPgConnection,
-    scope: WorkScope,
+    session_id: i64,
 ) -> Result<Uuid, Failure> {
-    let session = coding_session::find(connection, scope.session_id).await?;
+    let session = coding_session::find(connection, session_id).await?;
     session.github_credential_id.ok_or_else(|| {
         ToolError::Invalid(
             "this session has no GitHub token, so Elysium cannot read the pull request; \
@@ -884,6 +921,16 @@ async fn comment_on_item(
     arguments: CommentArguments,
     now: DateTime<Utc>,
 ) -> Result<Recorded<Comment>, Failure> {
+    if scope.agent == WorkAgent::ProjectManager {
+        // A comment is posted to the item's linked issue, which reaches people outside
+        // Elysium; a Project Manager proposes it for the person to approve instead.
+        return Err(ToolError::Invalid(
+            "a Project Manager's comments are proposed, not written: propose one with \
+             work_propose_changes as a comment operation"
+                .to_owned(),
+        )
+        .into());
+    }
     let body = arguments.body.trim();
     if body.is_empty() || body.chars().count() > COMMENT_MAX_CHARACTERS {
         return Err(ToolError::Invalid(format!(
@@ -896,7 +943,7 @@ async fn comment_on_item(
         connection,
         arguments.item_id,
         body.to_owned(),
-        Actor::Session(scope.session_id),
+        scope.actor(),
         now,
     )
     .await?;

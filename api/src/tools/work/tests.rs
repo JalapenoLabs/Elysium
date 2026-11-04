@@ -119,7 +119,7 @@ async fn fixture(connection: &mut AsyncPgConnection) -> Fixture {
     let other_project = project_named(connection, "Farworlds").await;
     Fixture {
         scope: WorkScope {
-            session_id: 7,
+            agent: WorkAgent::Session(7),
             project_id,
             action_item_id: None,
         },
@@ -719,7 +719,7 @@ async fn session_with(
     .await
     .expect("session");
     WorkScope {
-        session_id: session.id,
+        agent: WorkAgent::Session(session.id),
         ..scope
     }
 }
@@ -797,4 +797,66 @@ async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() 
         .await
         .expect_err("a deleted item");
     assert_eq!(refusal(refused), ToolError::ItemUnavailable(item.id));
+}
+
+/// A comment reaches the item's linked issue, outside Elysium, so a Project Manager proposes it
+/// rather than writing it.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_project_manager_proposes_comments_rather_than_writing_them() {
+    let (_url, mut connection) = migrated_database().await;
+    let Fixture { scope, .. } = fixture(&mut connection).await;
+    let manager = WorkScope {
+        agent: WorkAgent::ProjectManager,
+        ..scope
+    };
+    let item = item_in(
+        &mut connection,
+        "Pricing page",
+        vec![scope.project_id],
+        vec![],
+    )
+    .await;
+
+    let refused = comment_on_item(
+        &mut connection,
+        manager,
+        CommentArguments {
+            item_id: item.id,
+            body: "On it.".to_owned(),
+        },
+        Utc::now(),
+    )
+    .await
+    .expect_err("proposed instead");
+    assert!(
+        matches!(refusal(refused), ToolError::Invalid(message) if message.contains("work_propose_changes"))
+    );
+    assert!(
+        action_item_comment::list(&mut connection, item.id)
+            .await
+            .expect("comments")
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_project_managers_turn_reaches_its_own_project_and_elysia_none() {
+    let project_id = Uuid::now_v7();
+    let scope = CallScope::ProjectManager(crate::tools::ProjectManagerScope {
+        project_id,
+        turn_id: Uuid::now_v7(),
+    });
+    let work = WorkScope::try_from(&scope).expect("a Project Manager works in its project");
+    assert_eq!(work.agent, WorkAgent::ProjectManager);
+    assert_eq!(work.project_id, project_id);
+    assert_eq!(work.actor(), Actor::ProjectManager(project_id));
+
+    let elysia = CallScope::Elysia(crate::tools::ElysiaScope {
+        turn_id: Uuid::now_v7(),
+    });
+    assert!(matches!(
+        WorkScope::try_from(&elysia),
+        Err(ToolError::WrongAgent(_))
+    ));
 }

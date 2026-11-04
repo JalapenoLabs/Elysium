@@ -39,6 +39,9 @@ pub enum Signal {
     LinkWatcher,
     /// Elysia's queue or one of her holds changed.
     Elysia,
+    /// Something woke a project's Project Manager: a message, a record on its project, or a
+    /// batch's result.
+    ProjectManagers,
     /// A Claude account was signed in, or a turn finished: the account keeper reads usage now.
     ClaudeAccounts,
     /// The workspace settings changed, so the runner fetches `~/.claude` again.

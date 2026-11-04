@@ -4,8 +4,8 @@
 //! names the MCP server gives them (`crate::mcp`), so an agent searches, opens, and proposes the
 //! same way in a turn and over MCP. See `docs/knowledge.md`.
 //!
-//! Every coding and Studio session's turns get it, project or not, and so do Elysia's: the
-//! knowledge base knows the company, not one project.
+//! Every coding and Studio session's turns get it, project or not, and so do Elysia's and every
+//! Project Manager's: the knowledge base knows the company, not one project.
 //!
 //! - `knowledge_search`, `knowledge_get`, and `meetings_list` call the knowledge routes' own
 //!   functions (`routes::v1::knowledge`), with the same arguments and schemas the MCP server
@@ -13,7 +13,8 @@
 //!   the turn reads for ([`reader`]).
 //! - `company_doc_read` answers what the Company doc page reads, every section with its pending
 //!   proposals; `company_doc_propose` proposes through `crate::company_doc::propose`, as the
-//!   session's coding agent or as Elysia, and nothing changes until a person approves it.
+//!   session's coding agent, as Elysia, or as the Project Manager, and nothing changes until a
+//!   person approves it.
 //!
 //! Every call first checks, in the database, that the turn may read the knowledge base at all
 //! ([`reader`]), as the routes check every request.
@@ -36,7 +37,7 @@ use crate::errors::ApiError;
 use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRIPTION};
 use crate::models::coding_session;
 use crate::models::company_doc::{CompanyDocError, Proposer, Section};
-use crate::models::user::{self, ELYSIA_USER_ID};
+use crate::models::user::{self, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::routes::v1::knowledge::{
     self, DocumentArguments, ListMeetingsRequest, SearchKnowledgeRequest,
 };
@@ -165,7 +166,7 @@ fn propose_schema() -> Value {
 /// A session's agent acts for whoever started the session: a company member, or one of
 /// Elysium's own machines. A guest, or a person disabled since, reaches none of the knowledge
 /// base, as the routes refuse them (`docs/knowledge.md`, Who sees what). Elysia's own turns act
-/// for the workspace and read as herself.
+/// for the workspace and read as herself, and a Project Manager's as its machine user.
 ///
 /// # Errors
 /// [`ToolError::Refused`] when the session's starter may not read the knowledge base,
@@ -174,6 +175,7 @@ fn propose_schema() -> Value {
 async fn reader(context: &ToolContext, scope: &CallScope) -> Result<Uuid, ToolError> {
     let session_id = match scope {
         CallScope::Elysia(_) => return Ok(ELYSIA_USER_ID),
+        CallScope::ProjectManager(_) => return Ok(PROJECT_MANAGER_USER_ID),
         CallScope::Session(session) => session.session_id,
     };
     let mut connection = context
@@ -303,6 +305,7 @@ async fn run_propose(
         CallScope::Elysia(_) => Proposer::Elysia {
             workflow_run_id: None,
         },
+        CallScope::ProjectManager(manager) => Proposer::ProjectManager(manager.project_id),
     };
     let mut connection = context
         .database

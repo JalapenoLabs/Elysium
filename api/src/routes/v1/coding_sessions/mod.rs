@@ -16,6 +16,7 @@ mod rename_coding_session;
 mod start_turn;
 mod watch_desktop;
 
+pub(crate) use create_coding_session::validate_repository_url;
 pub use create_coding_session::{CreateCodingSessionRequest, create};
 pub use list_coding_sessions::{find, list};
 pub use list_session_events::{EventWindow, Keep, read_events};

@@ -57,6 +57,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let query = TimelineQuery {
         owner: current.id(),
+        shared: current.0.is_company_member(),
         project_id: filters.project_id,
         action_item_id: filters.action_item_id,
         meeting_id: filters.meeting_id,

@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{Failure, WorkScope, find_initiative, find_item, pull_request_credential};
+use super::{Failure, WorkAgent, WorkScope, find_initiative, find_item, pull_request_credential};
 use crate::action_items::changesets::{
     AddLink, OPERATIONS_MAX, Operation, Proposal, ProposedOperation, Proposer, Subject, Target,
 };
@@ -158,8 +158,15 @@ pub(super) async fn run(
             .get()
             .await
             .map_err(|error| internal(scope, "database.connect", &error))?;
+        // Only a session has a GitHub token to read a pull request with.
+        let WorkAgent::Session(session_id) = work_scope.agent else {
+            return Err(ToolError::Invalid(
+                "a Project Manager links no pull requests; propose a link to an issue instead"
+                    .to_owned(),
+            ));
+        };
         Some(
-            pull_request_credential(&mut connection, work_scope)
+            pull_request_credential(&mut connection, session_id)
                 .await
                 .map_err(|failure| failure.into_tool_error(scope, OPERATION))?,
         )
@@ -270,7 +277,10 @@ pub(super) async fn stage(
     }
 
     let proposal = Proposal {
-        proposer: Proposer::Session(scope.session_id),
+        proposer: match scope.agent {
+            WorkAgent::Session(number) => Proposer::Session(number),
+            WorkAgent::ProjectManager => Proposer::ProjectManager(scope.project_id),
+        },
         project_id: Some(scope.project_id),
         summary,
         operations: scoped,

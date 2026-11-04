@@ -5,9 +5,18 @@
 //!
 //! A record is attributed to a project with a confidence and who attributed it
 //! (`timeline_record_projects`). Elysia attributes as segmenting reads a meeting or a
-//! conversation; a person confirms, adds, or removes. Every change goes through this module, which
-//! records it in `timeline_record_events` in the same transaction, with what the attribution was
-//! before and after, so any change can be shown and undone.
+//! conversation; a person confirms, adds, or removes; a Project Manager attributes what it puts
+//! on its own project's timeline. Every change goes through this module, which records it in
+//! `timeline_record_events` in the same transaction, with what the attribution was before and
+//! after, so any change can be shown and undone.
+//!
+//! # A new attribution wakes the project's Project Manager
+//!
+//! A record newly on a project, whoever put it there and however (segmenting a meeting or a
+//! conversation, a person adding it, an undo putting it back), is news for that project's
+//! Project Manager, so the change wakes it in the same transaction
+//! (`crate::models::project_manager::wake_for_record`). A change of how sure an attribution is
+//! wakes nothing, and neither does what a Project Manager puts on the timeline itself.
 //!
 //! # A person's word stands
 //!
@@ -26,14 +35,19 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::database::schema::{timeline_record_events, timeline_record_projects};
+use crate::models::project_manager;
 use crate::models::timeline_record::Attribution;
-use crate::models::user::ELYSIA_USER_ID;
+use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// How sure a person's own attribution is.
 pub const PERSON_CONFIDENCE: f32 = 1.0;
 
 /// How Elysia is named in `attributed_by`, the actor form history uses.
 pub const ELYSIA_ACTOR: &str = "elysia";
+
+/// How a Project Manager is named in `attributed_by`. Its records are on its own project alone,
+/// so the project names which one.
+pub const PROJECT_MANAGER_ACTOR: &str = "project_manager";
 
 /// Who changes an attribution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,14 +56,17 @@ pub enum Attributor {
     Elysia,
     /// A person, the record's owner.
     Person(Uuid),
+    /// A Project Manager, putting its own turns and decisions on its project's timeline.
+    ProjectManager,
 }
 
 impl Attributor {
-    /// The actor `attributed_by` names: `elysia`, or `user:<id>`.
+    /// The actor `attributed_by` names: `elysia`, `user:<id>`, or `project_manager`.
     fn actor(self) -> String {
         match self {
             Self::Elysia => ELYSIA_ACTOR.to_owned(),
             Self::Person(id) => format!("user:{id}"),
+            Self::ProjectManager => PROJECT_MANAGER_ACTOR.to_owned(),
         }
     }
 
@@ -58,6 +75,7 @@ impl Attributor {
         match self {
             Self::Elysia => ELYSIA_USER_ID,
             Self::Person(id) => id,
+            Self::ProjectManager => PROJECT_MANAGER_USER_ID,
         }
     }
 }
@@ -174,7 +192,7 @@ pub async fn attribute(
 ) -> QueryResult<Written> {
     let confidence = match by {
         Attributor::Person(_) => PERSON_CONFIDENCE,
-        Attributor::Elysia => confidence,
+        Attributor::Elysia | Attributor::ProjectManager => confidence,
     };
     let after = Held {
         confidence,
@@ -197,6 +215,10 @@ pub async fn attribute(
                 return Ok(Written::Unchanged);
             }
             write(connection, record_id, project_id, &after).await?;
+            if before.is_none() && by != Attributor::ProjectManager {
+                project_manager::wake_for_record(connection, project_id, record_id, by.user_id())
+                    .await?;
+            }
             let entry = record(
                 connection,
                 Change {
@@ -301,7 +323,13 @@ pub async fn undo(
             }
             let restored = undone.before();
             match &restored {
-                Some(held) => write(connection, record_id, project_id, held).await?,
+                Some(held) => {
+                    write(connection, record_id, project_id, held).await?;
+                    if current.is_none() {
+                        project_manager::wake_for_record(connection, project_id, record_id, person)
+                            .await?;
+                    }
+                }
                 None => remove(connection, record_id, project_id).await?,
             }
             let kind = match restored {
@@ -370,7 +398,11 @@ async fn person_decided(
         timeline_record_events::table
             .filter(timeline_record_events::timeline_record_id.eq(record_id))
             .filter(timeline_record_events::project_id.eq(project_id))
-            .filter(timeline_record_events::created_by.ne(ELYSIA_USER_ID)),
+            // Only a person decides; Elysia and the Project Managers are machines.
+            .filter(
+                timeline_record_events::created_by
+                    .ne_all([ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID]),
+            ),
     ))
     .get_result(connection)
     .await

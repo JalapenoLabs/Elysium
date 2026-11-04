@@ -5,6 +5,12 @@
 //!
 //! A record belongs to whoever it was ingested for, and only they list it: a person's mail is
 //! theirs even when it is about a shared project.
+//!
+//! What Elysium's own Project Managers put on a project's timeline (their turns and decisions,
+//! `crate::project_managers::timeline`) is nobody's in particular: it belongs to the workspace,
+//! owned by [`PROJECT_MANAGER_USER_ID`], and everyone who reads a timeline reads it
+//! ([`SHARED_OWNERS`]). Only a record's own owner changes what it is attributed to, so nobody
+//! moves those.
 
 use std::collections::HashMap;
 
@@ -20,6 +26,11 @@ use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::meetings::segmentation::MAX_SEGMENTS;
 use crate::models::knowledge_document::{self, KnowledgeSource};
+use crate::models::user::PROJECT_MANAGER_USER_ID;
+
+/// The owners whose records every reader of a timeline reads besides their own: Elysium's own
+/// agents, whose records are about a project rather than any one person's feed.
+pub const SHARED_OWNERS: [Uuid; 1] = [PROJECT_MANAGER_USER_ID];
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = timeline_records, check_for_backend(diesel::pg::Pg))]
@@ -329,6 +340,9 @@ pub async fn set_action_item(
 #[derive(Debug, Clone, Copy)]
 pub struct TimelineQuery {
     pub owner: Uuid,
+    /// Whether the workspace's records ([`SHARED_OWNERS`]) are read too: for the company's
+    /// members, never a guest, since they quote what was ingested.
+    pub shared: bool,
     /// Only records attributed to this project.
     pub project_id: Option<Uuid>,
     /// Only the record that raised this action item.
@@ -340,12 +354,16 @@ pub struct TimelineQuery {
     pub limit: i64,
 }
 
-/// `owner`'s records that `query` narrows to, on every page: its project and action item, but
-/// not its paging. A page and the total it is counted against share this one filter, so they
-/// never disagree about what the timeline holds.
+/// `owner`'s records, and the workspace's when `query.shared`, that `query` narrows to, on
+/// every page: its project and action item, but not its paging. A page and the total it is
+/// counted against share this one filter, so they never disagree about what the timeline holds.
 fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> {
+    let mut readable = vec![query.owner];
+    if query.shared {
+        readable.extend(SHARED_OWNERS);
+    }
     let mut statement = timeline_records::table
-        .filter(timeline_records::created_by.eq(query.owner))
+        .filter(timeline_records::created_by.eq_any(readable))
         .into_boxed();
     if let Some(project_id) = query.project_id {
         statement = statement.filter(
@@ -398,6 +416,7 @@ pub async fn of_meeting(
 ) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
     let query = TimelineQuery {
         owner,
+        shared: false,
         project_id: None,
         action_item_id: None,
         meeting_id: Some(meeting_id),
@@ -415,7 +434,7 @@ pub async fn count(connection: &mut AsyncPgConnection, query: &TimelineQuery) ->
     matching(query).count().get_result(connection).await
 }
 
-/// `owner`'s records, newest first, with each one's attributions.
+/// `owner`'s records and the workspace's, newest first, with each one's attributions.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -489,6 +508,77 @@ pub async fn find_owned(
         .load(connection)
         .await?;
     Ok((record, attributions))
+}
+
+/// Up to `limit` records attributed to `project_id`, every owner's, newest first and before
+/// `before` when it is given, each with its attribution to the project. For the project's
+/// Project Manager, which works for the project rather than for one person: the text it reads
+/// is the workspace's to search anyway (`docs/knowledge.md`, Who sees what).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn attributed_to(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    before: Option<DateTime<Utc>>,
+    limit: i64,
+) -> QueryResult<Vec<(TimelineRecord, Attribution)>> {
+    let mut statement = timeline_records::table
+        .inner_join(timeline_record_projects::table)
+        .filter(timeline_record_projects::project_id.eq(project_id))
+        .select((TimelineRecord::as_select(), Attribution::as_select()))
+        .order((
+            timeline_records::occurred_at.desc(),
+            timeline_records::id.desc(),
+        ))
+        .limit(limit)
+        .into_boxed();
+    if let Some(before) = before {
+        statement = statement.filter(timeline_records::occurred_at.lt(before));
+    }
+    statement.load(connection).await
+}
+
+/// The records among `ids` attributed to `project_id`, every owner's, each with its attribution
+/// to the project, in no particular order.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn attributed_among(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    ids: &[Uuid],
+) -> QueryResult<Vec<(TimelineRecord, Attribution)>> {
+    timeline_records::table
+        .inner_join(timeline_record_projects::table)
+        .filter(timeline_record_projects::project_id.eq(project_id))
+        .filter(timeline_records::id.eq_any(ids))
+        .select((TimelineRecord::as_select(), Attribution::as_select()))
+        .load(connection)
+        .await
+}
+
+/// The record `id` with its attributions, when `reader` may read it: their own, or, when
+/// `shared`, the workspace's ([`SHARED_OWNERS`]).
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist or `reader` may not read it.
+pub async fn find_readable(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    reader: Uuid,
+    shared: bool,
+) -> QueryResult<(TimelineRecord, Vec<Attribution>)> {
+    let owner = timeline_records::table
+        .find(id)
+        .select(timeline_records::created_by)
+        .first::<Uuid>(connection)
+        .await?;
+    let is_shared = shared && SHARED_OWNERS.contains(&owner);
+    if owner != reader && !is_shared {
+        return Err(diesel::result::Error::NotFound);
+    }
+    find_owned(connection, id, owner).await
 }
 
 #[cfg(test)]
@@ -627,6 +717,7 @@ mod tests {
 
         let first_page = TimelineQuery {
             owner: TEST_PERSON_ID,
+            shared: false,
             project_id: Some(launch.id),
             action_item_id: None,
             meeting_id: None,

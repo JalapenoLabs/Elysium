@@ -9,10 +9,11 @@
 //! Each server is a [`ToolServer`]: its name, the instructions the agent reads (fixed in code, or
 //! for [`knowledge`] the company's agent guidance), and a table of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
 //! so a listed tool always has a handler. Each tool set is one module with its own
-//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
-//! [`work`] for its action items and initiatives, both for coding sessions, [`elysia`]
-//! for Elysia's own turns, [`passwords`] for the logins any agent may sign in with, and
-//! [`knowledge`] for the company's knowledge base, which every agent reads.
+//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations, for coding
+//! sessions; [`work`] for its action items and initiatives, for coding sessions and Project
+//! Managers; [`elysia`] for Elysia's own turns; [`project_manager`] for a Project Manager's
+//! own; [`passwords`] for the logins any agent may sign in with; and [`knowledge`] for the
+//! company's knowledge base, which every agent reads.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
@@ -23,6 +24,7 @@ pub mod endpoint;
 pub mod grants;
 pub mod knowledge;
 pub mod passwords;
+pub mod project_manager;
 pub mod storage;
 pub mod work;
 
@@ -88,6 +90,8 @@ pub enum CallScope {
     Session(SessionScope),
     /// One of Elysia's turns. She acts for the whole workspace, so nothing narrows her reach.
     Elysia(ElysiaScope),
+    /// One turn of a project's Project Manager, which reaches its own project alone.
+    ProjectManager(ProjectManagerScope),
 }
 
 impl CallScope {
@@ -98,7 +102,9 @@ impl CallScope {
     pub fn session(&self) -> Result<&SessionScope, ToolError> {
         match self {
             Self::Session(session) => Ok(session),
-            Self::Elysia(_) => Err(ToolError::WrongAgent("coding sessions")),
+            Self::Elysia(_) | Self::ProjectManager(_) => {
+                Err(ToolError::WrongAgent("coding sessions"))
+            }
         }
     }
 
@@ -109,17 +115,38 @@ impl CallScope {
     pub fn elysia(&self) -> Result<&ElysiaScope, ToolError> {
         match self {
             Self::Elysia(elysia) => Ok(elysia),
-            Self::Session(_) => Err(ToolError::WrongAgent("Elysia")),
+            Self::Session(_) | Self::ProjectManager(_) => Err(ToolError::WrongAgent("Elysia")),
         }
     }
 
-    /// Who called, for logs: `session:<n>` or `elysia:<turn>`.
+    /// The turn one of a Project Manager's tools runs for.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::WrongAgent`] for anyone else.
+    pub fn project_manager(&self) -> Result<&ProjectManagerScope, ToolError> {
+        match self {
+            Self::ProjectManager(manager) => Ok(manager),
+            Self::Session(_) | Self::Elysia(_) => Err(ToolError::WrongAgent("Project Managers")),
+        }
+    }
+
+    /// Who called, for logs: `session:<n>`, `elysia:<turn>`, or `project_manager:<turn>`.
     pub fn label(&self) -> String {
         match self {
             Self::Session(session) => format!("session:{}", session.session_id),
             Self::Elysia(elysia) => format!("elysia:{}", elysia.turn_id),
+            Self::ProjectManager(manager) => format!("project_manager:{}", manager.turn_id),
         }
     }
+}
+
+/// One turn of a project's Project Manager: the project it plans, and the turn, which what it
+/// submits names as its provenance.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectManagerScope {
+    pub project_id: Uuid,
+    pub turn_id: Uuid,
 }
 
 /// One of Elysia's turns.
@@ -182,10 +209,11 @@ pub enum Instructions {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 5] = [
+pub const SERVERS: [&ToolServer; 6] = [
     &storage::SERVER,
     &work::SERVER,
     &elysia::SERVER,
+    &project_manager::SERVER,
     &passwords::SERVER,
     &knowledge::SERVER,
 ];

@@ -149,7 +149,7 @@ async fn fixture() -> Fixture {
     Fixture {
         connection,
         scope: WorkScope {
-            session_id: 7,
+            agent: WorkAgent::Session(7),
             project_id,
             action_item_id: None,
         },
@@ -279,5 +279,83 @@ async fn a_proposal_stages_the_projects_own_work_and_writes_nothing() {
     assert!(
         items.iter().all(|item| item.state == ActionItemState::Open),
         "and resolved nothing"
+    );
+}
+
+/// A Project Manager proposes in its own project, as itself, and once a person approves, what
+/// it proposed is recorded as its own: `project_manager:<project id>` in history and comments.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_project_manager_proposes_as_itself_and_its_approved_changes_name_it() {
+    use crate::action_items::changesets::LinkReads;
+    use crate::models::action_item_comment;
+    use crate::models::action_item_event::list_for_item;
+    use crate::models::changeset::{apply, decide};
+
+    let Fixture {
+        mut connection,
+        scope,
+        own,
+        theirs,
+        ..
+    } = fixture().await;
+    let manager = WorkScope {
+        agent: WorkAgent::ProjectManager,
+        ..scope
+    };
+    let actor = format!("project_manager:{}", manager.project_id);
+
+    let elsewhere = stage(
+        &mut connection,
+        manager,
+        "Tidy up".to_owned(),
+        vec![proposed_operation(Operation::ResolveItem(FinishItem {
+            item: existing(theirs),
+        }))],
+        Utc::now(),
+    )
+    .await
+    .expect_err("another project's item");
+    assert!(matches!(
+        elsewhere,
+        Failure::Refused(ToolError::ItemUnavailable(_))
+    ));
+
+    let staged = stage(
+        &mut connection,
+        manager,
+        "Follow-ups from the pricing meeting".to_owned(),
+        vec![proposed_operation(Operation::Comment(AddComment {
+            item: existing(own),
+            body: "A worker is on the annual pricing page.".to_owned(),
+        }))],
+        Utc::now(),
+    )
+    .await
+    .expect("staged");
+    assert_eq!(staged.changeset.proposer, actor);
+    assert_eq!(staged.changeset.project_id, Some(manager.project_id));
+
+    let id = staged.changeset.id;
+    decide(&mut connection, id, ChangesetDecision::Approved, None)
+        .await
+        .expect("approved");
+    apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("applied");
+    let comments = action_item_comment::list(&mut connection, own)
+        .await
+        .expect("comments");
+    assert_eq!(comments[0].author, actor);
+    let history = list_for_item(&mut connection, own).await.expect("history");
+    assert!(
+        history.iter().any(|entry| entry.actor == actor),
+        "the Project Manager made the change"
     );
 }
