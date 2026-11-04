@@ -17,7 +17,7 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | HTTP            | Ky                                                             |
 | Docking layout  | Dockview (`dockview-react`) on the Coding page                 |
 | Forms           | react-hook-form with Zod schemas                               |
-| Dates           | `@internationalized/date` for input, `Intl` for display        |
+| Dates           | `@internationalized/date` for input, `src/format/` for display |
 | Icons           | `react-icons/lu` (Lucide)                                      |
 | Translations    | i18next with react-i18next                                     |
 | Tests           | Vitest with jsdom and Testing Library                          |
@@ -730,6 +730,9 @@ HeroUI theme so accents match.
   `react-hooks/recommended` to TSX, but drops them. It passes `fixupConfigRules`' array result along as if it
   were a single config. The local block restores those rules, using the same plugin versions, until the shared
   package is fixed.
+- **Formatting.** `new Intl.DateTimeFormat`, `Intl.NumberFormat`, `Intl.RelativeTimeFormat`, `Intl.DurationFormat`,
+  and `toLocaleString`, `toLocaleDateString`, or `toLocaleTimeString` fail outside `src/format/` (Dates and
+  numbers).
 
 `yarn lint` fails on any warning, and `yarn lint:fix` applies autofixes.
 
@@ -939,11 +942,38 @@ first render.
   `satisfies Record<..., ParseKeys<'llms'>>`.
 - Logs and `console.debug` messages stay in English.
 
-## Time
+## Dates and numbers
 
-The server sends and expects UTC ISO 8601 timestamps.
+The server sends and expects UTC ISO 8601 timestamps. Time zones exist only in the frontend: every date is shown in
+the viewer's own zone.
 
-- Display: format with `Intl.DateTimeFormat` in the viewer's locale and time zone, as `LlmTable` does.
+Every date, time, duration, and number the app shows goes through `src/format/`. It builds each `Intl` formatter once
+per language and options, in the language i18next renders in, and lint fails on formatting anywhere else.
+
+| Function              | Reads                      | For                                                          |
+|-----------------------|----------------------------|--------------------------------------------------------------|
+| `formatDate`          | January 1st 2026           | A day in a sentence or a details panel                       |
+| `formatDateTime`      | January 1st 2026 at 8:56pm | A moment in a sentence or a details panel                    |
+| `formatShortDate`     | January 1st                | Tables and lists, through `DateText`; other years keep theirs |
+| `formatShortDateTime` | January 1st at 8:56pm      | Tight places where the time matters: messages, activity      |
+| `formatTime`          | 8:56pm                     | A moment within the hour, such as a link's expiry            |
+| `formatCalendarDay`   | January 5th 2026           | A provider's `YYYY-MM-DD` day, read in UTC so it never shifts |
+| `formatWeekday`       | Mon                        | The days of a weekly schedule                                |
+| `formatRelativeTime`  | 5 minutes ago              | A moment relative to now                                     |
+| `formatDuration`      | 850ms, 2.4s, 3m 4s, 2h 5m  | How long something took                                      |
+| `formatMediaPosition` | 3:04, 1:02:03              | A point in a recording                                       |
+| `formatNumber`        | 1.4M                       | Any count or quantity: one decimal, uppercase K, M, and B    |
+| `formatPercent`       | 78.4%                      | A share from 0 to 1                                          |
+| `formatBytes`         | 1.6 TB                     | A size, in decimal units, to one decimal                     |
+| `formatMoney`         | $1,234.50                  | An amount of money, always to two decimals                   |
+
+- Months are never numbers. `common:dates` holds the order of a date's parts, the day's ordinal suffix, and "at";
+  the parts come from `Intl`'s `formatToParts`, never its punctuation, which changes between ICU versions.
+- `DateText` shows the short date in a `<time>` with the full timestamp in a tooltip. Tables and lists use it. A day
+  such as a due date passes `isDay`, so its tooltip leaves out the time.
+- Translations compress counts with `{{count, compact}}`, registered in `src/i18n.ts`; `count` stays a number for
+  choosing the plural. `src/format/translations.test.ts` fails on a `{{count}}` without it. Identifiers, such as a
+  session's number, and exact limits stay plain.
 - Input: `DatePicker` holds a `CalendarDate` in the viewer's zone, read with `toCalendarDate(parseAbsoluteToLocal())`.
   It is submitted as `toZoned(date, getLocalTimeZone()).toAbsoluteString()`, the UTC instant of local midnight.
 
