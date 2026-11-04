@@ -53,6 +53,7 @@ export function GithubIssueList(props: Props) {
 
   return <div className='flex flex-col gap-3'>
     <TextField
+      id='link-target-filter'
       value={filter}
       autoComplete='off'
       onChange={(value) => {

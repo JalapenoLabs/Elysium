@@ -26,9 +26,12 @@ import {
 
 // Misc
 import { ALL_PROJECTS } from '../api/routes/projectRoutes'
+import { useInitialFocus } from '../hooks/useInitialFocus'
 import { useProjectsLoader } from '../hooks/useServerData'
 
 type Props = {
+  // The trigger's id; the search in its popover is `<id>-search`.
+  id: string
   label: string
   description?: string
   value: ProjectScope
@@ -44,6 +47,8 @@ export function ProjectScopePicker(props: Props) {
   useProjectsLoader()
   const projects = useAppSelector(selectAllProjects)
   const { contains } = useFilter({ sensitivity: 'base' })
+  // The popover mounts its search each time it opens, so typing narrows the list at once.
+  const searchRef = useInitialFocus()
 
   const selectedKeys = props.value === ALL_PROJECTS
     ? [ ALL_PROJECTS ]
@@ -68,6 +73,7 @@ export function ProjectScopePicker(props: Props) {
   }
 
   return <Autocomplete
+    id={props.id}
     selectionMode='multiple'
     isInvalid={Boolean(props.errorMessage)}
     placeholder={t('scope.placeholder')}
@@ -107,10 +113,15 @@ export function ProjectScopePicker(props: Props) {
     <FieldError>{props.errorMessage}</FieldError>
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
-        <SearchField autoFocus aria-label={t('scope.search')} variant='secondary'>
+        <SearchField
+          id={`${props.id}-search`}
+          autoComplete='off'
+          aria-label={t('scope.search')}
+          variant='secondary'
+        >
           <SearchField.Group>
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder={t('scope.search')} />
+            <SearchField.Input ref={searchRef} placeholder={t('scope.search')} />
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>

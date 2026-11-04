@@ -129,6 +129,7 @@ export function JiraDoneTransitionPanel(props: Props) {
     }</p>}
 
     {statusOptions.length > 1 && <OptionSelect
+      id='jira-done-transition-status'
       label={t('doneTransitions.status')}
       options={statusOptions}
       value={shown}

@@ -19,6 +19,9 @@ import {
   useFilter,
 } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
+
 // One thing the token reaches, ready to show.
 export type JiraScopeOption = {
   id: string
@@ -29,6 +32,8 @@ export type JiraScopeOption = {
 }
 
 type Props = {
+  // The trigger's id; the search in its popover is `<id>-search`.
+  id: string
   label: string
   description: string
   options: JiraScopeOption[]
@@ -42,6 +47,8 @@ type Props = {
 export function JiraScopePicker(props: Props) {
   const { t } = useTranslation('jira')
   const { contains } = useFilter({ sensitivity: 'base' })
+  // The popover mounts its search each time it opens, so typing narrows the list at once.
+  const searchRef = useInitialFocus()
 
   const optionsById = useMemo(
     () => new Map(props.options.map((option) => [ option.id, option ])),
@@ -49,6 +56,7 @@ export function JiraScopePicker(props: Props) {
   )
 
   return <Autocomplete
+    id={props.id}
     selectionMode='multiple'
     isDisabled={props.isDisabled}
     placeholder={t('scope.placeholder')}
@@ -89,10 +97,15 @@ export function JiraScopePicker(props: Props) {
     <Description>{props.description}</Description>
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
-        <SearchField autoFocus aria-label={t('scope.search')} variant='secondary'>
+        <SearchField
+          id={`${props.id}-search`}
+          autoComplete='off'
+          aria-label={t('scope.search')}
+          variant='secondary'
+        >
           <SearchField.Group>
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder={t('scope.search')} />
+            <SearchField.Input ref={searchRef} placeholder={t('scope.search')} />
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>

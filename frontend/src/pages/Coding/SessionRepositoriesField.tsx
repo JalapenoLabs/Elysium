@@ -193,6 +193,8 @@ export function SessionRepositoriesField(props: Props) {
     {/* Add by URL */}
     <div className='flex items-start gap-2'>
       <TextField
+        id='coding-session-repository-url'
+        autoComplete='url'
         className='flex-1'
         isInvalid={Boolean(manualError)}
         value={manualUrl}

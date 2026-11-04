@@ -160,6 +160,7 @@ export function ConfirmGate(props: Props) {
               : options?.message}
             {canConfirm && switches.map((option) => <Switch
               key={option.id}
+              id={`confirm-${option.id}`}
               className='compact'
               isSelected={switchedOn.has(option.id)}
               isDisabled={isPending}
@@ -199,7 +200,7 @@ export function ConfirmGate(props: Props) {
                 ? 'danger'
                 : 'primary'}
               // Focused, Enter confirms a safe action, as in any dialog (ux.md, Hotkeys).
-              autoFocus={tone === 'accent'}
+              shouldFocus={tone === 'accent'}
               isPending={isPending}
               onPress={() => void onConfirm()}
             />}

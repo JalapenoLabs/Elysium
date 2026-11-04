@@ -6,6 +6,7 @@ import type { CalendarDate } from '@internationalized/date'
 import { Calendar, DateField, DatePicker, Description, Label } from '@heroui/react'
 
 type Props = {
+  id: string
   label: string
   // Names the calendar popover for screen readers.
   calendarLabel: string
@@ -22,6 +23,7 @@ type Props = {
 // a due date lasts until the day ends, a snooze wakes that morning.
 export function DayPicker(props: Props) {
   return <DatePicker
+    id={props.id}
     className='w-full'
     granularity='day'
     value={props.value}

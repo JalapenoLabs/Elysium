@@ -13,7 +13,7 @@ import { SecretInput } from './SecretInput'
 
 describe('SecretInput', () => {
   it('hides the value until the eye shows it, and hides it again', () => {
-    render(<SecretInput label='API token' value='ghp_secret' onChange={vi.fn()} />)
+    render(<SecretInput id='token' label='API token' value='ghp_secret' onChange={vi.fn()} />)
     const field = screen.getByLabelText(/API token/)
     expect(field.getAttribute('type')).toBe('password')
 
@@ -25,10 +25,10 @@ describe('SecretInput', () => {
   })
 
   it('keeps a pasted secret out of the browser\'s saved passwords unless told otherwise', () => {
-    const { rerender } = render(<SecretInput label='API token' value='' onChange={vi.fn()} />)
+    const { rerender } = render(<SecretInput id='token' label='API token' value='' onChange={vi.fn()} />)
     expect(screen.getByLabelText(/API token/).getAttribute('autocomplete')).toBe('off')
 
-    rerender(<SecretInput label='Password' value='' autoComplete='current-password' onChange={vi.fn()} />)
+    rerender(<SecretInput id='password' label='Password' value='' autoComplete='current-password' onChange={vi.fn()} />)
     expect(screen.getByLabelText(/Password/).getAttribute('autocomplete')).toBe('current-password')
   })
 })
@@ -38,6 +38,7 @@ describe('PasswordInput', () => {
 
   it('lists strength with the other requirements', () => {
     render(<PasswordInput
+      id='password'
       label='Password'
       value='weak'
       onChange={vi.fn()}
@@ -54,6 +55,7 @@ describe('PasswordInput', () => {
 
   it('marks a met requirement in green with a check, and an unmet one with a red X', () => {
     render(<PasswordInput
+      id='password'
       label='Password'
       value='weak'
       onChange={vi.fn()}

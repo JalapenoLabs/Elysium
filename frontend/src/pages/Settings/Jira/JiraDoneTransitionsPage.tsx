@@ -67,6 +67,7 @@ export function JiraDoneTransitionsPage() {
     <p className='relaxed max-w-2xl text-sm opacity-70'>{t('doneTransitions.hint')}</p>
 
     <ComboBox
+      id='jira-done-transition-project'
       className='relaxed w-full max-w-md'
       isDisabled={!listing.data}
       selectedKey={projectKey}

@@ -4,7 +4,6 @@ import type { PasswordAssessment } from '../hooks/usePasswordAssessment'
 import type { PasswordRequirement } from './passwordRules'
 
 // Core
-import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -14,9 +13,11 @@ import { SecretInput } from './SecretInput'
 
 // Misc
 import { PASSWORD_MIN_LENGTH } from '../constants'
+import { useInitialFocus } from '../hooks/useInitialFocus'
 import { PASSWORD_REQUIREMENTS } from './passwordRules'
 
 type Props = {
+  id: string
   label: string
   value: string
   onChange: (value: string) => void
@@ -25,9 +26,8 @@ type Props = {
   // A refusal from Kratos, such as a breached password.
   errorMessage?: string
   isDisabled?: boolean
-  // Focuses the field once it mounts, with a ref rather than the attribute, which is unreliable
-  // in a modal that animates in.
-  autoFocus?: boolean
+  // Focused once shown, as the first field of its form.
+  shouldFocus?: boolean
 }
 
 // Segment colors by zxcvbn score, 0 (guessed at once) to 4 (strong).
@@ -52,20 +52,14 @@ const requirementLabelKeys = {
 // (`~/.claude/docs/ux.md`, Password inputs). The form stays disabled until all are met.
 export function PasswordInput(props: Props) {
   const { t } = useTranslation('auth')
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useInitialFocus(Boolean(props.shouldFocus))
   const score = props.assessment.strength?.score ?? null
   const hasValue = props.value.length > 0
-  const shouldFocus = props.autoFocus
-
-  useEffect(() => {
-    if (shouldFocus) {
-      inputRef.current?.focus()
-    }
-  }, [ shouldFocus ])
 
   return <div>
     <SecretInput
       isRequired
+      id={props.id}
       label={props.label}
       autoComplete='new-password'
       isDisabled={props.isDisabled}

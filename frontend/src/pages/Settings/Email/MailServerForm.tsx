@@ -21,6 +21,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
 import { createMailServer } from '../../../api/routes/mailRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { getTabUrl, UrlTree } from '../../../urls'
 import { createMailServerFormSchema } from './mailFormSchemas'
@@ -40,6 +41,7 @@ export function MailServerForm() {
     [ t ],
   )
 
+  const domainRef = useInitialFocus()
   const form = useForm<MailServerFormValues>({
     resolver,
     defaultValues: {
@@ -80,7 +82,6 @@ export function MailServerForm() {
     {/* First domain */}
     <TextField
       id='mail-server-domain'
-      autoFocus
       isRequired
       autoComplete='off'
       isInvalid={Boolean(errors.domain)}
@@ -96,7 +97,7 @@ export function MailServerForm() {
       }}
     >
       <Label>{t('serverForm.domain')}</Label>
-      <Input placeholder='example.com' />
+      <Input ref={domainRef} placeholder='example.com' />
       <Description>{t('serverForm.domainHint')}</Description>
       <FieldError>{errors.domain?.message}</FieldError>
     </TextField>

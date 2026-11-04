@@ -204,6 +204,7 @@ export function ActionItemComments(props: Props) {
       }}
     >
       <TextField
+        id={`action-item-${props.item.id}-comment`}
         className='w-full'
         value={draft}
         maxLength={COMMENT_MAX_CHARACTERS}

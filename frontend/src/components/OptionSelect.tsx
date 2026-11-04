@@ -7,6 +7,8 @@ import type { PickerOption } from './MultiPicker'
 import { Label, ListBox, Select } from '@heroui/react'
 
 type Props = {
+  // The trigger's id, stable so the field can be found and labelled.
+  id: string
   label: string
   options: PickerOption[]
   value: string
@@ -24,6 +26,7 @@ type Props = {
 // item's priority.
 export function OptionSelect(props: Props) {
   return <Select
+    id={props.id}
     className={props.className}
     isDisabled={props.isDisabled}
     placeholder={props.placeholder}

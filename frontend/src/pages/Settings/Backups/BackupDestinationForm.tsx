@@ -82,6 +82,7 @@ export function BackupDestinationForm(props: Props) {
     onSubmit={onSubmit}
   >
     <OptionSelect
+      id='backup-destination'
       label={t('destination.label')}
       options={options}
       value={chosen}

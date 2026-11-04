@@ -19,6 +19,9 @@ import {
   useFilter,
 } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../../hooks/useInitialFocus'
+
 type Props = {
   // Most recently pushed first, as the API lists them.
   repositories: GithubRepository[]
@@ -34,8 +37,11 @@ type Props = {
 export function GithubRepositoryPicker(props: Props) {
   const { t } = useTranslation('coding')
   const { contains } = useFilter({ sensitivity: 'base' })
+  // The popover mounts its search each time it opens, so typing narrows the list at once.
+  const searchRef = useInitialFocus()
 
   return <Autocomplete
+    id='coding-session-repositories'
     selectionMode='multiple'
     isDisabled={props.isDisabled}
     placeholder={t('create.repositories.picker.placeholder')}
@@ -56,10 +62,15 @@ export function GithubRepositoryPicker(props: Props) {
     <Description>{props.description}</Description>
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
-        <SearchField autoFocus aria-label={t('create.repositories.picker.search')} variant='secondary'>
+        <SearchField
+          id='coding-session-repositories-search'
+          autoComplete='off'
+          aria-label={t('create.repositories.picker.search')}
+          variant='secondary'
+        >
           <SearchField.Group>
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder={t('create.repositories.picker.search')} />
+            <SearchField.Input ref={searchRef} placeholder={t('create.repositories.picker.search')} />
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>

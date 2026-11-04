@@ -90,7 +90,7 @@ export function ElysiaHoursDialog(props: Props) {
           {Boolean(props.availability.length) && !saved && <p className='text-sm text-warning'>{
             t('hours.custom')
           }</p>}
-          <Switch isSelected={isAnyTime} onChange={setIsAnyTime}>
+          <Switch id='elysia-hours-any-time' isSelected={isAnyTime} onChange={setIsAnyTime}>
             <Switch.Content>
               <Switch.Control>
                 <Switch.Thumb />
@@ -104,6 +104,7 @@ export function ElysiaHoursDialog(props: Props) {
               <div className='flex flex-wrap gap-3'>{
                 WEEKDAYS.map((day) => <Checkbox
                   key={day}
+                  id={`elysia-hours-day-${day}`}
                   isSelected={days.includes(day)}
                   onChange={(isSelected) => setDays((current) => isSelected
                     ? [ ...current, day ]
@@ -122,13 +123,23 @@ export function ElysiaHoursDialog(props: Props) {
               }</div>
             </fieldset>
             <div className='level gap-3'>
-              <TimeField className='w-full' value={start} onChange={(value) => value && setStart(value)}>
+              <TimeField
+                id='elysia-hours-from'
+                className='w-full'
+                value={start}
+                onChange={(value) => value && setStart(value)}
+              >
                 <Label>{t('hours.from')}</Label>
                 <TimeField.Group>
                   <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
                 </TimeField.Group>
               </TimeField>
-              <TimeField className='w-full' value={end} onChange={(value) => value && setEnd(value)}>
+              <TimeField
+                id='elysia-hours-until'
+                className='w-full'
+                value={end}
+                onChange={(value) => value && setEnd(value)}
+              >
                 <Label>{t('hours.until')}</Label>
                 <TimeField.Group>
                   <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>

@@ -36,6 +36,7 @@ import { fileIssueReport, previewIssueReport } from '../api/routes/issueReportRo
 import { formatDateTime } from '../format/dates'
 import { ISSUE_REPORT_NOTE_MAX_CHARACTERS, ISSUE_REPORT_PREVIEW_DELAY_MS } from '../constants'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useInitialFocus } from '../hooks/useInitialFocus'
 import { getNewConnectorUrl } from '../urls'
 import {
   blockerLabels,
@@ -63,6 +64,7 @@ export function ReportIssueModal(props: Props) {
   const [ note, setNote ] = useState('')
   const [ pickedId, setPickedId ] = useState<string | null>(null)
   const [ isPosting, setIsPosting ] = useState(false)
+  const noteRef = useInitialFocus()
   const typedNote = note.trim()
   const settledNote = useDebouncedValue(typedNote, ISSUE_REPORT_PREVIEW_DELAY_MS)
 
@@ -175,6 +177,7 @@ export function ReportIssueModal(props: Props) {
             </div>}
 
             {data && Boolean(data.credentials.length) && <Select
+              id='report-issue-token'
               value={credential?.id ?? null}
               disabledKeys={data.credentials
                 .filter((choice) => !canTryToken(choice.readiness))
@@ -214,13 +217,13 @@ export function ReportIssueModal(props: Props) {
             </Select>}
 
             <TextField
-              autoFocus
+              id='report-issue-note'
               maxLength={ISSUE_REPORT_NOTE_MAX_CHARACTERS}
               value={note}
               onChange={setNote}
             >
               <Label>{t('dialog.note')}</Label>
-              <TextArea rows={3} onKeyDown={onNoteKeyDown} />
+              <TextArea ref={noteRef} rows={3} onKeyDown={onNoteKeyDown} />
             </TextField>
 
             <div>

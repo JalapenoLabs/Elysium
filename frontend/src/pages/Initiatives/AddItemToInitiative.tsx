@@ -54,6 +54,7 @@ export function AddItemToInitiative(props: Props) {
   }
 
   return <ComboBox
+    id='initiative-add-item'
     className='w-full max-w-md'
     isDisabled={isAdding}
     inputValue={query}

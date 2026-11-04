@@ -3,7 +3,7 @@
 import type { FormEvent } from 'react'
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -11,6 +11,7 @@ import { Button, buttonVariants, Form, Input, Label, Link, TextField } from '@he
 import { LuArrowLeft } from 'react-icons/lu'
 
 // Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { AUTHENTICATOR_NICKNAME_MAX_LENGTH } from '../../../constants'
 import { UrlTree } from '../../../urls'
 
@@ -27,12 +28,8 @@ type Props = {
 export function TwoFactorNameStep(props: Props) {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ name, setName ] = useState(props.initialName)
-  const nameRef = useRef<HTMLInputElement>(null)
+  const nameRef = useInitialFocus()
   const trimmed = name.trim()
-
-  useEffect(() => {
-    nameRef.current?.focus()
-  }, [])
 
   function next(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

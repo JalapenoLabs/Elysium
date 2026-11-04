@@ -101,6 +101,7 @@ export function UserTable(props: Props) {
       </div>,
       role: (user: User) => <OptionSelect
         isLabelHidden
+        id={`user-${user.id}-role`}
         label={t('table.roleFor', { name: user.name })}
         options={roleOptions}
         value={props.roleChanges[user.id] ?? user.role ?? 'member'}

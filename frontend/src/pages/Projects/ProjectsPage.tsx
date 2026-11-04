@@ -73,6 +73,7 @@ export function ProjectsPage() {
   return <Page
     title={t('title')}
     tools={hasProjects && <ListSearchField
+      id='projects-search'
       label={t('toolbar.search')}
       value={search}
       onChange={setSearch}

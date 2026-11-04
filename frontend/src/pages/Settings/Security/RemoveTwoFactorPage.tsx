@@ -95,7 +95,12 @@ export function RemoveTwoFactorPage() {
       <p className='compact text-sm'>{t('security.twoFactor.removeMessage', { name: appName })}</p>
       <p className='relaxed text-sm font-semibold'>{t('common:confirm.irreversible')}</p>
 
-      {hasCodes && <Switch className='relaxed' isSelected={removesCodes} onChange={setRemovesCodes}>
+      {hasCodes && <Switch
+        id='remove-two-factor-codes'
+        className='relaxed'
+        isSelected={removesCodes}
+        onChange={setRemovesCodes}
+      >
         <Switch.Content>
           <Switch.Control>
             <Switch.Thumb />

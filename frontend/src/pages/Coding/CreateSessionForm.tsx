@@ -40,6 +40,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { createCodingSession } from '../../api/routes/codingSessionRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { useGithubCredentialsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { getActionItemViewUrl, getCodingSessionUrl } from '../../urls'
@@ -74,6 +75,9 @@ export function CreateSessionForm(props: Props) {
   const githubCredentials = useAppSelector(selectAllGithubCredentials)
   const workspaceDefault = useAppSelector(selectDefaultGithubCredential)
   const actionItem = props.actionItem
+  // A session from an item is titled after it already, so its prompt is what is typed first.
+  const titleRef = useInitialFocus(!actionItem)
+  const promptRef = useInitialFocus(Boolean(actionItem))
 
   const projectChoices = useMemo(
     () => getSessionProjectChoices(actionItem, projects),
@@ -201,6 +205,7 @@ export function CreateSessionForm(props: Props) {
     {/* Project */}
     <Select
       isRequired
+      id='coding-session-project'
       isDisabled={isProjectFixed}
       isInvalid={Boolean(errors.projectId)}
       placeholder={t('create.projectPlaceholder')}
@@ -238,13 +243,14 @@ export function CreateSessionForm(props: Props) {
 
     {/* Title */}
     <TextField
-      autoFocus={!actionItem}
+      id='coding-session-title'
+      autoComplete='off'
       isInvalid={Boolean(errors.title)}
       value={title}
       onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('create.sessionTitle')}</Label>
-      <Input />
+      <Input ref={titleRef} />
       <Description>{t('create.sessionTitleHint')}</Description>
       <FieldError>{errors.title?.message}</FieldError>
     </TextField>
@@ -252,6 +258,7 @@ export function CreateSessionForm(props: Props) {
     {/* GitHub token */}
     <div className='flex flex-col gap-2'>
       <GithubTokenSelect
+        id='coding-session-github-token'
         label={t('create.github.label')}
         description={t('create.github.hint')}
         inheritLabel={projectCredential
@@ -275,14 +282,14 @@ export function CreateSessionForm(props: Props) {
 
     {/* First prompt */}
     <TextField
-      autoFocus={Boolean(actionItem)}
+      id='coding-session-prompt'
       isRequired={Boolean(actionItem)}
       isInvalid={Boolean(errors.prompt)}
       value={prompt}
       onChange={(value) => form.setValue('prompt', value, { shouldDirty: true })}
     >
       <Label>{t('create.prompt')}</Label>
-      <TextArea rows={5} />
+      <TextArea ref={promptRef} rows={5} />
       <Description>{
         actionItem
           ? t('create.fromItem.promptHint')

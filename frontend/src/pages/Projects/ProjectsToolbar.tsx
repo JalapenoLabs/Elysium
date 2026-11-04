@@ -53,6 +53,7 @@ export function ProjectsToolbar(props: Props) {
 
     <div className='ml-auto flex flex-wrap items-center gap-3'>
       <Select
+        id='projects-sort'
         className='w-48'
         aria-label={t('toolbar.sortBy')}
         value={props.sort.key}

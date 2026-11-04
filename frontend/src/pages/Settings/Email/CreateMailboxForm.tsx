@@ -33,6 +33,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailbox } from '../../../api/routes/mailRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { UrlTree } from '../../../urls'
 import { createMailboxFormSchema } from './mailFormSchemas'
@@ -55,6 +56,7 @@ export function CreateMailboxForm(props: Props) {
     [ t ],
   )
 
+  const localPartRef = useInitialFocus()
   const form = useForm<CreateMailboxFormValues>({
     resolver,
     defaultValues: {
@@ -108,7 +110,6 @@ export function CreateMailboxForm(props: Props) {
       {/* Local part */}
       <TextField
         id='mailbox-local-part'
-        autoFocus
         isRequired
         autoComplete='off'
         isInvalid={Boolean(errors.localPart)}
@@ -116,7 +117,7 @@ export function CreateMailboxForm(props: Props) {
         onChange={(value) => form.setValue('localPart', value, { shouldDirty: true, shouldValidate: true })}
       >
         <Label>{t('createForm.localPart')}</Label>
-        <Input placeholder='agent' />
+        <Input ref={localPartRef} placeholder='agent' />
         <FieldError>{errors.localPart?.message}</FieldError>
       </TextField>
 
@@ -164,6 +165,7 @@ export function CreateMailboxForm(props: Props) {
     {/* Sender name */}
     <TextField
       id='mailbox-display-name'
+      autoComplete='off'
       isInvalid={Boolean(errors.displayName)}
       value={displayName}
       onChange={(value) => form.setValue('displayName', value, { shouldDirty: true, shouldValidate: true })}

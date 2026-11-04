@@ -61,7 +61,8 @@ export function AccountForm(props: Props) {
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='max-w-2xl'>
     <div className='compact'>
       <PersonNameFields
-        autoFocus
+        shouldFocus
+        idPrefix='account'
         firstName={firstName}
         lastName={lastName}
         onFirstNameChange={setFirstName}
@@ -72,6 +73,7 @@ export function AccountForm(props: Props) {
     </div>
     <TextField
       isRequired
+      id='account-email'
       type='email'
       autoComplete='email'
       isInvalid={Boolean(messages.byField['traits.email'])}

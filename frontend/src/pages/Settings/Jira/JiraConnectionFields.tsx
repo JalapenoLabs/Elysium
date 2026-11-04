@@ -11,6 +11,9 @@ import { useTranslation } from 'react-i18next'
 import { Description, FieldError, Input, Label, TextField } from '@heroui/react'
 import { SecretInput } from '../../../components/SecretInput'
 
+// Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
+
 type Props = {
   form: UseFormReturn<JiraFormInput, unknown, JiraFormValues>
   // Whether a blank token field keeps the stored one, which it does for as long as the
@@ -27,6 +30,7 @@ export function JiraConnectionFields(props: Props) {
   const errors = props.form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: props.form.control })
+  const nameRef = useInitialFocus()
 
   let tokenHint = t('form.tokenHint')
   if (props.keepsStoredToken) {
@@ -39,14 +43,15 @@ export function JiraConnectionFields(props: Props) {
   return <>
     {/* Name */}
     <TextField
-      autoFocus
       isRequired
+      id='jira-name'
+      autoComplete='off'
       isInvalid={Boolean(errors.name)}
       value={values.name}
       onChange={(value) => props.form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('form.name')}</Label>
-      <Input />
+      <Input ref={nameRef} />
       <Description>{t('form.nameHint')}</Description>
       <FieldError>{errors.name?.message}</FieldError>
     </TextField>
@@ -54,6 +59,7 @@ export function JiraConnectionFields(props: Props) {
     {/* Site URL */}
     <TextField
       isRequired
+      id='jira-site-url'
       isInvalid={Boolean(errors.siteUrl)}
       type='url'
       autoComplete='off'
@@ -69,6 +75,7 @@ export function JiraConnectionFields(props: Props) {
     {/* Account email */}
     <TextField
       isRequired
+      id='jira-account-email'
       isInvalid={Boolean(errors.accountEmail)}
       type='email'
       autoComplete='off'
@@ -86,6 +93,7 @@ export function JiraConnectionFields(props: Props) {
 
     {/* API token */}
     <SecretInput
+      id='jira-token'
       isRequired={!props.keepsStoredToken}
       isMonospace
       label={t('form.token')}

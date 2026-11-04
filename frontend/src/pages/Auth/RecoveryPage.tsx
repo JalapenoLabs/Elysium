@@ -15,6 +15,7 @@ import { Alert, Button, FieldError, Form, Input, Label, Link, Spinner, TextField
 // Misc
 import { kratos } from '../../api/kratos'
 import { collectMessages, csrfToken, readKratosFailure } from '../../api/kratosFlows'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { toast } from '../../toast/toast'
 import { KRATOS_FLOW_PARAM, UrlTree } from '../../urls'
 import { fieldErrorText } from './kratosPresentation'
@@ -31,6 +32,7 @@ export function RecoveryPage() {
   const [ loadFailed, setLoadFailed ] = useState(false)
   const toastFormMessages = useKratosMessageToasts()
   const [ email, setEmail ] = useState('')
+  const emailRef = useInitialFocus()
   const [ isSubmitting, setIsSubmitting ] = useState(false)
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export function RecoveryPage() {
     {flow && messages && !isSent && <Form onSubmit={submit} validationBehavior='aria'>
       <TextField
         isRequired
-        autoFocus
+        id='recovery-email'
         className='relaxed'
         type='email'
         autoComplete='email'
@@ -135,7 +137,7 @@ export function RecoveryPage() {
         onChange={setEmail}
       >
         <Label>{t('fields.email')}</Label>
-        <Input />
+        <Input ref={emailRef} />
         <FieldError>{fieldErrorText(messages.byField.email, t)}</FieldError>
       </TextField>
       <Button

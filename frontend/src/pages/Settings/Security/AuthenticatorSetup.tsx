@@ -42,6 +42,9 @@ export function AuthenticatorSetup(props: Props) {
       </div>
       <p className='compact text-sm'>{t('security.twoFactor.enterCode')}</p>
       <AuthenticatorCodeInput
+        // Shown once the app is to be set up, so its code is what is typed next.
+        shouldFocus
+        id='two-factor-code'
         label={t('fields.authenticatorCode')}
         value={props.code}
         isDisabled={props.isDisabled}

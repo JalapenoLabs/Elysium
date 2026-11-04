@@ -6,6 +6,8 @@ import type { KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 type Props = {
+  // The editor's id, which it carries while editing.
+  id: string
   // The value as the page's form holds it. Edits change the form; the page's Save keeps them.
   value: string
   onChange: (value: string) => void
@@ -103,6 +105,7 @@ export function InlineEditableText(props: Props) {
   if (isEditing) {
     const sharedProps = {
       'ref': editorRef,
+      'id': props.id,
       'aria-label': props.label,
       'value': props.value,
       'maxLength': props.maxLength,
@@ -120,6 +123,7 @@ export function InlineEditableText(props: Props) {
       />
       : <input
         {...sharedProps}
+        autoComplete='off'
         onChange={(event) => props.onChange(event.currentTarget.value)}
       />
   }

@@ -7,6 +7,7 @@ import { useEffect, useRef } from 'react'
 import { SearchField } from '@heroui/react'
 
 type Props = {
+  id: string
   label: string
   value: string
   onChange: (value: string) => void
@@ -42,6 +43,8 @@ export function ListSearchField(props: Props) {
   }, [])
 
   return <SearchField
+    id={props.id}
+    autoComplete='off'
     aria-label={props.label}
     value={props.value}
     onChange={props.onChange}

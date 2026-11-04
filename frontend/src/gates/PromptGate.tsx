@@ -9,6 +9,9 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, Description, Form, Input, Label, Modal, TextArea, TextField, useOverlayState } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../hooks/useInitialFocus'
+
 export type PromptOptions = {
   title: string
   message?: ReactNode
@@ -47,6 +50,8 @@ export function PromptGate(props: Props) {
   const [ options, setOptions ] = useState<PromptOptions | null>(null)
   const [ value, setValue ] = useState('')
   const [ isPending, setIsPending ] = useState(false)
+  // The dialog's body mounts each time it opens, so its field is ready to type in.
+  const fieldRef = useInitialFocus()
 
   const openOverlay = overlay.open
   const prompt = useCallback((nextOptions: PromptOptions) => {
@@ -103,7 +108,8 @@ export function PromptGate(props: Props) {
                 ? <p className='text-sm opacity-80'>{options.message}</p>
                 : options?.message}
               <TextField
-                autoFocus
+                id='prompt-answer'
+                autoComplete='off'
                 isRequired={!options?.isOptional}
                 maxLength={options?.maxLength}
                 value={value}
@@ -111,8 +117,8 @@ export function PromptGate(props: Props) {
               >
                 <Label>{options?.label}</Label>
                 {options?.isMultiline
-                  ? <TextArea rows={3} placeholder={options.placeholder} />
-                  : <Input placeholder={options?.placeholder} />}
+                  ? <TextArea ref={fieldRef} rows={3} placeholder={options.placeholder} />
+                  : <Input ref={fieldRef} placeholder={options?.placeholder} />}
                 {options?.description && <Description>{options.description}</Description>}
               </TextField>
             </Modal.Body>

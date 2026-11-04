@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import type { AuthenticatorReplacement } from '../../../api/routes/authRoutes'
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { mutate } from 'swr'
@@ -15,6 +15,7 @@ import { LuSmartphone } from 'react-icons/lu'
 import { AuthenticatorSetup } from './AuthenticatorSetup'
 
 // Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { getApiErrorCode } from '../../../api/errors'
 import {
   confirmAuthenticatorReplacement,
@@ -47,13 +48,9 @@ export function ChangeTwoFactorForm(props: Props) {
   const [ code, setCode ] = useState('')
   const [ codeError, setCodeError ] = useState<string | null>(null)
   const [ isSwitching, setIsSwitching ] = useState(false)
-  const nicknameRef = useRef<HTMLInputElement>(null)
+  const nicknameRef = useInitialFocus()
   const trimmed = nickname.trim()
   const canSwitch = code.length === CODE_LENGTH && Boolean(trimmed) && !isSwitching
-
-  useEffect(() => {
-    nicknameRef.current?.focus()
-  }, [])
 
   // A move needs a recent sign-in, which the page checked when it opened; one that aged since
   // signs in again and comes back here.

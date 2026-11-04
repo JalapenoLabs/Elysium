@@ -6,6 +6,9 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { AlertDialog, Button, Tooltip } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../../hooks/useInitialFocus'
+
 type Props = {
   isOpen: boolean
   // Save and continue is running: every choice waits for it.
@@ -24,11 +27,14 @@ type Props = {
 export function LeavePageDialog(props: Props) {
   const { t } = useTranslation('common')
   const canSave = !props.saveBlockedReason
+  // Focused, Enter saves and continues, as in any dialog (ux.md, Hotkeys); with nothing it
+  // could save, Enter keeps editing.
+  const saveRef = useInitialFocus(canSave)
+  const keepEditingRef = useInitialFocus(!canSave)
 
   const saveButton = <Button
+    ref={saveRef}
     variant='primary'
-    // Focused, Enter saves and continues, as in any dialog (ux.md, Hotkeys).
-    autoFocus={canSave}
     isDisabled={!canSave}
     isPending={props.isSaving}
     onPress={props.onSaveAndContinue}
@@ -67,8 +73,8 @@ export function LeavePageDialog(props: Props) {
             <span>{t('page.leave.discard')}</span>
           </Button>
           <Button
+            ref={keepEditingRef}
             variant='tertiary'
-            autoFocus={!canSave}
             isDisabled={props.isSaving}
             onPress={props.onKeepEditing}
           >

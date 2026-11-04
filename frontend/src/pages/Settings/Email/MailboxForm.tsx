@@ -3,7 +3,7 @@
 import type { MailAccount } from '../../../api/routes/mailRoutes'
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -16,6 +16,7 @@ import { Description, Form, Input, Label, Switch, TextField } from '@heroui/reac
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { updateMailAccount } from '../../../api/routes/mailRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { DISPLAY_NAME_MAX_CHARACTERS } from './mailFormSchemas'
 import { toast } from '../../../toast/toast'
@@ -36,7 +37,7 @@ type MailboxChanges = {
 export function MailboxForm(props: Props) {
   const { t } = useTranslation([ 'email', 'common' ])
   const dispatch = useAppDispatch()
-  const nameRef = useRef<HTMLInputElement>(null)
+  const nameRef = useInitialFocus()
   const [ changes, setChanges ] = useState<MailboxChanges>({})
   const account = props.account
   const displayName = changes.displayName ?? account.displayName
@@ -64,12 +65,9 @@ export function MailboxForm(props: Props) {
 
   const onSubmit = usePageSave({ save, isDirty })
 
-  useEffect(() => {
-    nameRef.current?.focus()
-  }, [])
-
   return <Form onSubmit={onSubmit} className='flex max-w-xl flex-col gap-6'>
     <TextField
+      id='mailbox-display-name'
       value={displayName}
       maxLength={DISPLAY_NAME_MAX_CHARACTERS}
       autoComplete='off'
@@ -82,6 +80,7 @@ export function MailboxForm(props: Props) {
 
     <div>
       <Switch
+        id='mailbox-active'
         isSelected={isActive}
         onChange={(isSelected) => setChanges({ ...changes, isActive: isSelected })}
       >

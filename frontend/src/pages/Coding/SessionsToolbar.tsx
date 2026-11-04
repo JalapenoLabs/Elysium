@@ -46,6 +46,7 @@ export function SessionsToolbar(props: Props) {
 
   return <div className='relaxed flex flex-wrap items-center gap-3'>
     <ListSearchField
+      id='coding-sessions-search'
       label={t('sessions.toolbar.search')}
       value={props.search}
       onChange={props.onSearchChange}

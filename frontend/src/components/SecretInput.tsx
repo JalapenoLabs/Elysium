@@ -17,7 +17,7 @@ type Props = {
   // `off` for a secret pasted from elsewhere, such as a token, so the browser neither offers nor
   // saves it; `current-password` and `new-password` for the account's own password.
   autoComplete?: 'off' | 'current-password' | 'new-password'
-  id?: string
+  id: string
   name?: string
   placeholder?: string
   description?: ReactNode

@@ -102,6 +102,8 @@ export function PageHeader(props: PageHeaderProps) {
           // few pixels short of its text, which would wrap a title that fits.
           ? <h1 className='min-w-0 flex-1'>
             <InlineEditableText
+              // A page has one title, so one id names it on every page.
+              id='page-title'
               value={props.title}
               label={props.rename.label}
               isRequired

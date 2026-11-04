@@ -98,7 +98,14 @@ export function ConnectorsPage() {
     </div>
 
     <div className='relaxed flex flex-wrap items-end gap-3'>
-      <SearchField className='min-w-64 flex-1' aria-label={t('page.search')} value={search} onChange={setSearch}>
+      <SearchField
+        id='connectors-search'
+        autoComplete='off'
+        className='min-w-64 flex-1'
+        aria-label={t('page.search')}
+        value={search}
+        onChange={setSearch}
+      >
         <SearchField.Group>
           <SearchField.SearchIcon />
           <SearchField.Input placeholder={t('page.search')} />
@@ -106,6 +113,7 @@ export function ConnectorsPage() {
         </SearchField.Group>
       </SearchField>
       <Select
+        id='connectors-status'
         className='w-48'
         value={statusFilter}
         onChange={(key) => setStatusFilter(key as ConnectorStatus | 'all')}

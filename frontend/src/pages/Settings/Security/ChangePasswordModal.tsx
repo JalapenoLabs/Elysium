@@ -62,7 +62,8 @@ export function ChangePasswordModal(props: Props) {
         <Form onSubmit={save} validationBehavior='aria'>
           <Modal.Body className='mt-2 flex flex-col gap-4'>
             <PasswordInput
-              autoFocus
+              shouldFocus
+              id='change-password-new'
               label={t('fields.newPassword')}
               value={password}
               onChange={setPassword}
@@ -71,6 +72,7 @@ export function ChangePasswordModal(props: Props) {
             />
             <SecretInput
               isRequired
+              id='change-password-confirmation'
               label={t('fields.confirmNewPassword')}
               autoComplete='new-password'
               errorMessage={isMismatched

@@ -24,6 +24,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { BUILT_IN_LEARNING_CATEGORIES, correctLearning, saveLearning } from '../../../api/routes/learningRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLearningFormSchema } from './learningFormSchema'
@@ -71,6 +72,7 @@ export function LearningForm(props: Props) {
       },
   })
   const { status: categoriesStatus, categories } = useLearningCategories()
+  const titleRef = useInitialFocus()
 
   // A new learning's draft comes back as changes to the blank form, so Save is ready for it.
   useEffect(() => {
@@ -163,21 +165,21 @@ export function LearningForm(props: Props) {
     {/* Takeaway */}
     <TextField
       id='learning-title'
-      autoFocus
       isRequired
       isInvalid={Boolean(errors.title)}
       value={values.title}
       onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('form.title')}</Label>
-      <Input autoComplete='off' />
+      <Input ref={titleRef} autoComplete='off' />
       <Description>{t('form.titleHint')}</Description>
       <FieldError>{errors.title?.message}</FieldError>
     </TextField>
 
     {/* Category */}
-    <div id='learning-category'>
+    <div>
       <OptionSelect
+        id='learning-category'
         label={t('form.category')}
         options={categoryOptions}
         value={category}

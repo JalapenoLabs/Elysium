@@ -48,6 +48,7 @@ export function InitiativeDetailsPanel(props: Props) {
   return <Card>
     <Card.Content className='flex flex-col gap-4'>
       <OptionSelect
+        id='initiative-state'
         label={t('fields.state')}
         isDisabled={isReadOnly}
         options={INITIATIVE_STATES.map((option) => ({ id: option, label: t(initiativeStateLabelKeys[option]) }))}
@@ -64,6 +65,7 @@ export function InitiativeDetailsPanel(props: Props) {
 
       <div>
         <DayPicker
+          id='initiative-target-date'
           label={t('fields.targetDate')}
           calendarLabel={t('fields.targetDate')}
           isDisabled={isReadOnly}
@@ -81,6 +83,7 @@ export function InitiativeDetailsPanel(props: Props) {
       </div>
 
       <MultiPicker
+        id='initiative-projects'
         label={t('fields.projects')}
         searchLabel={t('actionItems:fields.searchProjects')}
         emptyLabel={t('actionItems:fields.noProjectsFound')}

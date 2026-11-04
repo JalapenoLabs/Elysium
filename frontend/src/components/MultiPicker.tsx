@@ -18,12 +18,17 @@ import {
   useFilter,
 } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../hooks/useInitialFocus'
+
 export type PickerOption = {
   id: string
   label: string
 }
 
 type Props = {
+  // The trigger's id; the search in its popover is `<id>-search`.
+  id: string
   label: string
   // Shown in the search field and when nothing matches.
   searchLabel: string
@@ -41,10 +46,13 @@ type Props = {
 export function MultiPicker(props: Props) {
   const { t } = useTranslation('common')
   const { contains } = useFilter({ sensitivity: 'base' })
+  // The popover mounts its search each time it opens, so typing narrows the list at once.
+  const searchRef = useInitialFocus()
 
   const labelsById = new Map(props.options.map((option) => [ option.id, option.label ]))
 
   return <Autocomplete
+    id={props.id}
     selectionMode='multiple'
     isDisabled={props.isDisabled}
     placeholder={props.placeholder ?? t('picker.placeholder')}
@@ -83,10 +91,15 @@ export function MultiPicker(props: Props) {
     {props.description && <Description>{props.description}</Description>}
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
-        <SearchField autoFocus aria-label={props.searchLabel} variant='secondary'>
+        <SearchField
+          id={`${props.id}-search`}
+          autoComplete='off'
+          aria-label={props.searchLabel}
+          variant='secondary'
+        >
           <SearchField.Group>
             <SearchField.SearchIcon />
-            <SearchField.Input placeholder={props.searchLabel} />
+            <SearchField.Input ref={searchRef} placeholder={props.searchLabel} />
             <SearchField.ClearButton />
           </SearchField.Group>
         </SearchField>

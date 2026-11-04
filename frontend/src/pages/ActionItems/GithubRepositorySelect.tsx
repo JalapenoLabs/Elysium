@@ -37,6 +37,7 @@ export function GithubRepositorySelect(props: Props) {
   }
 
   return <ComboBox
+    id='link-target-repository'
     className='w-full'
     isDisabled={!listing.data}
     selectedKey={props.value?.fullName ?? null}

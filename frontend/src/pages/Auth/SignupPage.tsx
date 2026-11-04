@@ -148,7 +148,8 @@ export function SignupPage() {
     {flow && messages && <Form onSubmit={submit} validationBehavior='aria'>
       <div className='compact'>
         <PersonNameFields
-          autoFocus
+          shouldFocus
+          idPrefix='sign-up'
           firstName={firstName}
           lastName={lastName}
           onFirstNameChange={setFirstName}
@@ -159,6 +160,7 @@ export function SignupPage() {
       </div>
       <TextField
         isRequired
+        id='sign-up-email'
         className='compact'
         type='email'
         autoComplete='email'
@@ -172,6 +174,7 @@ export function SignupPage() {
       </TextField>
       <div className='compact'>
         <PasswordInput
+          id='sign-up-password'
           label={t('fields.password')}
           value={password}
           onChange={setPassword}
@@ -181,6 +184,7 @@ export function SignupPage() {
       </div>
       <SecretInput
         isRequired
+        id='sign-up-password-confirmation'
         className='relaxed'
         label={t('fields.confirmPassword')}
         autoComplete='new-password'

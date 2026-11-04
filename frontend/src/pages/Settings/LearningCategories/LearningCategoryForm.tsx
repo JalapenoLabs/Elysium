@@ -4,7 +4,7 @@ import type { LearningCategory } from '../../../api/routes/learningCategoryRoute
 import type { LearningCategoryFormInput, LearningCategoryFormValues } from './learningCategoryFormSchema'
 
 // Core
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -21,6 +21,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { getApiErrorMessage } from '../../../api/errors'
 import { createLearningCategory, updateLearningCategory } from '../../../api/routes/learningCategoryRoutes'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
@@ -45,7 +46,7 @@ export function LearningCategoryForm(props: Props) {
   const { t } = useTranslation([ 'learningCategories', 'common' ])
   const dispatch = useAppDispatch()
   const stored = props.category
-  const labelRef = useRef<HTMLInputElement>(null)
+  const labelRef = useInitialFocus()
   const [ isKeyTyped, setIsKeyTyped ] = useState(false)
 
   const resolver = useMemo(() => zodResolver(createLearningCategoryFormSchema(t)), [ t ])
@@ -57,10 +58,6 @@ export function LearningCategoryForm(props: Props) {
       description: stored?.description ?? '',
     },
   })
-
-  useEffect(() => {
-    labelRef.current?.focus()
-  }, [])
 
   // A new category's draft comes back as changes to the blank form, so Save is ready for it.
   useEffect(() => {

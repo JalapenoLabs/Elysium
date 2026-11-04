@@ -85,6 +85,7 @@ export function RemoveLearningCategoryModal(props: Props) {
               t('remove.learnings', { count: category.learningCount })
             }</p>
             <OptionSelect
+              id='remove-learning-category-move-to'
               label={t('remove.moveTo')}
               placeholder={t('remove.chooseCategory')}
               options={targets.map((option) => ({ id: option.key, label: option.label }))}

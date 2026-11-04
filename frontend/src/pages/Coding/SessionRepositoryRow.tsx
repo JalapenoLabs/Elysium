@@ -63,6 +63,9 @@ export function SessionRepositoryRow(props: Props) {
         }</Chip>}
       </div>
       <TextField
+        // One row per repository, so its URL keeps the id apart from every other row's.
+        id={`coding-session-branch-${props.value.url.replace(/[^a-z0-9]+/gi, '-')}`}
+        autoComplete='off'
         aria-label={t('create.repositories.branchLabel', values)}
         className='w-36 shrink-0'
         isInvalid={Boolean(props.branchError)}

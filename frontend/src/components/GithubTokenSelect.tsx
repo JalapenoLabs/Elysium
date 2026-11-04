@@ -14,6 +14,7 @@ export const INHERIT_GITHUB_TOKEN = 'inherit'
 export const NO_GITHUB_TOKEN = 'none'
 
 type Props = {
+  id: string
   label: string
   description?: string
   // What following the level above means here, such as "Workspace default (Work)".
@@ -39,6 +40,7 @@ export function GithubTokenSelect(props: Props) {
   }
 
   return <Select
+    id={props.id}
     isDisabled={props.isDisabled}
     value={props.value}
     onChange={choose}

@@ -34,6 +34,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createEnvironmentFormSchema } from './environmentFormSchema'
 import { toast } from '../../../toast/toast'
@@ -58,6 +59,7 @@ export function EnvironmentVariableForm(props: Props) {
     [ t, stored ],
   )
 
+  const keyRef = useInitialFocus()
   const form = useForm<EnvironmentFormInput, unknown, EnvironmentFormValues>({
     resolver,
     defaultValues: {
@@ -144,20 +146,21 @@ export function EnvironmentVariableForm(props: Props) {
     >
       {/* Key */}
       <TextField
-        autoFocus
         isRequired
+        id='environment-variable-key'
         isInvalid={Boolean(errors.key)}
         value={values.key}
         onChange={(value) => form.setValue('key', value, { shouldDirty: true, shouldValidate: true })}
       >
         <Label>{t('form.key')}</Label>
-        <Input className='font-mono' autoComplete='off' spellCheck={false} />
+        <Input ref={keyRef} className='font-mono' autoComplete='off' spellCheck={false} />
         <Description>{t('form.keyHint')}</Description>
         <FieldError>{errors.key?.message}</FieldError>
       </TextField>
 
       {/* Secret */}
       <Switch
+        id='environment-variable-secret'
         isSelected={isSecret}
         onChange={(isSelected) => form.setValue('isSecret', isSelected, { shouldDirty: true, shouldValidate: true })}
       >
@@ -173,6 +176,7 @@ export function EnvironmentVariableForm(props: Props) {
       {/* Value: a secret's is hidden while typed, with a toggle to show it */}
       {isSecret
         ? <SecretInput
+          id='environment-variable-value'
           isRequired={!keepsStoredSecret}
           isMonospace
           label={t('form.value')}
@@ -182,6 +186,7 @@ export function EnvironmentVariableForm(props: Props) {
           onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
         />
         : <TextField
+          id='environment-variable-value'
           isRequired={isRevealingSecret}
           isInvalid={Boolean(errors.value)}
           value={values.value}
@@ -195,6 +200,7 @@ export function EnvironmentVariableForm(props: Props) {
 
       {/* Description */}
       <TextField
+        id='environment-variable-description'
         isInvalid={Boolean(errors.description)}
         value={values.description}
         onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}

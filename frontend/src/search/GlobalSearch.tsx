@@ -130,6 +130,8 @@ export function GlobalSearch() {
   return <div ref={containerRef} className='relative w-full min-w-0 max-w-sm' onBlur={onBlur}>
     <Autocomplete inputValue={query} onInputChange={setQuery}>
       <SearchField
+        id='global-search'
+        autoComplete='off'
         aria-label={t('common:search.label')}
         className='w-full'
         onKeyDown={(event) => {

@@ -9,13 +9,17 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../hooks/useInitialFocus'
+
 type Props = {
   // How long the button stays disabled once it mounts, its label counting the seconds down.
   // Zero enables it at once. Give it a new `key` to start the count again.
   seconds: number
   label: string
   variant?: ButtonProps['variant']
-  autoFocus?: boolean
+  // Focused once shown, so Enter presses it.
+  shouldFocus?: boolean
   isDisabled?: boolean
   isPending?: boolean
   onPress: () => void
@@ -26,6 +30,7 @@ type Props = {
 export function CountdownButton(props: Props) {
   const { t } = useTranslation('common')
   const [ secondsLeft, setSecondsLeft ] = useState(props.seconds)
+  const buttonRef = useInitialFocus(Boolean(props.shouldFocus))
 
   useEffect(() => {
     if (secondsLeft <= 0) {
@@ -37,7 +42,7 @@ export function CountdownButton(props: Props) {
 
   return <Button
     variant={props.variant}
-    autoFocus={props.autoFocus}
+    ref={buttonRef}
     isDisabled={secondsLeft > 0 || props.isDisabled}
     isPending={props.isPending}
     onPress={props.onPress}

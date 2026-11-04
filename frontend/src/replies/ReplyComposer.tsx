@@ -178,6 +178,7 @@ export function ReplyComposer(props: Props) {
   >
     {(canChoosePlace || canChooseMailbox || isMail) && <div className='compact flex flex-wrap items-end gap-3'>
       {props.replies.through === 'connector' && canChoosePlace && <OptionSelect
+        id={`reply-${record.id}-place`}
         className='w-56'
         label={t('reply.place')}
         value={place ?? ''}
@@ -187,6 +188,7 @@ export function ReplyComposer(props: Props) {
           : 'thread')}
       />}
       {canChooseMailbox && <OptionSelect
+        id={`reply-${record.id}-mailbox`}
         className='w-72'
         label={t('reply.from')}
         value={mailboxId ?? ''}
@@ -197,6 +199,7 @@ export function ReplyComposer(props: Props) {
     </div>}
 
     <TextField
+      id={`reply-${record.id}-text`}
       className='compact w-full'
       value={text}
       maxLength={REPLY_MAX_CHARACTERS}

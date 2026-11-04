@@ -20,6 +20,7 @@ export function LlmSetupChecklist(props: Props) {
   const { t } = useTranslation('llms')
 
   return <SetupChecklist
+    id='llm-setup'
     title={t('setup.title')}
     description={t('setup.description')}
     steps={llmSetupStepsByType[props.type].map((step) => ({

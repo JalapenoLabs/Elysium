@@ -114,6 +114,7 @@ export function LearningsPage() {
     return <>
       <div className='relaxed'>
         <OptionSelect
+          id='learnings-category-filter'
           className='w-56'
           label={t('filters.category')}
           options={categoryOptions}

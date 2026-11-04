@@ -40,6 +40,7 @@ export function StudioFiltersBar(props: Props) {
 
   return <div className='relaxed flex flex-wrap items-end gap-3'>
     <OptionSelect
+      id='studio-filter-project'
       className='w-56'
       label={t('filters.project')}
       options={projectOptions}
@@ -52,6 +53,7 @@ export function StudioFiltersBar(props: Props) {
       })}
     />
     <Switch
+      id='studio-filter-deleted'
       className='h-10 justify-center'
       isSelected={filters.deleted}
       onChange={(isSelected) => props.onChange({ ...filters, deleted: isSelected })}

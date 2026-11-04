@@ -23,6 +23,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailDomain } from '../../../api/routes/mailRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { getTabUrl, UrlTree } from '../../../urls'
 import { createMailDomainFormSchema } from './mailFormSchemas'
@@ -39,6 +40,7 @@ export function MailDomainForm() {
     [ t ],
   )
 
+  const nameRef = useInitialFocus()
   const form = useForm<MailDomainFormValues>({
     resolver,
     defaultValues: {
@@ -81,7 +83,6 @@ export function MailDomainForm() {
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex max-w-xl flex-col gap-4'>
     <TextField
       id='mail-domain-name'
-      autoFocus
       isRequired
       autoComplete='off'
       isInvalid={Boolean(errors.name)}
@@ -89,7 +90,7 @@ export function MailDomainForm() {
       onChange={(value) => form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('domainForm.name')}</Label>
-      <Input placeholder='example.org' />
+      <Input ref={nameRef} placeholder='example.org' />
       <FieldError>{errors.name?.message}</FieldError>
     </TextField>
 

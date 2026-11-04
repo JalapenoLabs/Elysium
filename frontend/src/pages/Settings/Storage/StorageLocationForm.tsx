@@ -42,6 +42,7 @@ import {
   updateStorageLocation,
 } from '../../../api/routes/storageRoutes'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createStorageFormSchema, keepsAccessKey, toStorageProvider } from './storageFormSchema'
 import {
@@ -75,6 +76,7 @@ export function StorageLocationForm(props: Props) {
     [ t, stored ],
   )
 
+  const nameRef = useInitialFocus()
   const form = useForm<StorageFormInput, unknown, StorageFormValues>({
     resolver,
     defaultValues: {
@@ -198,6 +200,7 @@ export function StorageLocationForm(props: Props) {
 
   const bucketField = <TextField
     isRequired
+    id='storage-location-bucket'
     isInvalid={Boolean(errors.bucket)}
     autoComplete='off'
     value={values.bucket}
@@ -213,20 +216,22 @@ export function StorageLocationForm(props: Props) {
     <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       {/* Name */}
       <TextField
-        autoFocus
         isRequired
+        id='storage-location-name'
+        autoComplete='off'
         isInvalid={Boolean(errors.name)}
         value={values.name}
         onChange={setText('name')}
       >
         <Label>{t('form.name')}</Label>
-        <Input />
+        <Input ref={nameRef} />
         <FieldError>{errors.name?.message}</FieldError>
       </TextField>
 
       {/* Provider */}
       <Select
         isRequired
+        id='storage-location-provider'
         value={option}
         onChange={(key) => {
           const selected = STORAGE_OPTIONS.find((candidate) => candidate === key)
@@ -260,6 +265,7 @@ export function StorageLocationForm(props: Props) {
         {/* Zone */}
         <TextField
           isRequired
+          id='storage-location-zone'
           isInvalid={Boolean(errors.zone)}
           autoComplete='off'
           value={values.zone}
@@ -274,6 +280,7 @@ export function StorageLocationForm(props: Props) {
         {/* Bunny region */}
         <Select
           isRequired
+          id='storage-location-bunny-region'
           value={values.bunnyRegion}
           onChange={(key) => {
             const selected = BUNNY_STORAGE_REGIONS.find((candidate) => candidate === key)
@@ -311,6 +318,7 @@ export function StorageLocationForm(props: Props) {
         {/* AWS region */}
         <TextField
           isRequired
+          id='storage-location-aws-region'
           isInvalid={Boolean(errors.awsRegion)}
           autoComplete='off'
           value={values.awsRegion}
@@ -327,6 +335,7 @@ export function StorageLocationForm(props: Props) {
 
       {/* Directory */}
       <TextField
+        id='storage-location-directory'
         isInvalid={Boolean(errors.pathPrefix)}
         autoComplete='off'
         value={values.pathPrefix}
@@ -340,6 +349,7 @@ export function StorageLocationForm(props: Props) {
 
       {/* Projects */}
       <ProjectScopePicker
+        id='storage-location-projects'
         label={t('form.projects')}
         description={t('form.projectsHint')}
         value={values.projects ?? []}
@@ -349,6 +359,7 @@ export function StorageLocationForm(props: Props) {
       {/* Storage limit, or none */}
       <div className='flex items-start gap-4'>
         <NumberField
+          id='storage-location-limit'
           className='min-w-0 flex-1'
           isRequired={!values.isUnlimited}
           isDisabled={values.isUnlimited}
@@ -377,6 +388,7 @@ export function StorageLocationForm(props: Props) {
           <FieldError>{errors.storageLimitGigabytes?.message}</FieldError>
         </NumberField>
         <Switch
+          id='storage-location-unlimited'
           className='mt-8 shrink-0'
           isSelected={values.isUnlimited}
           onChange={(isSelected) => form.setValue(
@@ -397,6 +409,7 @@ export function StorageLocationForm(props: Props) {
       {/* Studio's default, once the location exists */}
       {props.location && <div>
         <Switch
+          id='storage-location-studio-default'
           isSelected={values.isStudioDefault}
           onChange={(isSelected) => form.setValue('isStudioDefault', isSelected, { shouldDirty: true })}
         >
@@ -413,6 +426,7 @@ export function StorageLocationForm(props: Props) {
       {/* Access key id, for S3 */}
       {labels.keyId && <TextField
         isRequired
+        id='storage-location-access-key-id'
         isInvalid={Boolean(errors.accessKeyId)}
         autoComplete='off'
         value={values.accessKeyId}
@@ -426,6 +440,7 @@ export function StorageLocationForm(props: Props) {
 
       {/* Secret */}
       <SecretInput
+        id='storage-location-secret'
         isRequired={!keepsStoredSecret}
         isMonospace
         label={t(labels.secret)}

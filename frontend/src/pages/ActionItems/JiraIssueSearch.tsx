@@ -53,6 +53,7 @@ export function JiraIssueSearch(props: Props) {
 
   return <div className='flex flex-col gap-3'>
     <TextField
+      id='link-target-search'
       value={text}
       autoComplete='off'
       onChange={(value) => {

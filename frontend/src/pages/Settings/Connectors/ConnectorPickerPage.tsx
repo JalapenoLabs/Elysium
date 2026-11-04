@@ -12,6 +12,7 @@ import { ConnectorKindCard } from './ConnectorKindCard'
 
 // Misc
 import { CONNECTOR_PROVIDES } from '../../../api/routes/connectorRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { CONNECTOR_PROVIDES_PARAM, UrlTree } from '../../../urls'
 import { searchKinds } from './connectorPresentation'
 import { useConnectorKinds } from './useConnectorKinds'
@@ -25,6 +26,7 @@ export function ConnectorPickerPage() {
   const definitions = useConnectorKinds()
   const [ searchParams ] = useSearchParams()
   const [ search, setSearch ] = useState('')
+  const searchRef = useInitialFocus()
 
   const requested = searchParams.get(CONNECTOR_PROVIDES_PARAM)
   const provides = CONNECTOR_PROVIDES.find((candidate) => candidate === requested) ?? null
@@ -46,15 +48,16 @@ export function ConnectorPickerPage() {
     parents={[{ label: t('page.title'), href: UrlTree.settingsConnectors }]}
   >
     <SearchField
+      id='connector-kinds-search'
+      autoComplete='off'
       className='relaxed'
       aria-label={t('picker.search')}
       value={search}
       onChange={setSearch}
-      autoFocus
     >
       <SearchField.Group>
         <SearchField.SearchIcon />
-        <SearchField.Input placeholder={t('picker.search')} />
+        <SearchField.Input ref={searchRef} placeholder={t('picker.search')} />
         <SearchField.ClearButton />
       </SearchField.Group>
     </SearchField>

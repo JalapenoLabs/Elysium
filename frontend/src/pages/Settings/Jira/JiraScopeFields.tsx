@@ -66,6 +66,7 @@ export function JiraScopeFields(props: Props) {
   return <div className='flex flex-col gap-4'>
     {/* Projects */}
     <Switch
+      id='jira-all-projects'
       isSelected={props.value.allProjects}
       isDisabled={props.isProjectsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allProjects: isSelected })}
@@ -81,6 +82,7 @@ export function JiraScopeFields(props: Props) {
 
     {!props.value.allProjects && (projectOptions.length
       ? <JiraScopePicker
+        id='jira-projects'
         label={t('scope.projects')}
         description={t('scope.projectsHint')}
         options={projectOptions}
@@ -96,6 +98,7 @@ export function JiraScopeFields(props: Props) {
 
     {/* Boards */}
     <Switch
+      id='jira-all-boards'
       isSelected={props.value.allBoards}
       isDisabled={props.isBoardsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allBoards: isSelected })}
@@ -111,6 +114,7 @@ export function JiraScopeFields(props: Props) {
 
     {!props.value.allBoards && (boardOptions.length
       ? <JiraScopePicker
+        id='jira-boards'
         label={t('scope.boards')}
         description={t('scope.boardsHint')}
         options={boardOptions}

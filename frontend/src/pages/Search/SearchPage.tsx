@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 
@@ -12,6 +12,7 @@ import { Page } from '../../layout/page/Page'
 import { SearchResultRow } from '../../search/SearchResultRow'
 
 // Misc
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { useAskElysia } from '../../elysia/useAskElysia'
 import { searchGroupLabelKeys } from '../../search/searchPresentation'
 import { groupSearchResults } from '../../search/searchRanking'
@@ -25,17 +26,13 @@ export function SearchPage() {
   const { t } = useTranslation([ 'search', 'common' ])
   const [ params, setParams ] = useSearchParams()
   const [ isAsking, setIsAsking ] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useInitialFocus()
   const askElysia = useAskElysia()
 
   const query = params.get(SEARCH_QUERY_PARAM) ?? ''
   const trimmedQuery = query.trim()
   const search = useGlobalSearch(query)
   const sections = groupSearchResults(search.results)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
 
   async function ask() {
     setIsAsking(true)
@@ -45,6 +42,8 @@ export function SearchPage() {
 
   return <Page title={t('page.title')}>
     <SearchField
+      id='search-page-query'
+      autoComplete='off'
       aria-label={t('common:search.label')}
       className='relaxed w-full max-w-2xl'
       value={query}

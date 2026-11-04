@@ -36,6 +36,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { createStudioItem } from '../../api/routes/studioRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { useProjectsLoader, useStorageLocationsLoader } from '../../hooks/useServerData'
 import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { getStudioItemUrl } from '../../urls'
@@ -57,6 +58,7 @@ export function CreateStudioItemForm() {
   useStorageLocationsLoader()
   const projects = useAppSelector(selectAllProjects)
   const locations = useAppSelector(selectAllStorageLocations)
+  const promptRef = useInitialFocus()
 
   const resolver = useMemo(() => zodResolver(createStudioItemFormSchema(t)), [ t ])
   const form = useForm<StudioItemFormValues>({
@@ -143,20 +145,22 @@ export function CreateStudioItemForm() {
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex max-w-3xl flex-col gap-4'>
     {/* First prompt */}
     <TextField
-      autoFocus
       isRequired
+      id='studio-item-prompt'
       isInvalid={Boolean(errors.prompt)}
       value={prompt}
       onChange={(value) => form.setValue('prompt', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('create.prompt')}</Label>
-      <TextArea rows={5} />
+      <TextArea ref={promptRef} rows={5} />
       <Description>{t('create.promptHint')}</Description>
       <FieldError>{errors.prompt?.message}</FieldError>
     </TextField>
 
     {/* Title */}
     <TextField
+      id='studio-item-title'
+      autoComplete='off'
       isInvalid={Boolean(errors.title)}
       value={title}
       onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
@@ -169,6 +173,7 @@ export function CreateStudioItemForm() {
 
     {/* Project */}
     <Select
+      id='studio-item-project'
       value={projectId || NO_PROJECT_KEY}
       onChange={changeProject}
     >
@@ -199,6 +204,7 @@ export function CreateStudioItemForm() {
     {/* Storage location */}
     <Select
       isRequired
+      id='studio-item-storage-location'
       isDisabled={!locationChoices.length}
       isInvalid={Boolean(errors.storageLocationId)}
       placeholder={t('create.locationPlaceholder')}

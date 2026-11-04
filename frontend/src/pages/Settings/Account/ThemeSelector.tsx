@@ -19,6 +19,7 @@ export function ThemeSelector() {
   const { preference, setPreference } = useThemePreference()
 
   return <RadioGroup
+    id='account-theme'
     aria-label={t('account.appearance.label')}
     orientation='horizontal'
     value={preference}

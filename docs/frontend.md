@@ -1143,6 +1143,20 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
 ## Forms
 
 - react-hook-form with a Zod schema. Schemas are built with `t` so validation messages arrive translated.
+- **First field.** Every page and dialog focuses the field typing starts in as it opens, with `useInitialFocus`
+  (`src/hooks/useInitialFocus.ts`): a ref callback handed to the input, text area, or button itself, never the
+  `autoFocus` attribute. It runs whenever its element attaches, so a dialog mounted once for the whole app, or a
+  picker's search in a popover, focuses its field on every opening. It takes a condition for a form whose first
+  field depends on what it starts from (a session from an item starts at its prompt).
+- **Ids.** Every field has an id written by hand, `<form>-<field>` in kebab case (`action-item-title`), with the
+  record's id in it where the field repeats (`reply-<recordId>-text`, a person's role on Users). React Aria's
+  generated ids change from render to render, so they do not count. The shared fields (`SecretInput`,
+  `OptionSelect`, `DayPicker`, `MultiPicker`, `ProjectScopePicker`, `GithubTokenSelect`, `ListSearchField`,
+  `InlineEditableText`, `SetupChecklist`) require one; a picker's popover search is `<id>-search`.
+- **Autofill.** Every text input sets `autoComplete`: the person's own details as what they are (`email`,
+  `given-name`, `family-name`, `username webauthn`, `current-password`, `new-password`, `one-time-code`), `url`
+  for an address they own, and `off` for everything else (names of records, keys, searches, codes).
+  `src/bugs/167.test.tsx` checks the `/new` forms for all three.
 - Read field values with `useWatch`, not `form.watch`. The React Compiler lint rejects `watch`.
 - HeroUI v3 field `onChange` handlers receive the value, not a DOM event.
 - A `Switch`'s clickable part is `Switch.Content`, so it wraps the `Switch.Control` and the `Label` together. A

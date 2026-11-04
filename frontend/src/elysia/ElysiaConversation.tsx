@@ -148,6 +148,7 @@ export function ElysiaConversation(props: Props) {
       }}
     >
       <TextField
+        id='elysia-message'
         className='w-full'
         value={draft}
         maxLength={MESSAGE_MAX_CHARACTERS}

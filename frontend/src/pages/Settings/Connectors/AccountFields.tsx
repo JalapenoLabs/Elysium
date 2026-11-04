@@ -37,6 +37,7 @@ export function AccountFields(props: Props) {
       if (field.field.type === 'choice') {
         return <Select
           key={field.id}
+          id={`connector-account-${field.id}`}
           isRequired={field.required}
           value={props.values[field.id] || null}
           onChange={(key) => set(field.id, String(key))}
@@ -59,6 +60,7 @@ export function AccountFields(props: Props) {
       if (field.field.type === 'secret') {
         return <SecretInput
           key={field.id}
+          id={`connector-account-${field.id}`}
           isRequired={field.required}
           isMonospace
           label={label}
@@ -68,6 +70,7 @@ export function AccountFields(props: Props) {
       }
       return <TextField
         key={field.id}
+        id={`connector-account-${field.id}`}
         isRequired={field.required}
         type={inputTypes[field.field.type]}
         autoComplete='off'

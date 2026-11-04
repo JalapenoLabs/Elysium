@@ -3,10 +3,14 @@
 // User interface
 import { InputOTP, REGEXP_ONLY_DIGITS } from '@heroui/react'
 
+// Misc
+import { useInitialFocus } from '../hooks/useInitialFocus'
+
 // Authenticator apps show six digits.
 const CODE_LENGTH = 6
 
 type Props = {
+  id: string
   label: string
   value: string
   onChange: (value: string) => void
@@ -14,19 +18,23 @@ type Props = {
   onComplete?: (value: string) => void
   isInvalid?: boolean
   isDisabled?: boolean
-  autoFocus?: boolean
+  // Focused once shown, as the one field of the step it is on.
+  shouldFocus?: boolean
 }
 
 // The six-digit code from an authenticator app, one box per digit. Pasting a whole code
 // fills every box.
 export function AuthenticatorCodeInput(props: Props) {
+  const inputRef = useInitialFocus(Boolean(props.shouldFocus))
+
   return <InputOTP
+    ref={inputRef}
+    id={props.id}
     aria-label={props.label}
     maxLength={CODE_LENGTH}
     pattern={REGEXP_ONLY_DIGITS}
     inputMode='numeric'
     autoComplete='one-time-code'
-    autoFocus={props.autoFocus}
     isInvalid={props.isInvalid}
     isDisabled={props.isDisabled}
     value={props.value}

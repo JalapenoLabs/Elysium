@@ -27,6 +27,7 @@ import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 // Misc
 import { cancelClaudeSignIn, finishClaudeSignIn, startClaudeSignIn } from '../../../api/routes/llmRoutes'
 import { getApiErrorMessage } from '../../../api/errors'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 
@@ -47,6 +48,9 @@ export function ClaudeSignInForm(props: Props) {
   const [ name, setName ] = useState('')
   const [ priority, setPriority ] = useState(0)
   const [ code, setCode ] = useState('')
+  // The name opens the page; the code field takes focus once the sign-in shows it.
+  const nameRef = useInitialFocus()
+  const codeRef = useInitialFocus()
 
   // The waiting sign-in, read when the page goes away, so its CLI never outlives the page.
   const waitingId = useRef<string | null>(null)
@@ -120,17 +124,20 @@ export function ClaudeSignInForm(props: Props) {
 
     {/* Name, defaulting to the account's email */}
     <TextField
+      id='claude-account-name'
+      autoComplete='off'
       isDisabled={Boolean(signIn)}
       value={name}
       onChange={setName}
     >
       <Label>{t('form.name')}</Label>
-      <Input placeholder={t('signIn.namePlaceholder')} />
+      <Input ref={nameRef} placeholder={t('signIn.namePlaceholder')} />
       <Description>{t('signIn.nameHint')}</Description>
     </TextField>
 
     {/* Priority */}
     <NumberField
+      id='claude-account-priority'
       isDisabled={Boolean(signIn)}
       step={1}
       value={priority}
@@ -160,14 +167,14 @@ export function ClaudeSignInForm(props: Props) {
 
       {/* The code Anthropic's page shows */}
       <TextField
-        autoFocus
         isRequired
+        id='claude-account-code'
         autoComplete='off'
         value={code}
         onChange={setCode}
       >
         <Label>{t('signIn.code')}</Label>
-        <Input className='font-mono' spellCheck={false} />
+        <Input ref={codeRef} className='font-mono' spellCheck={false} />
         <Description>{t('signIn.codeHint')}</Description>
         <FieldError />
       </TextField>

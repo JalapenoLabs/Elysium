@@ -46,6 +46,7 @@ export function LinkTargetPicker(props: Props) {
 
     {credential?.provider === 'github' && <>
       <OptionSelect
+        id='link-target-kind'
         label={t('links.picker.kind')}
         options={kindOptions}
         value={props.value.kind}

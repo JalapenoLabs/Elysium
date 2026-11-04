@@ -138,6 +138,7 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
     </div>
 
     <PromptComposer
+      id={`coding-session-${sessionId}-prompt`}
       onSend={sendPrompt}
     />
   </div>

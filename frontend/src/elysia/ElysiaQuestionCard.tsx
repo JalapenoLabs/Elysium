@@ -83,6 +83,7 @@ export function ElysiaQuestionCard(props: Props) {
       }}
     >
       <TextField
+        id={`elysia-question-${props.question.id}-answer`}
         className='w-full'
         value={draft}
         maxLength={ANSWER_MAX_CHARACTERS}

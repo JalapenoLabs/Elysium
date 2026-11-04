@@ -95,6 +95,7 @@ export function ProjectBanner(props: Props) {
 
   const fileInput = <input
     ref={inputRef}
+    id='project-cover'
     type='file'
     accept={PROJECT_COVER_ACCEPTED_TYPES.join(',')}
     className='hidden'

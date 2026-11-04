@@ -15,6 +15,7 @@ import { AuthenticatorCodeInput } from '../../components/AuthenticatorCodeInput'
 // Misc
 import { collectMessages, hasGroup } from '../../api/kratosFlows'
 import { signOut } from '../../auth/signOut'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { fieldErrorText } from './kratosPresentation'
 
 type Props = {
@@ -36,6 +37,7 @@ export function SecondFactorForm(props: Props) {
   const [ code, setCode ] = useState('')
   const [ lookupCode, setLookupCode ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
+  const lookupCodeRef = useInitialFocus()
   const messages = collectMessages(props.flow)
 
   async function submitCode(totpCode: string) {
@@ -64,7 +66,8 @@ export function SecondFactorForm(props: Props) {
     {method === 'totp'
       ? <div className='relaxed flex flex-col items-center gap-2'>
         <AuthenticatorCodeInput
-          autoFocus
+          shouldFocus
+          id='second-factor-code'
           label={t('fields.authenticatorCode')}
           value={code}
           isDisabled={isSubmitting}
@@ -78,7 +81,7 @@ export function SecondFactorForm(props: Props) {
       </div>
       : <TextField
         isRequired
-        autoFocus
+        id='second-factor-lookup-code'
         className='relaxed'
         autoComplete='off'
         isInvalid={Boolean(messages.byField.lookup_secret)}
@@ -86,7 +89,7 @@ export function SecondFactorForm(props: Props) {
         onChange={setLookupCode}
       >
         <Label>{t('fields.lookupCode')}</Label>
-        <Input />
+        <Input ref={lookupCodeRef} />
         <FieldError>{fieldErrorText(messages.byField.lookup_secret, t)}</FieldError>
       </TextField>}
 

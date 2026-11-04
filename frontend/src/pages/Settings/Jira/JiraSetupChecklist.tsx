@@ -14,6 +14,7 @@ export function JiraSetupChecklist() {
   const { t } = useTranslation('jira')
 
   return <SetupChecklist
+    id='jira-setup'
     title={t('setup.title')}
     description={t('setup.description')}
     steps={JIRA_SETUP_STEPS.map((step) => ({

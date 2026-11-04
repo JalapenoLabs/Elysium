@@ -114,6 +114,7 @@ export function InitiativeView(props: Props) {
           {isDeleted
             ? <p className='text-sm whitespace-pre-line opacity-80'>{initiative.description}</p>
             : <InlineEditableText
+              id='initiative-description'
               value={description}
               label={t('page.describeLabel')}
               placeholder={t('page.addDescription')}

@@ -16,6 +16,7 @@ import { Button, FieldError, Form, Input, Label, Modal, TextField } from '@herou
 
 // Misc
 import { renameCodingSession } from '../../api/routes/codingSessionRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 import { toast } from '../../toast/toast'
 
@@ -30,6 +31,7 @@ export function RenameSessionModal(props: Props) {
   const dispatch = useAppDispatch()
   const [ title, setTitle ] = useState(props.session?.title ?? '')
   const [ isSaving, setIsSaving ] = useState(false)
+  const titleRef = useInitialFocus()
 
   const trimmedTitle = title.trim()
   const error = trimmedTitle.length > SESSION_TITLE_MAX_CHARACTERS
@@ -76,14 +78,15 @@ export function RenameSessionModal(props: Props) {
         >
           <Modal.Body className='mt-2'>
             <TextField
-              autoFocus
               isRequired
+              id='rename-session-title'
+              autoComplete='off'
               isInvalid={Boolean(error)}
               value={title}
               onChange={setTitle}
             >
               <Label>{t('rename.label')}</Label>
-              <Input />
+              <Input ref={titleRef} />
               <FieldError>{error}</FieldError>
             </TextField>
           </Modal.Body>

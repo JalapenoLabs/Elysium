@@ -23,6 +23,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { createProjectFormSchema } from './projectFormSchema'
 import { toast } from '../../toast/toast'
@@ -38,6 +39,7 @@ export function ProjectForm(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
   const [ coverFile, setCoverFile ] = useState<File | null>(null)
+  const nameRef = useInitialFocus()
 
   const resolver = useMemo(
     () => zodResolver(createProjectFormSchema(t)),
@@ -112,19 +114,21 @@ export function ProjectForm(props: Props) {
       <div className='flex flex-col gap-4'>
         {/* Name */}
         <TextField
-          autoFocus
           isRequired
+          id='project-name'
+          autoComplete='off'
           isInvalid={Boolean(errors.name)}
           value={name}
           onChange={(value) => form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
         >
           <Label>{t('form.name')}</Label>
-          <Input />
+          <Input ref={nameRef} />
           <FieldError>{errors.name?.message}</FieldError>
         </TextField>
 
         {/* Description */}
         <TextField
+          id='project-description'
           isInvalid={Boolean(errors.description)}
           value={description}
           onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}

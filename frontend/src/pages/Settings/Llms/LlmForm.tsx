@@ -38,6 +38,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLlmFormSchema } from './llmFormSchema'
 import { isTokenTypedByType } from './llmPresentation'
@@ -70,6 +71,7 @@ export function LlmForm(props: Props) {
     [ t, mode ],
   )
 
+  const nameRef = useInitialFocus()
   const form = useForm<LlmFormValues>({
     resolver,
     defaultValues: {
@@ -161,19 +163,21 @@ export function LlmForm(props: Props) {
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-5'>
     {/* Name */}
     <TextField
-      autoFocus
       isRequired
+      id='llm-name'
+      autoComplete='off'
       isInvalid={Boolean(errors.name)}
       value={name}
       onChange={(value) => form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('form.name')}</Label>
-      <Input />
+      <Input ref={nameRef} />
       <FieldError>{errors.name?.message}</FieldError>
     </TextField>
 
     {/* Description */}
     <TextField
+      id='llm-description'
       isInvalid={Boolean(errors.description)}
       value={description}
       onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}
@@ -185,6 +189,7 @@ export function LlmForm(props: Props) {
 
     {/* Secret token */}
     {isTokenTyped && <SecretInput
+      id='llm-secret-token'
       isRequired={mode === 'create'}
       isMonospace
       label={t('form.secretToken')}
@@ -198,6 +203,7 @@ export function LlmForm(props: Props) {
     {/* Expiry, entered and shown in the viewer's local time zone */}
     {isTokenTyped && <div>
       <DatePicker
+        id='llm-expires-at'
         granularity='day'
         value={expiresAt}
         onChange={(value) => form.setValue('expiresAt', value, { shouldDirty: true })}
@@ -266,6 +272,7 @@ export function LlmForm(props: Props) {
       {/* Priority */}
       <NumberField
         isRequired
+        id='llm-priority'
         step={1}
         value={priority}
         onChange={(value) => form.setValue(
@@ -287,6 +294,7 @@ export function LlmForm(props: Props) {
 
       {/* Active */}
       <Switch
+        id='llm-active'
         className='self-center'
         isSelected={isActive}
         onChange={(isSelected) => form.setValue('isActive', isSelected, { shouldDirty: true })}

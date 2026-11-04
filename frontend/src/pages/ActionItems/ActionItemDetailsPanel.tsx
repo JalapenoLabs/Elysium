@@ -52,6 +52,7 @@ export function ActionItemDetailsPanel(props: Props) {
   return <Card>
     <Card.Content className='flex flex-col gap-4'>
       <OptionSelect
+        id='action-item-priority'
         label={t('fields.priority')}
         isDisabled={isReadOnly}
         options={ACTION_ITEM_PRIORITIES.map((option) => ({ id: option, label: t(priorityLabelKeys[option]) }))}
@@ -68,6 +69,7 @@ export function ActionItemDetailsPanel(props: Props) {
 
       <div>
         <DayPicker
+          id='action-item-due-date'
           label={t('fields.dueDate')}
           calendarLabel={t('fields.dueDate')}
           isDisabled={isReadOnly}
@@ -85,6 +87,7 @@ export function ActionItemDetailsPanel(props: Props) {
       </div>
 
       <MultiPicker
+        id='action-item-projects'
         label={t('fields.projects')}
         searchLabel={t('fields.searchProjects')}
         emptyLabel={t('fields.noProjectsFound')}
@@ -95,6 +98,7 @@ export function ActionItemDetailsPanel(props: Props) {
       />
 
       <MultiPicker
+        id='action-item-initiatives'
         label={t('fields.initiatives')}
         searchLabel={t('fields.searchInitiatives')}
         emptyLabel={t('fields.noInitiativesFound')}

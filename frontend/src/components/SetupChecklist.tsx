@@ -18,6 +18,8 @@ export type SetupChecklistStep = {
 }
 
 type Props = {
+  // Prefixes each step's checkbox id: `<id>-<step id>`.
+  id: string
   title: string
   description: string
   steps: SetupChecklistStep[]
@@ -53,6 +55,7 @@ export function SetupChecklist(props: Props) {
           const isCompleted = completedSteps.has(step.id)
           return <li key={step.id}>
             <Checkbox
+              id={`${props.id}-${step.id}`}
               isSelected={isCompleted}
               onChange={(isSelected) => toggleStep(step.id, isSelected)}
             >

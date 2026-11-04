@@ -8,8 +8,11 @@ import { FieldError, Input, Label, TextField } from '@heroui/react'
 
 // Misc
 import { NAME_PART_MAX_LENGTH } from '../constants'
+import { useInitialFocus } from '../hooks/useInitialFocus'
 
 type Props = {
+  // Prefixes the fields' ids: `<idPrefix>-first-name` and `<idPrefix>-last-name`.
+  idPrefix: string
   firstName: string
   lastName: string
   onFirstNameChange: (value: string) => void
@@ -17,18 +20,20 @@ type Props = {
   // Kratos's refusal of either, such as a name that is too long.
   firstNameError?: string
   lastNameError?: string
-  autoFocus?: boolean
+  // Focuses the first name once shown, as the first field of its form.
+  shouldFocus?: boolean
 }
 
 // First and last name side by side, first on the left, wherever a person's name is entered:
 // sign-up and My account. The last name is optional, for people with one name.
 export function PersonNameFields(props: Props) {
   const { t } = useTranslation('auth')
+  const firstNameRef = useInitialFocus(Boolean(props.shouldFocus))
 
   return <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
     <TextField
       isRequired
-      autoFocus={props.autoFocus}
+      id={`${props.idPrefix}-first-name`}
       autoComplete='given-name'
       maxLength={NAME_PART_MAX_LENGTH}
       isInvalid={Boolean(props.firstNameError)}
@@ -36,10 +41,11 @@ export function PersonNameFields(props: Props) {
       onChange={props.onFirstNameChange}
     >
       <Label>{t('fields.firstName')}</Label>
-      <Input />
+      <Input ref={firstNameRef} />
       <FieldError>{props.firstNameError}</FieldError>
     </TextField>
     <TextField
+      id={`${props.idPrefix}-last-name`}
       autoComplete='family-name'
       maxLength={NAME_PART_MAX_LENGTH}
       isInvalid={Boolean(props.lastNameError)}

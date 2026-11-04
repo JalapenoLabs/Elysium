@@ -25,6 +25,7 @@ import { getLocalTimeZone } from '@internationalized/date'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { createInitiative } from '../../api/routes/initiativeRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { toEndOfDayInstant } from '../ActionItems/actionItemDates'
 import { createInitiativeFormSchema } from './initiativeFormSchema'
@@ -47,6 +48,7 @@ export function InitiativeForm(props: Props) {
   const projects = useAppSelector(selectAllProjects)
 
   const resolver = useMemo(() => zodResolver(createInitiativeFormSchema(t)), [ t ])
+  const nameRef = useInitialFocus()
   const form = useForm<InitiativeFormInput, unknown, InitiativeFormValues>({
     resolver,
     defaultValues: {
@@ -98,18 +100,20 @@ export function InitiativeForm(props: Props) {
     className='grid max-w-3xl grid-cols-1 gap-4'
   >
     <TextField
-      autoFocus
       isRequired
+      id='initiative-name'
+      autoComplete='off'
       isInvalid={Boolean(errors.name)}
       value={values.name}
       onChange={(value) => form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('form.name')}</Label>
-      <Input />
+      <Input ref={nameRef} />
       <FieldError>{errors.name?.message}</FieldError>
     </TextField>
 
     <TextField
+      id='initiative-description'
       isInvalid={Boolean(errors.description)}
       value={values.description}
       onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}
@@ -121,6 +125,7 @@ export function InitiativeForm(props: Props) {
 
     <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
       <DayPicker
+        id='initiative-target-date'
         label={t('fields.targetDate')}
         calendarLabel={t('fields.targetDate')}
         description={t('form.targetDateHint')}
@@ -130,6 +135,7 @@ export function InitiativeForm(props: Props) {
     </div>
 
     <MultiPicker
+      id='initiative-projects'
       label={t('fields.projects')}
       searchLabel={t('actionItems:fields.searchProjects')}
       emptyLabel={t('actionItems:fields.noProjectsFound')}

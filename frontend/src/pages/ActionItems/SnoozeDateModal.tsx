@@ -58,6 +58,7 @@ export function SnoozeDateModal(props: Props) {
         </Modal.Header>
         <Modal.Body className='mt-2 mb-4'>
           <DayPicker
+            id='snooze-date'
             label={t('snooze.dateLabel')}
             calendarLabel={t('snooze.dateLabel')}
             description={t('snooze.dateHint')}

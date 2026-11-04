@@ -11,6 +11,8 @@ import { Button, Description, Label, TextArea, TextField, Tooltip } from '@herou
 import { LuSendHorizontal } from 'react-icons/lu'
 
 type Props = {
+  // The field's id, one per conversation.
+  id: string
   // Sends the prompt and reports its own failures. Resolves true when the prompt was sent,
   // which clears the field; false keeps what was typed so it can be sent again.
   onSend: (prompt: string) => Promise<boolean>
@@ -64,6 +66,7 @@ export function PromptComposer(props: Props) {
         squeezed nor pushed past the edge. */}
     <div className='mx-auto flex max-w-3xl flex-wrap items-end justify-end gap-2'>
       <TextField
+        id={props.id}
         aria-label={t('conversation.composer.label')}
         className='min-w-0 flex-1 basis-48'
         value={prompt}

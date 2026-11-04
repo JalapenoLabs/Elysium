@@ -44,6 +44,7 @@ export function ProjectGithubField(props: Props) {
       </Alert.Content>
     </Alert>}
     <GithubTokenSelect
+      id='project-github-token'
       label={t('github.label')}
       description={t('github.hint')}
       inheritLabel={workspaceDefault

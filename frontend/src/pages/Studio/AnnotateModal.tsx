@@ -30,6 +30,7 @@ import { LuEraser, LuMoveUpRight, LuPencil, LuSendHorizontal, LuUndo2 } from 're
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { sendStudioTurn } from '../../api/routes/studioRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { DRAWING_TOOLS, getPenSize, PEN_COLORS, toImagePoint } from './annotation'
 import { drawAnnotation } from './drawAnnotation'
 import { toast } from '../../toast/toast'
@@ -69,6 +70,7 @@ export function AnnotateModal(props: Props) {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const promptRef = useInitialFocus()
   const [ image, setImage ] = useState<HTMLImageElement | null>(null)
   const [ hasLoadFailed, setHasLoadFailed ] = useState(false)
   const [ strokes, setStrokes ] = useState<DrawingStroke[]>([])
@@ -301,13 +303,13 @@ export function AnnotateModal(props: Props) {
 
         <Modal.Footer className='flex-col items-stretch gap-2 sm:flex-row sm:items-end'>
           <TextField
-            autoFocus
+            id='annotate-prompt'
             className='flex-1'
             value={prompt}
             onChange={setPrompt}
           >
             <Label>{t('annotate.prompt')}</Label>
-            <TextArea rows={2} />
+            <TextArea ref={promptRef} rows={2} />
             <Description>{t('annotate.promptHint')}</Description>
           </TextField>
           <Button

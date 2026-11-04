@@ -20,6 +20,7 @@ export function StorageSetupChecklist(props: Props) {
   const { t } = useTranslation('storage')
 
   return <SetupChecklist
+    id='storage-setup'
     title={t('setup.title')}
     description={t('setup.description')}
     steps={storageSetupStepsByOption[props.option].map((step) => ({

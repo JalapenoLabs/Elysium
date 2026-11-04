@@ -71,6 +71,7 @@ export function ProjectDetails(props: Props) {
       <h2 className='compact text-xl font-semibold'>{t('page.aboutHeading')}</h2>
       <div className='compact max-w-3xl'>
         <InlineEditableText
+          id='project-description'
           value={description}
           label={t('page.describeLabel')}
           placeholder={t('page.addDescription')}

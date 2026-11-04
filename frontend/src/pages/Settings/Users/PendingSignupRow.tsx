@@ -42,6 +42,7 @@ export function PendingSignupRow(props: Props) {
     <div className='level-right'>
       <OptionSelect
         isLabelHidden
+        id={`sign-up-${props.user.id}-role`}
         className='w-36'
         label={t('pending.role')}
         options={props.roleOptions}

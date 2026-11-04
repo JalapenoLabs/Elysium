@@ -97,6 +97,7 @@ export function ActionItemView(props: Props) {
           {isDeleted
             ? <p className='text-sm whitespace-pre-line opacity-80'>{item.notes}</p>
             : <InlineEditableText
+              id='action-item-notes'
               value={notes}
               label={t('item.notesLabel')}
               placeholder={t('item.addNotes')}

@@ -53,6 +53,7 @@ export function ContainerTargetPicker(props: Props) {
     />
 
     {credential && <OptionSelect
+      id='initiative-container-kind'
       label={t('containers.kind')}
       options={containerKindsByProvider[credential.provider].map((kind) => ({
         id: kind,

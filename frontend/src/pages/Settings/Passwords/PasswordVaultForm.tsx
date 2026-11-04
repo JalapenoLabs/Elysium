@@ -35,6 +35,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 import { createPasswordVaultFormSchema } from './passwordVaultFormSchema'
@@ -63,6 +64,7 @@ export function PasswordVaultForm(props: Props) {
     [ t, stored ],
   )
 
+  const clientIdRef = useInitialFocus()
   const form = useForm<PasswordVaultFormInput, unknown, PasswordVaultFormValues>({
     resolver,
     defaultValues: {
@@ -125,6 +127,7 @@ export function PasswordVaultForm(props: Props) {
       {/* Server */}
       <Select
         isRequired
+        id='password-vault-server'
         value={server}
         onChange={(key) => {
           const selected = PASSWORD_SERVERS.find((candidate) => candidate === key)
@@ -158,6 +161,8 @@ export function PasswordVaultForm(props: Props) {
       {/* Server URL, for a self-hosted server */}
       {server === 'self-hosted' && <TextField
         isRequired
+        id='password-vault-server-url'
+        autoComplete='url'
         isInvalid={Boolean(errors.serverUrl)}
         type='url'
         value={values.serverUrl}
@@ -171,21 +176,22 @@ export function PasswordVaultForm(props: Props) {
 
       {/* client_id */}
       <TextField
-        autoFocus
         isRequired
+        id='password-vault-client-id'
         isInvalid={Boolean(errors.clientId)}
         autoComplete='off'
         value={values.clientId}
         onChange={(value) => form.setValue('clientId', value, { shouldDirty: true, shouldValidate: true })}
       >
         <Label>{t('form.clientId')}</Label>
-        <Input placeholder='user.…' />
+        <Input ref={clientIdRef} placeholder='user.…' />
         <Description>{t('form.clientIdHint')}</Description>
         <FieldError>{errors.clientId?.message}</FieldError>
       </TextField>
 
       {/* client_secret */}
       <SecretInput
+        id='password-vault-client-secret'
         isRequired={!stored}
         isMonospace
         label={t('form.clientSecret')}
@@ -197,6 +203,7 @@ export function PasswordVaultForm(props: Props) {
 
       {/* Master password */}
       <SecretInput
+        id='password-vault-master-password'
         isRequired={!stored}
         label={t('form.masterPassword')}
         description={stored
@@ -218,6 +225,7 @@ export function PasswordVaultForm(props: Props) {
     </Form>
 
     <SetupChecklist
+      id='password-vault-setup'
       title={t('setup.title')}
       description={t('setup.description')}
       steps={setupStepKeys.map((key) => ({ id: key, text: t(key) }))}

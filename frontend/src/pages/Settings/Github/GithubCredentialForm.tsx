@@ -37,6 +37,7 @@ import {
   GITHUB_TOKEN_KINDS,
   updateGithubCredential,
 } from '../../../api/routes/githubRoutes'
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createGithubFormSchema } from './githubFormSchema'
 import { githubKindLabelKeys, githubTokenLabelKeys } from './githubPresentation'
@@ -61,6 +62,7 @@ export function GithubCredentialForm(props: Props) {
     [ t, stored ],
   )
 
+  const nameRef = useInitialFocus()
   const form = useForm<GithubFormInput, unknown, GithubFormValues>({
     resolver,
     defaultValues: {
@@ -130,14 +132,15 @@ export function GithubCredentialForm(props: Props) {
     <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       {/* Name */}
       <TextField
-        autoFocus
         isRequired
+        id='github-token-name'
+        autoComplete='off'
         isInvalid={Boolean(errors.name)}
         value={values.name}
         onChange={(value) => form.setValue('name', value, { shouldDirty: true, shouldValidate: true })}
       >
         <Label>{t('form.name')}</Label>
-        <Input />
+        <Input ref={nameRef} />
         <Description>{t('form.nameHint')}</Description>
         <FieldError>{errors.name?.message}</FieldError>
       </TextField>
@@ -145,6 +148,7 @@ export function GithubCredentialForm(props: Props) {
       {/* Token type */}
       <Select
         isRequired
+        id='github-token-kind'
         value={kind}
         onChange={(key) => {
           const selected = GITHUB_TOKEN_KINDS.find((candidate) => candidate === key)
@@ -177,6 +181,7 @@ export function GithubCredentialForm(props: Props) {
 
       {/* Token */}
       <SecretInput
+        id='github-token'
         isRequired={!keepsStoredToken}
         isMonospace
         label={t('form.token')}

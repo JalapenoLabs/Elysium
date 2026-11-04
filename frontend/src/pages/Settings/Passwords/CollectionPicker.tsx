@@ -87,6 +87,7 @@ export function CollectionPicker(props: Props) {
   }
   else {
     body = <Select
+      id='password-vault-collection'
       className='max-w-md'
       value={shown}
       onChange={(key) => {

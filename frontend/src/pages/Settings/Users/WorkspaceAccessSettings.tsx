@@ -67,6 +67,7 @@ export function WorkspaceAccessSettings(props: Props) {
   return <Form className='grid gap-6 rounded-xl border border-separator p-6 md:grid-cols-2' onSubmit={onSubmit}>
     <div>
       <Switch
+        id='workspace-sign-up-open'
         isSelected={signupOpen}
         onChange={(isSelected) => setChanges({ ...changes, signupOpen: isSelected })}
       >
@@ -81,6 +82,7 @@ export function WorkspaceAccessSettings(props: Props) {
     </div>
     <div>
       <Switch
+        id='workspace-require-authenticator'
         isSelected={requireMfa}
         isDisabled={!canRequireMfa}
         onChange={(isSelected) => setChanges({ ...changes, requireMfa: isSelected })}

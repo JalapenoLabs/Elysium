@@ -27,6 +27,7 @@ import { getLocalTimeZone } from '@internationalized/date'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { ACTION_ITEM_PRIORITIES, createActionItem } from '../../api/routes/actionItemRoutes'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { toEndOfDayInstant } from './actionItemDates'
 import { createActionItemFormSchema } from './actionItemFormSchema'
@@ -51,6 +52,7 @@ export function ActionItemForm(props: Props) {
   useInitiativesLoader()
   const projects = useAppSelector(selectAllProjects)
   const initiatives = useAppSelector(selectLiveInitiatives)
+  const titleRef = useInitialFocus()
 
   const resolver = useMemo(() => zodResolver(createActionItemFormSchema(t)), [ t ])
   const form = useForm<ActionItemFormInput, unknown, ActionItemFormValues>({
@@ -110,18 +112,20 @@ export function ActionItemForm(props: Props) {
     className='grid max-w-3xl grid-cols-1 gap-4'
   >
     <TextField
-      autoFocus
+      id='action-item-title'
+      autoComplete='off'
       isRequired
       isInvalid={Boolean(errors.title)}
       value={values.title}
       onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
     >
       <Label>{t('form.title')}</Label>
-      <Input />
+      <Input ref={titleRef} />
       <FieldError>{errors.title?.message}</FieldError>
     </TextField>
 
     <TextField
+      id='action-item-notes'
       isInvalid={Boolean(errors.notes)}
       value={values.notes}
       onChange={(value) => form.setValue('notes', value, { shouldDirty: true, shouldValidate: true })}
@@ -133,6 +137,7 @@ export function ActionItemForm(props: Props) {
 
     <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
       <OptionSelect
+        id='action-item-priority'
         label={t('fields.priority')}
         options={ACTION_ITEM_PRIORITIES.map((priority) => ({ id: priority, label: t(priorityLabelKeys[priority]) }))}
         value={values.priority ?? 'normal'}
@@ -144,6 +149,7 @@ export function ActionItemForm(props: Props) {
         }}
       />
       <DayPicker
+        id='action-item-due-date'
         label={t('fields.dueDate')}
         calendarLabel={t('fields.dueDate')}
         description={t('form.dueDateHint')}
@@ -153,6 +159,7 @@ export function ActionItemForm(props: Props) {
     </div>
 
     <MultiPicker
+      id='action-item-projects'
       label={t('fields.projects')}
       searchLabel={t('fields.searchProjects')}
       emptyLabel={t('fields.noProjectsFound')}
@@ -162,6 +169,7 @@ export function ActionItemForm(props: Props) {
     />
 
     <MultiPicker
+      id='action-item-initiatives'
       label={t('fields.initiatives')}
       searchLabel={t('fields.searchInitiatives')}
       emptyLabel={t('fields.noInitiativesFound')}

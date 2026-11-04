@@ -79,6 +79,7 @@ export function ContentFields(props: Props) {
         }
         return <Select
           key={field.id}
+          id={`connector-content-${field.id}`}
           isRequired={field.required}
           value={typeof props.value[field.id] === 'string' ? props.value[field.id] as string : null}
           onChange={(key) => set(field.id, String(key))}
@@ -109,6 +110,7 @@ export function ContentFields(props: Props) {
       return <div key={field.id}>
         <p className='compact text-sm font-medium'>{label}</p>
         <Switch
+          id={`connector-content-${field.id}-everything`}
           className='compact'
           isSelected={current === EVERYTHING}
           onChange={(isSelected) => set(field.id, isSelected ? EVERYTHING : [])}
@@ -136,6 +138,7 @@ export function ContentFields(props: Props) {
             const id = String(option.id)
             return <Checkbox
               key={id}
+              id={`connector-content-${field.id}-${id}`}
               isSelected={picked.includes(id)}
               onChange={(isSelected) => {
                 const next = isSelected

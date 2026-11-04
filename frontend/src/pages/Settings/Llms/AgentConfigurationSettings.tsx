@@ -3,7 +3,7 @@
 import type { WorkspaceSettings } from '../../../api/routes/userRoutes'
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -14,6 +14,7 @@ import { workspaceSettingsUpdated } from '../../../store/workspaceSettingsSlice'
 import { Description, Form, Input, Label, TextField } from '@heroui/react'
 
 // Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { getApiErrorMessage } from '../../../api/errors'
 import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
@@ -34,7 +35,7 @@ export function AgentConfigurationSettings(props: Props) {
   const dispatch = useAppDispatch()
   const saved = props.settings.agentConfigurationRepository ?? ''
   const [ repository, setRepository ] = useState(saved)
-  const repositoryRef = useRef<HTMLInputElement>(null)
+  const repositoryRef = useInitialFocus()
   const trimmed = repository.trim()
 
   async function save() {
@@ -60,10 +61,6 @@ export function AgentConfigurationSettings(props: Props) {
     save,
     isDirty: trimmed !== saved,
   })
-
-  useEffect(() => {
-    repositoryRef.current?.focus()
-  }, [])
 
   return <Form className='compact max-w-2xl' onSubmit={onSubmit}>
     <TextField

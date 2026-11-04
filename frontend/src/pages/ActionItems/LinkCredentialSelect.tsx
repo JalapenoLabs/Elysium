@@ -57,6 +57,7 @@ export function LinkCredentialSelect(props: Props) {
   }
 
   return <OptionSelect
+    id='link-target-account'
     label={t('links.picker.credential')}
     options={options}
     value={props.value}

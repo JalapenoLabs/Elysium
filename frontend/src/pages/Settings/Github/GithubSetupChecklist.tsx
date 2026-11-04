@@ -20,6 +20,7 @@ export function GithubSetupChecklist(props: Props) {
   const { t } = useTranslation('github')
 
   return <SetupChecklist
+    id='github-setup'
     title={t('setup.title')}
     description={t('setup.description')}
     steps={githubSetupStepsByKind[props.kind].map((step) => ({

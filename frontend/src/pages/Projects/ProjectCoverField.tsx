@@ -68,6 +68,7 @@ export function ProjectCoverField(props: Props) {
     />
     <input
       ref={inputRef}
+      id='project-cover'
       type='file'
       accept={PROJECT_COVER_ACCEPTED_TYPES.join(',')}
       className='hidden'

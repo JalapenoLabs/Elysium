@@ -59,12 +59,14 @@ export function StudioComposer(props: Props) {
 
   if (!props.latestSession && itemLoadStatus === 'loading') {
     return <PromptComposer
+      id={`studio-item-${props.item.id}-prompt`}
       onSend={send}
       sendBlocker={t('conversation.loading')}
     />
   }
 
   return <PromptComposer
+    id={`studio-item-${props.item.id}-prompt`}
     onSend={send}
     placeholder={props.latestSession
       ? t('conversation.placeholderContinue')

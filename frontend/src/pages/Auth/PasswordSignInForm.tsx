@@ -5,7 +5,7 @@ import type { LoginSubmission } from './loginPresentation'
 import type { FormEvent } from 'react'
 
 // Core
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -18,6 +18,7 @@ import { browserSupportsWebAuthnAutofill, startAuthentication, WebAuthnAbortServ
 
 // Misc
 import { collectMessages, hasGroup, inputValue } from '../../api/kratosFlows'
+import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { fieldErrorText } from './kratosPresentation'
 import { readPasskeyRequestOptions } from './passkeyOptions'
 
@@ -36,21 +37,13 @@ export function PasswordSignInForm(props: Props) {
   const [ password, setPassword ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ passkeyError, setPasskeyError ] = useState<string | null>(null)
-  const emailRef = useRef<HTMLInputElement>(null)
-  const passwordRef = useRef<HTMLInputElement>(null)
+  // Confirming a sign-in fixes the email, so the password is what is typed first.
+  const emailRef = useInitialFocus(!props.isRefresh)
+  const passwordRef = useInitialFocus(props.isRefresh)
   const hasPasskey = hasGroup(props.flow, 'passkey')
   const challenge = inputValue(props.flow, 'passkey_challenge')
   const messages = collectMessages(props.flow)
   const { onSubmit } = props
-
-  // Confirming a sign-in fixes the email, so the password is what is typed first.
-  useEffect(() => {
-    if (props.isRefresh) {
-      passwordRef.current?.focus()
-      return
-    }
-    emailRef.current?.focus()
-  }, [ props.isRefresh ])
 
   // Offers passkeys in the email field's autofill while the form is open. Picking one
   // signs in at once; anything else (dismissing it, typing) simply leaves the form as is.
@@ -106,6 +99,7 @@ export function PasswordSignInForm(props: Props) {
     <Form onSubmit={signInWithPassword} validationBehavior='aria'>
       <TextField
         isRequired
+        id='sign-in-email'
         className='compact'
         type='email'
         name='identifier'
@@ -121,6 +115,7 @@ export function PasswordSignInForm(props: Props) {
       </TextField>
       <SecretInput
         isRequired
+        id='sign-in-password'
         className='relaxed'
         name='password'
         label={t('fields.password')}
