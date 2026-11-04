@@ -6,6 +6,8 @@
 //! the compile-time contract every query is checked against. Edit a migration,
 //! never the schema file; `scripts/verify-migrations.sh` fails on drift.
 
+#[cfg(test)]
+mod adopt_fireflies_keys_tests;
 pub mod migrations;
 #[allow(
     clippy::wildcard_imports,
