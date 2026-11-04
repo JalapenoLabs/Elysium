@@ -1,11 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { CsvValue, DataTableAction, DataTableSelectionAction, SmartTableFilters } from '@jalapenolabs/uikit'
+import type { RowSelectionState } from '@tanstack/react-table'
 import type { ReactNode } from 'react'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { shallowEqual } from 'react-redux'
@@ -74,6 +75,8 @@ export function InitiativeTable(props: Props) {
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
   const isPageList = props.controlsContainer !== undefined
+  // The kit draws the checkboxes and the selection bar; the selection itself is held here.
+  const [ rowSelection, setRowSelection ] = useState<RowSelectionState>({})
   const hasInitiatives = props.initiatives.length > 0
   useProjectsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
@@ -187,6 +190,8 @@ export function InitiativeTable(props: Props) {
       filters={props.filters}
       rowActions={props.rowActions}
       enableSelection={Boolean(props.selectionActions?.length)}
+      rowSelection={rowSelection}
+      onRowSelectionChange={setRowSelection}
       selectionActions={props.selectionActions}
       csvExport={{ fileName: 'initiatives' }}
       pagination={{ show: true }}

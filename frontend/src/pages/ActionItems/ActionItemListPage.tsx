@@ -29,12 +29,14 @@ import {
   writeActionItemFilters,
 } from './actionItemFilters'
 import { useActionItemActions } from './useActionItemActions'
+import { useActionItemBulkActions } from './useActionItemBulkActions'
 import { useActionItemFilterDefinitions } from './useActionItemFilterDefinitions'
 
 // `/action-items/all`: every item in a table, its search, filters, Columns, and export in the
 // titlebar. Filters are read from the address and written back to it, so a filtered view
 // survives opening an item and coming back, and can be linked to. Deleted items show in
-// place of the rest when asked for, each with Restore.
+// place of the rest when asked for, each with Restore. Selecting rows offers the bulk
+// changes on the floating bar.
 export function ActionItemListPage() {
   const { t } = useTranslation('actionItems')
   const actions = useActionItemActions()
@@ -43,6 +45,7 @@ export function ActionItemListPage() {
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readActionItemFilters(searchParams)
   const now = useNow()
+  const bulkActions = useActionItemBulkActions(now)
   const liveStatus = useActionItemsLoader()
   const deletedStatus = useDeletedActionItemsLoader(filters.deleted)
   const liveItems = useAppSelector(selectLiveActionItems)
@@ -106,6 +109,11 @@ export function ActionItemListPage() {
       rowActions={filters.deleted
         ? deletedRowActions
         : undefined}
+      selectionActions={filters.deleted
+        ? bulkActions.deletedActions
+        : bulkActions.liveActions}
     />}
+
+    {bulkActions.dialogs}
   </div>
 }

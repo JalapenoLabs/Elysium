@@ -194,6 +194,41 @@ export function snoozeActionItem(itemId: string, until: string | null) {
     .json<ActionItemResponse>()
 }
 
+// Mirrors `BulkChange` in api/src/models/action_item_bulk.rs: one change for every item a
+// selection names. `state` moves each item by whichever transition leads there from its own
+// state; the inbox is never a destination.
+export type ActionItemBulkChange =
+  | { kind: 'state', state: Exclude<ActionItemState, 'inbox'> }
+  | { kind: 'priority', priority: ActionItemPriority }
+  // `until` must be in the future; null ends the snooze.
+  | { kind: 'snooze', until: string | null }
+  | { kind: 'join-initiative', initiativeId: string }
+  | { kind: 'leave-initiative', initiativeId: string }
+  | { kind: 'delete' }
+  | { kind: 'restore' }
+
+// Mirrors `Refusal` in api/src/models/action_item_bulk.rs: an item the change did not apply
+// to. `message` is the API's English reason, for logs; people are told by title.
+export type ActionItemRefusal = {
+  itemId: string
+  message: string
+}
+
+type ChangeActionItemsResponse = {
+  // Every item the change applied to, as it stands now.
+  items: ActionItem[]
+  refused: ActionItemRefusal[]
+}
+
+// At most `ACTION_ITEM_BULK_MAX_ITEMS` ids. Each item is written as its own route would
+// write it, in one transaction; one the records refuse is answered in `refused` while the
+// rest apply.
+export function changeActionItems(itemIds: string[], change: ActionItemBulkChange) {
+  return apiClient
+    .post('v1/action-items/bulk', { json: { itemIds, change }})
+    .json<ChangeActionItemsResponse>()
+}
+
 // `on` is a name or an address up to 320 characters; null stops waiting.
 export function waitOnActionItem(itemId: string, on: string | null) {
   return apiClient

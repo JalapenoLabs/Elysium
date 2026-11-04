@@ -26,6 +26,18 @@ const initialState = {
   deleted: actionItemsAdapter.getInitialState(),
 }
 
+type ActionItemsState = typeof initialState
+
+function fileItem(state: ActionItemsState, item: ActionItem) {
+  if (item.deletedAt) {
+    actionItemsAdapter.removeOne(state.live, item.id)
+    actionItemsAdapter.setOne(state.deleted, item)
+    return
+  }
+  actionItemsAdapter.removeOne(state.deleted, item.id)
+  actionItemsAdapter.setOne(state.live, item)
+}
+
 export const actionItemsSlice = createSlice({
   name: 'actionItems',
   initialState,
@@ -38,14 +50,13 @@ export const actionItemsSlice = createSlice({
     },
     // Files the item under live or deleted by its `deletedAt`, so a restore moves it back.
     actionItemUpserted(state, action: PayloadAction<ActionItem>) {
-      const item = action.payload
-      if (item.deletedAt) {
-        actionItemsAdapter.removeOne(state.live, item.id)
-        actionItemsAdapter.setOne(state.deleted, item)
-        return
+      fileItem(state, action.payload)
+    },
+    // The items one change to a selection answered with, filed in one update.
+    actionItemsUpserted(state, action: PayloadAction<ActionItem[]>) {
+      for (const item of action.payload) {
+        fileItem(state, item)
       }
-      actionItemsAdapter.removeOne(state.deleted, item.id)
-      actionItemsAdapter.setOne(state.live, item)
     },
     // The event carries only the id, so the item leaves the live half; the deleted half
     // learns of it by reloading, when a view shows it.
@@ -72,6 +83,7 @@ export const {
   actionItemsLoaded,
   deletedActionItemsLoaded,
   actionItemUpserted,
+  actionItemsUpserted,
   actionItemDeleted,
 } = actionItemsSlice.actions
 

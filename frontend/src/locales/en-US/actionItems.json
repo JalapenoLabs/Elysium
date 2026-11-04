@@ -247,6 +247,37 @@
     "emptyDeleted": "No deleted items match these filters.",
     "restore": "Restore"
   },
+  "bulk": {
+    "state": "Change state",
+    "priority": "Change priority",
+    "joinInitiative": "Add to initiative",
+    "leaveInitiative": "Remove from initiative",
+    "toasts": {
+      "opened_one": "Opened {{count, compact}} item.",
+      "opened_other": "Opened {{count, compact}} items.",
+      "resolved_one": "Resolved {{count, compact}} item.",
+      "resolved_other": "Resolved {{count, compact}} items.",
+      "dismissed_one": "Dismissed {{count, compact}} item.",
+      "dismissed_other": "Dismissed {{count, compact}} items.",
+      "prioritized_one": "Set {{count, compact}} item to {{priority}} priority.",
+      "prioritized_other": "Set {{count, compact}} items to {{priority}} priority.",
+      "snoozed_one": "Snoozed {{count, compact}} item.",
+      "snoozed_other": "Snoozed {{count, compact}} items.",
+      "woken_one": "{{count, compact}} item is no longer snoozed.",
+      "woken_other": "{{count, compact}} items are no longer snoozed.",
+      "joined_one": "Added {{count, compact}} item to {{initiative}}.",
+      "joined_other": "Added {{count, compact}} items to {{initiative}}.",
+      "left_one": "Took {{count, compact}} item out of {{initiative}}.",
+      "left_other": "Took {{count, compact}} items out of {{initiative}}.",
+      "deleted_one": "Deleted {{count, compact}} item.",
+      "deleted_other": "Deleted {{count, compact}} items.",
+      "restored_one": "Restored {{count, compact}} item.",
+      "restored_other": "Restored {{count, compact}} items.",
+      "refusedOne": "Left “{{title}}” as it is, since it cannot take that change.",
+      "refusedMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since they cannot take that change.",
+      "refusedMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since they cannot take that change."
+    }
+  },
   "filters": {
     "state": "State",
     "project": "Project",
