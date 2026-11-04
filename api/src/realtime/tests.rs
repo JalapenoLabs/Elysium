@@ -120,6 +120,32 @@ async fn another_process_publishes_to_every_listener_in_order() {
 
 #[tokio::test]
 #[ignore = "needs TEST_REDIS_URL; run scripts/verify-migrations.sh"]
+async fn a_quiet_subscription_stays_up_across_its_heartbeats() {
+    let channel = format!("{EVENTS_CHANNEL}:test:{}", Uuid::now_v7().simple());
+    let listening = EventBus::connect_on(&redis_url(), &channel)
+        .await
+        .expect("the listening process subscribes");
+    let mut listener = listening.subscribe();
+
+    // Ten pings under test. One misread pong would drop the subscription and resync every
+    // listener on every heartbeat.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(listening.is_subscribed());
+    assert!(
+        matches!(
+            listener.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ),
+        "a healthy subscription sends nothing of its own"
+    );
+
+    listening.publish(&ServerEvent::Resync);
+    assert_eq!(&*next(&mut listener).await, r#"{"type":"resync"}"#);
+    listening.close().await;
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_REDIS_URL; run scripts/verify-migrations.sh"]
 async fn a_dropped_subscription_reconnects_and_tells_listeners_to_resync() {
     let channel = format!("{EVENTS_CHANNEL}:test:{}", Uuid::now_v7().simple());
     let proxy = Proxy::start().await;

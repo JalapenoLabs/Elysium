@@ -64,7 +64,11 @@ const PUBLISH_BATCH: usize = 256;
 
 /// How often the subscription is pinged. A connection Redis stopped answering without
 /// closing it is found within this plus [`PING_TIMEOUT`], rather than never.
+#[cfg(not(test))]
 const PING_INTERVAL: Duration = Duration::from_secs(15);
+/// Short under test, so every test that holds a subscription for a moment pings it.
+#[cfg(test)]
+const PING_INTERVAL: Duration = Duration::from_millis(100);
 
 /// How long Redis may take to answer a ping, or to open and confirm a subscription.
 const PING_TIMEOUT: Duration = Duration::from_secs(5);

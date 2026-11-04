@@ -47,7 +47,8 @@ pub enum ApiError {
         code: &'static str,
         message: &'static str,
     },
-    /// A service this request needs is not configured on this deployment.
+    /// A service this request needs is not configured on this deployment, or cannot serve it
+    /// right now, such as the event stream while its Redis subscription reconnects.
     #[error("{0}")]
     Unavailable(&'static str),
     /// An upstream (the workspace, a mail server, the OAuth broker, a storage provider)
