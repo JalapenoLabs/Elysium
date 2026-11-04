@@ -9,7 +9,7 @@ workspace alone and scoped to a session's project; see `docs/coding.md`.
 
 ## Connecting a client
 
-Settings, Connected apps shows the server URL, `https://<host>/api/mcp`, and the commands to add it:
+Settings, MCP (`/settings/mcp`) shows the server URL, `https://<host>/api/mcp`, and the commands to add it:
 
 ```sh
 claude mcp add --transport http elysium https://<host>/api/mcp
@@ -68,7 +68,7 @@ A client is granted what it asked for from this list; anything else it asked for
 
 Revoking happens in three places:
 
-- A person disconnects a client under Settings, Connected apps (`DELETE /api/v1/oauth/grants/{client_id}`).
+- A person disconnects a client under Settings, MCP (`DELETE /api/v1/oauth/grants/{client_id}`).
 - An admin deletes a client for everyone (`DELETE /api/v1/oauth/clients/{client_id}`).
 - Disabling someone, signing them out everywhere, or resetting their authenticator also disconnects every client
   they connected.

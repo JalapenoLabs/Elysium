@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { connectCommandByClient, mcpServerName, mcpServerUrl } from './connectedAppsPresentation'
+import { connectCommandByClient, mcpServerName, mcpServerUrl } from './mcpPresentation'
 
 describe('mcpServerUrl', () => {
   it('hangs the MCP path off the page\'s origin', () => {

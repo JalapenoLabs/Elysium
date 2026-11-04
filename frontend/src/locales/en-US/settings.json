@@ -17,8 +17,8 @@
       "title": "Browser sign-ins",
       "description": "Sign in to Outlook, Gmail, and other sites in a browser Elysium runs and keeps signed in for you."
     },
-    "connectedApps": {
-      "title": "Connected apps",
+    "mcp": {
+      "title": "MCP",
       "description": "Connect Claude Code, Codex, and other MCP clients, and disconnect the ones you've allowed."
     },
     "meetings": {

@@ -60,9 +60,9 @@ export function SettingsDirectoryPage() {
         />
         <SettingsDirectoryItem
           icon={LuPlug}
-          title={t('items.connectedApps.title')}
-          description={t('items.connectedApps.description')}
-          href={UrlTree.settingsConnectedApps}
+          title={t('items.mcp.title')}
+          description={t('items.mcp.description')}
+          href={UrlTree.settingsMcp}
         />
         <SettingsDirectoryItem
           icon={LuVideo}

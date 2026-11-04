@@ -19,11 +19,11 @@ export function CopyableValue(props: Props) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(props.value)
-      toast.success(t('connectedApps.connect.copied'))
+      toast.success(t('mcp.connect.copied'))
     }
     catch (error) {
       console.debug('CopyableValue could not copy', { error, label: props.label })
-      toast.danger(t('connectedApps.connect.copyFailed'))
+      toast.danger(t('mcp.connect.copyFailed'))
     }
   }
 
@@ -33,7 +33,7 @@ export function CopyableValue(props: Props) {
       <code className='min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-sm'>{props.value}</code>
       <Button size='sm' variant='ghost' onPress={() => void copy()}>
         <LuCopy className='size-4' aria-hidden />
-        <span>{t('connectedApps.connect.copy')}</span>
+        <span>{t('mcp.connect.copy')}</span>
       </Button>
     </div>
   </div>

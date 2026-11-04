@@ -50,7 +50,7 @@ import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { BrowserSessionPage } from './pages/Settings/Browsers/BrowserSessionPage'
 import { ManageBrowsersPage } from './pages/Settings/Browsers/ManageBrowsersPage'
-import { ConnectedAppsPage } from './pages/Settings/ConnectedApps/ConnectedAppsPage'
+import { McpPage } from './pages/Settings/Mcp/McpPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
@@ -183,8 +183,12 @@ const workspaceRoutes: RouteObject = {
       element: <BrowserSessionPage />,
     },
     {
+      path: UrlTree.settingsMcp,
+      element: <McpPage />,
+    },
+    {
       path: UrlTree.settingsConnectedApps,
-      element: <ConnectedAppsPage />,
+      element: <Navigate to={UrlTree.settingsMcp} replace />,
     },
     {
       path: UrlTree.settingsUsers,

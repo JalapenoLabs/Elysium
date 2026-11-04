@@ -209,11 +209,13 @@ offers them in autofill. See `docs/auth.md`.
   the auth gate, in the account pages' layout, so a person who isn't signed in signs in first and comes back.
   - `/oauth/login` answers the challenge at once and follows the redirect.
   - `/oauth/consent` shows the client and the scopes it asks for, then Allow or Deny.
-- **Connected apps** (`/settings/connected-apps`):
+- **MCP** (`/settings/mcp`), in the settings frame with no Save:
   - The MCP server's URL, with the `claude mcp add` and `codex mcp add` commands.
-  - The person's connected clients, with Disconnect.
-  - For admins, every registered client, with Delete.
+  - Tabs: the person's connected clients, with Disconnect, and, for admins, every registered client, with Delete.
+    Each tab carries its count, so both lists load with the page rather than when a tab opens.
   - This data is loaded with SWR and revalidated after a change; no event stream carries it.
+  - The page is named for the protocol, so its address is too. `/settings/connected-apps`, its earlier address,
+    redirects to it, so links and bookmarks to it still land.
 
 See `docs/mcp.md`.
 
