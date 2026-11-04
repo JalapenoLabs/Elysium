@@ -188,6 +188,11 @@ render Ory Kratos's self-service flows through its JSON API at `/api/identity/`,
 (`src/api/kratos.ts`, `src/api/kratosFlows.ts`). Passkeys go through `@simplewebauthn/browser`, and the email field
 offers them in autofill. See `docs/auth.md`.
 
+- **What a submit reports.** A field's refusal shows on the field. Kratos's messages for the whole form, and a
+  flow that expired or a request that failed, are toasts (`useKratosMessageToasts`), each set replacing the last, so
+  a retried refusal never stacks and nothing moves the form. A form that cannot load says so in its place. A
+  recovery link once made turns the page into its next step: who to ask for the link.
+
 - **The gate.** `src/auth/AuthGate.tsx` wraps every workspace page. It loads `GET /api/v1/me` into `authSlice` and
   sends people where they must go first: sign-in, the second factor, `/pending`, the disabled notice, or Sign-in &
   security when the workspace requires an authenticator app.

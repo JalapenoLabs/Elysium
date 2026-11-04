@@ -7,29 +7,32 @@ import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
+import { useKratosMessageToasts } from '../../hooks/useKratosMessageToasts'
 
 // User interface
 import { Alert, Button, FieldError, Form, Input, Label, Link, Spinner, TextField } from '@heroui/react'
 import { PasswordInput } from '../../components/PasswordInput'
 import { PersonNameFields } from '../../components/PersonNameFields'
-import { KratosMessages } from './KratosMessages'
 
 // Misc
 import { kratos } from '../../api/kratos'
 import { collectMessages, csrfToken, readKratosFailure } from '../../api/kratosFlows'
 import { getAuthStatus } from '../../api/routes/authRoutes'
 import { usePasswordAssessment } from '../../hooks/usePasswordAssessment'
+import { toast } from '../../toast/toast'
 import { UrlTree } from '../../urls'
 import { fieldErrorText } from './kratosPresentation'
 
 // Signing up with a first and last name, an email, and a password. Passkeys are added once the account
 // exists; Elysium refuses a passkey sign-up. Everyone but the first person then waits for an
-// admin, which the workspace shows them after the full page load that follows.
+// admin, which the workspace shows them after the full page load that follows. What a submit
+// reports is a toast, or an error on its field, so nothing moves the form.
 export function SignupPage() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const { data: status } = useSWR('v1/auth/status', getAuthStatus)
   const [ flow, setFlow ] = useState<RegistrationFlow | null>(null)
-  const [ failure, setFailure ] = useState<string | null>(null)
+  const [ loadFailed, setLoadFailed ] = useState(false)
+  const toastFormMessages = useKratosMessageToasts()
   const [ firstName, setFirstName ] = useState('')
   const [ lastName, setLastName ] = useState('')
   const [ email, setEmail ] = useState('')
@@ -52,13 +55,13 @@ export function SignupPage() {
           return
         }
         if (isCurrent) {
-          setFailure(t('signup.loadError'))
+          setLoadFailed(true)
         }
       })
     return () => {
       isCurrent = false
     }
-  }, [ t ])
+  }, [])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -87,13 +90,15 @@ export function SignupPage() {
       const outcome = await readKratosFailure(error)
       if (outcome.kind === 'invalid') {
         setFlow({ ...flow, ui: outcome.flow.ui })
+        toastFormMessages(outcome.flow.ui.messages)
       }
       else if (outcome.kind === 'signedIn') {
         window.location.assign(UrlTree.root)
         return
       }
       else {
-        setFailure(t('common:errors.unexpected'))
+        console.debug('SignupPage could not sign up', { outcome })
+        toast.danger(t('common:errors.unexpected'))
       }
     }
     setIsSubmitting(false)
@@ -124,19 +129,18 @@ export function SignupPage() {
         : t('signup.description')
     }</p>
 
-    {failure && <Alert status='danger' className='compact'>
+    {loadFailed && <Alert status='danger' className='compact'>
       <Alert.Indicator />
       <Alert.Content>
-        <Alert.Description>{failure}</Alert.Description>
+        <Alert.Description>{t('signup.loadError')}</Alert.Description>
       </Alert.Content>
     </Alert>}
 
-    {!flow && !failure && <div className='grid place-items-center py-10'>
+    {!flow && !loadFailed && <div className='grid place-items-center py-10'>
       <Spinner />
     </div>}
 
     {flow && messages && <Form onSubmit={submit} validationBehavior='aria'>
-      <KratosMessages messages={messages.form} />
       <div className='compact'>
         <PersonNameFields
           autoFocus

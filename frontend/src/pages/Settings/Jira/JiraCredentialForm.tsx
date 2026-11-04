@@ -19,7 +19,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { jiraCredentialUpserted } from '../../../store/jiraCredentialsSlice'
 
 // User interface
-import { Alert, Button, Form, Spinner, toast } from '@heroui/react'
+import { Alert, Button, Form, Spinner } from '@heroui/react'
 import { JiraConnectionFields } from './JiraConnectionFields'
 import { JiraScopeFields } from './JiraScopeFields'
 import { JiraSetupChecklist } from './JiraSetupChecklist'
@@ -36,6 +36,7 @@ import {
   listJiraCredentialProjects,
   updateJiraCredential,
 } from '../../../api/routes/jiraRoutes'
+import { toast } from '../../../toast/toast'
 import { createJiraFormSchema } from './jiraFormSchema'
 import {
   findMissingSelectionNames,
@@ -75,7 +76,6 @@ export function JiraCredentialForm(props: Props) {
   // A rename must not carry an allowlist: the API re-checks every one it is sent, and a
   // stored project the token has since lost would refuse the save.
   const [ isScopeChanged, setIsScopeChanged ] = useState(false)
-  const [ failureMessage, setFailureMessage ] = useState<string | null>(null)
 
   const projects = useSWR(
     [ 'jira-credential-projects', stored.id ],
@@ -87,7 +87,6 @@ export function JiraCredentialForm(props: Props) {
   )
 
   const onSubmit = form.handleSubmit(async (values) => {
-    setFailureMessage(null)
     try {
       const response = await updateJiraCredential(stored.id, {
         name: values.name,
@@ -108,12 +107,12 @@ export function JiraCredentialForm(props: Props) {
       }
 
       // A 400 names what to check, and it can be the token, the site, or a project the
-      // token lost since this page opened, so it sits above the whole form.
+      // token lost since this page opened, so it belongs to the whole form, not one field.
       const message = getApiErrorMessage(error)
       if (!message) {
         console.debug('JiraCredentialForm failed to save the credential', { error })
       }
-      setFailureMessage(message ?? t('common:errors.unexpected'))
+      toast.danger(message ?? t('common:errors.unexpected'))
     }
   })
 
@@ -254,13 +253,6 @@ export function JiraCredentialForm(props: Props) {
         isProjectsDisabled={isMovingSite || isProjectScopeLocked}
         isBoardsDisabled={isMovingSite || isBoardScopeLocked}
       />}
-
-      {failureMessage && <Alert status='danger'>
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>{failureMessage}</Alert.Description>
-        </Alert.Content>
-      </Alert>}
 
       <div className='mt-2 flex justify-end gap-2'>
         <Button variant='tertiary' onPress={props.onCancel}>

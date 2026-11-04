@@ -6,7 +6,7 @@ import type { UiText } from '@ory/client-fetch'
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { describeKratosMessage, fieldErrorText, flowErrorText, kratosMessageStatus } from './kratosPresentation'
+import { describeKratosMessage, fieldErrorText, flowErrorText } from './kratosPresentation'
 
 function message(id: number, text: string, type: UiText['type'] = 'error'): UiText {
   return { id, text, type }
@@ -26,14 +26,6 @@ describe('describeKratosMessage', () => {
       key: null,
       text: 'The provided credentials are invalid.',
     })
-  })
-})
-
-describe('kratosMessageStatus', () => {
-  it('colors errors, successes, and information apart', () => {
-    expect(kratosMessageStatus(message(1, 'x', 'error'))).toBe('danger')
-    expect(kratosMessageStatus(message(1, 'x', 'success'))).toBe('success')
-    expect(kratosMessageStatus(message(1, 'x', 'info'))).toBe('default')
   })
 })
 

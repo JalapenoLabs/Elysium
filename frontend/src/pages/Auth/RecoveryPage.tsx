@@ -7,26 +7,29 @@ import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
+import { useKratosMessageToasts } from '../../hooks/useKratosMessageToasts'
 
 // User interface
 import { Alert, Button, FieldError, Form, Input, Label, Link, Spinner, TextField } from '@heroui/react'
-import { KratosMessages } from './KratosMessages'
 
 // Misc
 import { kratos } from '../../api/kratos'
 import { collectMessages, csrfToken, readKratosFailure } from '../../api/kratosFlows'
+import { toast } from '../../toast/toast'
 import { KRATOS_FLOW_PARAM, UrlTree } from '../../urls'
 import { fieldErrorText } from './kratosPresentation'
 
 // Forgotten passwords. Kratos makes a one-time link for the address, which signs its holder
 // in and opens Sign-in & security to set a new password. Elysium sends no email yet, so the
-// link is written to the API's log for an admin to pass on; the page says so plainly.
+// link is written to the API's log for an admin to pass on; once it is made, the page says
+// so in place of the form. A refusal is a toast, so nothing moves the form.
 export function RecoveryPage() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ params ] = useSearchParams()
   const flowId = params.get(KRATOS_FLOW_PARAM)
   const [ flow, setFlow ] = useState<RecoveryFlow | null>(null)
-  const [ failure, setFailure ] = useState<string | null>(null)
+  const [ loadFailed, setLoadFailed ] = useState(false)
+  const toastFormMessages = useKratosMessageToasts()
   const [ email, setEmail ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
 
@@ -38,8 +41,14 @@ export function RecoveryPage() {
       : kratos.createBrowserRecoveryFlow()
     request
       .then((loaded) => {
-        if (isCurrent) {
-          setFlow(loaded)
+        if (!isCurrent) {
+          return
+        }
+        setFlow(loaded)
+        // Such as why a link expired. A flow already sent says only that an email went out,
+        // which Elysium does not send, so the page's own words replace it.
+        if (loaded.state !== 'sent_email') {
+          toastFormMessages(loaded.ui.messages)
         }
       })
       .catch(async (error: unknown) => {
@@ -51,12 +60,12 @@ export function RecoveryPage() {
           window.location.assign(UrlTree.settingsSecurity)
           return
         }
-        setFailure(t('recovery.loadError'))
+        setLoadFailed(true)
       })
     return () => {
       isCurrent = false
     }
-  }, [ flowId, t ])
+  }, [ flowId, toastFormMessages ])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -76,9 +85,11 @@ export function RecoveryPage() {
       const outcome = await readKratosFailure(error)
       if (outcome.kind === 'invalid') {
         setFlow({ ...flow, ui: outcome.flow.ui })
+        toastFormMessages(outcome.flow.ui.messages)
       }
       else {
-        setFailure(t('common:errors.unexpected'))
+        console.debug('RecoveryPage could not make a recovery link', { outcome })
+        toast.danger(t('common:errors.unexpected'))
       }
     }
     setIsSubmitting(false)
@@ -90,30 +101,29 @@ export function RecoveryPage() {
     : null
 
   return <div>
-    <h1 className='text-2xl font-bold'>{t('recovery.heading')}</h1>
-    <p className='relaxed mt-1 text-sm opacity-70'>{t('recovery.description')}</p>
+    <h1 className='text-2xl font-bold'>{
+      isSent
+        ? t('recovery.sent.title')
+        : t('recovery.heading')
+    }</h1>
+    <p className='relaxed mt-1 text-sm opacity-70'>{
+      isSent
+        ? t('recovery.sent.description')
+        : t('recovery.description')
+    }</p>
 
-    {failure && <Alert status='danger' className='compact'>
+    {loadFailed && <Alert status='danger' className='compact'>
       <Alert.Indicator />
       <Alert.Content>
-        <Alert.Description>{failure}</Alert.Description>
+        <Alert.Description>{t('recovery.loadError')}</Alert.Description>
       </Alert.Content>
     </Alert>}
 
-    {!flow && !failure && <div className='grid place-items-center py-10'>
+    {!flow && !loadFailed && <div className='grid place-items-center py-10'>
       <Spinner />
     </div>}
 
-    {isSent && <Alert status='success' className='relaxed'>
-      <Alert.Indicator />
-      <Alert.Content>
-        <Alert.Title>{t('recovery.sent.title')}</Alert.Title>
-        <Alert.Description>{t('recovery.sent.description')}</Alert.Description>
-      </Alert.Content>
-    </Alert>}
-
     {flow && messages && !isSent && <Form onSubmit={submit} validationBehavior='aria'>
-      <KratosMessages messages={messages.form} />
       <TextField
         isRequired
         autoFocus

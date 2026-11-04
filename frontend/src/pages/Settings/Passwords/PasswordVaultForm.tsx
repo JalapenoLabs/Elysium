@@ -4,7 +4,7 @@ import type { PasswordVault } from '../../../api/routes/passwordVaultRoutes'
 import type { PasswordVaultFormInput, PasswordVaultFormValues } from './passwordVaultFormSchema'
 
 // Core
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -14,7 +14,6 @@ import { passwordVaultLoaded } from '../../../store/passwordVaultSlice'
 
 // User interface
 import {
-  Alert,
   Button,
   Description,
   FieldError,
@@ -24,7 +23,6 @@ import {
   ListBox,
   Select,
   TextField,
-  toast,
 } from '@heroui/react'
 import { SetupChecklist } from '../../../components/SetupChecklist'
 
@@ -35,6 +33,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
+import { toast } from '../../../toast/toast'
 import { useSettingsSave } from '../settingsSave'
 import { createPasswordVaultFormSchema } from './passwordVaultFormSchema'
 import { serverLabelKeys, setupStepKeys } from './passwordsPresentation'
@@ -50,14 +49,13 @@ type Props = {
 }
 
 // Connects the vault, or changes its credentials. The API signs in and unlocks before it
-// stores anything, so a refusal comes back in Bitwarden's own words and is shown above the
-// form. Secrets are write-only: when changing a vault, a blank field keeps the stored one.
+// stores anything, so a refusal comes back in Bitwarden's own words, shown in a toast that
+// stays until dismissed. Secrets are write-only: when changing a vault, a blank field keeps the stored one.
 // Connected from the page's Save, in the header.
 export function PasswordVaultForm(props: Props) {
   const { t } = useTranslation([ 'passwords', 'common' ])
   const dispatch = useAppDispatch()
   const stored = props.vault
-  const [ refusal, setRefusal ] = useState<string | null>(null)
 
   const resolver = useMemo(
     () => zodResolver(createPasswordVaultFormSchema(t, stored)),
@@ -76,7 +74,6 @@ export function PasswordVaultForm(props: Props) {
   })
 
   const onSubmit = form.handleSubmit(async (values) => {
-    setRefusal(null)
     try {
       const response = await connectPasswordVault({
         server: values.server,
@@ -96,7 +93,7 @@ export function PasswordVaultForm(props: Props) {
       const message = getApiErrorMessage(error)
       // Bitwarden's refusal, or the CLI failing to reach the server, names what to fix.
       if (error instanceof HTTPError && [ 400, 502 ].includes(error.response.status) && message) {
-        setRefusal(message)
+        toast.danger(t('form.refusedTitle'), { description: message })
         return
       }
       console.debug('PasswordVaultForm failed to connect the vault', { error })
@@ -122,14 +119,6 @@ export function PasswordVaultForm(props: Props) {
           ? t('form.editHeading')
           : t('form.heading')
       }</h2>
-
-      {refusal && <Alert status='danger'>
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Title>{t('form.refusedTitle')}</Alert.Title>
-          <Alert.Description>{refusal}</Alert.Description>
-        </Alert.Content>
-      </Alert>}
 
       {/* Server */}
       <Select

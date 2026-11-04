@@ -20,17 +20,6 @@ export function describeKratosMessage(message: UiText) {
   return { key: null, text: message.text } as const
 }
 
-// Kratos marks each message as an error, a success, or plain information.
-export function kratosMessageStatus(message: UiText) {
-  if (message.type === 'error') {
-    return 'danger'
-  }
-  if (message.type === 'success') {
-    return 'success'
-  }
-  return 'default'
-}
-
 // The messages Kratos put on one field, as the text its error line shows, or undefined for
 // none. `translate` resolves Elysium's own messages.
 export function fieldErrorText(

@@ -7,16 +7,17 @@ import type { LoginSubmission } from './loginPresentation'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
+import { useKratosMessageToasts } from '../../hooks/useKratosMessageToasts'
 
 // User interface
 import { Alert, Link, Spinner } from '@heroui/react'
-import { KratosMessages } from './KratosMessages'
 import { PasswordSignInForm } from './PasswordSignInForm'
 import { SecondFactorForm } from './SecondFactorForm'
 
 // Misc
 import { kratos } from '../../api/kratos'
 import { csrfToken, readKratosFailure, toLocalPath } from '../../api/kratosFlows'
+import { toast } from '../../toast/toast'
 import { getLoginMode, isSecondFactorRedirect, loginCopyByMode } from './loginPresentation'
 import {
   getLoginUrl,
@@ -32,7 +33,8 @@ import {
 // one. The same page confirms a recent sign-in before a security change (`refresh`).
 //
 // Every outcome that changes who is signed in ends in a full page load, so the workspace
-// starts from nothing for whoever is now signed in.
+// starts from nothing for whoever is now signed in. What a submit reports is a toast, so
+// nothing moves the form.
 export function LoginPage() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ params ] = useSearchParams()
@@ -43,7 +45,8 @@ export function LoginPage() {
   const notice = params.get(LOGIN_NOTICE_PARAM)
 
   const [ flow, setFlow ] = useState<LoginFlow | null>(null)
-  const [ failure, setFailure ] = useState<string | null>(null)
+  const [ loadFailed, setLoadFailed ] = useState(false)
+  const toastFormMessages = useKratosMessageToasts()
   // Bumped to start a fresh flow, such as when the old one expired.
   const [ generation, setGeneration ] = useState(0)
 
@@ -60,9 +63,11 @@ export function LoginPage() {
 
     request
       .then((loaded) => {
-        if (isCurrent) {
-          setFlow(loaded)
+        if (!isCurrent) {
+          return
         }
+        setFlow(loaded)
+        toastFormMessages(loaded.ui.messages)
       })
       .catch(async (error: unknown) => {
         const outcome = await readKratosFailure(error)
@@ -81,13 +86,13 @@ export function LoginPage() {
           window.location.assign(outcome.to)
           return
         }
-        setFailure(t('login.loadError'))
+        setLoadFailed(true)
       })
 
     return () => {
       isCurrent = false
     }
-  }, [ flowId, generation, wantsSecondFactor, wantsRefresh, returnTo, t ])
+  }, [ flowId, generation, wantsSecondFactor, wantsRefresh, returnTo, toastFormMessages ])
 
   // Submits one way of signing in. Resolves once the page moves on or shows why not.
   const submit = useCallback(async (body: LoginSubmission) => {
@@ -108,6 +113,7 @@ export function LoginPage() {
       const outcome = await readKratosFailure(error)
       if (outcome.kind === 'invalid') {
         setFlow((current) => current && { ...current, ui: outcome.flow.ui })
+        toastFormMessages(outcome.flow.ui.messages)
         return
       }
       if (outcome.kind === 'signedIn') {
@@ -125,14 +131,15 @@ export function LoginPage() {
       if (outcome.kind === 'expired') {
         setFlow(null)
         setGeneration((current) => current + 1)
-        setFailure(t('login.expired'))
+        toast.warning(t('login.expired'))
         return
       }
-      setFailure(outcome.kind === 'failed' && outcome.message
+      console.debug('LoginPage could not sign in', { outcome })
+      toast.danger(outcome.kind === 'failed' && outcome.message
         ? outcome.message
         : t('common:errors.unexpected'))
     }
-  }, [ flow, returnTo, t ])
+  }, [ flow, returnTo, t, toastFormMessages ])
 
   const mode = getLoginMode(flow)
   const isSecondFactor = mode === 'secondFactor'
@@ -151,23 +158,20 @@ export function LoginPage() {
       </Alert.Content>
     </Alert>}
 
-    {failure && <Alert status='danger' className='compact'>
+    {loadFailed && <Alert status='danger' className='compact'>
       <Alert.Indicator />
       <Alert.Content>
-        <Alert.Description>{failure}</Alert.Description>
+        <Alert.Description>{t('login.loadError')}</Alert.Description>
       </Alert.Content>
     </Alert>}
 
-    {!flow && !failure && <div className='grid place-items-center py-10'>
+    {!flow && !loadFailed && <div className='grid place-items-center py-10'>
       <Spinner />
     </div>}
 
-    {flow && <>
-      <KratosMessages messages={flow.ui.messages ?? []} />
-      {isSecondFactor
-        ? <SecondFactorForm flow={flow} onSubmit={submit} />
-        : <PasswordSignInForm flow={flow} isRefresh={isRefresh} onSubmit={submit} />}
-    </>}
+    {flow && (isSecondFactor
+      ? <SecondFactorForm flow={flow} onSubmit={submit} />
+      : <PasswordSignInForm flow={flow} isRefresh={isRefresh} onSubmit={submit} />)}
 
     {!isSecondFactor && !isRefresh && <div className='mt-6 flex flex-col gap-1 text-center text-sm'>
       <Link href={UrlTree.recovery} className='mx-auto text-link'>{

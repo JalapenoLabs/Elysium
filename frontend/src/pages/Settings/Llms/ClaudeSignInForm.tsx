@@ -21,13 +21,13 @@ import {
   Link,
   NumberField,
   TextField,
-  toast,
 } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
 
 // Misc
 import { cancelClaudeSignIn, finishClaudeSignIn, startClaudeSignIn } from '../../../api/routes/llmRoutes'
 import { getApiErrorMessage } from '../../../api/errors'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   onSaved: (llm: Llm) => void
@@ -36,7 +36,8 @@ type Props = {
 
 // Signs a Claude account in through the official CLI, which runs in Elysium's workspace: start
 // it, open the page it links to, sign in there, and paste back the code that page shows. A wrong
-// code ends the sign-in, so the person starts again.
+// code ends the sign-in, so the person starts again. A failure is a toast that stays until
+// dismissed, so nothing moves the form.
 export function ClaudeSignInForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
@@ -45,7 +46,6 @@ export function ClaudeSignInForm(props: Props) {
   const [ priority, setPriority ] = useState(0)
   const [ code, setCode ] = useState('')
   const [ isBusy, setIsBusy ] = useState(false)
-  const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
 
   // The waiting sign-in, read when the page goes away, so its CLI never outlives the page.
   const waitingId = useRef<string | null>(null)
@@ -59,7 +59,6 @@ export function ClaudeSignInForm(props: Props) {
 
   async function start() {
     setIsBusy(true)
-    setErrorMessage(null)
     try {
       const response = await startClaudeSignIn()
       waitingId.current = response.signIn.id
@@ -67,7 +66,7 @@ export function ClaudeSignInForm(props: Props) {
     }
     catch (error) {
       console.debug('ClaudeSignInForm could not start a sign-in', { error })
-      setErrorMessage(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     setIsBusy(false)
   }
@@ -78,7 +77,6 @@ export function ClaudeSignInForm(props: Props) {
       return
     }
     setIsBusy(true)
-    setErrorMessage(null)
     try {
       const response = await finishClaudeSignIn(signIn.id, {
         code: code.trim(),
@@ -96,7 +94,7 @@ export function ClaudeSignInForm(props: Props) {
       waitingId.current = null
       setSignIn(null)
       setCode('')
-      setErrorMessage(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     setIsBusy(false)
   }
@@ -178,8 +176,6 @@ export function ClaudeSignInForm(props: Props) {
         <FieldError />
       </TextField>
     </div>}
-
-    {errorMessage && <p className='text-sm text-danger' role='alert'>{errorMessage}</p>}
 
     <div className='flex justify-end gap-2'>
       <Button variant='tertiary' onPress={() => void cancel()}>

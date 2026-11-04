@@ -1,20 +1,18 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { SettingsFlow, UiText, UpdateSettingsFlowBody } from '@ory/client-fetch'
+import type { SettingsFlow, UpdateSettingsFlowBody } from '@ory/client-fetch'
 
 // Core
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { mutate } from 'swr'
-
-// User interface
-import { toast } from '@heroui/react'
+import { useKratosMessageToasts } from './useKratosMessageToasts'
 
 // Misc
 import { kratos } from '../api/kratos'
 import { csrfToken, readKratosFailure } from '../api/kratosFlows'
-import { describeKratosMessage } from '../pages/Auth/kratosPresentation'
+import { toast } from '../toast/toast'
 import { getLoginUrl, KRATOS_FLOW_PARAM } from '../urls'
 
 // The changes My profile and Sign-in & security make, as Kratos takes each submission.
@@ -28,8 +26,8 @@ export type SettingsSubmission = Extract<
 // it, where a change that needs a recent sign-in, or the second factor, comes back to.
 //
 // A recovery link lands on Sign-in & security with its flow in the address, already signed
-// in. Kratos's messages for the whole form, such as "Your changes have been saved!", become
-// toasts, so nothing they say moves the page; a field's own message stays on its field.
+// in. Kratos's messages for the whole form become toasts (`useKratosMessageToasts`), so
+// nothing they say moves the page; a field's own message stays on its field.
 export function useKratosSettingsFlow(returnTo: string) {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ params ] = useSearchParams()
@@ -39,24 +37,7 @@ export function useKratosSettingsFlow(returnTo: string) {
   // Bumped to start a fresh flow when the current one expired.
   const [ generation, setGeneration ] = useState(0)
 
-  // Kratos's own words for the form, except the success it reports after every save, which
-  // the caller's toast already says in Elysium's words.
-  const toastFormMessages = useCallback((messages: UiText[] | undefined) => {
-    for (const message of messages ?? []) {
-      if (message.type === 'success') {
-        continue
-      }
-      const described = describeKratosMessage(message)
-      const text = described.key
-        ? t(described.key)
-        : described.text
-      if (message.type === 'error') {
-        toast.danger(text)
-        continue
-      }
-      toast(text)
-    }
-  }, [ t ])
+  const toastFormMessages = useKratosMessageToasts()
 
   useEffect(() => {
     let isCurrent = true

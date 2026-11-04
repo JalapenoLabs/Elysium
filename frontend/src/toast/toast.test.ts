@@ -3,37 +3,39 @@
 // Core
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Misc
-import { DEFAULT_EXIT_DURATION } from '@heroui/react'
+// User interface
+import { DEFAULT_EXIT_DURATION, toastQueue } from '@heroui/react'
 
 type Context = {
   toast: typeof import('./toast').toast
-  queue: typeof import('@heroui/react').toastQueue
   store: typeof import('../store').store
 }
 
-// Each test loads fresh modules, so it starts with an empty toast queue and store. Timers are
-// faked so a closed toast's exit animation can be run to its end.
+// Each test loads fresh modules, so it starts with an empty store. Timers are faked so a closed
+// toast's exit animation can be run to its end.
 beforeEach<Context>(async (context) => {
   vi.useFakeTimers()
   vi.resetModules()
   context.toast = (await import('./toast')).toast
-  context.queue = (await import('@heroui/react')).toastQueue
   context.store = (await import('../store')).store
 })
 
+// HeroUI's queue lives in node_modules, which fresh modules do not reach, so it is emptied
+// for the next test.
 afterEach(() => {
+  toastQueue.clear()
+  vi.advanceTimersByTime(DEFAULT_EXIT_DURATION)
   vi.useRealTimers()
 })
 
 // Whether a toast is still on screen once any exit animation it started has played.
-function isOnScreen(context: Context, toastId: string) {
+function isOnScreen(toastId: string) {
   vi.advanceTimersByTime(DEFAULT_EXIT_DURATION)
-  return context.queue.visibleToasts.some((candidate) => candidate.key === toastId)
+  return toastQueue.visibleToasts.some((candidate) => candidate.key === toastId)
 }
 
-function findShown(context: Context, toastId: string) {
-  const shown = context.queue.visibleToasts.find((candidate) => candidate.key === toastId)
+function findShown(toastId: string) {
+  const shown = toastQueue.visibleToasts.find((candidate) => candidate.key === toastId)
   if (!shown) {
     throw new Error(`Toast ${toastId} is not on screen`)
   }
@@ -44,7 +46,7 @@ describe('toast', () => {
   it<Context>('shows the message and description in the variant asked for', (context) => {
     const toastId = context.toast.danger('Could not save', { description: 'The name is taken' })
 
-    const shown = findShown(context, toastId)
+    const shown = findShown(toastId)
     expect(shown.content).toMatchObject({
       title: 'Could not save',
       description: 'The name is taken',
@@ -56,19 +58,19 @@ describe('toast', () => {
   it<Context>('times a success out by its length', (context) => {
     const toastId = context.toast.success('Project saved')
 
-    expect(findShown(context, toastId).timeout).toBe(1_600)
+    expect(findShown(toastId).timeout).toBe(1_600)
   })
 
   it<Context>('closes the toast when its action is pressed, then runs the action', (context) => {
     const onPress = vi.fn()
     const toastId = context.toast.success('Learning deleted', { action: { label: 'Undo', onPress }})
 
-    const shown = findShown(context, toastId)
+    const shown = findShown(toastId)
     expect(shown.content.actionProps?.children).toBe('Undo')
     shown.content.actionProps?.onPress?.({} as never)
 
     expect(onPress).toHaveBeenCalledOnce()
-    expect(isOnScreen(context, toastId)).toBe(false)
+    expect(isOnScreen(toastId)).toBe(false)
   })
 
   it<Context>('keeps every toast but a success for the notification menu', (context) => {
@@ -98,12 +100,12 @@ describe('toast', () => {
   it<Context>('shows work in progress until it is closed, and never keeps it', (context) => {
     const toastId = context.toast.loading('Testing the connection')
 
-    const shown = findShown(context, toastId)
+    const shown = findShown(toastId)
     expect(shown.timeout).toBe(0)
     expect(shown.content.isLoading).toBe(true)
     expect(context.store.getState().notifications.items).toEqual([])
 
     context.toast.close(toastId)
-    expect(isOnScreen(context, toastId)).toBe(false)
+    expect(isOnScreen(toastId)).toBe(false)
   })
 })
