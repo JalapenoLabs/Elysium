@@ -166,8 +166,14 @@ export function GlobalSearch() {
         {search.isLoading && <p role='status' className='px-3 py-2 text-sm opacity-70'>{
           t('results.loading')
         }</p>}
-        {!search.isLoading && !shownResults.length && <p role='status' className='px-3 py-2 text-sm opacity-70'>{
+        {!search.isLoading && !search.hasFailed && !shownResults.length && <p
+          role='status'
+          className='px-3 py-2 text-sm opacity-70'
+        >{
           t('results.none', { query: trimmedQuery })
+        }</p>}
+        {!search.isLoading && search.hasFailed && <p role='status' className='px-3 py-2 text-sm text-warning'>{
+          t('results.failed')
         }</p>}
         <Menu aria-label={t('results.label')} onAction={onAction}>
           {sections.map((section) => <Menu.Section key={section.group}>

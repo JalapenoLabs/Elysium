@@ -46,7 +46,8 @@ export function PageTabs<Id extends string>(props: Props<Id>) {
     <Tabs.ListContainer className='relaxed'>
       <Tabs.List aria-label={props.label}>{
         props.tabs.map((tab) => <Tabs.Tab key={tab.id} id={tab.id} href={tab.href}>
-          <span>{tab.label}</span>
+          {/* A label stays on one line; a list too long for the page scrolls instead. */}
+          <span className='whitespace-nowrap'>{tab.label}</span>
           {tab.count !== null && <Chip
             size='sm'
             variant='soft'

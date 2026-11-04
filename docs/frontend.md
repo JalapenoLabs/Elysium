@@ -454,13 +454,16 @@ searchbars); there is no separate command palette.
   While typing, the arrow keys move through the results (React Aria's `Autocomplete` over a `Menu`, focus staying in
   the field), Enter opens the one highlighted, the first by default, and Esc clears the field, then leaves it; an Esc
   it used never reaches the page's Esc (`readPageShortcut`).
-- **Results.** The closest five, in sections by kind (Pages, Actions), each with its icon and the page it sits under,
-  then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing matching says so, above Ask
-  Elysia. Choosing a result, clicking anywhere else, or tabbing away clears it. Every result that goes somewhere is a
-  real link; an action runs in place, and one that needs it asks first, as Sign out does. On phones the results span
-  the screen under the topbar.
-- **The search page.** `SearchPage` shows every result for `?q=` in the same sections, then Ask Elysia. Typing
-  replaces the address, so Back leaves the page.
+- **Results.** The closest five, in sections by kind (Pages, Actions, then the records the API finds: Action items,
+  Projects, Coding sessions, Initiatives), each with its icon and a quieter line (the page it sits under, a record's
+  state, a session's number), then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing
+  matching says so, above Ask Elysia; records the API could not search say that instead. Choosing a result, clicking
+  anywhere else, or tabbing away clears it. Every result that goes somewhere is a real link; an action runs in place,
+  and one that needs it asks first, as Sign out does. On phones the results span the screen under the topbar.
+- **The search page.** `SearchPage` shows every result for `?q=`, asking the API for the most of each kind it answers
+  (50). `PageTabs` with `useTabParam` gives a tab for all of them, in sections as the topbar shows them, and one for
+  each kind, each counting its results once the records have arrived; the open tab is `?tab=`. Typing replaces the
+  address, keeping the tab, so Back leaves the page.
 - **Registering.** Each part of the app lists its own pages and actions in a `searchEntries.ts` beside it, exporting
   `searchEntries: SearchEntry[]`; `searchRegistry.ts` gathers every such file with `import.meta.glob`, so a new page
   shows up by adding that file, never by editing a central list. Those files hold only links, icons, and translation
@@ -470,15 +473,22 @@ searchbars); there is no separate command palette.
 - **Words.** An entry's title and the page it sits under reuse its area's own keys, spelled with their namespace;
   hidden tags, one string of words per entry, are in its translations (`search:tags.*` today), so each language lists
   its own synonyms: "2FA" finds Two-factor authentication, "log out" finds Sign out. `audience` (`members`, `admins`)
-  leaves out what the viewer's role cannot open, as the sidebar and the settings directory do.
+  leaves out what the viewer's role cannot open, as the sidebar and the settings directory do, and `when` what does
+  not apply to their account: Add 2FA only while two-factor authentication is off, Change 2FA and Remove 2FA only
+  while it is on, read from `/me`'s `hasSecondFactor`.
 - **Matching.** `searchMatch.ts`: every typed word must begin a word of the title, the tags, or the parent, accents
   and punctuation ignored; the title counts most, then tags, then the parent, and a title that begins with what was
-  typed ranks first. Ties read alphabetically (`searchRanking.ts`).
-- **Sources.** `useGlobalSearch(query)` merges every source into one ranked list. A source answers
-  `{ results, isLoading }` (`SearchSourceAnswer`) with results in the shared `SearchResult` shape. The registry
-  answers at once in the browser. A source that asks the API joins there, waiting 300ms after typing stops and
-  cancelling the request a newer query replaces; while any source loads, the field's magnifying glass is a spinner and
-  the results show Loading…. Its results take a `SearchGroup` of their own, named in `searchGroupLabelKeys`.
+  typed ranks first. Ties read alphabetically (`searchRanking.ts`). The API matches records by the same rule on their
+  titles, accents aside (`docs/api.md`, `/api/v1/search`).
+- **Sources.** `useGlobalSearch(query, recordLimit)` merges every source into one ranked list. A source answers
+  `{ results, isLoading, hasFailed }` (`SearchSourceAnswer`) with results in the shared `SearchResult` shape. The
+  registry answers at once in the browser. `useRecordSearch` asks `GET /api/v1/search` 300ms after typing stops
+  (`RECORD_SEARCH_DELAY_MS`), aborts the request a newer query replaces, and never retries, so an older answer can
+  never land over a newer one; it reports loading from the keystroke until its own query's answer arrives. Its hits
+  become results in `recordSearch.ts`, scored by their titles with the registry's own `scoreSearchMatch`, so every
+  source ranks alike, and a kind of record the build does not know is logged and left out. While any source loads,
+  the field's magnifying glass is a spinner and the results show Loading…. Each kind takes a `SearchGroup` of its own,
+  named in `searchGroupLabelKeys`.
 - **Ask Elysia.** `useAskElysia` opens her panel on the conversation (`elysiaSlice`'s `panelView`) and sends what was
   typed as the person's message, which queues her turn. A message that fails to send says so in a toast and stays
   typed in the search.
@@ -1353,6 +1363,5 @@ components are tested; pages are checked in the running app.
 
 - Additional locales, once the product adopts them.
 - Tests for the older areas' pure logic, such as the timeline merge in `sessionEventsSlice`.
-- Search results for action items, projects, coding sessions, and initiatives, from the API, beside the pages and
-  actions.
+- The knowledge base as a kind of search result, for admins and members, once a search reads its index.
 - The theme preference moving from each browser to the person's profile.

@@ -3,7 +3,7 @@
 import type { TFunction } from 'i18next'
 import type { TranslationNamespace } from '../i18n'
 import type { SearchableText } from './searchMatch'
-import type { SearchActionContext, SearchAudience, SearchEntry, SearchResult } from './searchTypes'
+import type { SearchActionContext, SearchEntry, SearchResult, SearchViewer } from './searchTypes'
 
 // Misc
 import { scoreSearchMatch, toSearchWords } from './searchMatch'
@@ -16,16 +16,20 @@ export type PreparedSearchEntry = {
   text: SearchableText
 }
 
-// Translates and splits the entries the viewer may open, once per language and role, so a
-// keystroke only compares words. An entry for admins never reaches anyone else's results.
+// Translates and splits the entries that apply to the viewer, once per language, role, and
+// account state, so a keystroke only compares words. An entry for admins never reaches
+// anyone else's results, and Add 2FA never reaches someone who has it on.
 export function prepareSearchEntries(
   entries: SearchEntry[],
   t: TFunction<TranslationNamespace[]>,
-  canSee: Record<SearchAudience, boolean>,
+  viewer: SearchViewer,
 ) {
   const prepared: PreparedSearchEntry[] = []
   for (const entry of entries) {
-    if (!canSee[entry.audience ?? 'everyone']) {
+    if (!viewer.audiences[entry.audience ?? 'everyone']) {
+      continue
+    }
+    if (entry.when && !viewer.conditions[entry.when]) {
       continue
     }
 

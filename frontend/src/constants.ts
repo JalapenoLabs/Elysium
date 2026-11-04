@@ -171,3 +171,18 @@ export const ISSUE_REPORT_FILE_TIMEOUT_MS = 30_000
 // How long confirming something that can't be undone, such as a permanent delete, holds its
 // button before it can be pressed, so the dialog is read first (ux.md, Delete confirmations).
 export const IRREVERSIBLE_CONFIRM_SECONDS = 5
+
+// How long the global search waits after typing stops before it asks the API for records
+// (ux.md, Search inputs), so a word typed steadily sends one request rather than one a letter.
+export const RECORD_SEARCH_DELAY_MS = 300
+
+// The longest query the API searches, as `MAX_QUERY_CHARS` in api/src/search/mod.rs. A longer
+// one is a question for Elysia, which the search offers beside its results.
+export const RECORD_SEARCH_MAX_CHARACTERS = 200
+
+// Records of each kind the topbar asks for: it shows the closest five overall, so five of
+// each kind always holds them, as the API's `DEFAULT_LIMIT`.
+export const RECORD_SEARCH_TOPBAR_LIMIT = 5
+
+// Records of each kind the search page asks for, the most one search answers (`MAX_LIMIT`).
+export const RECORD_SEARCH_PAGE_LIMIT = 50

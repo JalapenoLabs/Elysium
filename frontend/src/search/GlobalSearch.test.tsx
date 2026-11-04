@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ElysiaMessage } from '../api/routes/elysiaRoutes'
+import type { SearchSourceAnswer } from './searchTypes'
 
 // Core
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +15,7 @@ import { meLoaded } from '../store/authSlice'
 import { elysiaPanelToggled, elysiaPanelViewChanged } from '../store/elysiaSlice'
 
 // User interface
+import { LuFolderKanban } from 'react-icons/lu'
 import { ConfirmGate } from '../gates/ConfirmGate'
 import { GlobalSearch } from './GlobalSearch'
 
@@ -26,21 +28,17 @@ vi.mock('../api/routes/elysiaRoutes', () => ({
   sendElysiaMessage: vi.fn(),
 }))
 
-// Whether the search reports a source still loading, as one that asks the API does while it
-// waits; the registry alone never loads.
-const loading = vi.hoisted(() => ({ isLoading: false }))
-vi.mock('./useGlobalSearch', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./useGlobalSearch')>()
-  return {
-    useGlobalSearch: (query: string) => ({
-      ...original.useGlobalSearch(query),
-      isLoading: loading.isLoading || original.useGlobalSearch(query).isLoading,
-    }),
-  }
-})
+// What the API's records answer, set by each test: the hook's own waiting and cancelling are
+// tested in `useRecordSearch.test.ts`, so here it answers at once.
+const records = vi.hoisted(() => ({
+  answer: { results: [], isLoading: false, hasFailed: false } as SearchSourceAnswer,
+}))
+vi.mock('./useRecordSearch', () => ({
+  useRecordSearch: () => records.answer,
+}))
 
 beforeEach(() => {
-  loading.isLoading = false
+  records.answer = { results: [], isLoading: false, hasFailed: false }
   vi.mocked(sendElysiaMessage).mockReset()
 })
 
@@ -131,7 +129,7 @@ describe('GlobalSearch', () => {
     type('2fa')
 
     expect(within(screen.getByRole('menu')).getByText('Pages')).toBeTruthy()
-    expect(resultTitles()[0]).toBe('Two-factor authenticationSecurity')
+    expect(resultTitles()).toContain('Two-factor authenticationSecurity')
   })
 
   it('makes every result that goes somewhere a real link, View all included', () => {
@@ -172,8 +170,39 @@ describe('GlobalSearch', () => {
     expect(resultTitles()).toEqual([ 'Ask Elysia about “zzzz”' ])
   })
 
+  it('lists the records the API found in sections of their own, as real links', () => {
+    records.answer = {
+      isLoading: false,
+      hasFailed: false,
+      results: [{
+        id: 'records:project:p1',
+        group: 'projects',
+        title: 'Billing migration',
+        icon: LuFolderKanban,
+        score: 4,
+        target: { kind: 'link', href: '/projects/p1' },
+      }],
+    }
+    renderSearch()
+    type('migration')
+
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByText('Projects')).toBeTruthy()
+    const project = within(menu).getByRole('menuitem', { name: 'Billing migration' })
+    expect(project.getAttribute('href')).toBe('/projects/p1')
+  })
+
+  it('says when the records could not be searched, rather than that nothing matched', () => {
+    records.answer = { results: [], isLoading: false, hasFailed: true }
+    renderSearch()
+    type('zzzz')
+
+    expect(screen.getByText(/unavailable right now/).getAttribute('role')).toBe('status')
+    expect(screen.queryByText(/No results/)).toBeNull()
+  })
+
   it('shows its loading box and spinner while a source loads', () => {
-    loading.isLoading = true
+    records.answer = { results: [], isLoading: true, hasFailed: false }
     renderSearch()
     type('settings')
 

@@ -1,17 +1,24 @@
 {
   "groups": {
     "pages": "Pages",
-    "actions": "Actions"
+    "actions": "Actions",
+    "actionItems": "Action items",
+    "projects": "Projects",
+    "codingSessions": "Coding sessions",
+    "initiatives": "Initiatives"
   },
   "results": {
     "label": "Search results",
     "loading": "Loading…",
     "none": "No results for “{{query}}”",
+    "failed": "Action items, projects, sessions, and initiatives are unavailable right now.",
     "viewAll": "View all results",
     "askElysia": "Ask Elysia about “{{query}}”"
   },
   "page": {
-    "title": "Search"
+    "title": "Search",
+    "kinds": "Kinds of result",
+    "all": "All"
   },
   "titles": {
     "openElysia": "Open Elysia",
@@ -34,6 +41,9 @@
     "security": "login sign in protection",
     "password": "change reset passphrase",
     "twoFactor": "2fa mfa totp otp authenticator app second factor",
+    "addTwoFactor": "two factor authentication turn on enable set up mfa totp authenticator app second factor",
+    "changeTwoFactor": "two factor authentication switch move new authenticator app mfa totp",
+    "removeTwoFactor": "two factor authentication turn off disable delete authenticator app mfa totp",
     "passkeys": "webauthn fido security key",
     "lookupCodes": "backup codes recovery codes",
     "sessions": "devices signed in browsers",
