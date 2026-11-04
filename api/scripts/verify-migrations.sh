@@ -12,7 +12,9 @@
 
 set -euo pipefail
 
-readonly POSTGRES_IMAGE="postgres:18.6-alpine3.23"
+# The Postgres compose.yml runs, pgvector's build of it, character for character: the API
+# migrations job fails when the two differ.
+readonly POSTGRES_IMAGE="pgvector/pgvector:0.8.7-pg18-trixie@sha256:5895949dfcdf308eb0cd31c950c93c14895c77f33fbedfecf1fa511ab1d4bcd2"
 # The Redis compose.yml runs.
 readonly REDIS_IMAGE="redis:8.10.1-alpine"
 readonly ROLE="migration_auditor"

@@ -5,7 +5,8 @@ people and their agents search and contribute to. A developer connects Claude Co
 and can ask about past meetings, decisions, conversations, and what other agents learned. Everyone in the company
 benefits from what anyone's agent saves.
 
-This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone.
+This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
+far: the index's tables in Postgres (Search, below).
 
 ## What is indexed
 
@@ -66,15 +67,28 @@ Access is checked once, on the caller's role: admins, members, and agents acting
 tools refuse a guest themselves from the first build, rather than waiting on guest rooms, because until roles are
 built out a guest has a member's access (`docs/auth.md`).
 
-No index, search, or knowledge tool exists in the API yet; each one is built to this rule.
+The index's tables exist, and no search or knowledge tool reads them yet; each one is built to this rule.
 
 ## Search
 
-- Postgres alone, with no search cluster: the image becomes pgvector's build of Postgres 18, pinned. Every source
-  upserts into one document index, split into passages, each with a full-text vector (exact names, error strings,
-  ticket keys) and an embedding (meaning). A search merges both rankings.
+- Postgres alone, with no search cluster: the image is pgvector's build of Postgres 18, pinned by digest
+  (`docs/infrastructure.md`). Every source upserts into one document index (`knowledge_documents`), split into
+  passages (`knowledge_passages`), each with a full-text vector (exact names, error strings, ticket keys) and an
+  embedding (meaning). A search merges both rankings. The tables are in `docs/database.md`.
+- Each kind of source is a column of the document, cascading from it, so deleting a source removes its documents and
+  passages in Postgres itself, and a document for a source already gone is refused. Indexing a source again upserts
+  its one document on that column; the SHA-256 of the text it was indexed from says whether anything changed, and
+  passages are rewritten by position, so one whose text held keeps its embedding. Today the source is a timeline
+  record; learnings and the company doc add theirs.
+- The full-text vector uses Postgres's `english` configuration, generated from the passage: words are stemmed and stop
+  words dropped on both sides, so a question asked in a sentence matches, while a key such as `WAY-123` stays a
+  phrase of its exact tokens. Searches parse their query with `english` too.
 - Embeddings come from a small open model, pinned, in its own container on the host, so no text leaves it. Anthropic
-  offers no embedding model.
+  offers no embedding model. The model is to be nomic-embed-text-v1.5 (Apache-2.0, 137M parameters, 8,192-token
+  context), small enough for the host's CPU, so the column is `vector(768)`, its size, searched by cosine distance
+  through an HNSW index. A passage is `NULL` there until embedded, and each embedding names the model and revision
+  that made it, so changing the model re-embeds. Another size is a migration that re-embeds everything. The model
+  expects its task prefixes, `search_document: ` on passages and `search_query: ` on queries.
 - Indexing is an engine step: new and changed records are embedded as they arrive, and deleting a source removes its
   passages.
 - The web app has a Knowledge page: search, browse learnings, and ask.

@@ -1,6 +1,7 @@
 # Database
 
-Postgres 18, accessed from the API through Diesel 2.3 with `diesel-async` and a `deadpool` connection pool.
+Postgres 18, pgvector's build of it, accessed from the API through Diesel 2.3 with `diesel-async` and a `deadpool`
+connection pool.
 
 ## Why Diesel
 
@@ -37,17 +38,43 @@ Guarantees:
 - Every migration command takes a Postgres advisory lock first. Concurrent migrators wait instead of racing.
 - The API checks for pending migrations before binding its port. It refuses to serve against an older schema.
 - In compose, the one-shot `migrate` service runs `migrate run`. The API starts only after it exits successfully.
+- `migrate run` first rebuilds the indexes of any database whose collation changed (see Collations below).
+- Migrations run as `POSTGRES_USER`, the cluster's bootstrap superuser, in every stack and in verification. Creating
+  an extension that is not marked trusted, such as `vector`, needs one.
+
+## Collations
+
+Text indexes are kept in the order the database's collation gave when each key went in. The collation comes from the
+server's C library (`en_US.utf8`, libc provider), so an image on another C library, or another release of glibc,
+sorts the same keys differently: lookups then miss rows that are there, and unique indexes stop refusing duplicates.
+Postgres records the collation's version (`pg_database.datcollversion`) and only warns when it changes.
+
+`migrate run` checks Elysium's database, Kratos's, and Hydra's before it applies anything. Where the recorded version
+differs from the one the library reports now (`pg_database_collation_actual_version`), it runs `REINDEX DATABASE`
+connected to that database, records the new version in `pg_database` itself, and logs `migration.collation.rebuilt`
+at warn level. It writes the catalog rather than running `ALTER DATABASE ... REFRESH COLLATION VERSION`, which refuses
+a change from or to no version, as moving between musl and glibc is; that takes the superuser migrations already run
+as. A database whose collation held is left alone. A rebuild that meets
+duplicates, written while the old indexes were in the wrong order, fails the migration and says which index. The code
+is `rebuild_for_changed_collation` in `api/src/database/migrations.rs`; `REINDEX DATABASE` cannot run in a
+transaction, so it is not a migration.
+
+A cluster first started under the Alpine image recorded no version, since musl reports none, and its indexes are in
+musl's byte order; under pgvector's Debian image the first `migrate run` rebuilds every one. A glibc update in a later
+pgvector image is caught the same way. See `docs/infrastructure.md`, Upgrading Postgres's image.
 
 ## Verification
 
-`api/scripts/verify-migrations.sh` starts a disposable Postgres 18 container and runs these checks:
+`api/scripts/verify-migrations.sh` starts a disposable Postgres container, the image `compose.yml` runs, and runs these
+checks:
 
 1. `diesel migration run --locked-schema` fails if `schema.rs` differs from what the migrations produce.
 2. `diesel migration redo --all --locked-schema` proves every `down.sql` undoes its `up.sql`.
 3. `cargo test -- --include-ignored` runs the store-backed tests, against that Postgres and a disposable Redis.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
-redo, concurrent migrators, the pending-migration refusal, and every LLM, storage location, GitHub
+redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
+index's cascades and columns, and every LLM, storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
@@ -304,6 +331,45 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
 | `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
+
+### `knowledge_documents`
+
+The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
+a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
+source deletes its document and passages, a document for a source already gone is refused, and indexing a source
+again upserts its one document on that column. Today the only source is a timeline record; learnings and the company
+doc add theirs.
+
+| Column               | Type          | Notes                                                                  |
+|----------------------|---------------|------------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7, primary key                                                    |
+| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, or later `learning` |
+| `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
+| `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
+| `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
+| `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
+| `created_by`         | `UUID`        | References `users`: whose record it came from, for the person filter; never access control |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger              |
+
+### `knowledge_passages`
+
+A document's text in order. Primary key `(document_id, position)`; cascades with its document, whose creator it
+inherits. Indexing a document again rewrites its passages by position, so one whose text did not change keeps its
+embedding.
+
+| Column            | Type          | Notes                                                                    |
+|-------------------|---------------|--------------------------------------------------------------------------|
+| `document_id`     | `UUID`        | References `knowledge_documents`, cascading                              |
+| `position`        | `INTEGER`     | From 0                                                                   |
+| `content`         | `TEXT`        | 1 to 20,000 characters                                                   |
+| `search_vector`   | `TSVECTOR`    | Generated: `to_tsvector('english', content)`; queries use `english` too  |
+| `embedding`       | `vector(768)` | pgvector; `NULL` until the embedding model has embedded it               |
+| `embedding_model` | `TEXT`        | The model and revision that made the embedding; set exactly with it      |
+
+`knowledge_passages_search_vector` (GIN) serves full-text matches, `knowledge_passages_embedding` (HNSW,
+`vector_cosine_ops`) nearest neighbours by cosine distance, and the partial `knowledge_passages_unembedded` what the
+embedding model has still to do. `schema.rs` names the two column types `Tsvector` and `Vector`, placeholders
+`diesel print-schema` generates.
 
 ### `meetings`
 

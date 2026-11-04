@@ -181,11 +181,14 @@ backup_databases() {
 }
 
 # Recreates each database from the backup, so tables a failed release's migrations added are
-# gone too. Everything that holds a connection is stopped first.
+# gone too. Everything that holds a connection is stopped first. Postgres is brought up from the
+# configuration installed for the release returned to, which may name another image, so every
+# index is rebuilt under the collation that release reads it with (docs/database.md, Collations).
 restore_databases() {
   directory="$1"
   names="$(databases)" || return 1
   docker compose stop nginx api kratos hydra > /dev/null || return 1
+  docker compose up --detach --wait postgres > /dev/null || return 1
   for database in $names; do
     docker compose exec -T postgres sh -c \
       'psql --username "$POSTGRES_USER" --dbname postgres --quiet \

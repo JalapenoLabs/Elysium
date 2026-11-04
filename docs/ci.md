@@ -103,7 +103,7 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Claude Code, `gh`, Blender | `workspace/Dockerfile`, `workspace/blender/install.sh` | published checksums, a git commit for the Blender MCP server |
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
-| Postgres           | `api/scripts/verify-migrations.sh`                   | same image as compose             |
+| Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
 | `actions/checkout` | a commit SHA in each workflow                        |                                   |
 
 rustup installs exactly the channel a crate's `rust-toolchain.toml` names. rustfmt and clippy are added with
@@ -126,7 +126,8 @@ test build as well as clippy. `CARGO_INCREMENTAL=0` keeps the persistent target 
 incremental artifacts CI never reuses.
 
 `API test` runs the hermetic suite. The database-backed tests are `#[ignore]`d there and run in `API migrations`, which
-calls `api/scripts/verify-migrations.sh` exactly as a developer would (see `docs/database.md`): it starts a disposable
+first checks that the Postgres image `api/scripts/verify-migrations.sh` names is, character for character, the one
+`compose.yml` runs, then calls the script exactly as a developer would (see `docs/database.md`): it starts a disposable
 Postgres on a port Docker picks, checks `schema.rs` for drift, redoes every migration, and runs the whole suite with
 `--include-ignored`. The script names its container after its own process id and removes it on exit. The workflow
 records that process id, so a cancelled run, which can kill the script before its cleanup runs, still has the container

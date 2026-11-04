@@ -126,12 +126,20 @@ pub mod sql_types {
     pub struct StudioAssetKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "tsvector", schema = "pg_catalog"))]
+    pub struct Tsvector;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "user_role"))]
     pub struct UserRole;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "user_status"))]
     pub struct UserStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "vector"))]
+    pub struct Vector;
 }
 
 diesel::table! {
@@ -717,6 +725,38 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    knowledge_documents (id) {
+        id -> Uuid,
+        source -> Text,
+        timeline_record_id -> Nullable<Uuid>,
+        title -> Text,
+        url -> Nullable<Text>,
+        occurred_at -> Timestamptz,
+        content_sha256 -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::Tsvector;
+    use super::sql_types::Vector;
+
+    knowledge_passages (document_id, position) {
+        document_id -> Uuid,
+        position -> Int4,
+        content -> Text,
+        search_vector -> Tsvector,
+        embedding -> Nullable<Vector>,
+        embedding_model -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     link_watch_cursors (id) {
         id -> Uuid,
         jira_credential_id -> Nullable<Uuid>,
@@ -1158,6 +1198,9 @@ diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
+diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
+diesel::joinable!(knowledge_documents -> users (created_by));
+diesel::joinable!(knowledge_passages -> knowledge_documents (document_id));
 diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
 diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
 diesel::joinable!(llms -> users (created_by));
@@ -1230,6 +1273,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     jira_credential_projects,
     jira_credentials,
     jira_done_transitions,
+    knowledge_documents,
+    knowledge_passages,
     link_watch_cursors,
     llms,
     mail_accounts,

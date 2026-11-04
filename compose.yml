@@ -257,7 +257,9 @@ services:
 
   postgres:
     container_name: elysium-postgres
-    image: postgres:18.6-alpine3.23
+    # pgvector's build of Postgres 18, for the knowledge base's embeddings (docs/knowledge.md),
+    # pinned by digest. api/scripts/verify-migrations.sh names the same image.
+    image: pgvector/pgvector:0.8.7-pg18-trixie@sha256:5895949dfcdf308eb0cd31c950c93c14895c77f33fbedfecf1fa511ab1d4bcd2
     restart: unless-stopped
     # TIMESTAMPTZ is stored as UTC regardless; pinning the server zone keeps
     # psql output and now()-based values in UTC too.

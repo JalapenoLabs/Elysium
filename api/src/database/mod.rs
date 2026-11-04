@@ -8,6 +8,8 @@
 
 #[cfg(test)]
 mod adopt_fireflies_keys_tests;
+#[cfg(test)]
+mod knowledge_index_tests;
 pub mod migrations;
 #[allow(
     clippy::wildcard_imports,

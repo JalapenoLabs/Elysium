@@ -46,7 +46,7 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `hydra-migrate` | `hydra/Dockerfile` (`oryd/hydra:v26.2.0`) | `elysium-hydra-migrate` | One-shot: Hydra's own migrations; builds Hydra's image |
 | `hydra`    | Hydra's image, built by `hydra-migrate` | `elysium-hydra` | OAuth for MCP clients; see `docs/mcp.md` |
 | `api`      | the API image              | none               | One replica; reachable only via nginx   |
-| `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
+| `postgres` | `pgvector/pgvector:0.8.7-pg18-trixie` (by digest) | `elysium-postgres` | Postgres 18.6 with pgvector; volume `postgres-data`, `timezone=UTC` |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
 | `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's filtered Docker API |
 | `updater`  | `updater/Dockerfile` (`docker:29.9.1-cli`) | `elysium-updater` | Profile `auto-update` only; holds the Docker socket |
@@ -273,11 +273,12 @@ applying records it as succeeded. Every change is published as `updates.status`.
 6. Checks that the API answering is the target, reports success, and recreates itself last if its definition or its
    script changed.
 
-When step 5 or 6 fails, it rolls back: the running release's configuration and version return, each database is
-dropped and recreated from the backup (so tables the failed release's migrations added are gone too), and the stack
-comes back up. Anything written in the minutes between the backup and the rollback is lost with it. A failure before
-step 4 changes nothing. Either way the release counts as rolled back and is held for an admin; the next release
-applies on its own.
+When step 5 or 6 fails, it rolls back: the running release's configuration and version return, Postgres comes back up
+on the image that configuration names, each database is dropped and recreated from the backup there (so tables the
+failed release's migrations added are gone too, and every index is built under the collation that release reads it
+with), and the stack comes back up. Anything written in the minutes between the backup and the rollback is lost with
+it. A failure before step 4 changes nothing. Either way the release counts as rolled back and is held for an admin; the
+next release applies on its own.
 
 Compose resolves the stack's bind mounts against the deployment directory and passes the paths to the Docker daemon,
 which reads them on the host. The updater therefore finds where its `/deployment` mount comes from and links that host
@@ -421,6 +422,51 @@ Postgres runs with `timezone=UTC`, and every server container sets `TZ=UTC`.
 
 Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`, so the named volume mounts
 `/var/lib/postgresql`, not the older `.../data` path.
+
+## Upgrading Postgres's image
+
+Postgres is pgvector's build of the official image, pinned by digest in `compose.yml`, for the knowledge base's
+embeddings (`docs/knowledge.md`). Its tag names pgvector's release and Postgres's major version; the digest fixes the
+minor, today 18.6. A new digest is an edit to `compose.yml` and `api/scripts/verify-migrations.sh` together, which CI
+compares (`docs/ci.md`, Pins). Within Postgres 18 the data directory carries over as it is, with no dump and restore.
+
+The image is Debian (glibc), so a data volume first made by the Alpine image (`postgres:18.6-alpine3.23`, musl) starts
+unchanged under it, but with every text index in musl's order. The first `migrate run` rebuilds them
+(`docs/database.md`, Collations). Until it has, Kratos, Hydra, or the API could miss rows that are there, so upgrade
+such a deployment with everything stopped:
+
+```sh
+git pull --ff-only
+docker compose down                       # keeps the volumes
+docker compose up --detach --build --wait
+```
+
+Nothing connects before `migrate` has rebuilt the indexes, since Kratos, Hydra, and the API all wait for it. Without
+the `down`, Kratos and Hydra keep running across Postgres's restart: the rebuild still runs, but a write in those
+seconds that slips a duplicate past a stale unique index makes the rebuild fail, and `migrate` with it, naming the
+index. A release's updater runs `migrate` the same way, and its rollback restores each database from its dump into the
+Postgres of the release it returns to (see What an update does). The updater that applies an update is the running
+release's, so a release whose updater restores before bringing that Postgres up, rolling back from the pgvector image,
+leaves the Alpine image reading indexes built under glibc: run `REINDEX DATABASE` in Elysium's, Kratos's, and Hydra's
+databases after such a rollback.
+
+The Debian image runs Postgres as uid 999 where Alpine's ran as 70. Its entrypoint, started as root as compose starts
+it, gives the data directory to its own user before Postgres starts, so the volume needs nothing done to it.
+
+The upgrade was rehearsed on 2026-11-04 with these compose files under a scratch project:
+
+1. `postgres:18.6-alpine3.23` on a fresh volume, migrated by the published `main` image, with Kratos and Hydra up.
+   Seeded with 1,200 people and 400 projects whose emails and names sort differently under musl and glibc, 120 Kratos
+   identities with password identifiers, and 40 Hydra clients. `amcheck` (`bt_index_parent_check`) passed every btree
+   index in all three databases.
+2. The stack down, the volume kept, and Postgres alone up on the pgvector image: Postgres 18.6 started on the volume
+   unchanged, and `amcheck` found `users_email_key` and `projects_name_unique` in Elysium's database and three of
+   Kratos's identifier and recovery-address indexes out of order.
+3. `migrate run` from this checkout rebuilt all three databases (`migration.collation.rebuilt`, from no version to
+   glibc's 2.41) and applied the knowledge index. Every btree index in every database then passed `amcheck`, every
+   seeded row was there, and a lookup by email through its index found its row.
+4. `up --wait kratos hydra`: `kratos-migrate` and `hydra-migrate` exited 0, Kratos and Hydra came up healthy, Kratos's
+   admin API found an identity by its identifier, and Hydra listed all 40 clients.
 
 ## Automated pull request review
 

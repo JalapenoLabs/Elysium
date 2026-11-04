@@ -146,6 +146,19 @@ jobs:
           diesel --version
           diesel --version | grep --quiet --fixed-strings "Version: ${DIESEL_VERSION}"
 
+      # The migrations are proven against the disposable Postgres the script starts, so it must
+      # be the image production runs, pinned by the same digest.
+      - name: Check the disposable Postgres is the one compose runs
+        run: |
+          set -euo pipefail
+          compose_image="$(sed -n '/^  postgres:$/,/^  [a-z]/s/^    image: //p' compose.yml)"
+          script_image="$(sed -n 's/^readonly POSTGRES_IMAGE="\(.*\)"$/\1/p' api/scripts/verify-migrations.sh)"
+          if [ -z "${compose_image}" ] || [ "${compose_image}" != "${script_image}" ]; then
+            echo "::error::verify-migrations.sh runs '${script_image}', but compose.yml runs '${compose_image}'."
+            exit 1
+          fi
+          echo "Both run ${compose_image}."
+
       # The script starts its own disposable Postgres on a port Docker picks, named
       # after the script's process id, so concurrent jobs on one Docker host never
       # collide. Its process id is recorded so the cleanup step below can remove
