@@ -36,8 +36,8 @@
   "delete": {
     "title": "Delete {{name}}?",
     "body": "The project is removed permanently.",
-    "hasSessions_one": "{{name}} still has {{count}} coding session. Delete it before deleting the project.",
-    "hasSessions_other": "{{name}} still has {{count}} coding sessions. Delete them before deleting the project.",
+    "hasSessions_one": "{{name}} still has {{count, compact}} coding session. Delete it before deleting the project.",
+    "hasSessions_other": "{{name}} still has {{count, compact}} coding sessions. Delete them before deleting the project.",
     "confirm": "Delete project"
   },
   "toasts": {
@@ -58,8 +58,8 @@
     "view": "View",
     "table": "Table",
     "tiles": "Tiles",
-    "results_one": "{{count}} project",
-    "results_other": "{{count}} projects"
+    "results_one": "{{count, compact}} project",
+    "results_other": "{{count, compact}} projects"
   },
   "sort": {
     "name": "Name",
@@ -67,8 +67,8 @@
     "updated": "Last updated"
   },
   "tile": {
-    "sessions_one": "{{count}} coding session",
-    "sessions_other": "{{count}} coding sessions",
+    "sessions_one": "{{count, compact}} coding session",
+    "sessions_other": "{{count, compact}} coding sessions",
     "updated": "Updated {{date}}",
     "noDescription": "No description",
     "coverAlt": "Cover image for {{name}}"
@@ -109,8 +109,8 @@
   },
   "work": {
     "itemsHeading": "Action items",
-    "seeAllItems_one": "See the {{count}} item",
-    "seeAllItems_other": "See all {{count}} items",
+    "seeAllItems_one": "See the {{count, compact}} item",
+    "seeAllItems_other": "See all {{count, compact}} items",
     "newItem": "New item",
     "itemsEmpty": "Nothing is owed here. Resolved and dismissed items are under all items.",
     "initiativesHeading": "Initiatives",

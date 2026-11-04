@@ -18,12 +18,12 @@
     "checked": "Last checked",
     "all": "All",
     "none": "None",
-    "projectCount_one": "{{count}} project",
-    "projectCount_other": "{{count}} projects",
-    "boardCount_one": "{{count}} board",
-    "boardCount_other": "{{count}} boards",
-    "andMore_one": "{{names}} and {{count}} more",
-    "andMore_other": "{{names}} and {{count}} more",
+    "projectCount_one": "{{count, compact}} project",
+    "projectCount_other": "{{count, compact}} projects",
+    "boardCount_one": "{{count, compact}} board",
+    "boardCount_other": "{{count, compact}} boards",
+    "andMore_one": "{{names}} and {{count, compact}} more",
+    "andMore_other": "{{names}} and {{count, compact}} more",
     "empty": "No Jira sites yet. Add one so Elysium can read your projects and boards.",
     "loadError": "Jira sites could not be loaded."
   },
@@ -82,10 +82,10 @@
     "back": "Back",
     "connectedAs": "Jira signed this token in as {{name}} ({{email}}).",
     "connectedAsHidden": "Jira signed this token in as {{name}}.",
-    "reachable_one": "It reaches {{count}} project.",
-    "reachable_other": "It reaches {{count}} projects.",
-    "reachableBoards_one": "It reaches {{count}} board.",
-    "reachableBoards_other": "It reaches {{count}} boards."
+    "reachable_one": "It reaches {{count, compact}} project.",
+    "reachable_other": "It reaches {{count, compact}} projects.",
+    "reachableBoards_one": "It reaches {{count, compact}} board.",
+    "reachableBoards_other": "It reaches {{count, compact}} boards."
   },
   "scope": {
     "allProjects": "All projects",
@@ -105,10 +105,10 @@
     "truncated": "Jira reported more than Elysium lists, so a few may be missing.",
     "loadError": "What this token reaches could not be loaded.",
     "siteChanged": "Saving reads every project and board on the new site. Come back here to narrow it.",
-    "unreachable_one": "{{count}} allowed item is no longer reachable with this token: {{names}}. It stays until you change what is read.",
-    "unreachable_other": "{{count}} allowed items are no longer reachable with this token: {{names}}. They stay until you change what is read.",
-    "beyondListing_one": "{{count}} allowed item is missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop it.",
-    "beyondListing_other": "{{count}} allowed items are missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop them."
+    "unreachable_one": "{{count, compact}} allowed item is no longer reachable with this token: {{names}}. It stays until you change what is read.",
+    "unreachable_other": "{{count, compact}} allowed items are no longer reachable with this token: {{names}}. They stay until you change what is read.",
+    "beyondListing_one": "{{count, compact}} allowed item is missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop it.",
+    "beyondListing_other": "{{count, compact}} allowed items are missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop them."
   },
   "delete": {
     "title": "Delete {{name}}?",
@@ -120,8 +120,8 @@
     "deleted": "{{name}} deleted",
     "testPassed": "{{name}} works: Jira signed it in as {{account}}",
     "testFailed": "{{name}} was refused",
-    "testUnreachable_one": "{{name}} works, but {{count}} allowed item is out of reach",
-    "testUnreachable_other": "{{name}} works, but {{count}} allowed items are out of reach"
+    "testUnreachable_one": "{{name}} works, but {{count, compact}} allowed item is out of reach",
+    "testUnreachable_other": "{{name}} works, but {{count, compact}} allowed items are out of reach"
   },
   "setup": {
     "title": "Create the API token",

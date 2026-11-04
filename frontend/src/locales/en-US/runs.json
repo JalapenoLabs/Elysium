@@ -36,8 +36,8 @@
     "steps": "Steps",
     "history": "History",
     "retryingAt": "Tries again at {{time}}",
-    "attempts_one": "{{count}} attempt",
-    "attempts_other": "{{count}} attempts"
+    "attempts_one": "{{count, compact}} attempt",
+    "attempts_other": "{{count, compact}} attempts"
   },
   "step": {
     "showLog": "Show the log of {{step}}",

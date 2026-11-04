@@ -8,14 +8,14 @@
   },
   "progress": {
     "heading": "Progress",
-    "counts": "{{resolved}} of {{total}} resolved"
+    "counts": "{{resolved, compact}} of {{total, compact}} resolved"
   },
   "burnup": {
-    "label": "Burnup chart: {{resolved}} of {{total}} items resolved now. Use the arrow keys to step through each change.",
+    "label": "Burnup chart: {{resolved, compact}} of {{total, compact}} items resolved now. Use the arrow keys to step through each change.",
     "total": "Total",
     "resolved": "Resolved",
-    "totalEnd": "{{count}} total",
-    "resolvedEnd": "{{count}} resolved",
+    "totalEnd": "{{count, compact}} total",
+    "resolvedEnd": "{{count, compact}} resolved",
     "now": "Now",
     "when": "When",
     "showTable": "Show as a table",

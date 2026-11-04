@@ -18,8 +18,8 @@
     "running": "Backing up now",
     "soon": "Within minutes",
     "kept": "Kept for",
-    "keptDays_one": "{{count}} day",
-    "keptDays_other": "{{count}} days",
+    "keptDays_one": "{{count, compact}} day",
+    "keptDays_other": "{{count, compact}} days",
     "off": "Off until a location is chosen"
   },
   "actions": {

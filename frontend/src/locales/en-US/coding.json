@@ -24,8 +24,8 @@
     "noMatches": "No sessions match your search.",
     "toolbar": {
       "search": "Search sessions",
-      "results_one": "{{count}} session",
-      "results_other": "{{count}} sessions",
+      "results_one": "{{count, compact}} session",
+      "results_other": "{{count, compact}} sessions",
       "view": "View",
       "table": "Table",
       "tiles": "Tiles"
@@ -65,14 +65,14 @@
       "picker": {
         "placeholder": "Pick repositories",
         "search": "Search repositories",
-        "selected_one": "{{count}} repository picked",
-        "selected_other": "{{count}} repositories picked",
+        "selected_one": "{{count, compact}} repository picked",
+        "selected_other": "{{count, compact}} repositories picked",
         "noMatches": "No repositories match your search.",
         "hint": "Optional. Cloned into the session's directory, most recently pushed first.",
         "loading": "Loading the token's repositories…",
         "failed": "GitHub could not be reached to list repositories. Add them by URL instead.",
         "empty": "This token cannot see any repositories. Add them by URL instead.",
-        "truncated": "Showing the {{shown}} most recently pushed repositories. Add others by URL.",
+        "truncated": "Showing the {{shown, compact}} most recently pushed repositories. Add others by URL.",
         "noToken": "Choose a GitHub token to pick from its repositories, or add one under",
         "settingsLink": "Settings, GitHub"
       },

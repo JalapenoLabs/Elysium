@@ -1,8 +1,8 @@
 {
   "title": "Changesets",
   "proposedBy": "Proposed by {{proposer}} on {{date}}",
-  "changeCount_one": "{{count}} change",
-  "changeCount_other": "{{count}} changes",
+  "changeCount_one": "{{count, compact}} change",
+  "changeCount_other": "{{count, compact}} changes",
   "states": {
     "pending": "Waiting for review",
     "applied": "Applied",
@@ -42,8 +42,8 @@
     "open": "Open"
   },
   "lead": {
-    "title_one": "{{count}} changeset waits for your review",
-    "title_other": "{{count}} changesets wait for your review",
+    "title_one": "{{count, compact}} changeset waits for your review",
+    "title_other": "{{count, compact}} changesets wait for your review",
     "body": "Changes Elysia and coding sessions proposed. Nothing is written until you approve them.",
     "action": "Review"
   },
@@ -83,7 +83,7 @@
     "rejectAll": "Reject all",
     "apply": "Apply",
     "applyBlocked": "Approve or reject every change first.",
-    "tally": "{{approved}} approved, {{rejected}} rejected, {{pending}} undecided",
+    "tally": "{{approved, compact}} approved, {{rejected, compact}} rejected, {{pending, compact}} undecided",
     "pendingBody": "Nothing is written in Elysium, Jira, or GitHub until you apply the changes you approve.",
     "providerWaiting": "Waiting to reach {{provider}}",
     "providerFailed": "{{provider}} has not taken it yet: {{error}}",

@@ -24,8 +24,8 @@
     },
     "waitingForWork": {
       "label": "Waiting",
-      "description_one": "Release {{release}} applies as soon as {{count}} agent turn finishes.",
-      "description_other": "Release {{release}} applies as soon as {{count}} agent turns finish."
+      "description_one": "Release {{release}} applies as soon as {{count, compact}} agent turn finishes.",
+      "description_other": "Release {{release}} applies as soon as {{count, compact}} agent turns finish."
     },
     "applying": {
       "label": "Updating",

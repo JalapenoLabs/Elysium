@@ -14,8 +14,8 @@
     "loading": "Preparing the report…",
     "previous": "You reported this on {{when}}.",
     "viewPrevious": "View your report",
-    "remaining_one": "{{count}} report left today.",
-    "remaining_other": "{{count}} reports left today.",
+    "remaining_one": "{{count, compact}} report left today.",
+    "remaining_other": "{{count, compact}} reports left today.",
     "noToken": "Reporting files an issue as you, with a GitHub token you added.",
     "addToken": "Add a GitHub token"
   },

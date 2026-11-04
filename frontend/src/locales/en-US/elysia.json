@@ -41,7 +41,7 @@
     "heading": "Working on",
     "readyAt": "Ready for review {{time}}",
     "revisits_one": "Revisited once",
-    "revisits_other": "Revisited {{count}} times",
+    "revisits_other": "Revisited {{count, compact}} times",
     "status": {
       "working": "Working",
       "ready": "Ready for review",

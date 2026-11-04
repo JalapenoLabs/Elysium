@@ -46,8 +46,8 @@
     "add": "Add domain",
     "default": "Default",
     "defaultHint": "The domain the server was created with. It cannot be removed.",
-    "mailboxCount_one": "{{count}} mailbox",
-    "mailboxCount_other": "{{count}} mailboxes",
+    "mailboxCount_one": "{{count, compact}} mailbox",
+    "mailboxCount_other": "{{count, compact}} mailboxes",
     "table": {
       "label": "Mail domains",
       "name": "Domain",
@@ -72,8 +72,8 @@
   "removeDomain": {
     "title": "Remove {{name}}?",
     "description": "The mail server stops hosting it and deletes its DKIM signing keys.",
-    "hasMailboxes_one": "Delete its {{count}} mailbox first.",
-    "hasMailboxes_other": "Delete its {{count}} mailboxes first.",
+    "hasMailboxes_one": "Delete its {{count, compact}} mailbox first.",
+    "hasMailboxes_other": "Delete its {{count, compact}} mailboxes first.",
     "action": "Remove"
   },
   "dns": {

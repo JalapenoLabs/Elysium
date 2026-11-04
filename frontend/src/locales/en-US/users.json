@@ -32,8 +32,8 @@
     "loadError": "Access settings could not load."
   },
   "pending": {
-    "heading_one": "{{count}} sign-up waiting",
-    "heading_other": "{{count}} sign-ups waiting",
+    "heading_one": "{{count, compact}} sign-up waiting",
+    "heading_other": "{{count, compact}} sign-ups waiting",
     "signedUp": "{{email}} · signed up {{date}}",
     "role": "Role",
     "approve": "Approve",
