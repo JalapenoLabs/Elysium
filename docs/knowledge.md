@@ -269,7 +269,8 @@ and prints the host, the rate, and the peak memory.
 | Host                                             | CPUs | Passages | Rate | Peak memory |
 |--------------------------------------------------|------|----------|------|-------------|
 | Development: AMD Ryzen 9 7950X (16 cores, 32 threads), 125 GiB, kernel 7.2.8, 2026-11-04 | 4 | 554, 1,256 characters on average | 4.5 a second, 16,254 an hour | 1.3 GiB |
-| Production VM, n2-highcpu-32 (32 vCPUs)          | 4    | Measured at deploy | Measured at deploy | Measured at deploy |
+| Production VM: Intel Xeon @ 2.80GHz (n2-highcpu-32, 32 vCPUs), 31 GiB, kernel 7.2.14, 2026-11-04 | 4 | 585, 1,255 characters on average | 3.7 a second, 13,350 an hour | 1.5 GiB |
+| Production VM, the same host with `--cpus 8` | 8 | 585, 1,255 characters on average | 6.8 a second, 24,560 an hour | 1.5 GiB |
 
 To measure the production VM after a deploy that built `elysium-embeddings:local`, from the deployment's checkout:
 

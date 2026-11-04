@@ -216,7 +216,7 @@ public-domain reading of Federalist No. 10 (18:15), downloaded and checked again
 | Host                                             | Threads | Audio | Wall time | Per hour of audio | Peak memory |
 |--------------------------------------------------|---------|-------|-----------|-------------------|-------------|
 | Development: AMD Ryzen 9 7950X (16 cores, 32 threads), 125 GiB, kernel 7.2.8, 2026-11-04 | 4 | 18:15 | 11:00 | 36 minutes (1.66 times real time) | 5.0 GiB |
-| Production VM, 32 vCPUs                          | 16      | 18:15 | Measured at deploy | Measured at deploy | Measured at deploy |
+| Production VM: Intel Xeon @ 2.80GHz (n2-highcpu-32, 32 vCPUs), 31 GiB, kernel 7.2.14, 2026-11-04 | 16 | 18:15 | 8:30 | 28 minutes (2.15 times real time) | 7.1 GiB |
 
 To measure the production VM after a deploy that built `elysium-whisper:local`, from the deployment's checkout:
 
@@ -407,7 +407,6 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 - Segmenting as a step of the meeting workflow after correction (`docs/engine.md`, Meetings), taking the corrected
   copy as its input, replacing the loop's Segment and Publish, and cutting clips by the Whisper transcript's word
   timings.
-- The production VM's row of the transcription timings (Transcription, How long it takes), measured at deploy.
 - Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument,
   and a long meeting's correction reads the company doc once rather than in every turn.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
