@@ -33,7 +33,12 @@ import { usePendingAction } from '../../hooks/usePendingAction'
 import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
 import { describeActor } from '../ActionItems/actionItemPresentation'
-import { changesetStateChipColors, changesetStateLabelKeys, tallyDecisions } from './changesetPresentation'
+import {
+  appliedWithoutReview,
+  changesetStateChipColors,
+  changesetStateLabelKeys,
+  tallyDecisions,
+} from './changesetPresentation'
 import { useChangesetActions } from './useChangesetActions'
 
 // `/action-items/changesets/:changesetId`: one changeset's review. While it is pending, each
@@ -149,10 +154,12 @@ export function ChangesetPage() {
         })
       }</p>
       {changeset.decidedBy && changeset.decidedAt && <p>{
-        t('review.decidedBy', {
-          name: userNames[changeset.decidedBy] ?? t('common:table.someone'),
-          date: context.formatInstant(changeset.decidedAt),
-        })
+        appliedWithoutReview(changeset)
+          ? t('review.appliedWithoutReview', { date: context.formatInstant(changeset.decidedAt) })
+          : t('review.decidedBy', {
+            name: userNames[changeset.decidedBy] ?? t('common:table.someone'),
+            date: context.formatInstant(changeset.decidedAt),
+          })
       }</p>}
       {changeset.undoneAt && <p>{
         t('review.undoneAt', { date: context.formatInstant(changeset.undoneAt) })

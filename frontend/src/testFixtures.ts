@@ -51,6 +51,7 @@ export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem,
     createdAt: CREATED_AT,
     createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
+    issueFiling: null,
     ...overrides,
   }
 }
@@ -103,6 +104,7 @@ export function makeChangesetOperation(
     reason: 'Sam asked for it',
     quote: null,
     source: null,
+    causeRecordId: null,
     dependsOn: [],
     decision: 'pending',
     outcome: 'pending',

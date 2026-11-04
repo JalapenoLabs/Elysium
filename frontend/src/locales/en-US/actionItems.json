@@ -144,6 +144,7 @@
     "primaryLinkCleared": "left it with no primary link",
     "closeWriteCancelled": "stopped trying to move {{key}} to done",
     "commentWriteCancelled": "stopped trying to post a comment to {{key}}",
+    "issueFilingCancelled": "stopped trying to file its issue in {{provider}} {{destination}}",
     "pullRequestClosed": "{{key}} closed without merging",
     "containerLinked": "linked {{key}}",
     "containerUnlinked": "unlinked {{key}}",
@@ -168,12 +169,13 @@
       "deletedProject": "a deleted project",
       "unknownInitiative": "a deleted initiative",
       "unknownItem": "an item",
-      "unknownLink": "a link"
+      "unknownLink": "a link",
+      "unknownTracker": "a tracker"
     }
   },
   "links": {
-    "heading": "Linked in Jira and GitHub",
-    "empty": "Not linked to anything in Jira or GitHub.",
+    "heading": "Linked issues and pull requests",
+    "empty": "Not linked to any issue or pull request.",
     "loadError": "Links could not be loaded.",
     "add": "Link",
     "primary": "Primary",
@@ -184,7 +186,7 @@
     "copyKey": "Copy {{key}}",
     "reading": "Reading from {{provider}}",
     "readError": "{{provider}} could not be read: {{error}}",
-    "readAllError": "Jira and GitHub could not be read just now, so each link shows what it last recorded.",
+    "readAllError": "The trackers could not be read just now, so each link shows what it last recorded.",
     "assignee": "Assigned to {{name}}",
     "unassigned": "Unassigned",
     "providerPriority": "{{provider}} priority: {{priority}}",
@@ -193,7 +195,8 @@
     "removeBody": "The item stops following it, and writes it still owes are dropped. Nothing changes in {{provider}}.",
     "providers": {
       "jira": "Jira",
-      "github": "GitHub"
+      "github": "GitHub",
+      "youtrack": "YouTrack"
     },
     "kinds": {
       "issue": "Issue",
@@ -217,6 +220,11 @@
       "cancel": "Stop trying",
       "cancelTitle": "Stop trying to send this?",
       "cancelBody": "The item stays as it is. {{provider}} is left as it is too, and the item's history records that you stopped."
+    },
+    "filing": {
+      "label": "Filing its issue in {{provider}} {{destination}}",
+      "cancelTitle": "Stop trying to file this issue?",
+      "cancelBody": "The item stays as it is, with no issue. Nothing is opened in {{provider}}, and the item's history records that you stopped."
     },
     "picker": {
       "linkTitle": "Link to Jira or GitHub",

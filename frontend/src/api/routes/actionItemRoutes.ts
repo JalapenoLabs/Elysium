@@ -45,6 +45,23 @@ export type ActionItem = {
   // The user who created it: a person, or a machine such as the coding agent.
   createdBy: string
   updatedAt: string
+  // The issue Elysium owes the item and has not filed yet, while it owes one.
+  issueFiling: IssueFiling | null
+}
+
+// Mirrors `IssueFilingResponse` in api/src/routes/v1/action_items/mod.rs: an issue a
+// changeset asked to open for the item, which the watcher files and links as its primary.
+export type IssueFiling = {
+  id: string
+  provider: LinkProvider
+  // A Jira project key, a GitHub owner/name, or a YouTrack project's short name.
+  destination: string
+  // Zero until the watcher first tries it.
+  attempts: number
+  // The provider's last answer, or why the filing waits.
+  lastError: string | null
+  lastAttemptAt: string | null
+  createdAt: string
 }
 
 // Mirrors `CommentResponse` in api/src/routes/v1/action_items/mod.rs.
@@ -78,6 +95,7 @@ export const HISTORY_KINDS = [
   'link_removed',
   'primary_link_changed',
   'link_write_cancelled',
+  'issue_filing_cancelled',
   'pull_request_closed',
   'container_linked',
   'container_unlinked',
@@ -308,7 +326,7 @@ export function leaveInitiative(itemId: string, initiativeId: string) {
 }
 
 // Mirrors `LinkProvider` in api/src/models/action_item_link.rs.
-export const LINK_PROVIDERS = [ 'jira', 'github' ] as const
+export const LINK_PROVIDERS = [ 'jira', 'github', 'youtrack' ] as const
 export type LinkProvider = typeof LINK_PROVIDERS[number]
 
 // Mirrors `LinkKind`: what an item links to. Jira links issues only.
@@ -344,7 +362,7 @@ export type ActionItemLink = {
   provider: LinkProvider
   kind: LinkKind
   credentialId: string
-  // What a person reads: ELY-12, or owner/name#12.
+  // What a person reads: ELY-12, owner/name#12, or JL-12.
   key: string
   url: string
   // As last read; the item page reads the provider live.
@@ -444,6 +462,12 @@ export function makePrimaryActionItemLink(itemId: string, linkId: string) {
 export function cancelActionItemLinkWrite(itemId: string, linkId: string, writeId: string) {
   return apiClient
     .delete(`v1/action-items/${itemId}/links/${linkId}/writes/${writeId}`)
+}
+
+// Gives up on the issue the item is owed before it is filed; the item keeps no issue.
+export function cancelActionItemIssueFiling(itemId: string) {
+  return apiClient
+    .delete(`v1/action-items/${itemId}/issue-filing`)
 }
 
 type CreateActionItemFromLinkRequest = LinkTarget & {

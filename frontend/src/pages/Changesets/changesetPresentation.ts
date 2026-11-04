@@ -16,6 +16,7 @@ import type {
 
 // Misc
 import { ACTION_ITEM_PRIORITIES } from '../../api/routes/actionItemRoutes'
+import { PROJECT_MANAGER_USER_ID } from '../../constants'
 import { priorityLabelKeys } from '../ActionItems/actionItemPresentation'
 import { providerLabelKeys } from '../ActionItems/linkPresentation'
 
@@ -72,6 +73,7 @@ export const operationKindLabelKeys = {
   'add-to-initiative': 'kinds.add-to-initiative',
   'remove-from-initiative': 'kinds.remove-from-initiative',
   'create-initiative': 'kinds.create-initiative',
+  'file-issue': 'kinds.file-issue',
 } as const satisfies Record<ChangesetOperationKind, ParseKeys<'changesets'>>
 
 // The fields an update can change, with their names as history spells them.
@@ -118,6 +120,12 @@ export function tallyDecisions(changeset: Changeset) {
   }
   const canApply = changeset.state === 'pending' && tally.pending === 0
   return { ...tally, canApply } as const
+}
+
+// Whether a Project Manager's changeset applied as it was made, which its project allows, rather
+// than a person approving it: the Project Managers' machine then decided it.
+export function appliedWithoutReview(changeset: Pick<Changeset, 'decidedBy'>) {
+  return changeset.decidedBy === PROJECT_MANAGER_USER_ID
 }
 
 export type DescribeContext = {
@@ -346,6 +354,14 @@ const describeByKind: { [Kind in ChangesetOperationKind]: Describe<Kind> } = {
     }
     return { summary: t('describe.createInitiative', { name: change.name }), details }
   },
+  'file-issue': (change, _operation, context, t) => ({
+    summary: t('describe.fileIssue', {
+      item: describeTarget(change.item, 'item', context, t),
+      provider: t(providerLabelKeys[change.tracker.provider], { ns: 'actionItems' }),
+      destination: change.tracker.destination,
+    }),
+    details: [],
+  }),
 }
 
 // Calls the describer of the change's own kind. Taking the kind as its own argument lets
@@ -399,7 +415,13 @@ export function describeUndo(undo: OperationUndo, t: ChangesetTranslate) {
       key: undo.stillPosted.key,
     }))
   }
-  // One line per provider, since an item can link issues in both.
+  if (undo.stillFiled) {
+    lines.push(t('undo.stillFiled', {
+      provider: t(providerLabelKeys[undo.stillFiled.provider], { ns: 'actionItems' }),
+      key: undo.stillFiled.key,
+    }))
+  }
+  // One line per provider, since an item can link issues in several.
   const closedKeysByProvider = new Map<LinkProvider, string[]>()
   for (const closed of undo.stillClosed ?? []) {
     const keys = closedKeysByProvider.get(closed.provider) ?? []

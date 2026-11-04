@@ -107,6 +107,19 @@ describe('describeHistoryEntry', () => {
     expect(describeHistoryEntry(unnamed, context, t).summary).toBe('unlinked a link')
   })
 
+  it<Context>('says where a cancelled filing would have opened its issue', ({ t, context }) => {
+    const cancelled = makeHistoryEntry({
+      id: 'e1',
+      kind: 'issue_filing_cancelled',
+      data: { filingId: 'f1', provider: 'youtrack', destination: 'JL' },
+    })
+    const unknown = makeHistoryEntry({ id: 'e2', kind: 'issue_filing_cancelled', data: {}})
+
+    expect(describeHistoryEntry(cancelled, context, t).summary)
+      .toBe('stopped trying to file its issue in YouTrack JL')
+    expect(describeHistoryEntry(unknown, context, t).summary).toBe('stopped trying to file its issue in a tracker')
+  })
+
   it<Context>('tells a new primary link from none left', ({ t, context }) => {
     const changed = makeHistoryEntry({ id: 'e1', kind: 'primary_link_changed', data: { from: 'l1', to: 'l2' }})
     const cleared = makeHistoryEntry({ id: 'e2', kind: 'primary_link_changed', data: { from: 'l1', to: null }})

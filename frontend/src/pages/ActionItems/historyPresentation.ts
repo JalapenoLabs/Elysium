@@ -4,10 +4,16 @@ import type { ParseKeys, TFunction } from 'i18next'
 import type { ActionItemOwner, HistoryEntry, HistoryKind } from '../../api/routes/actionItemRoutes'
 
 // Misc
-import { ACTION_ITEM_PRIORITIES, ACTION_ITEM_STATES, HISTORY_KINDS } from '../../api/routes/actionItemRoutes'
+import {
+  ACTION_ITEM_PRIORITIES,
+  ACTION_ITEM_STATES,
+  HISTORY_KINDS,
+  LINK_PROVIDERS,
+} from '../../api/routes/actionItemRoutes'
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
 import { initiativeStateLabelKeys } from '../Initiatives/initiativePresentation'
 import { priorityLabelKeys, stateLabelKeys } from './actionItemPresentation'
+import { providerLabelKeys } from './linkPresentation'
 
 // Turns history entries into sentences. `data` arrives as JSON whose shape follows the
 // entry's kind (docs/action-items.md), so every field is read defensively: an entry from a
@@ -248,6 +254,20 @@ const describeByKind = {
       : t('history.closeWriteCancelled', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
     details: [],
   }),
+  issue_filing_cancelled: (entry, _context, t) => {
+    const provider = isRecord(entry.data)
+      ? entry.data.provider
+      : null
+    return {
+      summary: t('history.issueFilingCancelled', {
+        provider: isOneOf(LINK_PROVIDERS, provider)
+          ? t(providerLabelKeys[provider])
+          : t('history.values.unknownTracker'),
+        destination: readString(entry.data, 'destination') ?? '',
+      }).trim(),
+      details: [],
+    }
+  },
   pull_request_closed: (entry, _context, t) => ({
     summary: t('history.pullRequestClosed', {
       key: readString(entry.data, 'key') ?? t('history.values.unknownLink'),

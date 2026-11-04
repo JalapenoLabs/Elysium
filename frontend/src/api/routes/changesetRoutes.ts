@@ -58,6 +58,20 @@ export type ChangesetOperationChange =
     targetAt: string | null
     projectIds: string[]
   }
+  // Files the item's own issue in the tracker decided when it was proposed.
+  | {
+    kind: 'file-issue'
+    item: OperationTarget
+    tracker: IssueTracker
+  }
+
+// Where an issue files: a Jira project key, a GitHub owner/name, or a YouTrack project's short
+// name, and the credential that files there.
+export type IssueTracker = {
+  provider: LinkProvider
+  credentialId: string
+  destination: string
+}
 
 export type ChangesetOperationKind = ChangesetOperationChange['kind']
 
@@ -78,6 +92,8 @@ export type OperationUndo = {
   stillPosted?: ProviderThing
   // Linked issues already closed, which stay closed.
   stillClosed?: ProviderThing[]
+  // The issue was already filed, and stays in its tracker; the item stops following it.
+  stillFiled?: ProviderThing & { url: string }
   // Why the records refused to reverse it, in the API's words.
   refusal?: string
 }
@@ -91,6 +107,9 @@ export type ChangesetOperation = {
   reason: string
   quote: string | null
   source: string | null
+  // The timeline record it came from, such as a meeting's segment; every Project Manager's
+  // change names one.
+  causeRecordId: string | null
   // The positions of the earlier operations whose records this one acts on.
   dependsOn: number[]
   decision: ChangesetDecision
@@ -105,7 +124,7 @@ export type ChangesetOperation = {
 // Mirrors `ChangesetResponse` in api/src/routes/v1/changesets/mod.rs.
 export type Changeset = {
   id: string
-  // `elysia` or `session:<number>`.
+  // `elysia`, `session:<number>`, or `project_manager:<project id>`.
   proposer: string
   projectId: string | null
   summary: string
@@ -116,7 +135,8 @@ export type Changeset = {
   createdAt: string
   // The machine that proposed it: Elysia or the coding agent.
   createdBy: string
-  // The person who applied or rejected it; null while it is pending.
+  // The person who applied or rejected it, or the Project Managers' machine for changes a
+  // project lets its Project Manager apply as it makes them; null while it is pending.
   decidedBy: string | null
   updatedAt: string
 }

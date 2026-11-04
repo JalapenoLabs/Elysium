@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, Card, Chip } from '@heroui/react'
 import { LuCheck, LuX } from 'react-icons/lu'
+import { OperationIssueFiling } from './OperationIssueFiling'
 import { OperationProviderWrites } from './OperationProviderWrites'
 
 // Misc
@@ -52,6 +53,9 @@ export function ChangesetOperationCard(props: Props) {
     : null
   const commentId = typeof operation.result.commentId === 'string'
     ? operation.result.commentId
+    : null
+  const filingId = typeof operation.result.filingId === 'string'
+    ? operation.result.filingId
     : null
   const followsWrites = operation.outcome === 'applied'
     && itemId !== null
@@ -139,6 +143,10 @@ export function ChangesetOperationCard(props: Props) {
         commentId={operation.operation.kind === 'comment'
           ? commentId
           : null}
+      />}
+      {operation.outcome === 'applied' && itemId && filingId && <OperationIssueFiling
+        itemId={itemId}
+        filingId={filingId}
       />}
       {undoLines.map((line) => <p key={line} className='mt-2 text-sm text-warning'>{line}</p>)}
     </Card.Content>

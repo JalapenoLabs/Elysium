@@ -19,6 +19,7 @@ import {
 import { Button, Chip, Dropdown, Label, Link, Separator, Spinner, Tooltip, useOverlayState } from '@heroui/react'
 import { LuEllipsis, LuExternalLink, LuPlus, LuStar, LuUnlink } from 'react-icons/lu'
 import { CopyButton } from '../../components/CopyButton'
+import { IssueFilingNotice } from './IssueFilingNotice'
 import { LinkTargetModal } from './LinkTargetModal'
 import { PendingWrites } from './PendingWrites'
 
@@ -47,7 +48,8 @@ type Props = {
   item: ActionItem
 }
 
-// The Jira issues, GitHub issues, and pull requests an item stands for. What each looks like
+// The Jira, GitHub, and YouTrack issues and pull requests an item stands for, and the issue it is
+// still owed, while one is being filed. What each looks like
 // now is read live from its provider; what the item last recorded shows until that answers,
 // and stays when it cannot.
 export function ActionItemLinks(props: Props) {
@@ -94,7 +96,13 @@ export function ActionItemLinks(props: Props) {
       <Spinner size='sm' />
     </div>}
     {status === 'failed' && <p className='text-sm text-danger'>{t('links.loadError')}</p>}
-    {status === 'loaded' && !links.length && <p className='text-sm opacity-70'>{t('links.empty')}</p>}
+    {props.item.issueFiling && <IssueFilingNotice
+      item={props.item}
+      filing={props.item.issueFiling}
+    />}
+    {status === 'loaded' && !links.length && !props.item.issueFiling && <p className='text-sm opacity-70'>{
+      t('links.empty')
+    }</p>}
     {/* Without this, recorded titles and states would read as what the providers say now. */}
     {remoteStatus === 'failed' && links.length > 0 && <p className='compact text-xs text-warning'>{
       t('links.readAllError')

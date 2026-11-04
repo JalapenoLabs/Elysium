@@ -12,6 +12,9 @@ import type { GithubCredential, GithubRepository } from '../../api/routes/github
 import type { JiraCredential } from '../../api/routes/jiraRoutes'
 import type { PickerOption } from '../../components/MultiPicker'
 
+// Misc
+import { LINK_PROVIDERS } from '../../api/routes/actionItemRoutes'
+
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
 // Names and colors for links, containers, and the writes links owe. Pure, so the item page,
@@ -20,6 +23,7 @@ type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 export const providerLabelKeys = {
   jira: 'links.providers.jira',
   github: 'links.providers.github',
+  youtrack: 'links.providers.youtrack',
 } as const satisfies Record<LinkProvider, ParseKeys<'actionItems'>>
 
 export const linkKindLabelKeys = {
@@ -57,18 +61,20 @@ export function fromCredentialKey(key: string): { provider: LinkProvider, creden
     return null
   }
   const [ provider, credentialId ] = key.split(CREDENTIAL_KEY_SEPARATOR)
-  if (!credentialId || (provider !== 'jira' && provider !== 'github')) {
+  const known = LINK_PROVIDERS.find((linkProvider) => linkProvider === provider)
+  if (!credentialId || !known) {
     console.debug('A credential key names no provider and credential', { key })
     return null
   }
-  return { provider, credentialId }
+  return { provider: known, credentialId }
 }
 
-// Every Jira site and GitHub token as one list of options, each labelled with its provider.
+// Every Jira site and GitHub token as one list of options, each labelled with its provider. A
+// person links YouTrack issues through no picker yet, so YouTrack accounts are not listed.
 export function credentialOptions(
   jiraCredentials: Pick<JiraCredential, 'id' | 'name'>[],
   githubCredentials: Pick<GithubCredential, 'id' | 'name'>[],
-  providerLabels: Record<LinkProvider, string>,
+  providerLabels: Pick<Record<LinkProvider, string>, 'jira' | 'github'>,
 ): PickerOption[] {
   const options: PickerOption[] = []
   for (const credential of jiraCredentials) {

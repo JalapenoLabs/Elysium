@@ -9,7 +9,14 @@ import { describe, expect, it } from 'vitest'
 
 // Misc
 import { makeActionItem, makeChangeset, makeChangesetOperation } from '../../testFixtures'
-import { dependentsOf, describeOperation, describeUndo, tallyDecisions } from './changesetPresentation'
+import { PROJECT_MANAGER_USER_ID } from '../../constants'
+import {
+  appliedWithoutReview,
+  dependentsOf,
+  describeOperation,
+  describeUndo,
+  tallyDecisions,
+} from './changesetPresentation'
 
 const t: ChangesetTranslate = i18next.getFixedT(null, [ 'changesets', 'actionItems' ])
 
@@ -133,6 +140,32 @@ describe('describeOperation', () => {
     })
     expect(describeOperation(resolve, context([ resolve ]), t).summary).toBe('Resolve an item that is gone')
   })
+
+  it('says where a Project Manager files an item\'s issue', () => {
+    const operations = [
+      createItem(1, 'Annual pricing'),
+      makeChangesetOperation({
+        id: 'file',
+        position: 2,
+        operation: {
+          kind: 'file-issue',
+          item: { operation: 1 },
+          tracker: { provider: 'youtrack', credentialId: 'acme', destination: 'JL' },
+        },
+        dependsOn: [ 1 ],
+      }),
+    ]
+    expect(describeOperation(operations[1], context(operations), t).summary)
+      .toBe('File an issue for Annual pricing (from change 1) in YouTrack JL')
+  })
+})
+
+describe('appliedWithoutReview', () => {
+  it('tells a Project Manager\'s own apply from a person\'s', () => {
+    expect(appliedWithoutReview(makeChangeset({ id: 'own', decidedBy: PROJECT_MANAGER_USER_ID }))).toBe(true)
+    expect(appliedWithoutReview(makeChangeset({ id: 'reviewed', decidedBy: 'ada' }))).toBe(false)
+    expect(appliedWithoutReview(makeChangeset({ id: 'waiting', decidedBy: null }))).toBe(false)
+  })
 })
 
 describe('describeUndo', () => {
@@ -151,6 +184,13 @@ describe('describeUndo', () => {
       'Already closed in GitHub: owner/name#1, owner/name#2. They stay closed.',
     ])
     expect(describeUndo({}, t)).toEqual([])
+  })
+
+  it('says an issue already filed stays in its tracker', () => {
+    const lines = describeUndo({
+      stillFiled: { provider: 'jira', key: 'ELY-40', url: 'https://acme.atlassian.net/browse/ELY-40' },
+    }, t)
+    expect(lines).toEqual([ 'Already filed as Jira ELY-40; it stays there, and the item no longer follows it.' ])
   })
 
   it('reads as English for one entry and for several', () => {

@@ -27,7 +27,12 @@ import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../hooks/useUserNames'
 import { getChangesetViewUrl } from '../../urls'
 import { describeActor } from '../ActionItems/actionItemPresentation'
-import { changesetStateChipColors, changesetStateLabelKeys, tallyDecisions } from './changesetPresentation'
+import {
+  appliedWithoutReview,
+  changesetStateChipColors,
+  changesetStateLabelKeys,
+  tallyDecisions,
+} from './changesetPresentation'
 
 // The Changesets page's two lists, one per tab.
 export type ChangesetList = 'pending' | 'reviewed'
@@ -126,6 +131,9 @@ export function ChangesetTable(props: Props) {
     function deciderText(changeset: Changeset) {
       if (!changeset.decidedBy) {
         return ''
+      }
+      if (appliedWithoutReview(changeset)) {
+        return t('review.withoutReview')
       }
       return userNames[changeset.decidedBy] ?? t('common:table.someone')
     }

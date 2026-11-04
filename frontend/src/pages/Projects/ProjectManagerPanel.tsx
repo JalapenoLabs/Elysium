@@ -13,6 +13,7 @@ import { selectProjectManager } from '../../store/projectManagersSlice'
 import { Chip, Spinner } from '@heroui/react'
 import { ProjectManagerComposer } from './ProjectManagerComposer'
 import { ProjectManagerTurnRow } from './ProjectManagerTurnRow'
+import { ProjectManagerWrites } from './ProjectManagerWrites'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
@@ -24,8 +25,8 @@ type Props = {
   status: LoadStatus
 }
 
-// The project's Project Manager: what it is doing, a box to write to it, and its latest turns,
-// newest first, each collapsed to its summary.
+// The project's Project Manager: what it is doing, how its changes reach the work, a box to write
+// to it, and its latest turns, newest first, each collapsed to its summary.
 export function ProjectManagerPanel(props: Props) {
   const { t } = useTranslation('projects')
   const manager = useAppSelector((state) => selectProjectManager(state, props.projectId))
@@ -50,6 +51,8 @@ export function ProjectManagerPanel(props: Props) {
         t('manager.heldUntil', { time: formatDateTime(manager.usagePausedUntil) })
       }</span>}
     </div>
+
+    <ProjectManagerWrites manager={manager} />
 
     <ProjectManagerComposer projectId={props.projectId} />
 

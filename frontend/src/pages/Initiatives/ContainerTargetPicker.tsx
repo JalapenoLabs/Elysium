@@ -45,9 +45,8 @@ export function ContainerTargetPicker(props: Props) {
         props.onChange({
           ...EMPTY_CONTAINER_TARGET_DRAFT,
           credentialKey,
-          kind: provider
-            ? containerKindsByProvider[provider][0]
-            : EMPTY_CONTAINER_TARGET_DRAFT.kind,
+          kind: (provider && containerKindsByProvider[provider][0])
+            ?? EMPTY_CONTAINER_TARGET_DRAFT.kind,
         })
       }}
     />
@@ -62,7 +61,9 @@ export function ContainerTargetPicker(props: Props) {
       value={draft.kind}
       onChange={(kind) => {
         const kinds = containerKindsByProvider[credential.provider]
-        const chosen = kinds.find((candidate) => candidate === kind) ?? kinds[0]
+        const chosen = kinds.find((candidate) => candidate === kind)
+          ?? kinds[0]
+          ?? EMPTY_CONTAINER_TARGET_DRAFT.kind
         // The repository stays, since milestones and labels share it.
         props.onChange({ ...draft, kind: chosen, reference: null })
       }}

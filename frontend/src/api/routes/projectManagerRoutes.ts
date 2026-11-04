@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { LinkProvider } from './actionItemRoutes'
 import type { PersonPromise } from './promiseRoutes'
 
 // Misc
@@ -106,6 +107,38 @@ export type ProjectManager = {
   batches: WorkBatch[]
   // Its latest promises, newest first.
   promises: PersonPromise[]
+  // How its changes reach the work.
+  writes: ProjectManagerWrites
+}
+
+// Mirrors `TrackerSource` in api/src/project_managers/trackers.rs: the project names its
+// tracker, or follows where most of its items' issues already are.
+export const TRACKER_SOURCES = [ 'named', 'precedent' ] as const
+export type TrackerSource = typeof TRACKER_SOURCES[number]
+
+// Mirrors `TrackerResponse` in api/src/routes/v1/projects/project_manager/mod.rs.
+export type ProjectTracker = {
+  source: TrackerSource
+  provider: LinkProvider
+  // The Jira credential, GitHub token, or YouTrack account that files there.
+  credentialId: string
+  credentialName: string
+  // A Jira project key, a GitHub owner/name, or a YouTrack project's short name.
+  destination: string
+}
+
+// Mirrors `WritesResponse`: whether its changes apply as it makes them, and where its issues
+// file, or why there is nowhere.
+export type ProjectManagerWrites = {
+  direct: boolean
+  tracker: ProjectTracker | null
+  trackerRefusal: string | null
+}
+
+// A place issues could file, as its provider names it.
+export type TrackerDestination = {
+  reference: string
+  name: string
 }
 
 export function getProjectManagerKey(projectId: string) {
@@ -136,6 +169,64 @@ export function getProjectManagerTurn(projectId: string, turnId: string) {
   return apiClient
     .get(getProjectManagerTurnKey(projectId, turnId))
     .json<ProjectManagerTurnResponse>()
+}
+
+// Whether its changes apply as it makes them, rather than waiting for a person's approval.
+export function setProjectManagerWritesDirectly(projectId: string, writesDirectly: boolean) {
+  return apiClient
+    .patch(getProjectManagerKey(projectId), { json: { writesDirectly }})
+    .json<ProjectManagerResponse>()
+}
+
+type SetProjectTrackerRequest = {
+  provider: LinkProvider
+  // The Jira credential or YouTrack account that files there; left out for GitHub, which files
+  // with the project's own token.
+  credentialId?: string
+  destination: string
+}
+
+// Names the tracker the project's issues file in. The place is read through its credential
+// first, so one the credential cannot reach is refused.
+export function setProjectTracker(projectId: string, body: SetProjectTrackerRequest) {
+  return apiClient
+    .put(`${getProjectManagerKey(projectId)}/tracker`, { json: body })
+    .json<ProjectManagerResponse>()
+}
+
+// Stops naming a tracker, so issues file where most of the project's issues already are.
+export function clearProjectTracker(projectId: string) {
+  return apiClient
+    .delete(`${getProjectManagerKey(projectId)}/tracker`)
+    .json<ProjectManagerResponse>()
+}
+
+export function getTrackerDestinationsKey(
+  projectId: string,
+  provider: LinkProvider,
+  credentialId: string | null,
+) {
+  return [ 'tracker-destinations', projectId, provider, credentialId ?? '' ] as const
+}
+
+type TrackerDestinationsResponse = {
+  destinations: TrackerDestination[]
+}
+
+// The places a tracker on `provider` could file the project's issues, read through the
+// credential that would file there; for GitHub, the project's own token.
+export function listTrackerDestinations(
+  projectId: string,
+  provider: LinkProvider,
+  credentialId: string | null,
+) {
+  const searchParams: Record<string, string> = { provider }
+  if (credentialId) {
+    searchParams.credentialId = credentialId
+  }
+  return apiClient
+    .get(`${getProjectManagerKey(projectId)}/destinations`, { searchParams })
+    .json<TrackerDestinationsResponse>()
 }
 
 export function sendProjectManagerMessage(projectId: string, body: string) {

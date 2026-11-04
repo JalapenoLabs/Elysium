@@ -131,6 +131,34 @@
     "waiting_other": "{{count, compact}} changes wait for its next turn",
     "heldUntil": "Carries on {{time}}",
     "empty": "Nothing has woken the Project Manager yet.",
+    "writes": {
+      "direct": "Write to trackers without review",
+      "directHelpLabel": "How the Project Manager writes",
+      "directHelp": "Off, each change the Project Manager makes (a new item, a comment, a status, an issue) waits as a changeset until you approve it. On, its changes apply as it makes them, and you can still undo each changeset. Every change is on the project's timeline beside what caused it.",
+      "saved": "Saved.",
+      "tracker": "Files issues in {{provider}} {{destination}} through {{credential}}",
+      "sources": {
+        "named": "This project names it",
+        "precedent": "Where this project's issues already are"
+      },
+      "noTracker": "Nowhere to file issues yet.",
+      "changeTracker": "Change tracker",
+      "modalTitle": "Where issues file",
+      "provider": "Tracker",
+      "account": "Account",
+      "noAccounts": "Add an account under Settings first",
+      "projectToken": "Files with the GitHub token this project's sessions get.",
+      "destinations": {
+        "jira": "Jira project",
+        "github": "Repository",
+        "youtrack": "YouTrack project"
+      },
+      "noDestinations": "Nothing this account can file in.",
+      "followPrecedent": "Follow the project's issues",
+      "neverMind": "Never mind",
+      "trackerSaved": "Tracker saved.",
+      "trackerCleared": "Issues now file where this project's issues already are."
+    },
     "composer": {
       "label": "Write to the Project Manager",
       "hint": "Ctrl+Enter sends",

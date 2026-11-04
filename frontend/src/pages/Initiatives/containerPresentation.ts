@@ -18,10 +18,12 @@ export const containerKindLabelKeys = {
   label: 'containers.kinds.label',
 } as const satisfies Record<ContainerKind, ParseKeys<'initiatives'>>
 
-// The containers each provider has, the first being where a picker starts.
+// The containers each provider has, the first being where a picker starts. Initiatives contain
+// no YouTrack issues yet, so YouTrack has none.
 export const containerKindsByProvider = {
   jira: [ 'epic', 'filter' ],
   github: [ 'milestone', 'label' ],
+  youtrack: [],
 } as const satisfies Record<LinkProvider, readonly ContainerKind[]>
 
 export type ContainerTargetDraft = {

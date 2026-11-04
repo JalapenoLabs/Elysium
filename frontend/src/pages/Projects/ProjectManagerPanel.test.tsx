@@ -4,7 +4,7 @@ import type { ProjectManager, ProjectManagerTurn } from '../../api/routes/projec
 
 // Core
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'react-redux'
 
 // Redux
@@ -21,7 +21,22 @@ import { ELYSIA_USER_ID } from '../../constants'
 vi.mock('../../hooks/useServerData', () => ({
   useProjectManagerTurnLoader: () => 'loaded',
   useUsersLoader: () => 'loaded',
+  useJiraCredentialsLoader: () => 'loaded',
+  useConnectorsLoader: () => 'loaded',
 }))
+
+// Proposing, with its issues filing where the project's issues already are.
+const PROPOSING: ProjectManager['writes'] = {
+  direct: false,
+  tracker: {
+    source: 'precedent',
+    provider: 'jira',
+    credentialId: 'work-jira',
+    credentialName: 'Work',
+    destination: 'ELY',
+  },
+  trackerRefusal: null,
+}
 
 function turn(overrides: Partial<ProjectManagerTurn> & Pick<ProjectManagerTurn, 'id'>): ProjectManagerTurn {
   return {
@@ -91,6 +106,7 @@ describe('ProjectManagerPanel', () => {
       turns: [ planned, failed ],
       batches: [],
       promises: [],
+      writes: PROPOSING,
     })
 
     expect(screen.getByText('Starting soon')).toBeTruthy()
@@ -119,7 +135,35 @@ describe('ProjectManagerPanel', () => {
       turns: [],
       batches: [],
       promises: [],
+      writes: PROPOSING,
     })
     expect(screen.getByText('Nothing has woken the Project Manager yet.')).toBeTruthy()
+  })
+
+  it('says whether its changes wait for review and where its issues file, or why nowhere', () => {
+    const idle: ProjectManager = {
+      projectId: 'launch',
+      status: 'idle',
+      waiting: 0,
+      usagePausedUntil: null,
+      turns: [],
+      batches: [],
+      promises: [],
+      writes: PROPOSING,
+    }
+    const store = renderPanel(idle)
+    const writesDirectly = screen.getByRole('switch', { name: 'Write to trackers without review' })
+    expect(writesDirectly).toHaveProperty('checked', false)
+    expect(screen.getByText('Files issues in Jira ELY through Work')).toBeTruthy()
+    expect(screen.getByText('Where this project\'s issues already are')).toBeTruthy()
+
+    act(() => {
+      store.dispatch(projectManagerLoaded({
+        ...idle,
+        writes: { direct: true, tracker: null, trackerRefusal: 'this project names no tracker' },
+      }))
+    })
+    expect(screen.getByRole('switch', { name: 'Write to trackers without review' })).toHaveProperty('checked', true)
+    expect(screen.getByText('this project names no tracker')).toBeTruthy()
   })
 })
