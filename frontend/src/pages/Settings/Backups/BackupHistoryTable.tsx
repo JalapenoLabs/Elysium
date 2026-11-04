@@ -12,8 +12,9 @@ import { Chip } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
+import { DateText } from '../../../format/DateText'
+import { formatBytes } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
-import { formatStorageBytes } from '../Storage/storagePresentation'
 import { statusChipColors, statusLabelKeys, triggerLabelKeys } from './backupsPresentation'
 
 type Props = {
@@ -44,11 +45,9 @@ const columnSizes = {
   error: 260,
 } as const satisfies Record<HistoryColumnKey, number>
 
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-
 // Every recent backup attempt, newest first.
 export function BackupHistoryTable(props: Props) {
-  const { t, i18n } = useTranslation('backups')
+  const { t } = useTranslation('backups')
   const labels = useSmartTableLabels()
   const [ search, setSearch ] = useState('')
 
@@ -66,7 +65,7 @@ export function BackupHistoryTable(props: Props) {
       if (backup.sizeBytes === null) {
         return ''
       }
-      return formatStorageBytes(backup.sizeBytes, i18n.language)
+      return formatBytes(backup.sizeBytes)
     }
 
     const searchValue = {
@@ -79,7 +78,7 @@ export function BackupHistoryTable(props: Props) {
     } satisfies Record<HistoryColumnKey, (backup: DatabaseBackup) => string>
 
     const renderCell = {
-      started: (backup: DatabaseBackup) => dateTimeFormatter.format(new Date(backup.startedAt)),
+      started: (backup: DatabaseBackup) => <DateText value={backup.startedAt} />,
       trigger: (backup: DatabaseBackup) => t(triggerLabelKeys[backup.trigger]),
       status: (backup: DatabaseBackup) => <Chip
         size='sm'
@@ -106,7 +105,7 @@ export function BackupHistoryTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, i18n.language, props.locations ])
+  }, [ t, props.locations ])
 
   if (!props.backups.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

@@ -23,23 +23,6 @@ export const meetingStateChipColors = {
   failed: 'danger',
 } as const satisfies Record<MeetingState, ChipColor>
 
-// A meeting's length as a player shows it: `m:ss`, or `h:mm:ss` from an hour. Null for a
-// meeting whose source did not say.
-export function formatDuration(durationMs: number | null): string | null {
-  if (durationMs === null || durationMs < 0) {
-    return null
-  }
-  const totalSeconds = Math.floor(durationMs / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  const paddedSeconds = String(seconds).padStart(2, '0')
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${paddedSeconds}`
-  }
-  return `${minutes}:${paddedSeconds}`
-}
-
 // Where meetings come from, without naming a source: every kind whose definition says it
 // provides meetings, and the person's connectors of those kinds, each in its list's order.
 export function meetingSourcesOf(definitions: ConnectorKindDefinition[], connectors: Connector[]) {

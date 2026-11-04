@@ -18,10 +18,10 @@ import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { retryMeeting } from '../../../api/routes/meetingRoutes'
+import { formatDateTime } from '../../../format/dates'
+import { formatDuration } from '../../../format/durations'
 import { getConnectorUrl } from '../../../urls'
-import { formatDuration, meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
-
-const startedFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+import { meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
 
 type Props = {
   meeting: Meeting
@@ -34,7 +34,10 @@ export function MeetingRow(props: Props) {
   const dispatch = useAppDispatch()
   const [ isRetrying, setIsRetrying ] = useState(false)
   const meeting = props.meeting
-  const duration = formatDuration(meeting.durationMs)
+  // A source may not say how long the meeting ran.
+  const duration = meeting.durationMs === null
+    ? null
+    : formatDuration(meeting.durationMs)
   const sourceName = t(`connectors:kinds.${meeting.sourceKind}.name`)
 
   async function retry() {
@@ -54,7 +57,7 @@ export function MeetingRow(props: Props) {
   }
 
   const details = [
-    startedFormatter.format(new Date(meeting.startedAt)),
+    formatDateTime(meeting.startedAt),
     duration,
     meeting.segmentCount === null
       ? null

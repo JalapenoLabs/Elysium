@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { Meter } from '@heroui/react'
 
 // Misc
+import { formatShortDateTime } from '../../../format/dates'
 import { getUsageLevel, usageLevelColors } from './llmPresentation'
 
 type Props = {
@@ -17,7 +18,7 @@ type Props = {
 
 // An account's usage windows, each as a bar with when it resets in the viewer's time zone.
 export function ClaudeAccountUsage(props: Props) {
-  const { t, i18n } = useTranslation('llms')
+  const { t } = useTranslation('llms')
   const usage = props.account.usage
 
   if (!usage.readAt) {
@@ -28,12 +29,6 @@ export function ClaudeAccountUsage(props: Props) {
     }</span>
   }
 
-  // Timestamps arrive as UTC; this is where they become the viewer's local time.
-  const resetFormatter = new Intl.DateTimeFormat(i18n.language, {
-    weekday: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
   const windows = [
     { key: 'fiveHour', label: t('usage.fiveHour'), window: usage.fiveHour },
     { key: 'sevenDay', label: t('usage.sevenDay'), window: usage.sevenDay },
@@ -45,7 +40,7 @@ export function ClaudeAccountUsage(props: Props) {
       label={label}
       window={window}
       resetsAt={window.resetsAt
-        ? t('usage.resets', { when: resetFormatter.format(new Date(window.resetsAt)) })
+        ? t('usage.resets', { when: formatShortDateTime(window.resetsAt) })
         : null}
     />)
   }</div>

@@ -46,8 +46,3 @@ export function attributionFor(record: TimelineRecord, projectId: string): Attri
 export function isElysiaAttribution(attribution: Attribution): boolean {
   return attribution.attributedBy === 'elysia'
 }
-
-// A confidence as a whole percentage, for "Elysia, 80% sure".
-export function confidencePercent(confidence: number): number {
-  return Math.round(Math.min(Math.max(confidence, 0), 1) * 100)
-}

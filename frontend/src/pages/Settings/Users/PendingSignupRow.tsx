@@ -12,9 +12,8 @@ import { Button } from '@heroui/react'
 import { OptionSelect } from '../../../components/OptionSelect'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { PERSON_ROLES } from './usersPresentation'
-
-const signedUpFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 type Props = {
   user: User
@@ -36,7 +35,7 @@ export function PendingSignupRow(props: Props) {
       <p className='text-xs opacity-70'>{
         t('pending.signedUp', {
           email: props.user.email,
-          date: signedUpFormatter.format(new Date(props.user.createdAt)),
+          date: formatDateTime(props.user.createdAt),
         })
       }</p>
     </div>

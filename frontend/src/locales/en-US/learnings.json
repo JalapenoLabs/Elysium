@@ -77,9 +77,9 @@
     "actions": "Actions",
     "delete": "Delete",
     "restore": "Restore",
-    "deleted": "This learning was deleted {{date}}. Restore it to change it.",
-    "savedBy": "First saved by {{name}} {{date}}",
-    "savedByAgent": "First saved by {{name}} through {{agent}} {{date}}"
+    "deleted": "This learning was deleted on {{date}}. Restore it to change it.",
+    "savedBy": "First saved by {{name}} on {{date}}",
+    "savedByAgent": "First saved by {{name}} through {{agent}} on {{date}}"
   },
   "history": {
     "title": "History",

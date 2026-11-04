@@ -17,6 +17,7 @@ import { Link } from 'react-router'
 import { SettingsPage } from '../SettingsPage'
 import { ReportIssueButton } from '../../../components/ReportIssueButton'
 import { ConnectorRow } from './ConnectorRow'
+import { DateText } from '../../../format/DateText'
 
 // Misc
 import { listConnectorActivity } from '../../../api/routes/connectorRoutes'
@@ -75,7 +76,7 @@ export function ConnectorsPage() {
                 }</span>
               </span>
               <span className='flex shrink-0 items-center gap-2'>
-                <span className='opacity-60'>{new Date(run.startedAt).toLocaleString()}</span>
+                <DateText value={run.startedAt} className='opacity-60' />
                 {run.outcome === 'failed' && connector && <>
                   <ReportIssueButton
                     isIconOnly

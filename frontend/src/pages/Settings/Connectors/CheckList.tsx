@@ -11,6 +11,7 @@ import { Card, Chip, Spinner } from '@heroui/react'
 import { ReportIssueButton } from '../../../components/ReportIssueButton'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { checkStateColors, describeOutcome } from './connectorPresentation'
 
 type Props = {
@@ -42,7 +43,7 @@ export function CheckList(props: Props) {
         }</span>
       </h3>
       {props.ranAt && <span className='text-sm opacity-60'>{
-        t('checks.lastRan', { when: new Date(props.ranAt).toLocaleString() })
+        t('checks.lastRan', { when: formatDateTime(props.ranAt) })
       }</span>}
     </div>
     {!props.outcomes.length && <p className='compact text-sm opacity-70'>{t('checks.never')}</p>}

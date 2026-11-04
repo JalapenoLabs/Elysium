@@ -10,6 +10,7 @@ import { Button, Chip, Spinner, toast } from '@heroui/react'
 import { LuPlug } from 'react-icons/lu'
 
 // Misc
+import { formatDate } from '../../../format/dates'
 import { revokeOAuthGrant } from '../../../api/routes/oauthRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { knownScopes, scopeLabelKeys } from '../../OAuth/oauthPresentation'
@@ -21,8 +22,6 @@ type Props = {
   // Fetches the list again after a client was disconnected.
   onChanged: () => Promise<unknown>
 }
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // The MCP clients the signed-in person connected, each with what it may do, and Disconnect.
 export function ConnectedGrants(props: Props) {
@@ -81,7 +80,7 @@ export function ConnectedGrants(props: Props) {
           }</div>
           {grant.grantedAt && <p className='mt-1 text-xs opacity-60'>{
             t('mcp.grants.connectedOn', {
-              date: dateFormatter.format(new Date(grant.grantedAt)),
+              date: formatDate(grant.grantedAt),
             })
           }</p>}
         </div>

@@ -15,6 +15,7 @@ import { LuFingerprint, LuPlus, LuTrash2 } from 'react-icons/lu'
 import { startRegistration } from '@simplewebauthn/browser'
 
 // Misc
+import { formatDate } from '../../../format/dates'
 import { inputValue } from '../../../api/kratosFlows'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { readPasskeyCreationOptions } from '../../Auth/passkeyOptions'
@@ -24,8 +25,6 @@ type Props = {
   flow: SettingsFlow
   onSubmit: (body: SettingsSubmission, savedMessage: string) => Promise<boolean>
 }
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // Passkeys held by a password manager (Bitwarden, 1Password) or the browser, for signing in
 // without a password: the Passkeys tab.
@@ -89,7 +88,7 @@ export function PasskeysSection(props: Props) {
           <div>
             <p className='text-sm font-medium'>{name}</p>
             {passkey.addedAt && <p className='text-xs opacity-60'>{
-              t('security.passkeys.addedOn', { date: dateFormatter.format(new Date(passkey.addedAt)) })
+              t('security.passkeys.addedOn', { date: formatDate(passkey.addedAt) })
             }</p>}
           </div>
         </div>

@@ -13,6 +13,8 @@ import { OptionSelect } from '../../../components/OptionSelect'
 import { UserRowActions } from './UserRowActions'
 
 // Misc
+import { DateText } from '../../../format/DateText'
+import { formatDate } from '../../../format/dates'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import {
   describeSignInMethods,
@@ -55,8 +57,6 @@ const columnSizes = {
   rowActions: 64,
 } as const satisfies Record<UserColumnKey, number>
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
-
 // Everyone approved: their role (changed in place), whether they may sign in, how they sign
 // in, and when they were last seen.
 export function UserTable(props: Props) {
@@ -89,7 +89,7 @@ export function UserTable(props: Props) {
 
     function lastSeenText(user: User) {
       return user.lastSeenAt
-        ? dateFormatter.format(new Date(user.lastSeenAt))
+        ? formatDate(user.lastSeenAt)
         : t('table.never')
     }
 
@@ -120,8 +120,10 @@ export function UserTable(props: Props) {
             : entry.method
         }</Chip>)
       }</div>,
-      lastSeen: lastSeenText,
-      created: (user: User) => dateFormatter.format(new Date(user.createdAt)),
+      lastSeen: (user: User) => user.lastSeenAt
+        ? <DateText value={user.lastSeenAt} />
+        : t('table.never'),
+      created: (user: User) => <DateText value={user.createdAt} />,
       rowActions: (user: User) => <UserRowActions
         user={user}
         onSetDisabled={props.onSetDisabled}

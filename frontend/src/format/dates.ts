@@ -117,6 +117,20 @@ export function formatShortDate(value: DateInput, options: ShortDateOptions = {}
   return i18next.t('dates.shortDate', { ns: 'common', month: parts.month, day: parts.day })
 }
 
+// "January 1st at 8:56pm", the short date with its time, where space is tight and the time
+// matters: a conversation's messages, when a usage window resets.
+export function formatShortDateTime(value: DateInput, options: ShortDateOptions = {}) {
+  const date = toDate(value)
+  if (!date) {
+    return String(value)
+  }
+  return i18next.t('dates.dateTime', {
+    ns: 'common',
+    date: formatShortDate(date, options),
+    time: formatTime(date, options),
+  })
+}
+
 // A day with no time, such as a provider's `2026-01-05` due date. It names the same day for
 // every viewer, so it is read in UTC rather than shifted into the viewer's zone, which would
 // show the day before to anyone west of Greenwich.

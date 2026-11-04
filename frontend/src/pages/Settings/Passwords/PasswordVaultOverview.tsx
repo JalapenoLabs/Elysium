@@ -16,6 +16,7 @@ import { Alert, Button, Chip } from '@heroui/react'
 import { LuRefreshCw } from 'react-icons/lu'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { getApiErrorMessage } from '../../../api/errors'
 import { deletePasswordVault, syncPasswordVault } from '../../../api/routes/passwordVaultRoutes'
 import { toast } from '../../../toast/toast'
@@ -26,8 +27,6 @@ type Props = {
   status: VaultStatus
   onEdit: () => void
 }
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // The connected account, what the CLI is doing, and what an admin can do about it: sync now,
 // change the credentials, or remove the vault once the confirmation dialog agrees.
@@ -75,7 +74,7 @@ export function PasswordVaultOverview(props: Props) {
   }
 
   const syncedText = status.lastSyncedAt
-    ? t('overview.lastSynced', { syncedAt: dateTimeFormatter.format(new Date(status.lastSyncedAt)) })
+    ? t('overview.lastSynced', { syncedAt: formatDateTime(status.lastSyncedAt) })
     : t('overview.neverSynced')
 
   return <section className='relaxed rounded-xl border border-separator p-6'>

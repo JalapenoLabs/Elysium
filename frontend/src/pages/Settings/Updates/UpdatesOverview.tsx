@@ -15,6 +15,7 @@ import { Alert, Button, Chip, toast } from '@heroui/react'
 import { LuRefreshCw } from 'react-icons/lu'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { applyNewestRelease, checkForUpdates } from '../../../api/routes/updateRoutes'
 import {
@@ -28,8 +29,6 @@ import {
 type Props = {
   status: UpdatesStatus
 }
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // The release running, where auto-update stands, and the two things an admin can do about
 // it: check Docker Hub now, or ask for a release that rolled back here before.
@@ -65,7 +64,7 @@ export function UpdatesOverview(props: Props) {
   }
   else if (status.lastCheckedAt) {
     checkText = t('check.lastChecked', {
-      checkedAt: dateTimeFormatter.format(new Date(status.lastCheckedAt)),
+      checkedAt: formatDateTime(status.lastCheckedAt),
     })
   }
 
@@ -79,7 +78,7 @@ export function UpdatesOverview(props: Props) {
         <p className='text-sm opacity-70'>{
           t('running.build', {
             commit: status.commit ?? t('running.unknownCommit'),
-            builtAt: dateTimeFormatter.format(new Date(status.builtAt)),
+            builtAt: formatDateTime(status.builtAt),
           })
         }</p>
       </div>

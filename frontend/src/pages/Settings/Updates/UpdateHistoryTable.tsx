@@ -11,6 +11,7 @@ import { Chip } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
+import { DateText } from '../../../format/DateText'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { historyStatusChipColors, historyStatusLabelKeys } from './updatesPresentation'
 
@@ -38,8 +39,6 @@ const columnSizes = {
   reason: 320,
 } as const satisfies Record<HistoryColumnKey, number>
 
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-
 // Every update the updater applied or rolled back, newest first.
 export function UpdateHistoryTable(props: Props) {
   const { t } = useTranslation('updates')
@@ -47,12 +46,6 @@ export function UpdateHistoryTable(props: Props) {
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
-    function finishedText(update: DeploymentUpdate) {
-      return update.finishedAt
-        ? dateTimeFormatter.format(new Date(update.finishedAt))
-        : ''
-    }
-
     const searchValue = {
       release: (update: DeploymentUpdate) => `${update.fromVersion} ${update.toVersion}`,
       status: (update: DeploymentUpdate) => t(historyStatusLabelKeys[update.status]),
@@ -73,8 +66,8 @@ export function UpdateHistoryTable(props: Props) {
       >{
           t(historyStatusLabelKeys[update.status])
         }</Chip>,
-      started: (update: DeploymentUpdate) => dateTimeFormatter.format(new Date(update.startedAt)),
-      finished: finishedText,
+      started: (update: DeploymentUpdate) => <DateText value={update.startedAt} />,
+      finished: (update: DeploymentUpdate) => update.finishedAt && <DateText value={update.finishedAt} />,
       reason: (update: DeploymentUpdate) => <span className='text-sm opacity-80'>{update.reason ?? ''}</span>,
     } satisfies Record<HistoryColumnKey, (update: DeploymentUpdate) => unknown>
 

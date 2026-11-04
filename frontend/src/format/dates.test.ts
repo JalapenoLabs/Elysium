@@ -10,6 +10,7 @@ import {
   formatDateTime,
   formatRelativeTime,
   formatShortDate,
+  formatShortDateTime,
   formatTime,
   formatWeekday,
 } from './dates'
@@ -96,6 +97,13 @@ describe('formatShortDate', () => {
     // Still 2025 in Chicago, though already 2026 in UTC.
     const now = Date.parse('2026-01-01T02:00:00Z')
     expect(formatShortDate('2025-12-25T18:00:00Z', { now, timeZone: CHICAGO })).toBe('December 25th')
+  })
+})
+
+describe('formatShortDateTime', () => {
+  it('adds the time to the short date', () => {
+    const now = Date.parse('2026-06-15T12:00:00Z')
+    expect(formatShortDateTime(NEW_YEAR_EVENING, { now, timeZone: CHICAGO })).toBe('January 1st at 8:56pm')
   })
 })
 

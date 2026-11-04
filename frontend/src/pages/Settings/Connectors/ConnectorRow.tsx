@@ -12,6 +12,7 @@ import { LuSettings } from 'react-icons/lu'
 import { ConnectorLogo } from './ConnectorLogo'
 
 // Misc
+import { formatShortDateTime } from '../../../format/dates'
 import { getConnectorUrl } from '../../../urls'
 import { accountNameOf, statusColors } from './connectorPresentation'
 
@@ -59,7 +60,7 @@ export function ConnectorRow(props: Props) {
           <p className='font-semibold'>{t('row.records', { count: connector.records })}</p>
           <p className='opacity-60'>{
             connector.lastSyncAt
-              ? t('row.lastSync', { when: new Date(connector.lastSyncAt).toLocaleString() })
+              ? t('row.lastSync', { when: formatShortDateTime(connector.lastSyncAt) })
               : t('row.neverSynced')
           }</p>
         </div>

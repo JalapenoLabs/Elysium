@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest'
 // Misc
 import {
   attributionFor,
-  confidencePercent,
   isElysiaAttribution,
   isVideoClip,
   segmentDetails,
@@ -77,11 +76,5 @@ describe('attributions', () => {
     expect(attribution?.confidence).toBe(0.84)
     expect(attribution && isElysiaAttribution(attribution)).toBe(true)
     expect(attributionFor(record(), 'project-2')).toBeNull()
-  })
-
-  it('shows a confidence as a bounded whole percentage', () => {
-    expect(confidencePercent(0.84)).toBe(84)
-    expect(confidencePercent(1.4)).toBe(100)
-    expect(confidencePercent(-0.2)).toBe(0)
   })
 })

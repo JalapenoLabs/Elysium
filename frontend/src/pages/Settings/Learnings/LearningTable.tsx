@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { EmptyNotice } from '../../../components/EmptyNotice'
+import { DateText } from '../../../format/DateText'
 
 // Misc
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
@@ -37,14 +38,13 @@ const columnSizes = {
 // Learnings in a table: the takeaway, opening the learning; its category; who first saved it and
 // through which agent; and when it last changed, or was deleted.
 export function LearningTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'learnings', 'common' ])
+  const { t } = useTranslation([ 'learnings', 'common' ])
   const labels = useSmartTableLabels()
   const userNames = useUserNames()
   const { labels: categoryLabels } = useLearningCategories()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
     const columnLabels = {
       title: t('table.title'),
       category: t('table.category'),
@@ -71,9 +71,7 @@ export function LearningTable(props: Props) {
           t('table.savedByAgent', { agent: learning.agent.name ?? t('agent.unnamed') })
         }</span>}
       </div>,
-      changedAt: (learning: Learning) => <span className='opacity-80'>{
-        dateFormatter.format(new Date(changedAt(learning)))
-      }</span>,
+      changedAt: (learning: Learning) => <DateText value={changedAt(learning)} className='opacity-80' />,
     } satisfies Record<LearningColumnKey, (learning: Learning) => unknown>
 
     // What search matches and sorting orders by: what the reader sees, except the date, which
@@ -98,7 +96,7 @@ export function LearningTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, i18n.language, userNames, categoryLabels, props.isDeletedList ])
+  }, [ t, userNames, categoryLabels, props.isDeletedList ])
 
   if (!props.learnings.length) {
     return <EmptyNotice>{

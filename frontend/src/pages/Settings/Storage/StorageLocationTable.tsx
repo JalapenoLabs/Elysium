@@ -18,12 +18,12 @@ import { StudioDefaultSwitch } from './StudioDefaultSwitch'
 
 // Misc
 import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
+import { formatBytes } from '../../../format/numbers'
 import { useProjectsLoader } from '../../../hooks/useServerData'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
 import {
   bunnyRegionLabelKeys,
-  formatStorageBytes,
   getStorageOption,
   getStoragePath,
   storageOptionLabelKeys,
@@ -72,7 +72,7 @@ const columnSizes = {
 } as const satisfies Record<StorageColumnKey, number>
 
 export function StorageLocationTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'storage', 'common' ])
+  const { t } = useTranslation([ 'storage', 'common' ])
   const labels = useSmartTableLabels()
   const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
@@ -112,7 +112,7 @@ export function StorageLocationTable(props: Props) {
       projects: (location: StorageLocation) => <span className='line-clamp-2'>{projectsText(location)}</span>,
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
-        : formatStorageBytes(location.storageLimitBytes, i18n.language),
+        : formatBytes(location.storageLimitBytes),
       studioDefault: (location: StorageLocation) => <StudioDefaultSwitch location={location} />,
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
@@ -134,7 +134,7 @@ export function StorageLocationTable(props: Props) {
       projects: projectsText,
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
-        : formatStorageBytes(location.storageLimitBytes, i18n.language),
+        : formatBytes(location.storageLimitBytes),
       // Searching for "Studio default" finds the one that is.
       studioDefault: (location: StorageLocation) => location.isStudioDefault
         ? t('table.studioDefault')
@@ -182,7 +182,7 @@ export function StorageLocationTable(props: Props) {
         }
       },
     })
-  }, [ t, userNames, i18n.language, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, userNames, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
 
   if (!props.locations.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

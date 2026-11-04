@@ -11,10 +11,9 @@ import { Button, Chip, Spinner, toast } from '@heroui/react'
 import { LuLogOut, LuMonitorSmartphone } from 'react-icons/lu'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { kratos } from '../../../api/kratos'
 import { useSignedInSessions } from './useSignedInSessions'
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // Where this person is signed in, on the Sessions tab. Signing a device out ends its session;
 // the workspace notices within half a minute.
@@ -77,7 +76,7 @@ export function SessionsSection() {
               <p className='text-xs opacity-60'>{
                 t('security.sessions.signedIn', {
                   date: session.authenticated_at
-                    ? dateFormatter.format(session.authenticated_at)
+                    ? formatDateTime(session.authenticated_at)
                     : '',
                   address: device?.ip_address ?? '',
                 })

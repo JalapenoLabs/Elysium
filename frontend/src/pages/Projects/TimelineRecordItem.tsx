@@ -18,16 +18,15 @@ import { RecordReply } from '../../replies/RecordReply'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { attributeTimelineRecord, unattributeTimelineRecord } from '../../api/routes/timelineRoutes'
-import { formatDuration } from '../Settings/Meetings/meetingsPresentation'
+import { formatDateTime } from '../../format/dates'
+import { formatMediaPosition } from '../../format/durations'
+import { formatPercent } from '../../format/numbers'
 import {
   attributionFor,
-  confidencePercent,
   isElysiaAttribution,
   segmentDetails,
   sourceLabelKey,
 } from './timelinePresentation'
-
-const occurredFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 type Props = {
   record: TimelineRecord
@@ -73,15 +72,15 @@ export function TimelineRecordItem(props: Props) {
       <div className='min-w-0'>
         <div className='flex flex-wrap items-center gap-2'>
           <Chip size='sm' variant='soft'>{t(sourceLabelKey(record.sourceKind))}</Chip>
-          <span className='text-xs opacity-60'>{occurredFormatter.format(new Date(record.occurredAt))}</span>
+          <span className='text-xs opacity-60'>{formatDateTime(record.occurredAt)}</span>
           {record.actor && <span className='truncate text-xs opacity-60'>{record.actor}</span>}
         </div>
         <h3 className='mt-1 font-medium'>{record.title}</h3>
         {media && details.meetingTitle && <p className='text-xs opacity-60'>{
           t('segment.inMeeting', {
             meeting: details.meetingTitle,
-            start: formatDuration(media.startMs),
-            end: formatDuration(media.endMs),
+            start: formatMediaPosition(media.startMs),
+            end: formatMediaPosition(media.endMs),
           })
         }</p>}
       </div>
@@ -123,7 +122,8 @@ export function TimelineRecordItem(props: Props) {
     {attribution && <div className='mt-3 flex flex-wrap items-center gap-2 text-xs'>
       <span className='opacity-60'>{
         isElysiaAttribution(attribution)
-          ? t('attribution.byElysia', { percent: confidencePercent(attribution.confidence) })
+          // Bounded, since a confidence outside 0 to 1 would read as nonsense.
+          ? t('attribution.byElysia', { percent: formatPercent(Math.min(Math.max(attribution.confidence, 0), 1)) })
           : t('attribution.byPerson')
       }</span>
       {isElysiaAttribution(attribution) && <Button

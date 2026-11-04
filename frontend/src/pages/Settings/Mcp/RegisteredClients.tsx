@@ -10,6 +10,7 @@ import { Button, Spinner, toast } from '@heroui/react'
 import { LuBlocks } from 'react-icons/lu'
 
 // Misc
+import { formatDate } from '../../../format/dates'
 import { deleteOAuthClient } from '../../../api/routes/oauthRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { clientHost } from '../../OAuth/oauthPresentation'
@@ -21,8 +22,6 @@ type Props = {
   // Fetches the list again after a client was deleted.
   onChanged: () => Promise<unknown>
 }
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // Every MCP client that registered itself, for admins, with Delete. Deleting one disconnects it
 // for everyone; it can register again.
@@ -76,7 +75,7 @@ export function RegisteredClients(props: Props) {
               [
                 host,
                 client.createdAt && t('mcp.clients.registeredOn', {
-                  date: dateFormatter.format(new Date(client.createdAt)),
+                  date: formatDate(client.createdAt),
                 }),
               ].filter(Boolean).join(' · ')
             }</p>

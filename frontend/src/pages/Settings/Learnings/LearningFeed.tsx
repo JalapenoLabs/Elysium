@@ -15,6 +15,7 @@ import { selectUserNamesById } from '../../../store/usersSlice'
 // User interface
 import { Button, Chip, Link, Spinner, toast } from '@heroui/react'
 import { EmptyNotice } from '../../../components/EmptyNotice'
+import { DateText } from '../../../format/DateText'
 
 // Misc
 import { getLearningFeed, LEARNING_FEED_KEY } from '../../../api/routes/learningRoutes'
@@ -85,7 +86,6 @@ export function LearningFeed() {
     return <EmptyNotice>{t('feed.empty')}</EmptyNotice>
   }
 
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const listFormatter = new Intl.ListFormat(i18n.language, { type: 'conjunction' })
 
   return <div>
@@ -104,7 +104,7 @@ export function LearningFeed() {
         return <li key={entry.id} className='flex flex-col gap-1 px-4 py-3 text-sm'>
           <div className='level gap-3'>
             <span className='opacity-80'>{sentence}</span>
-            <span className='shrink-0 text-xs opacity-50'>{dateFormatter.format(new Date(entry.createdAt))}</span>
+            <DateText value={entry.createdAt} className='shrink-0 text-xs opacity-50' />
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <Link href={getLearningUrl(learning.id)} className='font-medium text-link'>{learning.title}</Link>

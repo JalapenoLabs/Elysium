@@ -13,6 +13,8 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { MailAccountRowActions } from './MailAccountRowActions'
 
 // Misc
+import { DateText } from '../../../format/DateText'
+import { formatDateTime } from '../../../format/dates'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import {
   getMailAccountHealth,
@@ -47,15 +49,13 @@ const columnSizes = {
 } as const satisfies Record<MailColumnKey, number>
 
 export function MailAccountTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'email', 'common' ])
+  const { t } = useTranslation([ 'email', 'common' ])
   const labels = useSmartTableLabels()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is the one place they become local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
     const lastCheckedText = (account: MailAccount) => account.lastCheckedAt
-      ? dateFormatter.format(new Date(account.lastCheckedAt))
+      ? formatDateTime(account.lastCheckedAt)
       : t('table.never')
 
     const renderCell = {
@@ -89,7 +89,9 @@ export function MailAccountTable(props: Props) {
           </Tooltip.Content>
         </Tooltip>
       },
-      lastChecked: lastCheckedText,
+      lastChecked: (account: MailAccount) => account.lastCheckedAt
+        ? <DateText value={account.lastCheckedAt} />
+        : t('table.never'),
       rowActions: (account: MailAccount) => <MailAccountRowActions
         account={account}
         onTest={props.onTest}
@@ -137,7 +139,7 @@ export function MailAccountTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.onTest, props.onSendTest, props.onRename, props.onToggleActive, props.onDisconnect ])
+  }, [ t, props.onTest, props.onSendTest, props.onRename, props.onToggleActive, props.onDisconnect ])
 
   if (!props.accounts.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

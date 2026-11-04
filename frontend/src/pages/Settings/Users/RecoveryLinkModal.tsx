@@ -13,6 +13,7 @@ import { LuCopy } from 'react-icons/lu'
 
 // Misc
 import { createUserRecoveryLink } from '../../../api/routes/userRoutes'
+import { formatTime } from '../../../format/dates'
 
 type Props = {
   state: UseOverlayStateReturn
@@ -24,8 +25,6 @@ type LinkState =
   | { kind: 'loading' }
   | { kind: 'ready', link: string, expiresAt: string }
   | { kind: 'failed' }
-
-const timeFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
 
 // A one-time link an admin hands to someone locked out: it signs them in and opens the page
 // to set a new password. Elysium keeps no copy, so it is shown once, here.
@@ -105,7 +104,7 @@ export function RecoveryLinkModal(props: Props) {
               <Alert.Indicator />
               <Alert.Content>
                 <Alert.Description>{
-                  t('recoveryLink.expires', { time: timeFormatter.format(new Date(link.expiresAt)) })
+                  t('recoveryLink.expires', { time: formatTime(link.expiresAt) })
                 }</Alert.Description>
               </Alert.Content>
             </Alert>

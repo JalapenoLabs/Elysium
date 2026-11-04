@@ -20,6 +20,7 @@ import { LearningForm } from './LearningForm'
 import { LearningHistory } from './LearningHistory'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { deleteLearning, restoreLearning } from '../../../api/routes/learningRoutes'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useLearningLoader } from '../../../hooks/useServerData'
@@ -30,7 +31,7 @@ import { UrlTree } from '../../../urls'
 // with its history below. Deleting is soft, so it happens at once with Undo in its toast; a
 // deleted learning reads as it was, with Restore.
 export function LearningPage() {
-  const { t, i18n } = useTranslation([ 'learnings', 'common' ])
+  const { t } = useTranslation([ 'learnings', 'common' ])
   const dispatch = useAppDispatch()
   const { learningId = '' } = useParams()
   const status = useLearningLoader(learningId)
@@ -89,8 +90,7 @@ export function LearningPage() {
     </div>
   }
 
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
-  const savedOn = dateFormatter.format(new Date(learning.createdAt))
+  const savedOn = formatDateTime(learning.createdAt)
   const savedBy = learning.agent
     ? 'page.savedByAgent'
     : 'page.savedBy'
@@ -125,7 +125,7 @@ export function LearningPage() {
           <Alert.Indicator />
           <Alert.Content>
             <Alert.Description>{
-              t('page.deleted', { date: dateFormatter.format(new Date(learning.deletedAt)) })
+              t('page.deleted', { date: formatDateTime(learning.deletedAt) })
             }</Alert.Description>
           </Alert.Content>
         </Alert>

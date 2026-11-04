@@ -13,6 +13,7 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { MailDomainRowActions } from './MailDomainRowActions'
 
 // Misc
+import { DateText } from '../../../format/DateText'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 
 type Props = MailDomainActions & {
@@ -40,12 +41,10 @@ const columnSizes = {
 
 // A server has a handful of domains, so the table shows no search or column controls.
 export function MailDomainTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'email', 'common' ])
+  const { t } = useTranslation([ 'email', 'common' ])
   const labels = useSmartTableLabels()
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is the one place they become local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
     const mailboxCountText = (domain: MailDomain) => t('domains.mailboxCount', {
       count: props.mailboxCounts.get(domain.id) ?? 0,
     })
@@ -63,7 +62,7 @@ export function MailDomainTable(props: Props) {
         </Tooltip>}
       </span>,
       mailboxes: mailboxCountText,
-      added: (domain: MailDomain) => dateFormatter.format(new Date(domain.createdAt)),
+      added: (domain: MailDomain) => <DateText value={domain.createdAt} />,
       rowActions: (domain: MailDomain) => <MailDomainRowActions
         domain={domain}
         onShowDns={props.onShowDns}
@@ -104,7 +103,7 @@ export function MailDomainTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.mailboxCounts, props.onShowDns, props.onRemove ])
+  }, [ t, props.mailboxCounts, props.onShowDns, props.onRemove ])
 
   return <SmartTable
     ids={{

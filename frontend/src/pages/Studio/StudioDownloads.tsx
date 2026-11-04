@@ -10,7 +10,7 @@ import { LuDownload } from 'react-icons/lu'
 
 // Misc
 import { getStudioAssetContentUrl } from '../../api/routes/studioRoutes'
-import { formatStorageBytes } from '../Settings/Storage/storagePresentation'
+import { formatBytes } from '../../format/numbers'
 
 type Props = {
   itemId: string
@@ -20,7 +20,7 @@ type Props = {
 // The newest version of every file, grouped by stem, so a model's `.blend` and `.glb` sit
 // together.
 export function StudioDownloads(props: Props) {
-  const { t, i18n } = useTranslation('studio')
+  const { t } = useTranslation('studio')
 
   if (!props.groups.length) {
     return null
@@ -43,7 +43,7 @@ export function StudioDownloads(props: Props) {
             >
               <LuDownload className='size-3.5' aria-hidden />
               <span>{asset.name}</span>
-              <span className='opacity-60'>{formatStorageBytes(asset.sizeBytes, i18n.language)}</span>
+              <span className='opacity-60'>{formatBytes(asset.sizeBytes)}</span>
             </a>
           </li>)
         }</ul>

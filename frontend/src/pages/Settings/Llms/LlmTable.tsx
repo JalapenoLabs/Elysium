@@ -13,6 +13,8 @@ import { ClaudeAccountUsage } from './ClaudeAccountUsage'
 import { LlmRowActions } from './LlmRowActions'
 
 // Misc
+import { formatDate } from '../../../format/dates'
+import { formatPercent } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
 import {
@@ -66,7 +68,7 @@ const columnSizes = {
 } as const satisfies Record<LlmColumnKey, number>
 
 export function LlmTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'llms', 'common' ])
+  const { t } = useTranslation([ 'llms', 'common' ])
   const labels = useSmartTableLabels()
   const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
@@ -75,9 +77,7 @@ export function LlmTable(props: Props) {
   const [ now ] = useState(() => Date.now())
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is the one place they become local time.
     // Expiry is chosen as a date, so the time of day would only be noise.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
     // A signed-in account never expires while Elysium keeps it signed in.
     const expiryText = (llm: Llm) => {
       if (llm.account) {
@@ -86,7 +86,7 @@ export function LlmTable(props: Props) {
       if (!llm.expiresAt) {
         return t('table.never')
       }
-      return dateFormatter.format(new Date(llm.expiresAt))
+      return formatDate(llm.expiresAt)
     }
 
     const renderCell = {
@@ -133,7 +133,7 @@ export function LlmTable(props: Props) {
         if (!fiveHour) {
           return t('usage.notAvailable')
         }
-        return `${Math.round(fiveHour.utilization)}%`
+        return formatPercent(fiveHour.utilization / 100)
       },
       expiresAt: (llm: Llm) => expiryText(llm),
       createdBy: (llm: Llm) => userNames[llm.createdBy] ?? '',
@@ -168,7 +168,7 @@ export function LlmTable(props: Props) {
         }
       },
     })
-  }, [ t, userNames, i18n.language, now, props.onEdit, props.onToggleActive, props.onDelete ])
+  }, [ t, userNames, now, props.onEdit, props.onToggleActive, props.onDelete ])
 
   if (!props.llms.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

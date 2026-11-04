@@ -6,26 +6,25 @@ import type { BackupsStatus } from '../../../api/routes/backupRoutes'
 import { useTranslation } from 'react-i18next'
 
 // Misc
-import { formatStorageBytes } from '../Storage/storagePresentation'
+import { formatDateTime } from '../../../format/dates'
+import { formatBytes } from '../../../format/numbers'
 import { summarizeHistory } from './backupsPresentation'
 
 type Props = {
   status: BackupsStatus
 }
 
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-
 // The last backup stored, when the next one runs, and how long backups are kept.
 export function BackupsOverview(props: Props) {
-  const { t, i18n } = useTranslation('backups')
+  const { t } = useTranslation('backups')
   const status = props.status
   const { lastStored, isRunning } = summarizeHistory(status.history)
 
   let lastStoredText = t('overview.nothingStored')
   if (lastStored) {
     lastStoredText = t('overview.storedAt', {
-      storedAt: dateTimeFormatter.format(new Date(lastStored.finishedAt ?? lastStored.startedAt)),
-      size: formatStorageBytes(lastStored.sizeBytes ?? 0, i18n.language),
+      storedAt: formatDateTime(lastStored.finishedAt ?? lastStored.startedAt),
+      size: formatBytes(lastStored.sizeBytes ?? 0),
     })
   }
 
@@ -38,7 +37,7 @@ export function BackupsOverview(props: Props) {
     const nextAttemptAt = new Date(status.nextAttemptAt)
     nextText = nextAttemptAt.getTime() <= Date.now()
       ? t('overview.soon')
-      : dateTimeFormatter.format(nextAttemptAt)
+      : formatDateTime(nextAttemptAt)
   }
 
   return <section className='relaxed grid gap-6 rounded-xl border border-separator p-6 sm:grid-cols-3'>

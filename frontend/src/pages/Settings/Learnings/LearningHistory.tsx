@@ -16,6 +16,7 @@ import { selectUserNamesById } from '../../../store/usersSlice'
 // User interface
 import { Button, Spinner, toast, Tooltip } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
+import { DateText } from '../../../format/DateText'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
@@ -65,7 +66,6 @@ export function LearningHistory(props: Props) {
     </div>
   }
 
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const listFormatter = new Intl.ListFormat(i18n.language, { type: 'conjunction' })
 
   return <ol className='flex flex-col gap-4 border-l border-separator pl-4'>{
@@ -84,7 +84,9 @@ export function LearningHistory(props: Props) {
         <div className='min-w-0'>
           <p>{sentence}</p>
           {description.undid && <p className='mt-1 text-xs opacity-70'>{t('history.undid')}</p>}
-          <p className='mt-1 text-xs opacity-50'>{dateFormatter.format(new Date(entry.createdAt))}</p>
+          <p className='mt-1 text-xs opacity-50'>
+            <DateText value={entry.createdAt} />
+          </p>
         </div>
         <Tooltip delay={300}>
           <Tooltip.Trigger>
