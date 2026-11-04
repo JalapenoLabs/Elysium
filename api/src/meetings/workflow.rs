@@ -5,15 +5,19 @@
 //! A meeting is carried in two halves while the engine's meeting steps are built out:
 //!
 //! - **Its run** of the `meeting` workflow ([`workflow`]), one per meeting, fetches it
-//!   ([`FetchMeeting`]) and moves it from `pending` to `recorded`. The loop starts the run for
-//!   each `pending` meeting on its processing pass ([`run_for`]), started by the system user,
-//!   and a run that fails fails the meeting with its reason, so the Meetings page and its
+//!   ([`FetchMeeting`]), which moves it from `pending` to `recorded`, then transcribes its
+//!   recording with the local Whisper ([`TranscribeMeeting`]). The loop starts the run for each
+//!   `pending` meeting on its processing pass ([`run_for`]), started by the system user, and a
+//!   run whose fetch fails fails the meeting with its reason, so the Meetings page and its
 //!   connector say why.
 //! - **The loop** (`crate::meetings`) segments a `recorded` meeting with one of Elysia's text
-//!   turns and publishes its segments, as it always has.
+//!   turns and publishes its segments, as it always has. It does not wait for the
+//!   transcription, which nothing it does reads yet; a transcription that fails shows on the
+//!   run's page and leaves the meeting as it is.
 //!
-//! The steps on the roadmap (transcription, correction, segmenting) join the workflow after the
-//! fetch, and segmenting there replaces the loop's half. See `docs/meetings.md`, Processing.
+//! The steps on the roadmap (correction, segmenting) join the workflow after the
+//! transcription, and segmenting there replaces the loop's half. See `docs/meetings.md`,
+//! Processing.
 
 use chrono::Utc;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
@@ -21,6 +25,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::fetch::{FetchMeeting, MeetingToFetch};
+use super::transcribe::TranscribeMeeting;
 use crate::models::meeting::{self, Meeting, MeetingState};
 use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::user::SYSTEM_USER_ID;
@@ -35,6 +40,7 @@ pub const SOURCE_KIND: &str = "meeting";
 pub fn workflow() -> Workflow<MeetingToFetch> {
     workflows::declare("meeting")
         .first::<FetchMeeting>()
+        .then::<TranscribeMeeting>()
         .build()
 }
 
@@ -134,12 +140,35 @@ mod tests {
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
     #[test]
+    fn the_engine_registers_every_step_the_meeting_workflow_names() {
+        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::new(
+            "postgres://unused.invalid/none",
+        );
+        let unconnected = crate::database::Pool::builder(manager)
+            .build()
+            .expect("a pool builds without connecting");
+        let cipher = std::sync::Arc::new(crate::test_support::cipher());
+        let mut steps = crate::workflows::Steps::new();
+        steps.register(FetchMeeting::for_test(
+            unconnected.clone(),
+            std::sync::Arc::clone(&cipher),
+            crate::meetings::sources::Sources::new(reqwest::Client::new()),
+        ));
+        steps.register(TranscribeMeeting::for_test(unconnected, cipher));
+        // Panics, as the engine would at startup, if the two drift apart.
+        steps.assert_runs(&workflow());
+    }
+
+    #[test]
     fn a_meetings_run_starts_by_fetching_it_and_is_about_that_meeting() {
         let meeting_id = Uuid::now_v7();
         let run = run_for(meeting_id);
 
         assert_eq!(run.workflow, "meeting");
-        assert_eq!(run.steps, vec!["fetch_meeting".to_owned()]);
+        assert_eq!(
+            run.steps,
+            vec!["fetch_meeting".to_owned(), "transcribe_meeting".to_owned()]
+        );
         assert_eq!(
             (run.source_kind.as_str(), run.source_id),
             (SOURCE_KIND, meeting_id.to_string())

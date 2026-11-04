@@ -43,6 +43,7 @@ use crate::realtime::EventBus;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
+use crate::whisper::Whisper;
 use crate::{connections, shutdown};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
@@ -247,6 +248,19 @@ pub fn build_workspace(config: &Config) -> Result<WorkspaceContainer> {
     Ok(WorkspaceContainer::new(
         build_docker(config, WORKSPACE_DOCKER_TIMEOUT_SECONDS)?,
         config.workspace_image.clone(),
+    ))
+}
+
+/// Whisper, which transcribes recordings in containers of its own. Its client allows a whole
+/// day per call, like the workspace's: a transcription's input and output are one attached
+/// stream that stays open until it ends, which its own timeout bounds far sooner.
+///
+/// # Errors
+/// Fails when `DOCKER_URL` is not a URL Docker can be reached at.
+pub fn build_whisper(config: &Config) -> Result<Whisper> {
+    Ok(Whisper::new(
+        build_docker(config, WORKSPACE_DOCKER_TIMEOUT_SECONDS)?,
+        config.whisper_image.clone(),
     ))
 }
 

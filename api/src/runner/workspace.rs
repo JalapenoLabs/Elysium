@@ -300,14 +300,15 @@ impl WorkspaceContainer {
 }
 
 /// Splits a byte stream into lines, holding a partial line (or a UTF-8 sequence cut across
-/// chunks) until the rest arrives.
+/// chunks) until the rest arrives. Shared with `crate::whisper`, which reads a container's
+/// standard error the same way.
 #[derive(Debug, Default)]
-struct LineSplitter {
+pub(crate) struct LineSplitter {
     buffer: Vec<u8>,
 }
 
 impl LineSplitter {
-    fn push(&mut self, bytes: &[u8]) -> Vec<String> {
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Vec<String> {
         self.buffer.extend_from_slice(bytes);
         let mut lines = Vec::new();
         while let Some(newline) = self.buffer.iter().position(|byte| *byte == b'\n') {
@@ -317,7 +318,7 @@ impl LineSplitter {
         lines
     }
 
-    fn finish(self) -> Option<String> {
+    pub(crate) fn finish(self) -> Option<String> {
         if self.buffer.is_empty() {
             return None;
         }
@@ -364,8 +365,9 @@ fn has_status(error: &DockerError, status: u16) -> bool {
 }
 
 /// Splits `repository:tag`, where the repository may carry a registry host with a port. A
-/// reference without a tag names `latest`, as Docker reads it.
-fn split_reference(image: &str) -> (&str, &str) {
+/// reference without a tag names `latest`, as Docker reads it. `crate::whisper` pulls its
+/// image by the same rule.
+pub(crate) fn split_reference(image: &str) -> (&str, &str) {
     match image.rsplit_once(':') {
         Some((repository, tag)) if !tag.contains('/') => (repository, tag),
         _ => (image, "latest"),

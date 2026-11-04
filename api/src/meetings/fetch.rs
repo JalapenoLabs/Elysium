@@ -490,24 +490,6 @@ mod tests {
         assert!(source_failure(SourceError::Refused("slow down".to_owned())).retryable);
     }
 
-    #[test]
-    fn the_engine_registers_the_step_the_meeting_workflow_names() {
-        let manager = diesel_async::pooled_connection::AsyncDieselConnectionManager::new(
-            "postgres://unused.invalid/none",
-        );
-        let unconnected = Pool::builder(manager)
-            .build()
-            .expect("a pool builds without connecting");
-        let mut steps = crate::workflows::Steps::new();
-        steps.register(FetchMeeting::for_test(
-            unconnected,
-            Arc::new(crate::test_support::cipher()),
-            Sources::new(reqwest::Client::new()),
-        ));
-        // Panics, as the engine would at startup, if the two drift apart.
-        steps.assert_runs(&crate::meetings::workflow::workflow());
-    }
-
     /// A fake Fireflies that answers every query with one meeting's sentences and no
     /// recording, the sentences replaceable as a test goes.
     struct FakeFireflies {

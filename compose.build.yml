@@ -33,6 +33,7 @@ services:
     pull_policy: never
     environment:
       WORKSPACE_IMAGE: elysium-workspace:local
+      WHISPER_IMAGE: elysium-whisper:local
 
   engine:
     image: elysium-api:local
@@ -40,8 +41,11 @@ services:
     pull_policy: never
     environment:
       WORKSPACE_IMAGE: elysium-workspace:local
+      WHISPER_IMAGE: elysium-whisper:local
     depends_on:
       workspace-image:
+        condition: service_completed_successfully
+      whisper-image:
         condition: service_completed_successfully
 
   # Builds the agent workspace's image from this checkout and exits. The engine creates and
@@ -50,6 +54,17 @@ services:
     image: elysium-workspace:local
     build:
       context: ./workspace
+      provenance: false
+    entrypoint: [ "true" ]
+    restart: "no"
+
+  # Builds Whisper's image, with its model, from this checkout and exits. The engine creates a
+  # container of it for each transcription, from this tag. The model is about 3 GB, downloaded
+  # once and kept in the build cache by its checksum.
+  whisper-image:
+    image: elysium-whisper:local
+    build:
+      context: ./whisper
       provenance: false
     entrypoint: [ "true" ]
     restart: "no"

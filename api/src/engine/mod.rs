@@ -53,6 +53,7 @@ use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::sources::Sources;
+use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
 use crate::meetings::{self, Meetings, MeetingsDeps};
 use crate::passwords::remote;
 use crate::realtime::Signal;
@@ -167,6 +168,20 @@ pub async fn run() -> Result<()> {
         workspace: meeting_workspace.clone(),
         sources: meeting_sources.clone(),
     })?);
+    let whisper = services::build_whisper(&config)?;
+    event!(
+        name: "whisper.configured",
+        Level::INFO,
+        container.image.name = %config.whisper_image,
+        whisper.threads = whisper.threads(),
+        "transcriptions decode on {{whisper.threads}} threads",
+    );
+    steps.register(TranscribeMeeting::new(TranscribeMeetingDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: foundation.storage.clone(),
+        whisper,
+    }));
     steps.assert_runs(&meetings::workflow::workflow());
     let workers = Workers::new(WorkersDeps {
         database: database.clone(),
@@ -216,8 +231,8 @@ pub async fn run() -> Result<()> {
         activity: connector_activity.clone(),
     });
     loops.push(("youtrack.reader", youtrack.start(shutdown.clone())));
-    // Meetings: listed, each fetched by its run of the meeting workflow, then segmented by text
-    // turns on the runner and cut into clips in its workspace.
+    // Meetings: listed, each fetched and transcribed by its run of the meeting workflow, then
+    // segmented by text turns on the runner and cut into clips in its workspace.
     let meetings = Meetings::new(MeetingsDeps {
         database: database.clone(),
         events: events.clone(),

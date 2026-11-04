@@ -932,6 +932,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_transcriptions (meeting_id) {
+        meeting_id -> Uuid,
+        transcript -> Jsonb,
+        transcript_hash -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meetings (id) {
         id -> Uuid,
         connector_id -> Nullable<Uuid>,
@@ -1428,6 +1439,7 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
+diesel::joinable!(meeting_transcriptions -> meetings (meeting_id));
 diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
@@ -1514,6 +1526,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_accounts,
     mail_domains,
     mail_servers,
+    meeting_transcriptions,
     meetings,
     password_vault,
     process_activities,

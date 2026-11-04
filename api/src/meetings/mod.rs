@@ -42,6 +42,7 @@ pub mod media;
 pub mod segmentation;
 pub mod source;
 pub mod sources;
+pub mod transcribe;
 pub mod workflow;
 
 use std::sync::Arc;

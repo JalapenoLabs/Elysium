@@ -150,6 +150,7 @@ pub async fn app_state_with_storage(
         frontend_dir: None,
         docker: nowhere,
         workspace_image: "elysium-workspace:test".to_owned(),
+        whisper_image: "elysium-whisper:test".to_owned(),
         mail: MailConfig {
             oauth_broker: None,
             oauth_broker_internal: None,

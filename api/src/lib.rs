@@ -59,6 +59,7 @@ mod tools;
 mod updates;
 mod version;
 mod web_app;
+mod whisper;
 mod workflows;
 mod youtrack;
 

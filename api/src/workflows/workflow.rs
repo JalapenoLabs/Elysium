@@ -71,13 +71,6 @@ pub struct WorkflowBuilder<Input, Last> {
 
 impl<Input, Last> WorkflowBuilder<Input, Last> {
     /// Follows the last step with `Next`, which takes what that step gives.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "transcription (#78) is the meeting workflow's second step"
-        )
-    )]
     pub fn then<Next: Step<Input = Last>>(mut self) -> WorkflowBuilder<Input, Next::Output> {
         self.steps.push(DeclaredStep::of::<Next>());
         WorkflowBuilder {

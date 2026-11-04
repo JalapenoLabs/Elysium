@@ -36,6 +36,7 @@ pub mod mail_account;
 pub mod mail_domain;
 pub mod mail_server;
 pub mod meeting;
+pub mod meeting_transcription;
 pub mod password_vault;
 pub mod project;
 pub mod secret_copy;

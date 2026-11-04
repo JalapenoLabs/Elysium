@@ -62,11 +62,14 @@ x-server-environment: &server-environment
   # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
   # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the servers.
   OAUTH_BROKER_URL: ""
-  # The filtered Docker API the mail server, the browsers, and the agent workspace are run
-  # through.
+  # The filtered Docker API the mail server, the browsers, the agent workspace, and
+  # transcriptions are run through.
   DOCKER_URL: http://docker-proxy:2375
   # The image agent turns run in, from the same release. The engine creates the container.
   WORKSPACE_IMAGE: jalapenolabs/elysium-workspace:${ELYSIUM_VERSION:-latest}
+  # The image meetings are transcribed in, Whisper with its model built in, from the same
+  # release. The engine creates one container of it per transcription, with no network.
+  WHISPER_IMAGE: jalapenolabs/elysium-whisper:${ELYSIUM_VERSION:-latest}
   MAIL_INGRESS_ADDRESS: *mail-ingress-address
   TZ: UTC
 

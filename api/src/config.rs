@@ -43,12 +43,15 @@ pub struct Config {
     /// The web app's production build, served at every path outside `/api`. Set by the
     /// published image; unset in development, where nginx sends those paths to Vite.
     pub frontend_dir: Option<PathBuf>,
-    /// The Docker API the API runs its own containers through (the mail server and the agent
-    /// workspace): the filtered socket proxy.
+    /// The Docker API the API and the engine run their own containers through (the mail
+    /// server, the browsers, the agent workspace, and transcriptions): the filtered socket proxy.
     pub docker: Url,
     /// The agent workspace's image, the `elysium-workspace` of the same release as the API.
     /// See `crate::runner::workspace`.
     pub workspace_image: String,
+    /// The image transcriptions run in, the `elysium-whisper` of the same release as the API.
+    /// See `crate::whisper`.
+    pub whisper_image: String,
     pub mail: MailConfig,
 }
 
@@ -98,6 +101,7 @@ impl Config {
                 Url::parse("http://docker-proxy:2375/").expect("a static URL parses")
             }),
             workspace_image: required("WORKSPACE_IMAGE")?,
+            whisper_image: required("WHISPER_IMAGE")?,
             mail: MailConfig {
                 oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
                 oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
