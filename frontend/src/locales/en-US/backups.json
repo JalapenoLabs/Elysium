@@ -16,6 +16,7 @@
     "storedAt": "{{storedAt}}, {{size}}",
     "next": "Next backup",
     "running": "Backing up now",
+    "soon": "Within minutes",
     "kept": "Kept for",
     "keptDays_one": "{{count}} day",
     "keptDays_other": "{{count}} days",

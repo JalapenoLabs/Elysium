@@ -34,7 +34,11 @@ export function BackupsOverview(props: Props) {
     nextText = t('overview.running')
   }
   else if (status.nextAttemptAt) {
-    nextText = dateTimeFormatter.format(new Date(status.nextAttemptAt))
+    // A night that is due already starts at the schedule's next check, within minutes.
+    const nextAttemptAt = new Date(status.nextAttemptAt)
+    nextText = nextAttemptAt.getTime() <= Date.now()
+      ? t('overview.soon')
+      : dateTimeFormatter.format(nextAttemptAt)
   }
 
   return <section className='relaxed grid gap-6 rounded-xl border border-separator p-6 sm:grid-cols-3'>
