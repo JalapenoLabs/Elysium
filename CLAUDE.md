@@ -269,9 +269,13 @@ Everything else follows these rules:
   meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). Every
   meeting belongs to a connector, which is what keeps it and its segments from being recorded twice. See
   `docs/meetings.md`.
-- Each meeting is recorded (transcript, and the recording uploaded to the account's storage location), segmented by
-  Elysia in one text turn on the runner, and published: `ffmpeg` cuts each segment's clip in the workspace container,
-  and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed to its projects.
+- Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
+  transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
+  again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.
+- The meetings loop then segments a fetched meeting in one of Elysia's text turns on the runner and publishes it:
+  `ffmpeg` cuts each segment's clip in the workspace container, and each segment becomes a timeline record with its
+  excerpt, summary, span, and clip, attributed to its projects. Segmenting moves into the workflow as a step later;
+  until then a failed run fails its meeting, and retrying the meeting retries the run. See `docs/meetings.md`.
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
   must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,

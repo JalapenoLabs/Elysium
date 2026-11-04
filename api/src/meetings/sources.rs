@@ -29,6 +29,12 @@ impl Sources {
         }
     }
 
+    /// Every source read through `fireflies`, such as a client of a fake Fireflies.
+    #[cfg(test)]
+    pub fn with_fireflies(fireflies: Fireflies) -> Self {
+        Self { fireflies }
+    }
+
     /// The Fireflies client, for the Fireflies kind's own checks and sign-in.
     pub fn fireflies(&self) -> &Fireflies {
         &self.fireflies

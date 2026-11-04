@@ -51,7 +51,9 @@ use crate::connectors::activity::Activity;
 use crate::connectors::ingest::Ingest;
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
-use crate::meetings::{Meetings, MeetingsDeps};
+use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
+use crate::meetings::sources::Sources;
+use crate::meetings::{self, Meetings, MeetingsDeps};
 use crate::passwords::remote;
 use crate::realtime::Signal;
 use crate::runner::Runner;
@@ -150,13 +152,27 @@ pub async fn run() -> Result<()> {
         claude_accounts.start(shutdown.clone()),
     ));
     // Workflow runs, step by step. Every step a declared workflow names is registered here, once
-    // by its name with what it needs, and each workflow is checked against them with
-    // `Steps::assert_runs` before the workers start. No workflow is declared yet.
+    // by its name with what it needs, and each workflow is checked against them before the
+    // workers start, so a workflow naming a step this build lacks stops the engine at once.
+    let connector_activity = Activity::new(database.clone(), events.clone());
+    let meeting_sources = Sources::new(http.clone());
+    let meeting_workspace = services::build_workspace(&config)?;
+    let mut steps = Steps::new();
+    steps.register(FetchMeeting::new(FetchMeetingDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: foundation.storage.clone(),
+        workspace: meeting_workspace.clone(),
+        sources: meeting_sources.clone(),
+    })?);
+    steps.assert_runs(&meetings::workflow::workflow());
     let workers = Workers::new(WorkersDeps {
         database: database.clone(),
         events: events.clone(),
         activity: activity.clone(),
-        steps: Steps::new(),
+        steps,
     });
     loops.push(("workflows.workers", workers.start(shutdown.clone())));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
@@ -168,7 +184,6 @@ pub async fn run() -> Result<()> {
     );
 
     // Readers.
-    let connector_activity = Activity::new(database.clone(), events.clone());
     let watcher = Watcher::start(
         WatchContext {
             database: database.clone(),
@@ -201,7 +216,8 @@ pub async fn run() -> Result<()> {
         activity: connector_activity.clone(),
     });
     loops.push(("youtrack.reader", youtrack.start(shutdown.clone())));
-    // Meetings, segmented by text turns on the runner and cut into clips in its workspace.
+    // Meetings: listed, each fetched by its run of the meeting workflow, then segmented by text
+    // turns on the runner and cut into clips in its workspace.
     let meetings = Meetings::new(MeetingsDeps {
         database: database.clone(),
         events: events.clone(),
@@ -209,9 +225,9 @@ pub async fn run() -> Result<()> {
         cipher: Arc::clone(&cipher),
         storage: foundation.storage.clone(),
         runner: runner.clone(),
-        workspace: services::build_workspace(&config)?,
-        http: http.clone(),
-    })?;
+        workspace: meeting_workspace,
+        sources: meeting_sources,
+    });
     loops.push(("meetings", meetings.start(shutdown.clone())));
     loops.push((
         "connectors.syncs",

@@ -71,6 +71,13 @@ pub struct WorkflowBuilder<Input, Last> {
 
 impl<Input, Last> WorkflowBuilder<Input, Last> {
     /// Follows the last step with `Next`, which takes what that step gives.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "transcription (#78) is the meeting workflow's second step"
+        )
+    )]
     pub fn then<Next: Step<Input = Last>>(mut self) -> WorkflowBuilder<Input, Next::Output> {
         self.steps.push(DeclaredStep::of::<Next>());
         WorkflowBuilder {
@@ -153,6 +160,10 @@ impl<Input: Serialize> Workflow<Input> {
     /// # Panics
     /// Panics when the workflow has no step `Entry`, or the input cannot be JSON, which only a
     /// programming error can cause.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "intake (#81) enters a workflow at segmenting")
+    )]
     pub fn new_run_at<Entry: Step>(&self, start: Start<Entry::Input>) -> NewRun {
         let entry_type = TypeId::of::<Entry>();
         let position = self

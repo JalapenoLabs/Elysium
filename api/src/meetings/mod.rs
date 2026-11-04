@@ -10,23 +10,25 @@
 //! - Every [`POLL_INTERVAL`] it lists each active meeting connector's new meetings
 //!   ([`source::MeetingSource::list`]) and stores each one it has not seen as a `pending`
 //!   meeting. The connector's cursor remembers the newest start time it saw.
-//!
-//! A meeting connector is one of any kind that provides meetings
-//! (`kinds::providing(Provides::Meetings)`), and each is read through its kind's source
-//! ([`sources::Sources::for_kind`]), so nothing here names a source.
 //! - Every [`PROCESS_INTERVAL`] it carries each unfinished meeting as far as it goes:
-//!   1. `pending`: fetch the transcript and a fresh recording address, download the
-//!      recording into the workspace, and upload it to the account's storage location.
+//!   1. `pending`: start the meeting's run of the meeting workflow ([`workflow`]), whose
+//!      [`fetch::FetchMeeting`] step stores the transcript and uploads the recording to the
+//!      connector's storage location on the engine's step queue. A run that failed fails the
+//!      meeting with its reason.
 //!   2. `recorded`: Elysia reads the transcript in a text turn and cuts it into topic
 //!      segments, each attributed to projects ([`segmentation`]).
 //!   3. `segmented`: `ffmpeg` cuts each segment's clip in the workspace ([`media`]), the
 //!      clips are uploaded, and each segment becomes a timeline record, with its transcript
 //!      excerpt and summary, attributed to its projects, in one transaction.
 //!
-//! A step that fails is recorded on the meeting and tried again on the next pass, until it
-//! has failed `models::meeting::MAX_ATTEMPTS` times; the person can retry it from there.
-//! Every step is safe to repeat: storage paths are fixed per meeting, and records are written
-//! only once every clip is up.
+//! A meeting connector is one of any kind that provides meetings
+//! (`kinds::providing(Provides::Meetings)`), and each is read through its kind's source
+//! ([`sources::Sources::for_kind`]), so nothing here names a source.
+//!
+//! A segmenting or publishing step that fails is recorded on the meeting and tried again on the
+//! next pass, until it has failed `models::meeting::MAX_ATTEMPTS` times; the person can retry it
+//! from there. Every step is safe to repeat: storage paths are fixed per meeting, and records
+//! are written only once every clip is up.
 //!
 //! # What is published
 //!
@@ -34,11 +36,13 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod fetch;
 pub mod fireflies;
 pub mod media;
 pub mod segmentation;
 pub mod source;
 pub mod sources;
+pub mod workflow;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,7 +57,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use self::segmentation::{MeetingContext, ProjectChoice, Segment};
-use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine, is_public_download};
+use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine};
 use self::sources::{Source, Sources};
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
@@ -62,17 +66,19 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
-use crate::models::meeting::{self, Meeting, MeetingState, NewMeeting, StoredRecording};
+use crate::models::meeting::{self, Meeting, MeetingState, NewMeeting};
 use crate::models::project;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::token_account;
+use crate::models::workflow_run::WorkflowRunState;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{
     ConversationId, Runner, RunnerEvent, TurnMode, TurnRequest, TurnStatus, WorkspacePath,
 };
 use crate::storage::Storage;
+use crate::workflows;
 
 /// How often each connector's new meetings are listed. A meeting is useful on the timeline
 /// within minutes of ending, not seconds, and the strictest source's smallest plan
@@ -102,9 +108,6 @@ const ATTRIBUTED_BY: &str = "elysia";
 /// The longest `actor` a record takes: the segment's speakers.
 const ACTOR_MAX_CHARACTERS: usize = 512;
 
-/// How many redirects a recording download may follow, each to an `https` named host.
-const MAX_REDIRECTS: usize = 5;
-
 #[derive(Clone)]
 pub struct Meetings {
     inner: Arc<Inner>,
@@ -119,9 +122,6 @@ struct Inner {
     runner: Runner,
     workspace: WorkspaceContainer,
     sources: Sources,
-    /// For recording downloads: follows redirects only to `https` named hosts, so a
-    /// source's address can never lead Elysium into its own network.
-    downloads: reqwest::Client,
 }
 
 impl std::fmt::Debug for Meetings {
@@ -144,29 +144,13 @@ pub struct MeetingsDeps {
     pub storage: Storage,
     pub runner: Runner,
     pub workspace: WorkspaceContainer,
-    pub http: reqwest::Client,
+    pub sources: Sources,
 }
 
 impl Meetings {
-    /// # Errors
-    /// Fails when the download client cannot be built.
-    pub fn new(deps: MeetingsDeps) -> anyhow::Result<Self> {
-        let downloads = reqwest::Client::builder()
-            .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= MAX_REDIRECTS {
-                    attempt.error("too many redirects")
-                } else if is_public_download(attempt.url()) {
-                    attempt.follow()
-                } else {
-                    attempt.stop()
-                }
-            }))
-            .build()
-            .context("cannot build the recording download client")?;
-        Ok(Self {
+    pub fn new(deps: MeetingsDeps) -> Self {
+        Self {
             inner: Arc::new(Inner {
-                sources: Sources::new(deps.http),
                 database: deps.database,
                 events: deps.events,
                 activity: deps.activity,
@@ -174,9 +158,9 @@ impl Meetings {
                 storage: deps.storage,
                 runner: deps.runner,
                 workspace: deps.workspace,
-                downloads,
+                sources: deps.sources,
             }),
-        })
+        }
     }
 
     /// Lists one connector's new meetings now and carries every unfinished meeting forward,
@@ -272,8 +256,11 @@ impl Meetings {
 
     /// Lists one connector's new meetings, stores them, and records how the listing went.
     async fn poll_account(&self, account: &Connector) -> anyhow::Result<()> {
-        let source = self.source_of(account)?;
-        let credential = self.key_of(account).await?;
+        let source = source_of(&self.inner.sources, account)?;
+        let credential = {
+            let mut connection = self.connection().await?;
+            key_of(&mut connection, &self.inner.cipher, account).await?
+        };
         let since = listing_since(account);
         let started = Utc::now();
         let mut run = None;
@@ -323,27 +310,6 @@ impl Meetings {
             None => {}
         }
         Ok(())
-    }
-
-    /// The source `connector`'s kind reads its meetings from.
-    fn source_of(&self, connector: &Connector) -> anyhow::Result<Source> {
-        ConnectorKind::parse(&connector.kind)
-            .and_then(|kind| self.inner.sources.for_kind(kind))
-            .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))
-    }
-
-    /// The API key `connector` lists its meetings with, from the token account it reads through.
-    /// Every source today signs in with a key; a source read through a browser will resolve
-    /// its sign-in beside its source instead.
-    async fn key_of(&self, connector: &Connector) -> anyhow::Result<secrecy::SecretString> {
-        let token_account_id = connector
-            .token_account_id
-            .context("a meeting connector reads with an API key, and this one has none")?;
-        let mut connection = self.connection().await?;
-        let account = token_account::find(&mut connection, token_account_id).await?;
-        account
-            .credential(&self.inner.cipher)
-            .context("the connector's key cannot be decrypted")
     }
 
     /// Stores each listed meeting the account has not read, and answers the newest start time
@@ -401,12 +367,77 @@ impl Meetings {
             }
         };
         for unfinished_meeting in unfinished {
-            self.carry(unfinished_meeting).await;
+            if unfinished_meeting.state() != MeetingState::Pending {
+                self.carry(unfinished_meeting).await;
+                continue;
+            }
+            if let Err(error) = self.follow_fetch(&unfinished_meeting).await {
+                event!(
+                    name: "meetings.fetch.unfollowed",
+                    Level::WARN,
+                    meeting.id = %unfinished_meeting.id,
+                    error.message = %format!("{error:#}"),
+                    "cannot start or follow a meeting's run; the next pass tries again",
+                );
+            }
         }
     }
 
-    /// Runs a meeting's steps one after another until it is done, or one fails. Its connector
-    /// shows as syncing meanwhile, and a meeting that ends done or failed is a run of it.
+    /// Starts `pending`'s run of the meeting workflow, which fetches it, or follows the run it
+    /// has: starting a run answers the live one when there is one. A run that failed fails the
+    /// meeting with its reason, as a failed run of its connector, so the Meetings page and the
+    /// connector say why; retrying the meeting retries the run (`workflow::retry`).
+    async fn follow_fetch(&self, pending: &Meeting) -> anyhow::Result<()> {
+        let mut connection = self.connection().await?;
+        let started = workflows::start(
+            &mut connection,
+            &self.inner.events,
+            workflow::run_for(pending.id),
+        )
+        .await?;
+        let run = started.settled.run;
+        if started.created {
+            event!(
+                name: "meetings.fetch.started",
+                Level::INFO,
+                meeting.id = %pending.id,
+                workflow_run.id = %run.id,
+                "a meeting's run started; it fetches the meeting",
+            );
+            return Ok(());
+        }
+        if run.state != WorkflowRunState::Failed {
+            return Ok(());
+        }
+
+        let reason = run
+            .error
+            .unwrap_or_else(|| "Its run of the meeting workflow failed".to_owned());
+        let failed = meeting::record_fetch_failure(&mut connection, pending.id, &reason).await?;
+        drop(connection);
+        let Some(failed) = failed else {
+            event!(
+                name: "meetings.fetch.moved_on",
+                Level::DEBUG,
+                meeting.id = %pending.id,
+                "a meeting's run failed, but the meeting moved on meanwhile; it is left as it is",
+            );
+            return Ok(());
+        };
+        self.publish(failed.clone());
+        if let Some(connector_id) = failed.connector_id {
+            let started_at = run.started_at.unwrap_or(run.created_at);
+            self.inner
+                .activity
+                .record(ConnectorRun::failed(connector_id, started_at, &reason))
+                .await;
+        }
+        Ok(())
+    }
+
+    /// Runs a fetched meeting's steps one after another until it is done, or one fails. Its
+    /// connector shows as syncing meanwhile, and a meeting that ends done or failed is a run of
+    /// it.
     async fn carry(&self, mut current: Meeting) {
         let started = Utc::now();
         let _syncing = match current.connector_id {
@@ -416,10 +447,10 @@ impl Meetings {
         loop {
             let id = current.id;
             let step = match current.state() {
-                MeetingState::Pending => self.record(&current).await,
                 MeetingState::Recorded => self.segment(&current).await,
                 MeetingState::Segmented => self.publish_segments(&current).await,
-                MeetingState::Done | MeetingState::Failed => return,
+                // A pending meeting is fetched by its run (`follow_fetch`).
+                MeetingState::Pending | MeetingState::Done | MeetingState::Failed => return,
             };
             match step {
                 Ok(advanced) => {
@@ -474,64 +505,6 @@ impl Meetings {
     async fn record_failure(&self, current: &Meeting, message: &str) -> anyhow::Result<Meeting> {
         let mut connection = self.connection().await?;
         Ok(meeting::record_failure(&mut connection, current, message).await?)
-    }
-
-    /// `pending` to `recorded`: the transcript, and the recording uploaded to storage.
-    async fn record(&self, current: &Meeting) -> anyhow::Result<Meeting> {
-        let account = self.account_of(current).await?;
-        let source = self.source_of(&account)?;
-        let credential = self.key_of(&account).await?;
-        let fetched = source.fetch(&credential, &current.external_id).await?;
-        let transcript = serde_json::to_value(&fetched.transcript)?;
-
-        let stored = match (&fetched.recording, account.storage_location_id) {
-            (Some(recording), Some(storage_location_id)) => {
-                let (location, access_key) = self.location(storage_location_id).await?;
-                let local = media::download(
-                    &self.inner.downloads,
-                    &self.inner.workspace,
-                    current.id,
-                    recording,
-                )
-                .await?;
-                let path = media::recording_path(current.id, media::extension_of(&local.file_name));
-                let kept = media::Kept {
-                    storage: &self.inner.storage,
-                    location: &location,
-                    access_key: &access_key,
-                };
-                media::upload(
-                    kept,
-                    &self.inner.workspace,
-                    current.id,
-                    &local.file_name,
-                    &path,
-                    &local.content_type,
-                )
-                .await?;
-                Some(StoredRecording {
-                    storage_location_id,
-                    path,
-                    content_type: Some(local.content_type),
-                })
-            }
-            (Some(_recording), None) => {
-                // A connector resumed before its person picked a storage location has nowhere
-                // to keep the recording; the meeting goes on from its transcript alone.
-                event!(
-                    name: "meetings.recording.unkept",
-                    Level::WARN,
-                    meeting.id = %current.id,
-                    connector.id = %account.id,
-                    "the source offered a recording, but the connector names no storage location",
-                );
-                None
-            }
-            (None, _) => None,
-        };
-
-        let mut connection = self.connection().await?;
-        Ok(meeting::record_recording(&mut connection, current.id, transcript, stored).await?)
     }
 
     /// `recorded` to `segmented`: Elysia's topic segments.
@@ -704,7 +677,10 @@ impl Meetings {
             .recording_content_type
             .clone()
             .unwrap_or_else(|| "application/octet-stream".to_owned());
-        let (location, access_key) = self.location(storage_location_id).await?;
+        let (location, access_key) = {
+            let mut connection = self.connection().await?;
+            location(&mut connection, &self.inner.cipher, storage_location_id).await?
+        };
         let kept = media::Kept {
             storage: &self.inner.storage,
             location: &location,
@@ -745,33 +721,6 @@ impl Meetings {
         Ok(clips)
     }
 
-    async fn account_of(&self, current: &Meeting) -> anyhow::Result<Connector> {
-        let connector_id = current
-            .connector_id
-            .context("the meeting's connector was removed")?;
-        let mut connection = self.connection().await?;
-        let found = connector::find(&mut connection, connector_id)
-            .await
-            .context("the meeting's connector was removed")?;
-        anyhow::ensure!(
-            found.created_by == current.created_by,
-            "the meeting's connector belongs to someone else"
-        );
-        Ok(found)
-    }
-
-    async fn location(
-        &self,
-        storage_location_id: Uuid,
-    ) -> anyhow::Result<(StorageLocation, secrecy::SecretString)> {
-        let mut connection = self.connection().await?;
-        let location = storage_location::find(&mut connection, storage_location_id).await?;
-        let access_key = location
-            .access_key(&self.inner.cipher)
-            .context("the storage location's access key cannot be decrypted")?;
-        Ok((location, access_key))
-    }
-
     fn publish(&self, changed: Meeting) {
         self.inner.events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
@@ -779,6 +728,43 @@ impl Meetings {
             created_by: changed.created_by,
         });
     }
+}
+
+/// The source `connector`'s kind reads its meetings from.
+fn source_of(sources: &Sources, connector: &Connector) -> anyhow::Result<Source> {
+    ConnectorKind::parse(&connector.kind)
+        .and_then(|kind| sources.for_kind(kind))
+        .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))
+}
+
+/// The API key `connector` reads its meetings with, from the token account it reads through.
+/// Every source today signs in with a key; a source read through a browser will resolve its
+/// sign-in beside its source instead.
+async fn key_of(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    connector: &Connector,
+) -> anyhow::Result<secrecy::SecretString> {
+    let token_account_id = connector
+        .token_account_id
+        .context("a meeting connector reads with an API key, and this one has none")?;
+    let account = token_account::find(connection, token_account_id).await?;
+    account
+        .credential(cipher)
+        .context("the connector's key cannot be decrypted")
+}
+
+/// Storage location `storage_location_id`, with the key that opens it.
+async fn location(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    storage_location_id: Uuid,
+) -> anyhow::Result<(StorageLocation, secrecy::SecretString)> {
+    let location = storage_location::find(connection, storage_location_id).await?;
+    let access_key = location
+        .access_key(cipher)
+        .context("the storage location's access key cannot be decrypted")?;
+    Ok((location, access_key))
 }
 
 /// Where a segment's clip is kept.
@@ -955,6 +941,7 @@ mod tests {
             created_by: Uuid::now_v7(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            transcript_hash: None,
         }
     }
 

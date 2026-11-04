@@ -236,14 +236,10 @@ pub async fn start(
                 .execute(connection)
                 .await?;
             if inserted == 0 {
-                let live = workflow_runs::table
-                    .filter(workflow_runs::workflow.eq(&new.workflow))
-                    .filter(workflow_runs::source_kind.eq(&new.source_kind))
-                    .filter(workflow_runs::source_id.eq(&new.source_id))
-                    .filter(workflow_runs::state.ne(WorkflowRunState::Succeeded))
-                    .select(WorkflowRun::as_select())
-                    .first(connection)
-                    .await?;
+                // The insert met the one live run per source, which this transaction now sees.
+                let live = find_live(connection, &new.workflow, &new.source_kind, &new.source_id)
+                    .await?
+                    .ok_or(diesel::result::Error::NotFound)?;
                 let steps = steps_of(connection, live.id).await?;
                 return Ok(Started {
                     settled: Settled {
@@ -289,6 +285,28 @@ pub async fn start(
             })
         })
         .await
+}
+
+/// The run of `workflow` on a source that has not yet succeeded, if there is one: a workflow has
+/// one live run per source.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_live(
+    connection: &mut AsyncPgConnection,
+    workflow: &str,
+    source_kind: &str,
+    source_id: &str,
+) -> QueryResult<Option<WorkflowRun>> {
+    workflow_runs::table
+        .filter(workflow_runs::workflow.eq(workflow))
+        .filter(workflow_runs::source_kind.eq(source_kind))
+        .filter(workflow_runs::source_id.eq(source_id))
+        .filter(workflow_runs::state.ne(WorkflowRunState::Succeeded))
+        .select(WorkflowRun::as_select())
+        .first(connection)
+        .await
+        .optional()
 }
 
 /// Run `id`.

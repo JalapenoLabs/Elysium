@@ -4,13 +4,17 @@
 //! `crate::meetings` and `docs/meetings.md`.
 //!
 //! A meeting belongs to whoever owns the account it was read from, like every timeline
-//! record. It moves through `pending` (read), `recorded`, `segmented`, and `done`, one step
-//! per pass of the processing loop, and is `failed` once a step has failed
-//! [`MAX_ATTEMPTS`] times.
+//! record. It moves through `pending` (listed), `recorded` (fetched by its run of the meeting
+//! workflow), `segmented`, and `done`, and is `failed` once its run fails, or a step of the
+//! processing loop has failed [`MAX_ATTEMPTS`] times.
+//!
+//! What a fetch stores, the source's transcript and the recording, is written once
+//! ([`record_fetched`]): a later fetch of the same meeting writes nothing.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -24,9 +28,10 @@ pub const MAX_ATTEMPTS: i32 = 3;
 /// How far a meeting's processing got. Stored as `meetings.state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeetingState {
-    /// Read from its source, with its transcript.
+    /// Listed by its source; its run of the meeting workflow fetches it.
     Pending,
-    /// Its recording is stored, or the source keeps none.
+    /// Its transcript is stored, and its recording too, unless the source keeps none or its
+    /// connector names nowhere to keep it.
     Recorded,
     /// Elysia has cut its transcript into topic segments.
     Segmented,
@@ -89,12 +94,24 @@ pub struct Meeting {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The SHA-256 of the transcript its fetch stored (`crate::meetings::fetch`), as hex.
+    /// `None` until it is fetched.
+    pub transcript_hash: Option<String>,
 }
 
 impl Meeting {
     /// The meeting's state. A value the constraint does not allow reads as failed.
     pub fn state(&self) -> MeetingState {
         MeetingState::parse(&self.state).unwrap_or(MeetingState::Failed)
+    }
+
+    /// Where its recording is stored, if it is.
+    pub fn stored_recording(&self) -> Option<StoredRecording> {
+        Some(StoredRecording {
+            storage_location_id: self.storage_location_id?,
+            path: self.recording_path.clone()?,
+            content_type: self.recording_content_type.clone(),
+        })
     }
 }
 
@@ -202,18 +219,42 @@ pub async fn find_owned(
         .await
 }
 
-/// Records the meeting's transcript and where its recording is stored, or that there is
-/// none, and moves the meeting to `recorded`.
+/// The meeting `id`, whoever owns it, for the engine's own work on it.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
+    meetings::table
+        .find(id)
+        .select(Meeting::as_select())
+        .first(connection)
+        .await
+}
+
+/// What a meeting's first fetch stores.
+#[derive(Debug, Clone)]
+pub struct Fetched {
+    /// An array of `crate::meetings::source::TranscriptLine`.
+    pub transcript: Value,
+    /// The SHA-256 of `transcript`, as hex.
+    pub transcript_hash: String,
+    /// Where its recording was put, or `None` when it has none to keep.
+    pub recording: Option<StoredRecording>,
+}
+
+/// Stores the meeting's first fetch, its transcript and where its recording is kept, and moves
+/// it to `recorded`. Answers `None`, writing nothing, when the meeting was fetched already: the
+/// transcript a meeting was first fetched with is the one every later step reads, so nothing a
+/// later fetch finds replaces it.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn record_recording(
+pub async fn record_fetched(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-    transcript: Value,
-    stored: Option<StoredRecording>,
-) -> QueryResult<Meeting> {
-    let (storage_location_id, recording_path, recording_content_type) = match stored {
+    fetched: Fetched,
+) -> QueryResult<Option<Meeting>> {
+    let (storage_location_id, recording_path, recording_content_type) = match fetched.recording {
         Some(stored) => (
             Some(stored.storage_location_id),
             Some(stored.path),
@@ -222,8 +263,10 @@ pub async fn record_recording(
         None => (None, None, None),
     };
     diesel::update(meetings::table.find(id))
+        .filter(meetings::transcript_hash.is_null())
         .set((
-            meetings::transcript.eq(transcript),
+            meetings::transcript.eq(fetched.transcript),
+            meetings::transcript_hash.eq(Some(fetched.transcript_hash)),
             meetings::storage_location_id.eq(storage_location_id),
             meetings::recording_path.eq(recording_path),
             meetings::recording_content_type.eq(recording_content_type),
@@ -234,14 +277,39 @@ pub async fn record_recording(
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await
+        .optional()
 }
 
 /// Where a meeting's recording was stored.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StoredRecording {
     pub storage_location_id: Uuid,
     pub path: String,
     pub content_type: Option<String>,
+}
+
+/// Marks a meeting still waiting to be fetched as `failed`, with `error`, because its run of the
+/// meeting workflow failed. Answers `None`, writing nothing, for a meeting that is no longer
+/// waiting to be fetched.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_fetch_failure(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    error: &str,
+) -> QueryResult<Option<Meeting>> {
+    diesel::update(meetings::table.find(id))
+        .filter(meetings::state.eq(MeetingState::Pending.as_str()))
+        .set((
+            meetings::state.eq(MeetingState::Failed.as_str()),
+            meetings::last_error.eq(Some(error)),
+        ))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+        .optional()
 }
 
 /// Records the segments Elysia found and moves the meeting to `segmented`.
@@ -309,7 +377,9 @@ pub async fn record_failure(
 }
 
 /// Gives a failed meeting another try from the step it failed at: a meeting with segments
-/// resumes trimming, one with a recording resumes segmenting, and any other starts over.
+/// resumes trimming, one that was fetched resumes segmenting, and any other waits to be fetched
+/// again. A meeting whose run of the meeting workflow failed also needs that run's failed step
+/// retried, which `crate::meetings::workflow::retry` does alongside this.
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when it does not exist, belongs to someone else, or
@@ -323,9 +393,10 @@ pub async fn retry(
     if meeting.state() != MeetingState::Failed {
         return Err(diesel::result::Error::NotFound);
     }
+    // A meeting fetched before transcripts were hashed shows it by its recording alone.
     let resume_at = if meeting.segments.is_some() {
         MeetingState::Segmented
-    } else if meeting.recording_path.is_some() {
+    } else if meeting.transcript_hash.is_some() || meeting.recording_path.is_some() {
         MeetingState::Recorded
     } else {
         MeetingState::Pending
@@ -354,6 +425,23 @@ mod tests {
     use crate::test_support::{
         TEST_PERSON_ID, cipher, location_for_every_project, migrated_database,
     };
+
+    /// A hash of the right shape; the model stores what it is given.
+    const TRANSCRIPT_HASH: &str =
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
+
+    /// A fetch with one line, its recording kept in `location_id` when one is given.
+    fn fetched(location_id: Option<Uuid>) -> Fetched {
+        Fetched {
+            transcript: json!([{ "startMs": 0, "endMs": 1000, "speaker": "Ada", "text": "Hi." }]),
+            transcript_hash: TRANSCRIPT_HASH.to_owned(),
+            recording: location_id.map(|storage_location_id| StoredRecording {
+                storage_location_id,
+                path: "meetings/x/recording.mp4".to_owned(),
+                content_type: Some("video/mp4".to_owned()),
+            }),
+        }
+    }
 
     fn new_meeting(account_id: Uuid, external_id: &str) -> NewMeeting {
         NewMeeting {
@@ -464,20 +552,17 @@ mod tests {
         assert_eq!(retried.state(), MeetingState::Pending);
         assert_eq!((retried.attempts, retried.last_error), (0, None));
 
-        let recorded = record_recording(
-            &mut connection,
-            retried.id,
-            json!([{ "startMs": 0, "endMs": 1000, "speaker": "Ada", "text": "Hi." }]),
-            Some(StoredRecording {
-                storage_location_id: location.id,
-                path: "meetings/x/recording.mp4".to_owned(),
-                content_type: Some("video/mp4".to_owned()),
-            }),
-        )
-        .await
-        .expect("recorded");
+        let recorded = record_fetched(&mut connection, retried.id, fetched(Some(location.id)))
+            .await
+            .expect("recorded")
+            .expect("the first fetch is stored");
         assert_eq!(recorded.state(), MeetingState::Recorded);
         assert_eq!(recorded.storage_location_id, Some(location.id));
+        assert_eq!(
+            recorded.transcript_hash.as_deref(),
+            Some(TRANSCRIPT_HASH),
+            "the hash is stored with the transcript"
+        );
 
         let segmented = record_segments(&mut connection, recorded.id, json!([]))
             .await
@@ -499,6 +584,81 @@ mod tests {
                 .is_err(),
             "only a failed meeting is retried"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_is_fetched_once_and_a_later_fetch_writes_nothing() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let location = storage_location::create(
+            &mut connection,
+            &cipher,
+            &location_for_every_project("Recordings"),
+        )
+        .await
+        .expect("a location");
+        let (_key, account) =
+            fireflies_connector(&mut connection, &cipher, location.id, "fireflies-key").await;
+        let pending = insert_new(&mut connection, new_meeting(account.id, "01HX"))
+            .await
+            .expect("insert")
+            .expect("new");
+
+        let first = record_fetched(&mut connection, pending.id, fetched(None))
+            .await
+            .expect("recorded")
+            .expect("the first fetch is stored");
+        assert_eq!(first.state(), MeetingState::Recorded);
+        assert_eq!(first.stored_recording(), None);
+
+        // Another fetch, even one that found a recording, leaves the meeting exactly as it was.
+        let again = record_fetched(&mut connection, pending.id, fetched(Some(location.id)))
+            .await
+            .expect("a second write runs");
+        assert!(again.is_none(), "a fetched meeting is not written again");
+        let unchanged = find(&mut connection, pending.id).await.expect("found");
+        assert_eq!(unchanged.updated_at, first.updated_at);
+        assert_eq!(unchanged.storage_location_id, None);
+
+        // Only a meeting still waiting to be fetched takes its run's failure.
+        assert!(
+            record_fetch_failure(&mut connection, pending.id, "Fireflies refused")
+                .await
+                .expect("runs")
+                .is_none()
+        );
+        let waiting = insert_new(&mut connection, new_meeting(account.id, "01HY"))
+            .await
+            .expect("insert")
+            .expect("new");
+        let failed = record_fetch_failure(&mut connection, waiting.id, "Fireflies refused")
+            .await
+            .expect("runs")
+            .expect("a waiting meeting fails");
+        assert_eq!(failed.state(), MeetingState::Failed);
+        assert_eq!(failed.last_error.as_deref(), Some("Fireflies refused"));
+        let retried = retry(&mut connection, failed.id, TEST_PERSON_ID)
+            .await
+            .expect("retried");
+        assert_eq!(
+            retried.state(),
+            MeetingState::Pending,
+            "a meeting never fetched waits to be fetched again"
+        );
+
+        // A fetched meeting that failed later resumes after its fetch, even with no recording.
+        let mut failed_later = first;
+        for _ in 0..MAX_ATTEMPTS {
+            failed_later = record_failure(&mut connection, &failed_later, "no answer")
+                .await
+                .expect("a failure");
+        }
+        assert_eq!(failed_later.state(), MeetingState::Failed);
+        let resumed = retry(&mut connection, failed_later.id, TEST_PERSON_ID)
+            .await
+            .expect("retried");
+        assert_eq!(resumed.state(), MeetingState::Recorded);
     }
 
     #[tokio::test]

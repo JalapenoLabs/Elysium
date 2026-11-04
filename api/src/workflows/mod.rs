@@ -20,47 +20,17 @@
 //! ([`announce`]), carrying ids and states alone: a run's input, output, and logs hold what it
 //! read, which clients load by id.
 
-// Until the first production workflow declares, registers, and starts these (#77), only tests
-// do; the engine's workers run whatever is registered, which today is nothing.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first production workflow (#77) uses the framework"
-    )
-)]
 mod step;
 #[cfg(test)]
 mod tests;
 pub mod workers;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first production workflow (#77) uses the framework"
-    )
-)]
 mod workflow;
 
 use chrono::Utc;
 use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "the first production workflow (#77) uses the framework"
-    )
-)]
 pub use self::step::{Done, Step, StepContext, StepFailure, StepLog, Steps};
-#[cfg_attr(
-    not(test),
-    expect(
-        unused_imports,
-        reason = "the first production workflow (#77) uses the framework"
-    )
-)]
 pub use self::workflow::{Start, Workflow, declare};
 use crate::models::workflow_run::{self, NewRun, Settled, Started};
 use crate::realtime::{EventBus, ServerEvent, Signal};
@@ -70,13 +40,6 @@ use crate::realtime::{EventBus, ServerEvent, Signal};
 ///
 /// # Errors
 /// Propagates any database error.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first production workflow (#77) starts the first runs"
-    )
-)]
 pub async fn start(
     connection: &mut AsyncPgConnection,
     events: &EventBus,

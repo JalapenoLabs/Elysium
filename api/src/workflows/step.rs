@@ -74,6 +74,13 @@ pub enum Done<Output> {
     },
     /// It asks a person to look before the run goes on, such as approving a corrected
     /// transcript. `summary` says what to look at; resuming passes `output` on.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "correction (#79) is the first step that holds its run for approval"
+        )
+    )]
     Held { output: Output, summary: String },
 }
 
@@ -138,6 +145,22 @@ impl std::fmt::Debug for StepContext {
     }
 }
 
+#[cfg(test)]
+impl StepContext {
+    /// A context for calling the step named `step` directly, outside the queue, as the first
+    /// attempt of a run of its own.
+    pub fn for_test(database: Pool, step: &'static str) -> Self {
+        Self {
+            run_id: Uuid::now_v7(),
+            step_job_id: Uuid::now_v7(),
+            attempt: 1,
+            log: StepLog::default(),
+            step,
+            database,
+        }
+    }
+}
+
 impl StepContext {
     /// The model and effort this step's agent turn runs on, read from its global setting now, as
     /// the turn starts, so an admin's change applies from the next turn. Written to the log, so
@@ -145,6 +168,13 @@ impl StepContext {
     ///
     /// # Errors
     /// A retryable failure when the setting cannot be read.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "correction (#79) is the first step whose work is an agent turn"
+        )
+    )]
     pub async fn model(&self) -> Result<ModelChoice, StepFailure> {
         let read = async {
             let mut connection = self.database.get().await?;
@@ -178,6 +208,12 @@ impl StepLog {
         let mut pending = self.lock();
         pending.push_str(text.trim_end_matches('\n'));
         pending.push('\n');
+    }
+
+    /// Everything written and not yet stored, left in place.
+    #[cfg(test)]
+    pub fn unstored(&self) -> String {
+        self.lock().clone()
     }
 
     /// Everything written since the last take.

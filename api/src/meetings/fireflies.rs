@@ -16,6 +16,10 @@
 //! Recordings need a Pro plan or higher, and video needs the "record meeting video" setting
 //! in Fireflies; without them the meeting is processed from its transcript alone.
 //!
+//! Nothing Fireflies' own AI wrote is asked for: no summary, action items, notes, outline, or
+//! analytics, since the model behind them is unknown. The queries name what they read, field
+//! by field, and a test holds them to it.
+//!
 //! # Limits
 //!
 //! Fireflies allows 30 to 60 requests a minute and, below Business, 500 to 5,000 a day.
@@ -79,6 +83,12 @@ impl Fireflies {
             http,
             endpoint: Url::parse(ENDPOINT).expect("the Fireflies endpoint is a valid URL"),
         }
+    }
+
+    /// A client of a fake Fireflies listening at `endpoint`.
+    #[cfg(test)]
+    pub fn at(http: reqwest::Client, endpoint: Url) -> Self {
+        Self { http, endpoint }
     }
 
     /// Whose key `credential` is, which also proves Fireflies accepts it.
@@ -428,6 +438,44 @@ mod tests {
         }))
         .expect("parses");
         assert!(fetched(transcript).recording.is_none());
+    }
+
+    /// What Fireflies' own AI writes, by the names its GraphQL schema gives them.
+    const VENDOR_AI_FIELDS: [&str; 18] = [
+        "summary",
+        "action_items",
+        "overview",
+        "short_overview",
+        "short_summary",
+        "notes",
+        "keywords",
+        "outline",
+        "shorthand_bullet",
+        "bullet_gist",
+        "gist",
+        "topics_discussed",
+        "meeting_type",
+        "transcript_chapters",
+        "extended_sections",
+        "analytics",
+        "sentiments",
+        "ai_filters",
+    ];
+
+    #[test]
+    fn no_query_asks_for_anything_fireflies_ai_wrote() {
+        for query in [LIST_QUERY, FETCH_QUERY, WHOAMI_QUERY] {
+            let fields: Vec<&str> = query
+                .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+                .filter(|field| !field.is_empty())
+                .collect();
+            for vendor_field in VENDOR_AI_FIELDS {
+                assert!(
+                    !fields.contains(&vendor_field),
+                    "a Fireflies query asks for {vendor_field}: {query}"
+                );
+            }
+        }
     }
 
     #[test]

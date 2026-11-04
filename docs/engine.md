@@ -7,8 +7,9 @@ company.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
-on a Postgres queue of step jobs with the Runs page (Runs, below), and the step and workflow framework over that queue,
-with each step's model setting (Workflows and steps, and Models, below).
+on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
+with each step's model setting (Workflows and steps, and Models, below), and the meeting workflow's first step, which
+fetches each meeting (Meetings, below).
 
 ## A service of its own
 
@@ -91,8 +92,10 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
 - A run is one workflow on one source. Each step of a run is its own job row with state, attempts, input, and output,
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below. No production workflow is
-declared yet; the first is the meeting workflow, on the roadmap. Tests declare their own.
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and the first production
+workflow, `meeting` (`api/src/meetings/workflow.rs`), whose one step so far is `fetch_meeting`. The engine registers
+every production step in `api/src/engine/mod.rs` and checks each declared workflow against them there. Tests declare
+their own.
 
 ### A step
 
@@ -202,6 +205,10 @@ the Runs page.
 
 - Every source is read deterministically: the transcript, and the recording when there is one. Elysium never uses a
   transcription service's own AI summary or notes, since the model behind them is unknown.
+- Built: each meeting is a run of the `meeting` workflow, whose `fetch_meeting` step reads every meeting source the
+  same way, stores the raw transcript with its SHA-256, and uploads the recording; running it again for the same
+  meeting changes nothing. Segmenting still runs in the meetings loop until it becomes a step here. See
+  `docs/meetings.md`, Processing.
 - When there is audio, a local Whisper (faster-whisper, pinned) in its own container produces a second transcript.
   Anthropic offers no transcription for recorded audio, and nothing leaves the host. Every transcript a meeting has is
   an input to correction; more sources mean better corrections.

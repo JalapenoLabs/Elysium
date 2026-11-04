@@ -8,6 +8,11 @@ meeting spends five minutes on a product, the product's timeline shows that five
 Meetings come from meeting sources. Today one exists, Fireflies.ai, read with the person's own API key. The code is
 `api/src/meetings/`.
 
+Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
+Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
+used, since the model behind it is unknown. Fireflies' queries name each field they read, and a test fails if one asks
+for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
+
 ## Meeting sources
 
 A meeting source is a connector whose kind provides meetings: its definition says so (`Provides::Meetings`,
@@ -54,7 +59,8 @@ A listing that stored meetings, and a meeting that finished or failed, is a run 
 
 ## Processing
 
-`Meetings::start` runs one loop until shutdown.
+`Meetings::start` runs one loop until shutdown, and each meeting is also a run of the engine's `meeting` workflow
+(`docs/engine.md`, Workflows and steps), which fetches it.
 
 - **Listing**, every ten minutes (`POLL_INTERVAL`): each active connector of a kind that provides meetings lists,
   through its kind's source, the meetings that started since its cursor (`{"since": <the newest start time seen>}`),
@@ -62,19 +68,57 @@ A listing that stored meetings, and a meeting that finished or failed, is a run 
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
   has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses marks the connector
   `signed_out` with the reason in `last_error`.
-- **Processing**, every minute (`PROCESS_INTERVAL`): each unfinished meeting is carried through its steps until it is
-  done or one fails.
+- **Processing**, every minute (`PROCESS_INTERVAL`): each `pending` meeting's run is started, or followed, and every
+  fetched meeting is carried through the loop's steps until it is done or one fails.
 
-| Step        | From        | What happens                                                                      |
-|-------------|-------------|-----------------------------------------------------------------------------------|
-| Record      | `pending`   | Fetch the transcript and the recording's address from the meeting's source, download the recording into the workspace, upload it to the connector's storage location at `meetings/<id>/recording.<ext>` |
-| Segment     | `recorded`  | Elysia reads the transcript in one text turn and answers the topic segments, each with its projects |
-| Publish     | `segmented` | `ffmpeg` cuts each segment's clip in the workspace, each is uploaded to `meetings/<id>/segments/<n>.<ext>`, and every segment becomes a timeline record in one transaction |
+| Step        | From        | Where           | What happens                                                    |
+|-------------|-------------|-----------------|-----------------------------------------------------------------|
+| Fetch       | `pending`   | Its run         | `fetch_meeting` stores the transcript and uploads the recording (Fetching, below), and moves the meeting to `recorded` |
+| Segment     | `recorded`  | The loop        | Elysia reads the transcript in one text turn and answers the topic segments, each with its projects |
+| Publish     | `segmented` | The loop        | `ffmpeg` cuts each segment's clip in the workspace, each is uploaded to `meetings/<id>/segments/<n>.<ext>`, and every segment becomes a timeline record in one transaction |
 
-A step that fails records why on the meeting (`last_error`, `attempts`) and is tried again on the next pass. After
-three failures (`MAX_ATTEMPTS`) the meeting is `failed`; `POST /api/v1/meetings/{id}/retry` resumes it from the step
-it failed at. Every step is safe to repeat: storage paths are fixed per meeting and segment, and records are written
-only once every clip is up.
+### The run and the loop
+
+The workflow is declared in `api/src/meetings/workflow.rs`, and its one step today is `fetch_meeting`. Transcription,
+correction, and segmenting join it as steps after the fetch (`docs/engine.md`, Meetings); once segmenting is a step,
+the loop's Segment and Publish move into the run. Until then the two share the meeting this way:
+
+- The loop starts a `pending` meeting's run on its pass: one run per meeting (source `meeting`, the meeting's id),
+  started by the system user. Starting answers the live run when there is one, so every pass may ask.
+- The run's fetch moves the meeting to `recorded`, and the loop takes it from there on its next pass. The loop never
+  segments a meeting its run has not fetched.
+- A run that fails fails its meeting with the run's reason, recorded as a failed run of its connector, so the Meetings
+  page and the connector say why. Its step's own attempts and backoff are the run's (`docs/engine.md`, Runs).
+- Retrying a meeting whose fetch failed (`POST /api/v1/meetings/{id}/retry`, `workflow::retry`) also retries its run's
+  failed step, as the person who asked, in the same transaction; otherwise the loop would find the same failed run and
+  fail the meeting again. A person may retry that step from the run's page instead, and the meeting is fetched all the
+  same.
+
+A step of the loop that fails records why on the meeting (`last_error`, `attempts`) and is tried again on the next
+pass. After three failures (`MAX_ATTEMPTS`) the meeting is `failed`; the same retry resumes it from the step it
+failed at: segmenting for a meeting that was fetched, publishing for one with segments. Every step is safe to repeat:
+storage paths are fixed per meeting and segment, and records are written only once every clip is up.
+
+### Fetching
+
+`fetch_meeting` (`api/src/meetings/fetch.rs`) takes `{ meetingId }` and gives `{ meetingId, transcriptHash,
+recording }`, the recording being where it is kept (`{ storageLocationId, path, contentType }`) or `null`. One step
+reads every source, through the meeting's connector and `Sources::for_kind`, so a new source needs no step of its own.
+
+- It fetches the transcript and a fresh recording address from the source, downloads the recording into the
+  workspace, and uploads it to the connector's storage location at `meetings/<id>/recording.<ext>`. Without a
+  recording, or with nowhere to keep it, the meeting goes on from its transcript alone, and the log says which.
+- The transcript is stored as the source sent it, with its SHA-256 (`meetings.transcript_hash`, the hash of its JSON as
+  stored), in one write that only a meeting never fetched takes. Its connector shows as syncing meanwhile.
+- A meeting is fetched once. Running the step again for the same meeting, a retried attempt or a later run, fetches
+  from the source and compares hashes, but writes and uploads nothing: the first fetch is what every later step read.
+  Its summary says whether the source's transcript is unchanged or has changed since. An attempt cut short after its
+  upload and before its write uploads the recording again on the next attempt, to the same path.
+- A key the source refuses, a meeting it does not have, or a connector that was removed fails the step for good, for
+  a person to fix and retry; anything else, such as a source that did not answer, is tried again with the run's
+  backoff.
+- Every company member can read a run's log, while meetings are their owner's alone, so the log names the source,
+  counts, the hash, and storage paths, never a title, a participant, or anything said.
 
 ### Segmentation
 
@@ -161,7 +205,9 @@ streams the clip from storage to the record's owner alone.
   (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
   signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
   `sources.rs` instead.
-- Fetching each meeting as an engine step, one source per run (`docs/engine.md`), through the same `Sources::for_kind`.
+- Transcription with a local Whisper, correction against the company doc, and segmenting as steps of the meeting
+  workflow (`docs/engine.md`, Meetings), segmenting replacing the loop's Segment and Publish.
 - Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
-- Holding an activity while a meeting's files move, so auto-update waits for a download in progress.
+- Holding an activity while a meeting's clips are cut, so auto-update waits for them; the fetch's download already
+  holds one as a step of its run.
