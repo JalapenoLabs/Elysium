@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use super::BrowserSessionResponse;
 use crate::auth::CurrentUser;
+use crate::browser::BrowserStatus;
 use crate::errors::ApiError;
 use crate::models::browser_session;
 use crate::state::AppState;
@@ -28,7 +29,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let session = browser_session::find_owned(&mut connection, id, current.id()).await?;
 
-    let status = state.browsers.status(session.id);
+    let status = BrowserStatus::from(&session);
     Ok(Json(
         json!({ "browserSession": BrowserSessionResponse::new(session, status) }),
     ))

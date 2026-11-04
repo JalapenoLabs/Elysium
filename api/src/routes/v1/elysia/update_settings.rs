@@ -16,6 +16,7 @@ use crate::auth::AdminUser;
 use crate::elysia::availability::{self, AvailabilityWindow};
 use crate::errors::ApiError;
 use crate::models::elysia::{self, ElysiaStateChanges};
+use crate::realtime::Signal;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +66,6 @@ pub async fn handle(
     }
 
     let response = publish_snapshot(&state.events, &mut connection).await?;
-    state.elysia.wake();
+    state.events.signal(&Signal::Elysia);
     Ok(Json(json!({ "elysia": response })))
 }

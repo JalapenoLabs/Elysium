@@ -65,6 +65,6 @@ pub async fn handle(
         .publish(&ServerEvent::PasswordVaultUpdated(response.clone()));
     Ok(Json(VaultBody {
         vault: Some(response),
-        status: state.passwords.status(),
+        status: state.passwords.status().await,
     }))
 }

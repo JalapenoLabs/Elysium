@@ -4,23 +4,25 @@
 //!
 //! Each event is scrubbed of the turn's secrets, given the session's next sequence, recorded,
 //! and only then published, so a client that refetches history after a live event always finds
-//! it. When the turn starts and ends, the session's activity changes and is announced. When it
-//! ends, the Claude session it reported is kept on the row for the next turn to resume, a Studio
-//! session's deliverables are collected, and the turn's tool grant is dropped with the follower.
-//! Last, a turn that completed or failed is summarized (`super::summary`).
+//! it. When the turn starts and ends, its `session_turns` row records it and the session's
+//! activity is announced. When it ends, the Claude session it reported is kept on the session's
+//! row for the next turn to resume, a Studio session's deliverables are collected, the turn's
+//! tool grant is revoked, and the queue looks for the session's next turn. Last, a turn that
+//! completed or failed is summarized (`super::summary`).
 
 use chrono::Utc;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use super::Sessions;
+use super::queue::TurnQueue;
 use super::scrub::Scrubber;
 use super::summary::{self, Digest};
-use super::views::{ActivityState, SessionEvent};
-use super::{Sessions, lock};
-use crate::models::coding_session;
+use super::views::SessionEvent;
 use crate::models::session_event::{self, StoredEvent};
-use crate::realtime::ServerEvent;
+use crate::models::{coding_session, session_turn};
+use crate::realtime::{ServerEvent, Signal};
 use crate::runner::{RunnerEvent, TurnOutcome};
 use crate::studio::artifacts::{self, Services, Source};
 use crate::tools::grants::Grant;
@@ -28,12 +30,12 @@ use crate::tools::grants::Grant;
 /// One turn being followed.
 #[derive(Debug)]
 pub(super) struct Follower {
-    pub sessions: Sessions,
+    pub queue: TurnQueue,
     pub session_id: i64,
     pub studio_item_id: Option<Uuid>,
     pub turn_id: Uuid,
     pub scrubber: Scrubber,
-    /// Held until the turn ends: dropping it revokes the turn's access to Elysium's tools.
+    /// Held until the turn ends, then revoked: the turn's access to Elysium's tools.
     pub grant: Grant,
 }
 
@@ -49,17 +51,17 @@ impl Follower {
                 RunnerEvent::Finished(outcome) => {
                     self.record(runner_event.clone()).await;
                     self.finished(outcome).await;
+                    let Self {
+                        queue,
+                        session_id,
+                        turn_id,
+                        grant,
+                        ..
+                    } = self;
                     // The turn is over: its tools stop answering it.
-                    drop(self.grant);
+                    grant.revoke().await;
                     if summary::deserves_summary(outcome.status) {
-                        summary::summarize(
-                            &self.sessions,
-                            self.session_id,
-                            self.turn_id,
-                            &digest,
-                            outcome,
-                        )
-                        .await;
+                        summary::summarize(&queue, session_id, turn_id, &digest, outcome).await;
                     }
                     return;
                 }
@@ -81,7 +83,7 @@ impl Follower {
             "the turn ended without reporting how",
         ))
         .await;
-        drop(self.grant);
+        self.grant.revoke().await;
     }
 
     async fn record(&self, runner_event: RunnerEvent) {
@@ -93,7 +95,7 @@ impl Follower {
             occurred_at,
             event: runner_event,
         };
-        let recorded = match self.sessions.inner.database.get().await {
+        let recorded = match self.queue.inner.sessions.inner.database.get().await {
             Ok(mut connection) => session_event::record(&mut connection, self.session_id, &stored)
                 .await
                 .map_err(|error| error.to_string()),
@@ -116,7 +118,9 @@ impl Follower {
             occurred_at,
             &stored.event,
         );
-        self.sessions
+        self.queue
+            .inner
+            .sessions
             .inner
             .events
             .publish(&ServerEvent::SessionEvent(Box::new(view)));
@@ -128,14 +132,14 @@ impl Follower {
     /// When that read fails, the guess is not remembered, so the next event reads again
     /// rather than every later event colliding with history it could not see.
     async fn next_sequence(&self) -> u64 {
-        let mut sequences = self.sessions.inner.sequences.lock().await;
+        let mut sequences = self.queue.inner.sequences.lock().await;
         if let Some(last) = sequences.get(&self.session_id) {
             let next = last + 1;
             sequences.insert(self.session_id, next);
             return next;
         }
 
-        let latest = match self.sessions.inner.database.get().await {
+        let latest = match self.queue.inner.sessions.inner.database.get().await {
             Ok(mut connection) => session_event::latest_sequence(&mut connection, self.session_id)
                 .await
                 .map_err(|error| error.to_string()),
@@ -161,13 +165,21 @@ impl Follower {
     }
 
     async fn started(&self) {
-        self.sessions.update(self.session_id, |live| {
-            live.activity.state = ActivityState::Running;
-            live.activity.queue_depth = live.activity.queue_depth.saturating_sub(1);
-            live.activity.current_turn_id = Some(self.turn_id);
-            live.activity.last_activity_at = Some(Utc::now());
-        });
-        self.sessions.announce(self.session_id).await;
+        let recorded = async {
+            let mut connection = self.queue.inner.sessions.inner.database.get().await?;
+            anyhow::Ok(session_turn::record_started(&mut connection, self.turn_id).await?)
+        };
+        if let Err(error) = recorded.await {
+            event!(
+                name: "sessions.turn.start_unrecorded",
+                Level::WARN,
+                session.id = self.session_id,
+                turn.id = %self.turn_id,
+                error.message = %format!("{error:#}"),
+                "could not record that a turn started; the session shows it queued",
+            );
+        }
+        self.queue.inner.sessions.announce(self.session_id).await;
     }
 
     async fn finished(&self, outcome: &TurnOutcome) {
@@ -178,24 +190,33 @@ impl Follower {
             self.collect_deliverables(studio_item_id).await;
         }
 
-        {
-            let mut live = lock(&self.sessions.inner.live);
-            if let Some(entry) = live.get_mut(&self.session_id) {
-                entry.unfinished.retain(|turn_id| *turn_id != self.turn_id);
-                entry.activity.current_turn_id = None;
-                entry.activity.last_activity_at = Some(Utc::now());
-                entry.activity.state = if entry.activity.queue_depth > 0 {
-                    ActivityState::Queued
-                } else {
-                    ActivityState::Idle
-                };
-            }
+        let recorded = async {
+            let mut connection = self.queue.inner.sessions.inner.database.get().await?;
+            anyhow::Ok(session_turn::finish(&mut connection, self.turn_id).await?)
+        };
+        if let Err(error) = recorded.await {
+            event!(
+                name: "sessions.turn.finish_unrecorded",
+                Level::ERROR,
+                session.id = self.session_id,
+                turn.id = %self.turn_id,
+                error.message = %format!("{error:#}"),
+                "could not record that a turn finished; the next engine start does",
+            );
         }
-        self.sessions.announce(self.session_id).await;
+        self.queue.release(self.turn_id);
+        self.queue.inner.sessions.announce(self.session_id).await;
+        // The session's next turn, if one is queued, may start now.
+        self.queue
+            .inner
+            .sessions
+            .inner
+            .events
+            .signal(&Signal::SessionTurns);
     }
 
     async fn keep_harness_session(&self, harness_session_id: &str) {
-        let kept = match self.sessions.inner.database.get().await {
+        let kept = match self.queue.inner.sessions.inner.database.get().await {
             Ok(mut connection) => coding_session::set_harness_session_id(
                 &mut connection,
                 self.session_id,
@@ -218,18 +239,19 @@ impl Follower {
     }
 
     async fn collect_deliverables(&self, studio_item_id: Uuid) {
-        let inner = &self.sessions.inner;
+        let inner = &self.queue.inner;
+        let sessions = &inner.sessions.inner;
         let services = Services {
-            database: &inner.database,
-            cipher: &inner.cipher,
+            database: &sessions.database,
+            cipher: &sessions.cipher,
             storage: &inner.storage,
-            events: &inner.events,
+            events: &sessions.events,
         };
         let directory = Sessions::directory(self.session_id);
         let source = Source {
             session_id: self.session_id,
             studio_item_id,
-            workspace: &inner.workspace,
+            workspace: &sessions.workspace,
             directory: &directory,
         };
         artifacts::collect(services, source).await;

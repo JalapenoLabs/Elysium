@@ -201,6 +201,9 @@ fn sign_in_error(error: SignInError) -> ApiError {
         }
         SignInError::Refused(reason) => ApiError::BadRequest(reason),
         SignInError::Workspace(error) => ApiError::BadGateway(error.to_string()),
+        SignInError::WorkspaceNotRunning => ApiError::Unavailable(
+            "the workspace is not running yet; the engine starts it, so try again shortly",
+        ),
     }
 }
 

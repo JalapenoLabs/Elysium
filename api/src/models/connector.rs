@@ -54,6 +54,8 @@ pub struct Connector {
     pub github_credential_id: Option<Uuid>,
     /// What it reads, in its kind's own terms, for a kind whose selection has no table of its own.
     pub content: Value,
+    /// Set while a read someone asked for, or a meeting's processing, waits or runs.
+    pub syncing_since: Option<DateTime<Utc>>,
 }
 
 /// The account a connector reads through.
@@ -168,6 +170,48 @@ pub async fn list_visible(
         )
         .select(Connector::as_select())
         .order(connectors::created_at.asc())
+        .load(connection)
+        .await
+}
+
+/// Marks connector `id` syncing, unless it already is. Answers whether this marked it.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn mark_syncing(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<bool> {
+    let marked = diesel::update(
+        connectors::table
+            .find(id)
+            .filter(connectors::syncing_since.is_null()),
+    )
+    .set(connectors::syncing_since.eq(diesel::dsl::now))
+    .execute(connection)
+    .await?;
+    Ok(marked > 0)
+}
+
+/// Marks connector `id` done syncing.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn clear_syncing(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
+    diesel::update(connectors::table.find(id))
+        .set(connectors::syncing_since.eq(None::<DateTime<Utc>>))
+        .execute(connection)
+        .await
+        .map(drop)
+}
+
+/// Every connector marked syncing, oldest mark first: reads someone asked for that the engine
+/// has not run yet, or that an engine which stopped left marked.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_syncing(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Connector>> {
+    connectors::table
+        .filter(connectors::syncing_since.is_not_null())
+        .select(Connector::as_select())
+        .order(connectors::syncing_since.asc())
         .load(connection)
         .await
 }

@@ -10,10 +10,23 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use secrecy::{ExposeSecret, SecretString};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::crypto::{Cipher, OpenError};
 use crate::database::schema::browser_sessions;
+
+/// What a browser's container is doing, as the engine's reconciler last found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum, Serialize)]
+#[ExistingTypePath = "crate::database::schema::sql_types::BrowserState"]
+#[serde(rename_all = "kebab-case")]
+pub enum BrowserState {
+    /// Its image is being pulled or its container started, or nothing has checked it yet.
+    Starting,
+    Running,
+    /// The last attempt to start or check it failed; the reconciler tries again.
+    Failed,
+}
 
 /// A stored browser. `member_password_encrypted` is an envelope from [`Cipher::seal`].
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -32,6 +45,9 @@ pub struct BrowserSession {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub state: BrowserState,
+    /// Why it failed, exactly while it is failed.
+    pub state_error: Option<String>,
 }
 
 /// Fields for a new browser, with the password still in plaintext.
@@ -79,6 +95,34 @@ impl BrowserSession {
             .map_err(|_utf8_error| OpenError::Inauthentic)?;
         Ok(SecretString::from(text))
     }
+}
+
+/// Records what browser `id`'s container is doing. Answers the row when that changed, and
+/// `None` when it already said so or the browser is gone, so only a change is announced.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_state(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    state: BrowserState,
+    error: Option<&str>,
+) -> QueryResult<Option<BrowserSession>> {
+    diesel::update(
+        browser_sessions::table.find(id).filter(
+            browser_sessions::state
+                .ne(state)
+                .or(browser_sessions::state_error.is_distinct_from(error)),
+        ),
+    )
+    .set((
+        browser_sessions::state.eq(state),
+        browser_sessions::state_error.eq(error),
+    ))
+    .returning(BrowserSession::as_returning())
+    .get_result(connection)
+    .await
+    .optional()
 }
 
 /// Every browser, for keeping their containers running.

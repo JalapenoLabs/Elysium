@@ -35,7 +35,7 @@ use uuid::Uuid;
 use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::passwords::Passwords;
+use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
 use crate::runner::WorkspacePath;
 use crate::runner::workspace::WorkspaceContainer;
@@ -54,7 +54,7 @@ pub struct ToolContext {
     /// Where a session's files are read and written.
     pub workspace: WorkspaceContainer,
     /// The password vault, for the logins agents sign in with.
-    pub passwords: Passwords,
+    pub passwords: RemoteVault,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -72,8 +72,9 @@ impl std::fmt::Debug for ToolContext {
 }
 
 /// Who a call is made for. Each server's tools accept the scopes they serve and answer any
-/// other with what the tool is for.
-#[derive(Debug, Clone)]
+/// other with what the tool is for. Stored with its grant (`super::grants`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CallScope {
     /// A coding or Studio session's agent.
     Session(SessionScope),
@@ -114,7 +115,8 @@ impl CallScope {
 }
 
 /// One of Elysia's turns.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ElysiaScope {
     pub turn_id: Uuid,
 }
@@ -125,7 +127,8 @@ pub struct ElysiaScope {
 ///
 /// A Studio session may have no project; it then reaches only the storage locations for
 /// every project, and no work at all.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionScope {
     pub session_id: i64,
     pub project_id: Option<Uuid>,

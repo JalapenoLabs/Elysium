@@ -136,7 +136,7 @@ pub async fn prepare_checks(
         }
     };
     Ok(FirefliesChecks {
-        fireflies: state.meetings.sources().fireflies().clone(),
+        fireflies: state.meeting_sources.fireflies().clone(),
         key,
         meetings: Vec::new(),
     })
@@ -233,8 +233,7 @@ pub async fn create(
     let fields: NewKey = parse_new_account(AccountKind::Fireflies, new)?;
     // A key is stored only once Fireflies accepts it, so no account holds a key nobody tried.
     let user = state
-        .meetings
-        .sources()
+        .meeting_sources
         .fireflies()
         .whoami(&fields.api_key.0)
         .await

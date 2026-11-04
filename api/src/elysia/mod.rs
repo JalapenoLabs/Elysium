@@ -26,11 +26,8 @@ pub mod runner;
 pub mod status;
 pub mod trigger;
 
-use std::sync::Arc;
-
 use chrono::Utc;
 use diesel_async::AsyncPgConnection;
-use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
@@ -46,13 +43,14 @@ use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::tools::grants::Grants;
 
-/// Elysia's handle in [`crate::state::AppState`]. Cheap to clone; clones share one wake signal
-/// and one runner.
+/// Elysia's turns, as the engine runs them. Cheap to clone; clones share one runner.
+///
+/// Whatever queues a turn or changes a hold, in any process, sends [`Signal::Elysia`] on the
+/// bus, so the dispatcher looks at the queue at once instead of on its next tick.
+///
+/// [`Signal::Elysia`]: crate::realtime::Signal::Elysia
 #[derive(Debug, Clone)]
 pub struct Elysia {
-    /// Woken whenever a turn is queued or something that holds turns back changes, so the
-    /// dispatcher looks at the queue at once instead of on its next tick.
-    wake: Arc<Notify>,
     runner: TurnRunner,
     /// Where each turn's grant to her tool server is minted; shared with the endpoint that
     /// answers the calls.
@@ -61,11 +59,7 @@ pub struct Elysia {
 
 impl Elysia {
     pub fn new(runner: TurnRunner, grants: Grants) -> Self {
-        Self {
-            wake: Arc::new(Notify::new()),
-            runner,
-            grants,
-        }
+        Self { runner, grants }
     }
 
     /// What runs her turns.
@@ -76,16 +70,6 @@ impl Elysia {
     /// Where her turns' tool grants are minted.
     pub const fn grants(&self) -> &Grants {
         &self.grants
-    }
-
-    /// Tells the dispatcher to look at the queue now.
-    pub fn wake(&self) {
-        self.wake.notify_one();
-    }
-
-    /// Waits for [`Self::wake`].
-    pub async fn woken(&self) {
-        self.wake.notified().await;
     }
 
     /// Starts the intake and the dispatcher, which run until `shutdown`. Her turns get the
@@ -101,7 +85,6 @@ impl Elysia {
             IntakeContext {
                 database: database.clone(),
                 events: events.clone(),
-                elysia: self.clone(),
             },
             shutdown.clone(),
         ));

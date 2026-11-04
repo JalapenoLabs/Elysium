@@ -24,6 +24,6 @@ pub async fn handle(
     let vault = password_vault::find(&mut connection).await?;
     Ok(Json(VaultBody {
         vault: vault.as_ref().map(PasswordVaultResponse::from),
-        status: state.passwords.status(),
+        status: state.passwords.status().await,
     }))
 }

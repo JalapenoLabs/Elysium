@@ -60,6 +60,13 @@ const IMAGE_DIGEST: &str =
 /// network so it can pass the media port along.
 const NGINX_CONTAINER: &str = "elysium-nginx";
 
+/// The compose service the API runs as, whose every replica joins each browser's network.
+const API_SERVICE: &str = "api";
+
+/// The labels compose gives each container it runs: its project, and its service.
+const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
+const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
+
 /// The gateway priority nginx and the API join a browser's network with. Docker routes a
 /// container's default gateway, and the ports it publishes, through its network of highest
 /// priority, breaking ties by name; at the default of 0, a browser's network could win, and
@@ -142,10 +149,10 @@ pub enum ContainerError {
     #[error("the setup files could not be packed: {0}")]
     Archive(#[from] std::io::Error),
     #[error(
-        "the API is not running in a container it can find (HOSTNAME={0:?}), so it cannot join the \
-         browser's network"
+        "the engine is not running in a container it can find (HOSTNAME={0:?}), so it cannot join \
+         the browser's network"
     )]
-    ApiContainerUnknown(String),
+    OwnContainerUnknown(String),
 }
 
 #[derive(Debug, Clone)]
@@ -399,9 +406,9 @@ impl BrowserContainers {
         }
     }
 
-    /// Creates the browser's network unless it exists, and joins the API and nginx to it.
-    /// nginx loses the connection whenever compose recreates it, which is why this runs on
-    /// every reconcile rather than once.
+    /// Creates the browser's network unless it exists, and joins every container that reaches
+    /// the browser to it ([`Self::members`]). Compose drops the joins whenever it recreates
+    /// nginx or the API, which is why this runs on every reconcile rather than once.
     async fn ensure_network(&self, name: &str, session_id: Uuid) -> Result<(), ContainerError> {
         let network = match self.docker.inspect_network(name, None).await {
             Ok(network) => network,
@@ -420,13 +427,7 @@ impl BrowserContainers {
         };
         let joined = network.containers.unwrap_or_default();
 
-        for member in [self.api_container().await?, NGINX_CONTAINER.to_owned()] {
-            let id = self
-                .docker
-                .inspect_container(&member, None)
-                .await?
-                .id
-                .unwrap_or_default();
+        for id in self.members().await? {
             if joined.contains_key(&id) {
                 continue;
             }
@@ -459,16 +460,46 @@ impl BrowserContainers {
         ])
     }
 
-    /// The API's own container. Docker sets `HOSTNAME` to the container's short id.
-    async fn api_container(&self) -> Result<String, ContainerError> {
+    /// The ids of every container that reaches a browser over its network: this process's own,
+    /// the engine, which reads pages over `DevTools`; every replica of the API, which relays the
+    /// stream and reads pages for connector checks; and nginx, which passes the media. The API's
+    /// replicas are its compose project's containers of the service [`API_SERVICE`]. Docker sets
+    /// `HOSTNAME` to the container's short id.
+    async fn members(&self) -> Result<Vec<String>, ContainerError> {
         let hostname = std::env::var("HOSTNAME").unwrap_or_default();
-        match self.docker.inspect_container(&hostname, None).await {
-            Ok(container) => Ok(container.id.unwrap_or(hostname)),
+        let own = match self.docker.inspect_container(&hostname, None).await {
+            Ok(container) => container,
             Err(error) if has_status(&error, 404) || hostname.is_empty() => {
-                Err(ContainerError::ApiContainerUnknown(hostname))
+                return Err(ContainerError::OwnContainerUnknown(hostname));
             }
-            Err(error) => Err(error.into()),
+            Err(error) => return Err(error.into()),
+        };
+        let project = own
+            .config
+            .as_ref()
+            .and_then(|config| config.labels.as_ref())
+            .and_then(|labels| labels.get(COMPOSE_PROJECT_LABEL))
+            .cloned();
+        let mut members = vec![own.id.unwrap_or(hostname)];
+
+        if let Some(project) = project {
+            let filters = HashMap::from([(
+                "label".to_owned(),
+                vec![
+                    format!("{COMPOSE_PROJECT_LABEL}={project}"),
+                    format!("{COMPOSE_SERVICE_LABEL}={API_SERVICE}"),
+                ],
+            )]);
+            let options = ListContainersOptionsBuilder::new()
+                .filters(&filters)
+                .build();
+            for api in self.docker.list_containers(Some(options)).await? {
+                members.extend(api.id);
+            }
         }
+        let nginx = self.docker.inspect_container(NGINX_CONTAINER, None).await?;
+        members.extend(nginx.id);
+        Ok(members)
     }
 }
 

@@ -14,8 +14,6 @@ use uuid::{Uuid, uuid};
 use crate::action_items::Actor;
 use crate::crypto::{Cipher, generate_key};
 use crate::database::migrations::{self, MigrationCommand};
-use crate::elysia::Elysia;
-use crate::elysia::runner::TurnRunner;
 
 /// The person tests act as. [`migrated_database`] creates their account, so rows naming
 /// them as creator satisfy `created_by`'s foreign key.
@@ -115,14 +113,11 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 }
 
 /// [`app_state`] keeping files through `storage`, such as the storage module's fake Bunny
-/// zone. The sessions service is built with it too, so the files Studio keeps land there.
+/// zone. It is built exactly as the API builds its own (`crate::services::build_state`), on
+/// connections of the test's own.
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture assembling every service the router needs, read top to bottom"
-)]
 pub async fn app_state_with_storage(
     database_url: &SecretString,
     storage: crate::storage::Storage,
@@ -131,10 +126,7 @@ pub async fn app_state_with_storage(
 
     use url::Url;
 
-    use crate::action_items::links::Links;
     use crate::config::{Config, MailConfig};
-    use crate::github::Github;
-    use crate::jira::Jira;
     use crate::realtime::{EVENTS_CHANNEL, EventBus};
     use crate::version::VersionInfo;
 
@@ -171,155 +163,27 @@ pub async fn app_state_with_storage(
     let redis = crate::connections::connect_redis(&redis_url)
         .await
         .expect("TEST_REDIS_URL accepts connections");
-    let cipher = Arc::new(cipher());
-    let http = reqwest::Client::new();
     // Through Redis, as in production, on a channel of this test's own: pub/sub channels span
     // the whole server, and every test shares it.
     let channel = format!("{EVENTS_CHANNEL}:test:{}", Uuid::now_v7().simple());
     let events = EventBus::connect_on(&redis_url, &channel)
         .await
         .expect("TEST_REDIS_URL accepts a subscription");
-    let shutdown = tokio_util::sync::CancellationToken::new();
-    let github = Github::new(http.clone());
-    let jira = Jira::new(http.clone());
-    let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
-    let mail = crate::server::build_mail(
-        &config,
-        http.clone(),
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-    )
-    .expect("mail services build without reaching anything");
-    // Its reconciler is never started, so no test reaches Docker through it.
-    let browsers = crate::server::build_browsers(
-        &config,
-        http.clone(),
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-    )
-    .expect("browsers build without reaching anything");
-
-    let activity = crate::activity::Activities::new();
-    let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
-    let updates = crate::updates::Updates::new(crate::updates::UpdatesDeps {
-        database: database.clone(),
-        events: events.clone(),
-        activity: activity.clone(),
-        http: http.clone(),
-        version: Arc::clone(&version),
-        encryption_key: config.encryption_key.clone(),
-    });
-    // Never started, so no test runs the CLI through it; the vault reads as unconfigured.
-    let passwords =
-        crate::server::build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
-    let (runner, sessions) = crate::server::build_agents(
-        &config,
-        crate::server::AgentServices {
-            database: database.clone(),
-            cipher: Arc::clone(&cipher),
-            events: events.clone(),
-            storage: storage.clone(),
-            activity: activity.clone(),
-            passwords: passwords.clone(),
-            turn_signal: crate::claude_accounts::TurnSignal::default(),
-        },
-        &shutdown,
-    )
-    .expect("the runner builds without reaching Docker");
-    // Its keeper is never started, so no test reaches Anthropic through it.
-    let claude_accounts =
-        crate::claude_accounts::ClaudeAccounts::new(crate::claude_accounts::ClaudeAccountsDeps {
-            database: database.clone(),
-            cipher: Arc::clone(&cipher),
-            events: events.clone(),
-            anthropic: crate::claude_accounts::oauth::Anthropic::new(http.clone()),
-            workspace: sessions.workspace().clone(),
-            turn_signal: crate::claude_accounts::TurnSignal::default(),
-        });
-    // Its loop is never started, so no test reaches Fireflies or the workspace through it.
-    let connector_activity =
-        crate::connectors::activity::Activity::new(database.clone(), events.clone());
-    let meetings = crate::meetings::Meetings::new(crate::meetings::MeetingsDeps {
-        database: database.clone(),
-        events: events.clone(),
-        activity: connector_activity.clone(),
-        cipher: Arc::clone(&cipher),
-        storage: storage.clone(),
-        runner: runner.clone(),
-        workspace: sessions.workspace().clone(),
-        http: http.clone(),
-    })
-    .expect("the meetings service builds without reaching anything");
-
-    // Never started, so no test reads a mailbox, a Confluence space, or a YouTrack site through
-    // them.
-    let connectors = crate::connectors::Connectors {
-        ingest: crate::connectors::ingest::Ingest::new(
-            database.clone(),
-            events.clone(),
-            crate::browser::devtools::Devtools::new(http.clone()),
-            connector_activity.clone(),
-        ),
-        confluence: crate::confluence::reader::Reader::new(crate::confluence::reader::ReaderDeps {
-            database: database.clone(),
-            cipher: Arc::clone(&cipher),
-            events: events.clone(),
-            activity: connector_activity.clone(),
-            confluence: crate::confluence::Confluence::new(http.clone()),
-        }),
-        youtrack: crate::youtrack::reader::YoutrackReader::new(
-            crate::youtrack::reader::ReaderDeps {
-                database: database.clone(),
-                events: events.clone(),
-                cipher: std::sync::Arc::clone(&cipher),
-                youtrack: crate::youtrack::Youtrack::new(http.clone()),
-                activity: connector_activity.clone(),
-            },
-        ),
-        activity: connector_activity,
-        check_runs: crate::connectors::checks::CheckRuns::new(events.clone()),
-    };
-
-    // Never started, and its dumps are fakes, so no test reaches Docker through it.
-    let backups = crate::backups::Backups::new(crate::backups::BackupsDeps {
-        database: database.clone(),
-        cipher: Arc::clone(&cipher),
-        storage: storage.clone(),
-        events: events.clone(),
-        activity: activity.clone(),
-        dumper: crate::backups::dump::Dumper::Fake { failing: None },
-        staging_directory: std::env::temp_dir().join(format!("elysium-backups-{}", Uuid::now_v7())),
-        shutdown: shutdown.clone(),
-    });
-
-    crate::state::AppState {
-        auth: crate::server::build_auth(&config, http),
-        backups,
-        browsers,
-        claude_accounts,
-        connectors,
+    let mut foundation = crate::services::Foundation::assemble(
+        config,
+        Arc::new(VersionInfo::from_build().expect("build metadata parses")),
+        Arc::new(cipher()),
         database,
-        activity,
         redis,
-        cipher,
-        version,
+        reqwest::Client::new(),
         events,
-        elysia: Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone()),
-        github,
-        issue_reports: crate::issue_reports::IssueReports::default(),
-        jira,
-        links,
-        mail,
-        meetings,
-        passwords,
-        runner,
-        sessions,
-        storage,
-        updates,
-        shutdown,
-    }
+    );
+    foundation.storage = storage;
+    // Nothing in it starts a loop, so no test reaches Docker, Kratos, or mail through it; the
+    // vault's requests go unanswered, since no engine runs.
+    let (state, _vault_replies) =
+        crate::server::build_state(&foundation).expect("the API's services build");
+    state
 }
 
 /// Signs [`TEST_PERSON_ID`] in for a router test, and returns the `Cookie` header to send.

@@ -41,11 +41,13 @@ use self::sign_in::{SignInError, SignIns};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::claude_account::{self, NewCredential, SavedSignIn, SignedIn};
-use crate::realtime::EventBus;
+use crate::realtime::{EventBus, Signal};
 use crate::runner::workspace::WorkspaceContainer;
 
 /// Rings when an agent turn finishes, so the keeper reads usage while it is fresh. Cheap to
 /// clone; clones ring the same bell. Ringing while nobody listens leaves one ring waiting.
+///
+/// In-process, since the runner and the keeper both run in the engine.
 #[derive(Debug, Clone, Default)]
 pub struct TurnSignal(Arc<Notify>);
 
@@ -95,8 +97,6 @@ pub(crate) struct Inner {
     events: EventBus,
     anthropic: Anthropic,
     sign_ins: SignIns,
-    /// Asks the keeper for a pass now.
-    wake: Notify,
     turn_signal: TurnSignal,
 }
 
@@ -119,7 +119,6 @@ impl ClaudeAccounts {
                 events: deps.events,
                 anthropic: deps.anthropic,
                 sign_ins: SignIns::new(deps.workspace),
-                wake: Notify::new(),
                 turn_signal: deps.turn_signal,
             }),
         }
@@ -130,9 +129,10 @@ impl ClaudeAccounts {
         &self.inner.sign_ins
     }
 
-    /// Asks the keeper for a pass now, such as right after an account was added.
+    /// Asks the keeper for a pass now, such as right after an account was added. The keeper
+    /// runs in the engine, so this is a [`Signal::ClaudeAccounts`] on the bus.
     pub fn request_pass(&self) {
-        self.inner.wake.notify_one();
+        self.inner.events.signal(&Signal::ClaudeAccounts);
     }
 
     /// Finishes `person`'s sign-in `id` with the code they pasted, learns whose account it is,
@@ -201,6 +201,9 @@ impl ClaudeAccounts {
     /// and whenever a turn finishes or a pass is requested.
     pub fn start(&self, shutdown: CancellationToken) -> JoinHandle<()> {
         let inner = Arc::clone(&self.inner);
+        let mut wake = inner
+            .events
+            .wake_on(|signal| *signal == Signal::ClaudeAccounts);
         tokio::spawn(async move {
             let mut ticks = tokio::time::interval(keeper::PASS_INTERVAL);
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -208,7 +211,7 @@ impl ClaudeAccounts {
                 tokio::select! {
                     () = shutdown.cancelled() => break,
                     _tick = ticks.tick() => {}
-                    () = inner.wake.notified() => {}
+                    () = wake.woken() => {}
                     () = inner.turn_signal.0.notified() => {}
                 }
                 keeper::run_pass(&inner).await;

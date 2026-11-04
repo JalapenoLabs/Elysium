@@ -52,7 +52,7 @@ use crate::models::connector::{self, AccountRef};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::initiative_link::{self, InitiativeLink};
 use crate::models::{action_item_comment, initiative, link_watch_cursor};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
 use crate::routes::v1::initiatives::InitiativeLinkResponse;
 
@@ -126,6 +126,10 @@ impl Watcher {
 /// [`WATCH_INTERVAL`] or whenever a write wakes it.
 async fn run(context: WatchContext, shutdown: CancellationToken) {
     event!(name: "links.watcher.started", Level::INFO, "link watcher started");
+    // Taken before the first pass, so a write made during any pass wakes the next one.
+    let mut wake = context
+        .events
+        .wake_on(|signal| *signal == Signal::LinkWatcher);
     loop {
         tokio::select! {
             () = shutdown.cancelled() => break,
@@ -134,7 +138,7 @@ async fn run(context: WatchContext, shutdown: CancellationToken) {
         tokio::select! {
             () = shutdown.cancelled() => break,
             () = tokio::time::sleep(WATCH_INTERVAL) => {}
-            () = context.links.woken() => {}
+            () = wake.woken() => {}
         }
     }
     event!(name: "links.watcher.stopped", Level::INFO, "link watcher stopped");

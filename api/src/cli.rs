@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Command line interface. With no subcommand the binary serves HTTP.
+//! Command line interfaces: `elysium-api`, which serves HTTP with no subcommand, and
+//! `elysium-engine`, which takes none.
 
 use clap::{Parser, Subcommand};
 
@@ -8,11 +9,16 @@ use crate::database::migrations::MigrationCommand;
 
 /// Elysium API server and maintenance commands.
 #[derive(Debug, Parser)]
-#[command(version, about)]
-pub struct Cli {
+#[command(name = "elysium-api", version)]
+pub struct ApiCli {
     #[command(subcommand)]
     pub command: Option<Command>,
 }
+
+/// Elysium's engine: every loop, schedule, and agent turn, beside the API.
+#[derive(Debug, Parser)]
+#[command(name = "elysium-engine", version)]
+pub struct EngineCli;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {

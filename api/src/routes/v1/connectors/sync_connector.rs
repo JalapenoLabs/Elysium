@@ -22,6 +22,6 @@ pub async fn handle(
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = path?;
     let stored = visible(&state, id, current.id()).await?;
-    kinds::sync(&state, &stored)?;
+    kinds::sync(&state, &stored).await?;
     Ok(StatusCode::ACCEPTED)
 }

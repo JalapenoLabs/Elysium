@@ -83,14 +83,31 @@ async fn require_grant(
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    let Some(granted) = token.and_then(|token| grants.find(token)) else {
-        event!(
-            name: "tools.endpoint.refused",
-            Level::WARN,
-            tool.server = server,
-            "a tool request carried no live grant",
-        );
-        return StatusCode::UNAUTHORIZED.into_response();
+    let found = match token {
+        Some(token) => grants.find(token).await,
+        None => Ok(None),
+    };
+    let granted = match found {
+        Ok(Some(granted)) => granted,
+        Ok(None) => {
+            event!(
+                name: "tools.endpoint.refused",
+                Level::WARN,
+                tool.server = server,
+                "a tool request carried no live grant",
+            );
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        Err(error) => {
+            event!(
+                name: "tools.endpoint.grant_unreadable",
+                Level::ERROR,
+                tool.server = server,
+                error.message = %format!("{error:#}"),
+                "a tool request's grant could not be checked",
+            );
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
     };
     if !granted
         .servers
@@ -248,15 +265,19 @@ mod tests {
             StatusCode::UNAUTHORIZED
         );
 
-        let grant = state.sessions.grants().grant(
-            CallScope::Session(SessionScope {
-                session_id: 1,
-                project_id: None,
-                action_item_id: None,
-                directory: WorkspacePath::new("sessions/1").expect("a path"),
-            }),
-            &[&work::SERVER],
-        );
+        let grant = state
+            .grants
+            .grant(
+                &CallScope::Session(SessionScope {
+                    session_id: 1,
+                    project_id: None,
+                    action_item_id: None,
+                    directory: WorkspacePath::new("sessions/1").expect("a path"),
+                }),
+                &[&work::SERVER],
+            )
+            .await
+            .expect("a grant is stored");
         let McpServer::Http { headers, .. } = &grant.mcp_servers()[0] else {
             panic!("tools are served over HTTP");
         };
@@ -277,7 +298,7 @@ mod tests {
             "the grant names the work tools alone"
         );
 
-        drop(grant);
+        grant.revoke().await;
         assert_eq!(
             initialize(&state, "elysium_work", Some(&token)).await,
             StatusCode::UNAUTHORIZED,

@@ -804,12 +804,16 @@ mod tests {
     async fn cancelling_a_running_turn_kills_it_and_says_so() {
         let fake = FakeWorkspace::with_scripts(vec![Script::hanging()]);
         let runner = runner(fake, vec![credential("first")]);
+        let turn_id = Uuid::now_v7();
         let mut ticket = runner
-            .submit(request(ConversationId::new(Uuid::now_v7()), "Wait"))
+            .submit_as(
+                turn_id,
+                request(ConversationId::new(Uuid::now_v7()), "Wait"),
+            )
             .expect("accepted");
         let started = ticket.events.recv().await.expect("started");
         assert!(matches!(started, RunnerEvent::TurnStarted { .. }));
-        assert!(runner.cancel(ticket.turn_id));
+        assert!(runner.cancel(turn_id));
         let (_events, outcome) = collect(ticket).await;
         assert_eq!(outcome.status, TurnStatus::Cancelled);
     }
@@ -824,15 +828,22 @@ mod tests {
             activity.clone(),
             tokio_util::sync::CancellationToken::new(),
         );
-        assert!(activity.is_idle());
+        assert!(activity.snapshot().is_empty());
+        let turn_id = Uuid::now_v7();
         let mut ticket = runner
-            .submit(request(ConversationId::new(Uuid::now_v7()), "Wait"))
+            .submit_as(
+                turn_id,
+                request(ConversationId::new(Uuid::now_v7()), "Wait"),
+            )
             .expect("accepted");
         ticket.events.recv().await.expect("started");
-        assert!(!activity.is_idle(), "auto-update must wait for the turn");
-        runner.cancel(ticket.turn_id);
+        assert!(
+            !activity.snapshot().is_empty(),
+            "auto-update must wait for the turn"
+        );
+        runner.cancel(turn_id);
         collect(ticket).await;
-        assert!(activity.is_idle());
+        assert!(activity.snapshot().is_empty());
     }
 
     #[tokio::test]

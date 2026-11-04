@@ -107,6 +107,7 @@ async fn failed_on_schedule(
         location,
         started_at,
         SYSTEM_USER_ID,
+        true,
     )
     .await
     .expect("an attempt begins");
@@ -160,7 +161,7 @@ async fn a_backup_stores_every_database_and_records_its_size() {
         Some(i64::try_from(bytes).expect("small"))
     );
     assert!(
-        fixture.activity.is_idle(),
+        fixture.activity.snapshot().is_empty(),
         "the backup's activity ended with it"
     );
     assert!(
@@ -255,6 +256,7 @@ async fn a_backup_cannot_begin_while_another_runs() {
         fixture.location.id,
         Utc::now().trunc_subsecs(0),
         SYSTEM_USER_ID,
+        true,
     )
     .await
     .expect("one is running");
@@ -310,6 +312,7 @@ async fn a_backup_cut_short_fails_at_the_next_start_and_leaves_nothing() {
         fixture.location.id,
         started_at,
         SYSTEM_USER_ID,
+        true,
     )
     .await
     .expect("one is running");
@@ -329,6 +332,49 @@ async fn a_backup_cut_short_fails_at_the_next_start_and_leaves_nothing() {
     assert_eq!(settled.status, DatabaseBackupStatus::Failed);
     assert_eq!(settled.error.as_deref(), Some(INTERRUPTED));
     assert!(stored_paths(&fixture.files).is_empty());
+}
+
+// Back up now is answered by the API, and the backup run by the engine: the row the API records
+// is what the engine takes, so one asked for while the engine was down still runs when it starts,
+// rather than counting as cut short.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_backup_asked_for_waits_for_the_engine_and_runs_when_it_starts() {
+    let mut fixture = fixture(None).await;
+    choose(&mut fixture.connection, Some(fixture.location.id)).await;
+
+    let asked = fixture
+        .backups
+        .begin(DatabaseBackupTrigger::Admin, TEST_PERSON_ID)
+        .await
+        .expect("asked for");
+    assert_eq!(asked.status, DatabaseBackupStatus::Running);
+    assert!(asked.claimed_at.is_none(), "no engine has taken it yet");
+
+    // An engine starting settles what an earlier one cut short, and leaves what is owed.
+    fixture
+        .backups
+        .settle_after_restart()
+        .await
+        .expect("settled");
+    let owed = database_backup::find(&mut fixture.connection, asked.id)
+        .await
+        .expect("read")
+        .expect("kept");
+    assert_eq!(owed.status, DatabaseBackupStatus::Running, "still owed");
+
+    fixture.backups.run_requested().await;
+    let finished = database_backup::find(&mut fixture.connection, asked.id)
+        .await
+        .expect("read")
+        .expect("kept");
+    assert_eq!(
+        finished.status,
+        DatabaseBackupStatus::Succeeded,
+        "{finished:?}"
+    );
+    assert!(finished.claimed_at.is_some());
+    assert_eq!(stored_paths(&fixture.files).len(), 3);
 }
 
 #[tokio::test]

@@ -14,6 +14,10 @@ pub mod sql_types {
     pub struct ActionItemState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "browser_state"))]
+    pub struct BrowserState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "bunny_storage_region"))]
     pub struct BunnyStorageRegion;
 
@@ -120,6 +124,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "s3_service"))]
     pub struct S3Service;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "session_turn_status"))]
+    pub struct SessionTurnStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
@@ -256,6 +264,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    agent_tool_grants (token_sha256) {
+        token_sha256 -> Bytea,
+        scope -> Jsonb,
+        servers -> Array<Nullable<Text>>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     authenticator_nicknames (user_id) {
         user_id -> Uuid,
         nickname -> Text,
@@ -266,6 +286,7 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::BrowserState;
 
     browser_sessions (id) {
         id -> Uuid,
@@ -277,6 +298,8 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         start_page_opened_at -> Nullable<Timestamptz>,
+        state -> BrowserState,
+        state_error -> Nullable<Text>,
     }
 }
 
@@ -413,6 +436,7 @@ diesel::table! {
         jira_credential_id -> Nullable<Uuid>,
         github_credential_id -> Nullable<Uuid>,
         content -> Jsonb,
+        syncing_since -> Nullable<Timestamptz>,
     }
 }
 
@@ -431,6 +455,7 @@ diesel::table! {
         size_bytes -> Nullable<Int8>,
         error -> Nullable<Text>,
         created_by -> Uuid,
+        claimed_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -927,6 +952,17 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    process_activities (process_id) {
+        process_id -> Uuid,
+        activities -> Jsonb,
+        expires_at -> Timestamptz,
+        created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
 
@@ -964,6 +1000,24 @@ diesel::table! {
         occurred_at -> Timestamptz,
         turn_id -> Nullable<Uuid>,
         payload -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SessionTurnStatus;
+
+    session_turns (id) {
+        id -> Uuid,
+        session_id -> Int8,
+        prompt -> Text,
+        system_prompt_append -> Nullable<Text>,
+        status -> SessionTurnStatus,
+        stop_requested -> Bool,
+        queued_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
     }
 }
 
@@ -1136,6 +1190,22 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    update_checks (singleton) {
+        singleton -> Bool,
+        newest_release -> Nullable<Text>,
+        last_checked_at -> Nullable<Timestamptz>,
+        last_check_error -> Nullable<Text>,
+        updater_seen_at -> Nullable<Timestamptz>,
+        requested_release -> Nullable<Text>,
+        requested_by -> Nullable<Uuid>,
+        updated_by -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     user_events (id) {
         id -> Uuid,
         user_id -> Nullable<Uuid>,
@@ -1191,6 +1261,7 @@ diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
+diesel::joinable!(agent_tool_grants -> users (created_by));
 diesel::joinable!(authenticator_nicknames -> users (user_id));
 diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
@@ -1255,9 +1326,12 @@ diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
+diesel::joinable!(process_activities -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
+diesel::joinable!(session_turns -> coding_sessions (session_id));
+diesel::joinable!(session_turns -> users (created_by));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
@@ -1288,6 +1362,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    agent_tool_grants,
     authenticator_nicknames,
     browser_sessions,
     changeset_operations,
@@ -1327,9 +1402,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_servers,
     meetings,
     password_vault,
+    process_activities,
     projects,
     secret_copies,
     session_events,
+    session_turns,
     storage_location_projects,
     storage_locations,
     studio_assets,
@@ -1340,6 +1417,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     timeline_records,
     token_accounts,
     turn_summaries,
+    update_checks,
     user_events,
     users,
     workspace_settings,

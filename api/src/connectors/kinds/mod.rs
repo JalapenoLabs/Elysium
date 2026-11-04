@@ -540,60 +540,37 @@ pub async fn update_content(
     }
 }
 
-/// Starts a sync of `connector` now, in the loop that reads its kind.
+/// Starts a sync of `connector` now. The engine reads every kind: Jira and GitHub in the link
+/// watcher's next pass, which is woken at once, and every other kind as its own read, which the
+/// connector shows as syncing until it ends.
 ///
 /// # Errors
 /// [`ApiError::Conflict`] when it is paused or already syncing.
-pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
+pub async fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
     if !connector.is_active {
         return Err(ApiError::Conflict(
             "the connector is paused; resume it to sync",
         ));
     }
-    let Some(syncing) = state.connectors.activity.begin(connector.id) else {
+    if connector.syncing_since.is_some() {
         return Err(ApiError::Conflict("the connector is already syncing"));
-    };
+    }
     match kind_of(connector)? {
         ConnectorKind::Jira | ConnectorKind::Github => {
             // The link watcher reads every Atlassian and GitHub account in one pass; waking it
             // reads this one at once.
             state.links.wake_watcher();
-            drop(syncing);
         }
         ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
-        | ConnectorKind::Slack => {
-            let ingest = state.connectors.ingest.clone();
-            let connector = connector.clone();
-            tokio::spawn(async move {
-                ingest.read_now(&connector).await;
-                drop(syncing);
-            });
-        }
-        ConnectorKind::Confluence => {
-            let reader = state.connectors.confluence.clone();
-            let connector = connector.clone();
-            tokio::spawn(async move {
-                reader.read_now(&connector).await;
-                drop(syncing);
-            });
-        }
-        ConnectorKind::Fireflies => {
-            let meetings = state.meetings.clone();
-            let connector = connector.clone();
-            tokio::spawn(async move {
-                meetings.sync(&connector).await;
-                drop(syncing);
-            });
-        }
-        ConnectorKind::Youtrack => {
-            let reader = state.connectors.youtrack.clone();
-            let connector = connector.clone();
-            tokio::spawn(async move {
-                reader.read_now(&connector).await;
-                drop(syncing);
-            });
+        | ConnectorKind::Slack
+        | ConnectorKind::Confluence
+        | ConnectorKind::Fireflies
+        | ConnectorKind::Youtrack => {
+            if !state.connectors.activity.request_sync(connector.id).await? {
+                return Err(ApiError::Conflict("the connector is already syncing"));
+            }
         }
     }
     Ok(())

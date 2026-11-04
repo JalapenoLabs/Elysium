@@ -17,6 +17,7 @@
 
 pub mod cli;
 pub mod items;
+pub mod remote;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use secrecy::{ExposeSecret, SecretString};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
@@ -134,7 +135,7 @@ pub struct Connected {
 }
 
 /// What the vault is doing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum VaultState {
     /// No vault is set up.
@@ -146,7 +147,7 @@ pub enum VaultState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultStatus {
     pub state: VaultState,
@@ -178,6 +179,9 @@ pub enum VaultError {
     NotReady,
     #[error("no collection is chosen for agents yet, so there is nothing they may read")]
     NoCollection,
+    /// The engine, which runs the vault, did not answer the API in time.
+    #[error("the engine, which runs the password vault, is not answering; try again shortly")]
+    Unreachable,
     #[error("item {0} is not a login in the collection agents may read")]
     NotInCollection(Uuid),
     #[error(transparent)]

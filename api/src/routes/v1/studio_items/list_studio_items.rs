@@ -50,6 +50,6 @@ pub async fn handle(
 
     Ok(Json(json!({
         "items": StudioItemResponse::many(items, &assets),
-        "sessions": session_responses(&state, sessions),
+        "sessions": session_responses(&state, sessions).await?,
     })))
 }

@@ -55,7 +55,8 @@ pub async fn rename(
         .context("no database connection available")?;
     let session = coding_session::rename(&mut connection, id, &body.title).await?;
 
-    let response = CodingSessionResponse::new(session, state.sessions.activity(id));
+    let activity = state.sessions.activity(id).await?;
+    let response = CodingSessionResponse::new(session, activity);
     state
         .events
         .publish(&ServerEvent::SessionUpserted(response.clone()));

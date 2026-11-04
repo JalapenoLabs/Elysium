@@ -17,5 +17,5 @@ pub async fn handle(
     _admin: AdminUser,
 ) -> Result<Json<Value>, ApiError> {
     state.passwords.sync().await.map_err(vault_error)?;
-    Ok(Json(json!({ "status": state.passwords.status() })))
+    Ok(Json(json!({ "status": state.passwords.status().await })))
 }

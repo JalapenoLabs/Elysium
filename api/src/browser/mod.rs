@@ -4,15 +4,18 @@
 //! themselves. See `docs/browser.md`.
 //!
 //! Each browser is a row in `browser_sessions` and one Neko container ([`container`]), with
-//! a media port from [`PORTS`] that nginx publishes. [`Browsers`] creates them, removes
-//! them, and keeps them in place: a reconciler checks every browser every
-//! [`RECONCILE_INTERVAL`], which also rejoins nginx to the browsers' networks after compose
-//! recreates it. Viewers watch through the stream route, which [`relay`]s Neko's signaling
-//! over a member session the API signs in to ([`neko`]).
+//! a media port from [`PORTS`] that nginx publishes. Viewers watch through the API's stream
+//! route, which [`relay`]s Neko's signaling over a member session it signs in to ([`neko`]).
 //!
-//! What each browser is doing is kept in memory, published as `browserSession.upserted`
-//! whenever it changes, and starts over as `starting` when the API restarts: the reconciler
-//! learns the truth within one pass.
+//! The engine runs the reconciler ([`Browsers::start`]): it brings every browser's container up
+//! to match its row, every [`RECONCILE_INTERVAL`] and whenever [`Signal::Browsers`] says one is
+//! owed, and rejoins nginx, the API, and itself to each browser's network after compose recreates
+//! them. The API adds a browser by storing its row and signalling, and resets or removes one
+//! itself, since the person waits for that. Every change to a browser's Docker resources, in
+//! either process, holds one advisory lock ([`DOCKER_LOCK`]), so two never race.
+//!
+//! What each browser is doing is stored on its row as the reconciler finds it, and published as
+//! `browserSession.upserted` whenever it changes.
 
 pub mod address;
 pub mod container;
@@ -20,7 +23,7 @@ pub mod devtools;
 pub mod neko;
 pub mod relay;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
@@ -40,8 +43,10 @@ use uuid::Uuid;
 
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::database::advisory::AdvisoryLock;
+pub use crate::models::browser_session::BrowserState;
 use crate::models::browser_session::{self, BrowserSession, NewBrowserSession};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use container::{BrowserContainers, BrowserSpec};
 use neko::{Neko, Upstream};
@@ -56,19 +61,12 @@ pub const PORTS: RangeInclusive<u16> = 59000..=59007;
 /// the next pass joins it back. A pass over every browser is a few Docker inspections.
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(10);
 
-const LOCK_POISONED: &str = "browser status lock poisoned by an earlier panic";
+const LOCK_POISONED: &str = "browser lock poisoned by an earlier panic";
 
-/// What a browser is doing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum BrowserState {
-    /// Its image is being pulled or its container started, or the API has not checked it
-    /// since it started.
-    Starting,
-    Running,
-    /// The last attempt to start or check it failed; the reconciler tries again.
-    Failed,
-}
+/// The advisory lock every change to a browser's Docker resources holds, in every process, so a
+/// browser being created, checked, reset, and removed at once never races itself. Eight browsers
+/// make one lock for all of them cheap.
+const DOCKER_LOCK: &str = "browsers:docker";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,6 +74,15 @@ pub struct BrowserStatus {
     pub state: BrowserState,
     /// Why it failed, when it did.
     pub error: Option<String>,
+}
+
+impl From<&BrowserSession> for BrowserStatus {
+    fn from(session: &BrowserSession) -> Self {
+        Self {
+            state: session.state,
+            error: session.state_error.clone(),
+        }
+    }
 }
 
 impl BrowserStatus {
@@ -138,14 +145,9 @@ struct Inner {
     containers: BrowserContainers,
     neko: Neko,
     public_url: Url,
-    statuses: Mutex<HashMap<Uuid, BrowserStatus>>,
     /// The last public address that resolved.
     public_address: Mutex<Option<IpAddr>>,
-    /// Held across every change to Docker, so a browser being created, checked, and removed
-    /// at once never races itself. Eight browsers make this cheap.
-    docker: tokio::sync::Mutex<()>,
-    /// The browsers whose start page is being opened, so the task that created one and a
-    /// reconcile pass do not both open it.
+    /// The browsers whose start page is being opened, so two passes do not both open it.
     opening_start_pages: Mutex<HashSet<Uuid>>,
 }
 
@@ -179,18 +181,21 @@ impl Browsers {
                 containers,
                 neko,
                 public_url,
-                statuses: Mutex::new(HashMap::new()),
                 public_address: Mutex::new(None),
-                docker: tokio::sync::Mutex::new(()),
                 opening_start_pages: Mutex::new(HashSet::new()),
             }),
         }
     }
 
-    /// Starts the reconciler, which runs one pass at once and then one every
-    /// [`RECONCILE_INTERVAL`] until `shutdown` is cancelled.
+    /// Starts the reconciler, which runs one pass at once, then one every
+    /// [`RECONCILE_INTERVAL`] and whenever a browser is owed one, until `shutdown` is
+    /// cancelled. The engine runs this.
     pub fn start(&self, shutdown: CancellationToken) -> JoinHandle<()> {
         let browsers = self.clone();
+        let mut wake = self
+            .inner
+            .events
+            .wake_on(|signal| *signal == Signal::Browsers);
         tokio::spawn(async move {
             browsers.check_engine().await;
             let mut interval = tokio::time::interval(RECONCILE_INTERVAL);
@@ -198,8 +203,10 @@ impl Browsers {
             loop {
                 tokio::select! {
                     () = shutdown.cancelled() => return,
-                    _tick = interval.tick() => browsers.reconcile().await,
+                    _tick = interval.tick() => {}
+                    () = wake.woken() => {}
                 }
+                browsers.reconcile().await;
             }
         })
     }
@@ -223,20 +230,28 @@ impl Browsers {
         }
     }
 
-    /// What the browser `id` is doing.
-    pub fn status(&self, id: Uuid) -> BrowserStatus {
-        self.inner
-            .statuses
-            .lock()
-            .expect(LOCK_POISONED)
-            .get(&id)
-            .cloned()
-            .unwrap_or(BrowserStatus::STARTING)
+    /// What the browser `id` is doing, as its row last recorded. A browser that cannot be read
+    /// reads as starting, which is what a check of it waits for.
+    pub async fn status(&self, id: Uuid) -> BrowserStatus {
+        match self.stored(id).await {
+            Ok(Some(session)) => BrowserStatus::from(&session),
+            Ok(None) => BrowserStatus::STARTING,
+            Err(error) => {
+                event!(
+                    name: "browser.status.unreadable",
+                    Level::WARN,
+                    browser.session.id = %id,
+                    error.message = %format!("{error:#}"),
+                    "cannot read what a browser is doing",
+                );
+                BrowserStatus::STARTING
+            }
+        }
     }
 
-    /// Stores a new browser on the lowest free port and starts it in the background, then
-    /// opens `start_url` in it once Chromium answers. A browser whose start page could not be
-    /// opened yet has it opened by a later reconcile pass.
+    /// Stores a new browser on the lowest free port and asks the engine for it: the engine
+    /// starts its container, then opens `start_url` in it once Chromium answers. A browser
+    /// whose start page could not be opened yet has it opened by a later reconcile pass.
     ///
     /// # Errors
     /// [`CreateError::PortsExhausted`] when every port is taken, or a database error.
@@ -293,12 +308,12 @@ impl Browsers {
         drop(connection);
         let session = stored.ok_or(CreateError::PortsExhausted)?;
 
-        self.set_status(&session, BrowserStatus::STARTING);
-        let browsers = self.clone();
-        let created = session.clone();
-        tokio::spawn(async move {
-            browsers.bring_up(&created).await;
-        });
+        self.inner
+            .events
+            .publish(&ServerEvent::BrowserSessionUpserted(
+                BrowserSessionResponse::new(session.clone(), BrowserStatus::STARTING),
+            ));
+        self.inner.events.signal(&Signal::Browsers);
         Ok(session)
     }
 
@@ -320,7 +335,7 @@ impl Browsers {
     async fn remove(&self, session: &BrowserSession) -> Result<(), DeleteError> {
         // Held until the row is gone too: a reconcile pass waiting for the lock checks the row
         // before it creates anything, and must find it deleted, not merely emptied.
-        let docker = self.inner.docker.lock().await;
+        let docker = AdvisoryLock::acquire(&self.inner.database, DOCKER_LOCK).await?;
         self.inner.containers.remove(session.id).await?;
         let mut connection = self
             .inner
@@ -332,13 +347,8 @@ impl Browsers {
             .await
             .context("cannot delete the browser's row")?;
         drop(connection);
-        drop(docker);
+        docker.release().await;
 
-        self.inner
-            .statuses
-            .lock()
-            .expect(LOCK_POISONED)
-            .remove(&session.id);
         self.inner
             .events
             .publish(&ServerEvent::BrowserSessionDeleted { id: session.id });
@@ -378,7 +388,7 @@ impl Browsers {
     ///
     /// Like a removal, the reset runs as its own task, so a viewer who gives up on the request
     /// does not stop it halfway. It answers once the old container and profile are gone; the
-    /// new ones start in the background and report through `browserSession.upserted`.
+    /// engine starts the new ones and reports them through `browserSession.upserted`.
     ///
     /// # Errors
     /// Fails when Docker refuses or the database is unavailable. Whatever was removed by then
@@ -392,7 +402,7 @@ impl Browsers {
     }
 
     async fn reset_profile(&self, session: &BrowserSession) -> Result<(), ResetError> {
-        let docker = self.inner.docker.lock().await;
+        let docker = AdvisoryLock::acquire(&self.inner.database, DOCKER_LOCK).await?;
         // Cleared before anything is removed, so whichever pass recreates the browser, this
         // task's or the reconciler's, also opens its start page in the empty profile.
         let mut connection = self
@@ -408,20 +418,16 @@ impl Browsers {
         self.inner.containers.reset_profile(session.id).await?;
         // Under the lock, so a reconcile pass cannot report it running before this reports it
         // starting.
-        self.set_status(session, BrowserStatus::STARTING);
-        drop(docker);
+        self.set_status(session, BrowserStatus::STARTING).await;
+        docker.release().await;
 
         event!(
             name: "browser.reset.done",
             Level::INFO,
             browser.session.id = %session.id,
-            "a browser's profile was emptied; starting it again",
+            "a browser's profile was emptied; the engine starts it again",
         );
-        let browsers = self.clone();
-        let session = session.clone();
-        tokio::spawn(async move {
-            browsers.bring_up(&session).await;
-        });
+        self.inner.events.signal(&Signal::Browsers);
         Ok(())
     }
 
@@ -462,7 +468,18 @@ impl Browsers {
     /// keep a signed-in profile running after its owner removed it, and keep its port's name
     /// on a network nginx is joined to.
     async fn sweep_orphans(&self) {
-        let docker = self.inner.docker.lock().await;
+        let docker = match AdvisoryLock::acquire(&self.inner.database, DOCKER_LOCK).await {
+            Ok(docker) => docker,
+            Err(error) => {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot take the browsers' lock to sweep for orphans",
+                );
+                return;
+            }
+        };
         let managed = match self.inner.containers.managed_session_ids().await {
             Ok(managed) => managed,
             Err(error) => {
@@ -506,7 +523,7 @@ impl Browsers {
                 );
             }
         }
-        drop(docker);
+        docker.release().await;
     }
 
     async fn list_all(&self) -> anyhow::Result<Vec<BrowserSession>> {
@@ -525,7 +542,7 @@ impl Browsers {
     async fn bring_up(&self, session: &BrowserSession) {
         let outcome = self.try_bring_up(session).await;
         match outcome {
-            Ok(BringUp::Running) => self.set_status(session, BrowserStatus::RUNNING),
+            Ok(BringUp::Running) => self.set_status(session, BrowserStatus::RUNNING).await,
             Ok(BringUp::Removed) => {
                 event!(
                     name: "browser.start.skipped",
@@ -549,7 +566,8 @@ impl Browsers {
                         state: BrowserState::Failed,
                         error: Some(message),
                     },
-                );
+                )
+                .await;
             }
         }
     }
@@ -566,16 +584,18 @@ impl Browsers {
             member_password,
         };
 
-        let docker = self.inner.docker.lock().await;
+        // Pulled before the lock, which a pull of minutes would otherwise hold up.
+        self.inner.containers.ensure_image().await?;
+        let docker = AdvisoryLock::acquire(&self.inner.database, DOCKER_LOCK).await?;
         // A removal may have run while this waited for the lock; bringing the browser back
         // then would leave a container no row owns. The row read here is also the current
         // word on whether its start page is still owed.
         let Some(current) = self.stored(session.id).await? else {
+            docker.release().await;
             return Ok(BringUp::Removed);
         };
-        self.inner.containers.ensure_image().await?;
         self.inner.containers.ensure(&spec).await?;
-        drop(docker);
+        docker.release().await;
 
         if current.start_page_opened_at.is_none() {
             self.open_start_page(&current).await?;
@@ -668,22 +688,39 @@ impl Browsers {
         Ok(stored)
     }
 
-    /// Records the browser's status and publishes it when it changed.
-    fn set_status(&self, session: &BrowserSession, status: BrowserStatus) {
-        let previous = self
-            .inner
-            .statuses
-            .lock()
-            .expect(LOCK_POISONED)
-            .insert(session.id, status.clone());
-        if previous.as_ref() == Some(&status) {
-            return;
+    /// Records the browser's status on its row, and publishes it when it changed.
+    async fn set_status(&self, session: &BrowserSession, status: BrowserStatus) {
+        let recorded = async {
+            let mut connection = self.inner.database.get().await?;
+            anyhow::Ok(
+                browser_session::set_state(
+                    &mut connection,
+                    session.id,
+                    status.state,
+                    status.error.as_deref(),
+                )
+                .await?,
+            )
+        };
+        match recorded.await {
+            Ok(Some(changed)) => {
+                let status = BrowserStatus::from(&changed);
+                self.inner
+                    .events
+                    .publish(&ServerEvent::BrowserSessionUpserted(
+                        BrowserSessionResponse::new(changed, status),
+                    ));
+            }
+            // Already so, or removed meanwhile.
+            Ok(None) => {}
+            Err(error) => event!(
+                name: "browser.status.unrecorded",
+                Level::WARN,
+                browser.session.id = %session.id,
+                error.message = %format!("{error:#}"),
+                "cannot record what a browser is doing",
+            ),
         }
-        self.inner
-            .events
-            .publish(&ServerEvent::BrowserSessionUpserted(
-                BrowserSessionResponse::new(session.clone(), status),
-            ));
     }
 }
 

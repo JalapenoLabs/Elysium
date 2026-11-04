@@ -29,6 +29,7 @@ pub async fn handle(
                 code: "nothing_newer",
                 message: "no newer release is known; check for one first",
             },
+            RequestError::Internal(error) => ApiError::Internal(error),
         })?;
     let status = state.updates.status().await?;
     Ok(Json(json!({ "updates": status })))

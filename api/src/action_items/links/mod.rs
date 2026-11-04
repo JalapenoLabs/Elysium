@@ -29,7 +29,6 @@ use std::sync::Arc;
 use chrono::{DateTime, NaiveDate, Utc};
 use futures_util::future::BoxFuture;
 use serde::Serialize;
-use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::crypto::Cipher;
@@ -42,6 +41,7 @@ use crate::models::action_item_link::{
     ActionItemLink, LinkKind, LinkProvider, LinkState, Observation,
 };
 use crate::models::initiative_link::{ContainerKind, InitiativeLink};
+use crate::realtime::{EventBus, Signal};
 
 use self::github::GithubProvider;
 use self::jira::JiraProvider;
@@ -273,13 +273,13 @@ pub trait Provider: Send + Sync {
     ) -> BoxFuture<'call, Result<(), LinkError>>;
 }
 
-/// Every provider, and the signal that wakes the watcher. Cheap to clone; clones share the
-/// providers and the signal.
+/// Every provider, and the bus that wakes the watcher. Cheap to clone; clones share the
+/// providers.
 #[derive(Clone)]
 pub struct Links {
     jira: Arc<JiraProvider>,
     github: Arc<GithubProvider>,
-    wake: Arc<Notify>,
+    events: EventBus,
 }
 
 impl std::fmt::Debug for Links {
@@ -294,7 +294,14 @@ impl std::fmt::Debug for Links {
 
 impl Links {
     /// Links through `jira` and `github`, which share their HTTP clients with the callers'.
-    pub fn new(database: Pool, cipher: Arc<Cipher>, jira: &Jira, github: &Github) -> Self {
+    /// The watcher is woken over `events`, wherever it runs.
+    pub fn new(
+        database: Pool,
+        cipher: Arc<Cipher>,
+        jira: &Jira,
+        github: &Github,
+        events: EventBus,
+    ) -> Self {
         Self {
             jira: Arc::new(JiraProvider::new(
                 jira.clone(),
@@ -302,7 +309,7 @@ impl Links {
                 Arc::clone(&cipher),
             )),
             github: Arc::new(GithubProvider::new(github.clone(), database, cipher)),
-            wake: Arc::new(Notify::new()),
+            events,
         }
     }
 
@@ -315,14 +322,9 @@ impl Links {
     }
 
     /// Asks the watcher for a pass now rather than at its next interval, after a write that
-    /// owes the provider something or links a container.
+    /// owes the provider something or links a container. The watcher runs in the engine, so
+    /// this is a [`Signal::LinkWatcher`] on the bus.
     pub fn wake_watcher(&self) {
-        self.wake.notify_one();
-    }
-
-    /// Resolves when [`Links::wake_watcher`] is called. At most one wake is kept while the
-    /// watcher is busy, since one pass serves every request made during it.
-    pub async fn woken(&self) {
-        self.wake.notified().await;
+        self.events.signal(&Signal::LinkWatcher);
     }
 }

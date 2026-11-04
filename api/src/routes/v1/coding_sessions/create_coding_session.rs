@@ -154,31 +154,34 @@ pub async fn create(
         .into_iter()
         .map(repository_to_clone)
         .collect();
-    let started = start(state, &session, &clones, first_turn).await;
+    let started = start(state, &session, &clones, first_turn, actor).await;
     if let Err(error) = started {
         discard(state, &session).await;
         return Err(error);
     }
 
-    let response = CodingSessionResponse::new(session.clone(), state.sessions.activity(session.id));
+    let activity = state.sessions.activity(session.id).await?;
+    let response = CodingSessionResponse::new(session.clone(), activity);
     state
         .events
         .publish(&ServerEvent::SessionUpserted(response.clone()));
     Ok(response)
 }
 
-/// Clones the session's repositories, then queues its first turn when it has one.
+/// Clones the session's repositories, then queues its first turn, from `actor`, when it has
+/// one.
 async fn start(
     state: &AppState,
     session: &CodingSession,
     clones: &[RepositoryClone],
     first_turn: Option<String>,
+    actor: Uuid,
 ) -> Result<(), ApiError> {
     state.sessions.prepare(session, clones).await?;
     if let Some(prompt) = first_turn {
         state
             .sessions
-            .start_turn(session, prompt, TurnExtras::default())
+            .start_turn(session, prompt, TurnExtras::default(), actor)
             .await?;
     }
     Ok(())

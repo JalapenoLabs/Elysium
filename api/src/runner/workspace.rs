@@ -143,6 +143,23 @@ impl WorkspaceContainer {
         }
     }
 
+    /// Whether the container runs now. The API asks before it works in the workspace, which
+    /// only the engine creates and replaces ([`Self::ensure_running`]): two processes doing so
+    /// at once would race.
+    ///
+    /// # Errors
+    /// Propagates Docker's refusal, other than the container not existing.
+    pub async fn is_running(&self) -> Result<bool, WorkspaceError> {
+        match self.docker.inspect_container(CONTAINER_NAME, None).await {
+            Ok(existing) => Ok(existing
+                .state
+                .and_then(|state| state.running)
+                .unwrap_or(false)),
+            Err(error) if has_status(&error, 404) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     async fn ensure_image(&self) -> Result<(), WorkspaceError> {
         match self.docker.inspect_image(&self.image).await {
             Ok(_) => return Ok(()),

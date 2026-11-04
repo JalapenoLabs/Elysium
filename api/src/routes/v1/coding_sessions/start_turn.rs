@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::validate_not_blank;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::coding_session;
 use crate::sessions::TurnExtras;
@@ -38,24 +39,25 @@ pub struct StartTurnRequest {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<i64>, PathRejection>,
     body: Result<Json<StartTurnRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Path(id) = path?;
     let Json(body) = body?;
-    let turn = start_turn(&state, id, body).await?;
+    let turn = start_turn(&state, id, body, current.id()).await?;
     Ok((StatusCode::CREATED, Json(json!({ "turn": turn }))))
 }
 
-/// Sends a prompt to session `id`, queued behind any turn it has unfinished.
+/// Sends `by`'s prompt to session `id`, queued behind any turn it has unfinished.
 ///
 /// # Errors
-/// The request's validation errors, `404` for an unknown session, and `503` while Elysium
-/// shuts down.
+/// The request's validation errors, and `404` for an unknown session.
 pub async fn start_turn(
     state: &AppState,
     id: i64,
     body: StartTurnRequest,
+    by: uuid::Uuid,
 ) -> Result<TurnView, ApiError> {
     body.validate()?;
 
@@ -75,6 +77,6 @@ pub async fn start_turn(
     };
     state
         .sessions
-        .start_turn(&session, body.prompt, extras)
+        .start_turn(&session, body.prompt, extras, by)
         .await
 }

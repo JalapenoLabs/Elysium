@@ -108,7 +108,7 @@ pub async fn handle(
     };
     if let Err(turn_error) = state
         .sessions
-        .start_turn(&opened, body.prompt, session::turn_extras())
+        .start_turn(&opened, body.prompt, session::turn_extras(), current.id())
         .await
     {
         state.sessions.remove(opened.id).await;
@@ -126,7 +126,8 @@ pub async fn handle(
         forget_item(&state, item.id).await;
         return Err(turn_error);
     }
-    let session = CodingSessionResponse::new(opened.clone(), state.sessions.activity(opened.id));
+    let activity = state.sessions.activity(opened.id).await?;
+    let session = CodingSessionResponse::new(opened.clone(), activity);
     state
         .events
         .publish(&ServerEvent::SessionUpserted(session.clone()));

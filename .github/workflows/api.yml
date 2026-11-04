@@ -223,11 +223,13 @@ jobs:
       - name: Build the image
         run: docker build --file api/Dockerfile --target app --tag "${IMAGE}" .
 
-      # Booting the server needs Postgres, Redis, and an encryption key. Running
-      # the CLI still proves the runtime stage: the binary starts and finds every
-      # library it links.
-      - name: Run the binary in the image
-        run: docker run --rm "${IMAGE}" elysium-api --help
+      # Booting either process needs Postgres, Redis, and an encryption key. Running
+      # each CLI still proves the runtime stage: both binaries start and find every
+      # library they link.
+      - name: Run the binaries in the image
+        run: |
+          docker run --rm "${IMAGE}" elysium-api --help
+          docker run --rm "${IMAGE}" elysium-engine --help
 
       # The API refuses to start without the build FRONTEND_DIR names, so a missing
       # one would otherwise surface only when a deployment boots.

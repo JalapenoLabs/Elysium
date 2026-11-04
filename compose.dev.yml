@@ -42,8 +42,8 @@ services:
       - ./frontend/vite.config.ts:/app/vite.config.ts
 
   # A local tag, so a development build never shadows the published image. It builds the
-  # image the API runs too, since every path to `api` starts it first: one service builds
-  # each image, as the top of compose.yml explains.
+  # image the API and the engine run too, since every path to either starts it first: one
+  # service builds each image, as the top of compose.yml explains.
   migrate:
     image: elysium-api
     build: *api-build
@@ -54,12 +54,19 @@ services:
     pull_policy: never
     environment:
       WORKSPACE_IMAGE: elysium-workspace:dev
+
+  engine:
+    image: elysium-api
+    # Built by migrate; there is nothing to pull.
+    pull_policy: never
+    environment:
+      WORKSPACE_IMAGE: elysium-workspace:dev
     depends_on:
       workspace-image:
         condition: service_completed_successfully
 
-  # Builds the agent workspace's image from this checkout and exits. The API creates and runs
-  # the workspace container itself, from this tag.
+  # Builds the agent workspace's image from this checkout and exits. The engine creates and
+  # runs the workspace container itself, from this tag.
   workspace-image:
     image: elysium-workspace:dev
     build:

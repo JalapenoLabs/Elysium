@@ -12,14 +12,13 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tracing::{Level, event};
 use url::Url;
 
 use super::WorkspaceSettingsResponse;
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
 use crate::models::user::{self, WorkspaceSettingsChanges};
-use crate::realtime::ServerEvent;
+use crate::realtime::{ServerEvent, Signal};
 use crate::state::AppState;
 
 /// The longest repository URL kept, as the column's check allows.
@@ -68,17 +67,8 @@ pub async fn handle(
     drop(connection);
 
     if repository_changes {
-        let runner = state.runner.clone();
-        tokio::spawn(async move {
-            if let Err(error) = runner.refresh_configuration().await {
-                event!(
-                    name: "runner.configuration.refresh_failed",
-                    Level::ERROR,
-                    error.message = %format!("{error:#}"),
-                    "the new configuration repository could not be fetched",
-                );
-            }
-        });
+        // The runner is the engine's; it fetches the new repository into the workspace.
+        state.events.signal(&Signal::AgentConfiguration);
     }
 
     let response = WorkspaceSettingsResponse::from(settings);

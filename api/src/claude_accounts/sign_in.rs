@@ -136,6 +136,8 @@ pub enum SignInError {
     TooMany,
     #[error("the workspace is not available: {0}")]
     Workspace(#[from] WorkspaceError),
+    #[error("the workspace is not running yet; the engine starts it, so try again shortly")]
+    WorkspaceNotRunning,
     /// The CLI refused, with its own words, such as an invalid code.
     #[error("{0}")]
     Refused(String),
@@ -165,9 +167,10 @@ struct Pending {
 
 /// Sign-ins in progress. Cheap to clone; clones share the same pending sign-ins.
 ///
-/// What is pending is kept in memory, because the CLI processes it tracks live only as long as
-/// the workspace container does and the API runs as one replica. After an API restart, a person
-/// simply starts again.
+/// What is pending is kept in memory, in the API process that started it, because the CLI
+/// processes it tracks live only as long as the workspace container does. After an API restart,
+/// a person simply starts again. It is one of the things that keep the API to one replica:
+/// finishing a sign-in must reach the replica that started it.
 #[derive(Debug, Clone)]
 pub struct SignIns {
     workspace: WorkspaceContainer,
@@ -196,7 +199,10 @@ impl SignIns {
             }
         }
 
-        self.workspace.ensure_running().await?;
+        // The engine creates and replaces the workspace; a sign-in only runs in it.
+        if !self.workspace.is_running().await? {
+            return Err(SignInError::WorkspaceNotRunning);
+        }
         let id = Uuid::now_v7();
         let directory = directory(id);
         let lifetime = SIGN_IN_LIFETIME.as_secs().to_string();

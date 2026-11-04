@@ -179,11 +179,6 @@ impl Meetings {
         })
     }
 
-    /// Every meeting source's client, for a kind's checks and sign-in.
-    pub fn sources(&self) -> &Sources {
-        &self.inner.sources
-    }
-
     /// Lists one connector's new meetings now and carries every unfinished meeting forward,
     /// for a sync someone asked for.
     pub async fn sync(&self, connector: &Connector) {
@@ -414,9 +409,10 @@ impl Meetings {
     /// shows as syncing meanwhile, and a meeting that ends done or failed is a run of it.
     async fn carry(&self, mut current: Meeting) {
         let started = Utc::now();
-        let _syncing = current
-            .connector_id
-            .and_then(|connector_id| self.inner.activity.begin(connector_id));
+        let _syncing = match current.connector_id {
+            Some(connector_id) => self.inner.activity.begin(connector_id).await,
+            None => None,
+        };
         loop {
             let id = current.id;
             let step = match current.state() {
@@ -931,6 +927,7 @@ mod tests {
             jira_credential_id: None,
             github_credential_id: None,
             content: json!({}),
+            syncing_since: None,
         }
     }
 

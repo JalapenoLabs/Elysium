@@ -129,8 +129,24 @@ impl fmt::Display for ConversationId {
 }
 
 /// A directory inside the workspace, relative to [`WORKSPACE_ROOT`], such as `sessions/12`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Serialized as the relative path, and checked again when read back.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub struct WorkspacePath(String);
+
+impl From<WorkspacePath> for String {
+    fn from(path: WorkspacePath) -> Self {
+        path.0
+    }
+}
+
+impl TryFrom<String> for WorkspacePath {
+    type Error = InvalidWorkspacePath;
+
+    fn try_from(relative: String) -> Result<Self, Self::Error> {
+        Self::new(relative)
+    }
+}
 
 /// A [`WorkspacePath`] was absolute, empty, or tried to leave the workspace.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -226,7 +242,6 @@ pub enum TurnMode {
 /// A submitted turn.
 #[derive(Debug)]
 pub struct TurnTicket {
-    pub turn_id: Uuid,
     /// Ends after exactly one [`RunnerEvent::Finished`].
     pub events: mpsc::Receiver<RunnerEvent>,
 }
@@ -386,10 +401,23 @@ impl Runner {
     /// # Errors
     /// [`ShuttingDown`] once Elysium has begun to stop.
     pub fn submit(&self, request: TurnRequest) -> Result<TurnTicket, ShuttingDown> {
+        self.submit_as(Uuid::now_v7(), request)
+    }
+
+    /// [`Runner::submit`] under the id `turn_id`, for a caller whose turn already has one,
+    /// such as a session's queued turn: its events, its cancellation, and the runner's logs
+    /// then all name the same turn.
+    ///
+    /// # Errors
+    /// [`ShuttingDown`] once Elysium has begun to stop.
+    pub fn submit_as(
+        &self,
+        turn_id: Uuid,
+        request: TurnRequest,
+    ) -> Result<TurnTicket, ShuttingDown> {
         if self.inner.shutdown.is_cancelled() {
             return Err(ShuttingDown);
         }
-        let turn_id = Uuid::now_v7();
         let (sender, receiver) = mpsc::channel(EVENT_BUFFER);
         let cancellation = self.inner.shutdown.child_token();
         lock(&self.inner.cancellations).insert(turn_id, cancellation.clone());
@@ -417,10 +445,7 @@ impl Runner {
                 .tracker
                 .spawn(async move { runner.drain(conversation).await });
         }
-        Ok(TurnTicket {
-            turn_id,
-            events: receiver,
-        })
+        Ok(TurnTicket { events: receiver })
     }
 
     /// Cancels a queued or running turn. It finishes as cancelled; `false` means no such

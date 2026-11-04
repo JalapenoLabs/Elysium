@@ -8,25 +8,25 @@
 //! [`files::DIRECTORY`]. After a backup succeeds, backups older than [`files::RETENTION_DAYS`]
 //! are removed from it.
 //!
-//! A backup starts three ways, all through [`Backups::begin`] or [`Backups::back_up`]:
+//! Backups run in the engine ([`Backups::start`]). One starts three ways:
 //!
 //! - the nightly schedule, checked every [`CHECK_INTERVAL`] against the pure
-//!   [`schedule::decide`];
+//!   [`schedule::decide`] ([`Backups::back_up`]);
 //! - an admin's Back up now, on Settings, Backups (`POST /api/v1/backups`);
 //! - the deployment's own tooling, before it changes the stack (`POST /internal/backups`).
 //!
-//! One runs at a time, guarded in this process and by a unique index on `database_backups`,
-//! and it holds an activity ([`crate::activity`]) while it runs, so auto-update never restarts
-//! the stack under it. Every attempt is a `database_backups` row, and every change is published
-//! as `backups.status`.
+//! The last two are the API's: [`Backups::begin`] records the backup as running, untaken, and
+//! signals the engine ([`Signal::Backups`]), which takes it and runs it. A backup asked for while
+//! the engine is down waits for it, rather than being lost.
+//!
+//! One runs at a time, guarded by a unique index on `database_backups`, and it holds an activity
+//! ([`crate::activity`]) while it runs, so auto-update never restarts the stack under it. Every
+//! attempt is a `database_backups` row, and every change is published as `backups.status`.
 //!
 //! Nothing fails silently. Every failure is logged at error level and recorded with its reason;
 //! what the attempt uploaded is removed again, so the location only ever holds whole backups. A
 //! night whose every scheduled attempt failed raises an inbox item. A night with no location
 //! chosen backs up nothing, which Settings shows and the log warns of once a night.
-//!
-//! This is a background loop of the API's today; it holds its own dependencies, so it moves into
-//! the engine (`docs/engine.md`) whole.
 
 pub mod dump;
 pub mod files;
@@ -43,7 +43,6 @@ use diesel_async::pooled_connection::deadpool::Object;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use secrecy::SecretString;
 use serde::Serialize;
-use tokio::sync::OwnedMutexGuard;
 use tokio::task::JoinHandle;
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
@@ -60,7 +59,7 @@ use crate::models::database_backup::{
 };
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::user::{self, SYSTEM_USER_ID};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
 use crate::storage::Storage;
 use dump::Dumper;
@@ -82,7 +81,7 @@ pub const STAGING_DIRECTORY: &str = "/var/lib/elysium/backups";
 const IDENTITY_DATABASES: [&str; 2] = ["kratos", "hydra"];
 
 /// Why a backup that a restart cut short failed.
-const INTERRUPTED: &str = "The API stopped before the backup finished.";
+const INTERRUPTED: &str = "The engine stopped before the backup finished.";
 
 /// The media type every dump is stored with: `pg_dump`'s custom format is binary.
 const DUMP_CONTENT_TYPE: &str = "application/octet-stream";
@@ -175,7 +174,7 @@ pub struct BackupsDeps {
     pub dumper: Dumper,
     /// Normally [`STAGING_DIRECTORY`].
     pub staging_directory: PathBuf,
-    /// Cancelled when the API shuts down; a running backup stops and is recorded as failed.
+    /// Cancelled when the engine shuts down; a running backup stops and is recorded as failed.
     pub shutdown: CancellationToken,
 }
 
@@ -197,19 +196,15 @@ impl std::fmt::Debug for Backups {
 
 struct Inner {
     deps: BackupsDeps,
-    /// Held for the whole of a backup, so a second trigger is told one is running.
-    running: Arc<tokio::sync::Mutex<()>>,
     /// The slot the log last warned had no location to back up to, so it warns once a night.
     warned_for_slot: Mutex<Option<DateTime<Utc>>>,
 }
 
-/// A backup about to run: its row, where it goes, what it dumps, and the guard that keeps
-/// another from starting until it ends.
+/// A backup about to run: its row, where it goes, and what it dumps.
 struct Prepared {
     backup: DatabaseBackup,
     location: StorageLocation,
     databases: Vec<String>,
-    guard: OwnedMutexGuard<()>,
 }
 
 impl Backups {
@@ -217,16 +212,21 @@ impl Backups {
         Self {
             inner: Arc::new(Inner {
                 deps,
-                running: Arc::new(tokio::sync::Mutex::new(())),
                 warned_for_slot: Mutex::new(None),
             }),
         }
     }
 
-    /// Settles what an earlier process left running, then checks the schedule now and every
-    /// [`CHECK_INTERVAL`] until shutdown.
+    /// Settles what an earlier engine left running, then runs every backup someone asks for,
+    /// and checks the schedule now and every [`CHECK_INTERVAL`], until shutdown. The engine
+    /// runs this.
     pub fn start(&self) -> JoinHandle<()> {
         let backups = self.clone();
+        let mut wake = self
+            .inner
+            .deps
+            .events
+            .wake_on(|signal| *signal == Signal::Backups);
         tokio::spawn(async move {
             if let Err(error) = backups.settle_after_restart().await {
                 event!(
@@ -244,13 +244,15 @@ impl Backups {
                 tokio::select! {
                     () = shutdown.cancelled() => return,
                     _ = interval.tick() => backups.check_schedule().await,
+                    () = wake.woken() => {}
                 }
+                backups.run_requested().await;
             }
         })
     }
 
-    /// Begins a backup and answers at once with its row, while it runs in the background. Its
-    /// outcome is published as `backups.status` and read back with [`Backups::find`].
+    /// Asks the engine for a backup and answers at once with its row, while the engine runs
+    /// it. Its outcome is published as `backups.status` and read back with [`Backups::find`].
     ///
     /// # Errors
     /// [`BeginError::AlreadyRunning`] while another runs, [`BeginError::NoDestination`] when no
@@ -260,11 +262,9 @@ impl Backups {
         trigger: DatabaseBackupTrigger,
         by: Uuid,
     ) -> Result<DatabaseBackup, BeginError> {
-        let prepared = self.prepare(trigger, by).await?;
-        let backup = prepared.backup.clone();
-        let backups = self.clone();
-        tokio::spawn(async move { backups.perform(prepared).await });
-        Ok(backup)
+        let prepared = self.prepare(trigger, by, false).await?;
+        self.inner.deps.events.signal(&Signal::Backups);
+        Ok(prepared.backup)
     }
 
     /// Backs up and answers once the backup ended, with how it ended. A failed backup is an
@@ -277,8 +277,48 @@ impl Backups {
         trigger: DatabaseBackupTrigger,
         by: Uuid,
     ) -> Result<DatabaseBackup, BeginError> {
-        let prepared = self.prepare(trigger, by).await?;
+        let prepared = self.prepare(trigger, by, true).await?;
         Ok(self.perform(prepared).await)
+    }
+
+    /// Runs the backup someone asked for, if one waits for the engine. One at a time, so at
+    /// most one waits.
+    async fn run_requested(&self) {
+        let claimed = async {
+            let mut connection = self.connection().await?;
+            let Some(backup) = database_backup::claim_requested(&mut connection).await? else {
+                return Ok(None);
+            };
+            let location_id = backup
+                .storage_location_id
+                .context("the backup's storage location was deleted before it ran")?;
+            let location = storage_location::find(&mut connection, location_id).await?;
+            let databases = databases(&mut connection).await?;
+            anyhow::Ok(Some(Prepared {
+                backup,
+                location,
+                databases,
+            }))
+        };
+        match claimed.await {
+            Ok(Some(prepared)) => {
+                event!(
+                    name: "backups.run.taken",
+                    Level::INFO,
+                    backup.id = %prepared.backup.id,
+                    backup.trigger = ?prepared.backup.trigger,
+                    "backing up the databases, as asked",
+                );
+                self.perform(prepared).await;
+            }
+            Ok(None) => {}
+            Err(error) => event!(
+                name: "backups.run.take_failure",
+                Level::ERROR,
+                error.message = %format!("{error:#}"),
+                "could not take the backup someone asked for; trying again shortly",
+            ),
+        }
     }
 
     /// One backup, by id.
@@ -409,16 +449,13 @@ impl Backups {
         }
     }
 
-    /// Records a backup beginning, holding the guard that keeps another from starting.
+    /// Records a backup beginning: taken by this engine when `claimed`, or waiting for it.
     async fn prepare(
         &self,
         trigger: DatabaseBackupTrigger,
         by: Uuid,
+        claimed: bool,
     ) -> Result<Prepared, BeginError> {
-        let guard = Arc::clone(&self.inner.running)
-            .try_lock_owned()
-            .map_err(|_held| BeginError::AlreadyRunning)?;
-
         let mut connection = self.connection().await?;
         let settings = user::workspace_settings(&mut connection).await?;
         let location_id = settings
@@ -428,14 +465,21 @@ impl Backups {
         let databases = databases(&mut connection).await?;
         // To the second: the start names the backup's files, and the row must name them too.
         let started_at = Utc::now().trunc_subsecs(0);
-        let backup = database_backup::begin(&mut connection, trigger, location.id, started_at, by)
-            .await
-            .map_err(|error| match error {
-                DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
-                    BeginError::AlreadyRunning
-                }
-                other => other.into(),
-            })?;
+        let backup = database_backup::begin(
+            &mut connection,
+            trigger,
+            location.id,
+            started_at,
+            by,
+            claimed,
+        )
+        .await
+        .map_err(|error| match error {
+            DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
+                BeginError::AlreadyRunning
+            }
+            other => other.into(),
+        })?;
         drop(connection);
 
         event!(
@@ -451,7 +495,6 @@ impl Backups {
             backup,
             location,
             databases,
-            guard,
         })
     }
 
@@ -462,7 +505,6 @@ impl Backups {
             backup,
             location,
             databases,
-            guard,
         } = prepared;
         let _activity = self.inner.deps.activity.begin(
             ActivityKind::DatabaseBackup,
@@ -527,8 +569,6 @@ impl Backups {
                 self.report_failure(&finished, &location).await;
             }
         }
-        // Released before publishing, so the status shows nothing running.
-        drop(guard);
         self.publish_status().await;
         finished
     }
@@ -729,7 +769,7 @@ impl Backups {
         }
     }
 
-    /// Fails every backup an earlier process left running, and removes what it uploaded.
+    /// Fails every backup an earlier engine left running, and removes what it uploaded.
     async fn settle_after_restart(&self) -> Result<()> {
         let mut connection = self.connection().await?;
         let interrupted = database_backup::fail_running(&mut connection, INTERRUPTED).await?;

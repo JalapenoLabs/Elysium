@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::Sessions;
+use super::queue::TurnQueue;
 use super::views::TurnSummaryView;
 use crate::models::turn_summary;
 use crate::realtime::ServerEvent;
@@ -154,7 +154,7 @@ fn truncated(text: &str, limit: usize) -> String {
 
 /// Asks for the summary of a turn, records it, and announces it.
 pub(super) async fn summarize(
-    sessions: &Sessions,
+    queue: &TurnQueue,
     session_id: i64,
     turn_id: Uuid,
     digest: &Digest,
@@ -171,7 +171,7 @@ pub(super) async fn summarize(
         );
     };
 
-    let Ok(mut ticket) = sessions
+    let Ok(mut ticket) = queue
         .inner
         .runner
         .submit(request(session_id, digest, outcome))
@@ -201,6 +201,7 @@ pub(super) async fn summarize(
         return;
     };
 
+    let sessions = &queue.inner.sessions;
     let recorded = match sessions.inner.database.get().await {
         Ok(mut connection) => turn_summary::record(&mut connection, session_id, turn_id, &summary)
             .await
@@ -265,7 +266,7 @@ mod tests {
         assert_ne!(request.conversation, ConversationId::for_session(12));
         assert_ne!(
             request.working_directory.absolute(),
-            Sessions::directory(12).absolute()
+            crate::sessions::Sessions::directory(12).absolute()
         );
     }
 

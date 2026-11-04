@@ -180,6 +180,20 @@ backup_databases() {
     | xargs -r rm -rf
 }
 
+# Stops every service that holds a connection to the databases, of those the installed
+# configuration defines: a release that predates one, such as the engine, does not name it.
+stop_database_clients() {
+  defined="$(docker compose config --services)" || return 1
+  clients=""
+  for service in nginx api engine kratos hydra; do
+    if printf '%s\n' "$defined" | grep -qx "$service"; then
+      clients="$clients $service"
+    fi
+  done
+  # shellcheck disable=SC2086 # one word per service, by design
+  docker compose stop $clients > /dev/null
+}
+
 # Recreates each database from the backup, so tables a failed release's migrations added are
 # gone too. Everything that holds a connection is stopped first. Postgres is brought up from the
 # configuration installed for the release returned to, which may name another image, so every
@@ -187,7 +201,7 @@ backup_databases() {
 restore_databases() {
   directory="$1"
   names="$(databases)" || return 1
-  docker compose stop nginx api kratos hydra > /dev/null || return 1
+  stop_database_clients || return 1
   docker compose up --detach --wait postgres > /dev/null || return 1
   for database in $names; do
     docker compose exec -T postgres sh -c \
@@ -216,7 +230,9 @@ api_is() {
 }
 
 # Puts the running release back. `restore` is the backup to restore the databases from, or
-# empty when the stack was never touched.
+# empty when the stack was never touched. What the failed release runs is stopped first, while
+# its configuration still names it: the one returned to may not name every service, such as the
+# engine, and one it does not name would keep writing while the databases are restored.
 rollback() {
   target="$1"
   running="$2"
@@ -224,7 +240,8 @@ rollback() {
   reason="$4"
   log "rolling back to $running: $reason"
 
-  if staging="$(stage_bundle "$running")" && install_bundle "$staging" && set_version "$running" \
+  if { [ -z "$restore" ] || stop_database_clients; } \
+    && staging="$(stage_bundle "$running")" && install_bundle "$staging" && set_version "$running" \
     && { [ -z "$restore" ] || restore_databases "$restore"; } \
     && bring_up; then
     report "rolled-back $target $reason"

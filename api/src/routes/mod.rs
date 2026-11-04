@@ -57,7 +57,7 @@ fn agent_tools(state: &AppState) -> Router<AppState> {
         workspace: state.sessions.workspace().clone(),
         passwords: state.passwords.clone(),
     };
-    tools::endpoint::router(&context, state.sessions.grants(), &state.shutdown)
+    tools::endpoint::router(&context, &state.grants, &state.shutdown)
 }
 
 async fn not_found() -> ApiError {

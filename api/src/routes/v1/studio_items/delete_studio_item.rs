@@ -52,7 +52,7 @@ pub async fn handle(
     drop(connection);
 
     for session in &sessions {
-        state.sessions.stop(session.id);
+        state.sessions.stop(session.id).await;
     }
 
     if !query.permanently {

@@ -2,41 +2,34 @@
 
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
-//! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), the event bus's Redis subscription, the agent runner, the link watcher,
-//! Elysia's intake, the update checker, router, listener. Shutdown order is the reverse: a
-//! signal cancels the shutdown token, which ends every event stream, agent turn, the link
-//! watcher, and the update checker; the server stops accepting and drains in-flight requests;
-//! the watchers are awaited; the event bus flushes what they published last; then the
-//! Postgres pool closes and the Redis connection drops.
+//! The API serves clients alone, the web app, its `/api`, and MCP clients, and runs no
+//! background work: that is the engine's (`crate::engine`). Whatever a request starts that
+//! outlives it, it records in Postgres for the engine to take, and signals the engine on the bus.
+//!
+//! Startup order: the shared foundation (`crate::services::Foundation`: configuration,
+//! encryption key, schema check, store connections, and the event bus's subscriptions), the
+//! services requests reach, router, listener. Shutdown order is the reverse: a signal cancels
+//! the shutdown token, which ends every event stream; the server stops accepting and drains
+//! in-flight requests; then the event bus flushes what they published last, the Postgres pool
+//! closes, and the Redis connection drops.
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
-use bollard::{API_DEFAULT_VERSION, Docker};
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
+use tokio::task::JoinHandle;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::timeout::TimeoutLayer;
 use tracing::{Level, event};
 
-use crate::action_items::links::Links;
-use crate::action_items::watcher::{WatchContext, Watcher};
-use crate::activity::Activities;
-use crate::auth::kratos::Kratos;
-use crate::auth::{Auth, hook_key, identity_schemas};
-use crate::backups::dump::{Dumper, POSTGRES_CONTAINER};
 use crate::backups::{self, Backups, BackupsDeps};
-use crate::browser::Browsers;
-use crate::browser::container::BrowserContainers;
 use crate::browser::devtools::Devtools;
-use crate::browser::neko::Neko;
 use crate::claude_accounts::oauth::Anthropic;
 use crate::claude_accounts::{ClaudeAccounts, ClaudeAccountsDeps, TurnSignal};
 use crate::config::Config;
@@ -46,296 +39,28 @@ use crate::connectors::Connectors;
 use crate::connectors::activity::Activity;
 use crate::connectors::checks::CheckRuns;
 use crate::connectors::ingest::Ingest;
-use crate::crypto::Cipher;
-use crate::database::Pool;
-use crate::database::migrations;
-use crate::elysia::Elysia;
-use crate::elysia::runner::TurnRunner;
-use crate::github::Github;
-use crate::jira::Jira;
-use crate::mail::Mail;
-use crate::mail::broker::Broker;
-use crate::mail::dns::DnsChecker;
-use crate::mail::hosting::Hosting;
-use crate::mail::stalwart::Stalwart;
-use crate::mail::stalwart::container::StalwartContainer;
-use crate::meetings::{Meetings, MeetingsDeps};
-use crate::models::secret_copy;
-use crate::oauth::hydra::Hydra;
-use crate::passwords::{self, Passwords, PasswordsDeps};
-use crate::realtime::EventBus;
-use crate::runner::Runner;
-use crate::runner::workspace::WorkspaceContainer;
+use crate::issue_reports::IssueReports;
+use crate::meetings::sources::Sources;
+use crate::passwords::remote::RemoteVault;
+use crate::services::{self, Foundation};
 use crate::sessions::{Sessions, SessionsDeps};
 use crate::state::AppState;
-use crate::storage::Storage;
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
-use crate::version::VersionInfo;
 use crate::youtrack::Youtrack;
 use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
-use crate::{connections, middleware, routes, shutdown, web_app};
-
-/// How long one Docker call may take. Pulling the mail server's image is one call, and
-/// can take minutes on a slow connection.
-const DOCKER_TIMEOUT_SECONDS: u64 = 600;
-
-/// How long one Docker call may take for a backup. A dump is one attached exec stream that
-/// stays open until `pg_dump` has written every table, which on a large database takes a while.
-const BACKUP_DOCKER_TIMEOUT_SECONDS: u64 = 2 * 60 * 60;
-
-/// How long one Docker call may take for the runner. A turn's output is one attached exec
-/// stream that stays open for the whole turn, and the client's timeout covers a request end
-/// to end, so it must outlast the longest turn. Hung turns are stopped by the runner's own
-/// heartbeat long before this.
-const RUNNER_DOCKER_TIMEOUT_SECONDS: u64 = 24 * 60 * 60;
+use crate::{middleware, routes, web_app};
 
 /// Serves the API until a shutdown signal arrives.
 ///
 /// # Errors
 /// Fails on invalid configuration, an invalid encryption key, pending migrations,
 /// unreachable stores, or a listener that cannot bind.
-#[expect(
-    clippy::too_many_lines,
-    reason = "startup is one ordered sequence, and reads best top to bottom in one place"
-)]
 pub async fn serve() -> Result<()> {
-    let config = Config::from_env().context("configuration is invalid")?;
-    let version = Arc::new(VersionInfo::from_build()?);
+    let foundation = Foundation::connect("elysium-api").await?;
+    let config = Arc::clone(&foundation.config);
+    let (state, vault_replies) = build_state(&foundation)?;
 
-    event!(
-        name: "api.startup.begin",
-        Level::INFO,
-        service.name = version.name,
-        service.version = version.version,
-        vcs.ref.head.revision = version.git.commit.as_ref().map_or("", |commit| commit.short_hash.as_str()),
-        "starting",
-    );
-
-    let cipher = Arc::new(
-        Cipher::from_base64_key(&config.encryption_key)
-            .context("ELYSIUM_ENCRYPTION_KEY is invalid")?,
-    );
-
-    let database =
-        connections::connect_postgres(&config.database_url, config.database_max_connections)
-            .await?;
-    migrations::ensure_up_to_date(config.database_url.clone()).await?;
-    // Secrets a migration copied are re-sealed for their own rows before anything reads one.
-    {
-        let mut connection = database
-            .get()
-            .await
-            .context("no database connection to re-seal copied secrets")?;
-        let resealed = secret_copy::reseal_all(&mut connection, &cipher)
-            .await
-            .context("cannot read the secrets migrations copied")?;
-        if resealed > 0 {
-            event!(
-                name: "secrets.copies.resealed",
-                Level::INFO,
-                secret.count = resealed,
-                "re-sealed {{secret.count}} copied secrets for their own rows",
-            );
-        }
-    }
-    let redis = connections::connect_redis(&config.redis_url).await?;
-
-    // One HTTP client for every outbound call: the OAuth broker, Stalwart, GitHub, and
-    // storage providers share its connection pool.
-    let http = reqwest::Client::builder()
-        .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("cannot build the HTTP client")?;
-    let storage = Storage::new(http.clone());
-
-    let github = Github::new(http.clone());
-    let jira = Jira::new(http.clone());
-    let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
-
-    let shutdown = CancellationToken::new();
-    // Subscribed before anything can publish or any stream can open, so nothing published from
-    // here on is missed by this process's listeners.
-    let events = EventBus::connect(&config.redis_url).await?;
-    // Where every loop that reads a connector reports its syncs.
-    let connector_activity = Activity::new(database.clone(), events.clone());
-    let watch = WatchContext {
-        database: database.clone(),
-        events: events.clone(),
-        links: links.clone(),
-        activity: connector_activity.clone(),
-    };
-    let watcher = Watcher::start(watch, shutdown.clone());
-    let mail = build_mail(
-        &config,
-        http.clone(),
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-    )?;
-    // Brings an existing mail server back up; pulling its image may take a while, so
-    // the API does not wait for it.
-    let hosting = mail.hosting.clone();
-    tokio::spawn(async move { hosting.reconcile().await });
-    let browsers = build_browsers(
-        &config,
-        http.clone(),
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-    )?;
-    // Brings every browser back up, and keeps them up, until shutdown.
-    let browser_reconciler = browsers.start(shutdown.clone());
-    // Reads every mailbox connector through its browser, onto the timeline.
-    let mailbox_reader = Ingest::new(
-        database.clone(),
-        events.clone(),
-        Devtools::new(http.clone()),
-        connector_activity.clone(),
-    );
-    let ingest = mailbox_reader.start(shutdown.clone());
-    // Reads every Confluence connector's spaces, onto the timeline.
-    let confluence_reader = ConfluenceReader::new(ConfluenceReaderDeps {
-        database: database.clone(),
-        cipher: Arc::clone(&cipher),
-        events: events.clone(),
-        activity: connector_activity.clone(),
-        confluence: Confluence::new(http.clone()),
-    });
-    let confluence_loop = confluence_reader.start(shutdown.clone());
-    // Reads every YouTrack connector with its owner's token, onto the timeline.
-    let youtrack_reader = YoutrackReader::new(ReaderDeps {
-        database: database.clone(),
-        events: events.clone(),
-        cipher: Arc::clone(&cipher),
-        youtrack: Youtrack::new(http.clone()),
-        activity: connector_activity.clone(),
-    });
-    let youtrack_loop = youtrack_reader.start(shutdown.clone());
-
-    let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
-    // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
-    let vault_keeper = passwords.start(shutdown.clone());
-
-    let activity = Activities::new();
-    let updates = Updates::new(UpdatesDeps {
-        database: database.clone(),
-        events: events.clone(),
-        activity: activity.clone(),
-        http: http.clone(),
-        version: Arc::clone(&version),
-        encryption_key: config.encryption_key.clone(),
-    });
-    let update_checks = updates.start(shutdown.clone());
-    let backups = Backups::new(BackupsDeps {
-        database: database.clone(),
-        cipher: Arc::clone(&cipher),
-        storage: storage.clone(),
-        events: events.clone(),
-        activity: activity.clone(),
-        dumper: build_dumper(&config)?,
-        staging_directory: PathBuf::from(backups::STAGING_DIRECTORY),
-        shutdown: shutdown.clone(),
-    });
-    // Backs the databases up every night, until shutdown.
-    let backup_schedule = backups.start();
-    let turn_signal = TurnSignal::default();
-    let (runner, sessions) = build_agents(
-        &config,
-        AgentServices {
-            database: database.clone(),
-            cipher: Arc::clone(&cipher),
-            events: events.clone(),
-            storage: storage.clone(),
-            activity: activity.clone(),
-            passwords: passwords.clone(),
-            turn_signal: turn_signal.clone(),
-        },
-        &shutdown,
-    )?;
-    // Refreshes every signed-in Claude account and reads its usage, until shutdown. Sign-ins run
-    // the CLI in the same workspace the runner uses.
-    let claude_accounts = ClaudeAccounts::new(ClaudeAccountsDeps {
-        database: database.clone(),
-        cipher: Arc::clone(&cipher),
-        events: events.clone(),
-        anthropic: Anthropic::new(http.clone()),
-        workspace: sessions.workspace().clone(),
-        turn_signal,
-    });
-    let account_keeper = claude_accounts.start(shutdown.clone());
-    // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
-    // would otherwise wait for both.
-    let preparing = runner.clone();
-    tokio::spawn(async move {
-        if let Err(error) = preparing.prepare().await {
-            event!(
-                name: "runner.workspace.unavailable",
-                Level::ERROR,
-                error.message = %format!("{error:#}"),
-                "the agent workspace could not be prepared; turns retry when they start",
-            );
-        }
-    });
-
-    // Meetings, segmented by text turns on the runner and cut into clips in its workspace.
-    let meetings = Meetings::new(MeetingsDeps {
-        database: database.clone(),
-        events: events.clone(),
-        activity: connector_activity.clone(),
-        cipher: Arc::clone(&cipher),
-        storage: storage.clone(),
-        runner: runner.clone(),
-        workspace: sessions.workspace().clone(),
-        http: http.clone(),
-    })?;
-    let meeting_loop = meetings.start(shutdown.clone());
-
-    // After the runner, which runs her turns.
-    let elysia = Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone());
-    let elysia_tasks = elysia.start(
-        database.clone(),
-        events.clone(),
-        passwords.clone(),
-        shutdown.clone(),
-    );
-
-    let auth = build_auth(&config, http.clone());
-    // Moves identities created before names were split onto the current schema.
-    let identity_migration = identity_schemas::start(auth.kratos.clone(), shutdown.clone());
-
-    let state = AppState {
-        auth,
-        backups,
-        browsers,
-        claude_accounts,
-        connectors: Connectors {
-            ingest: mailbox_reader,
-            confluence: confluence_reader,
-            youtrack: youtrack_reader,
-            activity: connector_activity,
-            check_runs: CheckRuns::new(events.clone()),
-        },
-        database: database.clone(),
-        activity,
-        redis: redis.clone(),
-        cipher,
-        version,
-        events: events.clone(),
-        elysia,
-        github,
-        issue_reports: crate::issue_reports::IssueReports::default(),
-        jira,
-        links,
-        mail,
-        meetings,
-        passwords,
-        runner: runner.clone(),
-        sessions: sessions.clone(),
-        storage,
-        updates,
-        shutdown: shutdown.clone(),
-    };
     let rate_limiter = middleware::rate_limit::build();
     let app = build_router(&config, Arc::clone(&rate_limiter.limiter), &state)?.with_state(state);
 
@@ -349,291 +74,141 @@ pub async fn serve() -> Result<()> {
         "listening",
     );
 
+    let signalled = foundation.clone();
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(async move {
-        shutdown::signal().await;
-        // Event streams never finish on their own; ending them here is what lets the
-        // drain below complete instead of waiting for Docker's kill timeout.
-        shutdown.cancel();
-    })
+    // Event streams never finish on their own; cancelling the shutdown token ends them, which
+    // is what lets the drain complete instead of waiting for Docker's kill timeout.
+    .with_graceful_shutdown(async move { signalled.shutdown_signal().await })
     .await
     .context("http server failed")?;
 
-    runner.shutdown().await;
-    sessions.shutdown().await;
-    event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
-    watcher.stopped().await;
-    if let Err(error) = account_keeper.await {
-        event!(
-            name: "claude_accounts.keeper.join_failed",
-            Level::ERROR,
-            error.message = %error,
-            "the Claude account keeper ended abnormally",
-        );
-    }
-    if let Err(error) = vault_keeper.await {
-        event!(
-            name: "passwords.vault.join.failure",
-            Level::ERROR,
-            error.message = %error,
-            "the password vault's keeper ended abnormally",
-        );
-    }
-    if let Err(error) = ingest.await {
-        event!(
-            name: "connectors.ingest.join.failed",
-            Level::ERROR,
-            error.message = %error,
-            "the connector ingest loop ended abnormally",
-        );
-    }
-    if let Err(error) = confluence_loop.await {
-        event!(
-            name: "confluence.loop.join.failed",
-            Level::ERROR,
-            error.message = %error,
-            "the Confluence reader ended abnormally",
-        );
-    }
-    if let Err(error) = youtrack_loop.await {
-        event!(
-            name: "youtrack.loop.join.failed",
-            Level::ERROR,
-            error.message = %error,
-            "the YouTrack reader loop ended abnormally",
-        );
-    }
-    if let Err(error) = meeting_loop.await {
-        event!(
-            name: "meetings.loop.join.failed",
-            Level::ERROR,
-            error.message = %error,
-            "the meetings loop ended abnormally",
-        );
-    }
-    if let Err(error) = browser_reconciler.await {
-        event!(
-            name: "browser.reconcile.join.failed",
-            Level::ERROR,
-            error.message = %error,
-            "the browser reconciler ended abnormally",
-        );
-    }
-    elysia_tasks.stopped().await;
-    if let Err(error) = backup_schedule.await {
-        event!(
-            name: "backups.shutdown.failure",
-            Level::ERROR,
-            error.message = %error,
-            "the backup schedule did not stop cleanly",
-        );
-    }
-    if let Err(error) = identity_migration.await {
-        event!(
-            name: "auth.identities.migrate.join_failed",
-            Level::ERROR,
-            error.message = %error,
-            "the identity schema migration ended abnormally",
-        );
-    }
-    if let Err(error) = update_checks.await {
-        event!(
-            name: "updates.shutdown.failure",
-            Level::ERROR,
-            error.message = %error,
-            "the update checker did not stop cleanly",
-        );
-    }
-    // Last of all, once nothing is left to publish: what the loops announced on their way out
-    // still reaches every other process's clients.
-    events.close().await;
-
-    // serve() returning means every in-flight request has finished and the router,
-    // with its copies of the handles, is gone. Closing the pool drops its idle
-    // connections; the Redis manager is a multiplexed socket that closes when its
-    // last handle drops, which is this one.
+    // serve() returning means every in-flight request has finished and the router, with its
+    // copies of the handles, is gone.
     rate_limiter.sweeper.abort();
-    database.close();
-    event!(name: "connection.close.success", Level::INFO, db.system.name = "postgres", "store connection closed");
-    drop(redis);
-    event!(name: "connection.close.success", Level::INFO, db.system.name = "redis", "store connection closed");
+    if let Err(error) = vault_replies.await {
+        event!(
+            name: "passwords.remote.join_failed",
+            Level::ERROR,
+            error.message = %error,
+            "the password vault's answers ended abnormally",
+        );
+    }
+    foundation.close().await;
     event!(name: "api.shutdown.complete", Level::INFO, "shutdown complete");
-
     Ok(())
 }
 
-/// Kratos, and what requests are checked against. See `crate::auth`.
-pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
-    Auth {
-        kratos: Kratos::new(
-            http.clone(),
-            config.kratos_public_url.clone(),
-            config.kratos_admin_url.clone(),
-        ),
-        hydra: Hydra::new(http, config.hydra_admin_url.clone()),
-        hook_key: hook_key::derive(&config.encryption_key),
-        public_url: config.public_url.clone(),
-    }
-}
-
-/// What dumps the databases for backups: `pg_dump` in the Postgres container `compose.yml`
-/// names, through Docker.
-fn build_dumper(config: &Config) -> Result<Dumper> {
-    // Connecting is lazy: nothing reaches Docker until the first backup.
-    let docker = Docker::connect_with_http(
-        config.docker.as_str().trim_end_matches('/'),
-        BACKUP_DOCKER_TIMEOUT_SECONDS,
-        API_DEFAULT_VERSION,
-    )
-    .context("DOCKER_URL is invalid")?;
-    Ok(Dumper::Docker {
-        docker,
-        container: POSTGRES_CONTAINER.to_owned(),
-    })
-}
-
-/// What the runner and the sessions service share with the rest of the API.
-#[derive(Clone)]
-pub(crate) struct AgentServices {
-    pub database: Pool,
-    pub cipher: Arc<Cipher>,
-    pub events: EventBus,
-    pub storage: Storage,
-    /// Where running turns say the stack is busy.
-    pub activity: Activities,
-    /// The password vault, whose tools turns are granted and whose secrets they are scrubbed of.
-    pub passwords: Passwords,
-    /// Rung after every turn, for the Claude account keeper.
-    pub turn_signal: TurnSignal,
-}
-
-/// The runner, whose turns run in the workspace container through Docker, and the sessions
-/// service that runs sessions' turns on it.
-pub(crate) fn build_agents(
-    config: &Config,
-    services: AgentServices,
-    shutdown: &CancellationToken,
-) -> Result<(Runner, Sessions)> {
-    // Connecting is lazy: nothing reaches Docker until the workspace is prepared.
-    let docker = Docker::connect_with_http(
-        config.docker.as_str().trim_end_matches('/'),
-        RUNNER_DOCKER_TIMEOUT_SECONDS,
-        API_DEFAULT_VERSION,
-    )
-    .context("DOCKER_URL is invalid")?;
-    let workspace = WorkspaceContainer::new(docker, config.workspace_image.clone());
-    let runner = Runner::new(
-        workspace.clone(),
-        services.database.clone(),
-        Arc::clone(&services.cipher),
-        services.activity,
-        services.turn_signal,
-        shutdown,
-    );
-    let sessions = Sessions::new(SessionsDeps {
-        database: services.database,
-        cipher: services.cipher,
-        events: services.events,
-        runner: runner.clone(),
-        workspace,
-        grants: Grants::new(),
-        storage: services.storage,
-        passwords: services.passwords,
-    });
-    Ok((runner, sessions))
-}
-
-/// The mail services. The broker and Stalwart share `http`.
-pub(crate) fn build_mail(
-    config: &Config,
-    http: reqwest::Client,
-    database: Pool,
-    cipher: Arc<Cipher>,
-    events: EventBus,
-) -> Result<Mail> {
-    let mail_config = &config.mail;
-
-    let broker = mail_config.oauth_broker.clone().map(|public_url| {
-        let internal_url = mail_config
-            .oauth_broker_internal
-            .clone()
-            .unwrap_or_else(|| public_url.clone());
-        Broker::new(http.clone(), public_url, internal_url)
-    });
-    let stalwart = Stalwart::new(http);
-
-    let docker = build_docker(config)?;
-    let hosting = Hosting::new(
-        database,
-        cipher,
-        events,
-        stalwart.clone(),
-        StalwartContainer::new(docker),
-        mail_config.ingress_address,
-    );
-    let dns = DnsChecker::from_system().context("cannot read the resolver configuration")?;
-
-    event!(
-        name: "mail.services.configured",
-        Level::INFO,
-        mail.broker = broker.is_some(),
-        mail.docker.url = %config.docker,
-        mail.ingress.address = ?mail_config.ingress_address,
-        "mail services configured",
-    );
-    Ok(Mail {
-        broker,
-        stalwart,
-        hosting,
-        dns,
-    })
-}
-
-/// The filtered Docker API the mail server and the browsers run through. Connecting is lazy:
-/// nothing reaches Docker until one of them is needed.
+/// Everything a request reaches, on `foundation`, and the task that hands the password vault's
+/// answers to the requests waiting for them, which ends with the shutdown token.
 ///
 /// # Errors
-/// Fails when `DOCKER_URL` is not a URL Docker can be reached at.
-fn build_docker(config: &Config) -> Result<Docker> {
-    Docker::connect_with_http(
-        config.docker.as_str().trim_end_matches('/'),
-        DOCKER_TIMEOUT_SECONDS,
-        API_DEFAULT_VERSION,
-    )
-    .context("DOCKER_URL is invalid")
-}
+/// Fails when `DOCKER_URL` is not a URL, or a client cannot be built.
+pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHandle<()>)> {
+    let config = &foundation.config;
+    let database = &foundation.database;
+    let cipher = &foundation.cipher;
+    let events = &foundation.events;
+    let http = &foundation.http;
 
-/// The password vault, run through the CLI the API image carries, on its own loopback.
-pub(crate) fn build_passwords(database: Pool, cipher: Arc<Cipher>, events: EventBus) -> Passwords {
-    Passwords::new(PasswordsDeps {
-        database,
-        cipher,
-        events,
-        binary: PathBuf::from(passwords::CLI_BINARY),
-        directory: PathBuf::from(passwords::CLI_DIRECTORY),
-        serve_port: passwords::cli::SERVE_PORT,
-    })
-}
-
-/// The browsers the host streams. They share `http` with every other outbound call.
-pub(crate) fn build_browsers(
-    config: &Config,
-    http: reqwest::Client,
-    database: Pool,
-    cipher: Arc<Cipher>,
-    events: EventBus,
-) -> Result<Browsers> {
-    Ok(Browsers::new(
-        database,
-        cipher,
-        events,
-        BrowserContainers::new(build_docker(config)?, &config.encryption_key),
-        Neko::new(http),
-        config.public_url.clone(),
-    ))
+    let workspace = services::build_workspace(config)?;
+    let connector_activity = Activity::new(database.clone(), events.clone());
+    let (passwords, vault_replies) = RemoteVault::start(
+        events.clone(),
+        Arc::clone(cipher),
+        foundation.shutdown.clone(),
+    );
+    let state = AppState {
+        auth: services::build_auth(config, http.clone()),
+        backups: Backups::new(BackupsDeps {
+            database: database.clone(),
+            cipher: Arc::clone(cipher),
+            storage: foundation.storage.clone(),
+            events: events.clone(),
+            // The API holds no work of its own; a backup it asks for runs in the engine.
+            activity: crate::activity::Activities::new(),
+            dumper: services::build_dumper(config)?,
+            staging_directory: backups::STAGING_DIRECTORY.into(),
+            shutdown: foundation.shutdown.clone(),
+        }),
+        browsers: services::build_browsers(
+            config,
+            http.clone(),
+            database.clone(),
+            Arc::clone(cipher),
+            events.clone(),
+        )?,
+        claude_accounts: ClaudeAccounts::new(ClaudeAccountsDeps {
+            database: database.clone(),
+            cipher: Arc::clone(cipher),
+            events: events.clone(),
+            anthropic: Anthropic::new(http.clone()),
+            workspace: workspace.clone(),
+            // Turns finish in the engine, whose keeper hears them; the API's never rings.
+            turn_signal: TurnSignal::default(),
+        }),
+        connectors: Connectors {
+            ingest: Ingest::new(
+                database.clone(),
+                events.clone(),
+                Devtools::new(http.clone()),
+                connector_activity.clone(),
+            ),
+            confluence: ConfluenceReader::new(ConfluenceReaderDeps {
+                database: database.clone(),
+                cipher: Arc::clone(cipher),
+                events: events.clone(),
+                activity: connector_activity.clone(),
+                confluence: Confluence::new(http.clone()),
+            }),
+            youtrack: YoutrackReader::new(ReaderDeps {
+                database: database.clone(),
+                events: events.clone(),
+                cipher: Arc::clone(cipher),
+                youtrack: Youtrack::new(http.clone()),
+                activity: connector_activity.clone(),
+            }),
+            activity: connector_activity,
+            check_runs: CheckRuns::new(events.clone()),
+        },
+        database: database.clone(),
+        redis: foundation.redis.clone(),
+        cipher: Arc::clone(cipher),
+        version: Arc::clone(&foundation.version),
+        events: events.clone(),
+        github: foundation.github.clone(),
+        grants: Grants::new(database.clone()),
+        issue_reports: IssueReports::default(),
+        jira: foundation.jira.clone(),
+        links: foundation.links.clone(),
+        mail: services::build_mail(
+            config,
+            http.clone(),
+            database.clone(),
+            Arc::clone(cipher),
+            events.clone(),
+        )?,
+        meeting_sources: Sources::new(http.clone()),
+        passwords,
+        sessions: Sessions::new(SessionsDeps {
+            database: database.clone(),
+            cipher: Arc::clone(cipher),
+            events: events.clone(),
+            workspace,
+        }),
+        storage: foundation.storage.clone(),
+        updates: Updates::new(UpdatesDeps {
+            database: database.clone(),
+            events: events.clone(),
+            http: http.clone(),
+            version: Arc::clone(&foundation.version),
+            encryption_key: config.encryption_key.clone(),
+        }),
+        shutdown: foundation.shutdown.clone(),
+    };
+    Ok((state, vault_replies))
 }
 
 /// Assembles middleware around the routes and, when the image carries one, the web

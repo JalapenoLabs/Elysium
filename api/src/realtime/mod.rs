@@ -26,8 +26,15 @@
 //! on its way through Redis ends in a `resync` for whoever may have missed it: a lost
 //! subscription announces one locally once it is restored, and a publish that fails or
 //! overflows its queue is followed by one on the channel.
+//!
+//! # Signals
+//!
+//! Beside the events, the bus carries [`Signal`]s between processes on a channel of their own,
+//! [`SIGNALS_CHANNEL`], which no client hears: the API telling the engine to look at work it
+//! just recorded, such as a queued turn. See [`signals`].
 
 mod redis_link;
+pub mod signals;
 
 use std::sync::Arc;
 
@@ -38,6 +45,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use self::redis_link::RedisLink;
+pub use self::signals::{Signal, SignalReceiver, Wake};
 
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
@@ -70,6 +78,10 @@ use crate::updates::UpdatesStatus;
 /// span the whole Redis server rather than one database, so the name alone keeps the events
 /// apart from anything else on it.
 pub const EVENTS_CHANNEL: &str = "elysium:events";
+
+/// The Redis pub/sub channel signals between processes travel on. Its own, so no client
+/// stream relays them.
+pub const SIGNALS_CHANNEL: &str = "elysium:signals";
 
 /// How many serialized events a slow listener may fall behind before it is told to resync.
 /// Session event bursts (streamed agent output) are the largest source; this absorbs several
@@ -281,19 +293,24 @@ impl ServerEvent {
 
 /// The bus: publishes to every process, and relays what every process publishes.
 ///
-/// Cheap to clone; clones share one Redis link and one local channel.
+/// Cheap to clone; clones share its Redis links and local channels.
 #[derive(Debug, Clone)]
 pub struct EventBus {
-    /// This process's fan-out of everything on the channel, as Redis delivered it.
+    /// This process's fan-out of everything on the events channel, as Redis delivered it.
     local: broadcast::Sender<Arc<str>>,
+    /// The same for the signals channel.
+    local_signals: broadcast::Sender<Arc<str>>,
     transport: Transport,
 }
 
-/// How a published event reaches the local channel.
+/// How a published event or signal reaches the local channels.
 #[derive(Debug, Clone)]
 enum Transport {
-    /// Through Redis, for every process subscribed to the channel.
-    Redis(RedisLink),
+    /// Through Redis, for every process subscribed to the channels.
+    Redis {
+        events: RedisLink,
+        signals: RedisLink,
+    },
     /// Straight into the local channel, for unit tests that have no Redis.
     #[cfg(test)]
     InProcess,
@@ -310,22 +327,29 @@ impl EventBus {
     /// Fails when the URL is malformed, or Redis stays unreachable through the startup
     /// retries of `crate::connections`.
     pub async fn connect(redis_url: &SecretString) -> Result<Self> {
-        Self::connect_to(redis_url, EVENTS_CHANNEL).await
+        Self::connect_to(redis_url, EVENTS_CHANNEL, SIGNALS_CHANNEL).await
     }
 
-    /// [`EventBus::connect`] on a channel of the test's own, since every test shares one
-    /// Redis and pub/sub channels span the whole server.
+    /// [`EventBus::connect`] on channels of the test's own, named after `channel`, since every
+    /// test shares one Redis and pub/sub channels span the whole server.
     #[cfg(test)]
     pub async fn connect_on(redis_url: &SecretString, channel: &str) -> Result<Self> {
-        Self::connect_to(redis_url, channel).await
+        Self::connect_to(redis_url, channel, &format!("{channel}:signals")).await
     }
 
-    async fn connect_to(redis_url: &SecretString, channel: &str) -> Result<Self> {
+    async fn connect_to(
+        redis_url: &SecretString,
+        events_channel: &str,
+        signals_channel: &str,
+    ) -> Result<Self> {
         let (local, _receiver) = broadcast::channel(BUS_CAPACITY);
-        let link = RedisLink::start(redis_url, channel, local.clone()).await?;
+        let (local_signals, _receiver) = broadcast::channel(BUS_CAPACITY);
+        let events = RedisLink::start(redis_url, events_channel, local.clone()).await?;
+        let signals = RedisLink::start(redis_url, signals_channel, local_signals.clone()).await?;
         Ok(Self {
             local,
-            transport: Transport::Redis(link),
+            local_signals,
+            transport: Transport::Redis { events, signals },
         })
     }
 
@@ -334,8 +358,10 @@ impl EventBus {
     #[cfg(test)]
     pub fn in_process() -> Self {
         let (local, _receiver) = broadcast::channel(BUS_CAPACITY);
+        let (local_signals, _receiver) = broadcast::channel(BUS_CAPACITY);
         Self {
             local,
+            local_signals,
             transport: Transport::InProcess,
         }
     }
@@ -348,7 +374,7 @@ impl EventBus {
     pub fn publish(&self, server_event: &ServerEvent) {
         let payload = server_event.to_json();
         match &self.transport {
-            Transport::Redis(link) => link.send(payload),
+            Transport::Redis { events, .. } => events.send(payload),
             #[cfg(test)]
             Transport::InProcess => {
                 // An error only means nobody is listening, which is a normal state.
@@ -369,12 +395,43 @@ impl EventBus {
         self.local.subscribe()
     }
 
+    /// Sends `signal` to every process, this one included. Never waits, like
+    /// [`EventBus::publish`].
+    pub fn signal(&self, signal: &Signal) {
+        let payload = signal.to_json();
+        match &self.transport {
+            Transport::Redis { signals, .. } => signals.send(payload),
+            #[cfg(test)]
+            Transport::InProcess => {
+                // An error only means nobody is listening, which is a normal state.
+                if self.local_signals.send(payload).is_err() {
+                    tracing::event!(
+                        name: "realtime.signal.unobserved",
+                        tracing::Level::TRACE,
+                        "nobody is listening",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every signal any process sends from now on.
+    pub fn signals(&self) -> SignalReceiver {
+        SignalReceiver::new(self.local_signals.subscribe())
+    }
+
+    /// A wake for one loop: it resolves at each signal `wants` accepts, and at a resync.
+    /// Taken once, before the loop's first pass, so nothing sent during a pass is missed.
+    pub fn wake_on(&self, wants: fn(&Signal) -> bool) -> Wake {
+        Wake::new(self.signals(), wants)
+    }
+
     /// Whether this process holds its Redis subscription right now. While it does not, nothing
     /// published anywhere reaches its listeners, so a new event stream must not open: its
     /// `hello` would promise events it cannot deliver.
     pub fn is_subscribed(&self) -> bool {
         match &self.transport {
-            Transport::Redis(link) => link.is_subscribed(),
+            Transport::Redis { events, .. } => events.is_subscribed(),
             #[cfg(test)]
             Transport::InProcess => true,
         }
@@ -386,7 +443,9 @@ impl EventBus {
     /// published after it is logged and dropped. Every clone closes with it.
     pub async fn close(&self) {
         match &self.transport {
-            Transport::Redis(link) => link.close().await,
+            Transport::Redis { events, signals } => {
+                tokio::join!(events.close(), signals.close());
+            }
             #[cfg(test)]
             Transport::InProcess => {}
         }

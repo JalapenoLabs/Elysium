@@ -831,6 +831,7 @@ async fn the_cursor_survives_a_restart() {
             std::sync::Arc::new(crate::test_support::cipher()),
             &fixture.jira.jira,
             &fixture.github.github,
+            fixture.events.clone(),
         ),
         ..fixture.context()
     };

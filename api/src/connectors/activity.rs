@@ -5,24 +5,25 @@
 //!
 //! A sync that recorded something, or failed, is stored as a run (`crate::models::connector_run`);
 //! one that found nothing new is not, since a mailbox is read every minute. A connector is
-//! `syncing` while a sync someone asked for runs, or while one of its meetings is processed,
-//! which is kept in memory: it is only ever true while this process is working on it.
+//! `syncing` while a sync someone asked for waits or runs, or while one of its meetings is
+//! processed. That is a mark on its row (`connectors.syncing_since`), so the API shows what the
+//! engine is doing, and a sync asked for while the engine is down waits for it.
 //!
 //! Every change publishes `connector.changed` with the connector's id alone. A connector's
 //! view names whose mailbox or meetings it reads, and every client hears every event, so
 //! clients load what changed by id, which answers its owner alone.
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::database::Pool;
+use crate::models::connector;
 use crate::models::connector_run::{self, ConnectorRun};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 
-/// Cheap to clone; clones share one record of what is syncing.
+/// Cheap to clone; clones share their connections.
 #[derive(Clone)]
 pub struct Activity {
     inner: Arc<Inner>,
@@ -31,7 +32,6 @@ pub struct Activity {
 struct Inner {
     database: Pool,
     events: EventBus,
-    syncing: Mutex<HashSet<Uuid>>,
 }
 
 impl std::fmt::Debug for Activity {
@@ -47,30 +47,62 @@ impl std::fmt::Debug for Activity {
 impl Activity {
     pub fn new(database: Pool, events: EventBus) -> Self {
         Self {
-            inner: Arc::new(Inner {
-                database,
-                events,
-                syncing: Mutex::new(HashSet::new()),
-            }),
+            inner: Arc::new(Inner { database, events }),
         }
     }
 
-    /// Whether a sync of `connector_id` is running now.
-    pub fn is_syncing(&self, connector_id: Uuid) -> bool {
-        self.syncing().contains(&connector_id)
+    /// Asks the engine to read `connector_id` now: marks it syncing and signals the engine,
+    /// which reads it and clears the mark. Answers `false` when it is already syncing, so two
+    /// syncs of one connector never run at once.
+    ///
+    /// # Errors
+    /// Propagates database errors.
+    pub async fn request_sync(&self, connector_id: Uuid) -> anyhow::Result<bool> {
+        let mut connection = self.inner.database.get().await?;
+        if !connector::mark_syncing(&mut connection, connector_id).await? {
+            return Ok(false);
+        }
+        drop(connection);
+        self.changed(connector_id);
+        self.inner
+            .events
+            .signal(&Signal::ConnectorSync { connector_id });
+        Ok(true)
     }
 
     /// Marks `connector_id` syncing until the returned guard is dropped. Answers `None` when it
-    /// already is, so two syncs of one connector never run at once.
-    pub fn begin(&self, connector_id: Uuid) -> Option<Syncing> {
-        if !self.syncing().insert(connector_id) {
-            return None;
+    /// already is, or the mark cannot be written, which is logged.
+    pub async fn begin(&self, connector_id: Uuid) -> Option<Syncing> {
+        let marked = async {
+            let mut connection = self.inner.database.get().await?;
+            anyhow::Ok(connector::mark_syncing(&mut connection, connector_id).await?)
+        };
+        match marked.await {
+            Ok(true) => {
+                self.changed(connector_id);
+                Some(self.syncing(connector_id))
+            }
+            Ok(false) => None,
+            Err(error) => {
+                event!(
+                    name: "connectors.syncing.unmarked",
+                    Level::WARN,
+                    connector.id = %connector_id,
+                    error.message = %format!("{error:#}"),
+                    "cannot mark a connector syncing; it syncs without showing it",
+                );
+                None
+            }
         }
-        self.changed(connector_id);
-        Some(Syncing {
+    }
+
+    /// The guard for `connector_id`'s mark, which someone else set: a sync the API asked for,
+    /// which the engine now runs.
+    pub fn syncing(&self, connector_id: Uuid) -> Syncing {
+        Syncing {
             activity: self.clone(),
             connector_id,
-        })
+        }
     }
 
     /// Stores `run` and tells clients its connector changed. A run that cannot be stored is
@@ -101,15 +133,25 @@ impl Activity {
             .publish(&ServerEvent::ConnectorChanged { id: connector_id });
     }
 
-    fn syncing(&self) -> std::sync::MutexGuard<'_, HashSet<Uuid>> {
-        self.inner
-            .syncing
-            .lock()
-            .expect("no thread panics while holding the syncing set")
+    async fn clear(&self, connector_id: Uuid) {
+        let cleared = async {
+            let mut connection = self.inner.database.get().await?;
+            anyhow::Ok(connector::clear_syncing(&mut connection, connector_id).await?)
+        };
+        if let Err(error) = cleared.await {
+            event!(
+                name: "connectors.syncing.uncleared",
+                Level::ERROR,
+                connector.id = %connector_id,
+                error.message = %format!("{error:#}"),
+                "cannot mark a connector done syncing; the engine clears it when it next starts",
+            );
+        }
+        self.changed(connector_id);
     }
 }
 
-/// A connector marked syncing; dropping it marks it done.
+/// A connector marked syncing; dropping it marks it done, in the background.
 #[derive(Debug)]
 pub struct Syncing {
     activity: Activity,
@@ -118,7 +160,18 @@ pub struct Syncing {
 
 impl Drop for Syncing {
     fn drop(&mut self) {
-        self.activity.syncing().remove(&self.connector_id);
-        self.activity.changed(self.connector_id);
+        let activity = self.activity.clone();
+        let connector_id = self.connector_id;
+        match tokio::runtime::Handle::try_current() {
+            Ok(runtime) => {
+                runtime.spawn(async move { activity.clear(connector_id).await });
+            }
+            Err(_no_runtime) => event!(
+                name: "connectors.syncing.abandoned",
+                Level::WARN,
+                connector.id = %connector_id,
+                "a sync ended outside the runtime; the engine clears its mark when it next starts",
+            ),
+        }
     }
 }

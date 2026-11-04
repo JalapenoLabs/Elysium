@@ -45,7 +45,7 @@ pub async fn handle(
             ResetError::Internal(error) => ApiError::Internal(error),
         })?;
 
-    let status = state.browsers.status(session.id);
+    let status = state.browsers.status(session.id).await;
     Ok((
         StatusCode::ACCEPTED,
         Json(json!({ "browserSession": BrowserSessionResponse::new(session, status) })),

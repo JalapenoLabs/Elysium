@@ -41,6 +41,6 @@ pub async fn handle(
         "item": item,
         "assets": assets,
         "feedback": feedback,
-        "sessions": session_responses(&state, sessions),
+        "sessions": session_responses(&state, sessions).await?,
     })))
 }

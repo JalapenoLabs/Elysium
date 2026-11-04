@@ -118,6 +118,7 @@ mod tests {
             size_bytes: (status == DatabaseBackupStatus::Succeeded).then_some(1024),
             error: (status == DatabaseBackupStatus::Failed).then(|| "refused".to_owned()),
             created_by: SYSTEM_USER_ID,
+            claimed_at: Some(started_at),
         }
     }
 

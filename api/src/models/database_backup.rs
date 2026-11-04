@@ -57,6 +57,9 @@ pub struct DatabaseBackup {
     /// What went wrong, once it failed.
     pub error: Option<String>,
     pub created_by: Uuid,
+    /// When the engine took it. A backup someone asked for waits, running but untaken, until
+    /// the engine does.
+    pub claimed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Insertable)]
@@ -67,6 +70,7 @@ struct NewDatabaseBackup {
     storage_location_id: Uuid,
     started_at: DateTime<Utc>,
     created_by: Uuid,
+    claimed_at: Option<DateTime<Utc>>,
 }
 
 /// How a running backup ended.
@@ -81,7 +85,8 @@ pub enum BackupOutcome {
 /// The longest error kept, matching the column's limit.
 const MAX_ERROR_CHARACTERS: usize = 2000;
 
-/// Records that a backup to `storage_location_id` began at `started_at`.
+/// Records that a backup to `storage_location_id` began at `started_at`: taken by the engine
+/// at once when `claimed`, or waiting for it when someone asked for it elsewhere.
 ///
 /// # Errors
 /// Fails with a unique violation when another backup is already running, and propagates any
@@ -92,6 +97,7 @@ pub async fn begin(
     storage_location_id: Uuid,
     started_at: DateTime<Utc>,
     created_by: Uuid,
+    claimed: bool,
 ) -> QueryResult<DatabaseBackup> {
     diesel::insert_into(database_backups::table)
         .values(NewDatabaseBackup {
@@ -100,6 +106,7 @@ pub async fn begin(
             storage_location_id,
             started_at,
             created_by,
+            claimed_at: claimed.then(Utc::now),
         })
         .returning(DatabaseBackup::as_returning())
         .get_result(connection)
@@ -141,8 +148,26 @@ pub async fn finish(
         .optional()
 }
 
-/// Fails every backup still running with `error`. Only a process that stopped mid-backup
-/// leaves one, so this runs once at startup, before any backup of this process begins.
+/// Takes the backup someone asked for that the engine has not taken yet, if there is one.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn claim_requested(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Option<DatabaseBackup>> {
+    diesel::update(database_backups::table)
+        .filter(database_backups::status.eq(DatabaseBackupStatus::Running))
+        .filter(database_backups::claimed_at.is_null())
+        .set(database_backups::claimed_at.eq(diesel::dsl::now))
+        .returning(DatabaseBackup::as_returning())
+        .get_result(connection)
+        .await
+        .optional()
+}
+
+/// Fails every backup the engine had taken and not finished, with `error`. Only an engine that
+/// stopped mid-backup leaves one, so this runs once as it starts, before it takes another. A
+/// backup still waiting to be taken is left: it is still owed.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -152,6 +177,7 @@ pub async fn fail_running(
 ) -> QueryResult<Vec<DatabaseBackup>> {
     diesel::update(database_backups::table)
         .filter(database_backups::status.eq(DatabaseBackupStatus::Running))
+        .filter(database_backups::claimed_at.is_not_null())
         .set((
             database_backups::status.eq(DatabaseBackupStatus::Failed),
             database_backups::error.eq(error),

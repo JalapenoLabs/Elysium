@@ -8,6 +8,7 @@
 
 #[cfg(test)]
 mod adopt_fireflies_keys_tests;
+pub mod advisory;
 #[cfg(test)]
 mod knowledge_index_tests;
 pub mod migrations;

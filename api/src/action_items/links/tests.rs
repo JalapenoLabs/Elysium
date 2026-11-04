@@ -31,7 +31,6 @@ use crate::models::action_item_link::LinkCredential;
 use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential};
 use crate::models::jira_credential::{self, Allowed, AllowedProject, Allowlist, NewJiraCredential};
 use crate::models::jira_done_transition;
-use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
 /// The Jira account the credential's token belongs to. An issue assigned to it is the
@@ -454,13 +453,20 @@ impl LinkFixture {
 
         let jira = FakeJira::start().await;
         let github = FakeGithub::start().await;
-        let links = Links::new(database.clone(), cipher, &jira.jira, &github.github);
+        let events = EventBus::in_process();
+        let links = Links::new(
+            database.clone(),
+            cipher,
+            &jira.jira,
+            &github.github,
+            events.clone(),
+        );
         Self {
             connection,
             jira,
             github,
             links,
-            events: EventBus::in_process(),
+            events,
             database,
             jira_credential: LinkCredential {
                 provider: LinkProvider::Jira,

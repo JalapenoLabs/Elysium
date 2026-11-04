@@ -122,6 +122,9 @@ fn vault_error(error: VaultError) -> ApiError {
         VaultError::NotReady => {
             ApiError::Unavailable("the password vault is not ready; its status says why")
         }
+        VaultError::Unreachable => ApiError::Unavailable(
+            "the engine, which runs the password vault, is not answering; try again shortly",
+        ),
         VaultError::NoCollection | VaultError::NotInCollection(_) => {
             ApiError::BadRequest(error.to_string())
         }

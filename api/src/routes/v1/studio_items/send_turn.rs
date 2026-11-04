@@ -129,7 +129,7 @@ pub async fn handle(
     let item_session = session::for_turn(&state, &item, current.id()).await?;
     let (turn, feedback) = start_turn(&state, &item, current.id(), &form, &item_session).await?;
 
-    let activity = state.sessions.activity(item_session.id);
+    let activity = state.sessions.activity(item_session.id).await?;
     let session = CodingSessionResponse::new(item_session, activity);
     Ok((
         StatusCode::CREATED,
@@ -178,7 +178,7 @@ async fn start_turn(
 
     let started = state
         .sessions
-        .start_turn(item_session, prompt, session::turn_extras())
+        .start_turn(item_session, prompt, session::turn_extras(), actor)
         .await;
     let turn = match started {
         Ok(turn) => turn,

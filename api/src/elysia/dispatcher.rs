@@ -38,7 +38,7 @@ use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
 use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::passwords::Passwords;
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::elysia::{MessageResponse, TurnResponse, publish_snapshot};
 use crate::sessions::scrub::Scrubber;
 use crate::tools::{self, CallScope, ElysiaScope, ToolServer};
@@ -126,6 +126,8 @@ pub async fn run(context: DispatchContext, shutdown: CancellationToken) {
         );
     }
 
+    // Taken before the first look at the queue, so a turn queued during any look wakes the next.
+    let mut wake = context.events.wake_on(|signal| *signal == Signal::Elysia);
     loop {
         if let Err(error) = dispatch(&context, &shutdown).await {
             event!(
@@ -137,7 +139,7 @@ pub async fn run(context: DispatchContext, shutdown: CancellationToken) {
         }
         tokio::select! {
             () = shutdown.cancelled() => break,
-            () = context.elysia.woken() => {}
+            () = wake.woken() => {}
             () = tokio::time::sleep(TICK) => {}
         }
     }
@@ -218,14 +220,27 @@ async fn run_turn(
         publish_snapshot(&context.events, &mut connection).await?;
         return Ok(());
     };
+    // Her tools, for this turn alone, revoked when it ends.
+    let granted = context
+        .elysia
+        .grants()
+        .grant(
+            &CallScope::Elysia(ElysiaScope { turn_id: turn.id }),
+            &tool_servers(context.passwords.is_ready()),
+        )
+        .await;
+    let grant = match granted {
+        Ok(grant) => grant,
+        Err(error) => {
+            let error = format!("Her tools could not be granted: {error:#}");
+            let finished = elysia::finish_turn(&mut connection, turn.id, Err(&error)).await?;
+            publish_turn(context, &finished);
+            publish_snapshot(&context.events, &mut connection).await?;
+            return Ok(());
+        }
+    };
     // The runner may take minutes; no connection is held meanwhile.
     drop(connection);
-
-    // Her tools, for this turn alone: dropping the grant when the turn ends revokes it.
-    let grant = context.elysia.grants().grant(
-        CallScope::Elysia(ElysiaScope { turn_id: turn.id }),
-        &tool_servers(context.passwords.is_ready()),
-    );
 
     event!(
         name: "elysia.turn.started",
@@ -245,7 +260,7 @@ async fn run_turn(
             mcp_servers: grant.mcp_servers(),
         })
         .await;
-    drop(grant);
+    grant.revoke().await;
 
     let mut connection = context.database.get().await?;
     let finished = record_outcome(context, &mut connection, &turn, outcome).await?;
@@ -457,7 +472,7 @@ async fn queue_idle_turn(
     .await?;
     publish_turn(context, &turn);
     publish_snapshot(&context.events, connection).await?;
-    context.elysia.wake();
+    context.events.signal(&Signal::Elysia);
     Ok(())
 }
 
@@ -603,14 +618,14 @@ mod tests {
         let runner = TurnRunner::Scripted(Arc::new(Mutex::new(VecDeque::from(outcomes))));
         let events = EventBus::in_process();
         let context = DispatchContext {
-            passwords: crate::server::build_passwords(
+            passwords: crate::services::build_passwords(
                 database.clone(),
                 Arc::new(crate::test_support::cipher()),
                 events.clone(),
             ),
+            elysia: Elysia::new(runner, crate::tools::grants::Grants::new(database.clone())),
             database,
             events,
-            elysia: Elysia::new(runner, crate::tools::grants::Grants::new()),
         };
         (context, connection)
     }

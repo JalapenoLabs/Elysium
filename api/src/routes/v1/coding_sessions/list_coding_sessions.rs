@@ -31,15 +31,18 @@ pub async fn list(state: &AppState) -> Result<Vec<CodingSessionResponse>, ApiErr
         .await
         .context("no database connection available")?;
 
-    let sessions = coding_session::list_coding(&mut connection)
-        .await?
+    let sessions = coding_session::list_coding(&mut connection).await?;
+    drop(connection);
+    let ids: Vec<i64> = sessions.iter().map(|session| session.id).collect();
+    let mut activities = state.sessions.activities(&ids).await?;
+    let responses = sessions
         .into_iter()
         .map(|session| {
-            let activity = state.sessions.activity(session.id);
+            let activity = activities.remove(&session.id).unwrap_or_default();
             CodingSessionResponse::new(session, activity)
         })
         .collect();
-    Ok(sessions)
+    Ok(responses)
 }
 
 /// The session `id`, with what it is doing now.
@@ -53,8 +56,7 @@ pub async fn find(state: &AppState, id: i64) -> Result<CodingSessionResponse, Ap
         .await
         .context("no database connection available")?;
     let session = coding_session::find(&mut connection, id).await?;
-    Ok(CodingSessionResponse::new(
-        session,
-        state.sessions.activity(id),
-    ))
+    drop(connection);
+    let activity = state.sessions.activity(id).await?;
+    Ok(CodingSessionResponse::new(session, activity))
 }

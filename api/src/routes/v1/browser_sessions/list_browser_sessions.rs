@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::BrowserSessionResponse;
 use crate::auth::CurrentUser;
+use crate::browser::BrowserStatus;
 use crate::errors::ApiError;
 use crate::models::browser_session;
 use crate::state::AppState;
@@ -27,7 +28,7 @@ pub async fn handle(
     let responses: Vec<BrowserSessionResponse> = sessions
         .into_iter()
         .map(|session| {
-            let status = state.browsers.status(session.id);
+            let status = BrowserStatus::from(&session);
             BrowserSessionResponse::new(session, status)
         })
         .collect();

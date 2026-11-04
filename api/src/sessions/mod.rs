@@ -3,21 +3,23 @@
 //! Coding and Studio sessions, run on the runner.
 //!
 //! A session is a directory in the workspace (`sessions/<id>`), the Claude session its turns
-//! continue, and the events its turns reported. This service is everything between a session's
-//! row and the runner:
+//! continue, and the events its turns reported. Two halves share it:
 //!
-//! - **Preparing** a new session's directory: cloning its repositories into `repos/<name>`.
-//! - **Starting a turn** ([`Sessions::start_turn`]): the prompt, the session's environment
-//!   (workspace variables, then the GitHub token and the git config that uses it), the tool
-//!   servers it may call under a per-turn grant (`crate::tools::grants`), a Blender of its own,
-//!   and the Claude session to resume.
-//! - **Following the turn** ([`turn`]): every event is scrubbed of the turn's secrets,
-//!   numbered, recorded in `session_events`, and published, in that order. When the turn ends,
-//!   the Claude session id it reported is kept on the row, a Studio session's deliverables are
-//!   collected, and the grant is dropped.
-//! - **What a session is doing now** ([`Sessions::activity`]), kept in memory and published as
-//!   it changes.
-//! - **Removing** a session's turns and directory when it is deleted.
+//! - [`Sessions`], which the API holds, is everything a request does: **preparing** a new
+//!   session's directory by cloning its repositories into `repos/<name>`, **queueing a turn**
+//!   ([`Sessions::start_turn`]) as a `session_turns` row, **stopping** a session's turns, reading
+//!   **what a session is doing** from those rows ([`Sessions::activity`]), and **removing** a
+//!   session's directory when it is deleted.
+//! - [`queue::TurnQueue`], which the engine runs, takes each session's next queued turn once the
+//!   one before it finished, and runs it: the prompt, the session's environment (workspace
+//!   variables, then the GitHub token and the git config that uses it), the tool servers it may
+//!   call under a per-turn grant (`crate::tools::grants`), a Blender and a desktop of its own,
+//!   and the Claude session to resume. [`turn`] follows it: every event is scrubbed of the turn's
+//!   secrets, numbered, recorded in `session_events`, and published, in that order.
+//!
+//! The two meet only in Postgres and on the bus ([`Signal::SessionTurns`]), so either process
+//! can restart without the other losing a turn: a queued turn waits for the engine, and an
+//! engine that stopped mid-turn finishes that turn when it starts again.
 //!
 //! Nothing here matches on whether a session is Coding or Studio beyond the instructions
 //! Studio's agents get and the collection after a Studio turn.
@@ -25,46 +27,32 @@
 pub mod desktop;
 #[cfg(test)]
 mod live_tests;
+pub mod queue;
 pub mod scrub;
 mod summary;
 mod turn;
 pub mod views;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use chrono::Utc;
-use secrecy::{ExposeSecret, SecretString};
-use tokio_util::task::TaskTracker;
+use secrecy::ExposeSecret;
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use self::scrub::Scrubber;
-use self::views::{ActivityState, SessionActivity, TurnState, TurnView};
+use self::views::{SessionActivity, TurnState, TurnView};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::coding_session::CodingSession;
-use crate::models::environment_variable::TurnVariable;
-use crate::models::{environment_variable, storage_location};
-use crate::passwords::Passwords;
-use crate::realtime::EventBus;
+use crate::models::session_turn::{self, NewSessionTurn};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::coding_sessions::github_token;
+use crate::runner::WorkspacePath;
 use crate::runner::workspace::{AGENT_USER, WorkspaceContainer};
-use crate::runner::{
-    ConversationId, EnvironmentEntry, McpServer, Runner, TurnMode, TurnRequest, WorkspacePath,
-};
-use crate::storage::Storage;
-use crate::tools::grants::Grants;
-use crate::tools::{self, CallScope, SessionScope, ToolServer};
-
-/// The MCP server name every turn's Blender answers as.
-const BLENDER_SERVER: &str = "blender";
-
-/// The per-turn Blender launcher the workspace image installs (`workspace/blender`).
-const BLENDER_COMMAND: &str = "elysium-blender-mcp";
 
 /// How long cloning a session's repositories may take, all of them together. A large monorepo
 /// over a slow link takes minutes; past this the session is refused rather than left half
@@ -101,7 +89,7 @@ pub struct TurnExtras {
     pub system_prompt_append: Option<String>,
 }
 
-/// Runs sessions' turns. Cheap to clone; every clone is the same service.
+/// Sessions as the API sees them. Cheap to clone; every clone is the same service.
 #[derive(Debug, Clone)]
 pub struct Sessions {
     inner: Arc<Inner>,
@@ -111,17 +99,7 @@ struct Inner {
     database: Pool,
     cipher: Arc<Cipher>,
     events: EventBus,
-    runner: Runner,
     workspace: WorkspaceContainer,
-    grants: Grants,
-    storage: Storage,
-    passwords: Passwords,
-    /// What each session is doing, and its unfinished turns, for sessions that have had a turn
-    /// since the API started. A session not here is idle.
-    live: Mutex<HashMap<i64, Live>>,
-    /// The last sequence handed out per session, read from the database on first use.
-    sequences: tokio::sync::Mutex<HashMap<i64, u64>>,
-    tracker: TaskTracker,
 }
 
 impl std::fmt::Debug for Inner {
@@ -130,18 +108,8 @@ impl std::fmt::Debug for Inner {
         reason = "project naming rule forbids std's one-letter `f`"
     )]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Sessions")
-            .field("runner", &self.runner)
-            .finish_non_exhaustive()
+        formatter.debug_struct("Sessions").finish_non_exhaustive()
     }
-}
-
-#[derive(Debug, Default)]
-struct Live {
-    activity: SessionActivity,
-    /// Turns submitted and not finished, oldest first.
-    unfinished: Vec<Uuid>,
 }
 
 /// The services sessions are built from.
@@ -150,13 +118,7 @@ pub struct SessionsDeps {
     pub database: Pool,
     pub cipher: Arc<Cipher>,
     pub events: EventBus,
-    pub runner: Runner,
     pub workspace: WorkspaceContainer,
-    pub grants: Grants,
-    pub storage: Storage,
-    /// The password vault: its tools are granted while it is ready, and every turn's output is
-    /// scrubbed of what it handed out.
-    pub passwords: Passwords,
 }
 
 impl std::fmt::Debug for SessionsDeps {
@@ -168,7 +130,6 @@ impl std::fmt::Debug for SessionsDeps {
         // The pool and cipher have nothing useful to print.
         formatter
             .debug_struct("SessionsDeps")
-            .field("runner", &self.runner)
             .finish_non_exhaustive()
     }
 }
@@ -180,14 +141,7 @@ impl Sessions {
                 database: deps.database,
                 cipher: deps.cipher,
                 events: deps.events,
-                runner: deps.runner,
                 workspace: deps.workspace,
-                grants: deps.grants,
-                storage: deps.storage,
-                passwords: deps.passwords,
-                live: Mutex::new(HashMap::new()),
-                sequences: tokio::sync::Mutex::new(HashMap::new()),
-                tracker: TaskTracker::new(),
             }),
         }
     }
@@ -203,35 +157,55 @@ impl Sessions {
         &self.inner.workspace
     }
 
-    /// The live tool grants of every running turn.
-    pub fn grants(&self) -> &Grants {
-        &self.inner.grants
+    /// What session `session_id` is doing now.
+    ///
+    /// # Errors
+    /// Propagates database errors.
+    pub async fn activity(&self, session_id: i64) -> Result<SessionActivity, ApiError> {
+        Ok(self
+            .activities(&[session_id])
+            .await?
+            .remove(&session_id)
+            .unwrap_or_default())
     }
 
-    /// What session `session_id` is doing now.
-    pub fn activity(&self, session_id: i64) -> SessionActivity {
-        lock(&self.inner.live)
-            .get(&session_id)
-            .map(|live| live.activity)
-            .unwrap_or_default()
+    /// What each of `session_ids` is doing now. A session missing from the answer is idle.
+    ///
+    /// # Errors
+    /// Propagates database errors.
+    pub async fn activities(
+        &self,
+        session_ids: &[i64],
+    ) -> Result<HashMap<i64, SessionActivity>, ApiError> {
+        let mut connection = self.connection().await?;
+        Ok(session_turn::activities(&mut connection, session_ids)
+            .await
+            .context("cannot read what sessions are doing")?)
     }
 
     /// Readies a new session's directory and clones `repositories` into it, in order, with
     /// the session's GitHub token.
     ///
     /// # Errors
-    /// `502` when the workspace is not available, and `400` naming a repository that would not
+    /// `502` when the workspace is not running, and `400` naming a repository that would not
     /// clone, with git's own message. The directory is removed again on failure.
     pub async fn prepare(
         &self,
         session: &CodingSession,
         repositories: &[RepositoryClone],
     ) -> Result<(), ApiError> {
-        self.inner.runner.prepare().await.map_err(|error| {
-            ApiError::BadGateway(format!("the workspace is not available: {error:#}"))
-        })?;
         if repositories.is_empty() {
             return Ok(());
+        }
+        // The engine creates the workspace and keeps it up; the API only works in it.
+        let running = self.inner.workspace.is_running().await.map_err(|error| {
+            ApiError::BadGateway(format!("the workspace is not available: {error}"))
+        })?;
+        if !running {
+            return Err(ApiError::BadGateway(
+                "the workspace is not running yet; the engine starts it, so try again shortly"
+                    .to_owned(),
+            ));
         }
 
         let github = {
@@ -285,142 +259,73 @@ impl Sessions {
         Ok(())
     }
 
-    /// Starts `prompt` as `session`'s next turn, behind any it has unfinished.
+    /// Queues `prompt`, from `by`, as `session`'s next turn, behind any it has unfinished. The
+    /// engine runs it.
     ///
     /// # Errors
-    /// `503` while Elysium shuts down, and any failure reading the session's environment.
+    /// Propagates database errors.
     pub async fn start_turn(
         &self,
         session: &CodingSession,
         prompt: String,
         extras: TurnExtras,
+        by: Uuid,
     ) -> Result<TurnView, ApiError> {
         let mut connection = self.connection().await?;
-        let variables =
-            environment_variable::turn_environment(&mut connection, &self.inner.cipher).await?;
-        let github = github_token::open_for_session(
+        let turn = session_turn::queue(
             &mut connection,
-            &self.inner.cipher,
-            session.github_credential_id,
+            &NewSessionTurn {
+                id: Uuid::now_v7(),
+                session_id: session.id,
+                prompt: &prompt,
+                system_prompt_append: extras.system_prompt_append.as_deref(),
+                created_by: by,
+            },
         )
-        .await?;
-        let has_storage = !storage_location::list_for_project(&mut connection, session.project_id)
-            .await?
-            .is_empty();
+        .await
+        .context("cannot queue the turn")?;
         drop(connection);
 
-        let (environment, secrets) = turn_environment(variables, github.as_ref());
-
-        let directory = Self::directory(session.id);
-        let grant = self.inner.grants.grant(
-            CallScope::Session(SessionScope {
-                session_id: session.id,
-                project_id: session.project_id,
-                action_item_id: session.action_item_id,
-                directory: directory.clone(),
-            }),
-            &tool_servers(ToolAccess {
-                has_project: session.project_id.is_some(),
-                has_storage,
-                has_passwords: self.inner.passwords.is_ready(),
-            }),
-        );
-        let mut mcp_servers = grant.mcp_servers();
-        mcp_servers.push(McpServer::Stdio {
-            name: BLENDER_SERVER.to_owned(),
-            command: BLENDER_COMMAND.to_owned(),
-            arguments: Vec::new(),
-            environment: Vec::new(),
-        });
-        mcp_servers.push(desktop::server(session.id));
-
-        let resume = session
-            .harness_session_id
-            .as_deref()
-            .and_then(|id| id.parse().ok());
-        let request = TurnRequest {
-            conversation: ConversationId::for_session(session.id),
-            label: format!("session:{}", session.id),
-            prompt: prompt.clone(),
-            working_directory: directory,
-            resume,
-            mcp_servers,
-            allowed_tools: None,
-            system_prompt_append: extras.system_prompt_append,
-            environment,
-            model: None,
-            mode: TurnMode::Agent,
-        };
-        let ticket = self
-            .inner
-            .runner
-            .submit(request)
-            .map_err(|_shutting_down| ApiError::Unavailable("Elysium is shutting down"))?;
-
-        let queued_at = Utc::now();
-        self.update(session.id, |live| {
-            live.unfinished.push(ticket.turn_id);
-            live.activity.queue_depth += 1;
-            if live.activity.state == ActivityState::Idle {
-                live.activity.state = ActivityState::Queued;
-            }
-            live.activity.last_activity_at = Some(queued_at);
-        });
+        self.inner.events.signal(&Signal::SessionTurns);
         self.announce(session.id).await;
-
-        let follower = turn::Follower {
-            sessions: self.clone(),
-            session_id: session.id,
-            studio_item_id: session.studio_item_id,
-            turn_id: ticket.turn_id,
-            scrubber: Scrubber::new(secrets).with_revealed(self.inner.passwords.revealed()),
-            grant,
-        };
-        self.inner
-            .tracker
-            .spawn(async move { follower.follow(ticket.events).await });
-
         Ok(TurnView {
-            turn_id: ticket.turn_id,
+            turn_id: turn.id,
             status: TurnState::Queued,
             prompt,
-            queued_at,
+            queued_at: turn.queued_at,
         })
     }
 
-    /// Cancels every unfinished turn of session `session_id`, keeping its directory, such as
-    /// for a Studio item that is hidden and may be restored.
-    pub fn stop(&self, session_id: i64) {
-        let unfinished = lock(&self.inner.live)
-            .get(&session_id)
-            .map(|live| live.unfinished.clone())
-            .unwrap_or_default();
-        for turn_id in unfinished {
-            self.inner.runner.cancel(turn_id);
+    /// Stops every unfinished turn of session `session_id`, keeping its directory, such as for
+    /// a Studio item that is hidden and may be restored. A queued turn never runs; the engine
+    /// cancels one it runs.
+    pub async fn stop(&self, session_id: i64) {
+        let requested = async {
+            let mut connection = self.inner.database.get().await?;
+            anyhow::Ok(session_turn::request_stop(&mut connection, session_id).await?)
+        };
+        match requested.await {
+            Ok(held_by_engine) => {
+                if held_by_engine {
+                    self.inner.events.signal(&Signal::SessionTurns);
+                }
+                self.announce(session_id).await;
+            }
+            Err(error) => event!(
+                name: "sessions.stop.failure",
+                Level::ERROR,
+                session.id = session_id,
+                error.message = %format!("{error:#}"),
+                "could not stop a session's turns",
+            ),
         }
     }
 
-    /// Cancels every unfinished turn of session `session_id` and removes its directory, for a
+    /// Stops every unfinished turn of session `session_id` and removes its directory, for a
     /// session being deleted. A directory that will not go is logged and left.
     pub async fn remove(&self, session_id: i64) {
-        self.stop(session_id);
-        lock(&self.inner.live).remove(&session_id);
+        self.stop(session_id).await;
         self.remove_directory(session_id).await;
-    }
-
-    /// Waits briefly for turn followers to record what their turns reported as they stop.
-    pub async fn shutdown(&self) {
-        self.inner.tracker.close();
-        if tokio::time::timeout(Duration::from_secs(10), self.inner.tracker.wait())
-            .await
-            .is_err()
-        {
-            event!(
-                name: "sessions.shutdown.timeout",
-                Level::WARN,
-                "turn followers were still recording when the grace period ended",
-            );
-        }
     }
 
     async fn remove_directory(&self, session_id: i64) {
@@ -440,34 +345,31 @@ impl Sessions {
         }
     }
 
-    fn update(&self, session_id: i64, change: impl FnOnce(&mut Live)) {
-        let mut live = lock(&self.inner.live);
-        change(live.entry(session_id).or_default());
-    }
-
     /// Tells every client what the session is doing now.
-    async fn announce(&self, session_id: i64) {
-        let found = match self.inner.database.get().await {
-            Ok(mut connection) => crate::models::coding_session::find(&mut connection, session_id)
-                .await
-                .map_err(|error| error.to_string()),
-            Err(error) => Err(error.to_string()),
+    pub(crate) async fn announce(&self, session_id: i64) {
+        let found = async {
+            let mut connection = self.inner.database.get().await?;
+            let session = crate::models::coding_session::find(&mut connection, session_id).await?;
+            let activity = session_turn::activities(&mut connection, &[session_id])
+                .await?
+                .remove(&session_id)
+                .unwrap_or_default();
+            anyhow::Ok((session, activity))
         };
-        match found {
-            Ok(session) => {
+        match found.await {
+            Ok((session, activity)) => {
                 let response = crate::routes::v1::coding_sessions::CodingSessionResponse::new(
-                    session,
-                    self.activity(session_id),
+                    session, activity,
                 );
                 self.inner
                     .events
-                    .publish(&crate::realtime::ServerEvent::SessionUpserted(response));
+                    .publish(&ServerEvent::SessionUpserted(response));
             }
-            Err(message) => event!(
+            Err(error) => event!(
                 name: "sessions.announce.failure",
                 Level::DEBUG,
                 session.id = session_id,
-                error.message = %message,
+                error.message = %format!("{error:#}"),
                 "could not announce a session's activity; it may have been deleted",
             ),
         }
@@ -488,65 +390,6 @@ impl Sessions {
     }
 }
 
-/// The tool servers a turn may call: the work tools when the session has a project, the
-/// storage tools when that project reaches a storage location.
-/// A turn's environment: every workspace variable, then the session's GitHub token with the
-/// git configuration that routes git through `gh`. Also answers the secrets among them, which
-/// the turn's output is scrubbed of.
-fn turn_environment(
-    variables: Vec<TurnVariable>,
-    github: Option<&SecretString>,
-) -> (Vec<EnvironmentEntry>, Vec<SecretString>) {
-    let mut secrets = Vec::new();
-    let mut environment = Vec::with_capacity(variables.len() + 6);
-    for variable in variables {
-        if variable.is_secret {
-            secrets.push(SecretString::from(
-                variable.value.expose_secret().to_owned(),
-            ));
-        }
-        environment.push(EnvironmentEntry {
-            key: variable.key,
-            value: variable.value,
-        });
-    }
-    if let Some(token) = github {
-        environment.extend(github_token::environment(token));
-        secrets.push(SecretString::from(token.expose_secret().to_owned()));
-    }
-    (environment, secrets)
-}
-
-/// Which of Elysium's tool servers a turn may use.
-#[derive(Debug, Clone, Copy)]
-struct ToolAccess {
-    /// Work tools need a project to scope items and initiatives to.
-    has_project: bool,
-    /// Storage tools need a location the project may use.
-    has_storage: bool,
-    /// Password tools need a vault that is up; one set up mid-turn is granted from the next.
-    has_passwords: bool,
-}
-
-fn tool_servers(access: ToolAccess) -> Vec<&'static ToolServer> {
-    let mut servers = Vec::with_capacity(3);
-    if access.has_project {
-        servers.push(&tools::work::SERVER);
-    }
-    if access.has_storage {
-        servers.push(&tools::storage::SERVER);
-    }
-    if access.has_passwords {
-        servers.push(&tools::passwords::SERVER);
-    }
-    servers
-}
-
-/// Every critical section leaves the maps whole, so a poisoned lock holds nothing half done.
-fn lock<Value>(mutex: &Mutex<Value>) -> std::sync::MutexGuard<'_, Value> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,31 +397,5 @@ mod tests {
     #[test]
     fn a_session_works_in_its_own_directory() {
         assert_eq!(Sessions::directory(12).absolute(), "/workspace/sessions/12");
-    }
-
-    #[test]
-    fn each_tool_server_is_granted_when_what_it_needs_is_there() {
-        let names = |has_project, has_storage, has_passwords| -> Vec<&'static str> {
-            tool_servers(ToolAccess {
-                has_project,
-                has_storage,
-                has_passwords,
-            })
-            .iter()
-            .map(|server| server.name)
-            .collect()
-        };
-        assert_eq!(
-            names(true, true, true),
-            ["elysium_work", "elysium_storage", "elysium_passwords"]
-        );
-        assert_eq!(names(true, false, false), ["elysium_work"]);
-        assert!(names(false, false, false).is_empty());
-        assert_eq!(names(false, true, false), ["elysium_storage"]);
-        assert_eq!(
-            names(false, false, true),
-            ["elysium_passwords"],
-            "a session without a project still signs in to things"
-        );
     }
 }

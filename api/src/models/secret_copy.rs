@@ -71,6 +71,17 @@ pub async fn reseal_all(connection: &mut AsyncPgConnection, cipher: &Cipher) -> 
         };
         let outcome = connection
             .transaction(async |connection| {
+                // Both processes re-seal at startup; the row lock makes each copy one process's.
+                let still_copied = secret_copies::table
+                    .find((&copy.target, copy.row_id))
+                    .select(secret_copies::row_id)
+                    .for_update()
+                    .first::<Uuid>(connection)
+                    .await
+                    .optional()?;
+                if still_copied.is_none() {
+                    return anyhow::Ok(None);
+                }
                 let found = match target {
                     Target::JiraToken => {
                         jira_credential::reseal_token(
@@ -85,12 +96,14 @@ pub async fn reseal_all(connection: &mut AsyncPgConnection, cipher: &Cipher) -> 
                 diesel::delete(secret_copies::table.find((&copy.target, copy.row_id)))
                     .execute(connection)
                     .await?;
-                anyhow::Ok(found)
+                anyhow::Ok(Some(found))
             })
             .await;
         match outcome {
-            Ok(true) => resealed += 1,
-            Ok(false) => event!(
+            Ok(Some(true)) => resealed += 1,
+            // The other process re-sealed it first.
+            Ok(None) => {}
+            Ok(Some(false)) => event!(
                 name: "secrets.copy.row_gone",
                 Level::INFO,
                 secret.target = %copy.target,

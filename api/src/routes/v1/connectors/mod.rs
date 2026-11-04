@@ -262,7 +262,7 @@ pub async fn views(
                 .and_then(|account| summaries.get(&account.id()).cloned()),
             status: status(
                 stored.is_active,
-                state.connectors.activity.is_syncing(stored.id),
+                stored.syncing_since.is_some(),
                 last_error.as_deref(),
                 &stored.sign_in_state,
             ),

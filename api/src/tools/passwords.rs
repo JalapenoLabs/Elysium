@@ -126,9 +126,10 @@ fn tool_error(error: VaultError, scope: &CallScope, operation: &'static str) -> 
             "login {id} is not in the collection agents may read; call passwords_find for the \
              ones that are"
         )),
-        VaultError::NotConfigured | VaultError::NotReady | VaultError::NoCollection => {
-            ToolError::Unknown(error.to_string())
-        }
+        VaultError::NotConfigured
+        | VaultError::NotReady
+        | VaultError::NoCollection
+        | VaultError::Unreachable => ToolError::Unknown(error.to_string()),
         VaultError::Cli(CliError::Failed(_)) | VaultError::Internal(_) => {
             internal(scope, operation, &error)
         }

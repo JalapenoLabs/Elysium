@@ -157,7 +157,8 @@ impl Workspace {
         let request = StartTurnRequest {
             prompt: arguments.prompt,
         };
-        let turn = coding_sessions::start_turn(&self.state, arguments.id, request).await;
+        let turn =
+            coding_sessions::start_turn(&self.state, arguments.id, request, caller.user.id).await;
         answer(turn.map(|turn| json!({ "turn": turn })))
     }
 

@@ -112,7 +112,7 @@ impl Checks for TeamsChecks {
     async fn check(&mut self, id: &'static str) -> Outcome {
         match id {
             "browser_running" => {
-                let status = self.browsers.status(self.browser.id);
+                let status = self.browsers.status(self.browser.id).await;
                 if status.state == BrowserState::Running {
                     return Outcome::passed();
                 }

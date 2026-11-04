@@ -117,7 +117,7 @@ pub fn in_collection(item: &Item, collection: Uuid) -> bool {
 }
 
 /// An item as a search shows it: everything but its secrets.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemSummary {
     pub id: Uuid,
@@ -128,7 +128,7 @@ pub struct ItemSummary {
 }
 
 /// An item as `passwords_login` shows it: its username and password, for signing in.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginDetails {
     pub id: Uuid,

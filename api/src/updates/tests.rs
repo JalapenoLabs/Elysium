@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 use super::*;
-use crate::activity::ActivityKind;
+use crate::activity::{Activities, ActivityKind};
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
 /// The same vector `updater/updater.sh` produces for `ELYSIUM_ENCRYPTION_KEY=testkey`:
@@ -69,6 +69,18 @@ fn a_long_reason_is_cut_to_what_the_column_holds() {
     assert_eq!(reason.chars().count(), MAX_REASON_CHARACTERS);
 }
 
+/// Waits until the status lists `count` pieces of running work, as the mirror writes them.
+async fn wait_for_waiting_work(updates: &Updates, count: usize) {
+    for _attempt in 0..100 {
+        let status = updates.status().await.expect("the status");
+        if status.waiting_for.len() == count {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("the running work never reached {count}");
+}
+
 /// Updates for a deployment running `running`, against a migrated database.
 async fn updates_running(running: &'static str) -> (Updates, Activities) {
     let (url, _connection) = migrated_database().await;
@@ -76,11 +88,12 @@ async fn updates_running(running: &'static str) -> (Updates, Activities) {
         .await
         .expect("Postgres accepts connections");
     let build = VersionInfo::from_build().expect("build metadata parses");
-    let activity = Activities::new();
+    // Mirrored, as the engine's is, since the decision reads every process's work from the
+    // database.
+    let (activity, _mirror) = Activities::mirrored(database.clone(), CancellationToken::new());
     let updates = Updates::new(UpdatesDeps {
         database,
         events: EventBus::in_process(),
-        activity: activity.clone(),
         http: reqwest::Client::new(),
         version: Arc::new(VersionInfo {
             release: Some(running),
@@ -95,7 +108,7 @@ async fn updates_running(running: &'static str) -> (Updates, Activities) {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_newer_release_is_applied_once_and_recorded() {
     let (updates, _activity) = updates_running("0.1.0").await;
-    updates.set_newest(Some(Version::new(0, 1, 1)));
+    updates.set_newest(Some(Version::new(0, 1, 1))).await;
 
     let first = updates.instruction().await.expect("an instruction");
     assert_eq!(
@@ -130,9 +143,10 @@ async fn a_newer_release_is_applied_once_and_recorded() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn running_work_holds_the_update_until_it_finishes() {
     let (updates, activity) = updates_running("0.1.0").await;
-    updates.set_newest(Some(Version::new(0, 1, 1)));
+    updates.set_newest(Some(Version::new(0, 1, 1))).await;
 
     let turn = activity.begin(ActivityKind::AgentTurn, "session:1");
+    wait_for_waiting_work(&updates, 1).await;
     assert_eq!(
         updates.instruction().await.expect("an instruction"),
         Instruction::Wait
@@ -142,6 +156,7 @@ async fn running_work_holds_the_update_until_it_finishes() {
     assert_eq!(status.waiting_for.len(), 1);
 
     drop(turn);
+    wait_for_waiting_work(&updates, 0).await;
     assert_eq!(
         updates.instruction().await.expect("an instruction"),
         Instruction::Apply {
@@ -155,7 +170,7 @@ async fn running_work_holds_the_update_until_it_finishes() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_release_that_rolled_back_waits_for_an_admin() {
     let (updates, _activity) = updates_running("0.1.0").await;
-    updates.set_newest(Some(Version::new(0, 1, 1)));
+    updates.set_newest(Some(Version::new(0, 1, 1))).await;
 
     updates.instruction().await.expect("an instruction");
     updates
@@ -195,7 +210,7 @@ async fn a_release_that_rolled_back_waits_for_an_admin() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn starting_as_the_applying_release_settles_it_as_succeeded() {
     let (old_process, _activity) = updates_running("0.1.0").await;
-    old_process.set_newest(Some(Version::new(0, 1, 1)));
+    old_process.set_newest(Some(Version::new(0, 1, 1))).await;
     old_process.instruction().await.expect("an instruction");
 
     // The new release starts against the same database before the updater reports.
@@ -223,7 +238,7 @@ async fn starting_as_the_applying_release_settles_it_as_succeeded() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_build_that_is_not_a_release_is_never_told_to_apply() {
     let (updates, _activity) = updates_running("main").await;
-    updates.set_newest(Some(Version::new(9, 0, 0)));
+    updates.set_newest(Some(Version::new(9, 0, 0))).await;
     assert_eq!(
         updates.instruction().await.expect("an instruction"),
         Instruction::Wait

@@ -20,7 +20,7 @@ use crate::auth::CurrentUser;
 use crate::elysia::trigger;
 use crate::errors::ApiError;
 use crate::models::elysia::{self, NewTurn};
-use crate::realtime::ServerEvent;
+use crate::realtime::{ServerEvent, Signal};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::state::AppState;
 
@@ -70,7 +70,7 @@ pub async fn handle(
         .events
         .publish(&ServerEvent::ElysiaTurnUpserted(TurnResponse::from(turn)));
     publish_snapshot(&state.events, &mut connection).await?;
-    state.elysia.wake();
+    state.events.signal(&Signal::Elysia);
 
     Ok((StatusCode::CREATED, Json(json!({ "message": message }))))
 }

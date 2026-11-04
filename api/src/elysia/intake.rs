@@ -21,11 +21,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{Elysia, trigger};
+use super::trigger;
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn};
 use crate::models::user::SYSTEM_USER_ID;
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::elysia::{TurnResponse, publish_snapshot};
 
 /// How long a batch stays open after its first change. Long enough to gather a burst from the
@@ -104,7 +104,6 @@ pub fn merge_events(detail: &Value, changes: Vec<Value>, omitted: u64) -> Value 
 pub struct IntakeContext {
     pub database: Pool,
     pub events: EventBus,
-    pub elysia: Elysia,
 }
 
 /// Listens to the bus until `shutdown`, queueing batches as `event` turns.
@@ -187,7 +186,7 @@ async fn queue(context: &IntakeContext, changes: Vec<Value>, missed: u64) -> any
         .events
         .publish(&ServerEvent::ElysiaTurnUpserted(TurnResponse::from(turn)));
     publish_snapshot(&context.events, &mut connection).await?;
-    context.elysia.wake();
+    context.events.signal(&Signal::Elysia);
     Ok(())
 }
 
@@ -205,10 +204,6 @@ mod tests {
                 .await
                 .expect("Postgres accepts connections"),
             events: EventBus::in_process(),
-            elysia: Elysia::new(
-                crate::elysia::runner::TurnRunner::Scripted(std::sync::Arc::default()),
-                crate::tools::grants::Grants::new(),
-            ),
         };
 
         queue(&context, vec![json!({ "type": "first" })], 0)

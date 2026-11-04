@@ -230,17 +230,22 @@ impl From<StudioFeedback> for StudioFeedbackResponse {
 }
 
 /// An item's sessions as clients see them, with what each is doing now.
-pub fn session_responses(
+///
+/// # Errors
+/// Propagates database errors.
+pub async fn session_responses(
     state: &AppState,
     sessions: Vec<CodingSession>,
-) -> Vec<CodingSessionResponse> {
-    sessions
+) -> Result<Vec<CodingSessionResponse>, ApiError> {
+    let ids: Vec<i64> = sessions.iter().map(|session| session.id).collect();
+    let mut activities = state.sessions.activities(&ids).await?;
+    Ok(sessions
         .into_iter()
         .map(|session| {
-            let activity = state.sessions.activity(session.id);
+            let activity = activities.remove(&session.id).unwrap_or_default();
             CodingSessionResponse::new(session, activity)
         })
-        .collect()
+        .collect())
 }
 
 /// How a stored file is handed to the browser.

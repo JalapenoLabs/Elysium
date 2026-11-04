@@ -27,8 +27,8 @@ name: elysium
 # A release carries these directories (see the API image), so a deployment that runs
 # published images builds them from the configuration its updater installed.
 
-# The API and the web app it serves, published from this repository. ELYSIUM_VERSION
-# pins a release such as 1.4.2; unset, the newest release runs.
+# The API and the web app it serves, published from this repository; the engine runs from
+# the same image. ELYSIUM_VERSION pins a release such as 1.4.2; unset, the newest release runs.
 x-api-image: &api-image jalapenolabs/elysium-api:${ELYSIUM_VERSION:-latest}
 
 # nginx's fixed address on the mail network. Stalwart trusts the PROXY protocol header, which
@@ -41,6 +41,34 @@ x-database-url: &database-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:
 # The origin browsers reach Elysium at. Sessions, passkeys, and recovery links are bound to
 # it, so it must be https, or http://localhost for development. See docs/auth.md.
 x-public-url: &public-url ${ELYSIUM_PUBLIC_URL:-http://localhost:${WEB_PORT:-4000}}
+
+# What the API and the engine both read: they are one crate, and each builds the services it
+# needs from the same configuration. See docs/engine.md.
+x-server-environment: &server-environment
+  DATABASE_URL: *database-url
+  REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
+  ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+  ELYSIUM_PUBLIC_URL: *public-url
+  # Kratos, on the compose network: the public API for sessions, the admin API for
+  # managing identities. Browsers never reach the admin API.
+  KRATOS_PUBLIC_URL: http://kratos:4433
+  KRATOS_ADMIN_URL: http://kratos:4434
+  # Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
+  HYDRA_ADMIN_URL: http://hydra:4445
+  RUST_LOG: ${RUST_LOG:-info,tower_http=info}
+  LOG_FORMAT: compact
+  # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.
+  CORS_ALLOWED_ORIGINS: ""
+  # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
+  # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the servers.
+  OAUTH_BROKER_URL: ""
+  # The filtered Docker API the mail server, the browsers, and the agent workspace are run
+  # through.
+  DOCKER_URL: http://docker-proxy:2375
+  # The image agent turns run in, from the same release. The engine creates the container.
+  WORKSPACE_IMAGE: jalapenolabs/elysium-workspace:${ELYSIUM_VERSION:-latest}
+  MAIL_INGRESS_ADDRESS: *mail-ingress-address
+  TZ: UTC
 
 # Ory Kratos with Elysium's configuration built in (kratos/Dockerfile), built by
 # kratos-migrate. The entrypoint derives Kratos's secrets and URLs from the two variables
@@ -200,39 +228,22 @@ services:
       retries: 3
       start_period: 20s
 
+  # Serves clients alone: the web app, its /api, and MCP clients. It runs no background work;
+  # what a request starts that outlives it, it records for the engine. See docs/engine.md.
   api:
-    # No container_name and no host port: it scales, and it must only be reachable through nginx.
+    # No container_name and no host port: it may scale, and it must only be reachable through
+    # nginx. It runs one replica today; docs/engine.md says what still holds it to one.
     image: *api-image
     restart: unless-stopped
-    environment:
-      DATABASE_URL: *database-url
-      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
-      ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
-      ELYSIUM_PUBLIC_URL: *public-url
-      # Kratos, on the compose network: the public API for sessions, the admin API for
-      # managing identities. Browsers never reach the admin API.
-      KRATOS_PUBLIC_URL: http://kratos:4433
-      KRATOS_ADMIN_URL: http://kratos:4434
-      # Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
-      HYDRA_ADMIN_URL: http://hydra:4445
-      RUST_LOG: ${RUST_LOG:-info,tower_http=info}
-      LOG_FORMAT: compact
-      # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.
-      CORS_ALLOWED_ORIGINS: ""
-      # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
-      # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the API.
-      OAUTH_BROKER_URL: ""
-      # The filtered Docker API the mail server and the agent workspace are run through.
-      DOCKER_URL: http://docker-proxy:2375
-      # The image agent turns run in, from the same release. The API creates the container.
-      WORKSPACE_IMAGE: jalapenolabs/elysium-workspace:${ELYSIUM_VERSION:-latest}
-      MAIL_INGRESS_ADDRESS: *mail-ingress-address
-      TZ: UTC
+    environment: *server-environment
     networks:
       default:
+      # Work a request waits for in Docker: files in the workspace, Claude sign-ins, creating
+      # the mail server, and resetting or removing a browser.
       docker-control:
       mail:
-      # Agents in the workspace reach the API here as http://api:8080, never through nginx.
+      # Agents in the workspace reach Elysium's tools here as http://api:8080, never through
+      # nginx.
       agents:
         aliases: [ api ]
     depends_on:
@@ -248,11 +259,44 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
-    # What the API keeps between restarts: the Bitwarden CLI's state, so it stays signed in as
-    # the same device. See docs/passwords.md.
-    volumes:
-      - api-data:/var/lib/elysium
     # Long enough for the graceful drain to finish before Docker escalates to SIGKILL.
+    stop_grace_period: 30s
+
+  # Every loop, schedule, and agent turn: the runner, Elysia, the connectors' readers, the
+  # keepers of browsers, the mail server, the password vault, and Claude accounts, update
+  # checks, and backups. It serves nothing but its health check. One runs, which is what the
+  # container name holds it to: Elysia's intake must hear each event once. See docs/engine.md.
+  engine:
+    container_name: elysium-engine
+    image: *api-image
+    command: ["elysium-engine"]
+    restart: unless-stopped
+    environment: *server-environment
+    networks:
+      default:
+      # The agent workspace, the mail server, the browsers, and the databases' dumps.
+      docker-control:
+      # The mail server's management API, and the mailboxes it hosts.
+      mail:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    # What the engine keeps between restarts: the Bitwarden CLI's state, so it stays signed in
+    # as the same device, and each backup's dumps until they are uploaded. See
+    # docs/passwords.md.
+    volumes:
+      - engine-data:/var/lib/elysium
+    # Long enough for turns to be stopped and recorded before Docker escalates to SIGKILL.
     stop_grace_period: 30s
 
   postgres:
@@ -279,11 +323,11 @@ services:
       retries: 5
       start_period: 10s
 
-  # The API's only way to Docker: a proxy that answers the container, image, volume, and
-  # network endpoints and refuses the rest (exec, build, swarm, secrets, system). The API
-  # uses it to create and run the mail server and the browsers, each browser on a network of
-  # its own. Container creation is still enough to control the host, which is one more
-  # reason nginx stays on loopback.
+  # The only way the API and the engine reach Docker: a proxy that answers the container,
+  # image, volume, network, and exec endpoints and refuses the rest (build, swarm, secrets,
+  # system). They use it to create and run the agent workspace, the mail server, and the
+  # browsers, each browser on a network of its own. Container creation is still enough to
+  # control the host, which is one more reason nginx stays on loopback.
   docker-proxy:
     container_name: elysium-docker-proxy
     image: tecnativa/docker-socket-proxy:v0.5.0
@@ -296,7 +340,7 @@ services:
       POST: 1
       ALLOW_START: 1
       ALLOW_RESTARTS: 1
-      # Agent turns are `docker exec` in the workspace container.
+      # Agent turns, workspace files, and backups' dumps are `docker exec`.
       EXEC: 1
       EVENTS: 0
     volumes:
@@ -346,10 +390,11 @@ services:
 
 networks:
   default:
-  # Only the API and the Docker proxy. Internal: it has no route out of the host.
+  # Only the API, the engine, and the Docker proxy. Internal: it has no route out of the host.
   docker-control:
     internal: true
-  # nginx, the API, and the Stalwart container the API creates, which answers as `stalwart`.
+  # nginx, the API, the engine, and the Stalwart container they create, which answers as
+  # `stalwart`.
   # A fixed name, because the API attaches Stalwart to it by name; a fixed subnet, because
   # nginx needs a fixed address. `docker compose down` reports it still in use while Stalwart
   # runs, and leaves it for the next `up`.
@@ -362,14 +407,14 @@ networks:
           # fixed address before nginx starts.
           ip_range: 172.29.53.128/25
 
-  # The API and the agent workspace it creates, which answers as `workspace`. A plain bridge,
-  # because agents need the internet; nginx is not on it, so nothing public reaches it. A
-  # fixed name, because the API attaches the workspace to it by name.
+  # The API and the agent workspace the engine creates, which answers as `workspace`. A plain
+  # bridge, because agents need the internet; nginx is not on it, so nothing public reaches it.
+  # A fixed name, because the engine attaches the workspace to it by name.
   agents:
     name: elysium-agents
 
 volumes:
   postgres-data:
   redis-data:
-  # The API's own state, such as the Bitwarden CLI's. See docs/passwords.md.
-  api-data:
+  # The engine's own state, such as the Bitwarden CLI's. See docs/passwords.md.
+  engine-data:

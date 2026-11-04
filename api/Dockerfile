@@ -3,8 +3,8 @@
 # deployment's configuration (compose.yml, nginx/, kratos/, hydra/, updater/) are copied in.
 #
 # Two final stages:
-# - `server`, the API alone. The development stack builds this one; there nginx sends
-#   every path outside /api to the Vite dev server.
+# - `server`, the API and the engine, two binaries of one crate. The development stack builds
+#   this one; there nginx sends every path outside /api to the Vite dev server.
 # - `app`, the default and the published image: the server plus the web app's
 #   production build, which it serves at every path outside /api.
 
@@ -80,7 +80,7 @@ RUN curl -fsSL -o /tmp/bw.zip \
   && rm -rf /tmp/bw.zip /tmp/bw
 
 FROM debian:trixie-slim AS server
-# ca-certificates: outbound TLS. curl: the compose healthcheck.
+# ca-certificates: outbound TLS. curl: the compose healthchecks.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
@@ -88,14 +88,16 @@ RUN apt-get update \
   && install -d -o elysium -g elysium -m 0700 /var/lib/elysium
 COPY --from=bitwarden-cli /usr/local/bin/bw /usr/local/bin/bw
 COPY --from=builder /workspace/api/target/release/elysium-api /usr/local/bin/elysium-api
-# What the API keeps between restarts: the Bitwarden CLI's state, so the CLI stays signed in
-# as the same device. compose.yml mounts a volume here; a new volume copies this directory's
-# owner and mode.
-VOLUME /var/lib/elysium
+# The engine, which compose runs from this image with `command: ["elysium-engine"]`.
+COPY --from=builder /workspace/api/target/release/elysium-engine /usr/local/bin/elysium-engine
+# What the engine keeps between restarts: the Bitwarden CLI's state, so the CLI stays signed in
+# as the same device, and each backup's dumps until they are uploaded. compose.yml mounts a
+# named volume here for the engine alone; a new volume copies this directory's owner and mode.
+# Not a VOLUME, so the API, which keeps nothing, gets no anonymous volume of its own.
 USER elysium
 EXPOSE 8080
 # Exec form keeps the binary as PID 1 so SIGTERM reaches its graceful shutdown handler.
-# `app` inherits it.
+# `app` inherits it; the engine's service names its own binary in the same form.
 CMD ["elysium-api"]
 
 FROM server AS app

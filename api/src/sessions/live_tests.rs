@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! A session end to end against a real Docker daemon, Postgres, and the workspace image,
-//! without a model credential: its repository is cloned into its directory, a turn runs the
-//! CLI, and every event the turn reported is recorded in order, ending with its outcome.
+//! without a model credential: its repository is cloned into its directory, a turn queued as
+//! the API queues it is run by the engine's queue, and every event the turn reported is
+//! recorded in order, ending with its outcome.
 //!
 //! Opt-in, like `crate::runner`'s live test: it needs `RUNNER_TEST_DOCKER_URL` (a
 //! `docker-socket-proxy` with `EXEC=1`), `RUNNER_TEST_WORKSPACE_IMAGE`, an `elysium-agents`
@@ -14,6 +15,7 @@ use std::time::Duration;
 use bollard::{API_DEFAULT_VERSION, Docker};
 use tokio_util::sync::CancellationToken;
 
+use super::queue::{TurnQueue, TurnQueueDeps};
 use super::{RepositoryClone, Sessions, SessionsDeps, TurnExtras};
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::project::{self, NewProject};
@@ -21,12 +23,16 @@ use crate::models::session_event;
 use crate::realtime::EventBus;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{Runner, RunnerEvent, TurnStatus};
-use crate::server::build_passwords;
+use crate::services::build_passwords;
 use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 use crate::tools::grants::Grants;
 
 #[tokio::test]
 #[ignore = "needs RUNNER_TEST_DOCKER_URL, RUNNER_TEST_WORKSPACE_IMAGE, and TEST_DATABASE_URL"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one session's life end to end, across both halves, read top to bottom"
+)]
 async fn a_session_clones_runs_a_turn_and_records_every_event() {
     let (Ok(docker_url), Ok(image)) = (
         std::env::var("RUNNER_TEST_DOCKER_URL"),
@@ -57,12 +63,18 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
         database: database.clone(),
         cipher,
         events,
-        runner,
         workspace,
-        grants: Grants::new(),
+    });
+    // The engine's half, which brings the workspace up and runs what the API queues.
+    runner.prepare().await.expect("the workspace comes up");
+    let queue = TurnQueue::new(TurnQueueDeps {
+        sessions: sessions.clone(),
+        runner,
+        grants: Grants::new(database.clone()),
         storage: crate::storage::Storage::new(reqwest::Client::new()),
         passwords,
     });
+    let _queue = queue.start(CancellationToken::new());
 
     let session = live_session(&mut connection).await;
 
@@ -88,7 +100,12 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
     );
 
     sessions
-        .start_turn(&session, "Say hi".to_owned(), TurnExtras::default())
+        .start_turn(
+            &session,
+            "Say hi".to_owned(),
+            TurnExtras::default(),
+            TEST_PERSON_ID,
+        )
         .await
         .expect("the turn queues");
 
