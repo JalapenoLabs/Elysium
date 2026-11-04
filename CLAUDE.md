@@ -118,8 +118,8 @@ Everything else follows these rules:
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
-  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read) and coding
-  sessions; Studio items, action items, and initiatives are on the roadmap.
+  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), coding
+  sessions, and saving and deleting learnings; Studio items, action items, and initiatives are on the roadmap.
 
 ## Agents run on the host
 
@@ -447,8 +447,12 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   `verify-migrations.sh`; CI compares them. `migrate run` rebuilds the indexes of any database whose collation
   changed under a new image (`docs/database.md`, Collations).
 - The knowledge base's index is `knowledge_documents` and `knowledge_passages`: each source is a cascading column of
-  its document, and each passage has a generated `english` tsvector and a `vector(768)` embedding. See
+  its document, and each passage has a generated `english` tsvector and a `vector(768)` embedding. Every source enters
+  and leaves it through `knowledge_document::upsert` and `remove`, in the transaction that changes the source. See
   `docs/knowledge.md`.
+- Learnings (`learnings`, history in `learning_events`) are indexed the moment they are saved. A title names one
+  learning whatever its case, so saving it again revises that learning; every change can be undone. The knowledge
+  base's routes and tools refuse guests (`MemberUser`). See `docs/knowledge.md`, Learnings.
 
 ## CI
 

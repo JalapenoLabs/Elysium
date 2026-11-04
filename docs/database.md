@@ -74,7 +74,8 @@ checks:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
-index's cascades and columns, and every LLM, storage location, GitHub
+index's cascades and columns, learnings saved, revised, undone, deleted, and indexed with them, and every LLM,
+storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
@@ -337,14 +338,15 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
 a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
 source deletes its document and passages, a document for a source already gone is refused, and indexing a source
-again upserts its one document on that column. Today the only source is a timeline record; learnings and the company
-doc add theirs.
+again upserts its one document on that column. The sources are a timeline record and a learning; the company doc adds
+its own.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
 | `id`                 | `UUID`        | UUIDv7, primary key                                                    |
-| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, or later `learning` |
+| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, or `learning` |
 | `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
+| `learning_id`        | `UUID`        | Unique; references `learnings`, cascading                              |
 | `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
@@ -370,6 +372,43 @@ embedding.
 `vector_cosine_ops`) nearest neighbours by cosine distance, and the partial `knowledge_passages_unembedded` what the
 embedding model has still to do. `schema.rs` names the two column types `Tsvector` and `Vector`, placeholders
 `diesel print-schema` generates.
+
+### `learnings`
+
+What people and their agents learned, written for the next agent; see `docs/knowledge.md`, Learnings. The unique
+index `learnings_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
+included, so saving a title again revises its learning; `migrate run` rebuilds it with every other text index when the
+collation changes (Collations, above).
+
+| Column       | Type                | Notes                                                                  |
+|--------------|---------------------|------------------------------------------------------------------------|
+| `id`         | `UUID`              | UUIDv7, primary key                                                    |
+| `title`      | `TEXT`              | The takeaway, 1 to 300 characters, on one line                         |
+| `body`       | `TEXT`              | 1 to 20,000 characters                                                 |
+| `category`   | `learning_category` | `decision`, `convention`, `procedure`, `pitfall`, `reference`, `environment`, `people`, `project`, or `incident` |
+| `evidence`   | `TEXT`              | 1 to 20,000 characters                                                 |
+| `agent`      | `TEXT`              | The agent acting for `created_by` at the first save, `mcp:<client id>`; NULL when the person saved it |
+| `agent_name` | `TEXT`              | What that agent called itself, up to 200 characters; set only with `agent` |
+| `deleted_at` | `TIMESTAMPTZ`       | Soft delete; NULL while the learning is live                           |
+| `created_by` | `UUID`              | References `users`: who first saved it                                 |
+| `created_at` | `TIMESTAMPTZ`       | Written by the API, the moment of the first save                       |
+| `updated_at` | `TIMESTAMPTZ`       | Maintained by trigger                                                  |
+
+### `learning_events`
+
+The history of learnings, one row per change, shaped like `action_item_events`; see `docs/knowledge.md`, History and
+undo. Cascades with its learning. `learning_events_learning_id_idx` on `(learning_id, id)` reads one learning's history
+in order.
+
+| Column        | Type          | Notes                                                                 |
+|---------------|---------------|-----------------------------------------------------------------------|
+| `id`          | `UUID`        | UUIDv7, primary key; orders entries as they were written              |
+| `learning_id` | `UUID`        | References `learnings`, cascading                                     |
+| `kind`        | `TEXT`        | `created`, `revised`, `deleted`, or `restored`; text, as for action items, so a later kind needs no enum migration |
+| `created_by`  | `UUID`        | References `users`: who made the change                               |
+| `agent`, `agent_name` | `TEXT` | The agent acting for them, as on `learnings`                        |
+| `data`        | `JSONB`       | A JSON object shaped by `kind`                                        |
+| `created_at`  | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
 ### `meetings`
 

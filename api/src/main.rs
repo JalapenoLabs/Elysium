@@ -27,6 +27,7 @@ mod github;
 mod images;
 mod issue_reports;
 mod jira;
+mod knowledge;
 mod mail;
 mod mcp;
 mod meetings;

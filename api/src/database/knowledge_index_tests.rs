@@ -225,3 +225,43 @@ async fn embeddings_are_the_models_size_and_name_their_model() {
         "cosine distance ranks the same direction first"
     );
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_learning_is_a_source_of_its_own_that_takes_its_document_with_it() {
+    let mut connection = indexed_message().await;
+    connection
+        .batch_execute(
+            "INSERT INTO learnings (id, title, body, category, evidence, created_by, created_at) \
+             VALUES ('00000000-0000-7000-8000-0000000000f1', 'Pin every tool version', \
+                     'Never use latest.', 'convention', 'CI drifted.', \
+                     '0199a3c4-0000-7000-8000-00000000beef', now()); \
+             INSERT INTO knowledge_documents (id, source, learning_id, occurred_at, \
+                                              content_sha256, created_by) \
+             VALUES (gen_random_uuid(), 'learning', '00000000-0000-7000-8000-0000000000f1', \
+                     now(), repeat('a', 64), '0199a3c4-0000-7000-8000-00000000beef');",
+        )
+        .await
+        .expect("a learning and its document are stored");
+
+    let both = diesel::sql_query(
+        "UPDATE knowledge_documents SET learning_id = '00000000-0000-7000-8000-0000000000f1' \
+         WHERE id = $1",
+    )
+    .bind::<SqlUuid, _>(DOCUMENT)
+    .execute(&mut connection)
+    .await;
+    assert!(both.is_err(), "a document has exactly one source");
+
+    connection
+        .batch_execute("DELETE FROM learnings WHERE id = '00000000-0000-7000-8000-0000000000f1'")
+        .await
+        .expect("the learning is deleted");
+    let learning_documents = "SELECT 1 FROM knowledge_documents WHERE source = 'learning'";
+    assert_eq!(count(&mut connection, learning_documents).await, 0);
+    assert_eq!(
+        count(&mut connection, "SELECT 1 FROM knowledge_documents").await,
+        1,
+        "the record's document stays"
+    );
+}

@@ -16,8 +16,8 @@
 //! 2. [`middleware::require_access`] refuses pending and disabled people, and people who
 //!    must enroll an authenticator first. It covers every other `/api/v1` route.
 //!
-//! Handlers then name who they act for with [`CurrentUser`], or [`AdminUser`] for what only
-//! admins may do.
+//! Handlers then name who they act for with [`CurrentUser`], [`MemberUser`] for the knowledge
+//! base, which guests may not reach, or [`AdminUser`] for what only admins may do.
 
 pub mod hook_key;
 pub mod identity_schemas;
@@ -114,6 +114,42 @@ impl<State: Send + Sync> FromRequestParts<State> for AdminUser {
     }
 }
 
+/// The person a handler acts for, who must be an active admin or member, as everything in the
+/// knowledge base requires: a guest is outside the company and reaches none of it
+/// (`docs/knowledge.md`, Who sees what).
+///
+/// The MCP server checks its caller with [`MemberUser::check`], so a function taking one has
+/// had its caller's role checked whichever way the request arrived.
+#[derive(Debug, Clone)]
+pub struct MemberUser(pub User);
+
+impl MemberUser {
+    /// `user`, once they are found to be one of the company's members.
+    ///
+    /// # Errors
+    /// [`AccessRefusal::MembersOnly`] for a guest, or anyone else who is not an active admin or
+    /// member.
+    pub fn check(user: User) -> Result<Self, ApiError> {
+        if user.is_company_member() {
+            return Ok(Self(user));
+        }
+        Err(ApiError::AccessRefused(AccessRefusal::MembersOnly))
+    }
+
+    pub const fn id(&self) -> uuid::Uuid {
+        self.0.id
+    }
+}
+
+impl<State: Send + Sync> FromRequestParts<State> for MemberUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &State) -> Result<Self, ApiError> {
+        let CurrentUser(user) = CurrentUser::from_request_parts(parts, state).await?;
+        Self::check(user)
+    }
+}
+
 /// Why a signed-in request was refused. Each has a stable code the frontend acts on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessRefusal {
@@ -127,6 +163,9 @@ pub enum AccessRefusal {
     /// The workspace requires an authenticator app, and this person has not set one up.
     MfaEnrollmentRequired,
     AdminOnly,
+    /// A guest, asking for what only the company's own people may reach, such as the knowledge
+    /// base.
+    MembersOnly,
     /// An unsafe request from a page on another origin.
     CrossOrigin,
 }
@@ -147,6 +186,7 @@ impl AccessRefusal {
             Self::AccountDisabled => "account_disabled",
             Self::MfaEnrollmentRequired => "mfa_enrollment_required",
             Self::AdminOnly => "admin_only",
+            Self::MembersOnly => "members_only",
             Self::CrossOrigin => "cross_origin",
         }
     }
@@ -161,6 +201,7 @@ impl AccessRefusal {
                 "this workspace requires an authenticator app; set one up to continue"
             }
             Self::AdminOnly => "only an admin can do this",
+            Self::MembersOnly => "only the company's members can reach its knowledge base",
             Self::CrossOrigin => "the request came from another site",
         }
     }

@@ -110,6 +110,12 @@ impl User {
     pub fn is_admin(&self) -> bool {
         self.is_active() && self.role == Some(UserRole::Admin)
     }
+
+    /// True for an active admin or member: the company's own people, who read its knowledge
+    /// base. A guest is outside the company (`docs/knowledge.md`, Who sees what).
+    pub fn is_company_member(&self) -> bool {
+        self.is_active() && matches!(self.role, Some(UserRole::Admin | UserRole::Member))
+    }
 }
 
 /// The longest name `users_name_length` allows, in characters.

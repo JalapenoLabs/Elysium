@@ -103,7 +103,12 @@ Tools are named for what they act on, then what they do.
 | `sessions_rename`      | `workspace:write` | Renames a coding session                                               |
 | `sessions_send_prompt` | `workspace:write` | Sends a prompt to a session's agent as a new turn                      |
 | `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
+| `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
+| `learning_delete`      | `workspace:write` | Deletes a learning softly, out of the knowledge base until restored    |
 
+- **Knowledge base.** The learning tools answer admins and members alone, and a guest's client `403 members_only`, as
+  the routes do (`docs/knowledge.md`, Who sees what). They record the client as the agent acting for the person: its
+  id, and the name it registered, read from Hydra when it saves. A name Hydra cannot give is logged and left out.
 - **Results.** A tool answers structured content, the same JSON the route answers in the browser, repeated as a text
   block for clients that render only text. A failure is a tool
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
@@ -120,7 +125,10 @@ Tools are named for what they act on, then what they do.
 
 ### Adding a tool
 
-Tools are grouped by what they act on, one module each under `api/src/mcp/` (`projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`.
+Tools are grouped by what they act on, one module each under `api/src/mcp/` (`learnings.rs`, `projects.rs`,
+`sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A knowledge base
+tool checks its caller with `MemberUser::check(caller.user)` first and passes the `MemberUser` on, as the route's
+extractor does.
 
 1. Expose the route's work as a function: the handler's body moves into a `pub async fn` on the route module that takes
    `&AppState`, the acting user's id when it creates, and the request struct, and answers the response. The handler

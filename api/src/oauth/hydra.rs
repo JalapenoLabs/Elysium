@@ -338,6 +338,16 @@ impl Hydra {
         Ok(clients)
     }
 
+    /// One registered client.
+    ///
+    /// # Errors
+    /// Returns [`HydraError::NotFound`] for an unknown client, and [`HydraError::Refused`] when
+    /// Hydra cannot be reached.
+    pub async fn client(&self, client_id: &str) -> Result<Client, HydraError> {
+        self.send(Method::GET, self.client_url(client_id), None)
+            .await
+    }
+
     /// Deletes a client, with every grant and token issued to it.
     ///
     /// # Errors

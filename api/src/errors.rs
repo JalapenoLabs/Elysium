@@ -103,6 +103,21 @@ impl From<crate::action_items::WorkError> for ApiError {
     }
 }
 
+impl From<crate::models::learning::LearningError> for ApiError {
+    fn from(error: crate::models::learning::LearningError) -> Self {
+        use crate::models::learning::LearningError;
+
+        match error {
+            LearningError::Database(database) => database.into(),
+            LearningError::TitleTaken => Self::Conflict("another learning already has this title"),
+            LearningError::Deleted => {
+                Self::Conflict("this learning is deleted; restore it to change it")
+            }
+            LearningError::NothingToUndo(message) => Self::Conflict(message),
+        }
+    }
+}
+
 impl From<crate::models::user::AccountError> for ApiError {
     fn from(error: crate::models::user::AccountError) -> Self {
         use crate::models::user::AccountError;

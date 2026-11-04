@@ -122,6 +122,11 @@ pub enum ServerEvent {
     ConnectorChanged { id: Uuid },
     #[serde(rename = "connector.deleted")]
     ConnectorDeleted { id: Uuid },
+    /// A learning was saved, corrected, deleted, restored, or had a change undone. Its id
+    /// alone, since a guest hears every event and reaches no knowledge base; members load it by
+    /// id.
+    #[serde(rename = "learning.changed")]
+    LearningChanged { id: Uuid },
     /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
     /// states only: a check's message can name what an account reaches, and the run answers the
     /// person who started it.

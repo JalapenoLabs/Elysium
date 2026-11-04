@@ -168,7 +168,9 @@ Three layers run in order (`api/src/routes/v1/mod.rs`):
    workspace requires an authenticator app, it also refuses a one-factor session (`mfa_enrollment_required`).
    `GET /api/v1/me` sits outside this layer, so anyone signed in can learn why they are waiting.
 
-Refusals are JSON with a stable `code` beside the `message`. Admin-only routes answer `403 admin_only`.
+Refusals are JSON with a stable `code` beside the `message`. Admin-only routes answer `403 admin_only`. The knowledge
+base's routes and MCP tools answer admins and members alone (`MemberUser`, whose `check` the MCP server calls too),
+and a guest `403 members_only` (`docs/knowledge.md`, Who sees what).
 
 The event stream checks its session and person every 30 seconds and closes when either loses access. The browser
 then reconnects and is refused.
@@ -181,17 +183,17 @@ then reconnects and is refused.
 |----------|---------------------------------------------|-------------------------------------------|
 | `admin`  | People                                      | Everything, including users and settings  |
 | `member` | People                                      | Everything but users and settings         |
-| `guest`  | People                                      | The same as a member, for now             |
+| `guest`  | People                                      | A member's access, but no knowledge base  |
 | `agent`  | Elysia and the coding agent                 | Never signs in                            |
 | `system` | The system user                             | Never signs in                            |
 
-- **Guest.** Guests are meant to see and do less than members. That is on the roadmap; today they have a member's
-  access.
+- **Guest.** Guests are meant to see and do less than members. Today the knowledge base is the one thing refused them
+  (`is_company_member`); the rest is on the roadmap.
 - **Machine roles.** The database ties the two machine roles to having no Kratos identity, so a machine can never
   sign in and a person can never hold a machine's role.
 - **Requests.** Requests can assign only `admin`, `member`, or `guest`.
-- **Permission checks.** Checks match roles explicitly (`is_admin`), never "anything but guest", so a new role gains
-  nothing by accident.
+- **Permission checks.** Checks match roles explicitly (`is_admin`, `is_company_member`), never "anything but guest",
+  so a new role gains nothing by accident.
 
 ## Managing people
 

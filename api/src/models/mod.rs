@@ -26,6 +26,8 @@ pub mod initiative_link;
 pub mod issue_report;
 pub mod jira_credential;
 pub mod jira_done_transition;
+pub mod knowledge_document;
+pub mod learning;
 pub mod link_watch_cursor;
 pub mod llm;
 pub mod mail_account;

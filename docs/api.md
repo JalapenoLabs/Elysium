@@ -131,6 +131,15 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
 | PATCH  | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
 | DELETE | `/api/v1/environment-variables/{id}`  | `204`; a running turn keeps it                      |
+| GET    | `/api/v1/learnings`                   | `200` `{ learnings: Learning[] }`, last changed first; `?deleted=true` the deleted ones |
+| POST   | `/api/v1/learnings`                   | `201` `{ learning, outcome: "created" }`, or `200` with `revised` or `unchanged` when its title is taken |
+| GET    | `/api/v1/learnings/feed`              | `200` `{ entries: { entry, learning }[], nextBefore }`, newest first; admins |
+| GET    | `/api/v1/learnings/{id}`              | `200` `{ learning }`, deleted or not                |
+| PATCH  | `/api/v1/learnings/{id}`              | `200` `{ learning }`                                |
+| DELETE | `/api/v1/learnings/{id}`              | `204`; softly                                       |
+| POST   | `/api/v1/learnings/{id}/restore`      | `200` `{ learning }`                                |
+| GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
+| POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
 | GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
 | POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
 | GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
@@ -226,6 +235,7 @@ Refusals carry a stable `code` beside the `message`:
 | `403`  | `account_disabled`         | Disabled by an admin                                           |
 | `403`  | `mfa_enrollment_required`  | The workspace requires an authenticator app                    |
 | `403`  | `admin_only`               | Only an admin may do this                                      |
+| `403`  | `members_only`             | A guest asked for the knowledge base, which only admins and members reach |
 | `403`  | `cross_origin`             | An unsafe request from another origin                          |
 
 `/internal/kratos/registration` and `/internal/kratos/courier` answer Kratos alone, on the compose network, with the
@@ -475,6 +485,21 @@ the plaintext of a non-secret variable and `null` for a secret one, whose value 
 500 characters, default empty). `PATCH` accepts any subset; an absent `value` keeps the stored one. A key that breaks
 a rule answers `400` naming the key and the rule, a secret with an empty value answers `400`, and making a secret
 visible without sending its `value` answers `400`. A duplicate key answers `409`. See `docs/environment.md`.
+
+### `/api/v1/learnings`
+
+Every route answers admins and members, and a guest `403 members_only`; the feed answers admins alone.
+
+A `Learning` has `id`, `title`, `body`, `category`, `evidence`, `agent` (`{ id, name }` or `null`), `createdBy`,
+`createdAt`, `updatedAt`, and `deletedAt`. A `LearningHistoryEntry` has `id`, `learningId`, `kind`, `createdBy`,
+`agent`, `data`, and `createdAt`.
+
+`POST` requires `title` (up to 300 characters, trimmed and its spacing collapsed), `body` and `evidence` (each up to
+20,000 characters, trimmed, not blank), and `category`, one of `decision`, `convention`, `procedure`, `pitfall`,
+`reference`, `environment`, `people`, `project`, or `incident`. A title a learning already has, in any case, revises
+that learning, bringing it back if it was deleted. `PATCH` takes any of the four. A title another learning has answers
+`409`, as does correcting a deleted learning. Undo answers `409` when the change has nothing left to reverse. The feed
+takes `limit` (1 to 200, default 50) and `before`, an entry id, to read on. See `docs/knowledge.md`, Learnings.
 
 ### `/api/v1/action-items`
 
