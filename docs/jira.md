@@ -306,6 +306,16 @@ issue none. A status's `id` is Jira's own, the same in every workflow that uses 
 moves this issue can make right now, for whoever the token is. `POST` to the same path takes
 `{ transitionId, comment? }` and answers the issue after the move.
 
+An issue a Project Manager files for an item (`docs/engine.md`, Its writes) goes through the link provider
+(`api/src/action_items/links/jira.rs`), bounded the same way: its project key is checked against the allowlist before
+anything is sent, and the issue is read back through `allowed_issue`, which checks the project Jira put it in. It opens
+as a `Task` when the project has one, and otherwise as the project's first standard issue type, never a subtask or an
+epic (`GET /rest/api/3/project/{key}`). A filing tried before first searches, bounded to the allowlist, for an issue
+the credential's account reported in that project since its first attempt with exactly its summary
+(`project = "ELY" AND reporter = currentUser() AND created >= -<minutes>m`), and links that instead of opening another.
+A project named as a tracker is listed from the credential's allowlist, or from every project Jira lists for one
+allowed `*`, and checked the same way before it is stored.
+
 ### Saved filters
 
 `GET /{id}/filters` answers `{ filters: [{ id, name, url }], truncated }`, the saved filters the token can see, paged

@@ -82,6 +82,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/action-items/{id}/links/{linkId}` | `204`                                          |
 | PUT    | `/api/v1/action-items/{id}/links/{linkId}/primary` | `200` `{ links }`                      |
 | DELETE | `/api/v1/action-items/{id}/links/{linkId}/writes/{writeId}` | `204`; cancels a pending write |
+| DELETE | `/api/v1/action-items/{id}/issue-filing` | `204`; cancels the issue it is owed before it is filed |
 | GET    | `/api/v1/initiatives`                 | `200` `{ initiatives: Initiative[] }`, by name      |
 | POST   | `/api/v1/initiatives/bulk`            | `200` `{ initiatives, refused }`; one change to many |
 | POST   | `/api/v1/initiatives`                 | `201` `{ initiative }`                              |
@@ -213,6 +214,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
 | GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
+| PATCH  | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; `{ writesDirectly }`; members only |
+| PUT    | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; `{ provider, credentialId?, destination }`; members only |
+| DELETE | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; follows the precedent again; members only |
+| GET    | `/api/v1/projects/{id}/project-manager/destinations?provider=&credentialId=` | `200` `{ destinations: [{ reference, name }] }`; members only |
 | POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
 | GET    | `/api/v1/promises?followUpItemId=`    | `200` `{ promises: Promise[] }`: the one promise an item follows up, or none; members only |
@@ -470,7 +475,16 @@ timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` 
 recordId, sourceKind, title, url, occurredAt, personId }`, the message it was made in and whose timeline it is on, or
 null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
 `draftId` (its follow-up's draft, which only its person may read), and `createdAt`; `/api/v1/promises` answers the same
-shape (`docs/engine.md`, Follow-ups). A project nothing woke yet answers `idle` with none. `POST
+shape (`docs/engine.md`, Follow-ups). `writes` says how its changes reach the work (`docs/engine.md`, Its writes):
+`direct`, whether they apply at once; `tracker`, where its issues file, `{ source, provider, credentialId,
+credentialName, destination }` with `source` `named` or `precedent`, or null with `trackerRefusal` saying why. A project
+nothing woke yet answers `idle` with none. `PATCH /{id}/project-manager` takes `{ writesDirectly }`. `PUT
+/{id}/project-manager/tracker` names the tracker: `provider`, `destination` as the destinations listing names it, and
+`credentialId`, a Jira credential or a YouTrack account the caller owns, left out for GitHub, which files with the
+project's token; the place is read through that credential before it is stored, and a GitHub tracker on a project
+whose sessions get no token answers `400`. `DELETE` follows the precedent again. `GET
+/{id}/project-manager/destinations` lists the places a tracker on `provider` could file, through the same credential.
+`POST
 /{id}/project-manager/messages` takes `{ body }` (1 to 20,000 characters, not blank) as the person's message, which
 wakes it at once, and answers it as `GET` does. `GET /{id}/project-manager/turns/{turnId}` answers one turn with its
 `log`. Its turns quote what was ingested, so all three answer the company's members alone (`403` for a guest).
@@ -725,8 +739,10 @@ action records who took it in the run's history and signals the engine. See `doc
 
 An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`, `dismissed`), `priority` (`urgent`,
 `high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
-`projectIds`, `initiativeIds` (the initiatives it is in now, leaving out deleted ones), `createdAt`, and `updatedAt`.
-`owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody" }`. See `docs/action-items.md`.
+`projectIds`, `initiativeIds` (the initiatives it is in now, leaving out deleted ones), `createdAt`, `updatedAt`, and
+`issueFiling`, the issue it is owed and not yet filed, `{ id, provider, destination, attempts, lastError,
+lastAttemptAt, createdAt }`, or null. `owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody"
+}`. See `docs/action-items.md`.
 
 `GET /` takes `state` (one or more, comma separated), `project` (an id, or `none` for items in no project),
 `initiative`, `waiting` and `snoozed` (`true` or `false`), and `deleted=true` for deleted items only; without
@@ -803,16 +819,19 @@ its children join on the watcher's next pass, which the link wakes at once. Unli
 
 ### `/api/v1/changesets`
 
-A `Changeset` has `id`, `proposer` (`elysia` or `session:<number>`), `projectId` (the project a coding session proposed
-it in, or null), `summary`, `state` (`pending`, `applied`, `rejected`, `undone`), `decidedAt`, `undoneAt`,
-`operations`, `createdAt`, and `updatedAt`. An operation has `id`, `position` (from 1), `operation` (an object whose
-`kind` says what it does, shaped as `docs/action-items.md` lists), `reason`, `quote`, `source`, `dependsOn` (the
+A `Changeset` has `id`, `proposer` (`elysia`, `session:<number>`, or `project_manager:<project id>`), `projectId` (the
+project a coding session or a Project Manager proposed it in, or null), `summary`, `state` (`pending`, `applied`,
+`rejected`, `undone`), `decidedAt`, `decidedBy` (the person who applied or rejected it, or the Project Managers'
+machine user for changes applied without review), `undoneAt`, `operations`, `createdAt`, and `updatedAt`. An operation
+has `id`, `position` (from 1), `operation` (an object whose `kind` says what it does, shaped as `docs/action-items.md`
+lists), `reason`, `quote`, `source`, `causeRecordId` (the timeline record that caused it, or null), `dependsOn` (the
 positions of the earlier operations it acts on), `decision` (`pending`, `approved`, `rejected`), `outcome` (`pending`,
 `applied`, `failed`, `skipped`, `undone`), `error` (why it failed or was skipped), `result` (the ids it acted on or
 created, and the values it replaced), and `undo` (null until the changeset is undone; then any of `kept`,
-`movedSince`, `stillPosted`, `stillClosed`, and `refusal`).
+`movedSince`, `stillPosted`, `stillClosed`, `stillFiled`, and `refusal`).
 
-Nothing creates a changeset over HTTP; proposers stage them in-process (`work_propose_changes` today). `GET /` takes
+Nothing creates a changeset over HTTP; proposers stage them in-process (`work_propose_changes` and
+`manager_make_changes` today). `GET /` takes
 `state`, one or more, comma separated.
 
 `decide` takes `{ decision, operationIds }`, where `decision` is `approved`, `rejected`, or `pending`, and

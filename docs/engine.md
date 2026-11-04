@@ -14,7 +14,8 @@ Whisper, corrects its transcript against everything Elysium knows, waiting for i
 segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), the request workflow,
 which gathers every direct message and mention per conversation and starts work once it goes quiet (Conversations,
 below), the company doc's scheduled review (The company doc, below), every project's Project Manager, which
-submits work batches for the worker pool (Project Managers, below), and the pool's scheduler, which hands its slots to
+submits work batches for the worker pool and writes its project's action items and their issues in Jira, YouTrack,
+and GitHub (Project Managers, below), and the pool's scheduler, which hands its slots to
 those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
 below), and the promises people make in conversations, which their projects' Project Managers keep with a follow-up the
 person sends (Follow-ups, below).
@@ -414,7 +415,8 @@ What it gives (`Handled`) is the conversation, its turns and messages, and the i
 ## Project Managers
 
 Built: every project's Project Manager (`api/src/project_managers/`), its wakes, turns, and work batches
-(`api/src/models/project_manager.rs` and `work_batch.rs`), its tools, and its tabs on the project's page.
+(`api/src/models/project_manager.rs` and `work_batch.rs`), its tools, its writes to its project's action items and
+trackers (Its writes, below), and its tabs on the project's page.
 
 - **One session per project.** A project's Project Manager is one Claude Code session, resumed for every turn
   (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
@@ -450,7 +452,8 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
   turn that failed of itself keeps its wakes, since trying again at once would most likely fail the same way.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
-  system prompt, and its prompt names the project and carries what woke it: each message, each record's kind, title,
+  system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
+  where its issues file (or why nowhere), and carries what woke it: each message, each record's kind, title,
   summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
@@ -459,15 +462,14 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
   `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
   `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on, and
-  `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below). It
-  also gets
-  `elysium_work`, scoped to its project, and `elysium_knowledge`. Every call is checked against the project in the
-  database, under a grant for the turn alone.
-- **Outward work is proposed.** Until it writes to the trackers itself (#83), anything it wants changed (an item, a
-  comment, a status) it proposes as a changeset with `work_propose_changes`, as `project_manager:<project id>`; a
-  comment it would write directly is refused, since it reaches the item's linked issue (`docs/action-items.md`).
+  `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
+  `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
+  `elysium_work`, scoped to its project, to read items and initiatives, and `elysium_knowledge`. Every call is checked
+  against the project in the database, under a grant for the turn alone. `work_comment` and `work_propose_changes`
+  refuse it, pointing at `manager_make_changes`, so each of its changes names what caused it.
 - **On the timeline.** Each turn that did its work is a timeline record of kind `project_manager`, headed by its
-  summary and holding its reply, and so is each batch it submits, attributed to its project as certain. They are the
+  summary and holding its reply, and so is each batch it submits and each change it makes, attributed to its project
+  as certain. They are the
   workspace's, owned by the Project Managers' machine user, so every member reads them on the project's timeline
   (`docs/connectors.md`, The timeline); nothing wakes on them, and Elysia's intake leaves them out.
 - **Its turns' logs.** Each turn keeps what it said and which tools it called, one line each, the newest 64 KiB, which
@@ -475,11 +477,54 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
   turn (`docs/activity.md`).
 - **Who sees it.** Its turns quote what was ingested, so its routes answer the company's members alone, as the
   knowledge base does.
-- **On the roadmap.** Writing to the trackers itself, choosing the tracker by the project's precedent unless the
-  project names one, every write recorded on the timeline with what caused it, and a per-project switch back to
-  changesets (#83). Workers that run its batches in containers of their own (#85).
+- **On the roadmap.** Workers that run its batches in containers of their own (#85).
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
+
+### Its writes
+
+A Project Manager creates, updates, resolves, dismisses, and comments on its project's action items, moves them between
+initiatives, creates initiatives, and files an item's own issue in the project's tracker, all with one tool,
+`manager_make_changes` (`api/src/tools/work/manager_changes.rs`). It speaks Elysium's terms, never a tracker's: an
+item's issue follows the item, so a comment on the item is posted to its issue and resolving the item moves the issue
+to done, through the same outbox as a person's own writes (`docs/action-items.md`, Links and the watcher).
+
+- **One path.** Every call is one changeset proposed as `project_manager:<project id>` (`docs/action-items.md`,
+  Changesets), so a person reviews, applies, and undoes a Project Manager's work as they do anyone's.
+- **The switch.** Each project chooses whether its Project Manager writes directly (`projects.manager_writes_directly`,
+  the Project Manager tab's "Write to trackers without review"). Off, the default, every changeset waits for a person's
+  approval and nothing is written in Elysium or any tracker until then: a new project starts with its Project Manager
+  proposing, the safer way, and a person turns writing on once its proposals have earned it. On, the changeset is
+  approved and applied at once by the Project Managers' machine user (`decided_by`); an item it creates then starts in
+  the inbox, since nobody accepted it, where a person's approval would have made it open.
+- **Filing an issue.** `file-issue` gives an item with no linked issue its own: the watcher opens it with the item's
+  title (cut to 255 characters, Jira's limit) and notes, and links it as the item's primary. The filing is owed in
+  the transaction that applies the operation and landed by the watcher (`action_item_issue_filings`,
+  `api/src/models/action_item_issue_filing.rs`); one that fails keeps the provider's answer on the item, is retried each
+  pass, and can be cancelled from the item's page. An item resolved, dismissed, or deleted before it is filed drops
+  its filing.
+- **Never two issues.** A retried turn proposes what it proposed before, so a create from the same record with the same
+  title as one an earlier changeset of the project's Project Manager still holds, pending or applied, is refused
+  naming that changeset and item. A filing records each attempt before it calls the tracker, and an attempt after the
+  first looks for the issue its predecessor may have opened (one its account opened there since, with exactly its
+  title) before it opens another, so a crash between the tracker answering and Elysium recording it never leaves two.
+- **Its cause.** Every change names the timeline record it came from (`causeRecordId`, `changeset_operations.cause_record_id`),
+  which must be on the project's timeline: a meeting's segment, a message, a mail. Each change that applies is a
+  timeline record of kind `project_manager` (`metadata.kind` `write`), titled with what it did ("Filed in Jira ELY:
+  Annual pricing"), holding the reason and the quote, and naming its changeset, operation, item, and cause; the record of
+  a filing links to the issue once it is filed. Proposals that wait record nothing until a person applies them.
+- **The tracker.** Issues file in the tracker the project names (`project_issue_trackers`: a provider, the place, and
+  for Jira and YouTrack the credential), chosen on the Project Manager tab from the places its credential reaches
+  (`GET /api/v1/projects/{id}/project-manager/destinations`) and checked through that credential before it is stored.
+  A project that names none follows its precedent: the place most of its items' linked issues are, the newest breaking
+  a tie, through the credential they were linked with (`api/src/project_managers/trackers.rs`). A Jira place is a
+  project key inside the credential's allowlist, a YouTrack place a project's short name reached by a person's own
+  YouTrack account, and a GitHub place a repository.
+- **Its credential.** Jira and YouTrack file through the tracker's own credential. GitHub files through the token the
+  project's coding sessions get, its own or the workspace default (`docs/github.md`), so a project acts on GitHub as one
+  account; a project whose sessions get no token cannot file on GitHub. A project with nowhere to file, or a GitHub
+  tracker with no token, refuses `file-issue` saying so and how to fix it, and the prompt tells the Project Manager
+  before it tries.
 
 ### Work batches
 

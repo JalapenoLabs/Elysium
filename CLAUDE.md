@@ -425,7 +425,8 @@ Everything else follows these rules:
 
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under
 `/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. So are the `elysium_work`
-tools, coding sessions started from an item, and links to Jira and GitHub with the watcher and their frontend. So are
+tools, coding sessions started from an item, and links to Jira, GitHub, and YouTrack with the watcher and their
+frontend. So are
 changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and their review in the Action items area.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
@@ -437,9 +438,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   merged or closed from Elysium.
 - Progress is resolved over total with a burnup of both, never a percentage alone. Initiatives link to containers
   (a Jira epic or search, a GitHub milestone or label) rather than issues one by one, so nothing is tracked twice.
-- Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents) proposes a
-  changeset. Nothing is written in Elysium or any provider until the user approves it, wholly or in part. The
-  watcher only records what already happened in a provider, so it needs no changeset.
+- Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents; Project
+  Managers) proposes a changeset. Nothing is written in Elysium or any provider until the user approves it, wholly or
+  in part, except a Project Manager's on a project that lets it write directly, which applies at once. The watcher
+  only records what already happened in a provider, so it needs no changeset.
 - A changeset's operations are decided one by one; rejecting one rejects what depends on it. Applying runs the
   approved ones in order as the proposer, each in its own savepoint, so one that fails is marked with the reason and
   the rest apply; provider writes go through the same outbox as the user's. The history it records names the
@@ -454,9 +456,12 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   credential's allowlist, as the Jira routes' calls do.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
-- Provider writes (closing a resolved item's issues, posting a comment to the primary link) are owed in the same
-  transaction as the change and landed by the watcher. One that fails stays pending on its link, retried every pass,
-  until it lands or the user cancels it. The item's own change always stands.
+- Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own
+  issue) are owed in the same transaction as the change and landed by the watcher. One that fails stays pending,
+  retried every pass, until it lands or the user cancels it. The item's own change always stands. A filing tried
+  before looks for the issue its earlier attempt opened before opening another.
+- YouTrack issues link through a person's own YouTrack account (`token_accounts`); resolving moves one to a resolved
+  state of its project's state field, `Fixed` or `Done` when it has several. Initiatives contain no YouTrack issues.
 - A Jira project's done transition is stored as the `done` status it leads into, chosen by the user only when the
   project has more than one.
 - Coding agents use one MCP server, `elysium_work`, given to every turn of a session with a project, in Elysium's
@@ -496,8 +501,14 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
-- Until it writes to the trackers itself (#83), anything outward it proposes as a changeset, as
-  `project_manager:<project id>`.
+- It changes its project's action items and files their issues in Jira, YouTrack, or GitHub with
+  `manager_make_changes`: one changeset per call, as `project_manager:<project id>`, each operation naming the timeline
+  record that caused it and recorded on the timeline when it applies. A per-project switch
+  (`projects.manager_writes_directly`), off by default, applies them at once; off, they wait for a person's approval.
+- Its issues file in the tracker the project names, or else where most of its items' issues already are; Jira and
+  YouTrack through that tracker's credential, GitHub through the project's own token or the workspace default. Filings
+  are an outbox the watcher lands (`action_item_issue_filings`), and a retried filing finds the issue its earlier
+  attempt opened rather than opening a second.
 - It keeps the promises people make in conversations ("I'll let you know when it's live", `promises`), which
   segmenting finds: it ties each to a batch or an action item, and once that work succeeds or resolves it drafts the
   follow-up in the person's voice, a draft of theirs beside an inbox item they send, edit, or dismiss. Nothing is sent

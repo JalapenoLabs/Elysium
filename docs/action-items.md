@@ -228,12 +228,12 @@ the user moved it by removing it. Links go through a provider trait with one imp
 action items module, so routes and tools never match on the provider, the same way `api/src/storage/` works.
 
 The code lives in `api/src/action_items/links/`: the `Provider` trait and the `Links` handle in `mod.rs` (its
-`provider` function is the one place a provider is picked), `jira.rs` and `github.rs`, and `rules.rs`, the pure
-decisions below. The watcher is `api/src/action_items/watcher.rs`.
+`provider` function is the one place a provider is picked), `jira.rs`, `github.rs`, and `youtrack.rs`, and `rules.rs`,
+the pure decisions below. The watcher is `api/src/action_items/watcher.rs`.
 
 A link names its thing in two ways. `externalId` is what the thing is, for good: Jira's issue id, which survives a move
-to another project, or `owner/name#12` on GitHub. `key` is what a person reads and a call names: `ELY-12`, which the
-watcher updates when an issue moves. One external thing is one item: linking something already linked to another item
+to another project, `owner/name#12` on GitHub, or YouTrack's database id, such as `2-41`. `key` is what a person reads
+and a call names: `ELY-12` or `JL-12`, which the watcher updates when an issue moves. One external thing is one item: linking something already linked to another item
 answers `409`, and a container's child already tracked joins with its item.
 
 Items are linked from what the credential can reach, never from a typed id, the spirit of the Jira doc's "No
@@ -243,7 +243,14 @@ allowlist and the token bound every link. Creating an item from an issue starts 
 from the issue, owned as the issue's assignee says. Jira's priority names map to an item's (`Highest`, `Blocker`, and
 `Critical` are `urgent`; `High` and `Major` are `high`; `Medium` is `normal`; `Low`, `Minor`, `Lowest`, and `Trivial`
 are `low`; anything else is `normal`), and a Jira due date, a day, becomes the last millisecond of that day in UTC.
-GitHub has neither, so an item from GitHub starts `normal` with no due date.
+GitHub has neither, so an item from GitHub starts `normal` with no due date. YouTrack's `Priority` field maps the same
+way (`Show-stopper` and `Critical` are `urgent`, `Major` is `high`, `Normal` is `normal`, `Minor` is `low`); it keeps
+no due date.
+
+A YouTrack issue links through a YouTrack token account (`docs/connectors.md`, YouTrack), which is its owner's alone, so
+only that person links through it. The link picker offers Jira and GitHub today; YouTrack issues are linked through
+`POST /api/v1/action-items/{id}/links` and by the issues Project Managers file (`docs/engine.md`, Its writes).
+Initiatives contain no YouTrack issues yet.
 
 Deleting a credential deletes the links and containers that went through it: Elysium can no longer reach what they
 point at. The items and initiatives stay, and so do the memberships a deleted container brought in, which then count as
@@ -255,6 +262,12 @@ saying the work no longer belongs, so that takes its items out.
 | Jira     | Issue                     | Its status category is `done`   | Applies the project's done transition |
 | GitHub   | Issue                     | Closed as completed             | Closes it as completed           |
 | GitHub   | Pull request              | Merged                          | Nothing                          |
+| YouTrack | Issue                     | YouTrack counts its state resolved | Moves it to a resolved state of its project's state field |
+
+YouTrack's state field is whatever the project calls it (`State`, `Stage`), found by its type. Resolving moves an issue
+to the field's only resolved value, or with several to the first of `Done`, `Fixed`, `Resolved`, `Completed`,
+`Verified`, and `Closed` it has, never `Duplicate` or `Won't fix`; a field with several and none of those waits, naming
+them, like a Jira project with several done statuses.
 
 Mail threads become linkable with email triage, on the roadmap.
 
@@ -278,7 +291,17 @@ the two never loses one:
 - Resolving an item, by anyone, owes a close to every linked issue still open as last read. A pull request never owes
   one.
 - Writing a comment on an item, by the user or an agent, owes it to the item's primary link. An item with no primary
-  link owes nothing. Editing or deleting a comment afterwards changes nothing in the provider; deleting one before it
+  link owes nothing, including one whose own issue is still being filed.
+- Applying a changeset's `file-issue` owes the item its own issue (`action_item_issue_filings`): the watcher opens it in
+  the tracker the operation names, with the item's title and notes, and links it as the item's primary, keeping the
+  item's owner, since nobody is assigned a new issue yet; the owner follows the issue's assignee from the first change
+  the watcher reads. An item is filed
+  once at a time, and one already following an issue is refused. A filing records each attempt as it begins, and an
+  attempt after the first first looks for the issue the earlier one may have opened (opened by the credential's
+  account in that place since then, with exactly the title) and links that rather than opening a second. A filing
+  whose item was resolved, dismissed, or deleted first is dropped. One that fails shows on the item with its tries and
+  the provider's last answer, and the user can cancel it (`DELETE /api/v1/action-items/{id}/issue-filing`), which
+  records `issue_filing_cancelled`. Editing or deleting a comment afterwards changes nothing in the provider; deleting one before it
   is posted drops the write.
 - The watcher lands every owed write at the start of each pass, and the change that owed one wakes it at once, so a
   write usually lands within a second. A link owing a write is pending until it lands; one that failed shows how many
@@ -344,8 +367,10 @@ items of their own. That is on the roadmap.
 ## Changesets
 
 Anything that is not the user acting directly (Elysia after a meeting, email triage, a coding agent, a project's
-Project Manager) proposes changes instead of making them. A changeset is a batch of operations, each with the reason and, where there is one,
-the quote and source it came from. Nothing is written, in Elysium or anywhere else, until the user approves.
+Project Manager) proposes changes instead of making them. A changeset is a batch of operations, each with the reason
+and, where there is one, the quote and source it came from. Nothing is written, in Elysium or anywhere else, until the
+user approves, except on a project that lets its Project Manager write directly, whose Project Manager's changesets are
+approved and applied as they are made (`docs/engine.md`, Its writes).
 
 - The user approves all of it, some of it, or none of it. Each operation is approved or rejected on its own.
 - An operation that acts on something another operation creates (commenting on, linking, or resolving a proposed
@@ -353,11 +378,12 @@ the quote and source it came from. Nothing is written, in Elysium or anywhere el
 - Approving applies the approved operations in order: Elysium's own data first, then the provider writes. A provider
   write that fails leaves its operation and link `pending`, retried as above, and the rest still apply.
 - Operations: create an item, update an item, resolve or dismiss an item, comment, link, add to or remove from an
-  initiative, create an initiative.
+  initiative, create an initiative, file an item's issue.
 - Applied operations are recorded in each item's history with the changeset as their source, so one changeset can be
   undone as a whole.
 
-Rules that apply trusted kinds of operations without review are on the roadmap. Until then everything is reviewed.
+A project's switch for its Project Manager is the one rule that applies changes without review today; rules for other
+proposers and trusted kinds of operations are on the roadmap.
 
 The rules are `api/src/action_items/changesets.rs`, and the queries that store, apply, and undo changesets are
 `api/src/models/changeset.rs` with `apply.rs` and `undo.rs` beside it.
@@ -378,6 +404,10 @@ operations. Each operation is an object whose
 | `link`                   | `item`, `target`: `{ provider, credentialId, kind, reference }`, as a link the user adds |
 | `add-to-initiative`, `remove-from-initiative` | `item`, `initiative`                                    |
 | `create-initiative`      | `name`, and optional `description`, `targetAt`, `projectIds`                 |
+| `file-issue`             | `item`, `tracker`: `{ provider, credentialId, destination }`, the project's tracker when proposed |
+
+An operation may also name the timeline record that caused it (`causeRecordId`); every Project Manager's does, and its
+write is recorded on the project's timeline with it when it applies.
 
 An `item` or `initiative` is `{ "id": ... }` for one that exists, or `{ "operation": n }` for the one operation `n` of
 the same changeset creates, counting from 1. An operation can only name an earlier create of the right kind, and it
@@ -386,8 +416,10 @@ column, every name points backwards at the right kind, and every existing item a
 that fails is refused naming the operation, and nothing is stored.
 
 Items and initiatives a changeset creates start the way the user's own do: an item `open` and owned by the user, since
-approving it is accepting it, and an initiative `active`. Nothing creates a changeset over HTTP: Elysia, email triage,
-and meetings will call the model's `propose` in-process, as `work_propose_changes` does today.
+approving it is accepting it, and an initiative `active`. An item a Project Manager's changeset creates without review
+starts in the inbox instead, since nobody accepted it. Nothing creates a changeset over HTTP: Elysia, email triage,
+and meetings will call the model's `propose` in-process, as `work_propose_changes` and `manager_make_changes` do
+today.
 
 ### Deciding
 
@@ -410,7 +442,10 @@ user's own changes use, each in its own savepoint of one transaction:
   provider's last answer, retried as above; the operation's own change stands. The review reads that from the link's
   owed writes.
 - Elysia's link becomes the item's primary when it has none, as the user's first link does. A coding agent's never
-  does, so its pull request never moves whose list an item is on.
+  does, so its pull request never moves whose list an item is on. An issue filed for an item becomes its primary
+  whoever filed it, since it is the item's own.
+- A `file-issue` refuses an item resolved or dismissed, or one already following a linked issue, and owes the filing
+  otherwise; once the watcher lands it, the operation's `result` names the link it made, for an undo.
 - A changeset with any operation approved ends `applied`; one with every operation rejected ends `rejected` and wrote
   nothing.
 
@@ -431,10 +466,13 @@ and the history entries the undo records name the changeset too:
 | Link                 | Removes the link, if the operation added it                                        |
 | Add to or remove from an initiative | Reverses the membership, if the operation changed it                |
 | Create an initiative | Deletes it softly                                                                  |
+| File an issue        | Drops the filing, or once it was filed, removes the link to the issue              |
 
 What undo cannot reverse, and says so on the operation (`undo`) for the review to show:
 
 - A comment the watcher already posted to Jira or GitHub stays there (`stillPosted`). One not posted yet is dropped.
+- An issue the watcher already filed stays in its tracker (`stillFiled`), and the item stops following it; one not filed
+  yet is dropped.
 - An issue the watcher already closed stays closed when its item returns (`stillClosed`); a pull request was never
   touched. A close not landed yet is dropped, as for any item no longer resolved.
 - A field the user changed after the changeset keeps the user's value (`kept`), and an item the user moved since stays

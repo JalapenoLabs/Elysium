@@ -734,10 +734,27 @@ What coding sessions are grouped under.
 | `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
 | `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
 | `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
+| `manager_writes_directly` | `BOOLEAN` | Whether its Project Manager's changes apply as it makes them; defaults to false, proposing each |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover. A removed cover is neither served nor reported:
 `Project::cover_updated_at` is the one that shows.
+
+### `project_issue_trackers`
+
+The tracker a project names for the issues its Project Manager files, overriding its precedent; see `docs/engine.md`,
+Its writes. One row per project at most (`project_id`, the primary key, deleted with the project).
+
+| Column               | Type            | Notes                                                              |
+|----------------------|-----------------|--------------------------------------------------------------------|
+| `provider`           | `link_provider` | `jira`, `github`, or `youtrack`                                    |
+| `jira_credential_id` | `UUID`          | Set exactly for `jira`; deleted with the credential               |
+| `token_account_id`   | `UUID`          | Set exactly for `youtrack`; deleted with the account              |
+| `destination`        | `TEXT`          | A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name, as the provider names it |
+| `created_by`         | `UUID`          | The person who named it                                            |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | `updated_at` maintained by trigger                           |
+
+A GitHub tracker names no credential: it files with the token the project's sessions get.
 
 ### `github_credentials`
 
@@ -1105,18 +1122,19 @@ a new enum value in the transaction that added it.
 
 ### `action_item_links`
 
-What an item links to: a Jira issue, a GitHub issue, or a GitHub pull request; see `docs/action-items.md`.
+What an item links to: a Jira issue, a GitHub issue or pull request, or a YouTrack issue; see `docs/action-items.md`.
 
 | Column                 | Type                     | Notes                                                        |
 |------------------------|--------------------------|--------------------------------------------------------------|
 | `id`                   | `UUID`                   | UUIDv7, primary key                                          |
 | `action_item_id`       | `UUID`                   | References `action_items`; deleted with it                   |
-| `provider`             | `link_provider`          | `jira` or `github`                                           |
-| `kind`                 | `link_kind`              | `issue` or `pull_request`; Jira links issues only            |
+| `provider`             | `link_provider`          | `jira`, `github`, or `youtrack`                              |
+| `kind`                 | `link_kind`              | `issue` or `pull_request`; only GitHub links pull requests   |
 | `jira_credential_id`   | `UUID`                   | Set exactly for `jira`; deleted with the credential          |
 | `github_credential_id` | `UUID`                   | Set exactly for `github`; deleted with the credential        |
-| `external_id`          | `TEXT`                   | What the thing is, for good: Jira's issue id, or `owner/name#12` |
-| `external_key`         | `TEXT`                   | What a person reads and a call names: `ELY-12`, or `owner/name#12` |
+| `token_account_id`     | `UUID`                   | Set exactly for `youtrack`; deleted with the account         |
+| `external_id`          | `TEXT`                   | What the thing is, for good: Jira's issue id, `owner/name#12`, or YouTrack's `2-41` |
+| `external_key`         | `TEXT`                   | What a person reads and a call names: `ELY-12`, `owner/name#12`, or `JL-12` |
 | `url`                  | `TEXT`                   | `https://`, up to 2048 characters                            |
 | `title`                | `TEXT`                   | As last read, up to 1000 characters                          |
 | `is_primary`           | `BOOLEAN`                | At most one per item, by the partial unique index `action_item_links_primary_unique` |
@@ -1126,7 +1144,8 @@ What an item links to: a Jira issue, a GitHub issue, or a GitHub pull request; s
 | `created_at`           | `TIMESTAMPTZ`            | Written by the API                                           |
 | `updated_at`           | `TIMESTAMPTZ`            | Maintained by trigger                                        |
 
-`action_item_links_jira_unique` and `action_item_links_github_unique` make one external thing, through one credential,
+`action_item_links_jira_unique`, `action_item_links_github_unique`, and `action_item_links_youtrack_unique` make one
+external thing, through one credential,
 one link, so it is one item; they also serve the watcher's reads by credential. `action_item_links_action_item_id_idx`
 serves an item's links, read on nearly every item write.
 
@@ -1147,6 +1166,27 @@ Provider writes an item owes and that have not landed: a close when it resolves,
 | `last_error`      | `TEXT`            | The provider's last answer, or why it waits; up to 2000 characters |
 | `last_attempt_at` | `TIMESTAMPTZ`     | When it was last tried                                       |
 | `created_at`      | `TIMESTAMPTZ`     | Written by the API, in the transaction that owed it          |
+
+### `action_item_issue_filings`
+
+Issues an item is owed and that the watcher has not filed yet: an item a changeset's `file-issue` asked to have its own
+issue; see `docs/action-items.md`.
+
+| Column                   | Type            | Notes                                                        |
+|--------------------------|-----------------|--------------------------------------------------------------|
+| `id`                     | `UUID`          | UUIDv7, primary key; orders filings the way they were owed   |
+| `action_item_id`         | `UUID`          | References `action_items`, unique: an item is filed once at a time; deleted with it |
+| `provider`               | `link_provider` | Where it files                                               |
+| `jira_credential_id`, `github_credential_id`, `token_account_id` | `UUID` | Exactly the provider's one set; deleted with the credential |
+| `destination`            | `TEXT`          | A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name |
+| `filed_by`               | `TEXT`          | The proposer, in its stored form; the link it lands as is theirs |
+| `changeset_operation_id` | `UUID`          | The operation that owed it, `ON DELETE SET NULL`             |
+| `timeline_record_id`     | `UUID`          | The write's timeline record, which links to the issue once filed; `ON DELETE SET NULL` |
+| `attempts`               | `INTEGER`       | How many attempts began                                      |
+| `first_attempt_at`       | `TIMESTAMPTZ`   | When the first began; a later one looks for the issue it may have opened |
+| `last_error`             | `TEXT`          | The provider's last answer; up to 2000 characters            |
+| `last_attempt_at`        | `TIMESTAMPTZ`   | When it was last tried                                       |
+| `created_at`             | `TIMESTAMPTZ`   | Written by the API, in the transaction that owed it          |
 
 ### `initiative_links`
 
@@ -1174,7 +1214,8 @@ names the container that brought an item in.
 ### `link_watch_cursors`
 
 How far the watcher has read each credential: everything updated before `watched_through` has been applied. One row
-per credential, `jira_credential_id` or `github_credential_id` (each unique, deleted with its credential), with
+per credential, `jira_credential_id`, `github_credential_id`, or `token_account_id` (each unique, deleted with its
+credential), with
 `last_error` holding why the latest pass over it failed.
 
 ### `jira_done_transitions`
@@ -1214,6 +1255,7 @@ A changeset's operations, in order. `(changeset_id, position)` is unique, and th
 | `reason`       | `TEXT`               | 1 to 2000 characters                                            |
 | `quote`        | `TEXT`               | What it came from, 1 to 2000 characters; optional               |
 | `source`       | `TEXT`               | Where that is, 1 to 500 characters; optional                    |
+| `cause_record_id` | `UUID`            | The timeline record that caused it, `ON DELETE SET NULL`; every Project Manager's operation names one |
 | `decision`     | `changeset_decision` | `pending`, `approved`, or `rejected`                            |
 | `outcome`      | `changeset_outcome`  | `pending`, `applied`, `failed`, `skipped`, or `undone`; only an approved operation is applied, fails, or is undone |
 | `error`        | `TEXT`               | Why it failed or was skipped, up to 2000 characters             |

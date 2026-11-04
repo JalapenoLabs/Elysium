@@ -943,7 +943,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   through SWR and never enters Redux, since an item holds none of those fields; the recorded title and state show until
   it answers, and a link it could not read says why. A row menu makes a link primary or unlinks it. `PendingWrites`
   lists what a link still owes, with its tries, the provider's last answer, and Stop trying; a Jira close that failed
-  links to the project's done status choice.
+  links to the project's done status choice. An item still owed its own issue shows `IssueFilingNotice` under its
+  links: where it files, its tries, the provider's last answer, and Stop trying, which cancels the filing.
 - **Link pickers** (`LinkTargetPicker`) choose one Jira issue, GitHub issue, or pull request: `LinkCredentialSelect`
   lists every Jira site and GitHub token in one select, keyed `provider:id`. Jira is searched by `JiraIssueSearch`,
   a search field that builds JQL from the words or key typed (`buildIssueSearchJql` in `linkPresentation.ts`) once
@@ -994,7 +995,10 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   Approve and Reject, the page has Approve all and Reject all, and a change says which others rejecting it also
   rejects (`dependentsOf` mirrors the API's rule). Apply is enabled once every change is decided. After, each change
   shows its decision and outcome with the reason it failed or was skipped; an applied comment or resolve lists the
-  provider writes it still owes from the item's links (`OperationProviderWrites`), with the provider's last answer.
+  provider writes it still owes from the item's links (`OperationProviderWrites`), with the provider's last answer; a
+  `file-issue` reads "File an issue for X in Jira ELY" and shows the filing its item still owes
+  (`OperationIssueFiling`). A changeset its Project Manager applied without review says so where a person's name
+  would be.
   Undo confirms first, saying that a posted comment and a closed issue stay; afterwards each change says what undo
   kept. `changesetPresentation.ts` holds the sentences, labels, and rules, tested beside it, and
   `useChangesetActions` the writes. A history entry a changeset made links to its review (`HistoryTimeline`).
@@ -1188,7 +1192,11 @@ Promises (for members alone, below), and Coding sessions (`CodingSessionsTable`;
 the Coding page). Switching tabs keeps unsaved edits.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
-waits for it, and a usage hold's end; a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
+waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): the "Write to trackers
+without review" switch, off by default, and the tracker its issues file in, named or followed from where the project's
+issues already are, or why there is none, with Change tracker opening `TrackerModal` (a provider, the Jira credential
+or the person's own YouTrack account, GitHub using the project's token, and a place from
+`/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
 the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only

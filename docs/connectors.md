@@ -467,6 +467,16 @@ changed issue.
 - Other changes, such as a state moving, are not recorded: following an issue's state is what linking it to an item
   is for.
 
+A YouTrack account also links issues to action items (`api/src/action_items/links/youtrack.rs`, `docs/action-items.md`),
+reached through `crate::youtrack` alone: the watcher reads linked issues by key, `issue id: JL-1, JL-2`, and its writes
+open issues, comment, and move an issue's state (`POST /api/issues`, `/api/issues/<id>/comments`, and
+`/api/issues/<id>` with the state field), as the token's user. A Project Manager files issues in a YouTrack project
+through a person's account when its project names that tracker (`docs/engine.md`, Its writes). The watcher's reads of
+linked issues are not reported as the account's connector's runs, which are what it ingested. The `issue id:` search,
+creating issues, and moving a state through the state field's `$type` (`StateProjectCustomField`,
+`StateIssueCustomField`) follow JetBrains' REST documentation and are tested against a fake site
+(`api/src/youtrack/tests.rs`); they have not yet been run against a live YouTrack Cloud site.
+
 A record that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction:
 
 | Record    | Wants attention when                                                                       |
@@ -604,8 +614,7 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
 - Teams: confirming the store's layout against a signed-in Teams, and how much of it Teams keeps. The connector reads
   only what Teams has stored; if Teams stores a channel's messages only after showing that channel, a channel never
   opened in that browser is not read. Not yet confirmed either way.
-- YouTrack issues as action item links, through the link-provider trait (`api/src/action_items/links/`), as Jira and
-  GitHub issues are: resolving an item moves its issue to a resolved state, and resolving the issue resolves the item.
+- YouTrack issues in the link picker, and YouTrack containers for initiatives.
 - YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.

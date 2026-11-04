@@ -171,13 +171,13 @@ Action items link to GitHub issues and pull requests, and initiatives to a repos
 | Call                                                | Used for                                              |
 |-----------------------------------------------------|-------------------------------------------------------|
 | `GET /repos/{owner}/{repo}/issues/{number}`         | One issue or pull request: its state, reason, assignee, and whether it merged |
-| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, or `labels`, paged |
+| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, `labels`, or `creator`, paged |
 | `GET /repos/{owner}/{repo}/pulls/{number}`          | Whether a closed pull request merged                  |
 | `PATCH /repos/{owner}/{repo}/issues/{number}`       | Closing an issue as completed                         |
 | `POST /repos/{owner}/{repo}/issues/{number}/comments` | Posting an item's comment                          |
 | `GET /repos/{owner}/{repo}/milestones`, `.../milestones/{number}` | Picking and reading a milestone          |
 | `GET /repos/{owner}/{repo}/labels`, `.../labels/{name}` | Picking and reading a label                       |
-| `POST /repos/{owner}/{repo}/issues`                 | Opening a problem report's issue on `JalapenoLabs/Elysium` |
+| `POST /repos/{owner}/{repo}/issues`                 | Opening a problem report's issue on `JalapenoLabs/Elysium`, and an issue a Project Manager files for an item |
 | `GET /search/issues`                                | Finding the open issue that already carries a report's fingerprint |
 
 A pull request is an issue that carries a `pull_request` object, so one listing reads a repository's changes of both
@@ -196,6 +196,12 @@ repositories only), or Issues read and write on a fine-grained one. A token with
 pending on its link with GitHub's answer. Reading whether a linked pull request merged needs Pull requests read on a
 fine-grained token; without it, the watcher leaves that pull request's link as it was and logs why, and the rest of the
 token's links are read as usual.
+
+An issue a Project Manager files for an item (`docs/engine.md`, Its writes) is opened with the token the project's
+sessions get (Which token a session gets, above), in the repository its project's tracker names, then read back and
+linked as the item's primary. A filing tried before first lists the issues that token's account opened in the
+repository since its first attempt and links the one with exactly its title, so a retry never opens two. A repository
+is named as a tracker from the token's listing, archived ones left out, and checked with GitHub before it is stored.
 
 ## Problem reports
 
