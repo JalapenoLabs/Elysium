@@ -7,11 +7,10 @@ import { createContext, useContext } from 'react'
 
 // Page-level actions for components inside Dockview panels. Dockview renders panels
 // through portals, so they share the page's React tree but not its props: the page
-// owns the layout and the dialogs, and panels reach them through this context.
+// owns the layout and the dialogs, and panels reach them through this context. A new
+// session is its own page (`/coding/new`), so panels link to it instead.
 export type CodingActions = {
   openSession: (session: CodingSession) => void
-  // Opens New session, started from an action item when one is given.
-  createSession: (actionItemId?: string) => void
   renameSession: (session: CodingSession) => void
   deleteSession: (session: CodingSession) => void
 }

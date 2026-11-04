@@ -12,11 +12,10 @@ import { selectAllStorageLocations } from '../../store/storageLocationsSlice'
 import { selectDeletedStudioItems, selectLiveStudioItems } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, Spinner, useOverlayState } from '@heroui/react'
+import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { Page } from '../../layout/page/Page'
 import { EmptyNotice } from '../../components/EmptyNotice'
-import { CreateStudioItemModal } from './CreateStudioItemModal'
 import { StudioFiltersBar } from './StudioFiltersBar'
 import { StudioItemTile } from './StudioItemTile'
 import { StudioNoStorage } from './StudioNoStorage'
@@ -27,12 +26,12 @@ import {
   useStorageLocationsLoader,
   useStudioItemsLoader,
 } from '../../hooks/useServerData'
+import { UrlTree } from '../../urls'
 import { filterStudioItems, readStudioFilters, writeStudioFilters } from './studioListing'
 
 // `/studio`: every item as a tile, filtered by project, live or deleted.
 export function StudioPage() {
   const { t } = useTranslation('studio')
-  const createState = useOverlayState()
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readStudioFilters(searchParams)
 
@@ -68,13 +67,10 @@ export function StudioPage() {
 
   return <Page
     title={t('title')}
-    primaryAction={!hasNoStorage && <Button
-      isDisabled={locationsStatus !== 'loaded'}
-      onPress={createState.open}
-    >
+    primaryAction={!hasNoStorage && <Link href={UrlTree.studioNew} className={buttonVariants()}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('add')}</span>
-    </Button>}
+    </Link>}
   >
 
     {hasNoStorage && <StudioNoStorage />}
@@ -109,7 +105,5 @@ export function StudioPage() {
           </li>)
         }</ul>}
     </>}
-
-    {createState.isOpen && <CreateStudioItemModal state={createState} />}
   </Page>
 }

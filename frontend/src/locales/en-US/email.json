@@ -10,6 +10,7 @@
     },
     "hostname": "Answers as {{hostname}}",
     "creating": "Creating the mail server",
+    "loadError": "The mail server could not be loaded.",
     "stepProgress": "Step {{current}} of {{total}}",
     "steps": {
       "preparing": "Preparing Docker",
@@ -35,7 +36,7 @@
     "domainHint": "Addresses end in it, such as agent@example.com. Add more domains later.",
     "hostname": "Server hostname",
     "hostnameHint": "The name every domain's MX record points to. It needs an address record of its own once mail leaves this host.",
-    "submit": "Create",
+    "exists": "The mail server is already set up.",
     "errors": {
       "domainInvalid": "Enter a domain such as example.com.",
       "hostnameInvalid": "Enter a hostname such as mail.example.com."
@@ -63,7 +64,6 @@
     "title": "Add domain",
     "description": "The domain shares the mail server and its hostname with every other domain.",
     "name": "Domain",
-    "submit": "Add",
     "errors": {
       "nameInvalid": "Enter a domain such as example.org.",
       "taken": "This domain is already added."

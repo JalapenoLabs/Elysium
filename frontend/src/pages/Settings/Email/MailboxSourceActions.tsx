@@ -3,7 +3,6 @@
 import type {
   MailCapabilities,
   MailServer,
-  MailServerState,
   OAuthMailAccountKind,
 } from '../../../api/routes/mailRoutes'
 
@@ -11,21 +10,18 @@ import type {
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, buttonVariants, Tooltip } from '@heroui/react'
+import { Button, buttonVariants, Link, Tooltip } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 
 // Misc
 import { getOAuthStartHref } from '../../../api/routes/mailRoutes'
-import { mailAccountKindIcons, mailAccountKindLabelKeys, OAUTH_MAIL_ACCOUNT_KINDS } from './mailPresentation'
-
-// Why the mail server cannot take a new mailbox, by its state; null when it can.
-const mailServerReasonKeys = {
-  'not-created': 'availability.mailServerMissing',
-  'creating': 'availability.mailServerMissing',
-  'failed': 'availability.mailServerMissing',
-  'ready': null,
-  'unreachable': 'server.unreachable.title',
-} as const satisfies Record<MailServerState, string | null>
+import { UrlTree } from '../../../urls'
+import {
+  getMailboxBlockerKey,
+  mailAccountKindIcons,
+  mailAccountKindLabelKeys,
+  OAUTH_MAIL_ACCOUNT_KINDS,
+} from './mailPresentation'
 
 type Props = {
   // Undefined while loading: every source shows, disabled, so the row does not jump.
@@ -33,10 +29,9 @@ type Props = {
   // Null while loading.
   server: MailServer | null
   hasDomains: boolean
-  onCreateMailbox: () => void
 }
 
-// Where mailboxes come from: one button per OAuth provider, and one to create a mailbox
+// Where mailboxes come from: one button per OAuth provider, and a link to create a mailbox
 // on the bundled mail server. A source this deployment cannot use yet is disabled and says why.
 export function MailboxSourceActions(props: Props) {
   const { t } = useTranslation('email')
@@ -59,21 +54,11 @@ export function MailboxSourceActions(props: Props) {
     return null
   }
 
-  function createMailboxBlocker() {
-    if (!props.server) {
-      return null
-    }
-    const reasonKey = mailServerReasonKeys[props.server.state]
-    if (reasonKey) {
-      return t(reasonKey)
-    }
-    if (!props.hasDomains) {
-      return t('availability.mailDomainMissing')
-    }
-    return null
-  }
-  const createBlocker = createMailboxBlocker()
-  const canCreateMailbox = props.server?.state === 'ready' && props.hasDomains
+  // Unknown while the server loads, when the button waits disabled with nothing to explain.
+  const createBlockerKey = props.server
+    ? getMailboxBlockerKey(props.server, props.hasDomains)
+    : null
+  const canCreateMailbox = Boolean(props.server) && !createBlockerKey
 
   return <div className='flex flex-wrap items-center gap-2'>
     {OAUTH_MAIL_ACCOUNT_KINDS.map((kind) => {
@@ -110,22 +95,23 @@ export function MailboxSourceActions(props: Props) {
       </Tooltip>
     })}
 
-    <Tooltip delay={200} isDisabled={!createBlocker}>
-      <Tooltip.Trigger>
-        <div>
-          <Button
-            size='sm'
-            isDisabled={!canCreateMailbox}
-            onPress={props.onCreateMailbox}
-          >
-            <LuPlus className='size-4' aria-hidden />
-            <span>{t('mailboxes.create')}</span>
-          </Button>
-        </div>
-      </Tooltip.Trigger>
-      <Tooltip.Content className='max-w-xs'>
-        <span>{createBlocker}</span>
-      </Tooltip.Content>
-    </Tooltip>
+    {canCreateMailbox
+      ? <Link href={UrlTree.settingsEmailMailboxNew} className={buttonVariants({ size: 'sm' })}>
+        <LuPlus className='size-4' aria-hidden />
+        <span>{t('mailboxes.create')}</span>
+      </Link>
+      : <Tooltip delay={200} isDisabled={!createBlockerKey}>
+        <Tooltip.Trigger>
+          <div>
+            <Button size='sm' isDisabled>
+              <LuPlus className='size-4' aria-hidden />
+              <span>{t('mailboxes.create')}</span>
+            </Button>
+          </div>
+        </Tooltip.Trigger>
+        <Tooltip.Content className='max-w-xs'>
+          <span>{createBlockerKey && t(createBlockerKey)}</span>
+        </Tooltip.Content>
+      </Tooltip>}
   </div>
 }

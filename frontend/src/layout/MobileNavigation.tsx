@@ -30,7 +30,7 @@ export function MobileNavigation() {
         }</span>
       </Tooltip.Content>
     </Tooltip>
-    {/* Controlled, so the root trigger wrapper is skipped, as in CreateSessionModal. */}
+    {/* Controlled, so the root trigger wrapper is skipped, as in RenameSessionModal. */}
     <Drawer.Backdrop isOpen={drawer.isOpen} onOpenChange={drawer.setOpen}>
       <Drawer.Content placement='left'>
         <Drawer.Dialog aria-label={t('primary.label')} className='flex w-64 flex-col bg-sidebar px-2 py-3'>

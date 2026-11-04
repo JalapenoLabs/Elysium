@@ -3,7 +3,6 @@
 import type { MailAccount } from '../../../api/routes/mailRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
 
@@ -14,8 +13,7 @@ import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Spinner, useOverlayState } from '@heroui/react'
-import { CreateMailboxModal } from './CreateMailboxModal'
+import { Alert, Spinner } from '@heroui/react'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
 import { MailServerSection } from './MailServerSection'
@@ -49,14 +47,6 @@ export function ManageEmailPage() {
   useOAuthOutcomeToast()
 
   const confirm = useConfirm()
-  const createState = useOverlayState()
-  // Remounting the form per opening resets it.
-  const [ formSession, setFormSession ] = useState(0)
-
-  function openCreate() {
-    setFormSession((session) => session + 1)
-    createState.open()
-  }
 
   // A self-hosted mailbox is destroyed with its mail; an OAuth account is only forgotten.
   function confirmDisconnect(account: MailAccount) {
@@ -153,7 +143,6 @@ export function ManageEmailPage() {
           capabilities={capabilities}
           server={server}
           hasDomains={domains.length > 0}
-          onCreateMailbox={openCreate}
         />
       </div>
 
@@ -184,11 +173,5 @@ export function ManageEmailPage() {
         onDisconnect={confirmDisconnect}
       />}
     </section>
-
-    <CreateMailboxModal
-      key={`create-${formSession}`}
-      state={createState}
-      domains={domains}
-    />
   </SettingsPage>
 }

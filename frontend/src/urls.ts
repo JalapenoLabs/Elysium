@@ -21,14 +21,17 @@ export const UrlTree = {
   initiatives: '/action-items/initiatives',
   initiativesNew: '/action-items/initiatives/new',
   initiativeView: '/action-items/initiatives/:initiativeId',
+  initiativeContainerNew: '/action-items/initiatives/:initiativeId/containers/new',
   changesets: '/action-items/changesets',
   changesetView: '/action-items/changesets/:changesetId',
   projects: '/projects',
   projectsNew: '/projects/new',
   projectView: '/projects/:projectId',
   coding: '/coding',
+  codingNew: '/coding/new',
   codingSession: '/coding/:sessionId',
   studio: '/studio',
+  studioNew: '/studio/new',
   studioItem: '/studio/:itemId',
   runs: '/runs',
   runView: '/runs/:runId',
@@ -57,11 +60,8 @@ export const UrlTree = {
   settingsConnectorNewKind: '/settings/connectors/new/:kind',
   settingsConnector: '/settings/connectors/:connectorId',
   settingsLlms: '/settings/llms',
-  settingsLlmsAddClaudeAccount: '/settings/llms/add-claude-account',
-  settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
-  settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',
-  settingsLlmsAddClaudeApiKey: '/settings/llms/add-claude-api-key',
-  settingsLlmsAddOpenaiApiKey: '/settings/llms/add-openai-api-key',
+  // One add page per provider, named by its slug in `llmSlugByType`, as connectors are by kind.
+  settingsLlmNew: '/settings/llms/new/:provider',
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsEnvironment: '/settings/environment',
   settingsEnvironmentNew: '/settings/environment/new',
@@ -74,6 +74,9 @@ export const UrlTree = {
   settingsJiraEdit: '/settings/jira/:credentialId/edit',
   settingsJiraDoneTransitions: '/settings/jira/:credentialId/done-transitions',
   settingsEmail: '/settings/email',
+  settingsEmailServerNew: '/settings/email/server/new',
+  settingsEmailDomainNew: '/settings/email/domains/new',
+  settingsEmailMailboxNew: '/settings/email/mailboxes/new',
   settingsMailboxEdit: '/settings/email/:accountId/edit',
   settingsStorage: '/settings/storage',
   settingsStorageNew: '/settings/storage/new',
@@ -96,7 +99,7 @@ export const CONNECTOR_PROVIDES_PARAM = 'provides'
 // a close still waiting on the choice.
 export const DONE_TRANSITION_PROJECT_PARAM = 'project'
 
-// The query parameter that opens the Coding page's New session dialog started from an item.
+// The query parameter that starts a new coding session from an action item.
 export const NEW_SESSION_ITEM_PARAM = 'item'
 
 // The query parameters the sign-in page reads: where to go afterwards, whether to ask for
@@ -121,6 +124,10 @@ export function getActionItemViewUrl(itemId: string) {
 
 export function getInitiativeViewUrl(initiativeId: string) {
   return UrlTree.initiativeView.replace(':initiativeId', initiativeId)
+}
+
+export function getNewInitiativeContainerUrl(initiativeId: string) {
+  return UrlTree.initiativeContainerNew.replace(':initiativeId', initiativeId)
 }
 
 export function getChangesetViewUrl(changesetId: string) {
@@ -168,6 +175,10 @@ export function getConnectorPickerUrl(provides: ConnectorProvides) {
   return `${UrlTree.settingsConnectorNew}?${CONNECTOR_PROVIDES_PARAM}=${encodeURIComponent(provides)}`
 }
 
+export function getNewLlmUrl(providerSlug: string) {
+  return UrlTree.settingsLlmNew.replace(':provider', providerSlug)
+}
+
 export function getLlmEditUrl(llmId: string) {
   return UrlTree.settingsLlmsEdit.replace(':llmId', llmId)
 }
@@ -213,9 +224,9 @@ export function getCodingSessionUrl(sessionId: number) {
   return UrlTree.codingSession.replace(':sessionId', String(sessionId))
 }
 
-// The Coding page opens New session started from this item, then returns to its own address.
+// New session, started from this item.
 export function getNewCodingSessionUrl(actionItemId: string) {
-  return `${UrlTree.coding}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
+  return `${UrlTree.codingNew}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
 }
 
 export function getStudioItemUrl(itemId: string) {

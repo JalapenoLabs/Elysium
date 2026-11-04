@@ -13,10 +13,8 @@ import { mailDomainDeleted, selectAllMailDomains } from '../../../store/mailDoma
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Button, Card, Spinner, useOverlayState } from '@heroui/react'
+import { Alert, Button, buttonVariants, Card, Link, Spinner, useOverlayState } from '@heroui/react'
 import { LuPlus, LuServer } from 'react-icons/lu'
-import { AddMailDomainModal } from './AddMailDomainModal'
-import { CreateMailServerModal } from './CreateMailServerModal'
 import { MailDomainDnsModal } from './MailDomainDnsModal'
 import { MailDomainTable } from './MailDomainTable'
 
@@ -28,6 +26,7 @@ import { getUpstreamErrorMessage } from '../../../api/errors'
 import { deleteMailDomain } from '../../../api/routes/mailRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useMailDomainsLoader, useMailServerLoader } from '../../../hooks/useServerData'
+import { UrlTree } from '../../../urls'
 import { toast } from '../../../toast/toast'
 
 // Creation's steps in order, as the API reports them.
@@ -49,8 +48,8 @@ const stepLabelKeys = {
   'adding-domain': 'server.steps.adding-domain',
 } as const satisfies Record<MailServerStep, string>
 
-// The mail server and the domains it hosts. Before the server exists this offers to
-// create it; while it is created, it follows the steps the event stream reports.
+// The mail server and the domains it hosts. Before the server exists this links to creating
+// it; while it is created, it follows the steps the event stream reports.
 export function MailServerSection() {
   const { t } = useTranslation([ 'email', 'common' ])
   const server = useAppSelector(selectMailServer)
@@ -59,19 +58,10 @@ export function MailServerSection() {
   useMailServerLoader()
   useMailDomainsLoader()
 
-  const createServerState = useOverlayState()
-  const addDomainState = useOverlayState()
   const dnsState = useOverlayState()
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const [ selectedDomain, setSelectedDomain ] = useState<MailDomain | null>(null)
-  // Remounting a form per opening resets it.
-  const [ formSession, setFormSession ] = useState(0)
-
-  function openForm(open: () => void) {
-    setFormSession((session) => session + 1)
-    open()
-  }
 
   const mailboxCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -133,13 +123,13 @@ export function MailServerSection() {
           <Alert.Description className='break-words'>{server.error}</Alert.Description>
         </Alert.Content>
       </Alert>}
-      <Button onPress={() => openForm(createServerState.open)}>
+      <Link href={UrlTree.settingsEmailServerNew} className={buttonVariants()}>
         <span>{
           server.state === 'failed'
             ? t('server.failed.action')
             : t('server.empty.action')
         }</span>
-      </Button>
+      </Link>
     </Card>
   }
 
@@ -176,15 +166,16 @@ export function MailServerSection() {
             t('server.hostname', { hostname: server.hostname ?? '' })
           }</p>
         </div>
-        <Button
-          size='sm'
-          variant='outline'
-          isDisabled={server.state !== 'ready'}
-          onPress={() => openForm(addDomainState.open)}
-        >
-          <LuPlus className='size-4' aria-hidden />
-          <span>{t('domains.add')}</span>
-        </Button>
+        {/* A link once the server can take a domain; until then, a button that cannot be pressed. */}
+        {server.state === 'ready'
+          ? <Link href={UrlTree.settingsEmailDomainNew} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
+            <LuPlus className='size-4' aria-hidden />
+            <span>{t('domains.add')}</span>
+          </Link>
+          : <Button size='sm' variant='outline' isDisabled>
+            <LuPlus className='size-4' aria-hidden />
+            <span>{t('domains.add')}</span>
+          </Button>}
       </div>
       <MailDomainTable
         domains={domains}
@@ -207,14 +198,6 @@ export function MailServerSection() {
     </div>
     {body}
 
-    <CreateMailServerModal
-      key={`create-server-${formSession}`}
-      state={createServerState}
-    />
-    <AddMailDomainModal
-      key={`add-domain-${formSession}`}
-      state={addDomainState}
-    />
     <MailDomainDnsModal
       state={dnsState}
       domain={selectedDomain}

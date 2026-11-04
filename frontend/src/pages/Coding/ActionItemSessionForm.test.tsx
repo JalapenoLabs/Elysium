@@ -42,7 +42,7 @@ function renderFor(actionItemId: string, items: ActionItem[]) {
   }
   return render(<Provider store={store}>
     <MemoryRouter>
-      <ActionItemSessionForm actionItemId={actionItemId} onCreated={() => {}} />
+      <ActionItemSessionForm actionItemId={actionItemId} />
     </MemoryRouter>
   </Provider>)
 }
@@ -70,7 +70,7 @@ describe('ActionItemSessionForm', () => {
     renderFor('login', [ makeActionItem({ id: 'login', title: 'Fix the login bug', projectIds: [ 'elysium' ]}) ])
 
     expect(screen.queryByText('Form for Fix the login bug')).toBeNull()
-    expect(screen.getByText('Projects could not be loaded. Close this and try again.')).toBeTruthy()
+    expect(screen.getByText('Projects could not be loaded. Reload the page to try again.')).toBeTruthy()
   })
 
   it('starts nothing from a deleted item', () => {

@@ -3,9 +3,6 @@
 import type { ParseKeys } from 'i18next'
 import type { LlmType } from '../../../api/routes/llmRoutes'
 
-// Misc
-import { UrlTree } from '../../../urls'
-
 // One setup step. The text is translated; commands, file paths, and URLs are not.
 export type LlmSetupStep = {
   textKey: ParseKeys<'llms'>
@@ -13,13 +10,15 @@ export type LlmSetupStep = {
   link?: string
 }
 
-// Each provider type has its own add page, reached from the Add LLM menu.
-export const addLlmUrlByType = {
-  'chatgpt-oauth': UrlTree.settingsLlmsAddCodexOauth,
-  'claude-code-oauth': UrlTree.settingsLlmsAddClaudeCodeOauth,
-  'claude-api-token': UrlTree.settingsLlmsAddClaudeApiKey,
-  'chatgpt-api-token': UrlTree.settingsLlmsAddOpenaiApiKey,
-  'claude-account': UrlTree.settingsLlmsAddClaudeAccount,
+// Each provider type has its own add page, `/settings/llms/new/<slug>` (`getNewLlmUrl`), reached
+// from the Add LLM menu. The slug names the provider the way people know it, such as Codex, rather
+// than by the API's type. `/settings/llms/add-<slug>` redirects to it, so links to that still land.
+export const llmSlugByType = {
+  'chatgpt-oauth': 'codex-oauth',
+  'claude-code-oauth': 'claude-code-oauth',
+  'claude-api-token': 'claude-api-key',
+  'chatgpt-api-token': 'openai-api-key',
+  'claude-account': 'claude-account',
 } as const satisfies Record<LlmType, string>
 
 // How to obtain each type's secret token, shown beside the form as a checklist.

@@ -27,7 +27,7 @@ export function MissingAgentCredentialAlert() {
     return null
   }
 
-  return <Alert status='warning' className='compact mt-3'>
+  return <Alert status='warning' className='relaxed max-w-3xl'>
     <Alert.Indicator />
     <Alert.Content>
       <Alert.Title>{

@@ -70,7 +70,7 @@ describe('issue #170', () => {
       onSkip={noop}
     />)
 
-    expect(hrefOf(screen.getByText('Start a coding session'))).toBe('/coding?item=item-1')
+    expect(hrefOf(screen.getByText('Start a coding session'))).toBe('/coding/new?item=item-1')
     expect(hrefOf(screen.getByText('Fix the login cookie'))).toBe('/action-items/item-1')
   })
 
@@ -132,11 +132,11 @@ describe('issue #170', () => {
       .getAllByRole('menuitem')
       .map((item) => item.tagName === 'A' && item.getAttribute('href'))
     expect(hrefs).toEqual([
-      '/settings/llms/add-claude-account',
-      '/settings/llms/add-claude-api-key',
-      '/settings/llms/add-claude-code-oauth',
-      '/settings/llms/add-openai-api-key',
-      '/settings/llms/add-codex-oauth',
+      '/settings/llms/new/claude-account',
+      '/settings/llms/new/claude-api-key',
+      '/settings/llms/new/claude-code-oauth',
+      '/settings/llms/new/openai-api-key',
+      '/settings/llms/new/codex-oauth',
     ])
   })
 })

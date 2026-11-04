@@ -30,6 +30,7 @@
   },
   "create": {
     "title": "New Studio item",
+    "loadError": "The storage locations could not be loaded.",
     "prompt": "What should the agent make?",
     "promptHint": "Describe the asset. The agent starts on it as soon as the item is created.",
     "itemTitle": "Title",

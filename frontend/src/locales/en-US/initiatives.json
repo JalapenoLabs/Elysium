@@ -61,9 +61,11 @@
     "empty": "Follow a Jira epic or saved filter, or a GitHub milestone or label, and its open issues join this initiative as items.",
     "loadError": "What this initiative follows could not be loaded.",
     "add": "Follow",
-    "addTitle": "Follow a Jira epic, filter, milestone, or label",
+    "newTitle": "Follow in Jira or GitHub",
     "addDescription": "Its open issues join the initiative as items, and so does every issue added to it later.",
     "addSubmit": "Follow",
+    "pickFirst": "Pick what to follow first",
+    "deleted": "This initiative is deleted. Restore it to follow anything new.",
     "kind": "What to follow",
     "kinds": {
       "epic": "Epic",

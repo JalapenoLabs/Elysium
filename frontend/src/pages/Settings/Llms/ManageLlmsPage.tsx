@@ -23,7 +23,8 @@ import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useLlmsLoader, useWorkspaceSettingsLoader } from '../../../hooks/useServerData'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
-import { addLlmUrlByType } from './llmProviders'
+import { getNewLlmUrl } from '../../../urls'
+import { llmSlugByType } from './llmProviders'
 import { toast } from '../../../toast/toast'
 
 export function ManageLlmsPage() {
@@ -95,7 +96,7 @@ export function ManageLlmsPage() {
                 key={type}
                 id={type}
                 textValue={t(llmTypeLabelKeys[type])}
-                href={addLlmUrlByType[type]}
+                href={getNewLlmUrl(llmSlugByType[type])}
               >
                 <Label>{t(llmTypeLabelKeys[type])}</Label>
               </Dropdown.Item>)

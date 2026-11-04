@@ -31,20 +31,26 @@ import { NextPage } from './pages/ActionItems/NextPage'
 import { ChangesetPage } from './pages/Changesets/ChangesetPage'
 import { ChangesetsPage } from './pages/Changesets/ChangesetsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
+import { NewCodingSessionPage } from './pages/Coding/NewCodingSessionPage'
 import { CreateInitiativePage } from './pages/Initiatives/CreateInitiativePage'
 import { InitiativePage } from './pages/Initiatives/InitiativePage'
 import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
+import { NewInitiativeContainerPage } from './pages/Initiatives/NewInitiativeContainerPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
+import { NewStudioItemPage } from './pages/Studio/NewStudioItemPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { AccountPage } from './pages/Settings/Account/AccountPage'
 import { EditMailboxPage } from './pages/Settings/Email/EditMailboxPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
+import { NewMailboxPage } from './pages/Settings/Email/NewMailboxPage'
+import { NewMailDomainPage } from './pages/Settings/Email/NewMailDomainPage'
+import { NewMailServerPage } from './pages/Settings/Email/NewMailServerPage'
 import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
 import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
 import { ManageEnvironmentPage } from './pages/Settings/Environment/ManageEnvironmentPage'
@@ -72,9 +78,9 @@ import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 import { NewLearningPage } from './pages/Settings/Learnings/NewLearningPage'
 
 // Misc
-import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
+import { llmSlugByType } from './pages/Settings/Llms/llmProviders'
 import { LLM_TYPES } from './pages/Settings/Llms/llmPresentation'
-import { UNKNOWN_ROUTE_REDIRECT_TO, UrlTree } from './urls'
+import { getNewLlmUrl, UNKNOWN_ROUTE_REDIRECT_TO, UrlTree } from './urls'
 
 // How AppShell frames a route. `page` (the default) is a padded, scrolling column;
 // `workspace` gives the page the whole content area and lets it manage its own
@@ -136,6 +142,10 @@ export const workspaceRoutes: RouteObject = {
       element: <InitiativePage />,
     },
     {
+      path: UrlTree.initiativeContainerNew,
+      element: <NewInitiativeContainerPage />,
+    },
+    {
       path: UrlTree.changesetView,
       element: <ChangesetPage />,
     },
@@ -156,6 +166,11 @@ export const workspaceRoutes: RouteObject = {
       element: <CodingPage />,
       handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
     },
+    // Before the session's own route, so `new` is never read as a session's number.
+    {
+      path: UrlTree.codingNew,
+      element: <NewCodingSessionPage />,
+    },
     {
       path: UrlTree.codingSession,
       element: <CodingPage />,
@@ -164,6 +179,11 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.studio,
       element: <StudioPage />,
+    },
+    // Before the item's own route, so `new` is never read as an item's id.
+    {
+      path: UrlTree.studioNew,
+      element: <NewStudioItemPage />,
     },
     // The item page splits the whole content area between the stage and the conversation,
     // each scrolling on its own.
@@ -265,9 +285,14 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsLlms,
       element: <ManageLlmsPage />,
     },
+    {
+      path: UrlTree.settingsLlmNew,
+      element: <AddLlmPage />,
+    },
+    // The add pages' earlier addresses, `add-<slug>`, so links and bookmarks to them still land.
     ...LLM_TYPES.map((type) => ({
-      path: addLlmUrlByType[type],
-      element: <AddLlmPage type={type} />,
+      path: `${UrlTree.settingsLlms}/add-${llmSlugByType[type]}`,
+      element: <Navigate to={getNewLlmUrl(llmSlugByType[type])} replace />,
     })),
     {
       path: UrlTree.settingsLlmsEdit,
@@ -333,6 +358,18 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsEmail,
       element: <ManageEmailPage />,
+    },
+    {
+      path: UrlTree.settingsEmailServerNew,
+      element: <NewMailServerPage />,
+    },
+    {
+      path: UrlTree.settingsEmailDomainNew,
+      element: <NewMailDomainPage />,
+    },
+    {
+      path: UrlTree.settingsEmailMailboxNew,
+      element: <NewMailboxPage />,
     },
     {
       path: UrlTree.settingsMailboxEdit,

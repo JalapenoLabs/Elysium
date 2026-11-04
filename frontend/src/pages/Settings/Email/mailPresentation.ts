@@ -2,7 +2,13 @@
 
 import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
-import type { MailAccount, MailAccountKind, OAuthMailAccountKind } from '../../../api/routes/mailRoutes'
+import type {
+  MailAccount,
+  MailAccountKind,
+  MailServer,
+  MailServerState,
+  OAuthMailAccountKind,
+} from '../../../api/routes/mailRoutes'
 
 // User interface
 import { LuServer } from 'react-icons/lu'
@@ -70,3 +76,25 @@ export const oauthErrorMessageKeys = {
   invalid_request: 'oauthErrors.invalid_request',
   internal_error: 'oauthErrors.internal_error',
 } as const satisfies Record<string, ParseKeys<'email'>>
+
+// Why the mail server cannot take a new domain or mailbox, by its state; null when it can.
+export const mailServerBlockerKeys = {
+  'not-created': 'availability.mailServerMissing',
+  'creating': 'availability.mailServerMissing',
+  'failed': 'availability.mailServerMissing',
+  'ready': null,
+  'unreachable': 'server.unreachable.title',
+} as const satisfies Record<MailServerState, ParseKeys<'email'> | null>
+
+// Why a mailbox cannot be created on the mail server yet, as a translation key: the server is
+// not ready, or it has no domain for the address. Null when it can.
+export function getMailboxBlockerKey(server: MailServer, hasDomains: boolean): ParseKeys<'email'> | null {
+  const serverBlocker = mailServerBlockerKeys[server.state]
+  if (serverBlocker) {
+    return serverBlocker
+  }
+  if (!hasDomains) {
+    return 'availability.mailDomainMissing'
+  }
+  return null
+}

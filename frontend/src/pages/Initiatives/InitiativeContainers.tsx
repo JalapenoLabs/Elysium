@@ -10,15 +10,15 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { initiativeLinkDeleted, selectInitiativeLinks } from '../../store/initiativeLinksSlice'
 
 // User interface
-import { Button, Chip, Link, Spinner, Tooltip, useOverlayState } from '@heroui/react'
+import { Button, buttonVariants, Chip, Link, Spinner, Tooltip } from '@heroui/react'
 import { LuExternalLink, LuPlus, LuUnlink } from 'react-icons/lu'
-import { AddContainerModal } from './AddContainerModal'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { removeInitiativeLink } from '../../api/routes/initiativeRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useInitiativeLinksLoader } from '../../hooks/useServerData'
+import { getNewInitiativeContainerUrl } from '../../urls'
 import { providerLabelKeys } from '../ActionItems/linkPresentation'
 import { containerKindLabelKeys } from './containerPresentation'
 import { toast } from '../../toast/toast'
@@ -35,7 +35,6 @@ export function InitiativeContainers(props: Props) {
   const confirm = useConfirm()
   const status = useInitiativeLinksLoader(props.initiative.id)
   const links = useAppSelector((state) => selectInitiativeLinks(state, props.initiative.id))
-  const addState = useOverlayState()
   const isReadOnly = Boolean(props.initiative.deletedAt)
 
   function remove(link: InitiativeLink) {
@@ -74,10 +73,13 @@ export function InitiativeContainers(props: Props) {
   return <section className='relaxed'>
     <div className='level compact'>
       <h2 className='text-lg font-semibold'>{t('containers.heading')}</h2>
-      {!isReadOnly && <Button size='sm' variant='secondary' onPress={addState.open}>
+      {!isReadOnly && <Link
+        href={getNewInitiativeContainerUrl(props.initiative.id)}
+        className={buttonVariants({ size: 'sm', variant: 'secondary' })}
+      >
         <LuPlus className='size-4' aria-hidden />
         <span>{t('containers.add')}</span>
-      </Button>}
+      </Link>}
     </div>
 
     {status === 'loading' && <div className='grid place-items-center py-6'>
@@ -116,7 +118,5 @@ export function InitiativeContainers(props: Props) {
         {link.truncated && <p className='mt-1 text-xs text-warning'>{t('containers.truncated')}</p>}
       </li>)
     }</ul>
-
-    <AddContainerModal initiativeId={props.initiative.id} state={addState} />
   </section>
 }

@@ -14,7 +14,7 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 import { selectSessionsView, sessionsViewChanged } from '../../store/sessionsViewSlice'
 
 // User interface
-import { Button, Chip, Link, Spinner } from '@heroui/react'
+import { buttonVariants, Chip, Link, Spinner } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { LuPlus } from 'react-icons/lu'
 import { SessionRowActions } from './SessionRowActions'
@@ -186,7 +186,6 @@ export function SessionsPanel() {
       <div className='max-w-sm text-center'>
         <SessionsEmptyState
           hasProjects={projectsStatus === 'loaded' && Object.keys(projectNames).length > 0}
-          onCreateSession={() => actions.createSession()}
         />
       </div>
     </div>
@@ -229,7 +228,6 @@ export function SessionsPanel() {
 
 type SessionsEmptyStateProps = {
   hasProjects: boolean
-  onCreateSession: () => void
 }
 
 // A session needs a project; point at it when there is none.
@@ -245,9 +243,9 @@ function SessionsEmptyState(props: SessionsEmptyStateProps) {
 
   return <>
     <p className='relaxed text-sm opacity-70'>{t('sessions.empty')}</p>
-    <Button size='sm' onPress={props.onCreateSession}>
+    <Link href={UrlTree.codingNew} className={buttonVariants({ size: 'sm' })}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('newSession')}</span>
-    </Button>
+    </Link>
   </>
 }

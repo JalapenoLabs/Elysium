@@ -18,18 +18,17 @@ import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
   Input,
   Label,
   ListBox,
-  Modal,
   Select,
   TextArea,
   TextField,
 } from '@heroui/react'
+import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -38,6 +37,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { getApiErrorMessage } from '../../api/errors'
 import { createStudioItem } from '../../api/routes/studioRoutes'
 import { useProjectsLoader, useStorageLocationsLoader } from '../../hooks/useServerData'
+import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { getStudioItemUrl } from '../../urls'
 import { createStudioItemFormSchema } from './studioItemFormSchema'
 import { getDefaultStudioLocationId, getStudioLocationChoices } from './studioStorage'
@@ -46,13 +46,10 @@ import { toast } from '../../toast/toast'
 // The project select's key for no project; the form holds an empty string.
 const NO_PROJECT_KEY = 'none'
 
-type Props = {
-  onCreated: () => void
-}
-
 // The New item form: the first prompt, an optional title and project, and where the files
-// are kept. Creating it starts the first turn.
-export function CreateStudioItemForm(props: Props) {
+// are kept. Creating it starts the first turn and opens the item. It creates from the page's
+// Save, in the header and below the form, which waits for the prompt and a location.
+export function CreateStudioItemForm() {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
@@ -94,7 +91,7 @@ export function CreateStudioItemForm(props: Props) {
     }
   }
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const { item, session } = await createStudioItem({
         prompt: values.prompt.trim(),
@@ -104,9 +101,9 @@ export function CreateStudioItemForm(props: Props) {
       })
       dispatch(studioItemUpserted(item))
       dispatch(codingSessionUpserted(session))
-      props.onCreated()
       toast.success(t('toasts.created', { title: item.title }))
-      navigate(getStudioItemUrl(item.id))
+      void navigate(getStudioItemUrl(item.id))
+      return true
     }
     catch (error) {
       // A refused item (400), such as a location the project may not use, and an unavailable
@@ -118,120 +115,125 @@ export function CreateStudioItemForm(props: Props) {
       toast.danger(t('toasts.createFailed'), {
         description: message ?? t('common:errors.unexpected'),
       })
+      return false
     }
+  })
+
+  function blockedReason() {
+    if (!prompt.trim()) {
+      return t('create.errors.promptRequired')
+    }
+    if (!storageLocationId) {
+      return t('create.errors.locationRequired')
+    }
+    return null
+  }
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: form.formState.isDirty,
+    blockedReason: blockedReason(),
+    label: t('common:actions.create'),
   })
 
   const noLocationKey = projectId
     ? 'create.noLocationForProject'
     : 'create.noLocationForEveryProject'
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria'>
-    <Modal.Body className='mt-2 flex flex-col gap-4'>
-      {/* First prompt */}
-      <TextField
-        autoFocus
-        isRequired
-        isInvalid={Boolean(errors.prompt)}
-        value={prompt}
-        onChange={(value) => form.setValue('prompt', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('create.prompt')}</Label>
-        <TextArea rows={5} />
-        <Description>{t('create.promptHint')}</Description>
-        <FieldError>{errors.prompt?.message}</FieldError>
-      </TextField>
+  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex max-w-3xl flex-col gap-4'>
+    {/* First prompt */}
+    <TextField
+      autoFocus
+      isRequired
+      isInvalid={Boolean(errors.prompt)}
+      value={prompt}
+      onChange={(value) => form.setValue('prompt', value, { shouldDirty: true, shouldValidate: true })}
+    >
+      <Label>{t('create.prompt')}</Label>
+      <TextArea rows={5} />
+      <Description>{t('create.promptHint')}</Description>
+      <FieldError>{errors.prompt?.message}</FieldError>
+    </TextField>
 
-      {/* Title */}
-      <TextField
-        isInvalid={Boolean(errors.title)}
-        value={title}
-        onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('create.itemTitle')}</Label>
-        <Input />
-        <Description>{t('create.itemTitleHint')}</Description>
-        <FieldError>{errors.title?.message}</FieldError>
-      </TextField>
+    {/* Title */}
+    <TextField
+      isInvalid={Boolean(errors.title)}
+      value={title}
+      onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
+    >
+      <Label>{t('create.itemTitle')}</Label>
+      <Input />
+      <Description>{t('create.itemTitleHint')}</Description>
+      <FieldError>{errors.title?.message}</FieldError>
+    </TextField>
 
-      {/* Project */}
-      <Select
-        value={projectId || NO_PROJECT_KEY}
-        onChange={changeProject}
-      >
-        <Label>{t('create.project')}</Label>
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>
-            <ListBox.Item id={NO_PROJECT_KEY} textValue={t('create.noProject')}>
-              {t('create.noProject')}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>
-            {projects.map((project) => <ListBox.Item
-              key={project.id}
-              id={project.id}
-              textValue={project.name}
-            >
-              {project.name}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>)}
-          </ListBox>
-        </Select.Popover>
-        <Description>{t('create.projectHint')}</Description>
-      </Select>
+    {/* Project */}
+    <Select
+      value={projectId || NO_PROJECT_KEY}
+      onChange={changeProject}
+    >
+      <Label>{t('create.project')}</Label>
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          <ListBox.Item id={NO_PROJECT_KEY} textValue={t('create.noProject')}>
+            {t('create.noProject')}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>
+          {projects.map((project) => <ListBox.Item
+            key={project.id}
+            id={project.id}
+            textValue={project.name}
+          >
+            {project.name}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>)}
+        </ListBox>
+      </Select.Popover>
+      <Description>{t('create.projectHint')}</Description>
+    </Select>
 
-      {/* Storage location */}
-      <Select
-        isRequired
-        isDisabled={!locationChoices.length}
-        isInvalid={Boolean(errors.storageLocationId)}
-        placeholder={t('create.locationPlaceholder')}
-        value={storageLocationId || null}
-        onChange={(key) => form.setValue(
-          'storageLocationId',
-          String(key ?? ''),
-          { shouldDirty: true, shouldValidate: true },
-        )}
-      >
-        <Label>{t('create.location')}</Label>
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>{
-            locationChoices.map((location) => <ListBox.Item
-              key={location.id}
-              id={location.id}
-              textValue={location.name}
-            >
-              {location.name}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>)
-          }</ListBox>
-        </Select.Popover>
-        <Description>{
-          locationChoices.length
-            ? t('create.locationHint')
-            : t(noLocationKey)
-        }</Description>
-        <FieldError>{errors.storageLocationId?.message}</FieldError>
-      </Select>
+    {/* Storage location */}
+    <Select
+      isRequired
+      isDisabled={!locationChoices.length}
+      isInvalid={Boolean(errors.storageLocationId)}
+      placeholder={t('create.locationPlaceholder')}
+      value={storageLocationId || null}
+      onChange={(key) => form.setValue(
+        'storageLocationId',
+        String(key ?? ''),
+        { shouldDirty: true, shouldValidate: true },
+      )}
+    >
+      <Label>{t('create.location')}</Label>
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>{
+          locationChoices.map((location) => <ListBox.Item
+            key={location.id}
+            id={location.id}
+            textValue={location.name}
+          >
+            {location.name}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>)
+        }</ListBox>
+      </Select.Popover>
+      <Description>{
+        locationChoices.length
+          ? t('create.locationHint')
+          : t(noLocationKey)
+      }</Description>
+      <FieldError>{errors.storageLocationId?.message}</FieldError>
+    </Select>
 
-    </Modal.Body>
-    <Modal.Footer>
-      <Button slot='close' variant='tertiary'>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button
-        type='submit'
-        isDisabled={!prompt.trim() || !storageLocationId}
-        isPending={form.formState.isSubmitting}
-      >
-        <span>{t('common:actions.create')}</span>
-      </Button>
-    </Modal.Footer>
+    <PageCreateFooter />
   </Form>
 }

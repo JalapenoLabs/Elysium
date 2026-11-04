@@ -56,7 +56,7 @@ export function LinkTargetModal(props: Props) {
     }
   }
 
-  // Controlled overlays skip the Modal root, as in AddMailDomainModal.
+  // Controlled overlays skip the Modal root, as in SnoozeDateModal.
   return <Modal.Backdrop
     isOpen={props.state.isOpen}
     onOpenChange={(isOpen) => {

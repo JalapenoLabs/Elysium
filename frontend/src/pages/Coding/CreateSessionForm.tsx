@@ -7,6 +7,7 @@ import type { CreateSessionFormValues } from './createSessionFormSchema'
 import { useMemo } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 
 // Redux
 import { codingSessionUpserted } from '../../store/codingSessionsSlice'
@@ -16,7 +17,6 @@ import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
@@ -24,13 +24,13 @@ import {
   Label,
   Link,
   ListBox,
-  Modal,
   Select,
   TextArea,
   TextField,
 } from '@heroui/react'
 import { LuListTodo } from 'react-icons/lu'
 import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
+import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 import { SessionGithubTokenExpiry } from './SessionGithubTokenExpiry'
 import { SessionRepositoriesField } from './SessionRepositoriesField'
 
@@ -41,9 +41,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { getApiErrorMessage } from '../../api/errors'
 import { createCodingSession } from '../../api/routes/codingSessionRoutes'
 import { useGithubCredentialsLoader, useProjectsLoader } from '../../hooks/useServerData'
-import { getActionItemViewUrl } from '../../urls'
+import { saveForm, usePageSave } from '../../layout/page/pageSave'
+import { getActionItemViewUrl, getCodingSessionUrl } from '../../urls'
 import { resolveProjectGithubCredentialId } from '../Settings/Github/githubPresentation'
-import { useCodingActions } from './codingActionsContext'
 import { createSessionFormSchema, SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 import { getSessionProjectChoices } from './sessionItemProjects'
 import { toast } from '../../toast/toast'
@@ -51,7 +51,6 @@ import { toast } from '../../toast/toast'
 type Props = {
   // The item the session is started from, or null for a session of its own.
   actionItem: ActionItem | null
-  onCreated: () => void
 }
 
 // What the token picker's fixed choices send as `githubCredentialId`: following the project
@@ -63,11 +62,12 @@ const githubCredentialIdByChoice: Record<string, string | null | undefined> = {
 
 // The New session form. A session started from an action item belongs to one of the item's
 // projects (any project when it has none), is titled after it, and needs a prompt, which
-// its first turn carries after the item's context.
+// its first turn carries after the item's context. It creates from the page's Save, in the
+// header and below the form, then opens the session's conversation on the Coding page.
 export function CreateSessionForm(props: Props) {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
-  const codingActions = useCodingActions()
+  const navigate = useNavigate()
   useProjectsLoader()
   useGithubCredentialsLoader()
   const projects = useAppSelector(selectAllProjects)
@@ -101,7 +101,7 @@ export function CreateSessionForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     const prompt = values.prompt.trim()
     const promptFirstLine = prompt.split('\n', 1)[0].slice(0, SESSION_TITLE_MAX_CHARACTERS)
     const title = values.title || promptFirstLine || t('create.untitled')
@@ -124,9 +124,9 @@ export function CreateSessionForm(props: Props) {
         actionItemId: actionItem?.id,
       })
       dispatch(codingSessionUpserted(session))
-      codingActions.openSession(session)
-      props.onCreated()
       toast.success(t('toasts.created', { title }))
+      void navigate(getCodingSessionUrl(session.id))
+      return true
     }
     catch (error) {
       // A refused session (400), such as a repository GitHub or the API will not take, an
@@ -137,6 +137,7 @@ export function CreateSessionForm(props: Props) {
         console.debug('CreateSessionForm failed to start a session', { error })
       }
       toast.danger(message ?? t('common:errors.unexpected'))
+      return false
     }
   })
 
@@ -159,129 +160,137 @@ export function CreateSessionForm(props: Props) {
       ? null
       : githubChoice
   const sessionCredential = githubCredentials.find((credential) => credential.id === sessionCredentialId) ?? null
-  const isMissingPrompt = Boolean(actionItem) && !prompt.trim()
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria'>
-    <Modal.Body className='mt-2 flex flex-col gap-4'>
-      {/* The item the session starts from */}
-      {actionItem && <div className='flex items-start gap-3 rounded-xl bg-surface p-3'>
-        <LuListTodo className='mt-0.5 size-4 shrink-0 opacity-70' aria-hidden />
-        <div className='min-w-0 text-sm'>
-          <div className='text-xs opacity-60'>{t('create.fromItem.label')}</div>
-          <Link
-            href={getActionItemViewUrl(actionItem.id)}
-            className='font-medium text-link no-underline hover:underline'
-          >{
-            actionItem.title
-          }</Link>
-          <p className='mt-1 text-xs opacity-70'>{t('create.fromItem.hint')}</p>
-        </div>
-      </div>}
+  // Why Create waits, in the order the form is filled.
+  function blockedReason() {
+    if (!projectId) {
+      return t('create.errors.projectRequired')
+    }
+    if (actionItem && !prompt.trim()) {
+      return t('create.errors.promptRequired')
+    }
+    return errors.repositories?.message ?? errors.repositories?.root?.message ?? null
+  }
 
-      {/* Project */}
-      <Select
-        isRequired
-        isDisabled={isProjectFixed}
-        isInvalid={Boolean(errors.projectId)}
-        placeholder={t('create.projectPlaceholder')}
-        value={projectId || null}
-        onChange={(key) => form.setValue(
-          'projectId',
-          String(key ?? ''),
-          { shouldDirty: true, shouldValidate: true },
-        )}
-      >
-        <Label>{t('create.project')}</Label>
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>{
-            projectChoices.map((choice) => <ListBox.Item
-              key={choice.id}
-              id={choice.id}
-              textValue={choice.name}
-            >
-              {choice.name}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>)
-          }</ListBox>
-        </Select.Popover>
-        {actionItem && actionItem.projectIds.length > 0 && <Description>{
-          isProjectFixed
-            ? t('create.fromItem.projectFixed')
-            : t('create.fromItem.projectChoices')
-        }</Description>}
-        <FieldError>{errors.projectId?.message}</FieldError>
-      </Select>
+  const onSubmit = usePageSave({
+    save,
+    isDirty: form.formState.isDirty,
+    // Everything but the project is optional, and a lone project comes preselected, so a
+    // session can start from the form as it opens.
+    canSaveUnchanged: true,
+    blockedReason: blockedReason(),
+    label: t('common:actions.create'),
+  })
 
-      {/* Title */}
-      <TextField
-        autoFocus={!actionItem}
-        isInvalid={Boolean(errors.title)}
-        value={title}
-        onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('create.sessionTitle')}</Label>
-        <Input />
-        <Description>{t('create.sessionTitleHint')}</Description>
-        <FieldError>{errors.title?.message}</FieldError>
-      </TextField>
-
-      {/* GitHub token */}
-      <div className='flex flex-col gap-2'>
-        <GithubTokenSelect
-          label={t('create.github.label')}
-          description={t('create.github.hint')}
-          inheritLabel={projectCredential
-            ? t('create.github.inherit', { name: projectCredential.name })
-            : t('create.github.inheritNone')}
-          value={githubChoice}
-          credentials={githubCredentials}
-          onChange={(value) => form.setValue('githubChoice', value, { shouldDirty: true })}
-        />
-        <SessionGithubTokenExpiry credential={sessionCredential} />
+  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex max-w-3xl flex-col gap-4'>
+    {/* The item the session starts from */}
+    {actionItem && <div className='flex items-start gap-3 rounded-xl bg-surface p-3'>
+      <LuListTodo className='mt-0.5 size-4 shrink-0 opacity-70' aria-hidden />
+      <div className='min-w-0 text-sm'>
+        <div className='text-xs opacity-60'>{t('create.fromItem.label')}</div>
+        <Link
+          href={getActionItemViewUrl(actionItem.id)}
+          className='font-medium text-link no-underline hover:underline'
+        >{
+          actionItem.title
+        }</Link>
+        <p className='mt-1 text-xs opacity-70'>{t('create.fromItem.hint')}</p>
       </div>
+    </div>}
 
-      {/* Repositories */}
-      <SessionRepositoriesField
-        credential={sessionCredential}
-        value={repositories}
-        errorMessage={errors.repositories?.message ?? errors.repositories?.root?.message}
-        branchErrors={repositories.map((_repository, index) => errors.repositories?.[index]?.baseBranch?.message)}
-        onChange={(value) => form.setValue('repositories', value, { shouldDirty: true, shouldValidate: true })}
+    {/* Project */}
+    <Select
+      isRequired
+      isDisabled={isProjectFixed}
+      isInvalid={Boolean(errors.projectId)}
+      placeholder={t('create.projectPlaceholder')}
+      value={projectId || null}
+      onChange={(key) => form.setValue(
+        'projectId',
+        String(key ?? ''),
+        { shouldDirty: true, shouldValidate: true },
+      )}
+    >
+      <Label>{t('create.project')}</Label>
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>{
+          projectChoices.map((choice) => <ListBox.Item
+            key={choice.id}
+            id={choice.id}
+            textValue={choice.name}
+          >
+            {choice.name}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>)
+        }</ListBox>
+      </Select.Popover>
+      {actionItem && actionItem.projectIds.length > 0 && <Description>{
+        isProjectFixed
+          ? t('create.fromItem.projectFixed')
+          : t('create.fromItem.projectChoices')
+      }</Description>}
+      <FieldError>{errors.projectId?.message}</FieldError>
+    </Select>
+
+    {/* Title */}
+    <TextField
+      autoFocus={!actionItem}
+      isInvalid={Boolean(errors.title)}
+      value={title}
+      onChange={(value) => form.setValue('title', value, { shouldDirty: true, shouldValidate: true })}
+    >
+      <Label>{t('create.sessionTitle')}</Label>
+      <Input />
+      <Description>{t('create.sessionTitleHint')}</Description>
+      <FieldError>{errors.title?.message}</FieldError>
+    </TextField>
+
+    {/* GitHub token */}
+    <div className='flex flex-col gap-2'>
+      <GithubTokenSelect
+        label={t('create.github.label')}
+        description={t('create.github.hint')}
+        inheritLabel={projectCredential
+          ? t('create.github.inherit', { name: projectCredential.name })
+          : t('create.github.inheritNone')}
+        value={githubChoice}
+        credentials={githubCredentials}
+        onChange={(value) => form.setValue('githubChoice', value, { shouldDirty: true })}
       />
+      <SessionGithubTokenExpiry credential={sessionCredential} />
+    </div>
 
-      {/* First prompt */}
-      <TextField
-        autoFocus={Boolean(actionItem)}
-        isRequired={Boolean(actionItem)}
-        isInvalid={Boolean(errors.prompt)}
-        value={prompt}
-        onChange={(value) => form.setValue('prompt', value, { shouldDirty: true })}
-      >
-        <Label>{t('create.prompt')}</Label>
-        <TextArea rows={5} />
-        <Description>{
-          actionItem
-            ? t('create.fromItem.promptHint')
-            : t('create.promptHint')
-        }</Description>
-        <FieldError>{errors.prompt?.message}</FieldError>
-      </TextField>
-    </Modal.Body>
-    <Modal.Footer>
-      <Button slot='close' variant='tertiary'>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button
-        type='submit'
-        isDisabled={!projectId || isMissingPrompt || Boolean(errors.repositories)}
-        isPending={form.formState.isSubmitting}
-      >
-        <span>{t('common:actions.create')}</span>
-      </Button>
-    </Modal.Footer>
+    {/* Repositories */}
+    <SessionRepositoriesField
+      credential={sessionCredential}
+      value={repositories}
+      errorMessage={errors.repositories?.message ?? errors.repositories?.root?.message}
+      branchErrors={repositories.map((_repository, index) => errors.repositories?.[index]?.baseBranch?.message)}
+      onChange={(value) => form.setValue('repositories', value, { shouldDirty: true, shouldValidate: true })}
+    />
+
+    {/* First prompt */}
+    <TextField
+      autoFocus={Boolean(actionItem)}
+      isRequired={Boolean(actionItem)}
+      isInvalid={Boolean(errors.prompt)}
+      value={prompt}
+      onChange={(value) => form.setValue('prompt', value, { shouldDirty: true })}
+    >
+      <Label>{t('create.prompt')}</Label>
+      <TextArea rows={5} />
+      <Description>{
+        actionItem
+          ? t('create.fromItem.promptHint')
+          : t('create.promptHint')
+      }</Description>
+      <FieldError>{errors.prompt?.message}</FieldError>
+    </TextField>
+
+    <PageCreateFooter />
   </Form>
 }
