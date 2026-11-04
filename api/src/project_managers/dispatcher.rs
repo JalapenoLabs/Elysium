@@ -384,18 +384,13 @@ async fn record_outcome(
         }
         ElysiaOutcome::UsageLimited { resets_at, .. } => {
             project_manager::hold_until(&mut connection, turn.project_id, resets_at).await?;
-            let error = format!(
-                "Every Claude credential reached its usage limit. What woke this turn waits until \
-                 {}.",
-                resets_at.to_rfc3339()
-            );
+            // The page names when the hold lifts, in the reader's own time zone.
+            let error = "Every Claude credential reached its usage limit. What woke this turn \
+                         waits for the next one, once the limit resets.";
             project_manager::finish_turn(
                 &mut connection,
                 turn.id,
-                Finished::Failed {
-                    error: &error,
-                    retry: true,
-                },
+                Finished::Failed { error, retry: true },
                 log.as_str(),
             )
             .await?;

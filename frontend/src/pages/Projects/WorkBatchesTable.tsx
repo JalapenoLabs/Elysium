@@ -38,11 +38,11 @@ const columnLabelKeys = {
 
 // Starting widths in pixels, summing to less than the page's content column.
 const columnSizes = {
-  title: 300,
-  priority: 170,
-  state: 130,
-  submitted: 150,
-  result: 320,
+  title: 260,
+  priority: 150,
+  state: 120,
+  submitted: 130,
+  result: 260,
 } as const satisfies Record<BatchColumnKey, number>
 
 // The batches a project's Project Manager submitted for workers, newest first: what each is,
@@ -67,7 +67,7 @@ export function WorkBatchesTable(props: Props) {
           priorityLabel(batch)
         }</Chip>
         {batch.scheduledFor && <span className='text-xs opacity-70'>{
-          t('batches.scheduledFor', { time: formatShortDateTime(batch.scheduledFor) })
+          formatShortDateTime(batch.scheduledFor)
         }</span>}
       </div>,
       state: (batch: WorkBatch) => <Chip size='sm' variant='soft' color={batchStateChipColors[batch.state]}>{

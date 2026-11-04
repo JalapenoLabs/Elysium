@@ -42,7 +42,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
-| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's, newest first |
+| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller attributes it to a project |
@@ -212,6 +212,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
+| GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
+| POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
+| GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -387,7 +390,9 @@ that raised that item), `meetingId` (that meeting's segments), `before` (an `occ
 attributions answers the record and `entryId`, the history entry it recorded (`null` when nothing changed); a
 `HistoryEntry` has `id`, `timelineRecordId`, `projectId`, `kind` (`attributed` or `unattributed`), `createdBy` (the
 owner, or Elysia's machine user), `before` and `after` (each `{ confidence, attributedBy }` or `null`), `undid`, and
-`createdAt`. Every route answers the record's owner alone. See `docs/connectors.md`.
+`createdAt`. Every route answers the record's owner alone, except that `GET /timeline` and `GET /timeline/{id}` also
+answer a member the workspace's records, a Project Manager's turns and batches (`createdBy` its machine user), which
+nobody changes. See `docs/connectors.md`.
 
 ### `/api/v1/drafts`
 
@@ -443,6 +448,19 @@ to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at 
 dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
+
+`GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
+(`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
+`usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, and its latest 100 `batches`,
+newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`), `summary`, `reply`, `error`,
+`timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind, timelineRecordId,
+workBatchId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, or `message`. A batch has `id`, `title`,
+`goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`, `scheduled`), `scheduledFor`, `state`
+(`queued`, `running`, `succeeded`, `failed`, `cancelled`), `result`, `turnId`, `sourceRecordIds`, `actionItemIds`,
+`timelineRecordId`, `createdAt`, `startedAt`, and `finishedAt`. A project nothing woke yet answers `idle` with none.
+`POST /{id}/project-manager/messages` takes `{ body }` (1 to 20,000 characters, not blank) as the person's message,
+which wakes it at once, and answers it as `GET` does. `GET /{id}/project-manager/turns/{turnId}` answers one turn with
+its `log`. Its turns quote what was ingested, so all three answer the company's members alone (`403` for a guest).
 
 `DELETE /{id}/cover` is soft: the cover stops showing (`coverUpdatedAt` is null and `GET /{id}/cover` answers `404`),
 but its image is kept until a new cover replaces it, so a project keeps at most one removed cover.

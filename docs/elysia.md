@@ -67,6 +67,7 @@ password and code it handed out before they are stored, as coding sessions' even
 | `elysia_work_start`  | Records work she takes on, with when she expects it ready                     |
 | `elysia_work_update` | Updates that record: where it stands, its status, its estimate                |
 | `elysia_propose_changes` | Proposes a changeset of changes to items and initiatives, for a person to approve |
+| `elysia_message_project_manager` | Writes to a project's Project Manager, which wakes at once and answers on its turn (`docs/engine.md`, Project Managers) |
 
 What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
 the whole workspace. She changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
@@ -126,7 +127,8 @@ The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
   conversation (`conversationId`), which that conversation's request run handles (`docs/engine.md`, Conversations);
 - `resync`: changes may have been lost on their way to her (`docs/realtime.md`), so she checks the workspace herself.
 
-It ignores her own changes, coding agents' changes, and a person's other edits (snoozing, renaming). The first kept
+It ignores her own changes, coding agents' and Project Managers' changes, what a Project Manager puts on a timeline,
+and a person's other edits (snoozing, renaming). The first kept
 change opens a batch, and 30 seconds later the batch becomes one `event` turn, so a burst costs one turn. A new batch
 joins an `event` turn still queued instead of queueing another. A turn carries at most 50 changes and counts the rest.
 

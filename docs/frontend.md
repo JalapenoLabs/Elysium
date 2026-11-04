@@ -1140,8 +1140,20 @@ Save sends the changed fields first, then uploads the cover; a cover that fails 
 uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link to the models
 its agents run on (see Models), Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), and Coding sessions
-(`CodingSessionsTable`; a row or title opens the session on the Coding page). Switching tabs keeps unsaved edits.
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Project Manager and Work batches (for
+members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the session on the Coding
+page). Switching tabs keeps unsaved edits.
+
+The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
+waits for it, and a usage hold's end; a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
+the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
+collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
+that woke it, how many records and batches came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
+then). A running or failed turn starts open. Work batches (`WorkBatchesTable`) is a `SmartTable` of its batches: the
+title, the priority with a scheduled one's time, the state, when it was submitted, and what its worker reported. Both
+read Redux, loaded by `useProjectManagerLoader` and kept current by `projectManager.changed`, which reloads the
+project's Project Manager and any turn open on its page. A Project Manager's own records on the Timeline tab show
+neither Reply nor the project controls: they are the workspace's, on their own project.
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
 clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with
@@ -1264,6 +1276,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `modelSettings`  | What each kind, step, and agent runs on, and the models, prices, and efforts offered; admins |
 | `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
+| `projectManagers` | Each viewed project's Project Manager, replaced whole by every load, and the turn logs opened |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `learnings`      | Live and deleted learnings in separate halves, last changed first       |
@@ -1297,7 +1310,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
    `useChangesetsLoader`, `useChangesetLoader`, `useElysiaLoader`, `useElysiaMessagesLoader`, `useElysiaTurnsLoader`,
-   `useStudioItemsLoader`, `useDeletedStudioItemsLoader`,
+   `useStudioItemsLoader`, `useDeletedStudioItemsLoader`, `useProjectManagerLoader`, `useProjectManagerTurnLoader`,
    `useStudioItemLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.

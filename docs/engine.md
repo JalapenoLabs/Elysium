@@ -13,7 +13,8 @@ steps, and Models, below), the meeting workflow, which fetches each meeting, tra
 Whisper, corrects its transcript against everything Elysium knows, waiting for its person's approval when asked, and
 segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), the request workflow,
 which gathers every direct message and mention per conversation and starts work once it goes quiet (Conversations,
-below), and the company doc's scheduled review (The company doc, below).
+below), the company doc's scheduled review (The company doc, below), and every project's Project Manager, which
+submits work batches for the worker pool (Project Managers, below).
 
 ## A service of its own
 
@@ -23,8 +24,8 @@ below), and the company doc's scheduled review (The company doc, below).
 - The API serves clients alone: the web app, its `/api`, and MCP clients, and agents' calls to Elysium's tools
   (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
   check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
-  the Claude account keeper, the link watcher, connector ingest, the conversation loop, the Confluence and YouTrack
-  readers, meetings, every
+  the Project Managers' dispatcher, the Claude account keeper, the link watcher, connector ingest, the conversation
+  loop, the Confluence and YouTrack readers, meetings, every
   read someone asked for, the knowledge base's embedder, backfill, and answerer, the browser reconciler, the mail server brought back up, the password vault, update checks,
   the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
 - One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
@@ -52,6 +53,7 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Adds a browser, or resets one             | `browser_sessions`                       | Brings its container up; records its state   |
 | Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
 | Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
+| Writes to a project's Project Manager     | `project_manager_wakes`                  | Starts its turn, runs it, records it         |
 | Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
 | Asks the knowledge base a question        | `knowledge_asks`                         | Takes each queued ask, answers it, ends it   |
 
@@ -61,7 +63,8 @@ never work, since every loop also looks on a timer. What the engine knows that a
 - **Settling after a restart.** An engine that starts finishes what its predecessor cut short: a turn whose CLI had
   started is finished (its history ends where the turn stopped), one still waiting for a slot is queued again, a backup
   it had taken fails, every tool grant is revoked, and every connector still marked syncing is read. A run's step that
-  an engine still held when it died is claimed again once its lease lapses.
+  an engine still held when it died is claimed again once its lease lapses. A Project Manager's turn left running is
+  failed and gives what woke it back, so its next turn takes it again.
 - **The password vault** is the one thing the API asks while a request waits: its CLI and `bw serve` run in the
   engine, on its data volume and its loopback, and the API's routes and agents' password tools ask it over the bus,
   sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds
@@ -400,13 +403,77 @@ What it gives (`Handled`) is the conversation, its turns and messages, and the i
 
 ## Project Managers
 
-- Each project has a Project Manager: one Claude Code session, resumed for every turn (`claude -p --resume`) and kept
-  indefinitely, relying on Claude Code's own compaction.
-- A Project Manager writes to the trackers itself: it creates issues, comments, and status changes in Jira, YouTrack,
-  or GitHub, choosing the tracker by the project's precedent unless the project names one. Every write is recorded on
-  the project's timeline with what caused it. A per-project switch makes it propose changesets instead.
-- It turns its issues into work batches and submits them to the engine with a priority: ASAP, normal, or a scheduled
-  time.
+Built: every project's Project Manager (`api/src/project_managers/`), its wakes, turns, and work batches
+(`api/src/models/project_manager.rs` and `work_batch.rs`), its tools, and its tabs on the project's page.
+
+- **One session per project.** A project's Project Manager is one Claude Code session, resumed for every turn
+  (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
+  its own runner conversation, working in `project-managers/<project id>` in the workspace, so its files persist. The
+  session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
+- **What wakes it.** Four things, each written as a wake (`project_manager_wakes`) in the same transaction as what
+  caused it, so no crash or lost signal loses one:
+  - **a record newly on its project**: segmenting a meeting or a conversation attributing a topic or a message to it,
+    a person adding a record to it, or an undo putting one back, all through `models::attribution`
+    (`docs/connectors.md`, The timeline). A change of how sure an attribution is wakes nothing, and a record waits once
+    however often it is attributed meanwhile. Any workflow that attributes records wakes Project Managers this way,
+    the request workflow included (Conversations, above), with nothing of its own to add;
+  - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call);
+  - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
+  - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools).
+- **Debounced and coalesced.** The dispatcher (`project_managers::dispatcher`) starts a project's turn once its wakes
+  have been quiet for 30 seconds, or two minutes after the oldest arrived however busy it stays, and at once for a
+  message, someone being there for the answer (`project_managers::queue`, a pure function tested alone). A turn takes
+  every wake waiting for its project, up to 40 records and results and every message, so a meeting landing ten
+  segments is one turn. What arrives while it runs waits for the next.
+- **One at a time, durable.** A turn is created as it starts, in the transaction that takes its wakes, and the
+  database refuses a project a second running turn (`project_manager_turns_one_running`). At most two Project Manager
+  turns run at once across projects, since they share the runner's eight slots with sessions and Elysia. A turn the
+  engine stopped in the middle of is failed at the next start and gives its wakes back; so does one refused because
+  every credential is spent, which also holds its project until the limit resets (`usage_paused_until`). The next
+  turn is told some of what woke it went to a turn that did not finish, so it checks before doing anything twice. A
+  turn that failed of itself keeps its wakes, since trying again at once would most likely fail the same way.
+- **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
+  Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
+  system prompt, and its prompt names the project and carries what woke it: each message, each record's kind, title,
+  summary, attribution, and an excerpt, and each batch's result, under 100 KB. It ends with a `Summary:` line, which
+  heads it; the text before it is its reply.
+- **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
+  `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
+  `manager_submit_batch` submits one, and `manager_cancel_batch` withdraws one still queued. It also gets
+  `elysium_work`, scoped to its project, and `elysium_knowledge`. Every call is checked against the project in the
+  database, under a grant for the turn alone.
+- **Outward work is proposed.** Until it writes to the trackers itself (#83), anything it wants changed (an item, a
+  comment, a status) it proposes as a changeset with `work_propose_changes`, as `project_manager:<project id>`; a
+  comment it would write directly is refused, since it reaches the item's linked issue (`docs/action-items.md`).
+- **On the timeline.** Each turn that did its work is a timeline record of kind `project_manager`, headed by its
+  summary and holding its reply, and so is each batch it submits, attributed to its project as certain. They are the
+  workspace's, owned by the Project Managers' machine user, so every member reads them on the project's timeline
+  (`docs/connectors.md`, The timeline); nothing wakes on them, and Elysia's intake leaves them out.
+- **Its turns' logs.** Each turn keeps what it said and which tools it called, one line each, the newest 64 KiB, which
+  the page reads when a turn is opened. Its full stream is Claude Code's own transcript until Activity records every
+  turn (`docs/activity.md`).
+- **Who sees it.** Its turns quote what was ingested, so its routes answer the company's members alone, as the
+  knowledge base does.
+- **On the roadmap.** Writing to the trackers itself, choosing the tracker by the project's precedent unless the
+  project names one, every write recorded on the timeline with what caused it, and a per-project switch back to
+  changesets (#83). Turning its issues into batches the pool runs (#84, #85).
+- The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
+  `api/src/project_managers/`.
+
+### Work batches
+
+A batch (`work_batches`) is one piece of work for one worker: a title, a goal written so a worker who has seen nothing
+else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
+rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
+provenance: the turn that submitted it, the timeline records that called for it, and the action items it works on,
+each checked to be on its project. Submitting stores it, puts it on the timeline, and announces both in one place
+(`project_managers::batches`).
+
+A batch moves one way: `queued`, `running` once a worker takes it (`work_batch::start`), then `succeeded` or `failed`
+with what its worker reported (`work_batch::finish`, which wakes its Project Manager in the same transaction; its
+caller then signals `projectManagers` and publishes `projectManager.changed`). A queued
+batch may be `cancelled` instead, with why. The scheduler (#84) claims queued batches over `work_batches_queue`, which
+orders them as it hands out slots: due scheduled batches, then ASAP, then normal, oldest first within each.
 
 ## Workers and the pool
 
@@ -436,15 +503,16 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 
 - **What has a setting.** An agent is anything whose work is a turn on the runner, named as it is in code: a workflow
   step whose work is an agent turn, by its step name, and the agents outside the step framework: Elysia
-  (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), turn summaries
-  (`turn_summary`), and the knowledge base's answers to questions (`knowledge_ask`).
+  (`elysia`), every project's Project Manager (`project_manager`), coding sessions (`coding_session`), Studio sessions
+  (`studio_session`), turn summaries (`turn_summary`), and the knowledge base's answers to questions
+  (`knowledge_ask`).
 - **Kinds.** Every agent belongs to one kind (`agent_models::AgentKind`, stored as the enum `agent_kind`), the one
   typed list of what sort of work a turn is:
 
   | Kind              | Its agents today                                   | Runs for one project |
   |-------------------|----------------------------------------------------|----------------------|
   | `worker`          | Coding sessions, Studio sessions                   | Yes                  |
-  | `project_manager` | None yet (#84, #85)                                | Yes                  |
+  | `project_manager` | Every project's Project Manager (`project_manager`) | Yes                 |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
   | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
   | `triage`          | Handling a conversation's messages (`handle_request`), and answers asked of the knowledge base (`knowledge_ask`) | No |
@@ -455,7 +523,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   the workspace for no one project, and a person acts on what it says, so it runs on Opus 5.5 at high effort, which
   cites faithfully, unless an admin picks a faster model for it on its own row. A worker today is a coding or Studio
   session in the shared workspace; the pooled workers in containers of their own
-  (#82) are workers too, so they name `worker` rather than a kind of their own. Correction, segmenting, and triage read
+  (#85) are workers too, so they name `worker` rather than a kind of their own. Correction, segmenting, and triage read
   meetings and conversations that may concern any number of projects, and Elysia works for the whole workspace, so
   only workers, Project Managers, and summaries run for one project.
 - **Attaching to a kind.** A step says which kind its work is (`Step::AGENT_KIND`, `None` for one that only fetches,
@@ -482,11 +550,11 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   exception it was set to be: an admin who later sets the kind does not silently undo it, and the page never shows a
   setting that no longer does anything.
 - **Who resolves.** Each caller resolves as its turn starts, so a change applies from the next turn. A coding or Studio
-  session's turn and its summary resolve with the session's project; Elysia's dispatcher with none. A step's turn
-  resolves through `StepContext::model`, with no project, since every step today reads meetings, conversations, or
-  the company doc; it writes "Runs on X at Y effort, from Z" to the step's log, a retry's included. A step that
-  works for one project, such as a Project Manager's, carries the project in its input and resolves with it through
-  `for_step`. Every caller passes the result to the runner (`TurnRequest::model` and `effort`), so `--model` and
+  session's turn and its summary resolve with the session's project, a Project Manager's turn with its project, and
+  Elysia's dispatcher with none. A step's turn resolves through `StepContext::model`, with no project, since every
+  step today reads meetings, conversations, or the company doc; it writes "Runs on X at Y effort, from Z" to the
+  step's log, a retry's included. A step that works for one project carries the project in its input and resolves
+  with it through `for_step`. Every caller passes the result to the runner (`TurnRequest::model` and `effort`), so `--model` and
   `--effort` override whatever the agents' configuration repository's settings name.
 - **Stored.** `model_settings` holds a row for each agent an admin set, and `kind_model_settings` one for each kind an
   admin set for the workspace (`project_id` null) and each kind a project overrides: a model, and an effort as the
@@ -524,5 +592,5 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 ## Elysia
 
 - Elysia does not orchestrate the engine. Asked, she can see and change anything in it: inspect runs, pause, cancel,
-  or reorder work, and talk to a project's Project Manager.
+  or reorder work, and talk to a project's Project Manager. Built: talking to one (`elysia_message_project_manager`).
 - Questions for the person, from any step, become action items.

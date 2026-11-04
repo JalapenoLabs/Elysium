@@ -39,7 +39,10 @@ export function TimelineRecordItem(props: Props) {
         <div className='flex flex-wrap items-center gap-2'>
           <Chip size='sm' variant='soft'>{t(sourceLabelKey(record.sourceKind))}</Chip>
           <span className='text-xs opacity-60'>{formatDateTime(record.occurredAt)}</span>
-          {record.actor && <span className='truncate text-xs opacity-60'>{record.actor}</span>}
+          {/* A Project Manager's record says so in its kind already. */}
+          {record.actor && !isWorkspaceRecord(record) && <span className='truncate text-xs opacity-60'>{
+            record.actor
+          }</span>}
         </div>
         <h3 className='mt-1 font-medium'>{record.title}</h3>
         {media && details.meetingTitle && <p className='text-xs opacity-60'>{

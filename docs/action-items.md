@@ -343,8 +343,8 @@ items of their own. That is on the roadmap.
 
 ## Changesets
 
-Anything that is not the user acting directly (Elysia after a meeting, email triage, a coding agent) proposes
-changes instead of making them. A changeset is a batch of operations, each with the reason and, where there is one,
+Anything that is not the user acting directly (Elysia after a meeting, email triage, a coding agent, a project's
+Project Manager) proposes changes instead of making them. A changeset is a batch of operations, each with the reason and, where there is one,
 the quote and source it came from. Nothing is written, in Elysium or anywhere else, until the user approves.
 
 - The user approves all of it, some of it, or none of it. Each operation is approved or rejected on its own.
@@ -364,8 +364,9 @@ The rules are `api/src/action_items/changesets.rs`, and the queries that store, 
 
 ### Proposing
 
-A changeset has a proposer (`elysia` or `session:<number>`; email triage and meetings propose as Elysia), a one-line
-summary, the project a coding session proposed it in, and up to 50 operations. Each operation is an object whose
+A changeset has a proposer (`elysia`, `session:<number>`, or `project_manager:<project id>`; email triage and meetings
+propose as Elysia), a one-line summary, the project a coding session or a Project Manager proposed it in, and up to 50
+operations. Each operation is an object whose
 `kind` says what it does, with the reason for it and, optionally, the quote and source it came from:
 
 | `kind`                   | Fields                                                                       |

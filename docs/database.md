@@ -349,7 +349,7 @@ ingested, as the company doc's review does.
 | `media`                | `JSONB`       | A span inside a recording, for a meeting segment                        |
 | `metadata`             | `JSONB`       | Whatever else the connector keeps                                       |
 | `action_item_id`       | `UUID`        | References `action_items`: the item it raised; `NULL` when it is gone   |
-| `created_by`           | `UUID`        | References `users`; whose timeline it is on                             |
+| `created_by`           | `UUID`        | References `users`; whose timeline it is on, or the Project Managers' machine user for the workspace's own |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
@@ -388,10 +388,11 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `timeline_record_id` | `UUID`        | References `timeline_records`                               |
 | `project_id`         | `UUID`        | References `projects`                                       |
 | `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
-| `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
+| `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`, `project_manager`) |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
 
-Every write goes through `models::attribution`, which records it in `timeline_record_events`.
+Every write goes through `models::attribution`, which records it in `timeline_record_events`, and a new attribution
+by anyone but a Project Manager wakes the project's Project Manager (`project_manager_wakes`) in the same transaction.
 
 ### `timeline_record_events`
 
@@ -441,7 +442,7 @@ Changes proposed to one section, each waiting for a person to approve or reject 
 | `state`              | `TEXT`        | `pending`, `approved`, or `rejected`                                   |
 | `decided_by`, `decided_at` | `UUID`, `TIMESTAMPTZ` | Who decided and when; set exactly once it is not `pending` |
 | `created_by`         | `UUID`        | References `users`: the person, or Elysia's or the coding agent's machine user |
-| `agent`, `agent_name` | `TEXT`       | The agent acting for them: `mcp:<client id>` with the name it registered, or `session:<number>` |
+| `agent`, `agent_name` | `TEXT`       | The agent acting for them: `mcp:<client id>` with the name it registered, `session:<number>`, or `project_manager:<project id>` |
 | `created_at`         | `TIMESTAMPTZ` | Written by the API                                                     |
 
 ### `company_doc_events`
@@ -1071,7 +1072,7 @@ NULL keeps an item in an initiative at most once at a time.
 |------------------|---------------|--------------------------------------------------------------|
 | `id`             | `UUID`        | UUIDv7, primary key                                          |
 | `action_item_id` | `UUID`        | References `action_items`; deleted with it                   |
-| `author`         | `TEXT`        | An actor: `user`, `elysia`, `session:<n>`, or `watcher:<provider>` |
+| `author`         | `TEXT`        | An actor: `user`, `elysia`, `session:<n>`, `project_manager:<project id>`, or `watcher:<provider>` |
 | `body`           | `TEXT`        | 1 to 20,000 characters                                       |
 | `created_at`     | `TIMESTAMPTZ` | Written by the API                                           |
 | `updated_at`     | `TIMESTAMPTZ` | Maintained by trigger                                        |
@@ -1086,7 +1087,7 @@ The history of items and initiatives, one row per change; see `docs/action-items
 | `action_item_id` | `UUID`        | The item it is about, if any; deleted with it                |
 | `initiative_id`  | `UUID`        | The initiative it is about, if any; deleted with it          |
 | `kind`           | `TEXT`        | Lowercase with underscores, such as `state_changed`          |
-| `actor`          | `TEXT`        | `user:<id>`, `elysia`, `session:<n>`, `watcher:<provider>`, or `system`; `user` before accounts |
+| `actor`          | `TEXT`        | `user:<id>`, `elysia`, `session:<n>`, `project_manager:<project id>`, `watcher:<provider>`, or `system`; `user` before accounts |
 | `data`           | `JSONB`       | A JSON object shaped by `kind`                               |
 | `created_at`     | `TIMESTAMPTZ` | Written by the API, the moment of the change                 |
 | `changeset_id`   | `UUID`        | The changeset whose applying or undoing made the change; `ON DELETE SET NULL` |
@@ -1183,7 +1184,7 @@ Changes anyone but the user proposes, waiting for the user's review; see `docs/a
 | Column       | Type              | Notes                                                              |
 |--------------|-------------------|--------------------------------------------------------------------|
 | `id`         | `UUID`            | UUIDv7, primary key; orders changesets as they were proposed       |
-| `proposer`   | `TEXT`            | `elysia` or `session:<n>`, in the actor form history records       |
+| `proposer`   | `TEXT`            | `elysia`, `session:<n>`, or `project_manager:<project id>`, in the actor form history records |
 | `project_id` | `UUID`            | The project a coding session proposed it in; `ON DELETE SET NULL`  |
 | `summary`    | `TEXT`            | 1 to 500 characters                                                |
 | `state`      | `changeset_state` | `pending`, `applied`, `rejected`, or `undone`                      |
@@ -1235,7 +1236,9 @@ See `docs/auth.md`.
 | `updated_at`         | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
 `users_person_or_machine` makes a row exactly one of the two, so a machine never holds a Kratos identity and a person
-never holds a machine's role. `users_pending_has_no_role` ties a missing role to being pending.
+never holds a machine's role. `users_pending_has_no_role` ties a missing role to being pending. The machines are
+Elysium itself (`…0001`, `system`), Elysia (`…0002`), every coding session's agent (`…0003`), and every project's
+Project Manager (`…0004`), each an `agent` but the first.
 
 ### `authenticator_nicknames`
 
@@ -1366,6 +1369,81 @@ What Elysia has taken on.
 | `created_by`     | `UUID`               | References `users`                                              |
 | `created_at`     | `TIMESTAMPTZ`        | Set on insert                                                   |
 | `updated_at`     | `TIMESTAMPTZ`        | Maintained by trigger                                           |
+### `project_managers`
+
+A project's Project Manager, once something woke it; see `docs/engine.md`, Project Managers. Its first turn creates
+it.
+
+| Column               | Type          | Notes                                                                  |
+|----------------------|---------------|------------------------------------------------------------------------|
+| `project_id`         | `UUID`        | Primary key; references `projects`, cascading                          |
+| `runner_session_id`  | `TEXT`        | The Claude Code session its next turn resumes; 1 to 200 characters     |
+| `usage_paused_until` | `TIMESTAMPTZ` | No turn starts before this, after every credential reported a usage limit |
+| `created_by`         | `UUID`        | References `users`: the Project Managers' machine user                 |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                |
+
+### `project_manager_turns`
+
+One turn of a project's Project Manager. Created as it starts, so there are no queued turns: what waits is its wakes.
+`project_manager_turns_one_running`, unique on `project_id` while `running`, refuses a project a second running turn.
+
+| Column               | Type                          | Notes                                                    |
+|----------------------|-------------------------------|----------------------------------------------------------|
+| `id`                 | `UUID`                        | UUIDv7, primary key                                      |
+| `project_id`         | `UUID`                        | References `project_managers`, cascading                 |
+| `status`             | `project_manager_turn_status` | `running`, `succeeded`, or `failed`                      |
+| `summary`            | `TEXT`                        | Its `Summary:` line, 1 to 1,000 characters               |
+| `reply`              | `TEXT`                        | What it answered, before its summary, up to 20,000 characters |
+| `error`              | `TEXT`                        | Set exactly while `failed`, up to 2,000 characters       |
+| `log`                | `TEXT`                        | What it said and which tools it called, one line each, the newest 64 KiB |
+| `timeline_record_id` | `UUID`                        | The record it put on its project's timeline; `SET NULL`  |
+| `created_by`         | `UUID`                        | References `users`: the Project Managers' machine user   |
+| `started_at`         | `TIMESTAMPTZ`                 | Set on insert                                            |
+| `finished_at`        | `TIMESTAMPTZ`                 | Set exactly once it is not `running`                     |
+
+### `project_manager_wakes`
+
+What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
+NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
+`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project.
+
+| Column               | Type                        | Notes                                                       |
+|----------------------|-----------------------------|-------------------------------------------------------------|
+| `id`                 | `UUID`                      | UUIDv7, primary key                                         |
+| `project_id`         | `UUID`                      | References `projects`, cascading                            |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, or `message`                             |
+| `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
+| `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
+| `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
+| `turn_id`            | `UUID`                      | The turn that took it; NULL while it waits; cascading       |
+| `created_by`         | `UUID`                      | References `users`: who wrote, who attributed the record, or the system user for a result |
+| `created_at`         | `TIMESTAMPTZ`               | Set on insert                                               |
+
+### `work_batches`
+
+Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work batches. `work_batches_queue` on
+`(priority, scheduled_for, created_at)` while `queued` is the scheduler's queue.
+
+| Column               | Type                  | Notes                                                             |
+|----------------------|-----------------------|-------------------------------------------------------------------|
+| `id`                 | `UUID`                | UUIDv7, primary key                                               |
+| `project_id`         | `UUID`                | References `projects`, cascading                                  |
+| `title`              | `TEXT`                | 1 to 200 characters                                               |
+| `goal`               | `TEXT`                | What the worker should accomplish, 1 to 20,000 characters         |
+| `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
+| `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
+| `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
+| `state`              | `work_batch_state`    | `queued`, `running`, `succeeded`, `failed`, or `cancelled`        |
+| `result`             | `TEXT`                | What its worker reported, or why it was cancelled                 |
+| `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
+| `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
+| `action_item_ids`    | `JSONB`               | The action items it works on, as an array of ids                  |
+| `timeline_record_id` | `UUID`                | Its record on the project's timeline; `SET NULL`                  |
+| `created_by`         | `UUID`                | References `users`: the Project Managers' machine user            |
+| `created_at`, `updated_at` | `TIMESTAMPTZ`   | Set on insert; `updated_at` maintained by trigger                 |
+| `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker took it, so never for a cancelled batch |
+| `finished_at`        | `TIMESTAMPTZ`         | Set exactly once it ended or was cancelled                        |
+
 ### `database_backups`
 
 Every backup of the databases to a storage location, and how it ended; see `docs/infrastructure.md`, Backups. At most

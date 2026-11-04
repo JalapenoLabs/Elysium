@@ -264,7 +264,8 @@ pub async fn start(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<
 
 /// Ends running batch `id`, succeeded or not, with what its worker reported, and wakes its
 /// project's Project Manager with the result in the same transaction, as `by`. `None` when it
-/// is not running.
+/// is not running. Once it commits, the caller sends `Signal::ProjectManagers` and publishes
+/// `projectManager.changed`, so the Project Manager looks at once rather than at its next tick.
 ///
 /// # Errors
 /// Propagates any database error, including a result outside 1 to 20,000 characters.

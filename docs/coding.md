@@ -7,8 +7,8 @@ the engine owns (`docs/engine.md`). Sessions are started and followed on the Cod
 
 `api/src/runner/` runs agent turns on Elysium's own host: the official `claude` CLI, headless
 (`claude -p --output-format stream-json --verbose`), in the agent workspace container. It runs in the engine, and
-everything that submits turns to it does too: sessions' turn queue, Elysia's dispatcher, turn summaries, meetings'
-segmentation, and the knowledge base's answers (`runner.submit(TurnRequest)`, or `submit_as` for a turn that already
+everything that submits turns to it does too: sessions' turn queue, Elysia's dispatcher, the Project Managers'
+dispatcher, turn summaries, meetings' segmentation, and the knowledge base's answers (`runner.submit(TurnRequest)`, or `submit_as` for a turn that already
 has an id). Each reads the
 turn's events from the ticket it returns. Only the CLI itself runs turns, on a subscription token or an API key; the
 Agent SDK is never used with subscription credentials.
@@ -199,7 +199,9 @@ Its instructions are the company's agent guidance, read as each turn connects, s
 as it reaches every MCP client (`docs/knowledge.md`, Agent guidance). Its every call reads for whoever started the
 session, checked in the database, so a session a guest started reaches none of it, and a session's searches spend its
 starter's search budget. Another server,
-`elysia`, is Elysia's own and is given only to her turns (`docs/elysia.md`). They are served at
+`elysia`, is Elysia's own and is given only to her turns (`docs/elysia.md`), and `elysium_project_manager` is a
+Project Manager's own, given with `elysium_work` and `elysium_knowledge` to its turns alone, which work for its project
+and read as its machine user (`docs/engine.md`, Project Managers). They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.

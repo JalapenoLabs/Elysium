@@ -57,6 +57,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |
 | `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
 | `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
+| `projectManager.changed` | `{ projectId }`      | A project's Project Manager was woken, a turn of its started or ended, or a batch of its was submitted or moved on; members load it by id |
 | `environmentVariable.upserted` | `EnvironmentVariable` | An environment variable was added or changed      |
 | `environmentVariable.deleted`  | `{ id }`              | An environment variable was deleted               |
 | `githubCredential.upserted` | `GithubCredential` | A GitHub token was added, changed, or checked             |
@@ -155,7 +156,8 @@ one replica is in `docs/engine.md`, One replica of the API.
 
 Beside the events, the bus carries signals between processes on a channel of their own, `elysium:signals`, which no
 event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells a loop to look at work that is
-already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), a link owes its
+already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), something woke
+a project's Project Manager (`projectManagers`), a link owes its
 provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
 container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository
 changed (`agentConfiguration`), a workflow run was started or a person retried, skipped, or resumed one of its

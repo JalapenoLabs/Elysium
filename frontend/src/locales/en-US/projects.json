@@ -175,7 +175,6 @@
       "normal": "Normal",
       "scheduled": "Scheduled"
     },
-    "scheduledFor": "Scheduled for {{time}}",
     "states": {
       "queued": "Queued",
       "running": "Running",

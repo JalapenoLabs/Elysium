@@ -99,8 +99,11 @@ export function ProjectManagerTurnRow(props: Props) {
     </div>
 
     {isOpen && <div className='border-t border-separator px-4 py-3'>
-      <h4 className='compact text-xs font-semibold uppercase opacity-60'>{t('manager.turn.wokenBy')}</h4>
-      <ul className='relaxed flex flex-col gap-2 text-sm'>
+      {/* A turn cut short gave what woke it to the next one, so it may hold nothing. */}
+      {turn.wakes.length > 0 && <h4 className='compact text-xs font-semibold uppercase opacity-60'>{
+        t('manager.turn.wokenBy')
+      }</h4>}
+      <ul className='relaxed flex flex-col gap-2 text-sm empty:hidden'>
         {woken.messages.map((message) => <li key={message.id} className='rounded-lg bg-default p-3'>
           <div className='mb-1 text-xs'>
             <span className='font-semibold'>{author(message)}</span>

@@ -313,7 +313,9 @@ What it gives (`Segmented`) is every topic in order, each with its title, summar
 it to with her confidence, and its records: a meeting segment's own, or a conversation topic's messages. For a
 conversation it also names every record it read (`recordIds`), so a conversation's input, which a person skipping the
 step hands on, reads as a `Segmented` with no topics and still names its messages. Steps after it read from that what
-landed on which project.
+landed on which project. Every record it puts on a project wakes that project's Project Manager in the same
+transaction (`docs/engine.md`, Project Managers), so a meeting's or a conversation's topics reach the projects they
+are about with nothing more for a workflow to do.
 
 **The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
 segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in

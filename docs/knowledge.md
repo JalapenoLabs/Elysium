@@ -35,8 +35,8 @@ company decides is said in mail and chat; a knowledge base without them would mi
 leaves the company, and no client's information flows into work for another.
 
 There is no per-owner or per-connector setting. Connecting a mailbox or a chat is what puts its content in the
-knowledge base, so every admin and member, and every agent acting for one (Elysia, coding agents, and MCP clients
-signed in as a person), can search and read a coworker's indexed mailbox and direct messages, and `knowledge_ask` can
+knowledge base, so every admin and member, and every agent acting for one (Elysia, coding agents, every project's
+Project Manager, and MCP clients signed in as a person), can search and read a coworker's indexed mailbox and direct messages, and `knowledge_ask` can
 answer from them. A personal connector (mail, chat, or meetings) says so where it is added: its form's help reads
 "Everyone in your workspace can search what Outlook reads, in the knowledge base."
 
@@ -575,9 +575,9 @@ An empty section leaves the index. A section's document is attributed to the per
 - Over MCP, `company_doc_read` answers every section, in order, with what belongs there and the proposals still
   pending, so an agent knows what may change and need not propose it again; `company_doc_propose` proposes, needing
   `workspace:write`, as the person and their client (`docs/mcp.md`).
-- In a turn, the same two tools are on the `elysium_knowledge` server, which every coding and Studio session's turn
-  and every one of Elysia's gets, project or not (`docs/coding.md`). A session proposes as its coding agent, Elysia as
-  herself.
+- In a turn, the same two tools are on the `elysium_knowledge` server, which every coding and Studio session's turn,
+  every one of Elysia's, and every Project Manager's gets, project or not (`docs/coding.md`). A session proposes as its
+  coding agent, Elysia as herself, and a Project Manager as itself (`project_manager:<project id>`).
 - Every change announces `companyDoc.changed`, with nothing in it, and members load the doc again
   (`docs/realtime.md`).
 
