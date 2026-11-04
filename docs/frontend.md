@@ -255,6 +255,10 @@ the question and what happens next instead of owning dialog state:
 Both keep the dialog open, the button pending, while the callback runs. It closes when the callback resolves and
 stays open when it throws, so a callback reports its own failure (a toast) and rethrows to let the user retry.
 
+`src/gates/ReportIssueGate.tsx` holds the one report dialog, inside `AppShell` so its links navigate in the app. Any
+surface that shows an error offers Report with `ReportIssueButton` or `useReportIssue()(subject)`; see
+`docs/issue-reporting.md`.
+
 Each exported component has its own file. Pages live under `src/pages/<Area>/`. Pure helpers, lookup tables, and
 schemas sit in non-component files beside the page, such as `llmPresentation.ts` and `llmFormSchema.ts`, so React
 Fast Refresh keeps working.

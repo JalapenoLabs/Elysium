@@ -82,6 +82,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/initiatives/{id}/links`      | `200` `{ links: InitiativeLink[] }`, oldest first   |
 | POST   | `/api/v1/initiatives/{id}/links`      | `201` `{ link }`; links a container                 |
 | DELETE | `/api/v1/initiatives/{id}/links/{linkId}` | `204`; its items leave the initiative           |
+| POST   | `/api/v1/issue-reports/preview`       | `200` `{ draft, repository, credentials, suggestedCredentialId, previousReport, remainingToday }`; nothing reaches GitHub |
+| POST   | `/api/v1/issue-reports`               | `201` `{ report }`: an issue opened, or a comment on the problem's open issue |
 | GET    | `/api/v1/changesets`                  | `200` `{ changesets: Changeset[] }`, newest first    |
 | GET    | `/api/v1/changesets/{id}`             | `200` `{ changeset }`                               |
 | POST   | `/api/v1/changesets/{id}/decide`      | `200` `{ changeset }`; approves or rejects operations |
@@ -411,6 +413,23 @@ issues, or its open pull requests with `kind=pull-request`, up to a hundred most
 url }` and `labels` its labels `{ reference, name, url }`, up to 500 of each. `reference` is what a link request
 names. See `docs/github.md`.
 
+### `/api/v1/issue-reports`
+
+Both take `{ subject, note? }`. `subject` is tagged by `kind`: `connectorSync` (`connectorId`, optional `runId`),
+`connectorCheck` (`connectorId`, `checkId`), `checkRun` (`runId`, `checkId`), or `error` (`area`, lower-case words
+joined by dots or underscores, and `message`, up to 4,000 characters). `note` holds up to 2,000 characters.
+
+`preview` answers the `draft` (`title`, `body`, `fingerprint`) exactly as it would be posted, the repository, the
+caller's own GitHub tokens each with its `readiness` (`ready`, `fine_grained`, `missing_scope`, `expired`), the one to
+preselect, the caller's last report of this problem, and how many reports they have left today. Filing also takes
+`credentialId`, one of the caller's own tokens, and answers `{ report: { filedAs, issueNumber, issueUrl, url } }`,
+`filedAs` being `issue` or `comment`.
+
+A subject with nothing to report answers `400`; one the caller cannot see, or a check run that expired, `404`. A token
+that cannot report answers `400` with the code `github_token_cannot_report`, a person who already reported the problem
+to its open issue `409` `already_reported`, and one past the daily limit `429` `report_limit`. See
+`docs/issue-reporting.md`.
+
 ### `/api/v1/jira-credentials`
 
 A `JiraCredential` has `id`, `name`, `siteUrl`, `accountEmail`, `accountId`, `displayName`, `projects`, `boards`,
@@ -584,6 +603,7 @@ Every error is JSON with a `message`.
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, a project that still has sessions, or a change the record's state refuses |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
+| `429`  | Past a limit the code sets, such as the problem reports a person may file a day; `code` names it |
 | `502`  | The workspace, a mail server, a storage provider, or the OAuth broker failed; `message` is its own error |
 | `503`  | The mail service a request needs is not configured, or the mail server does not exist |
 | `500`  | Internal fault; details are logged, never returned                                    |
@@ -660,6 +680,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
 | `src/meetings/`          | Meeting sources, one per kind that provides meetings (`sources.rs`), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
+| `src/issue_reports/`     | Problem reports filed on Elysium's GitHub repository: subjects, redaction, fingerprints, rendering, and filing, see `docs/issue-reporting.md` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
 | `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage`, `elysium_work`, and Elysia's `elysia`, see `docs/coding.md` |

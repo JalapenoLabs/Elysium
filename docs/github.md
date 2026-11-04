@@ -177,6 +177,8 @@ Action items link to GitHub issues and pull requests, and initiatives to a repos
 | `POST /repos/{owner}/{repo}/issues/{number}/comments` | Posting an item's comment                          |
 | `GET /repos/{owner}/{repo}/milestones`, `.../milestones/{number}` | Picking and reading a milestone          |
 | `GET /repos/{owner}/{repo}/labels`, `.../labels/{name}` | Picking and reading a label                       |
+| `POST /repos/{owner}/{repo}/issues`                 | Opening a problem report's issue on `JalapenoLabs/Elysium` |
+| `GET /search/issues`                                | Finding the open issue that already carries a report's fingerprint |
 
 A pull request is an issue that carries a `pull_request` object, so one listing reads a repository's changes of both
 kinds. GitHub does not promise `merged_at` in that object, so a closed pull request that does not say it merged is read
@@ -194,6 +196,14 @@ repositories only), or Issues read and write on a fine-grained one. A token with
 pending on its link with GitHub's answer. Reading whether a linked pull request merged needs Pull requests read on a
 fine-grained token; without it, the watcher leaves that pull request's link as it was and logs why, and the rest of the
 token's links are read as usual.
+
+## Problem reports
+
+Report, beside an error in the app, files the problem on `JalapenoLabs/Elysium` with one of the reporter's own tokens,
+so it is posted as them; see `docs/issue-reporting.md`. Opening an issue or commenting there needs `public_repo` (or
+`repo`) on a classic token. A fine-grained token reaches only its resource owner's repositories, so it reports only when
+it was made for JalapenoLabs. GitHub refusing a write answers `403`, or `404` for a repository the token cannot see; the
+client reports both as `GithubError::NoAccess`, which the report turns into a refusal saying what token would work.
 
 ## Which permissions a token needs
 

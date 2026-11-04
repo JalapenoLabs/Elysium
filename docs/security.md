@@ -92,6 +92,18 @@ See `docs/browser.md`.
 
 See `docs/connectors.md`.
 
+## Problem reports
+
+- A report is posted to `JalapenoLabs/Elysium`, fixed in code, with a GitHub token the reporter added themselves; no
+  request names another repository or someone else's token.
+- What a report carries is redacted on the server, deterministically, before the person sees it and again before it is
+  posted: the workspace's known names, accounts, and sites, then patterns for addresses, secrets, URLs, ids, and IPs.
+  Text from outside Elysium is posted inside fenced code blocks, so it cannot mention anyone or inject Markdown or HTML.
+- A subject that names a connector or a check run is read with the reporter's own visibility, so nobody reports what
+  they could not see. Each person may file ten reports a day.
+
+See `docs/issue-reporting.md`.
+
 ## Auto-update
 
 The updater (`updater/updater.sh`) is the one container that mounts the Docker socket, because it runs compose. It

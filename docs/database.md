@@ -372,6 +372,25 @@ The GitHub tokens Elysium holds; see `docs/github.md`.
 
 Every column from `login` on is what GitHub answered, so a row is only written after GitHub accepts the token.
 
+### `issue_reports`
+
+Where each problem report went on Elysium's GitHub repository; see `docs/issue-reporting.md`. A row is written only
+once GitHub accepted the issue or comment, and nothing that was posted is kept: GitHub holds it.
+
+| Column         | Type                  | Notes                                                        |
+|----------------|-----------------------|--------------------------------------------------------------|
+| `id`           | `UUID`                | UUIDv7, primary key                                          |
+| `fingerprint`  | `TEXT`                | The problem: 16 lower-case hex characters, checked in SQL    |
+| `issue_number` | `BIGINT`              | The issue it went to, greater than zero                      |
+| `issue_url`    | `TEXT`                | That issue on `https://github.com/`                          |
+| `filed_as`     | `issue_report_filing` | `issue` when it opened the issue, `comment` when it joined one |
+| `url`          | `TEXT`                | Where this report reads: the issue, or its comment           |
+| `created_by`   | `UUID`                | The reporter                                                 |
+| `created_at`   | `TIMESTAMPTZ`         | Set on insert                                                |
+
+It is indexed by reporter and time, for the daily limit, and by fingerprint and time, for the issue a problem last went
+to, which is found before GitHub's search has indexed it.
+
 ### `jira_credentials`
 
 The Atlassian accounts Elysium holds, each carrying exactly one connector: a Jira connector, or a Confluence connector

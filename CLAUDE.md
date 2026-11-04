@@ -282,6 +282,15 @@ Everything else follows these rules:
   `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
   supported.
 
+## Problem reports
+
+- Report, beside any error the app shows, files it on `JalapenoLabs/Elysium` (fixed in code) as the person, with a
+  GitHub token they added, the default preselected. `api/src/issue_reports/` and `/api/v1/issue-reports`; any surface
+  offers it through `ReportIssueButton` or `useReportIssue`. See `docs/issue-reporting.md`.
+- Everything posted is redacted deterministically on the server first (known names and accounts, then patterns), set in
+  code blocks, and previewed exactly as posted. A fingerprint of the redacted error puts one problem on one open issue;
+  later reports comment on it. Ten reports a person a day, a code constant.
+
 ## Jira
 
 - Elysium holds any number of Jira Cloud credentials, managed under Settings, Jira. A credential is a site, an
