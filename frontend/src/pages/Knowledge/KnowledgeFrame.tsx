@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useEffect, useEffectEvent, useRef } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useLocation, useMatch } from 'react-router'
 
@@ -19,7 +19,7 @@ import { KnowledgePanel } from './KnowledgePanel'
 import { usePagesLoader } from '../../hooks/useServerData'
 import { UrlTree } from '../../urls'
 import { KNOWLEDGE_CONTENT_CLASS_NAME } from './knowledgeContent'
-import { findPageAncestors } from './Pages/pageTree'
+import { findPageAncestors, NO_PAGE_TREE_FILTER } from './Pages/pageTree'
 import { usePageTreeMemory } from './Pages/usePageTreeMemory'
 
 // The knowledge base for the company's members: its panel beside whatever page is open, each
@@ -31,6 +31,7 @@ export function KnowledgeFrame() {
   const { pathname } = useLocation()
   const drawer = useOverlayState()
   const memory = usePageTreeMemory()
+  const [ treeFilter, setTreeFilter ] = useState(NO_PAGE_TREE_FILTER)
   const treeStatus = usePagesLoader()
   const tree = useAppSelector(selectPageTree)
   const currentPageId = useMatch(UrlTree.knowledgePage)?.params.pageId
@@ -75,7 +76,13 @@ export function KnowledgeFrame() {
             : '',
         ].join(' ')}
       />
-      {!memory.isCollapsed && <KnowledgePanel tree={tree} treeStatus={treeStatus} memory={memory} />}
+      {!memory.isCollapsed && <KnowledgePanel
+        tree={tree}
+        treeStatus={treeStatus}
+        memory={memory}
+        treeFilter={treeFilter}
+        onTreeFilterChange={setTreeFilter}
+      />}
     </aside>
 
     <div ref={scrollerRef} className={`min-w-0 flex-1 ${KNOWLEDGE_CONTENT_CLASS_NAME}`}>
@@ -96,7 +103,14 @@ export function KnowledgeFrame() {
             <Drawer.Heading className='text-lg'>{t('title')}</Drawer.Heading>
           </Drawer.Header>
           <Drawer.Body className='flex min-h-0 flex-1 flex-col'>
-            <KnowledgePanel tree={tree} treeStatus={treeStatus} memory={memory} onNavigate={drawer.close} />
+            <KnowledgePanel
+              tree={tree}
+              treeStatus={treeStatus}
+              memory={memory}
+              treeFilter={treeFilter}
+              onTreeFilterChange={setTreeFilter}
+              onNavigate={drawer.close}
+            />
           </Drawer.Body>
           <Drawer.Footer className='flex-col items-stretch'>
             <Button fullWidth variant='secondary' onPress={drawer.close}>

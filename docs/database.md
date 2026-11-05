@@ -77,7 +77,7 @@ redo, concurrent migrators, the pending-migration refusal, the rebuild for a cha
 index's cascades and columns, timeline records indexed as they are stored with a page's newest version alone, the
 backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
 the knowledge search's two rankings, filters, folding, documents, refusal of guests, and budget through the router,
-learnings saved, revised, undone, deleted, and indexed with them, the move of learnings and the company doc onto pages
+learnings saved, revised, undone, deleted, and indexed with them, pages' labels and the search's filter by them, the move of learnings and the company doc onto pages
 against data laid out as production's, up, down to the row, and up again, with no passage re-embedded, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub

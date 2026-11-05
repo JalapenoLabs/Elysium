@@ -256,6 +256,8 @@ export function makePageSummary(
     title: 'A page',
     currentVersion: 1,
     fixed: false,
+    labels: [],
+    updatedAt: '2026-11-01T12:00:00Z',
     deletedAt: null,
     ...overrides,
   }

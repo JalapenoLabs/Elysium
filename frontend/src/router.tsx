@@ -51,6 +51,7 @@ import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
 import { KnowledgeHome } from './pages/Knowledge/KnowledgeHome'
 import { KnowledgeLayout } from './pages/Knowledge/KnowledgeLayout'
 import { EditKnowledgePage } from './pages/Knowledge/Pages/EditKnowledgePage'
+import { KnowledgeLabelPage } from './pages/Knowledge/Pages/KnowledgeLabelPage'
 import { KnowledgePageView } from './pages/Knowledge/Pages/KnowledgePageView'
 import { NewKnowledgePage } from './pages/Knowledge/Pages/NewKnowledgePage'
 import { KnowledgeSearchPage } from './pages/Knowledge/KnowledgeSearchPage'
@@ -291,6 +292,10 @@ export const workspaceRoutes: RouteObject = {
         {
           path: UrlTree.knowledgeDocument,
           element: <KnowledgeDocumentPage />,
+        },
+        {
+          path: UrlTree.knowledgeLabel,
+          element: <KnowledgeLabelPage />,
         },
       ],
     },

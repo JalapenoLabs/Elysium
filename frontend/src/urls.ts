@@ -57,6 +57,8 @@ export const UrlTree = {
   knowledgeLearning: '/knowledge/learnings/:learningId',
   knowledgeLearningEdit: '/knowledge/learnings/:learningId/edit',
   knowledgeDocument: '/knowledge/documents/:documentId',
+  // Every page carrying a label.
+  knowledgeLabel: '/knowledge/labels/:label',
   // Every result of the topbar's search, for its query.
   search: '/search',
   settings: '/settings',
@@ -297,6 +299,10 @@ export function getNewChildPageUrl(parentId: string) {
 
 export function getKnowledgePageEditUrl(pageId: string) {
   return UrlTree.knowledgePageEdit.replace(':pageId', pageId)
+}
+
+export function getKnowledgeLabelUrl(label: string) {
+  return UrlTree.knowledgeLabel.replace(':label', encodeURIComponent(label))
 }
 
 // A document of the knowledge base, opened at one of its passages when a citation names one.

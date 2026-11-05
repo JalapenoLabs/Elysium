@@ -16,6 +16,8 @@ export type KnowledgeFilters = {
   sources: string[]
   projectId: string | null
   personId: string | null
+  // A label as the pages carry it.
+  label: string | null
   // Calendar days, `YYYY-MM-DD`, both included: what was said from the start of one to the end
   // of the other.
   fromDay: string | null
@@ -26,6 +28,7 @@ export const NO_KNOWLEDGE_FILTERS: KnowledgeFilters = {
   sources: [],
   projectId: null,
   personId: null,
+  label: null,
   fromDay: null,
   toDay: null,
 }
@@ -35,6 +38,7 @@ const FILTER_PARAMS = {
   sources: 'source',
   projectId: 'project',
   personId: 'person',
+  label: 'label',
   fromDay: 'from',
   toDay: 'to',
 } as const satisfies Record<keyof KnowledgeFilters, string>
@@ -75,6 +79,7 @@ export function readKnowledgeFilters(params: URLSearchParams): KnowledgeFilters 
     sources,
     projectId: params.get(FILTER_PARAMS.projectId) || null,
     personId: params.get(FILTER_PARAMS.personId) || null,
+    label: params.get(FILTER_PARAMS.label) || null,
     fromDay: readDay(params.get(FILTER_PARAMS.fromDay)),
     toDay: readDay(params.get(FILTER_PARAMS.toDay)),
   }
@@ -89,6 +94,7 @@ export function writeKnowledgeSearch(current: URLSearchParams, query: string, fi
     [ FILTER_PARAMS.sources, filters.sources.join(',') ],
     [ FILTER_PARAMS.projectId, filters.projectId ],
     [ FILTER_PARAMS.personId, filters.personId ],
+    [ FILTER_PARAMS.label, filters.label ],
     [ FILTER_PARAMS.fromDay, filters.fromDay ],
     [ FILTER_PARAMS.toDay, filters.toDay ],
   ]
@@ -106,7 +112,7 @@ export function writeKnowledgeSearch(current: URLSearchParams, query: string, fi
 // How many filters narrow the search, for the filters button.
 export function countKnowledgeFilters(filters: KnowledgeFilters) {
   let count = filters.sources.length
-  for (const value of [ filters.projectId, filters.personId, filters.fromDay, filters.toDay ]) {
+  for (const value of [ filters.projectId, filters.personId, filters.label, filters.fromDay, filters.toDay ]) {
     if (value) {
       count += 1
     }
@@ -127,6 +133,7 @@ export function toKnowledgeQuery(
     sources: filters.sources,
     projectId: filters.projectId,
     personId: filters.personId,
+    label: filters.label,
     from: filters.fromDay
       ? toZoned(parseDate(filters.fromDay), timeZone).toAbsoluteString()
       : null,

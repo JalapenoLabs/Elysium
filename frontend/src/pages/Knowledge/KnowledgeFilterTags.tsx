@@ -63,6 +63,13 @@ export function KnowledgeFilterTags(props: Props) {
       without: { ...filters, personId: null },
     })
   }
+  if (filters.label) {
+    tags.push({
+      id: 'label',
+      label: t('filters.tags.pageLabel', { label: filters.label }),
+      without: { ...filters, label: null },
+    })
+  }
   if (filters.fromDay) {
     tags.push({
       id: 'since',

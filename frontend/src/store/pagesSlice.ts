@@ -8,7 +8,7 @@ import type { RootState } from './index'
 import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
 // Misc
-import { buildPageTree } from '../pages/Knowledge/Pages/pageTree'
+import { buildPageTree, collectLabelsInUse } from '../pages/Knowledge/Pages/pageTree'
 
 // In order among siblings, as the API lists them, so nesting them keeps that order.
 const summariesAdapter = createEntityAdapter<KnowledgePageSummary>({
@@ -46,6 +46,8 @@ export const pagesSlice = createSlice({
         title: page.title,
         currentVersion: page.currentVersion,
         fixed: page.fixed,
+        labels: page.labels,
+        updatedAt: page.updatedAt,
         deletedAt: page.deletedAt,
       })
     },
@@ -59,6 +61,9 @@ const { selectAll: selectPageSummaries } = summariesAdapter.getSelectors(
 )
 
 export const selectPageTree = createSelector([ selectPageSummaries ], buildPageTree)
+
+// Every label on a live page, which suggestions and filters offer.
+export const selectLabelsInUse = createSelector([ selectPageSummaries ], collectLabelsInUse)
 
 export function selectOpenedPage(state: RootState, pageId: string): KnowledgePage | undefined {
   return state.pages.openedById[pageId]

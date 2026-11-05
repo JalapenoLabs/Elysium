@@ -79,6 +79,8 @@
         "deletedWith": "{{who}} deleted a page above this one, and this page with it",
         "broughtBack": "{{who}} brought this page back",
         "broughtBackWith": "{{who}} brought back a page above this one, and this page with it",
+        "labeled": "{{who}} added the label {{label}}",
+        "unlabeled": "{{who}} removed the label {{label}}",
         "changed": "{{who}} changed this page"
       },
       "toasts": {
@@ -170,6 +172,25 @@
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
     }
   },
+  "labels": {
+    "label": "Labels",
+    "add": "Add label",
+    "addFailed": "The label wasn't added",
+    "remove": "Remove {{label}}",
+    "removed": "Removed {{label}}",
+    "removeFailed": "The label wasn't removed",
+    "filter": "Filter by label",
+    "clearFilter": "Clear the label",
+    "unmatched": "No pages carry this label.",
+    "table": {
+      "label": "Pages labeled {{label}}",
+      "page": "Page",
+      "location": "Location",
+      "labels": "Labels",
+      "updated": "Updated",
+      "topOfTree": "Top of the tree"
+    }
+  },
   "ask": {
     "label": "Question",
     "placeholder": "What did we decide about billing retries?",
@@ -213,6 +234,7 @@
     "anyProject": "Any project",
     "person": "Recorded by",
     "anyone": "Anyone",
+    "pageLabel": "Page label",
     "since": "Since",
     "until": "Until",
     "calendar": "Pick a day",
@@ -222,6 +244,7 @@
       "source": "Source: {{source}}",
       "project": "Project: {{name}}",
       "person": "Recorded by {{name}}",
+      "pageLabel": "Label: {{label}}",
       "since": "Since {{date}}",
       "until": "Until {{date}}"
     }

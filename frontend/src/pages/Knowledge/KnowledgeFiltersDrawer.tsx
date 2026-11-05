@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
+import { selectLabelsInUse } from '../../store/pagesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 import { selectAllUsers } from '../../store/usersSlice'
 
@@ -16,6 +17,7 @@ import { selectAllUsers } from '../../store/usersSlice'
 import { Button, Checkbox, CheckboxGroup, Drawer, Form, Label } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 import { OptionSelect } from '../../components/OptionSelect'
+import { LabelSelect } from './Pages/LabelSelect'
 
 // Utility
 import { parseDate } from '@internationalized/date'
@@ -47,6 +49,7 @@ export function KnowledgeFiltersDrawer(props: Props) {
   useUsersLoader()
   const projects = useAppSelector(selectAllProjects)
   const users = useAppSelector(selectAllUsers)
+  const labelsInUse = useAppSelector(selectLabelsInUse)
 
   const projectOptions = [
     { id: ANY, label: t('filters.anyProject') },
@@ -110,7 +113,7 @@ export function KnowledgeFiltersDrawer(props: Props) {
                 })}
               />
             </div>
-            <div className='relaxed'>
+            <div className='compact'>
               <OptionSelect
                 id='knowledge-filter-person'
                 label={t('filters.person')}
@@ -122,6 +125,15 @@ export function KnowledgeFiltersDrawer(props: Props) {
                     ? null
                     : value,
                 })}
+              />
+            </div>
+            <div className='relaxed'>
+              <LabelSelect
+                id='knowledge-filter-label'
+                label={t('filters.pageLabel')}
+                labels={labelsInUse}
+                value={draft.label}
+                onChange={(label) => setDraft({ ...draft, label })}
               />
             </div>
             <div className='compact'>

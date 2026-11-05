@@ -99,6 +99,23 @@ describe('describePageHistory', () => {
     expect(describeOne({ kind: 'restored', data: {}}).sentence).toBe('broughtBack')
   })
 
+  it('names the label a change put on or took off, which writes no version', () => {
+    expect(describeOne({ kind: 'labeled', data: { label: 'runbook' }})).toMatchObject({
+      sentence: 'labeled',
+      label: 'runbook',
+      version: null,
+    })
+    expect(describeOne({ kind: 'unlabeled', data: { label: 'runbook' }})).toMatchObject({
+      sentence: 'unlabeled',
+      label: 'runbook',
+      version: null,
+    })
+  })
+
+  it('reads a label entry of an unknown shape as a change', () => {
+    expect(describeOne({ kind: 'labeled', data: {}}).sentence).toBe('changed')
+  })
+
   it('still reads a kind a later API writes as a change', () => {
     expect(describeOne({ kind: 'labelled', data: { label: 'Finance' }})).toMatchObject({
       sentence: 'changed',

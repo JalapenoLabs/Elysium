@@ -21,6 +21,7 @@ import { LearningFields } from './LearningFields'
 import { PageArticle } from './PageArticle'
 import { PageByline } from './PageByline'
 import { PageHistory } from './PageHistory'
+import { PageLabels } from './PageLabels'
 import { RestorePageButton } from './RestorePageButton'
 
 // Misc
@@ -121,6 +122,7 @@ function KnowledgePageReader(props: Props) {
         <PageArticle
           markdown={page.body}
           byline={<PageByline page={page} />}
+          labels={<PageLabels page={page} />}
           learning={page.category && page.evidence
             ? <LearningFields category={page.category} evidence={page.evidence} />
             : undefined}

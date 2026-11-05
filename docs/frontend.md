@@ -283,6 +283,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/learnings/:learningId` | redirect            | To the learning's page, `/knowledge/pages/:pageId`, which has the same id |
 | `/knowledge/learnings/:learningId/edit` | `LearningPage` | One learning, corrected in place, with its history and Undo |
 | `/knowledge/documents/:documentId` | `KnowledgeDocumentPage` | One document whole, as every citation opens it; `?passage=` scrolls to one |
+| `/knowledge/labels/:label`    | `KnowledgeLabelPage`     | Every live page carrying a label, as a table             |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -796,11 +797,12 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   itself, and who else recorded the same text. While the embedding model cannot answer, a quiet line says the search
   ran on exact words alone. `useKnowledgeSearch` asks through `useDebouncedRequest`, like the global search.
 - **Filters** (`KnowledgeFiltersDrawer`) open in a drawer from the right and apply together: sources (checkboxes, each
-  with its logo), project, the person who recorded it, and a period of days, since and until, both included. The
+  with its logo), project, the person who recorded it, one page label (`LabelSelect`, offering the labels in use), and
+  a period of days, since and until, both included. The
   address keeps the query and the filters as days (`knowledgeFilters.ts`), and `toKnowledgeQuery` turns the days into
   instants in the viewer's zone, the last day lasting until it ends.
 - **A document** (`KnowledgeDocumentPage`) is read from SWR alone, since no other view shares it: its source, person,
-  date, and projects, who else recorded it, then every passage in order, the one `?passage=` names scrolled to and
+  date, projects, and labels, who else recorded it, then every passage in order, the one `?passage=` names scrolled to and
   marked. Its one action opens where it lives (`KnowledgeOriginLink`): the provider's page in a new tab, the learning's
   page, or the company doc. A record's recording and clips stay with its owner, so it shows text alone.
 - **Asking** (`Ask/KnowledgeAskPage`, `docs/knowledge.md`, Asking) is one question field, focused as the tab opens,
@@ -844,6 +846,13 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   brings the siblings it renumbered, which is also how someone else's move arrives. A deletion answers nothing and can
   change many pages, so it loads the list again. Rows are memoized, so `PageTree` hands them one function that reaches
   for the newest tree when pressed. A refusal loads the list again too, since it usually means this tree is behind.
+- **Filtering the tree.** `PageTreeFilters`, above the tree, holds everything that narrows it, today one label, and
+  stays out of the way until a label is in use. `KnowledgeFrame` keeps the `PageTreeFilter`, so the panel and the phone's
+  drawer show one filter. `filterPageTree` is pure and answers a `PageTree` of the same shape, holding each match under
+  the pages above it, which `PageTree` dims (`contextIds`), and `PageTree` draws that as `shownTree` while every move and
+  deletion still reads the whole tree, so a drop lands among the siblings the filter hides; another filter is one more field of `PageTreeFilter` and one more
+  test in `filterPageTree`. `FilteredPageTree` shows every branch holding a match open, and closing one lasts as
+  long as that filter, so the branches a person keeps open wait for the filter to come off.
 - **Per viewer.** `usePageTreeMemory` keeps the open branches and whether the panel is collapsed in localStorage, under
   a key ending in the person's id, so two people on one browser each keep their own, and follows other tabs. Opening a
   page opens the branches above it, once, so one closed afterwards stays closed.
@@ -879,6 +888,14 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   (`PageParentPicker`, every page by its path), and the editor. The panel's plus, the topbar's search, and a tree row's
   Add child page reach it, the last with `?parent=`, which a draft never overrides; a draft's parent that is gone gives
   way to the top of the tree.
+- **Labels** (`PageLabels`) fill the `labels` slot: each a `LabelLink` to its page, with an X, then a `ComboBox` that
+  suggests the labels in use the page lacks (`selectLabelsInUse`, derived from the tree's summaries, so no route lists
+  them) and adds what is typed on Enter, the API deciding what it is. A label is an action, not a field (Saving), so each
+  change applies at once, away from Publish, and answers with `pageLoaded`. Taking one off offers Undo in its toast; a
+  refusal is a toast with the API's reason, the text left to correct. A deleted page shows them without the controls.
+- **A label's page** (`KnowledgeLabelPage`) is a `SmartTable` of the live pages carrying it, read from the tree: each
+  page's link, where it sits, its other labels, and when it last changed, with search, sorting, and export in the
+  titlebar. A label nothing carries any more says so, since a link to it may outlive it.
 
 ### Markdown
 

@@ -54,6 +54,8 @@ export type KnowledgeSearchQuery = {
   sources?: string[]
   projectId?: string | null
   personId?: string | null
+  // Only pages carrying this label.
+  label?: string | null
   // Moments with an offset: what was said from one and before the other.
   from?: string | null
   to?: string | null
@@ -75,6 +77,8 @@ export type KnowledgeDocument = {
   // How many passages the document has; the page asks for all of them, so it is the same.
   passageCount: number
   projects: { id: string, name: string }[]
+  // The labels its page carries; none for any other source.
+  labels: string[]
   alsoRecordedBy: KnowledgeCopy[]
 }
 
@@ -91,6 +95,9 @@ export function searchKnowledge(query: KnowledgeSearchQuery, signal: AbortSignal
   }
   if (query.personId) {
     searchParams.set('person', query.personId)
+  }
+  if (query.label) {
+    searchParams.set('label', query.label)
   }
   if (query.from) {
     searchParams.set('from', query.from)

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 // Redux
 import { createAppStore } from './index'
-import { pageLoaded, pagesLoaded, selectOpenedPage, selectPageTree } from './pagesSlice'
+import { pageLoaded, pagesLoaded, selectLabelsInUse, selectOpenedPage, selectPageTree } from './pagesSlice'
 
 // Misc
 import { makePage, makePageSummary } from '../testFixtures'
@@ -21,6 +21,16 @@ describe('pagesSlice', () => {
 
     const roots = selectPageTree(store.getState()).childrenByParent.get(null)
     expect(roots?.map((page) => page.id)).toEqual([ 'earlier', 'later' ])
+  })
+
+  it('carries a labeled page\'s labels into the tree and the labels in use', () => {
+    const store = createAppStore()
+    store.dispatch(pagesLoaded([ makePageSummary({ id: 'page' }) ]))
+
+    store.dispatch(pageLoaded(makePage({ id: 'page', labels: [ 'runbook' ]})))
+
+    expect(selectPageTree(store.getState()).byId.get('page')?.labels).toEqual([ 'runbook' ])
+    expect(selectLabelsInUse(store.getState())).toEqual([ 'runbook' ])
   })
 
   it('names a page opened whole in the tree, and holds its text apart from it', () => {

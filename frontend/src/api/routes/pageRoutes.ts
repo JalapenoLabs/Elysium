@@ -17,6 +17,11 @@ export type KnowledgePageSummary = {
   currentVersion: number
   // One of the pages Elysium relies on, which nobody moves, deletes, or renames.
   fixed: boolean
+  // The labels it carries, in order. Holding them here filters the tree, lists a label's pages, and
+  // suggests the labels in use, all from what the tree already loaded.
+  labels: string[]
+  // When what it holds last changed: published, deleted, or restored. A move or a label leaves it.
+  updatedAt: string
   // Set while it is deleted; it can be restored.
   deletedAt: string | null
 }
@@ -230,4 +235,17 @@ export function publishPage(pageId: string, body: PublishPageRequest) {
   return apiClient
     .post(`${pageKey(pageId)}/publish`, { json: body })
     .json<PublishPageResponse>()
+}
+
+// Puts a label on a page, however it is typed: the API reads `On Call` as the label `on-call`.
+export function addPageLabel(pageId: string, label: string) {
+  return apiClient
+    .post(`${pageKey(pageId)}/labels`, { json: { label }})
+    .json<GetPageResponse>()
+}
+
+export function removePageLabel(pageId: string, label: string) {
+  return apiClient
+    .delete(`${pageKey(pageId)}/labels/${encodeURIComponent(label)}`)
+    .json<GetPageResponse>()
 }

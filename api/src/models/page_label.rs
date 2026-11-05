@@ -15,7 +15,6 @@
 //! no further.
 
 use std::collections::HashMap;
-use std::fmt;
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -26,7 +25,7 @@ use validator::{ValidationError, ValidationErrors};
 
 use crate::database::schema::page_labels;
 use crate::models::agent::Author;
-use crate::models::page::{self, HistoryKind, Page, PageError, Recorded};
+use crate::models::page::{self, HistoryKind, PageError, Recorded};
 
 /// The longest a label may be, in characters, as `page_labels_label_length` allows: room for a
 /// few words, and short enough to read as a chip.
@@ -87,16 +86,6 @@ impl Label {
     }
 }
 
-impl fmt::Display for Label {
-    #[expect(
-        clippy::renamed_function_params,
-        reason = "`f` is a shorthand name; the project spells names out"
-    )]
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
 #[derive(Insertable)]
 #[diesel(table_name = page_labels)]
 struct LabelRow<'a> {
@@ -104,15 +93,6 @@ struct LabelRow<'a> {
     label: &'a str,
     created_by: Uuid,
     created_at: DateTime<Utc>,
-}
-
-/// Refuses a change to `page`'s labels while it is deleted. This is all that refuses one: see the
-/// module's documentation for why a proposal-only or fixed page takes them.
-const fn require_live(page: &Page) -> Result<(), PageError> {
-    if page.deleted_at.is_some() {
-        return Err(PageError::Deleted);
-    }
-    Ok(())
 }
 
 /// Puts `label` on page `id` and records it in the page's history. A label already there records
@@ -130,7 +110,9 @@ pub async fn add(
     connection
         .transaction(async move |connection| {
             let page = page::lock(connection, id).await?;
-            require_live(&page)?;
+            if page.deleted_at.is_some() {
+                return Err(PageError::Deleted);
+            }
             let added = diesel::insert_into(page_labels::table)
                 .values(LabelRow {
                     page_id: id,
@@ -181,7 +163,9 @@ pub async fn remove(
     connection
         .transaction(async move |connection| {
             let page = page::lock(connection, id).await?;
-            require_live(&page)?;
+            if page.deleted_at.is_some() {
+                return Err(PageError::Deleted);
+            }
             let removed = diesel::delete(page_labels::table.find((id, label.as_str())))
                 .execute(connection)
                 .await?;

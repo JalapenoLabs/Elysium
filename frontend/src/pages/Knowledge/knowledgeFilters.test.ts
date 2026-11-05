@@ -16,7 +16,7 @@ import {
 describe('readKnowledgeFilters', () => {
   it('reads every filter the address holds', () => {
     const params = new URLSearchParams(
-      'q=budget&source=slack,outlook&project=p1&person=u1&from=2026-11-01&to=2026-11-30',
+      'q=budget&source=slack,outlook&project=p1&person=u1&label=on-call&from=2026-11-01&to=2026-11-30',
     )
 
     expect(readKnowledgeQuery(params)).toBe('budget')
@@ -24,6 +24,7 @@ describe('readKnowledgeFilters', () => {
       sources: [ 'slack', 'outlook' ],
       projectId: 'p1',
       personId: 'u1',
+      label: 'on-call',
       fromDay: '2026-11-01',
       toDay: '2026-11-30',
     })
@@ -58,6 +59,7 @@ describe('writeKnowledgeSearch', () => {
       sources: [ 'teams' ],
       projectId: 'p2',
       personId: 'u2',
+      label: 'runbook',
       fromDay: '2026-01-05',
       toDay: '2026-01-06',
     }
@@ -75,8 +77,9 @@ describe('countKnowledgeFilters', () => {
       ...NO_KNOWLEDGE_FILTERS,
       sources: [ 'slack', 'teams' ],
       personId: 'u1',
+      label: 'runbook',
       toDay: '2026-11-01',
-    })).toBe(4)
+    })).toBe(5)
   })
 })
 
@@ -96,6 +99,7 @@ describe('toKnowledgeQuery', () => {
       sources: [],
       projectId: null,
       personId: null,
+      label: null,
       from: '2026-11-01T04:00:00.000Z',
       to: '2026-11-02T05:00:00.000Z',
       limit: 10,

@@ -1039,8 +1039,8 @@ loads, since the Content Security Policy refuses it and loading it would tell a 
 link that opens the image in a new tab. Files attached to a page (Roadmap) are served by Elysium, so they show inline.
 
 A page's History tab lists everything that happened to it, newest first: each version with who published it, the agent
-acting for them, and when, and between them its moves, deletions, and restorations, so what learnings and the company doc
-carried over reads here too. A version opens on what it changed from the one before. Ticking any two compares them, older
+acting for them, and when, and between them its moves, deletions, restorations, and labels, so what learnings and the
+company doc carried over reads here too. A version opens on what it changed from the one before. Ticking any two compares them, older
 against newer, line by line on the Markdown with the changed words marked, and a change to a title, category, or
 evidence shows the same way. Read shows a version as it read, in the page's own layout. Restore acts at once, with Undo
 in its toast, since nothing is lost: Undo restores the version it replaced, and both stay versions. A person restores a

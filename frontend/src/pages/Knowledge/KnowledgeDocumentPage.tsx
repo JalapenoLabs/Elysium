@@ -10,6 +10,7 @@ import useSWR from 'swr'
 import { Chip, Link, Spinner } from '@heroui/react'
 import { Page } from '../../layout/page/Page'
 import { KnowledgeOriginLink } from './KnowledgeOriginLink'
+import { LabelLink } from './Pages/LabelLink'
 
 // Utility
 import { HTTPError } from 'ky'
@@ -98,6 +99,7 @@ export function KnowledgeDocumentPage() {
       >{
           project.name
         }</Link>)}
+      {document.labels.map((label) => <LabelLink key={label} label={label} />)}
     </div>
     {document.alsoRecordedBy.length > 0 && <p className='relaxed text-sm opacity-70'>{
       t('result.alsoRecordedBy', {

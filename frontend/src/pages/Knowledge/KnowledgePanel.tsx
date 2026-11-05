@@ -2,7 +2,7 @@
 
 import type { IconType } from 'react-icons'
 import type { LoadStatus } from '../../hooks/useServerData'
-import type { PageTree as PageTreeShape } from './Pages/pageTree'
+import type { PageTree as PageTreeShape, PageTreeFilter } from './Pages/pageTree'
 import type { PageTreeMemoryState } from './Pages/usePageTreeMemory'
 
 // Core
@@ -18,7 +18,8 @@ import { selectLiveLearnings } from '../../store/learningsSlice'
 import { buttonVariants, Link as HeroLink, Separator, Tooltip } from '@heroui/react'
 import { Link } from 'react-aria-components'
 import { LuLightbulb, LuPlus, LuSearch, LuSparkles } from 'react-icons/lu'
-import { PageTree } from './Pages/PageTree'
+import { FilteredPageTree } from './Pages/FilteredPageTree'
+import { PageTreeFilters } from './Pages/PageTreeFilters'
 
 // Misc
 import { formatNumber } from '../../format/numbers'
@@ -29,6 +30,9 @@ type Props = {
   tree: PageTreeShape
   treeStatus: LoadStatus
   memory: PageTreeMemoryState
+  // What narrows the tree, kept by the frame, so the panel and the phone's drawer show one filter.
+  treeFilter: PageTreeFilter
+  onTreeFilterChange: (filter: PageTreeFilter) => void
   // Following anything in it: the phone's drawer closes.
   onNavigate?: () => void
 }
@@ -123,11 +127,11 @@ export function KnowledgePanel(props: Props) {
         </Tooltip.Content>
       </Tooltip>
     </div>
-    {hasPages && <PageTree
+    {hasPages && <PageTreeFilters filter={props.treeFilter} onChange={props.onTreeFilterChange} />}
+    {hasPages && <FilteredPageTree
       tree={props.tree}
-      openIds={props.memory.openIds}
-      onOpenIdsChange={props.memory.setOpenIds}
-      onOpenBranches={props.memory.openBranches}
+      filter={props.treeFilter}
+      memory={props.memory}
       onNavigate={props.onNavigate}
     />}
     {!hasPages && props.treeStatus === 'loaded' && <p className='px-2.5 text-sm opacity-70'>{t('pages.none')}</p>}

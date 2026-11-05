@@ -20,6 +20,8 @@ export const pageHistorySentenceKeys = {
   deletedWith: 'pages.history.sentences.deletedWith',
   broughtBack: 'pages.history.sentences.broughtBack',
   broughtBackWith: 'pages.history.sentences.broughtBackWith',
+  labeled: 'pages.history.sentences.labeled',
+  unlabeled: 'pages.history.sentences.unlabeled',
   changed: 'pages.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'knowledge'>>
 
@@ -34,6 +36,8 @@ export type PageHistoryRow = {
   otherVersion: number | null
   // Where a move took it; a null parent is the top of the tree.
   move: { fromParentId: string | null, toParentId: string | null } | null
+  // The label it put on or took off.
+  label: string | null
 }
 
 type EntryReading = Partial<PageHistoryRow> & Pick<PageHistoryRow, 'sentence'>
@@ -93,6 +97,14 @@ function readMoved(data: PageHistoryEntry['data']): EntryReading {
   }
 }
 
+function readLabel(data: PageHistoryEntry['data'], sentence: 'labeled' | 'unlabeled'): EntryReading {
+  if (typeof data.label !== 'string') {
+    console.debug('A page history entry names no label', { data })
+    return { sentence: 'changed' }
+  }
+  return { sentence, label: data.label }
+}
+
 // `data` is whatever the API stored, in any version of it, so each kind is read defensively: entries
 // that came from learnings and the company doc hold less than a page's own.
 const readersByKind = {
@@ -109,6 +121,8 @@ const readersByKind = {
       ? 'broughtBackWith'
       : 'broughtBack',
   }),
+  labeled: (data) => readLabel(data, 'labeled'),
+  unlabeled: (data) => readLabel(data, 'unlabeled'),
 } as const satisfies Record<
   string,
   (data: PageHistoryEntry['data'], versionByEntryId: Map<string, number>) => EntryReading
@@ -133,7 +147,7 @@ export function describePageHistory(history: PageHistoryEntry[]): PageHistoryRow
     const reading: EntryReading = isKnownKind(entry.kind)
       ? readersByKind[entry.kind](entry.data, versionByEntryId)
       : { sentence: 'changed' }
-    rows.push({ entry, version, otherVersion: null, move: null, ...reading })
+    rows.push({ entry, version, otherVersion: null, move: null, label: null, ...reading })
   }
 
   return rows.reverse()

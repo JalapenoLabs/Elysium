@@ -32,7 +32,10 @@ import { findDropPlacement } from './pageTree'
 import { usePageActions } from './usePageActions'
 
 type Props = {
+  // Every page, which moves and deletions read, so a drop lands among siblings a filter hides.
   tree: PageTreeShape
+  // What to draw, when a filter leaves less than the whole tree.
+  shownTree?: PageTreeShape
   openIds: Set<string>
   onOpenIdsChange: (ids: Set<Key>) => void
   // Shows a page's new place when it lands under a closed branch.
@@ -113,6 +116,9 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
           'min-w-0 flex-1 truncate py-1 outline-none',
           // Makes room for the controls while they show.
           'group-hover/page-row:pr-12 group-focus-within/page-row:pr-12 pointer-coarse:pr-8',
+          tree.contextIds?.has(page.id)
+            ? 'opacity-60'
+            : '',
         ].join(' ')}>
           {/* Cut to the panel's width, so the whole title shows on hover. */}
           <span title={page.title}>{page.title}</span>
@@ -185,6 +191,7 @@ export function PageTree(props: Props) {
   const { pathname } = useLocation()
   const [ movingPage, setMovingPage ] = useState<KnowledgePageSummary | null>(null)
   const actions = usePageActions(props.tree)
+  const shownTree = props.shownTree ?? props.tree
 
   async function moveAndShow(page: KnowledgePageSummary, placement: PagePlacement) {
     const isMoved = await actions.move(page, placement)
@@ -241,10 +248,10 @@ export function PageTree(props: Props) {
         onExpandedChange={props.onOpenIdsChange}
         className='min-h-0 flex-1 overflow-y-auto outline-none'
       >
-        {props.tree.childrenByParent.get(null)?.map((page) => <PageTreeItem
+        {shownTree.childrenByParent.get(null)?.map((page) => <PageTreeItem
           key={page.id}
           page={page}
-          tree={props.tree}
+          tree={shownTree}
           onNavigate={props.onNavigate}
           onMove={setMovingPage}
           onDelete={onDelete}

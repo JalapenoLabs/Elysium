@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest'
 import { makePageSummary } from '../../../testFixtures'
 import {
   buildPageTree,
+  collectLabelsInUse,
   countPagesUnder,
+  filterPageTree,
   findDropPlacement,
   findPageAncestors,
   findPagePlacement,
@@ -38,6 +40,68 @@ describe('buildPageTree', () => {
     const tree = buildPageTree([ makePageSummary({ id: 'leaf' }) ])
 
     expect(tree.childrenByParent.has('leaf')).toBe(false)
+  })
+})
+
+describe('filterPageTree', () => {
+  const summaries = [
+    makePageSummary({ id: 'guide' }),
+    makePageSummary({ id: 'chapter', parentId: 'guide' }),
+    makePageSummary({ id: 'runbook', parentId: 'chapter', labels: [ 'on-call' ]}),
+    makePageSummary({ id: 'other-chapter', parentId: 'guide' }),
+    makePageSummary({ id: 'alerts', labels: [ 'on-call', 'pager' ]}),
+    makePageSummary({ id: 'alert-rules', parentId: 'alerts' }),
+    makePageSummary({ id: 'notes' }),
+  ]
+  const tree = buildPageTree(summaries)
+
+  it('is the tree itself with nothing to filter by', () => {
+    expect(filterPageTree(tree, { label: null })).toBe(tree)
+  })
+
+  it('keeps each page carrying the label under the pages above it, in order', () => {
+    const filtered = filterPageTree(tree, { label: 'on-call' })
+
+    expect([ ...filtered.byId.keys() ]).toEqual([ 'guide', 'chapter', 'runbook', 'alerts' ])
+    expect(filtered.childrenByParent.get(null)?.map((page) => page.id)).toEqual([ 'guide', 'alerts' ])
+    expect(filtered.childrenByParent.get('guide')?.map((page) => page.id)).toEqual([ 'chapter' ])
+    expect([ ...filtered.contextIds ?? [] ]).toEqual([ 'chapter', 'guide' ])
+  })
+
+  it('counts a page as a match however its children came first', () => {
+    const childFirst = buildPageTree([
+      makePageSummary({ id: 'child', parentId: 'parent', labels: [ 'on-call' ]}),
+      makePageSummary({ id: 'parent', labels: [ 'on-call' ]}),
+    ])
+
+    expect(filterPageTree(childFirst, { label: 'on-call' }).contextIds?.size).toBe(0)
+  })
+
+  it('leaves out what sits under a match without carrying it', () => {
+    const filtered = filterPageTree(tree, { label: 'pager' })
+
+    expect([ ...filtered.byId.keys() ]).toEqual([ 'alerts' ])
+    expect(filtered.childrenByParent.has('alerts')).toBe(false)
+  })
+
+  it('holds nothing when no page carries the label', () => {
+    expect(filterPageTree(tree, { label: 'never' }).byId.size).toBe(0)
+  })
+
+  it('keeps a match whose parent the list does not hold, rather than walking past it', () => {
+    const orphaned = buildPageTree([ makePageSummary({ id: 'orphan', parentId: 'gone', labels: [ 'on-call' ]}) ])
+
+    expect([ ...filterPageTree(orphaned, { label: 'on-call' }).byId.keys() ]).toEqual([ 'orphan' ])
+  })
+})
+
+describe('collectLabelsInUse', () => {
+  it('lists every label once, in reading order', () => {
+    expect(collectLabelsInUse([
+      makePageSummary({ id: 'first', labels: [ 'runbook', 'on-call' ]}),
+      makePageSummary({ id: 'second', labels: [ 'on-call', 'billing' ]}),
+      makePageSummary({ id: 'third' }),
+    ])).toEqual([ 'billing', 'on-call', 'runbook' ])
   })
 })
 

@@ -7,6 +7,8 @@ export type PageTree = {
   // Each page's children in order, under its id, and the top of the tree under null. A page with
   // none has no entry.
   childrenByParent: Map<string | null, KnowledgePageSummary[]>
+  // On a filtered tree, the pages kept only to show where a match sits.
+  contextIds?: Set<string>
 }
 
 // Nests the flat list `GET /pages` answers, in one pass. `summaries` arrive sorted by position,
@@ -40,6 +42,59 @@ export type PageDestination = {
   id: string
   title: string
   ancestorTitles: string[]
+}
+
+// What narrows the tree. Anything else it can be filtered by is one more field here and one more
+// test in `filterPageTree`, and no view changes.
+export type PageTreeFilter = {
+  label: string | null
+}
+
+export const NO_PAGE_TREE_FILTER: PageTreeFilter = { label: null }
+
+// The tree as `filter` leaves it: every page it matches, under the pages above it, so each still
+// shows where it sits. It is a tree of the same shape, which `PageTree` draws as it does the whole
+// one. With nothing to filter by, it is the tree itself.
+export function filterPageTree(tree: PageTree, filter: PageTreeFilter) {
+  const { label } = filter
+  if (label === null) {
+    return tree
+  }
+
+  const matchedIds = new Set<string>()
+  const contextIds = new Set<string>()
+  for (const page of tree.byId.values()) {
+    if (!page.labels.includes(label)) {
+      continue
+    }
+    matchedIds.add(page.id)
+    contextIds.delete(page.id)
+    // The walk stops at a page already kept, since everything above it is too.
+    let parent = page.parentId
+      ? tree.byId.get(page.parentId)
+      : undefined
+    while (parent && !matchedIds.has(parent.id) && !contextIds.has(parent.id)) {
+      contextIds.add(parent.id)
+      parent = parent.parentId
+        ? tree.byId.get(parent.parentId)
+        : undefined
+    }
+  }
+
+  // `byId` holds the pages in list order, so nesting them again keeps their order.
+  const kept = [ ...tree.byId.values() ].filter((page) => matchedIds.has(page.id) || contextIds.has(page.id))
+  return { ...buildPageTree(kept), contextIds }
+}
+
+// Every label the pages carry, once each, in reading order.
+export function collectLabelsInUse(summaries: KnowledgePageSummary[]) {
+  const labels = new Set<string>()
+  for (const summary of summaries) {
+    for (const label of summary.labels) {
+      labels.add(label)
+    }
+  }
+  return [ ...labels ].sort((first, second) => first.localeCompare(second))
 }
 
 // The pages above this one, outermost first: its breadcrumb, and the branches to open so it
