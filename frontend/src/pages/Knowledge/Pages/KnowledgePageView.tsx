@@ -20,6 +20,7 @@ import { LearningFields } from './LearningFields'
 import { PageArticle } from './PageArticle'
 import { PageByline } from './PageByline'
 import { PageHistory } from './PageHistory'
+import { RestorePageButton } from './RestorePageButton'
 
 // Misc
 import { usePageLoader } from '../../../hooks/useServerData'
@@ -77,10 +78,12 @@ function KnowledgePageReader(props: Props) {
     title={page?.title ?? summary?.title ?? titleWhileLoading}
     parents={parents}
     badges={page?.deletedAt && <Chip size='sm' color='danger' variant='soft'>{t('pages.deleted')}</Chip>}
-    primaryAction={editHref && <Link href={editHref} className={buttonVariants({ variant: 'outline' })}>
-      <LuPencil className='size-4' aria-hidden />
-      <span>{t('pages.edit')}</span>
-    </Link>}
+    primaryAction={page?.deletedAt
+      ? <RestorePageButton page={page} />
+      : editHref && <Link href={editHref} className={buttonVariants({ variant: 'outline' })}>
+        <LuPencil className='size-4' aria-hidden />
+        <span>{t('pages.edit')}</span>
+      </Link>}
   >
     {page && <PageTabs
       label={t('pages.tabs.label')}

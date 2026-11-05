@@ -146,6 +146,8 @@ export const SIDEBAR_STORAGE_KEY = 'elysium.sidebar.v1'
 // Which branches of the knowledge base's page tree are open and whether it is collapsed, remembered
 // per person on each browser: the person's id ends the key (`usePageTreeMemory`).
 export const PAGE_TREE_STORAGE_KEY = 'elysium.pageTree.v1'
+// What a page dragged in the tree carries, so a drop only ever means a page moving.
+export const PAGE_DRAG_TYPE = 'application/vnd.elysium.page'
 
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300

@@ -21,6 +21,7 @@
     "unavailable": "This page isn't available.",
     "backToKnowledge": "Back to Knowledge",
     "deleted": "Deleted",
+    "restore": "Restore",
     "edit": "Edit",
     "empty": "This page has no text yet.",
     "evidence": "Evidence",
@@ -86,6 +87,45 @@
         "titleTaken": "Another learning has this version's title now",
         "deleted": "This page was deleted, so its versions can't be restored"
       }
+    },
+    "actions": {
+      "label": "Actions for {{title}}",
+      "drag": "Drag {{title}}",
+      "addChild": "Add child page",
+      "move": "Move",
+      "delete": "Delete",
+      "fixed": "Elysium keeps this page in place"
+    },
+    "move": {
+      "title": "Move {{title}}",
+      "parent": "Under",
+      "top": "The top of the tree",
+      "noResults": "No page matches",
+      "place": "Place",
+      "first": "First",
+      "after": "After {{title}}",
+      "cancel": "Never mind",
+      "submit": "Move",
+      "unchanged": "Choose somewhere new",
+      "moved": "{{title}} moved"
+    },
+    "delete": {
+      "title": "Delete {{title}}?",
+      "movesUp_one": "Its child page moves up to {{parent}}, unless you delete it too.",
+      "movesUp_other": "Its {{count, compact}} child pages move up to {{parent}}, unless you delete them too.",
+      "movesToTop_one": "Its child page moves to the top of the tree, unless you delete it too.",
+      "movesToTop_other": "Its {{count, compact}} child pages move to the top of the tree, unless you delete them too.",
+      "alsoDelete_one": "Delete the page under it too",
+      "alsoDelete_other": "Delete the {{count, compact}} pages under it too",
+      "deleted": "{{title}} deleted",
+      "restored": "{{title}} restored"
+    },
+    "refusals": {
+      "fixed": "Elysium keeps this page in place.",
+      "underItself": "A page can't move under itself.",
+      "parentGone": "The page it goes under has been deleted.",
+      "placementGone": "The tree changed. Try again in its new order.",
+      "deleted": "This page has been deleted."
     }
   },
   "ask": {

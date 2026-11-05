@@ -152,7 +152,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/pages`                       | `200` `{ pages: PageSummary[] }`, in order among their siblings; `?deleted=true` the deleted ones; members |
 | POST   | `/api/v1/pages`                       | `201` `{ page }`, as its version 1; members         |
 | GET    | `/api/v1/pages/{id}`                  | `200` `{ page }`, deleted or not; members           |
-| DELETE | `/api/v1/pages/{id}`                  | `204`; softly, with the pages under it; members     |
+| DELETE | `/api/v1/pages/{id}`                  | `204`; softly, with the pages under it, or `?keepChildren=true` alone; members |
 | POST   | `/api/v1/pages/{id}/publish`          | `200` `{ page, outcome }`, `published` or `unchanged`; members |
 | POST   | `/api/v1/pages/{id}/move`             | `200` `{ page }`; members                           |
 | POST   | `/api/v1/pages/{id}/restore`          | `200` `{ page }`, with the pages its deletion took; members |
@@ -733,7 +733,9 @@ and one alone answers `422`. A category no one has answers `400` naming every ke
 outside 1 to 20,000 characters or a company doc section's past 12,000. `POST /{id}/move` takes `parentId` and `after`, both required and either `null`: the page
 it goes under, or the top of the tree, and the live sibling it goes right after, or first. Moving a page where it
 already is, or publishing or restoring what it already says, records nothing and announces nothing; a publish answers
-`unchanged`.
+`unchanged`. `DELETE /{id}?keepChildren=true` deletes the page alone: its live children take its place among its
+siblings, each move recorded in that child's history as part of the deletion, and `POST /{id}/restore` moves back those
+still where it left them.
 
 Refusals are `409` with a `code` the web app explains in its own words:
 

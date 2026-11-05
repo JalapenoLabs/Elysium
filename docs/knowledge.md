@@ -864,6 +864,10 @@ the web app, below). The rest of the design (Roadmap, below) is the issues in th
   place. Restoring a page brings it back where it was, with the ones its deletion took, which share its `deleted_at`;
   a child deleted on its own beforehand stays deleted. A page whose parent is deleted cannot be restored until its
   parent is. A deleted page is read like any other and changes no further.
+- **Or a page goes alone.** Its live children then take its place among its siblings, in their order, each with
+  everything under it, in the one transaction that deletes it, so nothing can see a tree between the two. They never
+  leave the index. Restoring the page moves them back to the positions they left, which nothing can have taken, since a
+  deleted page's children change no further; a child moved or deleted since stays where someone put it.
 
 ### Versions
 
@@ -896,7 +900,7 @@ who made it, the agent acting for them, and `data`.
 | `created`   | `{ parentId, version }`                                                                 |
 | `published` | `{ version }`, with `restoredFrom` for a restore, `undid` for an undo of a learning or the company doc, and `proposalId` for an approved proposal |
 | `moved`     | `{ from, to }`, each `{ parentId, after }`: the two values a move takes                 |
-| `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it; `undid` for an undo    |
+| `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it; `undid` for an undo; `{ keptChildren }`, each `{ id, position }`, when it went alone |
 | `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back; `undid` for an undo |
 
 Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
@@ -906,7 +910,8 @@ the page, and a move by moving it back to its `from`. Learnings and the company 
 promise (Learnings and the company doc, below).
 
 An entry is named by its page and its id. One change that reaches several pages is one id with a row on each, which is
-how a save of several company doc sections stays one change with one Undo.
+how a save of several company doc sections stays one change with one Undo, and how a child's move reads as part of the
+deletion that left it in its parent's place, or the restore that took it back.
 
 ### Who changes pages
 
@@ -985,6 +990,15 @@ own address (`/knowledge/pages/<id>`), and reads as its path through the tree, i
 its text, and its child pages. Which branches a person leaves open stays with them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
+The tree is also where people organize pages. Each row's menu adds a child page, moves the page, or deletes it. A page
+drags by pointer or by keyboard to another place among its siblings or under another page, with everything under it,
+and a target under the page itself refuses it. Where dragging cannot reach, such as on a touch screen, Move asks where
+it goes and after which sibling. A move can be undone from its toast, and shows in the page's history. Deleting happens
+at once, with Undo in its toast, except that a page with pages under it first asks what happens to them: left as they
+are they move up into its place, and a switch deletes them too. Whoever was reading what went is taken to its parent,
+and Undo brings them back; once its toast has gone, a deleted page's own address offers Restore. The nine fixed pages
+take children, but nobody can drag, move, or delete one; a lock on the row and the row's menu say why.
+
 A page's text is Markdown, read to React elements, with GitHub's tables, task lists, and footnotes, and code highlighted
 for a block that names a common language. Agents write pages, so nothing in one is trusted: raw HTML shows as text and
 runs nothing, and only `http`, `https`, `mailto`, and relative addresses survive. An image on another origin never
@@ -1004,7 +1018,6 @@ page has unsaved edits.
 
 - **Editing.** People edit in a Tiptap 3 rich editor and the page stays Markdown, so agents read and write it plainly
   and diffs stay readable. Publish is the page's one Save.
-- **Organizing.** Add, drag, and delete from the tree, with deleting asking what happens to a page's children.
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
 - **Labels.** Any page takes any number of labels, which filter the tree, search, and a page per label.
 - **Projects.** A page can be linked to projects, so a project shows its docs.

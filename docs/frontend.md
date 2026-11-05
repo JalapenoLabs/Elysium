@@ -823,11 +823,24 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   follows at once. `page.changed` carries an id and one change can touch many pages (a branch deleted, a parent's
   children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page and
   history a view holds: nobody fetches text for a page they do not have open.
-- **The tree** (`PageTree`) is React Aria's `NavigationTree`, which HeroUI does not wrap: a tree's arrow keys, one tab
-  stop, a real link on every row, and the current page scrolled into view. `selectedRoute` marks the current row and
-  gives its link `aria-current`. Every page is a node, open or not, since React Aria learns a row can open from its
-  nodes; rows are memoized, and only the ones that show are drawn. Past eight levels a row stops indenting. `NavigationTree` leaves `dragAndDropHooks` out
-  of its own props but passes them on to the `Tree` inside it, which reads them from `TreeContext` too.
+- **The tree** (`PageTree`) is React Aria's `NavigationTree`, which HeroUI does not wrap: a tree's arrow keys, a real
+  link on every row, and the current page scrolled into view. Tab goes through a row's link, drag button, and menu, then
+  out of the tree. `selectedRoute` marks the current row and gives its link `aria-current`. Every page is a node, open
+  or not, since React Aria learns a row can open from its nodes; rows are memoized, and only the ones that show are
+  drawn. A row costs about 1.7ms, so a branch of 2,000 open pages takes about 3.5 seconds to open. Past eight levels a
+  row stops indenting.
+- **Moving.** `useDragAndDrop` gives the tree a pointer's drag and a keyboard's, started from a row's `slot='drag'`
+  button, and its hooks reach the `Tree` inside `NavigationTree` through `TreeContext`. Only `onMove` is set, since a
+  same-parent drop would fire `onReorder` as well, and `findDropPlacement` turns its target into the `{ parentId, after }`
+  a move takes, reading the tree rather than React Aria's collection. React Aria refuses a target under the page being
+  dragged. Touch screens have no drag here, so `MovePageModal` asks for the same two values. React Aria's only switch for
+  one row's drag disables the row whole, so a fixed page drags as its title alone, a type the tree refuses, with its drag
+  button disabled and a lock with a tooltip in its place. The row's menu (`PageRowActions`) names the reason in its own
+  text, since a disabled item hears no hover and a touch screen has none.
+- **Actions.** `usePageActions` is what a row's menu and a drop do. A move dispatches what it answers, and `page.changed`
+  brings the siblings it renumbered, which is also how someone else's move arrives. A deletion answers nothing and can
+  change many pages, so it loads the list again. Rows are memoized, so `PageTree` hands them one function that reaches
+  for the newest tree when pressed. A refusal loads the list again too, since it usually means this tree is behind.
 - **Per viewer.** `usePageTreeMemory` keeps the open branches and whether the panel is collapsed in localStorage, under
   a key ending in the person's id, so two people on one browser each keep their own, and follows other tabs. Opening a
   page opens the branches above it, once, so one closed afterwards stays closed.

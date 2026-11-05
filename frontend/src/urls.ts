@@ -44,6 +44,8 @@ export const UrlTree = {
   // The knowledge base: it opens on its pages, and beside them are its search, asking it, its
   // learnings, and every document a citation opens.
   knowledge: '/knowledge',
+  // Before `knowledgePage`, which would read `new` as a page's id.
+  knowledgePageNew: '/knowledge/pages/new',
   knowledgePage: '/knowledge/pages/:pageId',
   knowledgeSearch: '/knowledge/search',
   knowledgeAsk: '/knowledge/ask',
@@ -144,6 +146,8 @@ export const SEARCH_QUERY_PARAM = 'q'
 
 // The query parameter naming the passage a knowledge document opens at, which a citation names.
 export const KNOWLEDGE_PASSAGE_PARAM = 'passage'
+// The page a new page goes under, chosen already when it is added from the tree.
+export const NEW_PAGE_PARENT_PARAM = 'parent'
 
 // The query parameters the sign-in page reads: where to go afterwards, whether to ask for
 // the second factor or to confirm a recent sign-in, and a notice to show.
@@ -282,6 +286,12 @@ export function getPageVersionUrl(pageId: string, version: number) {
 
 export function getPageCompareUrl(pageId: string, from: number, to: number) {
   return `${getPageHistoryUrl(pageId)}&${PAGE_COMPARE_FROM_PARAM}=${from}&${PAGE_COMPARE_TO_PARAM}=${to}`
+}
+
+// The new page form, with the page it goes under already chosen.
+export function getNewChildPageUrl(parentId: string) {
+  const params = new URLSearchParams({ [NEW_PAGE_PARENT_PARAM]: parentId })
+  return `${UrlTree.knowledgePageNew}?${params.toString()}`
 }
 
 // A document of the knowledge base, opened at one of its passages when a citation names one.

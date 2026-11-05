@@ -143,3 +143,46 @@ export function restorePageVersion(pageId: string, version: number) {
     .post(`${pageVersionKey(pageId, version)}/restore`)
     .json<RestorePageVersionResponse>()
 }
+
+// Mirrors `MovePageRequest`: the page it goes under, or null for the top of the tree, and the
+// sibling it follows, or null to go first.
+export type PagePlacement = {
+  parentId: string | null
+  after: string | null
+}
+
+type MovePageResponse = {
+  page: KnowledgePage
+}
+
+// Moves a page with everything under it, or reorders it among its siblings.
+export function movePage(pageId: string, placement: PagePlacement) {
+  return apiClient
+    .post(`${pageKey(pageId)}/move`, { json: placement })
+    .json<MovePageResponse>()
+}
+
+type DeletePageOptions = {
+  // The page goes alone, and its children take its place.
+  keepChildren: boolean
+}
+
+// Deletes a page softly, with every page under it unless its children are kept.
+export async function deletePage(pageId: string, options: DeletePageOptions) {
+  await apiClient.delete(pageKey(pageId), {
+    searchParams: options.keepChildren
+      ? { keepChildren: true }
+      : undefined,
+  })
+}
+
+type RestorePageResponse = {
+  page: KnowledgePage
+}
+
+// Brings a deleted page back where it was, with what its deletion took or moved out of it.
+export function restorePage(pageId: string) {
+  return apiClient
+    .post(`${pageKey(pageId)}/restore`)
+    .json<RestorePageResponse>()
+}

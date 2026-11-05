@@ -112,6 +112,7 @@ export function KnowledgePanel(props: Props) {
       tree={props.tree}
       openIds={props.memory.openIds}
       onOpenIdsChange={props.memory.setOpenIds}
+      onOpenBranches={props.memory.openBranches}
       onNavigate={props.onNavigate}
     />}
     {!hasPages && props.treeStatus === 'loaded' && <p className='px-2.5 text-sm opacity-70'>{t('pages.none')}</p>}

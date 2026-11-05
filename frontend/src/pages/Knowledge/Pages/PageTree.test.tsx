@@ -5,8 +5,12 @@ import type { Key } from 'react-aria-components'
 // Core
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
+import { Provider } from 'react-redux'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
+
+// Redux
+import { createAppStore } from '../../../store'
 
 // User interface
 import { PageTree } from './PageTree'
@@ -14,7 +18,7 @@ import { PageTree } from './PageTree'
 // Misc
 import { makePageSummary } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
-import { getKnowledgePageUrl } from '../../../urls'
+import { getKnowledgePageUrl, getNewChildPageUrl } from '../../../urls'
 import { buildPageTree } from './pageTree'
 
 const tree = buildPageTree([
@@ -22,6 +26,7 @@ const tree = buildPageTree([
   makePageSummary({ id: 'chapter', parentId: 'guide', title: 'Chapter' }),
   makePageSummary({ id: 'section', parentId: 'chapter', title: 'Section' }),
   makePageSummary({ id: 'notes', title: 'Notes' }),
+  makePageSummary({ id: 'learnings', title: 'Learnings', fixed: true }),
 ])
 
 type HarnessProps = {
@@ -36,6 +41,7 @@ function Harness(props: HarnessProps) {
       tree={tree}
       openIds={new Set(Array.from(openIds, String))}
       onOpenIdsChange={setOpenIds}
+      onOpenBranches={() => undefined}
     />
   </TestAriaRouter>
 }
@@ -45,7 +51,9 @@ function renderTree(currentPageId: string, initialOpenIds: string[] = []) {
     [{ path: '*', element: <Harness initialOpenIds={initialOpenIds} /> }],
     { initialEntries: [ getKnowledgePageUrl(currentPageId) ]},
   )
-  render(<RouterProvider router={router} />)
+  render(<Provider store={createAppStore()}>
+    <RouterProvider router={router} />
+  </Provider>)
   return router
 }
 
@@ -75,7 +83,7 @@ describe('PageTree', () => {
     renderTree('notes')
 
     const rows = screen.getAllByRole('row')
-    expect(rows.map((row) => row.getAttribute('aria-expanded'))).toEqual([ 'false', null ])
+    expect(rows.map((row) => row.getAttribute('aria-expanded'))).toEqual([ 'false', null, null ])
   })
 
   it('opens and closes a branch from its chevron without leaving the page', () => {
@@ -96,5 +104,36 @@ describe('PageTree', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Guide' }))
 
     await expect.poll(() => router.state.location.pathname).toBe(getKnowledgePageUrl('guide'))
+  })
+
+  it('gives every page but a fixed one a drag button, so a keyboard can move it', () => {
+    renderTree('notes')
+
+    expect(screen.getByRole('button', { name: 'Drag Notes' }).hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Drag Learnings' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('offers a child page, moving, and deleting from a row\'s menu', async () => {
+    renderTree('notes')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Notes' }))
+
+    const addChild = await screen.findByRole('menuitem', { name: 'Add child page' })
+    expect(addChild.getAttribute('href')).toBe(getNewChildPageUrl('notes'))
+    expect(screen.getByRole('menuitem', { name: 'Move' }).getAttribute('aria-disabled')).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Delete' }).getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('says why a fixed page can\'t move or be deleted, and still takes children', async () => {
+    renderTree('notes')
+
+    expect(screen.getByLabelText('Elysium keeps this page in place')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Learnings' }))
+
+    const addChild = await screen.findByRole('menuitem', { name: 'Add child page' })
+    expect(addChild.getAttribute('aria-disabled')).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Move' }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('menuitem', { name: 'Delete' }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText('Elysium keeps this page in place')).toBeDefined()
   })
 })
