@@ -15,9 +15,9 @@ import { selectAllKnowledgeAsks } from '../../store/knowledgeAsksSlice'
 import { selectLiveLearnings } from '../../store/learningsSlice'
 
 // User interface
-import { Separator } from '@heroui/react'
+import { buttonVariants, Link as HeroLink, Separator, Tooltip } from '@heroui/react'
 import { Link } from 'react-aria-components'
-import { LuLightbulb, LuSearch, LuSparkles } from 'react-icons/lu'
+import { LuLightbulb, LuPlus, LuSearch, LuSparkles } from 'react-icons/lu'
 import { PageTree } from './Pages/PageTree'
 
 // Misc
@@ -107,7 +107,22 @@ export function KnowledgePanel(props: Props) {
       />
     </nav>
     <Separator />
-    <h2 className='px-2.5 text-xs font-medium opacity-70'>{t('pages.heading')}</h2>
+    <div className='flex items-center justify-between pl-2.5'>
+      <h2 className='text-xs font-medium opacity-70'>{t('pages.heading')}</h2>
+      <Tooltip delay={300}>
+        <HeroLink
+          href={UrlTree.knowledgePageNew}
+          aria-label={t('pages.new')}
+          className={buttonVariants({ isIconOnly: true, size: 'sm', variant: 'ghost' })}
+          onPress={props.onNavigate}
+        >
+          <LuPlus className='size-4' aria-hidden />
+        </HeroLink>
+        <Tooltip.Content>
+          <span>{t('pages.new')}</span>
+        </Tooltip.Content>
+      </Tooltip>
+    </div>
     {hasPages && <PageTree
       tree={props.tree}
       openIds={props.memory.openIds}

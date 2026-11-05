@@ -591,6 +591,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   and numbers.
 - Markdown reads through one component, `Markdown` (`src/components/markdown/`): React elements, raw HTML left as text,
   and another origin's image a link, since nothing in a page is trusted. See `docs/frontend.md`, Markdown.
+- Pages are edited in a Tiptap 3 editor that stores Markdown (`src/components/markdownEditor/`): every block nobody
+  touched keeps its exact text, and what the editor cannot hold opens as its Markdown. See `docs/frontend.md`, The
+  Markdown editor.
 - Reach for `@jalapenolabs/uikit` first when it covers the need, such as `SmartTable` for data tables. Use HeroUI
   for everything the kit does not provide.
 - Linting is the org-wide ruleset from `@jalapenolabs/cli/eslint`. Change rules in the shared package, not

@@ -149,8 +149,9 @@ export function countPagesUnder(tree: PageTree, pageId: string) {
 }
 
 // Every page `pageId` may move under, in the tree's order: all of them but itself and what is
-// under it. One walk from the top, skipping that branch whole.
-export function listPageDestinations(tree: PageTree, pageId: string) {
+// under it. One walk from the top, skipping that branch whole. A page not yet made, with no id, may
+// go anywhere.
+export function listPageDestinations(tree: PageTree, pageId: string | null) {
   const destinations: PageDestination[] = []
 
   function walk(parentId: string | null, ancestorTitles: string[]) {

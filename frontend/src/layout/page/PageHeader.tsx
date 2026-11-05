@@ -32,6 +32,8 @@ export type PageTitleRename = {
 export type PageHeaderProps = {
   // The page's name: the large title, and the breadcrumbs' last crumb.
   title: string
+  // The last crumb, for a page that is one view of what its parent crumb names, such as Edit.
+  crumb?: string
   rename?: PageTitleRename
   // Leads the title, such as a connector kind's logo.
   icon?: ReactNode
@@ -88,7 +90,7 @@ export function PageHeader(props: PageHeaderProps) {
           <span>{t('page.back', { page: parent.label })}</span>
         </Tooltip.Content>
       </Tooltip>
-      <PageBreadcrumbs parents={props.parents ?? []} title={props.title} />
+      <PageBreadcrumbs parents={props.parents ?? []} title={props.crumb ?? props.title} />
     </nav>}
 
     <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>

@@ -50,7 +50,9 @@ import { KnowledgeAskPage } from './pages/Knowledge/Ask/KnowledgeAskPage'
 import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
 import { KnowledgeHome } from './pages/Knowledge/KnowledgeHome'
 import { KnowledgeLayout } from './pages/Knowledge/KnowledgeLayout'
+import { EditKnowledgePage } from './pages/Knowledge/Pages/EditKnowledgePage'
 import { KnowledgePageView } from './pages/Knowledge/Pages/KnowledgePageView'
+import { NewKnowledgePage } from './pages/Knowledge/Pages/NewKnowledgePage'
 import { KnowledgeSearchPage } from './pages/Knowledge/KnowledgeSearchPage'
 import { NewStudioItemPage } from './pages/Studio/NewStudioItemPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
@@ -251,8 +253,16 @@ export const workspaceRoutes: RouteObject = {
           element: <KnowledgeHome />,
         },
         {
+          path: UrlTree.knowledgePageNew,
+          element: <NewKnowledgePage />,
+        },
+        {
           path: UrlTree.knowledgePage,
           element: <KnowledgePageView />,
+        },
+        {
+          path: UrlTree.knowledgePageEdit,
+          element: <EditKnowledgePage />,
         },
         {
           path: UrlTree.knowledgeSearch,

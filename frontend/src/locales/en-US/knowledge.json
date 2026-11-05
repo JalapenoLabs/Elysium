@@ -126,6 +126,48 @@
       "parentGone": "The page it goes under has been deleted.",
       "placementGone": "The tree changed. Try again in its new order.",
       "deleted": "This page has been deleted."
+    },
+    "new": "New page",
+    "newTitle": "New page",
+    "publish": "Publish",
+    "learningHistory": "History and undo",
+    "companyDocProposals": "Proposals",
+    "editor": {
+      "title": "Title",
+      "body": "Page text",
+      "placeholder": "Write, or type / for blocks",
+      "parent": "Goes under",
+      "parentSearch": "Find a page",
+      "parentNone": "No page matches",
+      "topOfTree": "Top of the tree",
+      "category": "Category",
+      "titleRequired": "Give the page a title",
+      "titleTooLong": "A title is at most 300 characters",
+      "bodyTooLong": "A page is at most 100,000 characters",
+      "learningBodyRequired": "A learning needs its text",
+      "learningTextTooLong": "A learning's text and evidence are at most 20,000 characters each",
+      "evidenceRequired": "A learning needs its evidence",
+      "published": "Published",
+      "unchanged": "It already says that",
+      "publishFailed": "Your text wasn't published",
+      "refused": {
+        "deleted": "This page was deleted.",
+        "fixed": "This page keeps its name.",
+        "parentGone": "The page it goes under is gone. Choose another.",
+        "titleTaken": "Another learning has this title."
+      }
+    },
+    "conflict": {
+      "title": "This page changed since you opened it",
+      "viewsLabel": "What to compare",
+      "theirChanges": "What changed",
+      "againstYours": "Against your text",
+      "foldedLines_one": "{{count, compact}} unchanged line",
+      "foldedLines_other": "{{count, compact}} unchanged lines",
+      "publishAgain": "Your text is kept. Publishing now replaces this version with it.",
+      "keepEditing": "Keep editing",
+      "seeAgain": "See what changed",
+      "loadFailed": "What changed can't be loaded right now. Your text is kept."
     }
   },
   "ask": {

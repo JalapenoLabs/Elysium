@@ -3,7 +3,7 @@
 import type { SearchEntry } from '../../search/searchTypes'
 
 // User interface
-import { LuLibrary, LuSearch, LuSparkles } from 'react-icons/lu'
+import { LuFilePlus, LuLibrary, LuSearch, LuSparkles } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../../urls'
@@ -40,5 +40,15 @@ export const searchEntries: SearchEntry[] = [
     icon: LuSparkles,
     audience: 'members',
     href: UrlTree.knowledgeAsk,
+  },
+  {
+    id: 'newKnowledgePage',
+    group: 'actions',
+    title: 'knowledge:pages.new',
+    parent: 'knowledge:title',
+    tags: 'search:tags.newKnowledgePage',
+    icon: LuFilePlus,
+    audience: 'members',
+    href: UrlTree.knowledgePageNew,
   },
 ]

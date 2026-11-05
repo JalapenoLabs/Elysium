@@ -20,6 +20,7 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Dates           | `@internationalized/date` for input, `src/format/` for display |
 | Icons           | `react-icons/lu` (Lucide)                                      |
 | Markdown        | `react-markdown`, `remark-gfm`, `rehype-highlight`, pinned     |
+| Rich text       | Tiptap 3 (`@tiptap/*`), remark's parser and stringifier, pinned |
 | Translations    | i18next with react-i18next                                     |
 | Tests           | Vitest with jsdom and Testing Library                          |
 
@@ -272,7 +273,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/work-queue`                 | `WorkQueuePage`          | The worker pool and its batches, as tabs in `?tab=`; members only |
 | `/work-queue/:batchId`        | `WorkBatchPage`          | One batch whole, with its history and what may still be done to it; members only |
 | `/knowledge`                  | `KnowledgeHome`          | Opens the first page; with a query, goes on to the search; members only |
+| `/knowledge/pages/new`        | `NewKnowledgePage`       | A new page; `?parent=` chooses where it goes             |
 | `/knowledge/pages/:pageId`    | `KnowledgePageView`      | One page, live or deleted, as it reads                   |
+| `/knowledge/pages/:pageId/edit` | `EditKnowledgePage`    | One page in the rich editor, published from its header   |
 | `/knowledge/search`           | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
 | `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
 | `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
@@ -859,6 +862,23 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 - **Restoring** (`RestoreVersionButton`) acts at once, and the toast's Undo restores the version just replaced, which
   is `currentVersion - 1` of what the restore answers, so it holds even if someone published meanwhile. It reads the
   page's save (`PageSaveStateContext`) and waits while the page is dirty.
+- **Editing** (`EditKnowledgePage`) has an address of its own, so a reload comes back to it, a person reading never
+  loads the editor, and no tab of the reading page can unmount a form with unsaved text. Every live page's Edit opens
+  it. The form is built from the page as it opened and never follows the store, so a later version never touches what
+  someone is writing. Publish is the page's one Save (`save` on `Page`), disabled until something differs, so a page
+  opened and left alone sends nothing. A fixed page's title stays as it is. A learning shows its evidence and category
+  below the text (`LearningEditFields`) and always publishes them. A company doc section's bound is the API's to say,
+  in the toast. What is typed is a draft under `knowledge-page.<id>`, with the version it was edited from, so a
+  reload still knows what it has not seen.
+- **A conflict** (`PageConflictDialog`): a publish refused with `409 page_changed` reads the page and the version the
+  person started from, and shows who published, what changed since they opened it, and how it stands against their
+  text, through `TextDiff`, with the title as its first line. Their text is untouched. Keep editing moves the form's
+  `baseVersion` to what they just saw, so the next Publish goes on top of it knowingly, and See what changed stays in
+  the header until then. Nothing merges on its own.
+- **A new page** (`NewKnowledgePage`) is a `/new` form with its Publish in both places: title, where it goes
+  (`PageParentPicker`, every page by its path), and the editor. The panel's plus, the topbar's search, and a tree row's
+  Add child page reach it, the last with `?parent=`, which a draft never overrides; a draft's parent that is gone gives
+  way to the top of the tree.
 
 ### Markdown
 
@@ -878,6 +898,54 @@ Everything it does is for reading text that cannot be trusted (`docs/security.md
   alone; anything else stays plain. Colors are `--code-*` in `matter.css`, per theme. A block scrolls sideways on its
   own, as a wide table does, so neither widens a page, and has a copy button.
 - **Styles.** `src/theme/markdown.css`, every rule scoped to `.markdown`, since rendered text has no Tailwind classes.
+
+### The Markdown editor
+
+`MarkdownEditor` (`src/components/markdownEditor/`) edits Markdown as rich text: a field whose value is Markdown,
+`<MarkdownEditor id='page-body' label={...} markdown={text} onChange={setText} />`. It loads with the first one shown
+(`MarkdownEditorContent`), about 170 KB compressed, so nobody reading pays for it.
+
+- **Tiptap 3**, on the node set in `editorSchema.ts`: StarterKit's blocks and marks, tables, task lists, inline images,
+  links, and highlighted code. The editor is made in an effect (`immediatelyRender: false`), since Tiptap destroys one
+  no effect has claimed within a tick, and a `lazy` reveal runs effects later than that.
+- **What is reported is Markdown.** A value the editor did not write replaces what it holds, such as a draft put back;
+  loading is neither an edit nor undoable, and nothing is reported until someone changes something.
+- **The same parser reads and edits.** `parseMarkdown` is `remark-parse` with `remark-gfm`, as `Markdown` reads, rather
+  than `@tiptap/markdown`'s `marked`, so nobody edits a different page from the one they read. `mdastToNode` and
+  `nodeToMdast` carry a block between the tree and the editor's document, and `remark-stringify` spells it.
+- **The source is the truth** (`markdownSource.ts`). Each block keeps the exact text it came from and the gap before
+  it. `writeMarkdown` lines the document's blocks up with the ones read (by `node.eq`, so an undo counts) and writes
+  only what changed. A page left alone is the same bytes, and a 100,000 character page takes about 2 ms a keystroke.
+
+  | What an edit touches | What is written anew | What stays exactly as it was |
+  |---|---|---|
+  | A paragraph, heading, quote, or code block | That block | Every other block, and the gaps between them |
+  | One item of a top-level list | That item, with the list's own marker | Its other items; an ordered list's later ones are renumbered |
+  | One row of a table | That row, unpadded | Its other rows and the delimiter row, while its columns stand |
+
+- **Rules for a block written anew.** It comes out in Elysium's spelling: `-` bullets, `*` and `**`, `~~`, ATX
+  headings, backtick fences, `---`, `\` hard breaks, `<https://...>` for a bare address, and unpadded tables. A
+  paragraph keeps its line endings, as soft breaks, so a hard-wrapped one changes a line at a time. Spaces at the
+  edges of emphasis step out of it, and at a line's edges go. A blank paragraph goes, which Markdown cannot say, and a
+  line break in a table cell becomes a space. Every escape that changes nothing is dropped, checked by parsing the
+  text with and without it beside the page's link definitions, so `snake_case`, `~/.config`, and `arr[0]` stay as
+  typed. Two lists side by side get different markers, or Markdown reads them as one. A block a code fence never
+  closed is closed once something follows it.
+- **What the editor cannot hold stays Markdown.** As it opens, each block is passed through the document and back,
+  and one that comes back different opens as `markdownBlock`, its source in a dashed block, editable as text: raw HTML,
+  link definitions, footnote definitions, a list mixing tasks and plain items, a list item that starts with a code
+  block. Inside a line, raw HTML, a reference, and a footnote mark are one `markdownInline` token, removed whole. Nothing
+  is lost by editing beside them.
+- **Slash commands.** `/` after a space or at a line's start opens `SlashMenu`, narrowed by what follows, searching names
+  and hidden words. `editorCommands.ts` lists the blocks, for it and the toolbar. Focus stays in the editor, and the
+  menu is a list box, so Esc closes it rather than leaving the page.
+- **Toolbar.** `EditorToolbar` stays in sight as the text scrolls, wrapping from `sm` and scrolling sideways on a phone.
+  Table controls join it while the caret is in a table. Links and images by address ask in a dialog.
+- **Pasting.** Plain text is read as Markdown, except into code. Files are not taken: attachments are on the roadmap.
+- **Images and links** keep `Markdown`'s rules (`docs/security.md`). `EditorImage` draws through `MarkdownImage`, and an
+  image's plain HTML carries `data-src` rather than `src`, since an element with one fetches the moment it is made.
+- **Tests.** `markdownCorpus.ts` holds what is hard to carry through, and `markdownSource.test.ts` runs it and every file
+  in `docs/` through: unchanged is the same bytes, and written anew means the same.
 
 ### Learnings
 
@@ -1545,7 +1613,7 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
     and the choices beside them, puts them back into the blank form as changes when it opens (so Save is ready and
     leaving asks first), and returns `forget`, which the form calls once it creates and registers as its page save's
     `onDiscard`, so Discard work ends the draft too. Every `/new` form has one: items, initiatives, projects, coding
-    sessions (one per item a session starts from), Studio items, learnings and their categories, environment
+    sessions (one per item a session starts from), Studio items, knowledge pages, learnings and their categories, environment
     variables, storage locations, LLMs, the mail server, domains, and mailboxes, and the password vault. A token
     connector keeps its account's fields but the secret ones.
   - **Never secrets.** A form lists what it keeps, and a `SecretInput` field is never on the list; an environment

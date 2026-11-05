@@ -71,6 +71,13 @@ export type PageVersion = {
   evidence: string | null
 }
 
+// What a publish did: a new version, or nothing, for text the page already holds.
+export type PublishOutcome = 'published' | 'unchanged'
+
+// The API's own bounds on a page, which it checks after normalizing.
+export const PAGE_TITLE_MAX_CHARACTERS = 300
+export const PAGE_BODY_MAX_CHARACTERS = 100_000
+
 // The SWR keys `page.changed` revalidates, each only while a view holds it.
 export const PAGES_KEY = 'v1/pages'
 
@@ -134,7 +141,7 @@ export function getPageVersion(pageId: string, version: number) {
 type RestorePageVersionResponse = {
   page: KnowledgePage
   // `unchanged` when the page already says exactly this, and no version was made.
-  outcome: 'published' | 'unchanged'
+  outcome: PublishOutcome
 }
 
 // Publishes a version's content as the page's next version, naming the one it copied.
@@ -185,4 +192,42 @@ export function restorePage(pageId: string) {
   return apiClient
     .post(`${pageKey(pageId)}/restore`)
     .json<RestorePageResponse>()
+}
+
+type CreatePageRequest = {
+  // The page it goes under; left out, the top of the tree.
+  parentId?: string
+  title: string
+  body: string
+}
+
+type CreatePageResponse = {
+  page: KnowledgePage
+}
+
+export function createPage(body: CreatePageRequest) {
+  return apiClient
+    .post(PAGES_KEY, { json: body })
+    .json<CreatePageResponse>()
+}
+
+type PublishPageRequest = {
+  // The version this was edited from; a newer one is refused with `409 page_changed`.
+  baseVersion: number
+  title: string
+  body: string
+  // A learning's, both or neither.
+  category?: string
+  evidence?: string
+}
+
+type PublishPageResponse = {
+  page: KnowledgePage
+  outcome: PublishOutcome
+}
+
+export function publishPage(pageId: string, body: PublishPageRequest) {
+  return apiClient
+    .post(`${pageKey(pageId)}/publish`, { json: body })
+    .json<PublishPageResponse>()
 }

@@ -970,10 +970,10 @@ with its three-way merge, and the review (`crate::models::company_doc`).
   `revised` or `edited` kind is what a `published` row reads as there.
 - **What people see.** The Learnings tab, the admins' feed, and Settings, Company doc work as they did, each entry with
   its Undo, and every revision and section change is also a version of its page, which can be read, compared, and
-  restored like any other. A learning's address (`/knowledge/learnings/<id>`) and a citation open its page, whose Edit
-  leads to where it is corrected and its history undone (`/knowledge/learnings/<id>/edit`). A citation of the company
-  doc opens its section's page, whose Edit leads to Settings, Company doc, which keeps its address as the one place
-  proposals are reviewed. A move shows in a page's history and not in a learning's. Restoring a version puts back the
+  restored like any other. A learning's address (`/knowledge/learnings/<id>`) and a citation open its page, and Edit
+  opens the editor, with its evidence and category, while History and undo goes to `/knowledge/learnings/<id>/edit`. A
+  citation of the company doc opens its section's page, and Edit opens the editor as a person acting alone, while
+  Proposals goes to Settings, Company doc, which keeps its address as the one place proposals are reviewed. A move shows in a page's history and not in a learning's. Restoring a version puts back the
   whole of it, where Undo puts back only what is still there to reverse. A learning's search result is attributed to
   who published its newest version, rather than who first saved it, as a page's is.
 - **Moved in one migration, and back.** Revisions replay into versions from each one's own history, and a history that
@@ -1014,10 +1014,15 @@ in its toast, since nothing is lost: Undo restores the version it replaced, and 
 proposal-only page as they edit one. Restore is not offered on a deleted page, which refuses it, and waits while the
 page has unsaved edits.
 
+People edit a page in a rich editor at `/knowledge/pages/<id>/edit`, and create one at `/knowledge/pages/new`. The page
+stays Markdown, so agents read and write it plainly and diffs stay readable: every block nobody touched keeps its
+exact text, so a page opened and published as it was is no version and no diff, and an edit's diff is the edit. Publish
+is the page's one Save. Someone who publishes over a version they have not seen is told, and shown the difference, and
+keeps their text. What the editor has no form for opens as its Markdown, and is never lost. See `docs/frontend.md`, The
+Markdown editor.
+
 ### Roadmap
 
-- **Editing.** People edit in a Tiptap 3 rich editor and the page stays Markdown, so agents read and write it plainly
-  and diffs stay readable. Publish is the page's one Save.
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
 - **Labels.** Any page takes any number of labels, which filter the tree, search, and a page per label.
 - **Projects.** A page can be linked to projects, so a project shows its docs.

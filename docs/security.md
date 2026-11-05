@@ -269,6 +269,12 @@ Knowledge base pages are Markdown that agents write, so the app treats them as h
   and images are blanked whatever their encoding. A link's text stays; an image says it is unavailable.
 - **Images.** Only Elysium's own origin loads. `img-src` stays as it is, since allowing other hosts would let a page
   tell a third party who read it and when. An image elsewhere is a link that opens in a new tab, with no referrer.
+- **Editing.** The rich editor holds the same untrusted text under the same policy. Its document is built from the
+  Markdown tree, never from the page as HTML, so raw HTML stays text. A disallowed link keeps its address in the source
+  and draws without it, and the link dialog refuses one. An image draws through the same rule, and its plain HTML has
+  no `src`, which a browser would fetch the moment an element is made. HTML pasted into the editor is read through
+  its schema, in a document with no scripts or loads. Tiptap adds one `<style>` element, which `style-src` allows, and
+  nothing in it evaluates code.
 - **Highlighting.** highlight.js marks tokens with class names, and evaluates nothing and needs no WebAssembly.
   Highlighters that do (Shiki) would need `'wasm-unsafe-eval'`, and write inline styles.
 

@@ -78,6 +78,7 @@
     "addEnvironmentVariable": "new create env secret",
     "addStorageLocation": "new create bucket",
     "newLearning": "add create knowledge",
+    "newKnowledgePage": "add create write doc document wiki knowledge",
     "newLearningCategory": "add create",
     "signOut": "log out logout signout leave",
     "openElysia": "assistant ai chat ask",

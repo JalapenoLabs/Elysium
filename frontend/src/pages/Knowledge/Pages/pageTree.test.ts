@@ -197,6 +197,10 @@ describe('moving pages', () => {
       ])
     })
 
+    it('offers everything to a page not yet made', () => {
+      expect(listPageDestinations(tree, null)).toHaveLength(tree.byId.size)
+    })
+
     it('leaves out the page and everything under it', () => {
       const ids = listPageDestinations(tree, 'chapter').map((destination) => destination.id)
       expect(ids).toEqual([ 'guide', 'appendix', 'index', 'notes', 'archive' ])

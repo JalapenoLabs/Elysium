@@ -47,6 +47,7 @@ export const UrlTree = {
   // Before `knowledgePage`, which would read `new` as a page's id.
   knowledgePageNew: '/knowledge/pages/new',
   knowledgePage: '/knowledge/pages/:pageId',
+  knowledgePageEdit: '/knowledge/pages/:pageId/edit',
   knowledgeSearch: '/knowledge/search',
   knowledgeAsk: '/knowledge/ask',
   knowledgeLearnings: '/knowledge/learnings',
@@ -292,6 +293,10 @@ export function getPageCompareUrl(pageId: string, from: number, to: number) {
 export function getNewChildPageUrl(parentId: string) {
   const params = new URLSearchParams({ [NEW_PAGE_PARENT_PARAM]: parentId })
   return `${UrlTree.knowledgePageNew}?${params.toString()}`
+}
+
+export function getKnowledgePageEditUrl(pageId: string) {
+  return UrlTree.knowledgePageEdit.replace(':pageId', pageId)
 }
 
 // A document of the knowledge base, opened at one of its passages when a citation names one.

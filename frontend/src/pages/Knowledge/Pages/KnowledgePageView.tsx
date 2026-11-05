@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { PageAction } from '../../../layout/page/pageActions'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -12,7 +13,7 @@ import { selectOpenedPage, selectPageTree } from '../../../store/pagesSlice'
 
 // User interface
 import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
-import { LuPencil } from 'react-icons/lu'
+import { LuHistory, LuMessagesSquare, LuPencil } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { ChildPageList } from './ChildPageList'
@@ -25,7 +26,13 @@ import { RestorePageButton } from './RestorePageButton'
 // Misc
 import { usePageLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
-import { getKnowledgePageUrl, getLearningEditUrl, PAGE_HISTORY_TAB, UrlTree } from '../../../urls'
+import {
+  getKnowledgePageEditUrl,
+  getKnowledgePageUrl,
+  getLearningEditUrl,
+  PAGE_HISTORY_TAB,
+  UrlTree,
+} from '../../../urls'
 import { findPageAncestors } from './pageTree'
 
 const TABS = [ 'read', PAGE_HISTORY_TAB ] as const
@@ -64,14 +71,25 @@ function KnowledgePageReader(props: Props) {
     ? t('pages.unavailableTitle')
     : t('pages.loading')
 
-  // A learning is corrected, and the company doc edited and reviewed, on their own pages, where
-  // their rules and history live.
-  let editHref: string | null = null
-  if (page?.category) {
-    editHref = getLearningEditUrl(page.id)
-  }
-  else if (page?.proposalOnly) {
-    editHref = UrlTree.settingsCompanyDoc
+  const actions: PageAction[] = []
+  if (page && !page.deletedAt) {
+    // A learning's undo and the company doc's proposals stay on their own pages.
+    if (page.category) {
+      actions.push({
+        id: 'learningHistory',
+        label: t('pages.learningHistory'),
+        icon: LuHistory,
+        href: getLearningEditUrl(page.id),
+      })
+    }
+    else if (page.proposalOnly) {
+      actions.push({
+        id: 'companyDocProposals',
+        label: t('pages.companyDocProposals'),
+        icon: LuMessagesSquare,
+        href: UrlTree.settingsCompanyDoc,
+      })
+    }
   }
 
   return <Page
@@ -80,10 +98,11 @@ function KnowledgePageReader(props: Props) {
     badges={page?.deletedAt && <Chip size='sm' color='danger' variant='soft'>{t('pages.deleted')}</Chip>}
     primaryAction={page?.deletedAt
       ? <RestorePageButton page={page} />
-      : editHref && <Link href={editHref} className={buttonVariants({ variant: 'outline' })}>
+      : page && <Link href={getKnowledgePageEditUrl(page.id)} className={buttonVariants({ variant: 'outline' })}>
         <LuPencil className='size-4' aria-hidden />
         <span>{t('pages.edit')}</span>
       </Link>}
+    actions={actions}
   >
     {page && <PageTabs
       label={t('pages.tabs.label')}
