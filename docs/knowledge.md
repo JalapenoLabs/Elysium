@@ -826,6 +826,26 @@ An ask is its asker's alone: only they list it, read it, and wait on it, and any
 is the company's, as every search result is (Who sees what, above). The log names an ask by its id and counts its
 claims, never the question or a passage.
 
+## Pages
+
+The roadmap is a knowledge base people read and write the way they use Confluence, in the Knowledge base milestone.
+Everything authored is one kind: a page.
+
+- **One tree.** Pages nest under one tree for the whole workspace, to any depth, with no spaces. A learning is a page
+  under Learnings, keeping its takeaway title, category, and evidence as page fields. The company doc is seven pages
+  under Company. A page can be linked to projects, so a project shows its docs.
+- **Published versions.** Editing a page ends in Publish, its one Save, and each publish is a version with who made
+  it and the agent acting for them. Any two versions can be compared, and any version restored as a new one.
+- **Markdown.** A page is stored as Markdown, so agents read and write it plainly and diffs stay readable. People
+  edit it in a Tiptap 3 rich editor and read it rendered, under the web app's Content Security Policy.
+- **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
+- **Labels.** Any page takes any number of labels, which filter the tree, search, and a page per label.
+- **Search.** Pages are indexed like every other source, version by version as they publish, with a search scoped to
+  pages beside the knowledge base's search of everything.
+- **Agents.** Agents edit any page directly, every version kept. The company doc's pages keep their rule: agents
+  propose, and a person approves.
+- **Who sees what.** Pages follow the knowledge base's rule: every member reads and edits them, and guests reach none.
+
 ## Onyx
 
 Mooreslab's Onyx knowledge base and its knowledge-save sidecar keep running beside Elysium for now, with agents
