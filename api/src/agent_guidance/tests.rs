@@ -3,7 +3,8 @@
 //! What every agent reads (#98): its server's introduction, the guidance, and the rules no edit
 //! removes, all within what Claude Code reads of a server's instructions; the `CLAUDE.md` block;
 //! the version kept in memory never going back; and the first version, seeded by its migration,
-//! saying what the MCP server said before the guidance could be edited.
+//! saying what the MCP server said before the guidance could be edited. A later default is in
+//! `crate::database::page_guidance_tests`.
 //!
 //! The test that reads Postgres is `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs it.
@@ -205,12 +206,11 @@ fn the_version_kept_never_goes_back() {
 async fn the_first_version_is_the_seed_by_the_system_user() {
     let (_url, mut connection) = migrated_database().await;
 
-    let current = agent_guidance::current(&mut connection)
+    let seed = agent_guidance::find(&mut connection, 1)
         .await
         .expect("the seed exists");
 
-    assert_eq!(current.version, 1);
-    assert_eq!(current.content, SEED);
-    assert_eq!(current.created_by, SYSTEM_USER_ID);
-    assert_eq!(current.restored_from, None);
+    assert_eq!(seed.content, SEED);
+    assert_eq!(seed.created_by, SYSTEM_USER_ID);
+    assert_eq!(seed.restored_from, None);
 }

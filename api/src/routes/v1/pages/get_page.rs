@@ -6,14 +6,25 @@ use anyhow::Context;
 use axum::Json;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{PageResponse, response};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::page;
 use crate::state::AppState;
+
+/// Names one page, which a route takes from its path.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageArguments {
+    /// The page's id, from `page_list`, or the `pageId` of a citation that names one.
+    pub id: Uuid,
+}
 
 pub async fn handle(
     State(state): State<AppState>,
@@ -21,7 +32,7 @@ pub async fn handle(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
-    let page = read(&state, id).await?;
+    let page = read(&state.database, id).await?;
     Ok(Json(json!({ "page": page })))
 }
 
@@ -29,9 +40,8 @@ pub async fn handle(
 ///
 /// # Errors
 /// `404` for an unknown page.
-pub async fn read(state: &AppState, id: Uuid) -> Result<PageResponse, ApiError> {
-    let mut connection = state
-        .database
+pub async fn read(database: &Pool, id: Uuid) -> Result<PageResponse, ApiError> {
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;

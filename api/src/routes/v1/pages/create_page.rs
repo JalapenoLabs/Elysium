@@ -14,9 +14,11 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author, page_edit};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page;
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 /// A page to create.
@@ -40,7 +42,7 @@ pub async fn handle(
     body: Result<Json<CreatePageRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
-    let page = create(&state, author(&member), body).await?;
+    let page = create(&state.database, &state.events, author(&member), body).await?;
     Ok((StatusCode::CREATED, Json(json!({ "page": page }))))
 }
 
@@ -50,18 +52,18 @@ pub async fn handle(
 /// The request's validation errors, and `409 page_parent_gone` for a parent that does not exist or
 /// is deleted.
 pub async fn create(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     request: CreatePageRequest,
 ) -> Result<PageResponse, ApiError> {
     let edit = page_edit(&request.title, &request.body)?;
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page::create(&mut connection, request.parent_id, edit, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }
 
 #[cfg(test)]

@@ -61,6 +61,6 @@ pub async fn delete(
     } else {
         page::delete(&mut connection, id, author, None).await?
     };
-    answer(state, &mut connection, recorded).await?;
+    answer(&state.events, &mut connection, recorded).await?;
     Ok(())
 }

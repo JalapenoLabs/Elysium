@@ -16,9 +16,11 @@ use uuid::Uuid;
 
 use super::{PublishedPage, answer_published, author, learning_fields, page_edit};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page;
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 /// A page's next version. Shaped and bounded as creating a page is.
@@ -50,7 +52,8 @@ pub async fn handle(
 ) -> Result<Json<PublishedPage>, ApiError> {
     let Path(id) = path?;
     let Json(body) = body?;
-    Ok(Json(publish(&state, author(&member), id, body).await?))
+    let published = publish(&state.database, &state.events, author(&member), id, body).await?;
+    Ok(Json(published))
 }
 
 /// Publishes `request` over page `id` as `author`: what this route and an agent's tool both do.
@@ -61,20 +64,20 @@ pub async fn handle(
 /// `page_proposal_only`, `page_fixed`, `page_title_taken`, or `page_not_a_learning` for a page that
 /// refuses it.
 pub async fn publish(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     request: PublishPageRequest,
 ) -> Result<PublishedPage, ApiError> {
     let mut edit = page_edit(&request.title, &request.body)?;
     edit.learning = learning_fields(request.category.as_deref(), request.evidence.as_deref())?;
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page::publish(&mut connection, id, edit, request.base_version, author).await?;
-    answer_published(state, &mut connection, recorded).await
+    answer_published(events, &mut connection, recorded).await
 }
 
 #[cfg(test)]

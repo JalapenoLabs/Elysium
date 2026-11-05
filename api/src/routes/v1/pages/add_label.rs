@@ -15,15 +15,28 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page_label::{self, Label};
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 /// The label to put on a page.
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AddLabelRequest {
+    /// Up to 50 characters: letters, digits, hyphens, underscores, and dots, starting with a letter
+    /// or digit. Stored lowercase with spaces as hyphens, so `On Call` is the label `on-call`.
+    pub label: String,
+}
+
+/// A page and a label: what the label tools take, where a route has the page in its path.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageLabelArguments {
+    /// The page, from `page_list`.
+    pub id: Uuid,
     /// Up to 50 characters: letters, digits, hyphens, underscores, and dots, starting with a letter
     /// or digit. Stored lowercase with spaces as hyphens, so `On Call` is the label `on-call`.
     pub label: String,
@@ -37,11 +50,18 @@ pub async fn handle(
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
     let Json(body) = body?;
-    let page = add(&state, author(&member), id, body).await?;
+    let page = add(
+        &state.database,
+        &state.events,
+        author(&member),
+        id,
+        &body.label,
+    )
+    .await?;
     Ok(Json(json!({ "page": page })))
 }
 
-/// Puts `request`'s label on page `id` as `author`: what this route and an agent's tool both do. Any
+/// Puts `label` on page `id` as `author`: what this route and an agent's tool both do. Any
 /// person or agent may label any live page, a proposal-only or fixed one included, since a label
 /// changes neither what it says nor where it sits.
 ///
@@ -49,17 +69,17 @@ pub async fn handle(
 /// `422` for a label that is not well formed, `404` for an unknown page, and `409` with
 /// `page_deleted` or `page_label_limit` for one that is refused.
 pub async fn add(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
-    request: AddLabelRequest,
+    label: &str,
 ) -> Result<PageResponse, ApiError> {
-    let label = Label::parse(&request.label)?;
-    let mut connection = state
-        .database
+    let label = Label::parse(label)?;
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page_label::add(&mut connection, id, &label, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }

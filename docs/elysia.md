@@ -54,7 +54,8 @@ it was about are still there for the next turn.
 Each turn is granted her own tool server, `elysia` (`api/src/tools/elysia.rs`), at `/api/agent-tools/elysia` with a
 token minted for that turn and revoked when it ends (`docs/coding.md`, Elysium's tools). Coding sessions' servers
 refuse her, and hers refuse them. Every turn is also granted `elysium_knowledge`, the company doc's tools, which she
-proposes to as herself (`docs/knowledge.md`, The company doc). While the password vault is ready, the turn is also
+proposes to as herself (`docs/knowledge.md`, The company doc), and the pages' tools, with which she edits pages as
+herself (`docs/knowledge.md`, Who changes pages). While the password vault is ready, the turn is also
 granted `elysium_passwords`,
 the logins agents sign in with (`docs/passwords.md`), and her reply, summary, and any failure are scrubbed of every
 password and code it handed out before they are stored, as coding sessions' events are.
@@ -154,6 +155,7 @@ What she may do without asking follows the tiers in `docs/vision.md`. Everything
 | Reading anything in the workspace                                  | Done             |
 | Recording her own work and asking questions                        | Done             |
 | Drafting (replies, documents), labelling, filing                   | Done and shown   |
+| Writing, moving, and labelling knowledge base pages, every version kept | Done and shown |
 | Any change to action items or initiatives                          | Waits for you, as a changeset |
 | Anything sent in a person's name (a comment, a closed issue, mail) | Waits for you, as a changeset or a draft the person sends |
 | Deleting anything, payments                                        | Waits for you    |

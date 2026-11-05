@@ -150,11 +150,16 @@ Everything else follows these rules:
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
   validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), coding
-  sessions, searching, opening, and listing the meetings of the knowledge base, saving and deleting learnings, and
-  reading and proposing to the company doc; Studio items, action items, and initiatives are on the roadmap.
+  sessions, searching, opening, and listing the meetings of the knowledge base, saving and deleting learnings, reading
+  and proposing to the company doc, and reading and editing pages; Studio items, action items, and initiatives are on
+  the roadmap.
 - The knowledge base's reading tools are also on the `elysium_knowledge` server every turn gets, under the same names
   and schemas. A turn reads for whoever started its session, checked on every call, and spends their search budget.
   See `docs/knowledge.md`, MCP.
+- Agents edit pages directly (`page_save`, `page_move`, `page_label_add`, `page_label_remove`), every change naming the
+  person and their agent: an MCP client as its person, a session as whoever started it, a Project Manager and Elysia as
+  themselves. A pool worker only reads. Company doc pages refuse edits, pointing at `company_doc_propose`, and learnings
+  refuse them, pointing at `learning_save`; both still take labels. See `docs/knowledge.md`, Who changes pages.
 - Every client, and every turn's `elysium_knowledge`, is told the company's agent guidance as it connects, so a change
   reaches its next session. Admins edit it under Settings, Agent guidance, every version kept; Elysium's rules (results
   stay in the company, where a citation opens) follow every version, and no edit removes them. See

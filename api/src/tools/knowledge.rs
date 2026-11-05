@@ -15,12 +15,17 @@
 //!   proposals; `company_doc_propose` proposes through `crate::company_doc::propose`, as the
 //!   session's coding agent, as Elysia, or as the Project Manager, and nothing changes until a
 //!   person approves it.
+//! - `page_read`, `page_list`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove`
+//!   call the page routes' own functions (`routes::v1::pages`) with the arguments the MCP server
+//!   takes. A change is made by whoever the turn acts for and names its agent ([`writer`]), so it
+//!   is recorded like any other. A pool worker reads pages and changes none.
 //!
 //! Every call first checks, in the database, that the turn may read the knowledge base at all
 //! ([`reader`]), as the routes check every request.
 
 use std::any::Any;
 
+use chrono::Utc;
 use futures_util::FutureExt as _;
 use rmcp::handler::server::common::schema_for_type;
 use schemars::JsonSchema;
@@ -35,11 +40,20 @@ use crate::agent_guidance::Audience;
 use crate::company_doc::{self, ProposeRequest};
 use crate::errors::ApiError;
 use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRIPTION};
+use crate::mcp::pages::{
+    LABEL_ADD_DESCRIPTION, LABEL_REMOVE_DESCRIPTION, LIST_DESCRIPTION, MOVE_DESCRIPTION,
+    READ_DESCRIPTION, SAVE_DESCRIPTION,
+};
+use crate::models::agent::{Agent, Author};
 use crate::models::coding_session;
 use crate::models::company_doc::{CompanyDocError, Proposer, Section};
 use crate::models::user::{self, CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::routes::v1::knowledge::{
     self, DocumentArguments, ListMeetingsRequest, SearchKnowledgeRequest,
+};
+use crate::routes::v1::pages::{
+    self, ListPagesArguments, MovePageArguments, PAGE_IS_A_LEARNING, PageArguments,
+    PageLabelArguments, SavePageRequest,
 };
 
 /// Its instructions are the company's agent guidance, so an admin's edit reaches every turn as it
@@ -50,7 +64,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 5] = [
+const TOOLS: [Tool; 11] = [
     Tool {
         name: "knowledge_search",
         description: SEARCH_DESCRIPTION,
@@ -84,6 +98,42 @@ const TOOLS: [Tool; 5] = [
             answered rather than proposed twice.",
         input_schema: propose_schema,
         run: |context, scope, arguments| run_propose(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_read",
+        description: READ_DESCRIPTION,
+        input_schema: schema_of::<PageArguments>,
+        run: |context, scope, arguments| run_page_read(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_list",
+        description: LIST_DESCRIPTION,
+        input_schema: schema_of::<ListPagesArguments>,
+        run: |context, scope, arguments| run_page_list(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_save",
+        description: SAVE_DESCRIPTION,
+        input_schema: schema_of::<SavePageRequest>,
+        run: |context, scope, arguments| run_page_save(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_move",
+        description: MOVE_DESCRIPTION,
+        input_schema: schema_of::<MovePageArguments>,
+        run: |context, scope, arguments| run_page_move(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_label_add",
+        description: LABEL_ADD_DESCRIPTION,
+        input_schema: schema_of::<PageLabelArguments>,
+        run: |context, scope, arguments| run_page_label_add(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_label_remove",
+        description: LABEL_REMOVE_DESCRIPTION,
+        input_schema: schema_of::<PageLabelArguments>,
+        run: |context, scope, arguments| run_page_label_remove(context, scope, arguments).boxed(),
     },
 ];
 
@@ -214,6 +264,58 @@ async fn reader(context: &ToolContext, scope: &CallScope) -> Result<Uuid, ToolEr
     ))
 }
 
+/// Who a change to a page is by, and the agent acting for them, checked as [`reader`] checks.
+///
+/// A session's agent writes as whoever started the session, naming the session; a Project Manager
+/// as its machine user, naming its project; and Elysia as herself, with no agent to name. A pool
+/// worker is refused: it runs unattended for a batch rather than a person, nothing identifies it in
+/// a version, and writing up what it learned is its Project Manager's, which reads its result.
+///
+/// # Errors
+/// [`ToolError::WrongAgent`] for a worker, and what [`reader`] refuses.
+async fn writer(
+    context: &ToolContext,
+    scope: &CallScope,
+) -> Result<(Uuid, Option<Agent>), ToolError> {
+    let agent = match scope {
+        CallScope::Session(session) => Some(Agent::session(session.session_id)),
+        CallScope::ProjectManager(manager) => Some(Agent::project_manager(manager.project_id)),
+        CallScope::Elysia(_) => None,
+        CallScope::Worker(_) => {
+            return Err(ToolError::WrongAgent(
+                "coding sessions, Project Managers, and Elysia; tell your Project Manager \
+                 what the page should say in your worker_finish result",
+            ));
+        }
+    };
+    Ok((reader(context, scope).await?, agent))
+}
+
+/// A page route's refusal as the agent reads it, with the code its tool description names. A
+/// learning's points at nothing to call, since a turn has no `learning_save`.
+fn page_tool_error(scope: &CallScope, operation: &'static str, error: ApiError) -> ToolError {
+    match error {
+        ApiError::Validation(errors) => {
+            ToolError::Invalid(format!("the arguments are outside their limits: {errors}"))
+        }
+        ApiError::BadRequest(message) => ToolError::Invalid(message),
+        ApiError::NotFound => ToolError::NotFound(
+            "the knowledge base holds no page with that id; find one with page_list".to_owned(),
+        ),
+        ApiError::CodedConflict {
+            code: PAGE_IS_A_LEARNING,
+            ..
+        } => ToolError::Refused(format!(
+            "{PAGE_IS_A_LEARNING}: this server cannot change a learning; say what it should say \
+             in your answer instead"
+        )),
+        ApiError::CodedConflict { code, message } => {
+            ToolError::Refused(format!("{code}: {message}"))
+        }
+        other => internal(scope, operation, &other),
+    }
+}
+
 /// A knowledge route's refusal as the agent reads it: what to change, or when to try again.
 fn tool_error(scope: &CallScope, operation: &'static str, error: ApiError) -> ToolError {
     match error {
@@ -328,6 +430,122 @@ async fn run_propose(
             refused => ToolError::Invalid(refused.to_string()),
         })?;
     Ok(json!(stored))
+}
+
+async fn run_page_read(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: PageArguments = parse_arguments(arguments)?;
+    reader(context, scope).await?;
+    let page = pages::read(&context.database, arguments.id)
+        .await
+        .map_err(|error| page_tool_error(scope, "pages.read", error))?;
+    Ok(json!({ "page": page }))
+}
+
+async fn run_page_list(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: ListPagesArguments = parse_arguments(arguments)?;
+    reader(context, scope).await?;
+    let branch = pages::list_branch(&context.database, arguments.parent_id, arguments.offset)
+        .await
+        .map_err(|error| page_tool_error(scope, "pages.list", error))?;
+    Ok(json!(branch))
+}
+
+async fn run_page_save(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let request: SavePageRequest = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let saved = pages::save(&context.database, &context.events, author, request)
+        .await
+        .map_err(|error| page_tool_error(scope, "pages.save", error))?;
+    Ok(json!(saved))
+}
+
+async fn run_page_move(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: MovePageArguments = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let moved = pages::move_to(
+        &context.database,
+        &context.events,
+        author,
+        arguments.id,
+        arguments.to,
+    )
+    .await
+    .map_err(|error| page_tool_error(scope, "pages.move", error))?;
+    Ok(json!({ "page": moved }))
+}
+
+async fn run_page_label_add(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: PageLabelArguments = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let labeled = pages::add_label(
+        &context.database,
+        &context.events,
+        author,
+        arguments.id,
+        &arguments.label,
+    )
+    .await
+    .map_err(|error| page_tool_error(scope, "pages.label_add", error))?;
+    Ok(json!({ "page": labeled }))
+}
+
+async fn run_page_label_remove(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: PageLabelArguments = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let unlabeled = pages::remove_label(
+        &context.database,
+        &context.events,
+        author,
+        arguments.id,
+        &arguments.label,
+    )
+    .await
+    .map_err(|error| page_tool_error(scope, "pages.label_remove", error))?;
+    Ok(json!({ "page": unlabeled }))
 }
 
 #[cfg(test)]

@@ -119,8 +119,8 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
 
     let (status, first) = call(&state, Method::GET, "/api/v1/agent-guidance", None).await;
     assert_eq!(status, StatusCode::OK, "{first}");
-    assert_eq!(first["current"]["version"], 1);
-    assert_eq!(first["versions"].as_array().map(Vec::len), Some(1));
+    assert_eq!(first["current"]["version"], 2);
+    assert_eq!(first["versions"].as_array().map(Vec::len), Some(2));
     assert!(
         first["rules"]
             .as_str()
@@ -128,9 +128,9 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
         "{first}"
     );
 
-    let (status, saved) = save(&state, "  Search the knowledge base first.  ", 1).await;
+    let (status, saved) = save(&state, "  Search the knowledge base first.  ", 2).await;
     assert_eq!(status, StatusCode::OK, "{saved}");
-    assert_eq!(saved["current"]["version"], 2);
+    assert_eq!(saved["current"]["version"], 3);
     assert_eq!(
         saved["current"]["content"], "Search the knowledge base first.",
         "the text is trimmed"
@@ -139,19 +139,19 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
     assert!(
         saved["claudeMd"]
             .as_str()
-            .is_some_and(|block| block.contains("version 2")
+            .is_some_and(|block| block.contains("version 3")
                 && block.contains("Search the knowledge base first.")),
         "{saved}"
     );
 
-    let (status, unchanged) = save(&state, "Search the knowledge base first.", 2).await;
+    let (status, unchanged) = save(&state, "Search the knowledge base first.", 3).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        unchanged["current"]["version"], 2,
+        unchanged["current"]["version"], 3,
         "saving the same text records nothing"
     );
 
-    let (status, refused) = save(&state, "An edit of version 1.", 1).await;
+    let (status, refused) = save(&state, "An edit of version 2.", 2).await;
     assert_eq!(status, StatusCode::CONFLICT, "{refused}");
     assert_eq!(refused["code"], "guidance_changed");
 
@@ -159,13 +159,13 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
         .as_u64()
         .expect("the limit is a number");
     let too_long = "x".repeat(usize::try_from(max).expect("it fits") + 1);
-    let (status, _) = save(&state, &too_long, 2).await;
+    let (status, _) = save(&state, &too_long, 3).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let (status, restored) = restore(&state, 1).await;
+    let (status, restored) = restore(&state, 2).await;
     assert_eq!(status, StatusCode::OK, "{restored}");
-    assert_eq!(restored["current"]["version"], 3);
-    assert_eq!(restored["current"]["restoredFrom"], 1);
+    assert_eq!(restored["current"]["version"], 4);
+    assert_eq!(restored["current"]["restoredFrom"], 2);
     assert_eq!(restored["current"]["content"], first["current"]["content"]);
     let numbers: Vec<i64> = restored["versions"]
         .as_array()
@@ -173,12 +173,12 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
         .iter()
         .filter_map(|version| version["version"].as_i64())
         .collect();
-    assert_eq!(numbers, [3, 2, 1], "every version is kept, newest first");
+    assert_eq!(numbers, [4, 3, 2, 1], "every version is kept, newest first");
 
-    let (status, again) = restore(&state, 1).await;
+    let (status, again) = restore(&state, 2).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        again["current"]["version"], 3,
+        again["current"]["version"], 4,
         "restoring the text already current records nothing"
     );
     let (status, _) = restore(&state, 99).await;
@@ -190,7 +190,7 @@ async fn admins_save_and_restore_versions_and_every_one_is_kept() {
 async fn members_read_the_guidance_admins_alone_change_it_and_guests_reach_none_of_it() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
-    let (status, saved) = save(&state, "Search the knowledge base first.", 1).await;
+    let (status, saved) = save(&state, "Search the knowledge base first.", 2).await;
     assert_eq!(status, StatusCode::OK, "{saved}");
 
     set_role(&mut connection, "member").await;
@@ -200,8 +200,8 @@ async fn members_read_the_guidance_admins_alone_change_it_and_guests_reach_none_
         StatusCode::OK,
         "a member reads it, to copy its block"
     );
-    assert_eq!(read["current"]["version"], 2);
-    let (status, refused) = save(&state, "A member's edit.", 2).await;
+    assert_eq!(read["current"]["version"], 3);
+    let (status, refused) = save(&state, "A member's edit.", 3).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(refused["code"], "admin_only");
     let (status, refused) = restore(&state, 1).await;
@@ -252,7 +252,7 @@ async fn every_new_session_reads_the_version_current_as_it_connects() {
         "{client}"
     );
 
-    let (status, saved) = save(&state, "Ask in #platform before changing CI.", 1).await;
+    let (status, saved) = save(&state, "Ask in #platform before changing CI.", 2).await;
     assert_eq!(status, StatusCode::OK, "{saved}");
 
     let client = instructions_at(&state, "/api/mcp", "localhost", &bearer).await;

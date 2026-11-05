@@ -443,7 +443,8 @@ the company doc), each waiting for a person to approve or reject it. The partial
 
 Every version of the guidance every connected agent reads, newest current; see `docs/knowledge.md`, Agent guidance. A
 version is never changed: a save and a restore each add the next one, so the table is the guidance's history. Version
-1 is seeded by the migration as the system user.
+1 is seeded by its migration as the system user, and version 2, the default that says when to write a page, by a later
+one, only where version 1 was still the only version.
 
 | Column          | Type          | Notes                                                                 |
 |-----------------|---------------|-----------------------------------------------------------------------|

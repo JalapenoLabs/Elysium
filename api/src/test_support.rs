@@ -245,6 +245,15 @@ pub async fn signed_in_cookie(state: &crate::state::AppState) -> String {
 /// The bearer check asks Redis before Hydra, so caching Hydra's answer as it would give it is all
 /// it takes, as [`signed_in_cookie`] does for a browser session. Each call is a fresh token.
 pub async fn mcp_bearer(state: &crate::state::AppState, scopes: &[&str]) -> String {
+    mcp_bearer_of_client(state, scopes, "test-client").await
+}
+
+/// As [`mcp_bearer`], for the OAuth client `client_id`.
+pub async fn mcp_bearer_of_client(
+    state: &crate::state::AppState,
+    scopes: &[&str],
+    client_id: &str,
+) -> String {
     use crate::oauth::hydra::Introspection;
     use crate::oauth::{mcp_resource, tokens};
 
@@ -254,7 +263,7 @@ pub async fn mcp_bearer(state: &crate::state::AppState, scopes: &[&str]) -> Stri
         sub: Some(TEST_PERSON_ID.to_string()),
         scope: Some(scopes.join(" ")),
         aud: vec![mcp_resource(&state.auth.public_url)],
-        client_id: Some("test-client".to_owned()),
+        client_id: Some(client_id.to_owned()),
         exp: Some(chrono::Utc::now().timestamp() + 3600),
         token_use: Some("access_token".to_owned()),
     };

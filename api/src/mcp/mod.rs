@@ -6,7 +6,7 @@
 //! request stands alone, so any API replica can answer it and nothing is kept between calls.
 //! Every request carries an OAuth access token Hydra issued, checked by [`bearer`] before the
 //! server sees it. The server is [`workspace`], and its tools are grouped by what they act on:
-//! [`company_doc`], [`knowledge`], [`learnings`], [`projects`], and [`sessions`].
+//! [`company_doc`], [`knowledge`], [`learnings`], [`pages`], [`projects`], and [`sessions`].
 //!
 //! Clients find out how to get a token from the protected resource metadata
 //! ([`protected_resource_metadata`]), which names Hydra as the authorization server. See
@@ -19,6 +19,7 @@ pub mod bearer;
 mod company_doc;
 pub mod knowledge;
 mod learnings;
+pub mod pages;
 mod projects;
 mod sessions;
 pub mod workspace;

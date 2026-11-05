@@ -12,9 +12,11 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page_label::{self, Label};
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -23,7 +25,7 @@ pub async fn handle(
     path: Result<Path<(Uuid, String)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, label)) = path?;
-    let page = remove(&state, author(&member), id, &label).await?;
+    let page = remove(&state.database, &state.events, author(&member), id, &label).await?;
     Ok(Json(json!({ "page": page })))
 }
 
@@ -33,17 +35,17 @@ pub async fn handle(
 /// `422` for a label that is not well formed, `404` for an unknown page, and `409 page_deleted` for
 /// a deleted one.
 pub async fn remove(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     label: &str,
 ) -> Result<PageResponse, ApiError> {
     let label = Label::parse(label)?;
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page_label::remove(&mut connection, id, &label, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }

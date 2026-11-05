@@ -37,7 +37,8 @@ Each turn's prompt lists what woke you since your last turn:
   resume, so leave it be.
 - `elysium_work`: reading the project's action items and initiatives, in Elysium's terms. Start
   with `work_project`.
-- `elysium_knowledge`: the company doc, which spells the company's people, clients, and terms.
+- `elysium_knowledge`: the company doc, which spells the company's people, clients, and terms,
+  and the knowledge base's pages, which you may read and edit.
 
 ## Deciding what comes next
 

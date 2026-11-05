@@ -3,15 +3,16 @@
 //! The `elysium_knowledge` tools: their names and arguments against their schemas, and, driven
 //! through the router at `/api/agent-tools/elysium_knowledge` under a turn's grant (#96), a
 //! session's agent finding, opening, and listing what the company recorded, a session a guest
-//! started refused every tool, its searches spending its starter's budget, and Elysia reading
-//! as herself.
+//! started refused every tool, its searches spending its starter's budget, Elysia reading as
+//! herself, and a turn's pages (#205): an edit a version naming who started the session and its
+//! agent, a stale save, the company doc and a learning refusing it, and who may write at all.
 //!
 //! The router tests are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
-use diesel_async::AsyncPgConnection;
+use diesel_async::{AsyncPgConnection, RunQueryDsl as _};
 use secrecy::ExposeSecret;
 use tower::ServiceExt as _;
 
@@ -19,6 +20,8 @@ use super::*;
 use crate::knowledge::search::PER_PERSON;
 use crate::middleware::rate_limit::Decision;
 use crate::models::coding_session::NewCodingSession;
+use crate::models::learning::{self, LearningContent};
+use crate::models::page::{self, LEARNINGS_PAGE_ID};
 use crate::models::project::{self, NewProject};
 use crate::routes;
 use crate::routes::v1::knowledge::tests::{
@@ -28,7 +31,7 @@ use crate::runner::{McpServer, WorkspacePath};
 use crate::state::AppState;
 use crate::test_support::{TEST_PERSON_ID, app_state, hold_budgets_still, migrated_database};
 use crate::tools::grants::Grant;
-use crate::tools::{ElysiaScope, SessionScope};
+use crate::tools::{ElysiaScope, ProjectManagerScope, SessionScope, WorkerScope};
 
 #[test]
 fn the_tools_share_the_mcp_servers_names() {
@@ -41,6 +44,12 @@ fn the_tools_share_the_mcp_servers_names() {
             "meetings_list",
             "company_doc_read",
             "company_doc_propose",
+            "page_read",
+            "page_list",
+            "page_save",
+            "page_move",
+            "page_label_add",
+            "page_label_remove",
         ]
     );
 }
@@ -76,6 +85,24 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
                 "limit": 10,
             }),
         ),
+        ("page_read", json!({ "id": id })),
+        ("page_list", json!({ "parentId": id, "offset": 200 })),
+        (
+            "page_save",
+            json!({
+                "id": id,
+                "baseVersion": 1,
+                "parentId": id,
+                "title": "Runbooks",
+                "body": "Restart it.",
+            }),
+        ),
+        (
+            "page_move",
+            json!({ "id": id, "to": { "parentId": null, "after": id } }),
+        ),
+        ("page_label_add", json!({ "id": id, "label": "runbook" })),
+        ("page_label_remove", json!({ "id": id, "label": "runbook" })),
     ];
     for (name, arguments) in everything {
         let tool = TOOLS
@@ -98,7 +125,12 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
                 parse_arguments::<SearchKnowledgeRequest>(&text).map(|_parsed| ())
             }
             "knowledge_get" => parse_arguments::<DocumentArguments>(&text).map(|_parsed| ()),
-            _ => parse_arguments::<ListMeetingsRequest>(&text).map(|_parsed| ()),
+            "meetings_list" => parse_arguments::<ListMeetingsRequest>(&text).map(|_parsed| ()),
+            "page_read" => parse_arguments::<PageArguments>(&text).map(|_parsed| ()),
+            "page_list" => parse_arguments::<ListPagesArguments>(&text).map(|_parsed| ()),
+            "page_save" => parse_arguments::<SavePageRequest>(&text).map(|_parsed| ()),
+            "page_move" => parse_arguments::<MovePageArguments>(&text).map(|_parsed| ()),
+            _ => parse_arguments::<PageLabelArguments>(&text).map(|_parsed| ()),
         };
         parsed.unwrap_or_else(|error| panic!("{name}: {error}"));
     }
@@ -405,4 +437,376 @@ async fn elysias_turns_read_the_knowledge_base_as_herself() {
         state.knowledge.admit(ELYSIA_USER_ID),
         Decision::Admitted { .. }
     ));
+}
+
+/// The number of the session [`session_turn`] just started.
+async fn newest_session(connection: &mut AsyncPgConnection) -> i64 {
+    coding_session::list_coding(connection)
+        .await
+        .expect("the sessions are listed")
+        .into_iter()
+        .map(|session| session.id)
+        .max()
+        .expect("a session was started")
+}
+
+/// A new page at the top of the tree, saved by the turn behind `bearer`.
+async fn new_page(state: &AppState, bearer: &str, title: &str, body: &str) -> Value {
+    let saved = answered(
+        call(
+            state,
+            bearer,
+            "page_save",
+            json!({ "parentId": null, "title": title, "body": body }),
+        )
+        .await,
+    );
+    saved["page"].clone()
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_sessions_agent_edits_a_page_as_whoever_started_it_naming_the_session() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let session = newest_session(&mut connection).await;
+
+    let created = new_page(&state, &bearer, "Runbooks", "First.").await;
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+    let read = answered(call(&state, &bearer, "page_read", json!({ "id": id })).await);
+    assert_eq!(read["page"]["body"], "First.");
+
+    let edited = answered(
+        call(
+            &state,
+            &bearer,
+            "page_save",
+            json!({
+                "id": id,
+                "baseVersion": read["page"]["currentVersion"],
+                "title": "Runbooks",
+                "body": "Second.",
+            }),
+        )
+        .await,
+    );
+    assert_eq!(edited["outcome"], "published");
+
+    let version = page::version_summary(&mut connection, id, 2)
+        .await
+        .expect("every edit is a version");
+    assert_eq!(version.created_by, TEST_PERSON_ID, "made by the person");
+    assert_eq!(version.agent, Some(format!("session:{session}")));
+
+    let listed = answered(call(&state, &bearer, "page_list", json!({})).await);
+    assert!(
+        listed["pages"]
+            .as_array()
+            .expect("a list")
+            .iter()
+            .any(|page| page["id"] == json!(id)),
+        "{listed}"
+    );
+
+    let moved = answered(
+        call(
+            &state,
+            &bearer,
+            "page_move",
+            json!({ "id": id, "to": { "parentId": null, "after": null } }),
+        )
+        .await,
+    );
+    assert_eq!(moved["page"]["id"], json!(id));
+    let history = page::history(&mut connection, id).await.expect("read");
+    let last = history.last().expect("the move is recorded");
+    assert_eq!(last.kind, "moved");
+    assert_eq!(last.created_by, TEST_PERSON_ID);
+    assert_eq!(last.agent, Some(format!("session:{session}")));
+
+    let labeled = answered(
+        call(
+            &state,
+            &bearer,
+            "page_label_add",
+            json!({ "id": id, "label": "Runbook" }),
+        )
+        .await,
+    );
+    assert_eq!(labeled["page"]["labels"], json!(["runbook"]));
+    let history = page::history(&mut connection, id).await.expect("read");
+    let last = history.last().expect("the label is recorded");
+    assert_eq!(last.kind, "labeled");
+    assert_eq!(last.created_by, TEST_PERSON_ID);
+    assert_eq!(last.agent, Some(format!("session:{session}")));
+
+    let unlabeled = answered(
+        call(
+            &state,
+            &bearer,
+            "page_label_remove",
+            json!({ "id": id, "label": "runbook" }),
+        )
+        .await,
+    );
+    assert_eq!(unlabeled["page"]["labels"], json!([]));
+
+    let (failed, text) = call(
+        &state,
+        &bearer,
+        "page_label_add",
+        json!({ "id": id, "label": "a/b" }),
+    )
+    .await;
+    assert!(failed && text.contains("characters"), "{text}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_turns_stale_save_and_wrong_arguments_say_what_to_do() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let created = new_page(&state, &bearer, "Runbooks", "First.").await;
+    let edit = |body: &str| json!({ "id": created["id"], "baseVersion": 1, "title": "Runbooks", "body": body });
+    answered(call(&state, &bearer, "page_save", edit("Second.")).await);
+
+    let (failed, text) = call(&state, &bearer, "page_save", edit("Third.")).await;
+    assert!(failed, "{text}");
+    assert!(text.contains("page_changed"), "{text}");
+    assert!(text.contains("page_read"), "{text}");
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+    let stored = page::find(&mut connection, id).await.expect("stored");
+    assert_eq!(stored.body, "Second.", "nothing was overwritten");
+
+    let (failed, text) = call(
+        &state,
+        &bearer,
+        "page_save",
+        json!({ "title": "A", "body": "" }),
+    )
+    .await;
+    assert!(failed && text.contains("parentId"), "{text}");
+
+    let (failed, text) = call(
+        &state,
+        &bearer,
+        "page_read",
+        json!({ "id": Uuid::now_v7() }),
+    )
+    .await;
+    assert!(failed && text.contains("page_list"), "{text}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn the_company_doc_refuses_every_kind_of_agent_and_points_at_proposing() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_session_grant, session) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let (_elysia_grant, elysia) = grant(
+        &state,
+        &CallScope::Elysia(ElysiaScope {
+            turn_id: Uuid::now_v7(),
+        }),
+    )
+    .await;
+    let (_manager_grant, manager) = grant(
+        &state,
+        &CallScope::ProjectManager(ProjectManagerScope {
+            project_id: Uuid::now_v7(),
+            turn_id: Uuid::now_v7(),
+        }),
+    )
+    .await;
+    let section = Section::Glossary.page_id();
+    let before = page::find(&mut connection, section).await.expect("seeded");
+
+    for bearer in [&session, &elysia, &manager] {
+        let (failed, text) = call(
+            &state,
+            bearer,
+            "page_save",
+            json!({
+                "id": section,
+                "baseVersion": before.current_version,
+                "title": before.title,
+                "body": "- ACME: a client",
+            }),
+        )
+        .await;
+        assert!(failed, "{text}");
+        assert!(text.contains("page_proposal_only"), "{text}");
+        assert!(text.contains("company_doc_propose"), "{text}");
+    }
+    let after = page::find(&mut connection, section).await.expect("there");
+    assert_eq!(after.current_version, before.current_version);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_turn_is_told_it_cannot_change_a_learning() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let saved = learning::save(
+        &mut connection,
+        LearningContent {
+            title: "Lint first".to_owned(),
+            body: "Run the linter before the build.".to_owned(),
+            category: "convention".to_owned(),
+            evidence: "It caught WAY-123.".to_owned(),
+        },
+        Author {
+            user_id: TEST_PERSON_ID,
+            agent: None,
+            at: Utc::now(),
+        },
+    )
+    .await
+    .expect("saved");
+
+    for arguments in [
+        json!({
+            "id": saved.learning.id,
+            "baseVersion": 1,
+            "title": "Lint first",
+            "body": "Run the linter after the build.",
+        }),
+        json!({ "parentId": LEARNINGS_PAGE_ID, "title": "A learning?", "body": "Perhaps." }),
+    ] {
+        let (failed, text) = call(&state, &bearer, "page_save", arguments).await;
+        assert!(failed, "{text}");
+        assert!(text.contains(PAGE_IS_A_LEARNING), "{text}");
+        assert!(
+            !text.contains("learning_save"),
+            "a turn has no learning_save to go to: {text}"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_session_a_guest_or_someone_disabled_since_started_is_refused_every_page_tool() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let created = new_page(&state, &bearer, "Runbooks", "First.").await;
+    let tools = [
+        ("page_read", json!({ "id": created["id"] })),
+        ("page_list", json!({})),
+        (
+            "page_save",
+            json!({ "id": created["id"], "baseVersion": 1, "title": "Runbooks", "body": "Second." }),
+        ),
+        (
+            "page_move",
+            json!({ "id": created["id"], "to": { "parentId": null, "after": null } }),
+        ),
+        (
+            "page_label_add",
+            json!({ "id": created["id"], "label": "runbook" }),
+        ),
+        (
+            "page_label_remove",
+            json!({ "id": created["id"], "label": "runbook" }),
+        ),
+    ];
+
+    // After the grant was minted: every call checks the starter again.
+    set_role(&mut connection, "guest").await;
+    for (tool, arguments) in tools.clone() {
+        let (failed, text) = call(&state, &bearer, tool, arguments).await;
+        assert!(failed && text.contains("members alone"), "{tool}: {text}");
+    }
+
+    set_role(&mut connection, "member").await;
+    diesel::sql_query(format!(
+        "UPDATE users SET status = 'disabled' WHERE id = '{TEST_PERSON_ID}'"
+    ))
+    .execute(&mut connection)
+    .await
+    .expect("disabled");
+    for (tool, arguments) in tools {
+        let (failed, text) = call(&state, &bearer, tool, arguments).await;
+        assert!(failed && text.contains("members alone"), "{tool}: {text}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn elysia_and_project_managers_write_as_themselves() {
+    let (url, _connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_elysia_grant, elysia) = grant(
+        &state,
+        &CallScope::Elysia(ElysiaScope {
+            turn_id: Uuid::now_v7(),
+        }),
+    )
+    .await;
+    let project_id = Uuid::now_v7();
+    let (_manager_grant, manager) = grant(
+        &state,
+        &CallScope::ProjectManager(ProjectManagerScope {
+            project_id,
+            turn_id: Uuid::now_v7(),
+        }),
+    )
+    .await;
+
+    let hers = new_page(&state, &elysia, "Elysia's notes", "Hers.").await;
+    assert_eq!(hers["publishedBy"], json!(ELYSIA_USER_ID));
+    assert_eq!(hers["agent"], Value::Null, "she is not acting for anyone");
+
+    let its = new_page(&state, &manager, "Launch plan", "Its.").await;
+    assert_eq!(its["publishedBy"], json!(PROJECT_MANAGER_USER_ID));
+    assert_eq!(its["agent"]["id"], format!("project_manager:{project_id}"));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_worker_reads_pages_and_is_sent_to_its_project_manager_to_change_one() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_session_grant, session) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let created = new_page(&state, &session, "Runbooks", "First.").await;
+    let (_grant, worker) = grant(
+        &state,
+        &CallScope::Worker(WorkerScope {
+            batch_id: Uuid::now_v7(),
+            project_id: Uuid::now_v7(),
+        }),
+    )
+    .await;
+
+    let read = answered(call(&state, &worker, "page_read", json!({ "id": created["id"] })).await);
+    assert_eq!(read["page"]["body"], "First.");
+
+    for (tool, arguments) in [
+        (
+            "page_save",
+            json!({ "id": created["id"], "baseVersion": 1, "title": "Runbooks", "body": "Second." }),
+        ),
+        (
+            "page_move",
+            json!({ "id": created["id"], "to": { "parentId": null, "after": null } }),
+        ),
+        (
+            "page_label_add",
+            json!({ "id": created["id"], "label": "runbook" }),
+        ),
+        (
+            "page_label_remove",
+            json!({ "id": created["id"], "label": "runbook" }),
+        ),
+    ] {
+        let (failed, text) = call(&state, &worker, tool, arguments).await;
+        assert!(failed, "{tool}: {text}");
+        assert!(text.contains("worker_finish"), "{tool}: {text}");
+    }
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+    let stored = page::find(&mut connection, id).await.expect("stored");
+    assert_eq!(stored.current_version, 1);
 }

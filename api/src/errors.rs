@@ -163,7 +163,9 @@ impl From<crate::models::page::PageError> for ApiError {
             PageError::Database(database) => return database.into(),
             PageError::Changed => (
                 "page_changed",
-                "the page changed since this was opened; load it again, then make the change",
+                "the page changed since this was opened; read it again with page_read, make \
+                 the change on what it says now, and save it against the currentVersion that \
+                 answers",
             ),
             PageError::Deleted => (
                 "page_deleted",
@@ -171,7 +173,8 @@ impl From<crate::models::page::PageError> for ApiError {
             ),
             PageError::ProposalOnly => (
                 "page_proposal_only",
-                "people edit this page directly, and agents propose changes to it",
+                "people edit this page directly; agents propose a change to a section of the \
+                 company doc with company_doc_propose",
             ),
             PageError::ParentGone => (
                 "page_parent_gone",

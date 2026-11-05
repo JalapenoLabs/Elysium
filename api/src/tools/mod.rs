@@ -283,7 +283,7 @@ pub enum ToolError {
     )]
     InitiativeUnavailable(Uuid),
     /// Elysium declined the call, saying why and when to try again: the knowledge base is for
-    /// the company's members alone, or a search budget is spent for now.
+    /// the company's members alone, a search budget is spent for now, or a page refuses the write.
     #[error("{0}")]
     Refused(String),
     /// The storage provider refused or could not be reached, in its own words.

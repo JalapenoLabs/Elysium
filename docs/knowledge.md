@@ -631,7 +631,7 @@ and the history below with Undo. Look for updates starts a review at once. See `
 ## MCP
 
 Tools return evidence, and the calling agent reasons with it. External clients reach them on the MCP server
-(`api/src/mcp/`, `docs/mcp.md`); every agent's turn reaches the reading ones and the company doc's on the
+(`api/src/mcp/`, `docs/mcp.md`); every agent's turn reaches the reading ones, the company doc's, and the pages' on the
 `elysium_knowledge` server at `/api/agent-tools/elysium_knowledge` (`api/src/tools/knowledge.rs`, `docs/coding.md`),
 under the same names, descriptions, and argument schemas.
 
@@ -646,6 +646,12 @@ under the same names, descriptions, and argument schemas.
 | `company_doc_propose` | Yes | Yes  | A proposal to one section                                             |
 | `learning_save`       | Yes | No   | Saves or revises a learning (Learnings, above)                        |
 | `learning_delete`     | Yes | No   | Deletes a learning softly                                             |
+| `page_read`           | Yes | Yes  | One page whole, with its `currentVersion`                             |
+| `page_list`           | Yes | Yes  | One branch of the tree, 200 pages at a time, each with its `childCount` |
+| `page_save`           | Yes | Yes  | Creates a page or publishes its next version (Who changes pages, below) |
+| `page_move`           | Yes | Yes  | Moves a page with everything under it, or reorders it                 |
+| `page_label_add`      | Yes | Yes  | Puts a label on a page (Labels, below)                                |
+| `page_label_remove`   | Yes | Yes  | Takes a label off a page                                              |
 
 - **One function per route.** `knowledge_search`, `knowledge_get`, and `meetings_list` call the functions the
   knowledge routes call (`search`, `open`, and `list_meetings` in `api/src/routes/v1/knowledge/`), with the same
@@ -674,6 +680,13 @@ under the same names, descriptions, and argument schemas.
   strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
   narrow and `person` is whoever said it, what `searchedByMeaning: false` means, to cite by title, person, and date,
   and that results may quote a coworker's mail and are not for repeating outside the company.
+- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove` call what the page routes
+  call, with the argument structs beside those routes, so a turn's schemas are the MCP server's as the knowledge tools'
+  are. `page_list` answers one branch, from what `GET /api/v1/pages` reads: every learning is a page, so the flat list
+  soon passes what a tool may answer (Claude Code refuses about 25,000 tokens, some 300 pages), and an agent wants to see
+  how the tree is laid out, not all of it at once. It starts at the top and follows `childCount`; to find what a page
+  says it searches. Every learning sits under one page, so one branch can pass that limit too: an answer holds at most
+  200 pages, `total` says how many the branch has, and `offset` reads on.
 - `learning_save` and `learning_delete` call the routes' own `save` and `delete` with the connecting person as who
   saved it and the client as the agent acting for them, so a learning an agent saves is validated, recorded, indexed,
   and announced exactly as one saved in the browser. `learning_save`'s description and the agent guidance (Agent
@@ -701,7 +714,7 @@ Three paragraphs, in this order (`instructions` in `api/src/agent_guidance/`):
 | Part                         | From                                   | Says                                                  |
 |------------------------------|----------------------------------------|-------------------------------------------------------|
 | Its server's introduction    | Compiled, one per kind of agent        | What the server is; for a turn, that it has no `learning_save` |
-| The guidance                 | The newest version admins wrote        | When to search, how to cite, what is worth saving, and whatever else the company asks |
+| The guidance                 | The newest version admins wrote        | When to search, how to cite, what is worth saving, when to write a page rather than a learning, and whatever else the company asks |
 | The rules                    | Compiled, part of no version           | Results may quote a coworker's mail and messages and never leave the company; a person opens a citation at `https://<host>/knowledge/documents/<documentId>` |
 
 - **Fixed rules, not a check.** The confidentiality rule and the citation link follow every version, compiled, rather
@@ -719,11 +732,14 @@ Three paragraphs, in this order (`instructions` in `api/src/agent_guidance/`):
 - **What a tool does belongs to the code.** How to use a tool goes in its description, or in its server's compiled
   introduction, never in the guidance: the guidance is the company's to edit, and a release cannot change it without
   overriding an admin. A new tool, such as `knowledge_ask`, describes itself.
-- **The default.** Version 1, seeded by its migration as the system user: search the knowledge base before asking or
-  working something out again, open and cite what it finds by title, person, and date, read the company doc before
-  writing about its people, clients, and terms and propose what is certain, and save as a learning what the next agent
-  would otherwise rediscover. A release never changes the guidance: a new default would be a migration adding a
-  version, which would replace an admin's own.
+- **The default.** Written by the system user in two versions: search the knowledge base before asking or working
+  something out again, open and cite what it finds by title, person, and date, read the company doc before writing
+  about its people, clients, and terms and propose what is certain, save as a learning what the next agent would
+  otherwise rediscover, and write a page rather than a learning for what people read as a whole and keep up to date.
+- **A release never changes what an admin wrote.** A new default is a migration adding a version, and it adds one only
+  while the versions a release wrote are the only ones. A deployment whose admins saved or restored anything keeps
+  exactly what they chose, and they add the new words themselves if they want them. Rolling it back takes that version
+  away only if nothing was written after it.
 
 ### Versions
 
@@ -924,12 +940,39 @@ deletion that left it in its parent's place, or the restore that took it back.
   refuses a guest with `403 members_only` (`MemberUser`).
 - **Agents write as their person, or as themselves.** Every write takes an `Author`: who it is by and the agent acting
   for them (`mcp:<client id>`, `session:<number>`, or `project_manager:<project id>`). Each route's work is a function
-  of its own taking one, so an agent's tool calls what the route calls.
+  of its own taking one, so an agent's tool calls what the route calls. Agents edit pages directly, since every version
+  is kept and can be restored; what an agent should not do alone is a page that says so (below).
+
+  | Agent                       | Reads as                     | Writes                                               |
+  |-----------------------------|------------------------------|------------------------------------------------------|
+  | An MCP client               | The person who connected it  | With `workspace:write`, as them, naming the client   |
+  | A coding or Studio session  | Whoever started the session  | As them, naming the session                          |
+  | A Project Manager           | Its machine user             | As its machine user, naming its project              |
+  | Elysia                      | Herself                      | As herself, with no agent to name                    |
+  | A pool worker               | The coding agent             | Nothing: it reports to its Project Manager           |
+
+  A person's agent is checked as the person is on every call, so a guest's client, or a session a guest started or
+  whose starter was disabled since, is refused. A worker runs unattended for a batch rather than a person, no recorded
+  form names it, and what it learned is its Project Manager's to write up, from its result.
+- **`page_save` is both routes.** An agent has one tool, so it takes one flat set of arguments
+  (`api/src/routes/v1/pages/save_page.rs`). With `id` and `baseVersion` it publishes; a stale one is refused with
+  `page_changed`, which says to read the page again and save against what that answers, and never carries the version
+  itself, so an agent cannot retry without reading what it would overwrite. Without them it creates, and takes
+  `parentId`, `null` for the top of the tree: required, as a move's is, so nothing lands there by accident, and open to
+  agents, since a fresh tree holds only the Learnings and Company pages. Anything else is refused by name.
+- **Learnings are `learning_save`'s.** `page_save` refuses a learning, and a new page directly under Learnings, with
+  `409 page_is_a_learning`. In the browser a person edits one as any page, but an agent's edit would rewrite a rule
+  under the evidence for the rule it replaced, and a page it created under Learnings would be an ordinary page, never
+  listed as a learning. `learning_save` takes the evidence with the text and revises by title. A turn has no
+  `learning_save`, so it is told to say what should change in its answer. Moving a learning is only a move, so
+  `page_move` takes one.
 - **Proposal-only pages.** A page may be `proposalOnly`: people edit it directly, and an agent may only propose.
   Anything but a person acting alone is refused, publishing, restoring, moving, or deleting it, or deleting a page
-  above it, with `409 page_proposal_only`. Who that is is read from the user as well as the agent named, so Elysia, who
-  writes as her machine user with no agent, is refused too, and a caller that forgets to name its agent is refused all
-  the same. No route sets it: the Company page and the doc's sections are the only ones that have it.
+  above it, with `409 page_proposal_only`, whose message names `company_doc_propose`. Who that is is read from the user
+  as well as the agent named, so Elysia, who writes as her machine user with no agent, is refused too, and a caller that
+  forgets to name its agent is refused all the same. A client that cannot be recorded as an agent is refused any change
+  to a page first, since it would read as the person alone. No route sets it: the Company page and the doc's sections
+  are the only ones that have it.
 - **Fixed pages.** The Learnings page, the Company page, and the doc's seven sections are ones Elysium relies on, each at
   an id fixed in code, and they keep their place: nobody moves, deletes, or renames one, people included, with
   `409 page_fixed`. What a fixed page says is written like any page's, under its rule above. Other pages may sit
@@ -952,12 +995,13 @@ Any page takes any number of labels, which cut across the tree. The model is `ap
   version restores, so restoring an old version keeps the page's labels as they are. It is an entry in the page's
   history, in the same transaction, naming who did it and the agent acting for them, and it announces `page.changed`. A
   label already there, or one the page does not carry, records nothing.
-- **Who labels.** Everyone who may read the page: people, and agents acting for them or as themselves, through a
-  function taking an `Author` (`page_label::add` and `remove`) as every write of a page does. A proposal-only page keeps
-  what it says from agents, and a fixed page keeps its place and name; a label changes neither, and labelling is what
-  `docs/vision.md` starts in the tier that needs no approval, so both take labels from anyone, and the history says
-  who. Only a deleted page refuses, with `409 page_deleted`, as it changes no further; it keeps its labels and comes back
-  with them.
+- **Who labels.** Everyone who may write a page: people, and agents acting for them or as themselves with
+  `page_label_add` and `page_label_remove`, through a function taking an `Author` (`page_label::add` and `remove`) as
+  every write of a page does. They are tools of their own rather than part of `page_save`, which refuses the pages a
+  label may go on. A proposal-only page keeps what it says from agents, and a fixed page keeps its place and name; a
+  label changes neither, and labelling is what `docs/vision.md` starts in the tier that needs no approval, so both take
+  labels from anyone, and the history says who. Only a deleted page refuses, with `409 page_deleted`, as it changes no
+  further; it keeps its labels and comes back with them.
 - **A learning's category is not a label.** It is a filed, fixed choice with rules of its own. A learning is a page, so
   it can also carry labels, which stay out of its own history and feed, as a move does.
 - **In the index, a label is metadata read through the page.** Nothing about it is copied to `knowledge_documents` or
@@ -1100,7 +1144,6 @@ Markdown editor.
 
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
 - **Projects.** A page can be linked to projects, so a project shows its docs.
-- **Agents.** Tools to read and edit pages, every version kept, except that the company doc's pages keep their rule.
 
 ## Onyx
 

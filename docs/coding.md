@@ -199,8 +199,10 @@ initiatives (`docs/action-items.md`), given to every turn of a session with a pr
 storage locations (`docs/storage.md`), given when the project may use one, and `elysium_passwords` for the logins
 agents sign in with (`docs/passwords.md`), given to every turn while the password vault is ready, and
 `elysium_knowledge` for the company's knowledge base, given to every turn: searched with `knowledge_search`, opened
-with `knowledge_get`, its meetings listed with `meetings_list`, and the company doc read with `company_doc_read` and
-proposed to with `company_doc_propose` as the session's coding agent (`docs/knowledge.md`, MCP and The company doc).
+with `knowledge_get`, its meetings listed with `meetings_list`, the company doc read with `company_doc_read` and
+proposed to with `company_doc_propose` as the session's coding agent (`docs/knowledge.md`, MCP and The company doc),
+and its pages read with `page_read` and `page_list` and edited with `page_save`, `page_move`, `page_label_add`, and
+`page_label_remove`, as whoever started the session and naming it (`docs/knowledge.md`, Who changes pages).
 Its instructions are the company's agent guidance, read as each turn connects, so an admin's edit reaches every turn
 as it reaches every MCP client (`docs/knowledge.md`, Agent guidance). Its every call reads for whoever started the
 session, checked in the database, so a session a guest started reaches none of it, and a session's searches spend its

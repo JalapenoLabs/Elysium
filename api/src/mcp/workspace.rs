@@ -4,7 +4,7 @@
 //!
 //! The tools are grouped by what they act on, each group a `#[tool_router]` block in its own
 //! module ([`super::company_doc`], [`super::knowledge`], [`super::learnings`],
-//! [`super::projects`], [`super::sessions`]), combined in
+//! [`super::pages`], [`super::projects`], [`super::sessions`]), combined in
 //! [`Workspace::new`]. A tool reaches the person calling it through [`caller`]: the
 //! [`McpCaller`] the bearer check attached to the HTTP request.
 //!
@@ -51,6 +51,7 @@ impl Workspace {
                 + Self::company_doc_router()
                 + Self::knowledge_router()
                 + Self::learnings_router()
+                + Self::pages_router()
                 + Self::projects_router()
                 + Self::sessions_router(),
         }

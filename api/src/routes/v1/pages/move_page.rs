@@ -14,9 +14,11 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page::{self, Placement};
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 /// Where a page goes. Both are required, even when `null`, so leaving one out never sends a page to
@@ -26,10 +28,22 @@ use crate::state::AppState;
 pub struct MovePageRequest {
     /// The page it goes under, or `null` for the top of the tree.
     #[serde(deserialize_with = "Option::deserialize")]
+    #[schemars(required)]
     pub parent_id: Option<Uuid>,
     /// The sibling it goes right after, or `null` to go first.
     #[serde(deserialize_with = "Option::deserialize")]
+    #[schemars(required)]
     pub after: Option<Uuid>,
+}
+
+/// A page and where it goes: what a tool takes, where a route has the page in its path.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MovePageArguments {
+    /// The page to move, from `page_list`.
+    pub id: Uuid,
+    /// Where it goes.
+    pub to: MovePageRequest,
 }
 
 pub async fn handle(
@@ -40,7 +54,7 @@ pub async fn handle(
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
     let Json(body) = body?;
-    let page = move_to(&state, author(&member), id, body).await?;
+    let page = move_to(&state.database, &state.events, author(&member), id, body).await?;
     Ok(Json(json!({ "page": page })))
 }
 
@@ -50,7 +64,8 @@ pub async fn handle(
 /// `404` for an unknown page, and `409` with `page_deleted`, `page_proposal_only`,
 /// `page_parent_gone`, `page_under_itself`, or `page_placement_gone` for a move that is refused.
 pub async fn move_to(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     request: MovePageRequest,
@@ -59,13 +74,12 @@ pub async fn move_to(
         parent_id: request.parent_id,
         after: request.after,
     };
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page::move_page(&mut connection, id, placement, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }
 
 #[cfg(test)]

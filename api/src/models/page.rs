@@ -482,7 +482,7 @@ pub enum PageError {
     #[error("this page is deleted; restore it to change it")]
     Deleted,
     /// An agent tried to write a page agents only propose to.
-    #[error("people edit this page directly, and agents propose changes to it")]
+    #[error("people edit this page directly; agents propose changes with company_doc_propose")]
     ProposalOnly,
     /// The parent named does not exist or is deleted.
     #[error("the page it would go under does not exist or is deleted")]

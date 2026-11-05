@@ -46,5 +46,5 @@ pub async fn restore_version(
         .await
         .context("no database connection available")?;
     let recorded = page::restore_version(&mut connection, id, version, author).await?;
-    answer_published(state, &mut connection, recorded).await
+    answer_published(&state.events, &mut connection, recorded).await
 }

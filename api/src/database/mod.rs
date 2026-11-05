@@ -14,6 +14,8 @@ mod knowledge_index_tests;
 pub mod migrations;
 #[cfg(test)]
 mod move_onto_pages_tests;
+#[cfg(test)]
+mod page_guidance_tests;
 #[allow(
     clippy::wildcard_imports,
     missing_debug_implementations,

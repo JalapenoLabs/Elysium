@@ -9,7 +9,8 @@
 //!
 //! Each route's work is a public function taking the [`Author`] of the change, so an agent's tool
 //! calls what the route calls and its change is validated, recorded, indexed, and announced exactly
-//! as one made in the browser, naming the agent acting for its person.
+//! as one made in the browser, naming the agent acting for its person. They take the database and
+//! the event bus rather than the app's state, since a turn's tools have those alone.
 
 mod add_label;
 mod create_page;
@@ -25,6 +26,7 @@ mod publish_page;
 mod remove_label;
 mod restore_page;
 mod restore_version;
+mod save_page;
 #[cfg(test)]
 mod tests;
 
@@ -37,6 +39,14 @@ use serde_json::Value;
 use uuid::Uuid;
 use validator::{Validate, ValidationError, ValidationErrors};
 
+pub use self::add_label::{PageLabelArguments, add as add_label};
+pub use self::create_page::{CreatePageRequest, create};
+pub use self::get_page::{PageArguments, read};
+pub use self::list_pages::{ListPagesArguments, list_branch};
+pub use self::move_page::{MovePageArguments, move_to};
+pub use self::publish_page::{PublishPageRequest, publish};
+pub use self::remove_label::remove as remove_label;
+pub use self::save_page::{PAGE_IS_A_LEARNING, SavePageRequest, save};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
@@ -258,6 +268,9 @@ impl From<HistoryEntry> for HistoryEntryResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PublishOutcome {
+    /// A new page, as its version 1. Only an agent's `page_save` answers it: the browser's route
+    /// for creating a page answers the page.
+    Created,
     Published,
     /// The page already said exactly this; no version was made.
     Unchanged,
@@ -387,11 +400,11 @@ pub fn announce(events: &EventBus, changed: &[Uuid], learnings: &[Uuid]) {
 
 /// Announces every page a write changed, and answers the page it left.
 async fn answer(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     recorded: Recorded,
 ) -> Result<PageResponse, ApiError> {
-    announce(&state.events, &recorded.changed, &recorded.learnings);
+    announce(events, &recorded.changed, &recorded.learnings);
     response(connection, recorded.page).await
 }
 
@@ -407,7 +420,7 @@ async fn response(
 
 /// A write that publishes, answered with what it did.
 async fn answer_published(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     recorded: Recorded,
 ) -> Result<PublishedPage, ApiError> {
@@ -417,7 +430,7 @@ async fn answer_published(
         PublishOutcome::Published
     };
     Ok(PublishedPage {
-        page: answer(state, connection, recorded).await?,
+        page: answer(events, connection, recorded).await?,
         outcome,
     })
 }

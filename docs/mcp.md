@@ -123,8 +123,14 @@ Tools are named for what they act on, then what they do.
 | `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve              |
 | `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
 | `learning_delete`      | `workspace:write` | Deletes a learning softly, out of the knowledge base until restored    |
+| `page_read`            | `workspace:read`  | Reads one page whole, with its `currentVersion`                        |
+| `page_list`            | `workspace:read`  | Lists the tree a branch at a time, 200 pages to an answer, each with its `childCount` |
+| `page_save`            | `workspace:write` | Creates a page or publishes its next version                           |
+| `page_move`            | `workspace:write` | Moves a page with everything under it, or reorders it                  |
+| `page_label_add`       | `workspace:write` | Puts a label on a page, which makes no version                         |
+| `page_label_remove`    | `workspace:write` | Takes a label off a page                                               |
 
-- **Knowledge base.** The knowledge, learning, and company doc tools answer admins and members alone, and a guest's
+- **Knowledge base.** The knowledge, learning, company doc, and page tools answer admins and members alone, and a guest's
   client `403 members_only`, as the routes do (`docs/knowledge.md`, Who sees what). `knowledge_search`,
   `knowledge_get`, and `meetings_list` call the knowledge routes' own functions (`search`, `open`, and `list_meetings`
   in `api/src/routes/v1/knowledge/`) with the connecting person, so a client finds what that person would in the
@@ -135,6 +141,11 @@ Tools are named for what they act on, then what they do.
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
   is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
   nothing until a person approves (`docs/knowledge.md`, The company doc).
+- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove` call what the page routes
+  call (`read`, `create`, `publish`, `move_to`, `add`, and `remove` in `api/src/routes/v1/pages/`), with the connecting
+  person as author and the client as the agent, and `page_list` narrows what the list route reads to one branch, at most
+  200 pages to an answer (`docs/knowledge.md`, MCP). A client that cannot be
+  recorded as an agent reads pages and changes none, since its change would read as the person's own.
 - **Asking.** `knowledge_ask` calls the asking route's own `ask` (`routes::v1::knowledge::asks`) with the connecting
   person, so it searches with their budget and spends one of their questions, then waits up to 20 seconds
   (`ASK_WAIT` in `api/src/mcp/knowledge.rs`) for the engine's answer, inside the 30 seconds every request has. An
@@ -170,7 +181,7 @@ Tools are named for what they act on, then what they do.
 ### Adding a tool
 
 Tools are grouped by what they act on, one module each under `api/src/mcp/` (`company_doc.rs`, `knowledge.rs`,
-`learnings.rs`, `projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A
+`learnings.rs`, `pages.rs`, `projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A
 knowledge base tool checks its caller with `MemberUser::check(caller.user)` first and passes the `MemberUser` on, as
 the route's extractor does.
 

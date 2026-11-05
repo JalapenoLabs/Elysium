@@ -751,7 +751,7 @@ Refusals are `409` with a `code` the web app explains in its own words:
 
 | `code`                | When                                                                            |
 |-----------------------|---------------------------------------------------------------------------------|
-| `page_changed`        | A publish named a `baseVersion` that is no longer current; load the page again   |
+| `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or label change of a deleted page         |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
 | `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
@@ -761,6 +761,7 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_placement_gone` | `after` is not a live child of the parent named; load the tree again             |
 | `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |
 | `page_label_limit`    | The page already carries 50 labels, as many as a page may                        |
+| `page_is_a_learning`  | An agent's `page_save` named a learning, or a new page directly under Learnings  |
 
 ### `/api/v1/learning-categories`
 

@@ -477,7 +477,8 @@ trackers (Its writes, below), and its tabs on the project's page.
   `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
-  `elysium_work`, scoped to its project, to read items and initiatives, and `elysium_knowledge`. Every call is checked
+  `elysium_work`, scoped to its project, to read items and initiatives, and `elysium_knowledge`, whose pages it edits
+  as its machine user, naming its project (`docs/knowledge.md`, Who changes pages). Every call is checked
   against the project in the database, under a grant for the turn alone. `work_comment` and `work_propose_changes`
   refuse it, pointing at `manager_make_changes`, so each of its changes names what caused it.
 - **On the timeline.** Each turn that did its work is a timeline record of kind `project_manager`, headed by its
@@ -685,7 +686,8 @@ worker's own tools.
   on the slot, so each only files its report on the batch (`worker_report`), the last of a turn winning; the engine
   whose worker ran the turn takes it as the turn ends and acts on it under the slot's token
   (`api/src/models/work_batch/worker.rs`). A worker also gets `elysium_knowledge`, which it reads as the coding agent
-  and which refuses it proposals to the company doc, and `elysium_passwords` while the vault is up. Not `elysium_work`,
+  and which refuses it proposals to the company doc and changes to pages, and `elysium_passwords` while the vault is up.
+  Not `elysium_work`,
   whose writes are recorded as a session's or a Project Manager's, and not `elysium_storage`, whose tools move files
   in the shared workspace.
 - **Finishing.** `worker_finish` finishes the batch (`work_batch::finish`, as the coding agent), which gives its slot
