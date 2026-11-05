@@ -23,6 +23,7 @@ export const KNOWLEDGE_SOURCES = [
   'youtrack',
   'meeting',
   'turn_summary',
+  'page',
   'learning',
   'company_doc',
 ] as const
@@ -45,6 +46,7 @@ const presentationBySource = {
   youtrack: { labelKey: 'sources.youtrack', ...connectorLogos.youtrack },
   meeting: { labelKey: 'sources.meeting', icon: LuVideo, className: '' },
   turn_summary: { labelKey: 'sources.turn_summary', icon: LuSquareTerminal, className: '' },
+  page: { labelKey: 'sources.page', icon: LuFileText, className: '' },
   learning: { labelKey: 'sources.learning', icon: LuLightbulb, className: '' },
   company_doc: { labelKey: 'sources.company_doc', icon: LuBuilding2, className: '' },
 } as const satisfies Record<KnowledgeSource, SourcePresentation>

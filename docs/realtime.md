@@ -41,7 +41,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
 | `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
 | `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
-| `page.changed`           | `{ id }`         | A knowledge base page was created, published, moved, deleted, or restored, or its place among its siblings was renumbered, once for each page a change touched; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md`, Pages |
+| `page.changed`           | `{ id }`         | A knowledge base page was created, published, moved, deleted, or restored, or its place among its siblings was renumbered, once for each page a change touched; never its text, since guests hear it too; members gather a burst, then reload the list and the pages a view holds, see `docs/frontend.md`, Pages |
 | `knowledgeAsk.changed`   | `{ id, askedBy, state }` | A question asked of the knowledge base was made, taken, answered, or failed; never the question or its answer; the asker loads it by id, see `docs/knowledge.md`, Asking |
 | `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
 | `companyDoc.changed`     | none             | The company doc changed, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |

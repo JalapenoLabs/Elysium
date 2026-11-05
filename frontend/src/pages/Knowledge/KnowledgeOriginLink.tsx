@@ -7,23 +7,30 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { buttonVariants, Link } from '@heroui/react'
-import { LuBookOpen, LuExternalLink, LuLightbulb } from 'react-icons/lu'
+import { LuBookOpen, LuExternalLink, LuFileText, LuLightbulb } from 'react-icons/lu'
 
 // Misc
-import { getLearningUrl, UrlTree } from '../../urls'
+import { getKnowledgePageUrl, getLearningUrl, UrlTree } from '../../urls'
 
 type Props = {
   document: KnowledgeDocument
   sourceLabel: string
 }
 
-// Where the document's source can be opened: a learning's page, the company doc, or the
-// provider's own page for a record, in a new tab. A record with no link of its own has none.
+// Where the document's source can be opened: a knowledge base page, a learning's page, the
+// company doc, or the provider's own page for a record, in a new tab. A record with no link of
+// its own has none.
 export function KnowledgeOriginLink(props: Props) {
   const { t } = useTranslation('knowledge')
   const { origin, citation } = props.document
   const className = buttonVariants({ variant: 'outline' })
 
+  if (origin.kind === 'page') {
+    return <Link href={getKnowledgePageUrl(origin.pageId)} className={className}>
+      <LuFileText className='size-4' aria-hidden />
+      <span>{t('document.openPage')}</span>
+    </Link>
+  }
   if (origin.kind === 'learning') {
     return <Link href={getLearningUrl(origin.learningId)} className={className}>
       <LuLightbulb className='size-4' aria-hidden />

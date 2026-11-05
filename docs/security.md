@@ -257,8 +257,20 @@ The Content Security Policy depends on what answers, in `api/src/middleware/secu
   the cover preview and inlined icons; and `font-src data:`, for fonts bundled CSS inlines.
 
 Keeping the app inside that policy takes two things on the frontend: the pre-paint theme script is the file
-`public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
-`docs/frontend.md`.
+`public/theme.js`, not inline, and Zod runs `jitless`, set by the first module `main.tsx` imports, so it never probes
+for `new Function`. See `docs/frontend.md`.
+
+Knowledge base pages are Markdown that agents write, so the app treats them as hostile, inside the same policy
+(`docs/knowledge.md`, Pages, In the web app):
+
+- **Rendering.** `Markdown` builds React elements and never sets HTML. Raw HTML in a page stays text, so `<script>`,
+  an event handler, or an `<iframe>` creates no element.
+- **Addresses.** Only `http`, `https`, `mailto`, and relative addresses survive, so `javascript:` and `data:` links
+  and images are blanked whatever their encoding. A link's text stays; an image says it is unavailable.
+- **Images.** Only Elysium's own origin loads. `img-src` stays as it is, since allowing other hosts would let a page
+  tell a third party who read it and when. An image elsewhere is a link that opens in a new tab, with no referrer.
+- **Highlighting.** highlight.js marks tokens with class names, and evaluates nothing and needs no WebAssembly.
+  Highlighters that do (Shiki) would need `'wasm-unsafe-eval'`, and write inline styles.
 
 Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside the same policy:
 

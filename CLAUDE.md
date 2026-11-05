@@ -586,6 +586,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Every date, duration, and number shown goes through `frontend/src/format/`: "January 1st 2026 at 8:56pm", never
   numeric months, and "1.4M" with one decimal. Lint fails on formatting anywhere else. See `docs/frontend.md`, Dates
   and numbers.
+- Markdown reads through one component, `Markdown` (`src/components/markdown/`): React elements, raw HTML left as text,
+  and another origin's image a link, since nothing in a page is trusted. See `docs/frontend.md`, Markdown.
 - Reach for `@jalapenolabs/uikit` first when it covers the need, such as `SmartTable` for data tables. Use HeroUI
   for everything the kit does not provide.
 - Linting is the org-wide ruleset from `@jalapenolabs/cli/eslint`. Change rules in the shared package, not

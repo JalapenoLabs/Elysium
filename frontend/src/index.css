@@ -122,17 +122,16 @@
 /* The breadcrumbs' last crumb, the page's own title, shortens with an ellipsis rather than
    running off a phone's edge. HeroUI keeps every crumb at its full width, and gives the
    crumb's link no class of its own to set. */
-.page-breadcrumbs .breadcrumbs__item:last-child,
-.page-breadcrumbs .breadcrumbs__item:last-child .breadcrumbs__link {
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-/* A parent named by a page's own long title gives way too, so a path never leaves the screen. */
+/* A parent named by a page's own long title gives way too, so a path never leaves the screen,
+   though only once the last crumb has: that one is the title, shown whole just below it. */
 .page-breadcrumbs .breadcrumbs__item,
 .page-breadcrumbs .breadcrumbs__link {
   flex-shrink: 1;
   min-width: 0;
+}
+
+.page-breadcrumbs .breadcrumbs__item:last-child {
+  flex-shrink: 1000;
 }
 
 .page-breadcrumbs .breadcrumbs__link {

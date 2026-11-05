@@ -48,7 +48,9 @@ import { WorkQueuePage } from './pages/WorkQueue/WorkQueuePage'
 import { SearchPage } from './pages/Search/SearchPage'
 import { KnowledgeAskPage } from './pages/Knowledge/Ask/KnowledgeAskPage'
 import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
+import { KnowledgeHome } from './pages/Knowledge/KnowledgeHome'
 import { KnowledgeLayout } from './pages/Knowledge/KnowledgeLayout'
+import { KnowledgePageView } from './pages/Knowledge/Pages/KnowledgePageView'
 import { KnowledgeSearchPage } from './pages/Knowledge/KnowledgeSearchPage'
 import { NewStudioItemPage } from './pages/Studio/NewStudioItemPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
@@ -236,13 +238,23 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.workBatchView,
       element: <WorkBatchPage />,
     },
-    // The knowledge base's search, asking it, and its learnings share the area's heading and tabs.
+    // Everything in the knowledge base sits beside its panel of pages, which stays put while the
+    // page beside it scrolls.
     {
       path: UrlTree.knowledge,
       element: <KnowledgeLayout />,
+      handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
       children: [
         {
           index: true,
+          element: <KnowledgeHome />,
+        },
+        {
+          path: UrlTree.knowledgePage,
+          element: <KnowledgePageView />,
+        },
+        {
+          path: UrlTree.knowledgeSearch,
           element: <KnowledgeSearchPage />,
         },
         {
@@ -253,19 +265,19 @@ export const workspaceRoutes: RouteObject = {
           path: UrlTree.knowledgeLearnings,
           element: <LearningsPage />,
         },
+        {
+          path: UrlTree.knowledgeLearningNew,
+          element: <NewLearningPage />,
+        },
+        {
+          path: UrlTree.knowledgeLearning,
+          element: <LearningPage />,
+        },
+        {
+          path: UrlTree.knowledgeDocument,
+          element: <KnowledgeDocumentPage />,
+        },
       ],
-    },
-    {
-      path: UrlTree.knowledgeLearningNew,
-      element: <NewLearningPage />,
-    },
-    {
-      path: UrlTree.knowledgeLearning,
-      element: <LearningPage />,
-    },
-    {
-      path: UrlTree.knowledgeDocument,
-      element: <KnowledgeDocumentPage />,
     },
     {
       path: UrlTree.search,

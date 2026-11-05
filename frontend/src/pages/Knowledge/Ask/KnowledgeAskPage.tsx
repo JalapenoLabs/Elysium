@@ -12,6 +12,7 @@ import { knowledgeAskUpserted, selectAllKnowledgeAsks } from '../../../store/kno
 import { Button, Description, Label, TextArea, TextField } from '@heroui/react'
 import { LuSparkles } from 'react-icons/lu'
 import { EmptyNotice } from '../../../components/EmptyNotice'
+import { Page } from '../../../layout/page/Page'
 import { KnowledgeAskCard } from './KnowledgeAskCard'
 
 // Misc
@@ -21,6 +22,7 @@ import { submitOnEnter } from '../../../components/submitOnEnter'
 import { useTextDraft } from '../../../drafts/useTextDraft'
 import { useKnowledgeAsksLoader } from '../../../hooks/useServerData'
 import { toast } from '../../../toast/toast'
+import { UrlTree } from '../../../urls'
 
 // Also the draft's name, so what is typed survives a reload until it is asked.
 const QUESTION_FIELD_ID = 'knowledge-ask-question'
@@ -28,7 +30,7 @@ const QUESTION_FIELD_ID = 'knowledge-ask-question'
 // The question the search caps its query at, which an ask is searched by.
 const QUESTION_MAX_CHARACTERS = 500
 
-// The Knowledge page's Ask tab: one question at a time, answered from the knowledge base with
+// `/knowledge/ask`: one question at a time, answered from the knowledge base with
 // every claim citing where it came from, and the person's earlier questions below, newest
 // first. An answer takes seconds to tens of seconds; its card shows it being written and
 // `knowledgeAsk.changed` brings the answer.
@@ -44,7 +46,7 @@ export function KnowledgeAskPage() {
   const [ asking, setAsking ] = useState<string | null>(null)
   const questionRef = useRef<HTMLTextAreaElement>(null)
 
-  // The tab is its question, so typing starts there.
+  // The page is its question, so typing starts there.
   useEffect(() => {
     questionRef.current?.focus()
   }, [])
@@ -70,7 +72,10 @@ export function KnowledgeAskPage() {
     }
   }
 
-  return <>
+  return <Page
+    title={t('sections.ask')}
+    parents={[{ label: t('title'), href: UrlTree.knowledge }]}
+  >
     {/* Enter adds a line; Ctrl or Cmd with Enter asks (ux.md, Hotkeys). */}
     <form
       className='relaxed flex max-w-3xl flex-wrap items-end gap-2'
@@ -117,5 +122,5 @@ export function KnowledgeAskPage() {
         onAskAgain={(again) => void ask(again, asked.id)}
       />)}
     </section>
-  </>
+  </Page>
 }

@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router'
 // User interface
 import { Badge, Button, SearchField, Spinner, Tooltip } from '@heroui/react'
 import { LuListFilter } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { KnowledgeFiltersDrawer } from './KnowledgeFiltersDrawer'
 import { KnowledgeFilterTags } from './KnowledgeFilterTags'
 import { KnowledgeResultCard } from './KnowledgeResultCard'
@@ -19,6 +20,7 @@ import { KNOWLEDGE_SEARCH_PAGE_LIMIT } from '../../constants'
 import { formatNumber } from '../../format/numbers'
 import { useFindHotkey } from '../../hooks/useFindHotkey'
 import { useProjectsLoader, useUsersLoader } from '../../hooks/useServerData'
+import { UrlTree } from '../../urls'
 import {
   countKnowledgeFilters,
   readKnowledgeFilters,
@@ -27,7 +29,7 @@ import {
 } from './knowledgeFilters'
 import { useKnowledgeSearch } from './useKnowledgeSearch'
 
-// The Knowledge page's search: one field, the filters button beside it, the filters in force
+// `/knowledge/search`, the knowledge base's search: one field, the filters button beside it, the filters in force
 // as tags, then the documents found, best first, each with its best passages. The query and the
 // filters live in the address, so a search can be shared, reloaded, and come back to from a
 // document. When the embedding model cannot answer, the search runs by its words alone and says
@@ -59,7 +61,10 @@ export function KnowledgeSearchPage() {
     ? t('filters.openActive', { count: filterCount })
     : t('filters.open')
 
-  return <>
+  return <Page
+    title={t('sections.search')}
+    parents={[{ label: t('title'), href: UrlTree.knowledge }]}
+  >
     <div className='relaxed flex max-w-3xl items-center gap-2'>
       <SearchField
         id='knowledge-search-query'
@@ -129,5 +134,5 @@ export function KnowledgeSearchPage() {
       filters={filters}
       onApply={(nextFilters) => show(query, nextFilters)}
     />
-  </>
+  </Page>
 }

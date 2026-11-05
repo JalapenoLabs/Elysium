@@ -19,6 +19,7 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Forms           | react-hook-form with Zod schemas                               |
 | Dates           | `@internationalized/date` for input, `src/format/` for display |
 | Icons           | `react-icons/lu` (Lucide)                                      |
+| Markdown        | `react-markdown`, `remark-gfm`, `rehype-highlight`, pinned     |
 | Translations    | i18next with react-i18next                                     |
 | Tests           | Vitest with jsdom and Testing Library                          |
 
@@ -36,10 +37,11 @@ The production pages carry a strict Content Security Policy (`docs/security.md`)
 Code here keeps to it:
 
 - No inline `<script>`. The one script that must run before the first paint is `public/theme.js`.
-- Zod is configured `jitless` in `main.tsx`, before any schema parses. Otherwise it probes for `new Function` once,
-  and the policy reports that probe as a violation even though Zod recovers from it.
+- Zod is configured `jitless` in `src/zodConfig.ts`, the first module `main.tsx` imports. It probes for `new Function`
+  as the first object schema is built, which can be while any module loads, and the policy reports that probe as a
+  violation even though Zod recovers from it.
 - Images come from the API or are `blob:` or `data:` URLs. Anything from another origin needs the policy widened
-  first.
+  first; a page's Markdown never asks (see Pages).
 
 ## Layout
 
@@ -79,7 +81,7 @@ Code here keeps to it:
   release and every image built from a new commit has a new time.
 - The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
-  content area and manages its own scrolling instead; the Coding page does.
+  content area and manages its own scrolling instead; the Coding page and the Knowledge area do.
 
 Every page works at 375px. The shell pads `main` and the topbar `px-4` below `md` and `px-10` from it. Below `sm`
 every page's titlebar stacks onto several lines, its buttons full width with their text centered (see Page header).
@@ -114,7 +116,8 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 ```
 
 - **Breadcrumbs.** With `parents`, the header opens with an icon-only back button, a link to the last parent, then
-  the breadcrumbs ending in the title. A top-level page has neither.
+  the breadcrumbs ending in the title. A top-level page has neither. Past three parents the middle ones fold into a
+  menu (`PageBreadcrumbs`), and any crumb gives way to the screen's width, so a deep path never runs off it.
 - **Titlebar.** The large title on the left, everything else on the right, centered on one line, in this order:
   `tools`, the page's list controls, `primaryAction`, a lone action's button, Save, then the Actions menu, so Save
   keeps the top right corner unless the menu is there. There are no subtitles; a page that truly needs explaining
@@ -268,7 +271,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
 | `/work-queue`                 | `WorkQueuePage`          | The worker pool and its batches, as tabs in `?tab=`; members only |
 | `/work-queue/:batchId`        | `WorkBatchPage`          | One batch whole, with its history and what may still be done to it; members only |
-| `/knowledge`                  | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
+| `/knowledge`                  | `KnowledgeHome`          | Opens the first page; with a query, goes on to the search; members only |
+| `/knowledge/pages/:pageId`    | `KnowledgePageView`      | One page, live or deleted, as it reads                   |
+| `/knowledge/search`           | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
 | `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
 | `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
 | `/knowledge/learnings/new`    | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
@@ -330,7 +335,7 @@ needs nothing for this beyond its `UrlTree` entry.
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
 settings, Knowledge base (meetings; the company doc and the agent guidance, hidden from guests; learning categories, for
 admins alone; and the knowledge base's own settings as they are built), and Workspace settings. Learnings are
-content rather than a setting, so they live on the Knowledge page. Each entry is a tile, its icon
+content rather than a setting, so they live in the Knowledge area. Each entry is a tile, its icon
 and title and nothing more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on
 keyboard focus. Every entry has an icon of its own.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
@@ -771,8 +776,14 @@ admin, and the directory hides the entry. The order a turn's model is resolved i
 ### Knowledge
 
 `src/pages/Knowledge/` is the knowledge base (`docs/knowledge.md`), a top-level area in the sidebar for the company's
-members. `KnowledgeLayout` draws its header and its tabs, Search, Ask, and Learnings, as the Action items area does; a
-guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
+members. A guest is told it is for members, as the API refuses them (`KnowledgeLayout`, `selectIsCompanyMember`).
+Every route in the area nests under `KnowledgeLayout`, a workspace route, and each renders its own `Page`.
+
+- **The frame** (`KnowledgeFrame`) is the panel beside whatever page is open, each scrolling on its own, so the tree
+  stays put while a long page scrolls. The panel (`KnowledgePanel`) holds links to Search, Ask, and Learnings, the last
+  two counted once loaded, then the tree. It needs room a page would miss, so below `lg` it is a drawer from the left,
+  opened by Browse knowledge above the page, and following a link closes it. From `lg` a chevron on its edge
+  (`CollapseEdgeButton`, shared with the sidebar) collapses it to a thin rail.
 
 - **The search** (`KnowledgeSearchPage`) is one field, focused as the page opens and by Ctrl+F, with the filters
   button beside it, the filters in force as tags below (`KnowledgeFilterTags`, each removed with one click), then the
@@ -801,14 +812,57 @@ guest is told the knowledge base is for members, as the API refuses them (`selec
   leaves a document's title out of its first passage, which the page shows above it; a source this build does not
   know reads as its own name.
 
+### Pages
+
+`src/pages/Knowledge/Pages/` reads the knowledge base's pages (`docs/knowledge.md`, Pages).
+
+- **Data.** `GET /pages` is flat, ordered among siblings, and holds no text, so `usePagesLoader` keeps the whole tree
+  cheap, and `buildPageTree` nests it (`selectPageTree`). A page's text loads when it opens (`usePageLoader`), into
+  `pagesSlice`'s `openedById`. `pageLoaded` feeds both halves, so a write dispatches what it answers and the tree
+  follows at once. `page.changed` carries an id and one change can touch many pages (a branch deleted, a parent's
+  children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page a
+  view holds: nobody fetches text for a page they do not have open.
+- **The tree** (`PageTree`) is React Aria's `NavigationTree`, which HeroUI does not wrap: a tree's arrow keys, one tab
+  stop, a real link on every row, and the current page scrolled into view. `selectedRoute` marks the current row and
+  gives its link `aria-current`. Every page is a node, open or not, since React Aria learns a row can open from its
+  nodes; rows are memoized, and only the ones that show are drawn. Past eight levels a row stops indenting. `NavigationTree` leaves `dragAndDropHooks` out
+  of its own props but passes them on to the `Tree` inside it, which reads them from `TreeContext` too.
+- **Per viewer.** `usePageTreeMemory` keeps the open branches and whether the panel is collapsed in localStorage, under
+  a key ending in the person's id, so two people on one browser each keep their own, and follows other tabs. Opening a
+  page opens the branches above it, once, so one closed afterwards stays closed.
+- **A page** (`KnowledgePageView`) is a standard `Page`: the breadcrumb is its path through the tree, and the title and
+  path show from the tree before its text arrives. It is keyed by page, so nothing carries from one to the next. A
+  page's own actions, Save, and tabs go on that `Page`. `PageArticle` lays it out top to bottom: `byline`, `labels`,
+  the text, `attachments`, `childPages`. Each is a slot that takes no space until it is given, so an old version can
+  read through it with its own byline.
+
+### Markdown
+
+`Markdown` (`src/components/markdown/`) is how Markdown reads, anywhere: `<Markdown markdown={text} />`. It loads with
+the first one shown, since the parser and grammars are heavy (`MarkdownContent`, which tests render directly).
+Everything it does is for reading text that cannot be trusted (`docs/security.md`, Response headers):
+
+- **Elements.** `react-markdown` builds React elements, with GitHub's tables, task lists, strikethrough, and footnotes.
+  Raw HTML stays visible text. A heading steps down a level, since the page's title is its one `h1`.
+- **Links.** `readMarkdownLink` reads an address with the browser's own parser: Elysium's own routes in the app, even
+  written absolutely; another origin opens in a new tab with no referrer, and an icon says so; a fragment stays a plain
+  anchor, since the browser scrolls to it and the router would not. An address blanked by `urlTransform` keeps its
+  text.
+- **Images.** `readMarkdownImage`: only Elysium's own load, lazily. Another origin's is a link to it ("Open image:
+  name"). One that fails, or was blanked, says it is unavailable with its description.
+- **Code.** `rehype-highlight` highlights a block that names one of highlight.js's common languages, with class names
+  alone; anything else stays plain. Colors are `--code-*` in `matter.css`, per theme. A block scrolls sideways on its
+  own, as a wide table does, so neither widens a page, and has a copy button.
+- **Styles.** `src/theme/markdown.css`, every rule scoped to `.markdown`, since rendered text has no Tailwind classes.
+
 ### Learnings
 
-`src/pages/Knowledge/Learnings/` is the Knowledge page's Learnings tab (`docs/knowledge.md`, Learnings), under its
-heading, with New learning in the header:
+`src/pages/Knowledge/Learnings/` is the Knowledge area's Learnings (`docs/knowledge.md`, Learnings), with New learning
+in the header:
 
 - **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning; its
   category; who first saved it and through which agent; and when it last changed. Both lists filter by category, any
-  built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a nested tab of their own, and
+  built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a tab of their own, and
   admins get a third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show
   older.
 - **New learning** (`NewLearningPage`, `LearningForm`), under Knowledge and Learnings in the breadcrumbs, saves from
@@ -1368,6 +1422,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `learnings`      | Live and deleted learnings in separate halves, last changed first       |
+| `pages`          | Every live page without its text, in sibling order, and the pages opened whole |
 | `companyDoc`     | The company doc, each section with its pending proposals, replaced whole |
 | `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
@@ -1392,6 +1447,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
    `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useLearningsLoader`, `useDeletedLearningsLoader`, `useLearningLoader`,
+   `usePagesLoader`, `usePageLoader`,
    `useCompanyDocLoader`,
    `useCodingSessionsLoader`, `useModelSettingsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,

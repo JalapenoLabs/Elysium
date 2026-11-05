@@ -12,10 +12,12 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectDeletedLearnings, selectLiveLearnings } from '../../../store/learningsSlice'
 
 // User interface
-import { Spinner, Tabs } from '@heroui/react'
+import { buttonVariants, Link, Spinner, Tabs } from '@heroui/react'
+import { LuPlus } from 'react-icons/lu'
 import { EmptyNotice } from '../../../components/EmptyNotice'
 import { OptionSelect } from '../../../components/OptionSelect'
 import { PageTabs } from '../../../components/PageTabs'
+import { Page } from '../../../layout/page/Page'
 import { LearningFeed } from './LearningFeed'
 import { LearningTable } from './LearningTable'
 
@@ -23,6 +25,7 @@ import { LearningTable } from './LearningTable'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useDeletedLearningsLoader, useLearningsLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
+import { UrlTree } from '../../../urls'
 
 const TABS = [ 'live', 'deleted', 'feed' ] as const
 type Tab = typeof TABS[number]
@@ -40,19 +43,17 @@ const CATEGORY_PARAM = 'category'
 // The filter's choice for every category, as the select's key; the address then names none.
 const ANY_CATEGORY = 'any'
 
-// `/knowledge/learnings`, the Knowledge page's Learnings tab: every learning, the deleted ones,
-// and, for admins, the feed of every change, each on a tab of its own under the page's. Both
-// lists filter by category, built-in or the workspace's own. The page's layout holds the header
-// and New learning, and tells a guest the knowledge base is for members.
+// `/knowledge/learnings`: every learning, the deleted ones, and, for admins, the feed of every
+// change, each on a tab of its own. Both lists filter by category, built-in or the workspace's own.
 export function LearningsPage() {
-  const { t } = useTranslation([ 'learnings', 'common' ])
+  const { t } = useTranslation([ 'learnings', 'knowledge', 'common' ])
   const isAdmin = useAppSelector(selectIsAdmin)
   const [ params, setParams ] = useSearchParams()
   const shownTabs = TABS.filter((tab) => tab !== 'feed' || isAdmin)
   const [ selectedTab, selectTab ] = useTabParam(shownTabs)
 
   const liveStatus = useLearningsLoader()
-  // Only the company's members reach this page, inside the Knowledge page's layout.
+  // Only the company's members reach this page, inside the knowledge base's layout.
   const deletedStatus = useDeletedLearningsLoader(true)
   const live = useAppSelector(selectLiveLearnings)
   const deleted = useAppSelector(selectDeletedLearnings)
@@ -122,21 +123,32 @@ export function LearningsPage() {
     </>
   }
 
-  return <PageTabs
-    level='nested'
-    label={t('tabs.label')}
-    selectedKey={selectedTab}
-    onSelectionChange={selectTab}
-    tabs={shownTabs.map((tab) => ({ id: tab, label: t(tabLabelKeys[tab]), count: countByTab[tab] }))}
+  return <Page
+    title={t('title')}
+    parents={[{ label: t('knowledge:title'), href: UrlTree.knowledge }]}
+    primaryAction={<Link
+      href={UrlTree.knowledgeLearningNew}
+      className={buttonVariants({ variant: 'outline' })}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('new')}</span>
+    </Link>}
   >
-    <Tabs.Panel id='live'>{
-      renderList(liveStatus, false)
-    }</Tabs.Panel>
-    <Tabs.Panel id='deleted'>{
-      renderList(deletedStatus, true)
-    }</Tabs.Panel>
-    {isAdmin && <Tabs.Panel id='feed'>
-      <LearningFeed />
-    </Tabs.Panel>}
-  </PageTabs>
+    <PageTabs
+      label={t('tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={shownTabs.map((tab) => ({ id: tab, label: t(tabLabelKeys[tab]), count: countByTab[tab] }))}
+    >
+      <Tabs.Panel id='live'>{
+        renderList(liveStatus, false)
+      }</Tabs.Panel>
+      <Tabs.Panel id='deleted'>{
+        renderList(deletedStatus, true)
+      }</Tabs.Panel>
+      {isAdmin && <Tabs.Panel id='feed'>
+        <LearningFeed />
+      </Tabs.Panel>}
+    </PageTabs>
+  </Page>
 }

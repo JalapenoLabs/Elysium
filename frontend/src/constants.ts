@@ -143,6 +143,13 @@ export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
 // Whether the sidebar is collapsed to its icons, remembered per browser.
 export const SIDEBAR_STORAGE_KEY = 'elysium.sidebar.v1'
 
+// Which branches of the knowledge base's page tree are open and whether it is collapsed, remembered
+// per person on each browser: the person's id ends the key (`usePageTreeMemory`).
+export const PAGE_TREE_STORAGE_KEY = 'elysium.pageTree.v1'
+
+// How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
+export const PAGE_CHANGES_WINDOW_MS = 300
+
 // How many messages one page of Elysia's conversation holds, as the API pages them by default.
 export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 

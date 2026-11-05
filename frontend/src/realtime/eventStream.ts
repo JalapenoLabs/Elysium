@@ -69,6 +69,7 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
+import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
 import {
@@ -210,6 +211,13 @@ const handlers: Handlers = {
     void mutate(learningHistoryKey(event.data.id))
     void mutate(LEARNING_FEED_KEY)
     void mutate(LEARNING_CATEGORIES_KEY)
+  },
+  // Pages are for the company's members, who reload what a view holds once a burst ends.
+  'page.changed': (event) => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    reloadChangedPage(event.data.id)
   },
   // An ask is its asker's alone, and the event carries no content: the asker loads it by id, and
   // every other client leaves it.

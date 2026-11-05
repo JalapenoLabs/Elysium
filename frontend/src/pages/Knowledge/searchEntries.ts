@@ -3,13 +3,13 @@
 import type { SearchEntry } from '../../search/searchTypes'
 
 // User interface
-import { LuLibrary, LuSparkles } from 'react-icons/lu'
+import { LuLibrary, LuSearch, LuSparkles } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../../urls'
 
-// The Knowledge page and its Ask tab; the knowledge base is for members. Its learnings register
-// beside them, and its documents are found by the knowledge search itself
+// The knowledge base, its search, and asking it; the knowledge base is for members. Its learnings
+// register beside them, and its documents are found by the knowledge search itself
 // (`useKnowledgeResults`). See src/search/searchRegistry.ts.
 export const searchEntries: SearchEntry[] = [
   {
@@ -22,9 +22,19 @@ export const searchEntries: SearchEntry[] = [
     href: UrlTree.knowledge,
   },
   {
+    id: 'knowledgeSearch',
+    group: 'pages',
+    title: 'knowledge:sections.search',
+    parent: 'knowledge:title',
+    tags: 'search:tags.knowledgeSearch',
+    icon: LuSearch,
+    audience: 'members',
+    href: UrlTree.knowledgeSearch,
+  },
+  {
     id: 'knowledgeAsk',
     group: 'pages',
-    title: 'knowledge:tabs.ask',
+    title: 'knowledge:sections.ask',
     parent: 'knowledge:title',
     tags: 'search:tags.knowledgeAsk',
     icon: LuSparkles,

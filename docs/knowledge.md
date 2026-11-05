@@ -116,7 +116,7 @@ every call, so a session a guest started reaches none of it; Elysia's turns read
   `search_document: ` on passages and `search_query: ` on queries. See Embeddings, below.
 - The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
-- The web app has a Knowledge page (`/knowledge`, for members): search, ask (Asking, below), and browse learnings. Its search and each document are in `docs/frontend.md`, Knowledge; the topbar's search lists the
+- The web app has a Knowledge area (`/knowledge`, for members): pages, search, ask (Asking, below), and browse learnings. Its search and each document are in `docs/frontend.md`, Knowledge; the topbar's search lists the
   knowledge base's documents beside its other results for members.
 
 ## Hybrid search
@@ -502,7 +502,7 @@ guest reaches none of it (Who sees what, above). Admins see a feed of every chan
 
 ### In the web app
 
-The Knowledge page's Learnings tab (`/knowledge/learnings`) lists the learnings and the deleted ones, and for admins
+The Knowledge area's Learnings (`/knowledge/learnings`) lists the learnings and the deleted ones, and for admins
 the feed, each a tab of its own. A learning's page corrects it, deletes or restores it, and lists its history,
 each change with Undo. New learning is its own page. Both lists filter by category. Settings, Learning categories
 (`/settings/learning-categories`, in the Knowledge base section, for admins) lists every category and manages the
@@ -754,7 +754,7 @@ with Restore. Members read it all and copy the block. See `docs/frontend.md`, Ag
 ## Asking
 
 `knowledge_ask` answers a question in writing, every claim citing the passages that say it, for people on the
-Knowledge page's Ask tab and for MCP clients that want an answer rather than evidence. The pure parts (the prompt, the
+Knowledge area's Ask and for MCP clients that want an answer rather than evidence. The pure parts (the prompt, the
 checks on the answer, and each person's budget) are `api/src/knowledge/ask.rs`; the routes `/api/v1/knowledge/asks`
 (`docs/api.md`); the engine's answerer `api/src/knowledge/answerer.rs`; the table `knowledge_asks`
 (`docs/database.md`).
@@ -831,9 +831,9 @@ claims, never the question or a passage.
 ## Pages
 
 Everything authored is one kind: a page. People and their agents read and write pages the way they use Confluence, in
-one tree for the whole workspace. Today the API holds them: the model is `api/src/models/page.rs`, the routes
-`/api/v1/pages` (`docs/api.md`), and the tables `pages`, `page_versions`, and `page_events` (`docs/database.md`). The
-rest of the design (Roadmap, below) is the issues in the Knowledge base milestone.
+one tree for the whole workspace. The model is `api/src/models/page.rs`, the routes `/api/v1/pages` (`docs/api.md`),
+and the tables `pages`, `page_versions`, and `page_events` (`docs/database.md`), and the Knowledge area reads them (In
+the web app, below). The rest of the design (Roadmap, below) is the issues in the Knowledge base milestone.
 
 ### The tree
 
@@ -918,14 +918,26 @@ source `page`, dated when its newest version was published, and attributed to wh
 words now. It has no `url`: a page lives in Elysium, so a citation opens it by id, and `knowledge_get` answers its
 origin as `{ kind: "page", pageId }`. A deleted page leaves the index and comes back with its page.
 
+### In the web app
+
+The Knowledge area (`/knowledge`) opens on its first page, beside the tree. A panel on the left holds Search, Ask, and
+Learnings, then every page, so everything in the area sits beside the tree; below `lg` it is a drawer. Each page has its
+own address (`/knowledge/pages/<id>`), and reads as its path through the tree, its title, who last edited it and when,
+its text, and its child pages. Which branches a person leaves open stays with them on each browser. A deleted page reads
+on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
+
+A page's text is Markdown, read to React elements, with GitHub's tables, task lists, and footnotes, and code highlighted
+for a block that names a common language. Agents write pages, so nothing in one is trusted: raw HTML shows as text and
+runs nothing, and only `http`, `https`, `mailto`, and relative addresses survive. An image on another origin never
+loads, since the Content Security Policy refuses it and loading it would tell a third party who read the page: it is a
+link that opens the image in a new tab. Files attached to a page (Roadmap) are served by Elysium, so they show inline.
+
 ### Roadmap
 
 - **Learnings and the company doc are pages.** A learning is a page under Learnings, keeping its takeaway title,
   category, and evidence as page fields, and its revisions as versions. The company doc is seven proposal-only pages
   under Company, with the same approval and three-way merge. Their documents carry over by moving each row's source to
   its page's column, so their passages keep their embeddings and their `source` keeps its name.
-- **Reading.** The Knowledge area opens on the tree beside the page being read, rendered from Markdown under the web
-  app's Content Security Policy.
 - **Editing.** People edit in a Tiptap 3 rich editor and the page stays Markdown, so agents read and write it plainly
   and diffs stay readable. Publish is the page's one Save. Any two versions can be compared.
 - **Organizing.** Add, drag, and delete from the tree, with deleting asking what happens to a page's children.

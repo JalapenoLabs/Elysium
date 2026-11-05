@@ -6,13 +6,8 @@ import { useTranslation } from 'react-i18next'
 import { useParams, useSearchParams } from 'react-router'
 import useSWR from 'swr'
 
-// Redux
-import { selectIsCompanyMember } from '../../store/authSlice'
-import { useAppSelector } from '../../store/hooks'
-
 // User interface
 import { Chip, Link, Spinner } from '@heroui/react'
-import { EmptyNotice } from '../../components/EmptyNotice'
 import { Page } from '../../layout/page/Page'
 import { KnowledgeOriginLink } from './KnowledgeOriginLink'
 
@@ -35,12 +30,9 @@ export function KnowledgeDocumentPage() {
   const { t } = useTranslation([ 'knowledge', 'common' ])
   const { documentId = '' } = useParams()
   const [ params ] = useSearchParams()
-  const isCompanyMember = useAppSelector(selectIsCompanyMember)
   // A one-off read no other view shares, so SWR alone holds it (docs/frontend.md, Data).
   const { data, error } = useSWR(
-    isCompanyMember
-      ? [ 'knowledge-document', documentId ]
-      : null,
+    [ 'knowledge-document', documentId ],
     () => getKnowledgeDocument(documentId),
   )
   const document = data?.document
@@ -57,13 +49,10 @@ export function KnowledgeDocumentPage() {
       ?.scrollIntoView({ block: 'center' })
   }, [ document, hasCitedPassage, citedPosition ])
 
-  const parents = [{ label: t('title'), href: UrlTree.knowledge }]
-
-  if (!isCompanyMember) {
-    return <Page title={t('title')}>
-      <EmptyNotice>{t('membersOnly')}</EmptyNotice>
-    </Page>
-  }
+  const parents = [
+    { label: t('title'), href: UrlTree.knowledge },
+    { label: t('sections.search'), href: UrlTree.knowledgeSearch },
+  ]
 
   if (!document) {
     if (error) {
@@ -75,7 +64,7 @@ export function KnowledgeDocumentPage() {
               ? t('document.notFound')
               : t('document.loadError')
           }</p>
-          <Link href={UrlTree.knowledge} className='text-link'>{t('document.backToSearch')}</Link>
+          <Link href={UrlTree.knowledgeSearch} className='text-link'>{t('document.backToSearch')}</Link>
         </div>
       </Page>
     }

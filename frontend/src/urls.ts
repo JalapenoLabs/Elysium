@@ -41,9 +41,11 @@ export const UrlTree = {
   // The worker pool's queue, and each batch's own page.
   workQueue: '/work-queue',
   workBatchView: '/work-queue/:batchId',
-  // The knowledge base: its search first, then asking it, its learnings, and every document a
-  // citation opens.
+  // The knowledge base: it opens on its pages, and beside them are its search, asking it, its
+  // learnings, and every document a citation opens.
   knowledge: '/knowledge',
+  knowledgePage: '/knowledge/pages/:pageId',
+  knowledgeSearch: '/knowledge/search',
   knowledgeAsk: '/knowledge/ask',
   knowledgeLearnings: '/knowledge/learnings',
   knowledgeLearningNew: '/knowledge/learnings/new',
@@ -256,6 +258,10 @@ export function getLearningUrl(learningId: string) {
   return UrlTree.knowledgeLearning.replace(':learningId', learningId)
 }
 
+export function getKnowledgePageUrl(pageId: string) {
+  return UrlTree.knowledgePage.replace(':pageId', pageId)
+}
+
 // A document of the knowledge base, opened at one of its passages when a citation names one.
 export function getKnowledgeDocumentUrl(documentId: string, passage?: number) {
   const url = UrlTree.knowledgeDocument.replace(':documentId', documentId)
@@ -265,10 +271,10 @@ export function getKnowledgeDocumentUrl(documentId: string, passage?: number) {
   return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
 }
 
-// The Knowledge page searching for `query`, as the topbar's results open it.
+// The knowledge search for `query`, as the topbar's results open it.
 export function getKnowledgeSearchUrl(query: string) {
   const params = new URLSearchParams({ [SEARCH_QUERY_PARAM]: query })
-  return `${UrlTree.knowledge}?${params.toString()}`
+  return `${UrlTree.knowledgeSearch}?${params.toString()}`
 }
 
 export function getLearningCategoryEditUrl(categoryKey: string) {

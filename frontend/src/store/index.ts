@@ -35,6 +35,7 @@ import { notificationsSlice } from './notificationsSlice'
 import { projectManagersSlice } from './projectManagersSlice'
 import { projectsSlice } from './projectsSlice'
 import { promisesSlice } from './promisesSlice'
+import { pagesSlice } from './pagesSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { runsSlice } from './runsSlice'
@@ -84,6 +85,7 @@ export function createAppStore() {
       [learningCategoriesSlice.name]: learningCategoriesSlice.reducer,
       [knowledgeAsksSlice.name]: knowledgeAsksSlice.reducer,
       [learningsSlice.name]: learningsSlice.reducer,
+      [pagesSlice.name]: pagesSlice.reducer,
       [llmsSlice.name]: llmsSlice.reducer,
       [mailAccountsSlice.name]: mailAccountsSlice.reducer,
       [mailDomainsSlice.name]: mailDomainsSlice.reducer,

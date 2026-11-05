@@ -58,6 +58,9 @@ export type ServerEvent =
   // A learning changed; its id alone, since a guest hears every event and reaches no
   // knowledge base.
   | { type: 'learning.changed', data: { id: string } }
+  // A knowledge base page changed, once for each page a change touched; its id alone, for the
+  // same reason.
+  | { type: 'page.changed', data: { id: string } }
   // One of someone's questions to the knowledge base was asked, taken, answered, or failed. Its
   // id, asker, and state alone: the question and its answer are the asker's, who loads it.
   | { type: 'knowledgeAsk.changed', data: { id: string, askedBy: string, state: KnowledgeAskState } }

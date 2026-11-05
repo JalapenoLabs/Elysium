@@ -15,6 +15,7 @@ import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
+import type { KnowledgePage, KnowledgePageSummary } from './api/routes/pageRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Meeting } from './api/routes/meetingRoutes'
 import type { Project } from './api/routes/projectRoutes'
@@ -242,6 +243,33 @@ export function makeLearning(overrides: Partial<Learning> & Pick<Learning, 'id'>
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,
+    ...overrides,
+  }
+}
+
+export function makePageSummary(
+  overrides: Partial<KnowledgePageSummary> & Pick<KnowledgePageSummary, 'id'>,
+): KnowledgePageSummary {
+  return {
+    parentId: null,
+    position: 0,
+    title: 'A page',
+    currentVersion: 1,
+    deletedAt: null,
+    ...overrides,
+  }
+}
+
+export function makePage(overrides: Partial<KnowledgePage> & Pick<KnowledgePage, 'id'>): KnowledgePage {
+  return {
+    ...makePageSummary(overrides),
+    body: '',
+    proposalOnly: false,
+    publishedBy: 'user-1',
+    publishedAt: '2026-11-01T12:00:00Z',
+    agent: null,
+    createdBy: 'user-1',
+    createdAt: '2026-11-01T12:00:00Z',
     ...overrides,
   }
 }

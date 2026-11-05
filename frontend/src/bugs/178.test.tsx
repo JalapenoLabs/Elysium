@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { Provider } from 'react-redux'
+import { createMemoryRouter, RouterProvider } from 'react-router'
 
 // Redux
 import { createAppStore } from '../store'
@@ -134,8 +135,9 @@ describe('issue #178: Ctrl+Enter submits a text area', () => {
 
   it('asks the knowledge base on Ctrl+Enter, never on Enter alone', async () => {
     knowledge.ask.mockReturnValue(new Promise(() => undefined))
+    const router = createMemoryRouter([{ path: '/', element: <KnowledgeAskPage /> }])
     render(<Provider store={createAppStore()}>
-      <KnowledgeAskPage />
+      <RouterProvider router={router} />
     </Provider>)
     const field = screen.getByRole('textbox')
     fireEvent.change(field, { target: { value: 'When do we deploy?' }})

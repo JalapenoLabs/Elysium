@@ -27,6 +27,7 @@ import { jiraCredentialsLoaded } from '../store/jiraCredentialsSlice'
 import { knowledgeAsksLoaded } from '../store/knowledgeAsksSlice'
 import { learningCategoriesLoaded } from '../store/learningCategoriesSlice'
 import { deletedLearningsLoaded, learningsLoaded, learningUpserted } from '../store/learningsSlice'
+import { pageLoaded, pagesLoaded } from '../store/pagesSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
@@ -78,6 +79,7 @@ import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { LEARNING_CATEGORIES_KEY, listLearningCategories } from '../api/routes/learningCategoryRoutes'
 import { listKnowledgeAsks } from '../api/routes/knowledgeRoutes'
 import { getLearning, listLearnings } from '../api/routes/learningRoutes'
+import { getPage, listPages, pageKey, PAGES_KEY } from '../api/routes/pageRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { getMeeting, listMeetings } from '../api/routes/meetingRoutes'
@@ -214,6 +216,28 @@ export function useDeletedLearningsLoader(isEnabled: boolean): LoadStatus {
   const { data, error } = useSWR(key, async () => {
     const response = await listLearnings({ deleted: true })
     dispatch(deletedLearningsLoaded(response.learnings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every live page, without their text, for the tree. `page.changed` reloads it.
+export function usePagesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(PAGES_KEY, async () => {
+    const response = await listPages()
+    dispatch(pagesLoaded(response.pages))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One page whole, live or deleted, for as long as a view shows it.
+export function usePageLoader(pageId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(pageKey(pageId), async () => {
+    const response = await getPage(pageId)
+    dispatch(pageLoaded(response.page))
     return response
   })
   return toLoadStatus(data !== undefined, error)

@@ -1,11 +1,31 @@
 {
   "title": "Knowledge",
   "membersOnly": "The knowledge base is for the company's members.",
-  "tabs": {
+  "sections": {
     "label": "Knowledge base",
     "search": "Search",
     "ask": "Ask",
     "learnings": "Learnings"
+  },
+  "pages": {
+    "heading": "Pages",
+    "treeLabel": "Pages",
+    "treeLoadFailed": "Pages can't be loaded right now.",
+    "none": "No pages yet",
+    "browse": "Browse knowledge",
+    "closeBrowse": "Close",
+    "collapse": "Hide pages",
+    "expand": "Show pages",
+    "loading": "Loading…",
+    "unavailableTitle": "Page unavailable",
+    "unavailable": "This page isn't available.",
+    "backToKnowledge": "Back to Knowledge",
+    "deleted": "Deleted",
+    "empty": "This page has no text yet.",
+    "publishedBy": "Last edited by {{name}}",
+    "publishedByAgent": "Last edited by {{name}} through {{agent}}",
+    "agentUnnamed": "an agent",
+    "childPages": "Child pages"
   },
   "ask": {
     "label": "Question",
@@ -79,6 +99,7 @@
     "youtrack": "YouTrack",
     "meeting": "Meetings",
     "turn_summary": "Agent turns",
+    "page": "Pages",
     "learning": "Learnings",
     "company_doc": "Company doc"
   },
@@ -89,6 +110,7 @@
     "recordedBy": "Recorded by {{name}}",
     "projects": "Projects",
     "openSource": "Open in {{source}}",
+    "openPage": "Open the page",
     "openLearning": "Open the learning",
     "openCompanyDoc": "Open the company doc",
     "passages": "Text"
