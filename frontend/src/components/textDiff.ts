@@ -1,13 +1,24 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Utility
-import { diffLines } from 'diff'
+import { diffLines, diffWordsWithSpace } from 'diff'
 
 // How many unchanged lines a diff keeps beside each change; the rest fold into one row.
 export const DIFF_CONTEXT_LINES = 2
 
+// How long a line can be and still have its changed words marked. It takes in the longest paragraph
+// anyone writes; past it the work grows quickly and nobody is reading word by word.
+const WORD_DIFF_MAX_CHARACTERS = 5_000
+
+// How much of a changed line must have stayed for its changed words to be worth marking. Below it
+// the two lines are simply different lines, and marking nearly every word says nothing.
+const WORD_DIFF_MIN_SHARED = 0.4
+
+// A run of a changed line, marked when it is what changed.
+export type DiffWords = { text: string, isChanged: boolean }
+
 export type DiffRow =
-  | { kind: 'added' | 'removed' | 'unchanged', text: string }
+  | { kind: 'added' | 'removed' | 'unchanged', text: string, words?: DiffWords[] }
   // Unchanged lines folded away, counted.
   | { kind: 'folded', count: number }
 
@@ -59,4 +70,68 @@ export function diffRows(before: string, after: string, context = DIFF_CONTEXT_L
     index = end
   }
   return rows
+}
+
+// The runs of a line replaced by another, for each of the two, or null when too little of them is
+// shared to be worth marking.
+function diffChangedWords(removed: string, added: string) {
+  if (Math.max(removed.length, added.length) > WORD_DIFF_MAX_CHARACTERS) {
+    return null
+  }
+
+  const removedWords: DiffWords[] = []
+  const addedWords: DiffWords[] = []
+  let sharedCharacters = 0
+  for (const part of diffWordsWithSpace(removed, added)) {
+    if (part.removed) {
+      removedWords.push({ text: part.value, isChanged: true })
+      continue
+    }
+    if (part.added) {
+      addedWords.push({ text: part.value, isChanged: true })
+      continue
+    }
+    sharedCharacters += part.value.length
+    removedWords.push({ text: part.value, isChanged: false })
+    addedWords.push({ text: part.value, isChanged: false })
+  }
+
+  if (sharedCharacters < WORD_DIFF_MIN_SHARED * Math.max(removed.length, added.length)) {
+    return null
+  }
+  return { removedWords, addedWords }
+}
+
+// Marks what changed inside lines replaced one for one. Markdown keeps a paragraph on one line, so
+// a word changed in it reads as two whole paragraphs, red then green, that look the same until the
+// words are marked. A block replaced by a different number of lines pairs from its top.
+export function markChangedWords(rows: DiffRow[]): DiffRow[] {
+  const marked = [ ...rows ]
+  let index = 0
+  while (index < marked.length) {
+    let removedEnd = index
+    while (marked[removedEnd]?.kind === 'removed') {
+      removedEnd += 1
+    }
+    let addedEnd = removedEnd
+    while (marked[addedEnd]?.kind === 'added') {
+      addedEnd += 1
+    }
+
+    const pairs = Math.min(removedEnd - index, addedEnd - removedEnd)
+    for (let offset = 0; offset < pairs; offset += 1) {
+      const removed = marked[index + offset]
+      const added = marked[removedEnd + offset]
+      if (removed.kind === 'folded' || added.kind === 'folded') {
+        continue
+      }
+      const words = diffChangedWords(removed.text, added.text)
+      if (words) {
+        marked[index + offset] = { ...removed, words: words.removedWords }
+        marked[removedEnd + offset] = { ...added, words: words.addedWords }
+      }
+    }
+    index = Math.max(addedEnd, index + 1)
+  }
+  return marked
 }

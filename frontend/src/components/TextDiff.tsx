@@ -4,7 +4,7 @@
 import { useMemo } from 'react'
 
 // Misc
-import { diffRows } from './textDiff'
+import { diffRows, markChangedWords } from './textDiff'
 
 type Props = {
   before: string
@@ -27,10 +27,20 @@ const rowMarks = {
   unchanged: ' ',
 } as const
 
+const changedWordClasses = {
+  added: 'rounded-sm bg-success/25 text-inherit',
+  removed: 'rounded-sm bg-danger/25 text-inherit',
+  unchanged: '',
+} as const
+
 // Two versions of a text, line by line, as a reviewer reads a change: added lines green, removed
-// lines red, a few unchanged lines around each change, and the rest folded.
+// lines red with the words that changed marked, a few unchanged lines around each change, and the
+// rest folded.
 export function TextDiff(props: Props) {
-  const rows = useMemo(() => diffRows(props.before, props.after), [ props.before, props.after ])
+  const rows = useMemo(
+    () => markChangedWords(diffRows(props.before, props.after)),
+    [ props.before, props.after ],
+  )
 
   return <div
     role='group'
@@ -45,7 +55,13 @@ export function TextDiff(props: Props) {
         }
         return <div key={index} className={`flex gap-2 px-3 whitespace-pre-wrap ${rowClasses[row.kind]}`}>
           <span aria-hidden className='select-none'>{rowMarks[row.kind]}</span>
-          <span className='min-w-0 flex-1'>{row.text || ' '}</span>
+          <span className='min-w-0 flex-1'>{
+            row.words
+              ? row.words.map((words, wordsIndex) => words.isChanged
+                ? <mark key={wordsIndex} className={changedWordClasses[row.kind]}>{words.text}</mark>
+                : words.text)
+              : row.text || ' '
+          }</span>
         </div>
       })
     }</div>

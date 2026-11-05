@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { diffRows } from './textDiff'
+import { diffRows, markChangedWords } from './textDiff'
 
 describe('diffRows', () => {
   it('shows an added line beside the lines around it', () => {
@@ -49,5 +49,73 @@ describe('diffRows', () => {
       { kind: 'added', text: '- ACME' },
       { kind: 'added', text: '- Atlas' },
     ])
+  })
+})
+
+describe('markChangedWords', () => {
+  it('marks the words a line changed, on both sides', () => {
+    const rows = markChangedWords(diffRows(
+      'A worker renews its lease and holds its slot.',
+      'A worker renews its lease often and holds its slot.',
+    ))
+
+    expect(rows).toEqual([
+      {
+        kind: 'removed',
+        text: 'A worker renews its lease and holds its slot.',
+        words: [
+          { text: 'A worker renews its lease ', isChanged: false },
+          { text: 'and holds its slot.', isChanged: false },
+        ],
+      },
+      {
+        kind: 'added',
+        text: 'A worker renews its lease often and holds its slot.',
+        words: [
+          { text: 'A worker renews its lease ', isChanged: false },
+          { text: 'often ', isChanged: true },
+          { text: 'and holds its slot.', isChanged: false },
+        ],
+      },
+    ])
+  })
+
+  it('pairs a block of replaced lines from its top', () => {
+    const rows = markChangedWords(diffRows(
+      'The first line stays nearly the same\nThe second line stays nearly the same',
+      'The first line stays almost the same\nThe second line stays almost the same\nA line of its own',
+    ))
+
+    expect(rows.map((row) => 'words' in row && row.words !== undefined)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+    ])
+  })
+
+  it('leaves two lines that share too little whole', () => {
+    const rows = markChangedWords(diffRows('Nothing here is shared', 'Every word differs entirely now'))
+
+    expect(rows).toEqual([
+      { kind: 'removed', text: 'Nothing here is shared' },
+      { kind: 'added', text: 'Every word differs entirely now' },
+    ])
+  })
+
+  it('leaves a line too long to read word by word whole', () => {
+    const before = 'word '.repeat(2000)
+    const after = `${before}and one more`
+
+    const rows = markChangedWords(diffRows(before, after))
+
+    expect(rows.every((row) => !('words' in row))).toBe(true)
+  })
+
+  it('leaves added, removed, and unchanged lines with no partner alone', () => {
+    const rows = diffRows('kept\ngone\nkept too', 'kept\nkept too\nnew')
+
+    expect(markChangedWords(rows)).toEqual(rows)
   })
 })
