@@ -9,15 +9,17 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectOpenedPage, selectPageTree } from '../../../store/pagesSlice'
 
 // User interface
-import { Chip, Link, Spinner } from '@heroui/react'
+import { buttonVariants, Chip, Link, Spinner } from '@heroui/react'
+import { LuPencil } from 'react-icons/lu'
 import { Page } from '../../../layout/page/Page'
 import { ChildPageList } from './ChildPageList'
+import { LearningFields } from './LearningFields'
 import { PageArticle } from './PageArticle'
 import { PageByline } from './PageByline'
 
 // Misc
 import { usePageLoader } from '../../../hooks/useServerData'
-import { getKnowledgePageUrl, UrlTree } from '../../../urls'
+import { getKnowledgePageUrl, getLearningEditUrl, UrlTree } from '../../../urls'
 import { findPageAncestors } from './pageTree'
 
 type Props = {
@@ -47,14 +49,31 @@ function KnowledgePageReader(props: Props) {
     ? t('pages.unavailableTitle')
     : t('pages.loading')
 
+  // A learning is corrected, and the company doc edited and reviewed, on their own pages, where
+  // their rules and history live.
+  let editHref: string | null = null
+  if (page?.category) {
+    editHref = getLearningEditUrl(page.id)
+  }
+  else if (page?.proposalOnly) {
+    editHref = UrlTree.settingsCompanyDoc
+  }
+
   return <Page
     title={page?.title ?? summary?.title ?? titleWhileLoading}
     parents={parents}
     badges={page?.deletedAt && <Chip size='sm' color='danger' variant='soft'>{t('pages.deleted')}</Chip>}
+    primaryAction={editHref && <Link href={editHref} className={buttonVariants({ variant: 'outline' })}>
+      <LuPencil className='size-4' aria-hidden />
+      <span>{t('pages.edit')}</span>
+    </Link>}
   >
     {page && <PageArticle
       markdown={page.body}
       byline={<PageByline page={page} />}
+      learning={page.category && page.evidence
+        ? <LearningFields category={page.category} evidence={page.evidence} />
+        : undefined}
       childPages={childPages.length
         ? <ChildPageList pages={childPages} />
         : undefined}

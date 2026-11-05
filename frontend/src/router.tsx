@@ -93,6 +93,7 @@ import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/Ed
 import { LearningCategoriesPage } from './pages/Settings/LearningCategories/LearningCategoriesPage'
 import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/NewLearningCategoryPage'
 import { LearningPage } from './pages/Knowledge/Learnings/LearningPage'
+import { LearningRedirect } from './pages/Knowledge/Learnings/LearningRedirect'
 import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
 import { MeetingPage } from './pages/Settings/Meetings/MeetingPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
@@ -271,6 +272,10 @@ export const workspaceRoutes: RouteObject = {
         },
         {
           path: UrlTree.knowledgeLearning,
+          element: <LearningRedirect />,
+        },
+        {
+          path: UrlTree.knowledgeLearningEdit,
           element: <LearningPage />,
         },
         {

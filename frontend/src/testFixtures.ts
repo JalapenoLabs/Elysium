@@ -255,6 +255,7 @@ export function makePageSummary(
     position: 0,
     title: 'A page',
     currentVersion: 1,
+    fixed: false,
     deletedAt: null,
     ...overrides,
   }
@@ -264,6 +265,8 @@ export function makePage(overrides: Partial<KnowledgePage> & Pick<KnowledgePage,
   return {
     ...makePageSummary(overrides),
     body: '',
+    category: null,
+    evidence: null,
     proposalOnly: false,
     publishedBy: 'user-1',
     publishedAt: '2026-11-01T12:00:00Z',

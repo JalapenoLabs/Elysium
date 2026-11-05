@@ -15,6 +15,8 @@ export type KnowledgePageSummary = {
   position: number
   title: string
   currentVersion: number
+  // One of the pages Elysium relies on, which nobody moves, deletes, or renames.
+  fixed: boolean
   // Set while it is deleted; it can be restored.
   deletedAt: string | null
 }
@@ -23,6 +25,9 @@ export type KnowledgePageSummary = {
 export type KnowledgePage = KnowledgePageSummary & {
   // Markdown, read through `Markdown` (src/components/markdown/).
   body: string
+  // What a learning holds beyond its text; null on every other page.
+  category: string | null
+  evidence: string | null
   // Agents may only propose changes to it.
   proposalOnly: boolean
   // Who published the newest version, and when.

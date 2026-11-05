@@ -286,8 +286,10 @@ pub enum Origin {
     Learning {
         learning_id: Uuid,
     },
+    /// A company doc section, by its key and the page that holds it.
     CompanyDoc {
         section: String,
+        page_id: Uuid,
     },
     /// A knowledge base page, which a reader opens by its id.
     Page {
@@ -446,6 +448,7 @@ fn origin_of_page(page_id: Uuid, source: &str) -> Origin {
     if let Some(section) = Section::of_page(page_id) {
         return Origin::CompanyDoc {
             section: section.as_str().to_owned(),
+            page_id,
         };
     }
     if source == page::LEARNING_INDEX_KIND {

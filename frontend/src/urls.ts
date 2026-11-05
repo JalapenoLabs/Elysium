@@ -49,7 +49,10 @@ export const UrlTree = {
   knowledgeAsk: '/knowledge/ask',
   knowledgeLearnings: '/knowledge/learnings',
   knowledgeLearningNew: '/knowledge/learnings/new',
+  // A learning's earlier address, which redirects to its page; its corrections and history are
+  // under it.
   knowledgeLearning: '/knowledge/learnings/:learningId',
+  knowledgeLearningEdit: '/knowledge/learnings/:learningId/edit',
   knowledgeDocument: '/knowledge/documents/:documentId',
   // Every result of the topbar's search, for its query.
   search: '/search',
@@ -254,8 +257,8 @@ export function getEnvironmentVariableEditUrl(variableId: string) {
   return UrlTree.settingsEnvironmentEdit.replace(':variableId', variableId)
 }
 
-export function getLearningUrl(learningId: string) {
-  return UrlTree.knowledgeLearning.replace(':learningId', learningId)
+export function getLearningEditUrl(learningId: string) {
+  return UrlTree.knowledgeLearningEdit.replace(':learningId', learningId)
 }
 
 export function getKnowledgePageUrl(pageId: string) {

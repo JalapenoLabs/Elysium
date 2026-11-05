@@ -9,7 +9,7 @@ import { Page } from '../../../layout/page/Page'
 import { LearningForm } from './LearningForm'
 
 // Misc
-import { getLearningUrl, UrlTree } from '../../../urls'
+import { getKnowledgePageUrl, UrlTree } from '../../../urls'
 
 // `/knowledge/learnings/new`: saving a learning by hand. Saving opens the learning, a new one or
 // the one whose takeaway it named.
@@ -26,7 +26,7 @@ export function NewLearningPage() {
   >
     <LearningForm
       learning={null}
-      onSaved={(learning) => navigate(getLearningUrl(learning.id), { replace: true })}
+      onSaved={(learning) => navigate(getKnowledgePageUrl(learning.id), { replace: true })}
     />
   </Page>
 }

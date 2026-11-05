@@ -18,7 +18,7 @@ import { formatDateTime } from '../../../format/dates'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
-import { getLearningUrl } from '../../../urls'
+import { getKnowledgePageUrl } from '../../../urls'
 
 type Props = {
   learnings: Learning[]
@@ -61,7 +61,7 @@ export function LearningTable(props: Props) {
     const category = (learning: Learning) => categoryLabels[learning.category] ?? learning.category
 
     const renderCell = {
-      title: (learning: Learning) => <Link href={getLearningUrl(learning.id)} className='text-link'>{
+      title: (learning: Learning) => <Link href={getKnowledgePageUrl(learning.id)} className='text-link'>{
         learning.title
       }</Link>,
       category: (learning: Learning) => <Chip size='sm' variant='soft'>{

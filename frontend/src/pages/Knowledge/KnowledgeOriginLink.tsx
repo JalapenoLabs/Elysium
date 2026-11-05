@@ -10,16 +10,16 @@ import { buttonVariants, Link } from '@heroui/react'
 import { LuBookOpen, LuExternalLink, LuFileText, LuLightbulb } from 'react-icons/lu'
 
 // Misc
-import { getKnowledgePageUrl, getLearningUrl, UrlTree } from '../../urls'
+import { getKnowledgePageUrl } from '../../urls'
 
 type Props = {
   document: KnowledgeDocument
   sourceLabel: string
 }
 
-// Where the document's source can be opened: a knowledge base page, a learning's page, the
-// company doc, or the provider's own page for a record, in a new tab. A record with no link of
-// its own has none.
+// Where the document's source can be opened: its page, which a learning and a company doc section
+// have too, or the provider's own page for a record, in a new tab. A record with no link of its own
+// has none.
 export function KnowledgeOriginLink(props: Props) {
   const { t } = useTranslation('knowledge')
   const { origin, citation } = props.document
@@ -32,13 +32,13 @@ export function KnowledgeOriginLink(props: Props) {
     </Link>
   }
   if (origin.kind === 'learning') {
-    return <Link href={getLearningUrl(origin.learningId)} className={className}>
+    return <Link href={getKnowledgePageUrl(origin.learningId)} className={className}>
       <LuLightbulb className='size-4' aria-hidden />
       <span>{t('document.openLearning')}</span>
     </Link>
   }
   if (origin.kind === 'companyDoc') {
-    return <Link href={UrlTree.settingsCompanyDoc} className={className}>
+    return <Link href={getKnowledgePageUrl(origin.pageId)} className={className}>
       <LuBookOpen className='size-4' aria-hidden />
       <span>{t('document.openCompanyDoc')}</span>
     </Link>

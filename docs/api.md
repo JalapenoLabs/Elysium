@@ -1003,7 +1003,7 @@ A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, 
 order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after
 `toPosition` is `422`), how many passages it has in all, the projects its timeline record is attributed to
 (`{ id, name }`), and `origin`, what it was made from: `{ kind: "timelineRecord" }`, whose record stays its owner's and
-is not named, `{ kind: "learning", learningId }`, `{ kind: "companyDoc", section }`, or `{ kind: "page", pageId }`. An id
+is not named, `{ kind: "learning", learningId }`, `{ kind: "companyDoc", section, pageId }`, or `{ kind: "page", pageId }`. An id
 the index does not hold is `404`.
 
 `GET /meetings` takes `from` and `to` (moments with an offset, when a meeting started; `from` before `to`), `person`

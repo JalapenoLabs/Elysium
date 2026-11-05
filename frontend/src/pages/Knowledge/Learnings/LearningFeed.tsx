@@ -21,7 +21,7 @@ import { DateText } from '../../../format/DateText'
 import { getLearningFeed, LEARNING_FEED_KEY } from '../../../api/routes/learningRoutes'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useUsersLoader } from '../../../hooks/useServerData'
-import { getLearningUrl } from '../../../urls'
+import { getKnowledgePageUrl } from '../../../urls'
 import { describeHistoryEntry, feedSentenceKeys, fieldLabelKeys } from './learningPresentation'
 import { toast } from '../../../toast/toast'
 
@@ -108,7 +108,7 @@ export function LearningFeed() {
             <DateText value={entry.createdAt} className='shrink-0 text-xs opacity-50' />
           </div>
           <div className='flex flex-wrap items-center gap-2'>
-            <Link href={getLearningUrl(learning.id)} className='font-medium text-link'>{learning.title}</Link>
+            <Link href={getKnowledgePageUrl(learning.id)} className='font-medium text-link'>{learning.title}</Link>
             <Chip size='sm' variant='soft'>{categoryLabels[learning.category] ?? learning.category}</Chip>
           </div>
         </li>

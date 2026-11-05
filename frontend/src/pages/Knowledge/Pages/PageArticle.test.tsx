@@ -17,11 +17,12 @@ describe('PageArticle', () => {
       markdown='The text'
       byline={<span>Byline</span>}
       labels={<span>Labels</span>}
+      learning={<span>Evidence</span>}
       attachments={<span>Attachments</span>}
       childPages={<span>Children</span>}
     />)
 
-    expect(container.textContent).toBe('BylineLabelsThe rendered textAttachmentsChildren')
+    expect(container.textContent).toBe('BylineLabelsThe rendered textEvidenceAttachmentsChildren')
   })
 
   it('leaves no box for what a page does not have', () => {

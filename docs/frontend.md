@@ -277,7 +277,8 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
 | `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
 | `/knowledge/learnings/new`    | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
-| `/knowledge/learnings/:learningId` | `LearningPage`      | One learning, corrected in place, with its history and Undo |
+| `/knowledge/learnings/:learningId` | redirect            | To the learning's page, `/knowledge/pages/:pageId`, which has the same id |
+| `/knowledge/learnings/:learningId/edit` | `LearningPage` | One learning, corrected in place, with its history and Undo |
 | `/knowledge/documents/:documentId` | `KnowledgeDocumentPage` | One document whole, as every citation opens it; `?passage=` scrolls to one |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
@@ -860,7 +861,7 @@ Everything it does is for reading text that cannot be trusted (`docs/security.md
 `src/pages/Knowledge/Learnings/` is the Knowledge area's Learnings (`docs/knowledge.md`, Learnings), with New learning
 in the header:
 
-- **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning; its
+- **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning's page; its
   category; who first saved it and through which agent; and when it last changed. Both lists filter by category, any
   built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a tab of their own, and
   admins get a third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show
@@ -869,7 +870,9 @@ in the header:
   the header's Save and opens the learning saved,
   saying whether it was new or revised one whose takeaway it named. What is typed is kept as a draft until it is
   saved (see Forms, Drafts).
-- **A learning's page** (`LearningPage`) corrects it with the same form, remounted whenever the learning changes so it
+- **A learning's page** is a page like any other (Pages, below), with its category and evidence after its text
+  (`LearningFields`), and Edit in its header opening `LearningPage`.
+- **Editing a learning** (`LearningPage`) corrects it with the same form, remounted whenever the learning changes so it
   always edits what the learning says now. Delete happens at once, with Undo in its toast; a deleted learning reads
   as it was, under a notice, with Restore. `LearningHistory` lists every change newest first, each with Undo.
 - **Data.** Learnings flow through SWR, then `learningsSlice`, then `learning.changed`, which carries an id alone, so

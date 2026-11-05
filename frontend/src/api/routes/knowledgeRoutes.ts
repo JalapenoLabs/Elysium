@@ -64,7 +64,7 @@ export type KnowledgeSearchQuery = {
 export type KnowledgeOrigin =
   | { kind: 'timelineRecord' }
   | { kind: 'learning', learningId: string }
-  | { kind: 'companyDoc', section: string }
+  | { kind: 'companyDoc', section: string, pageId: string }
   | { kind: 'page', pageId: string }
 
 // Mirrors `DocumentView` in api/src/models/knowledge_document.rs: one document whole.

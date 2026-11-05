@@ -783,7 +783,8 @@ async fn no_passage_is_embedded_again_by_the_move_or_by_indexing_after_it() {
     assert_eq!(
         opened.origin,
         Origin::CompanyDoc {
-            section: "people".to_owned()
+            section: "people".to_owned(),
+            page_id: Section::People.page_id(),
         }
     );
     assert_eq!(opened.citation.title, "Company doc: People");

@@ -45,6 +45,7 @@ export const pagesSlice = createSlice({
         position: page.position,
         title: page.title,
         currentVersion: page.currentVersion,
+        fixed: page.fixed,
         deletedAt: page.deletedAt,
       })
     },
