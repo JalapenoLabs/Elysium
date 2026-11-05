@@ -59,13 +59,14 @@ const ASK_GET_DESCRIPTION: &str = "Reads a question asked with knowledge_ask by 
 /// so an agent is taught the same in a turn and over MCP.
 pub const SEARCH_DESCRIPTION: &str = "Searches the company's knowledge base: the mail, Slack and \
     Teams messages, Confluence pages, YouTrack issues, and meeting topics Elysium reads, the \
-    learnings people and agents saved, and the company doc. Passages are ranked by their words \
-    and their meaning together, so ask a question in a sentence, or give the exact words: a key, \
-    name, or error message such as WAY-123 (keep its dash) is found by its words, a paraphrase by \
-    its meaning, and \"quotes\" keep a phrase together. Filters only narrow: sources (such as \
-    meeting, slack, outlook, learning, company_doc), project, person (whoever said or wrote it), \
-    and from and to. Each result is a citation (documentId, title, source, the person it came \
-    from, when, and its url outside Elysium if it has one) with up to three of its best \
+    learnings people and agents saved, the company doc, and its own pages. Passages are ranked \
+    by their words and their meaning together, so ask a question in a sentence, or give the \
+    exact words: a key, name, or error message such as WAY-123 (keep its dash) is found by its \
+    words, a paraphrase by its meaning, and \"quotes\" keep a phrase together. Filters only \
+    narrow: sources (such as meeting, slack, outlook, learning, company_doc, page), project, \
+    person (whoever said or wrote it), and from and to. Each result is a citation (documentId, \
+    title, source, the person it came from, when, and its url outside Elysium if it has one) \
+    with up to three of its best \
     passages and their positions; open a document, or the passages around one, with \
     knowledge_get. When searchedByMeaning is false the query was matched by its words alone, so \
     try the words a message would use. Cite what you use by its title, who said it, and when. \
@@ -76,8 +77,9 @@ pub const SEARCH_DESCRIPTION: &str = "Searches the company's knowledge base: the
 pub const GET_DESCRIPTION: &str = "Opens one document of the knowledge base by a citation's \
     documentId: every passage in order, or the passages from fromPosition to toPosition, so \
     read around a passage a search found by its position. It also answers what the document was \
-    made from (a timeline record, a learning by its learningId, or a company doc section), the \
-    projects it is attributed to, and passageCount, how many passages it has in all. A meeting \
+    made from (a timeline record, a learning by its learningId, a company doc section, or a page \
+    by its pageId), the projects it is attributed to, and passageCount, how many passages it \
+    has in all. A meeting \
     is in the knowledge base as its topics, each a document: list them with meetings_list.";
 
 /// What listing meetings answers, shared with the agents' tool of the same name.

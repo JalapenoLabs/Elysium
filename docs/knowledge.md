@@ -15,8 +15,9 @@ proposed to by its scheduled review and by agents, read by every agent, and inde
 below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
 (Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
 turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
-(Asking, below); and the guidance every connected agent reads as its session starts, edited by admins in Settings,
-Agent guidance, every version kept (Agent guidance, below).
+(Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
+Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, and their
+place in the index, through the API (Pages, below).
 
 ## What is indexed
 
@@ -24,6 +25,7 @@ Agent guidance, every version kept (Agent guidance, below).
   Jira, YouTrack, and GitHub issues and comments, and agent turn summaries.
 - Learnings that people and agents save.
 - The company doc, one document per section (The company doc, below).
+- Pages, one document per page, reading as its newest version (Pages, below).
 
 Repository code is not indexed: agents with a checkout search it directly.
 
@@ -94,15 +96,15 @@ every call, so a session a guest started reaches none of it; Elysia's turns read
   passages in Postgres itself, and a document for a source already gone is refused. Indexing a source again upserts
   its one document on that column; the SHA-256 of the text it was indexed from says whether anything changed, and
   passages are rewritten by position, so one whose text held keeps its embedding. The columns today are a timeline
-  record's, a learning's, and a company doc section's.
+  record's, a learning's, a company doc section's, and a page's.
 - Every source enters the index through one function, `knowledge_document::upsert` (`api/src/models/`), and leaves it
   through `remove`. Each takes the caller's transaction, so a source and its document always change together, and
   `KnowledgeSource` is the one place that maps a kind of source to its column. A source's text is cut into passages
   by `knowledge::passages::split` (`api/src/knowledge/`): at paragraph breaks, packed back together up to 1,600
   characters (about 400 tokens), with a longer paragraph cut at the last whitespace that fits. The cut depends on the
   text alone, so the same text always gives the same passages.
-- Timeline records, learnings, and the company doc's sections are indexed in the transaction that stores or changes
-  them, through the same upsert (Timeline records, below).
+- Timeline records, learnings, the company doc's sections, and pages are indexed in the transaction that stores or
+  changes them, through the same upsert (Timeline records, below).
 - The full-text vector uses Postgres's `english` configuration, generated from the passage: words are stemmed and stop
   words dropped on both sides, so a question asked in a sentence matches, while a key such as `WAY-123` stays a
   phrase of its exact tokens. Searches parse their query with `english` too.
@@ -164,9 +166,9 @@ Every filter applies to both rankings, inside the query, and narrows; none is ac
 
 | Filter    | Keeps                                                                                            |
 |-----------|--------------------------------------------------------------------------------------------------|
-| `source`  | Documents of these sources (`slack`, `outlook`, `meeting`, `learning`, `company_doc`, and the rest) |
-| `project` | Timeline records attributed to it, at any confidence; learnings and the company doc have none  |
-| `person`  | Documents whose record, learning, or section edit came from this person (`created_by`)          |
+| `source`  | Documents of these sources (`slack`, `outlook`, `meeting`, `learning`, `company_doc`, `page`, and the rest) |
+| `project` | Timeline records attributed to it, at any confidence; learnings, the company doc, and pages have none |
+| `person`  | Documents whose record, learning, section edit, or newest version came from this person (`created_by`) |
 | `from`, `to` | What was said from one moment and before the other, with offsets                             |
 
 ### When meaning is not available
@@ -828,23 +830,111 @@ claims, never the question or a passage.
 
 ## Pages
 
-The roadmap is a knowledge base people read and write the way they use Confluence, in the Knowledge base milestone.
-Everything authored is one kind: a page.
+Everything authored is one kind: a page. People and their agents read and write pages the way they use Confluence, in
+one tree for the whole workspace. Today the API holds them: the model is `api/src/models/page.rs`, the routes
+`/api/v1/pages` (`docs/api.md`), and the tables `pages`, `page_versions`, and `page_events` (`docs/database.md`). The
+rest of the design (Roadmap, below) is the issues in the Knowledge base milestone.
 
-- **One tree.** Pages nest under one tree for the whole workspace, to any depth, with no spaces. A learning is a page
-  under Learnings, keeping its takeaway title, category, and evidence as page fields. The company doc is seven pages
-  under Company. A page can be linked to projects, so a project shows its docs.
-- **Published versions.** Editing a page ends in Publish, its one Save, and each publish is a version with who made
-  it and the agent acting for them. Any two versions can be compared, and any version restored as a new one.
-- **Markdown.** A page is stored as Markdown, so agents read and write it plainly and diffs stay readable. People
-  edit it in a Tiptap 3 rich editor and read it rendered, under the web app's Content Security Policy.
+### The tree
+
+- **One tree.** Pages nest under one tree, to any depth, with no spaces. A page at the top has no parent. Moving a page
+  takes everything under it along.
+- **Three rules hold it**, and the API keeps them: a live page's parent is live, a page is never under itself at any
+  depth, and siblings never tie. A moved page's new parent is checked against everything under the page, which only
+  holds if two moves at once cannot each pass alone, so every change to the tree's shape (creating, moving, deleting,
+  restoring) takes one advisory lock. People change the tree's shape rarely enough that this costs nothing. A publish
+  changes no shape and takes only its page's row.
+- **Order.** A page's `position` is a number with gaps, 2^20 apart as they are appended: a page lands at the midpoint
+  of its new neighbours, writing its own row alone, so reordering never rewrites its siblings. A spot runs out of room
+  after about twenty pages are dropped into it, and then that parent's children are spread a gap apart again in one
+  statement, each announced. Fractional text keys were the alternative, which never renumber, but need their own
+  midpoint arithmetic and a byte-order collation for a case this rare. Clients name a place by the sibling a page
+  follows and never compute a position; they sort by it.
+- **Deleting is soft and takes what is under a page.** Each page taken leaves the index and keeps its versions and
+  place. Restoring a page brings it back where it was, with the ones its deletion took, which share its `deleted_at`;
+  a child deleted on its own beforehand stays deleted. A page whose parent is deleted cannot be restored until its
+  parent is. A deleted page is read like any other and changes no further.
+
+### Versions
+
+- **Publish is the only write of a page's content.** Creating a page publishes version 1. Each publish is the next
+  version, with who made it and the agent acting for them, and `pages` keeps a copy of the newest so the tree and title
+  searches read one table. A version is never changed once written, and any version reads back whole.
+- **Made against a version.** Every publish names the version it was edited from (`baseVersion`). A publish against one
+  that is no longer current is refused with `409 page_changed`, so nobody overwrites a version they have not seen, and
+  the row lock and the version's key mean two publishes at once cannot both land.
+- **The same text is no version.** Text the page already holds records nothing and answers `unchanged`, whatever
+  version it names, since it would overwrite nothing: a page opened and published as it was, or two people publishing
+  the same words. The comparison is after normalizing: a title is trimmed and its spacing collapsed, and a body's line
+  endings become `\n` and its trailing whitespace goes. Nothing else about its Markdown is touched, and an editor that
+  writes a page back exactly apart from those has changed nothing.
+- **Restoring.** Any version can be restored: its content is published as the next version, naming the one it copied
+  (`restoredFrom`), so the versions in between stay and restoring one of them puts it back. A restore names no base
+  version, since what it replaces stays a version of its own; a version whose content the page already holds records
+  nothing.
+- **Limits.** A title is 1 to 300 characters on one line, and a body up to 100,000, which is what the index takes from
+  one source (Timeline records, Size), so everything stored is searchable. A body may be empty: a page can exist only
+  to hold others.
+
+### History
+
+Every change records an entry in `page_events`, in the transaction that makes it, shaped as learnings' history is:
+who made it, the agent acting for them, and `data`.
+
+| Kind        | `data`                                                                                  |
+|-------------|-----------------------------------------------------------------------------------------|
+| `created`   | `{ parentId, version }`                                                                 |
+| `published` | `{ version }`, with `restoredFrom` for a restore                                        |
+| `moved`     | `{ from, to }`, each `{ parentId, after }`: the two values a move takes                 |
+| `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it                        |
+| `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back |
+
+Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
+as a page's history and as a feed across every page, in order by id. A later kind of change adds a kind, with no
+migration. Nothing here has an undo of its own: a version is undone by restoring the one before it, a deletion by
+restoring the page, and a move by moving it back to its `from`.
+
+### Who changes pages
+
+- **Admins and members** read and edit every page, in any way; guests reach none (Who sees what, above). Every route
+  refuses a guest with `403 members_only` (`MemberUser`).
+- **Agents write as their person, or as themselves.** Every write takes an `Author`: who it is by and the agent acting
+  for them (`mcp:<client id>`, `session:<number>`, or `project_manager:<project id>`). Each route's work is a function
+  of its own taking one, so an agent's tool calls what the route calls.
+- **Proposal-only pages.** A page may be `proposalOnly`: people edit it directly, and an agent may only propose.
+  Anything but a person acting alone is refused, publishing, restoring, moving, or deleting it, or deleting a page
+  above it, with `409 page_proposal_only`. Who that is is read from the user as well as the agent named, so Elysia, who
+  writes as her machine user with no agent, is refused too, and a caller that forgets to name its agent is refused all
+  the same. No route sets it.
+- Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
+  event (`docs/realtime.md`).
+
+### In the index
+
+A page is a source of the index (Search, above): one document, reading as its newest version, upserted in the
+transaction that publishes it, so a search finds what it says the moment it commits. Its text is its title and body,
+then its evidence on a page that has any, cut into passages as every source is. It is titled as the page is, under the
+source `page`, dated when its newest version was published, and attributed to who published it, since those are its
+words now. It has no `url`: a page lives in Elysium, so a citation opens it by id, and `knowledge_get` answers its
+origin as `{ kind: "page", pageId }`. A deleted page leaves the index and comes back with its page.
+
+### Roadmap
+
+- **Learnings and the company doc are pages.** A learning is a page under Learnings, keeping its takeaway title,
+  category, and evidence as page fields, and its revisions as versions. The company doc is seven proposal-only pages
+  under Company, with the same approval and three-way merge. Their documents carry over by moving each row's source to
+  its page's column, so their passages keep their embeddings and their `source` keeps its name.
+- **Reading.** The Knowledge area opens on the tree beside the page being read, rendered from Markdown under the web
+  app's Content Security Policy.
+- **Editing.** People edit in a Tiptap 3 rich editor and the page stays Markdown, so agents read and write it plainly
+  and diffs stay readable. Publish is the page's one Save. Any two versions can be compared.
+- **Organizing.** Add, drag, and delete from the tree, with deleting asking what happens to a page's children.
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
 - **Labels.** Any page takes any number of labels, which filter the tree, search, and a page per label.
-- **Search.** Pages are indexed like every other source, version by version as they publish, with a search scoped to
-  pages beside the knowledge base's search of everything.
-- **Agents.** Agents edit any page directly, every version kept. The company doc's pages keep their rule: agents
-  propose, and a person approves.
-- **Who sees what.** Pages follow the knowledge base's rule: every member reads and edits them, and guests reach none.
+- **Projects.** A page can be linked to projects, so a project shows its docs.
+- **Search.** A search scoped to pages beside the knowledge base's search of everything, and pages in the topbar's
+  search.
+- **Agents.** Tools to read and edit pages, every version kept, except that the company doc's pages keep their rule.
 
 ## Onyx
 

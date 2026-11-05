@@ -16,11 +16,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use crate::models::agent::Agent;
+use crate::models::agent::{Agent, Author};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
-use crate::models::learning::{
-    self, Author, HistoryKind, LearningChanges, LearningContent, LearningError,
-};
+use crate::models::learning::{self, HistoryKind, LearningChanges, LearningContent, LearningError};
 use crate::routes;
 use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};
 

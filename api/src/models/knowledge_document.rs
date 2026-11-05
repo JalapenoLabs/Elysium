@@ -42,13 +42,17 @@ pub enum KnowledgeSource {
     Learning(Uuid),
     /// This section of the company doc.
     CompanyDocSection(Section),
+    /// The page with this id, of this kind, which the search's source filter names it by, as a
+    /// timeline record's kind is: `page`, and a kind of its own for a page that stands for
+    /// something a filter already names.
+    Page { id: Uuid, kind: String },
 }
 
 impl KnowledgeSource {
     /// What the search's source filter calls documents of this kind.
     pub fn label(&self) -> &str {
         match self {
-            Self::TimelineRecord { kind, .. } => kind,
+            Self::TimelineRecord { kind, .. } | Self::Page { kind, .. } => kind,
             Self::Learning(_) => "learning",
             Self::CompanyDocSection(_) => "company_doc",
         }
@@ -129,6 +133,11 @@ async fn lock(
             .first(connection)
             .await
             .optional(),
+        KnowledgeSource::Page { id, .. } => query
+            .filter(knowledge_documents::page_id.eq(id))
+            .first(connection)
+            .await
+            .optional(),
     }
 }
 
@@ -169,6 +178,16 @@ async fn insert(
                 .values((
                     knowledge_documents::id.eq(id),
                     knowledge_documents::company_doc_section.eq(section.as_str()),
+                    fields,
+                ))
+                .execute(connection)
+                .await?;
+        }
+        KnowledgeSource::Page { id: page_id, .. } => {
+            insert
+                .values((
+                    knowledge_documents::id.eq(id),
+                    knowledge_documents::page_id.eq(page_id),
                     fields,
                 ))
                 .execute(connection)
@@ -222,8 +241,8 @@ pub async fn upsert(
 /// changes nothing.
 ///
 /// A source deleted from its table needs no call: its document cascades with it. This is for a
-/// source that stays but leaves the index, such as a learning deleted softly, or a page's older
-/// version once a newer one is recorded.
+/// source that stays but leaves the index, such as a learning or a page deleted softly, or the
+/// record of a Confluence page's older version once a newer one is recorded.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -250,11 +269,16 @@ pub async fn remove(
             .execute(connection)
             .await?;
         }
+        KnowledgeSource::Page { id, .. } => {
+            diesel::delete(documents.filter(knowledge_documents::page_id.eq(id)))
+                .execute(connection)
+                .await?;
+        }
     }
     Ok(())
 }
 
-/// Whose words a document holds: the person whose record, learning, or edit it came from.
+/// Whose words a document holds: the person whose record, learning, edit, or version it came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Person {
@@ -311,6 +335,10 @@ pub enum Origin {
     CompanyDoc {
         section: String,
     },
+    /// A knowledge base page, which a reader opens by its id.
+    Page {
+        page_id: Uuid,
+    },
 }
 
 /// A project a timeline record is attributed to.
@@ -351,6 +379,7 @@ struct DocumentRow {
     timeline_record_id: Option<Uuid>,
     learning_id: Option<Uuid>,
     company_doc_section: Option<String>,
+    page_id: Option<Uuid>,
 }
 
 /// The document `id` whole: its citation, what it was made from, every passage in order, its
@@ -381,6 +410,7 @@ pub async fn get(
             knowledge_documents::timeline_record_id,
             knowledge_documents::learning_id,
             knowledge_documents::company_doc_section,
+            knowledge_documents::page_id,
         ))
         .first(connection)
         .await
@@ -428,10 +458,11 @@ pub async fn get(
         .await?;
 
     // Exactly one source column is set (`knowledge_documents_one_source`).
-    let origin = match (row.learning_id, row.company_doc_section) {
-        (Some(learning_id), _) => Origin::Learning { learning_id },
-        (None, Some(section)) => Origin::CompanyDoc { section },
-        (None, None) => Origin::TimelineRecord,
+    let origin = match (row.learning_id, row.company_doc_section, row.page_id) {
+        (Some(learning_id), _, _) => Origin::Learning { learning_id },
+        (None, Some(section), _) => Origin::CompanyDoc { section },
+        (None, None, Some(page_id)) => Origin::Page { page_id },
+        (None, None, None) => Origin::TimelineRecord,
     };
 
     Ok(Some(DocumentView {

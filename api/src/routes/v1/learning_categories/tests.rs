@@ -16,7 +16,8 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
-use crate::models::learning::{self, Author, HistoryKind, LearningContent, LearningError};
+use crate::models::agent::Author;
+use crate::models::learning::{self, HistoryKind, LearningContent, LearningError};
 use crate::models::learning_category::{self, CategoryChanges, CategoryError, NewCategory};
 use crate::routes;
 use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};

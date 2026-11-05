@@ -611,6 +611,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - A learning's category is a row of `learning_categories`: Elysium's nine built-in ones, fixed, and the workspace's
   own, which admins manage. Removing one that learnings use moves them first, each as a revision; agents read every
   category's description in `learning_save`'s schema. See `docs/knowledge.md`, Categories.
+- Pages (`pages`, every published version in `page_versions`, history in `page_events`) are one tree of Markdown for
+  the whole workspace, to any depth, soft-deleted with what is under them. Publish is the only write of a page's
+  content; it names the version it was edited from, a later one answers `409 page_changed`, and identical text makes no
+  version. A page is indexed in the transaction that publishes it. Every change to the tree's shape takes one advisory
+  lock, and gapped positions mean a reorder writes one row. A `proposal_only` page refuses everything but a person
+  acting alone. Every write takes an `Author` (`models::agent`), so agents' tools call what the routes call. See
+  `docs/knowledge.md`, Pages.
 
 ## CI
 

@@ -152,6 +152,40 @@ impl From<crate::models::learning::LearningError> for ApiError {
     }
 }
 
+impl From<crate::models::page::PageError> for ApiError {
+    fn from(error: crate::models::page::PageError) -> Self {
+        use crate::models::page::PageError;
+
+        // Each is a change the page's state refuses, so a conflict rather than `403`, which says
+        // who is asking may not. The web app explains each in its own words.
+        let (code, message) = match error {
+            PageError::Database(database) => return database.into(),
+            PageError::Changed => (
+                "page_changed",
+                "the page changed since this was opened; load it again, then make the change",
+            ),
+            PageError::Deleted => (
+                "page_deleted",
+                "this page is deleted; restore it to change it",
+            ),
+            PageError::ProposalOnly => (
+                "page_proposal_only",
+                "people edit this page directly, and agents propose changes to it",
+            ),
+            PageError::ParentGone => (
+                "page_parent_gone",
+                "the page it would go under does not exist or is deleted",
+            ),
+            PageError::PlacementGone => (
+                "page_placement_gone",
+                "the page it would follow is no longer under that parent; load the tree again",
+            ),
+            PageError::UnderItself => ("page_under_itself", "a page cannot move under itself"),
+        };
+        Self::CodedConflict { code, message }
+    }
+}
+
 impl From<crate::models::company_doc::CompanyDocError> for ApiError {
     fn from(error: crate::models::company_doc::CompanyDocError) -> Self {
         use crate::models::company_doc::CompanyDocError;

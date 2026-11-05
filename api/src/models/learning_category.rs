@@ -23,7 +23,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::database::schema::{learning_categories, learnings};
-use crate::models::learning::{self, Author, LearningError, Recorded};
+use crate::models::agent::Author;
+use crate::models::learning::{self, LearningError, Recorded};
 use crate::models::user::{self, UserEventKind};
 
 /// A stored category.

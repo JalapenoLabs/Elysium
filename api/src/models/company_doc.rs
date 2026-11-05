@@ -262,8 +262,8 @@ impl Proposer<'_> {
     fn agent(self) -> Option<String> {
         match self {
             Self::Person { agent, .. } => agent.map(|agent| agent.id().to_owned()),
-            Self::Session(number) => Some(format!("session:{number}")),
-            Self::ProjectManager(project) => Some(format!("project_manager:{project}")),
+            Self::Session(number) => Some(Agent::session(number).id().to_owned()),
+            Self::ProjectManager(project) => Some(Agent::project_manager(project).id().to_owned()),
             Self::Elysia { .. } => None,
         }
     }

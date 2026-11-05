@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::database::schema::{learning_events, learnings};
 use crate::knowledge::passages;
-use crate::models::agent::Agent;
+use crate::models::agent::{Agent, Author};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::learning_category;
 
@@ -46,16 +46,6 @@ pub struct LearningContent {
     /// The key of the category it is filed under.
     pub category: String,
     pub evidence: String,
-}
-
-/// Who makes a change, and when.
-#[derive(Debug, Clone, Copy)]
-pub struct Author<'a> {
-    /// The person, or the machine user standing for an agent of Elysium's own.
-    pub user_id: Uuid,
-    /// The agent acting for them, if one is.
-    pub agent: Option<&'a Agent>,
-    pub at: DateTime<Utc>,
 }
 
 /// A stored learning.

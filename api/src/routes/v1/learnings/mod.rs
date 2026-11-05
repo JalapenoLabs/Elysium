@@ -32,8 +32,8 @@ use uuid::Uuid;
 pub use self::delete_learning::delete;
 pub use self::save_learning::{SaveLearningRequest, save};
 use crate::auth::MemberUser;
-use crate::models::agent::Agent;
-use crate::models::learning::{Author, HistoryEntry, Learning, Recorded};
+use crate::models::agent::{Agent, Author};
+use crate::models::learning::{HistoryEntry, Learning, Recorded};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -63,7 +63,7 @@ pub struct AgentResponse {
 }
 
 impl AgentResponse {
-    fn new(id: Option<String>, name: Option<String>) -> Option<Self> {
+    pub(super) fn new(id: Option<String>, name: Option<String>) -> Option<Self> {
         id.map(|id| Self { id, name })
     }
 }

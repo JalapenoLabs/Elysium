@@ -1004,6 +1004,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         learning_id -> Nullable<Uuid>,
         company_doc_section -> Nullable<Text>,
+        page_id -> Nullable<Uuid>,
     }
 }
 
@@ -1218,6 +1219,59 @@ diesel::table! {
         agent -> Text,
         model -> Text,
         effort -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    page_events (id) {
+        id -> Uuid,
+        page_id -> Uuid,
+        kind -> Text,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    page_versions (page_id, version) {
+        page_id -> Uuid,
+        version -> Int4,
+        title -> Text,
+        body -> Text,
+        category -> Nullable<Text>,
+        evidence -> Nullable<Text>,
+        restored_from -> Nullable<Int4>,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    pages (id) {
+        id -> Uuid,
+        parent_id -> Nullable<Uuid>,
+        position -> Int8,
+        title -> Text,
+        body -> Text,
+        category -> Nullable<Text>,
+        evidence -> Nullable<Text>,
+        current_version -> Int4,
+        proposal_only -> Bool,
+        deleted_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
@@ -1905,6 +1959,7 @@ diesel::joinable!(knowledge_asks -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
 diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
 diesel::joinable!(knowledge_documents -> learnings (learning_id));
+diesel::joinable!(knowledge_documents -> pages (page_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
 diesel::joinable!(knowledge_passages -> knowledge_documents (document_id));
@@ -1929,6 +1984,12 @@ diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
+diesel::joinable!(page_events -> pages (page_id));
+diesel::joinable!(page_events -> users (created_by));
+diesel::joinable!(page_versions -> pages (page_id));
+diesel::joinable!(page_versions -> users (created_by));
+diesel::joinable!(pages -> learning_categories (category));
+diesel::joinable!(pages -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));
 diesel::joinable!(project_issue_trackers -> jira_credentials (jira_credential_id));
@@ -2060,6 +2121,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_transcriptions,
     meetings,
     model_settings,
+    page_events,
+    page_versions,
+    pages,
     password_vault,
     process_activities,
     project_issue_trackers,

@@ -51,6 +51,7 @@ pub mod meeting;
 pub mod meeting_correction;
 pub mod meeting_transcription;
 pub mod model_setting;
+pub mod page;
 pub mod password_vault;
 pub mod project;
 pub mod project_issue_tracker;

@@ -31,6 +31,7 @@ pub mod meetings;
 mod model_settings;
 mod my_sessions;
 pub mod oauth;
+pub mod pages;
 pub mod password_vault;
 pub mod projects;
 pub mod promises;
@@ -110,6 +111,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/mail", mail::router())
         .nest("/meetings", meetings::router())
         .nest("/model-settings", model_settings::router())
+        .nest("/pages", pages::router())
         .nest("/projects", projects::router())
         .nest("/promises", promises::router())
         .nest("/runs", runs::router())

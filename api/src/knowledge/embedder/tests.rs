@@ -17,8 +17,9 @@ use super::{Embedder, EmbedderError};
 use crate::connections::connect_postgres;
 use crate::embeddings::fake::FakeEmbeddings;
 use crate::embeddings::{DIMENSIONS, EmbeddingsError, MODEL};
+use crate::models::agent::Author;
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
-use crate::models::learning::{self, Author, LearningContent};
+use crate::models::learning::{self, LearningContent};
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
 #[derive(QueryableByName, Debug)]

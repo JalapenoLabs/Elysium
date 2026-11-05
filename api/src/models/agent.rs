@@ -1,21 +1,35 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The MCP client acting for a person, as the knowledge base records it beside their change.
+//! Who makes a change to the knowledge base, as it is recorded beside the change.
 //!
-//! A learning and a proposal to the company doc both name the person a change is by and, when
-//! one acted for them, the client they connected (`docs/knowledge.md`). The client is recorded
-//! by its id, `mcp:<client id>`, which is its identity, and labelled by the name it registered,
+//! A learning, a page, and a proposal to the company doc all name the person or machine a change
+//! is by and, when one acted for them, the agent ([`Author`], `docs/knowledge.md`). An agent is
+//! recorded by what identifies it: `mcp:<client id>` for an MCP client a person connected,
+//! `session:<number>` for a coding or Studio session's agent, and `project_manager:<project id>`
+//! for a project's Project Manager. An MCP client is also labelled by the name it registered,
 //! which is only what it calls itself.
 
+use chrono::{DateTime, Utc};
 use tracing::{Level, event};
+use uuid::Uuid;
 
-/// The agent acting for the person who made a change: today an MCP client they connected.
+/// The agent acting for whoever made a change.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
-    /// Its recorded form, `mcp:<client id>`.
+    /// Its recorded form, as the `agent` columns store it.
     id: String,
     /// What it called itself, such as `Claude Code`. Registered by the client, so a label only.
     name: Option<String>,
+}
+
+/// Who makes a change, and when.
+#[derive(Debug, Clone, Copy)]
+pub struct Author<'a> {
+    /// The person, or the machine user standing for an agent of Elysium's own.
+    pub user_id: Uuid,
+    /// The agent acting for them, if one is.
+    pub agent: Option<&'a Agent>,
+    pub at: DateTime<Utc>,
 }
 
 /// The longest agent name kept, in characters, as the `agent_name` columns allow.
@@ -52,7 +66,23 @@ impl Agent {
         })
     }
 
-    /// Its recorded form, `mcp:<client id>`, as the `agent` columns store it.
+    /// The agent of the coding or Studio session with this number.
+    pub fn session(number: i64) -> Self {
+        Self {
+            id: format!("session:{number}"),
+            name: None,
+        }
+    }
+
+    /// The Project Manager of the project with this id.
+    pub fn project_manager(project_id: Uuid) -> Self {
+        Self {
+            id: format!("project_manager:{project_id}"),
+            name: None,
+        }
+    }
+
+    /// Its recorded form, as the `agent` columns store it.
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -66,6 +96,16 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elysiums_own_agents_are_recorded_by_what_identifies_them() {
+        assert_eq!(Agent::session(12).id(), "session:12");
+        let project_id = Uuid::nil();
+        assert_eq!(
+            Agent::project_manager(project_id).id(),
+            format!("project_manager:{project_id}")
+        );
+    }
 
     #[test]
     fn an_mcp_client_is_recorded_by_its_id_and_labelled_by_its_name() {

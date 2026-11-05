@@ -149,6 +149,17 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learnings/{id}/restore`      | `200` `{ learning }`                                |
 | GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
 | POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
+| GET    | `/api/v1/pages`                       | `200` `{ pages: PageSummary[] }`, in order among their siblings; `?deleted=true` the deleted ones; members |
+| POST   | `/api/v1/pages`                       | `201` `{ page }`, as its version 1; members         |
+| GET    | `/api/v1/pages/{id}`                  | `200` `{ page }`, deleted or not; members           |
+| DELETE | `/api/v1/pages/{id}`                  | `204`; softly, with the pages under it; members     |
+| POST   | `/api/v1/pages/{id}/publish`          | `200` `{ page, outcome }`, `published` or `unchanged`; members |
+| POST   | `/api/v1/pages/{id}/move`             | `200` `{ page }`; members                           |
+| POST   | `/api/v1/pages/{id}/restore`          | `200` `{ page }`, with the pages its deletion took; members |
+| GET    | `/api/v1/pages/{id}/history`          | `200` `{ history: PageHistoryEntry[] }`, oldest first; members |
+| GET    | `/api/v1/pages/{id}/versions`         | `200` `{ versions: PageVersionSummary[] }`, newest first; members |
+| GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
+| POST   | `/api/v1/pages/{id}/versions/{version}/restore` | `200` `{ page, outcome }`, `published` or `unchanged`; members |
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
 | GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
 | GET    | `/api/v1/knowledge/meetings?from=&to=&person=&project=&limit=` | `200` `{ meetings: KnowledgeMeeting[] }`, newest first, whoever recorded them; members |
@@ -697,6 +708,39 @@ that learning, bringing it back if it was deleted. `PATCH` takes any of the four
 `409`, as does correcting a deleted learning. Undo answers `409` when the change has nothing left to reverse. The feed
 takes `limit` (1 to 200, default 50) and `before`, an entry id, to read on. See `docs/knowledge.md`, Learnings.
 
+### `/api/v1/pages`
+
+The knowledge base's pages, one tree for the whole workspace (`docs/knowledge.md`, Pages). Every route answers admins
+and members, and a guest `403 members_only`. `page.changed` carries an id alone, once for each page a change touched;
+load it with `GET /{id}`, which answers a deleted page too.
+
+A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `currentVersion`,
+`proposalOnly`, `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`,
+`createdAt`, and `deletedAt`. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, and
+`deletedAt`: the list builds the tree by `parentId`, and only the order of `position` among siblings means anything. A
+`PageVersionSummary` has `pageId`, `version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a
+`PageVersion` adds `body`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`,
+or `restored`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages, History.
+
+`POST /` takes `title` (1 to 300 characters, trimmed and its spacing collapsed), and optionally `parentId` and `body`
+(up to 100,000 characters, its line endings normalized and its trailing whitespace dropped), and appends the page to
+its parent's children. `POST /{id}/publish` takes `baseVersion`, the `currentVersion` the edit was made from, `title`,
+and `body`, the page whole. `POST /{id}/move` takes `parentId` and `after`, both required and either `null`: the page
+it goes under, or the top of the tree, and the live sibling it goes right after, or first. Moving a page where it
+already is, or publishing or restoring what it already says, records nothing and announces nothing; a publish answers
+`unchanged`.
+
+Refusals are `409` with a `code` the web app explains in its own words:
+
+| `code`                | When                                                                            |
+|-----------------------|---------------------------------------------------------------------------------|
+| `page_changed`        | A publish named a `baseVersion` that is no longer current; load the page again   |
+| `page_deleted`        | A publish, restore of a version, or move of a deleted page                       |
+| `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
+| `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |
+| `page_placement_gone` | `after` is not a live child of the parent named; load the tree again             |
+| `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |
+
 ### `/api/v1/learning-categories`
 
 The list answers admins and members, and a guest `403 members_only`; changes answer admins alone.
@@ -951,8 +995,8 @@ A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, 
 order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after
 `toPosition` is `422`), how many passages it has in all, the projects its timeline record is attributed to
 (`{ id, name }`), and `origin`, what it was made from: `{ kind: "timelineRecord" }`, whose record stays its owner's and
-is not named, `{ kind: "learning", learningId }`, or `{ kind: "companyDoc", section }`. An id the index does not hold
-is `404`.
+is not named, `{ kind: "learning", learningId }`, `{ kind: "companyDoc", section }`, or `{ kind: "page", pageId }`. An id
+the index does not hold is `404`.
 
 `GET /meetings` takes `from` and `to` (moments with an offset, when a meeting started; `from` before `to`), `person`
 and `project` (ids: meetings recorded by that person's sources, or with a topic attributed to that project), and

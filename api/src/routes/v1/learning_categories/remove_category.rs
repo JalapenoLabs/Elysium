@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
-use crate::models::learning::Author;
+use crate::models::agent::Author;
 use crate::models::learning_category;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;

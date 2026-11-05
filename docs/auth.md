@@ -414,6 +414,7 @@ Every top-level table has `created_by UUID NOT NULL REFERENCES users`:
 - mail_accounts
 - mail_domains
 - mail_servers
+- pages
 - projects
 - storage_locations
 

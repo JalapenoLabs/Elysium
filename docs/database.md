@@ -495,16 +495,17 @@ How far the company doc's review has read the timeline (`docs/engine.md`, The co
 The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
 a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
 source deletes its document and passages, a document for a source already gone is refused, and indexing a source
-again upserts its one document on that column. The sources are a timeline record, a learning, and a section of the
-company doc.
+again upserts its one document on that column. The sources are a timeline record, a learning, a section of the
+company doc, and a page.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
 | `id`                 | `UUID`        | UUIDv7, primary key                                                    |
-| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, `learning`, or `company_doc` |
+| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, `learning`, `company_doc`, or `page` |
 | `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
 | `learning_id`        | `UUID`        | Unique; references `learnings`, cascading                              |
 | `company_doc_section` | `TEXT`       | Unique; references `company_doc_sections`, cascading                   |
+| `page_id`            | `UUID`        | Unique; references `pages`, cascading                                  |
 | `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
@@ -572,6 +573,66 @@ embedding.
 embedding model has still to do, and the partial `knowledge_passages_embedding_model` the embeddings another model
 made, which the engine forgets as it starts. `schema.rs` names the two column types `Tsvector` and `Vector`, placeholders
 `diesel print-schema` generates.
+
+### `pages`
+
+The knowledge base's pages, one tree for the whole workspace; see `docs/knowledge.md`, Pages. A page holds a copy of its
+newest row in `page_versions`, written together, so the tree and title searches read one table.
+`pages_sibling_positions`, unique on `(parent_id, position)` with `NULLS NOT DISTINCT` for the top of the tree, keeps
+siblings from tying, deleted ones included, and its index reads a parent's children in order; it is deferrable, so
+renumbering them in one statement is checked when the statement ends. A live page's parent being live, and no page
+being under itself at any depth, are the API's to keep, under one advisory lock (`crate::models::page`), since neither
+is a rule of one row.
+
+| Column            | Type          | Notes                                                                 |
+|-------------------|---------------|-----------------------------------------------------------------------|
+| `id`              | `UUID`        | UUIDv7, primary key                                                   |
+| `parent_id`       | `UUID`        | References `pages`; NULL at the top of the tree; never itself          |
+| `position`        | `BIGINT`      | Its place among its siblings, lowest first, with gaps; deleted pages keep theirs |
+| `title`           | `TEXT`        | 1 to 300 characters, on one line                                      |
+| `body`            | `TEXT`        | Markdown, at most 100,000 characters; may be empty                    |
+| `category`        | `TEXT`        | References `learning_categories (key)`, on a page that is a learning; `pages_category` counts and moves them |
+| `evidence`        | `TEXT`        | 1 to 20,000 characters, set with `category`; indexed after the body    |
+| `current_version` | `INTEGER`     | The newest of its versions                                            |
+| `proposal_only`   | `BOOLEAN`     | Agents may only propose to it; people edit it directly                |
+| `deleted_at`      | `TIMESTAMPTZ` | Soft delete; NULL while the page is live. Descendants deleted with it share the instant, which is how restoring it finds them |
+| `created_by`      | `UUID`        | References `users`: who created it                                    |
+| `created_at`      | `TIMESTAMPTZ` | Written by the API, the moment it was created                         |
+| `updated_at`      | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+
+### `page_versions`
+
+Every published version of a page, never changed once written; see `docs/knowledge.md`, Pages, Versions. Cascades with
+its page. The key `(page_id, version)` is what stops two publishes taking one number. It repeats the agent columns of
+`page_events` so a version stands alone, and holds a category as text, since a version outlives a category removed
+since.
+
+| Column                | Type          | Notes                                                             |
+|-----------------------|---------------|-------------------------------------------------------------------|
+| `page_id`             | `UUID`        | References `pages`, cascading                                     |
+| `version`             | `INTEGER`     | 1 when created, then one more for each publish and restore        |
+| `title`, `body`       | `TEXT`        | As on `pages`                                                     |
+| `category`, `evidence` | `TEXT`       | As on `pages`; `category` is not a reference here                 |
+| `restored_from`       | `INTEGER`     | The earlier version a restore copied                              |
+| `created_by`          | `UUID`        | References `users`: who published it                              |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for them: `mcp:<client id>` with the name it registered, `session:<number>`, or `project_manager:<project id>` |
+| `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment it was published                   |
+
+### `page_events`
+
+Everything that happened to a page, publishes included, one row per change, shaped like `learning_events`; see
+`docs/knowledge.md`, Pages, History. Cascades with its page. `page_events_page_id_idx` on `(page_id, id)` reads one
+page's history in order.
+
+| Column                | Type          | Notes                                                             |
+|-----------------------|---------------|-------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
+| `page_id`             | `UUID`        | References `pages`, cascading                                     |
+| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, or `restored`; text, as for learnings, so a later kind needs no enum migration |
+| `created_by`          | `UUID`        | References `users`: who made the change                           |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_versions`                  |
+| `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
+| `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment of the change                      |
 
 ### `learnings`
 

@@ -144,6 +144,10 @@ pub enum ServerEvent {
     /// id.
     #[serde(rename = "learning.changed")]
     LearningChanged { id: Uuid },
+    /// A knowledge base page was created, published, moved, deleted, or restored, or its place
+    /// among its siblings was renumbered. Its id alone, as for a learning; members load it by id.
+    #[serde(rename = "page.changed")]
+    PageChanged { id: Uuid },
     /// A question asked of the knowledge base was made, taken, answered, or failed. Its id,
     /// asker, and state alone: the question and its answer are the asker's, whose pages load it
     /// by id, and every other client knows to ignore it.
