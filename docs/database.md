@@ -77,7 +77,8 @@ redo, concurrent migrators, the pending-migration refusal, the rebuild for a cha
 index's cascades and columns, timeline records indexed as they are stored with a page's newest version alone, the
 backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
 the knowledge search's two rankings, filters, folding, documents, refusal of guests, and budget through the router,
-learnings saved, revised, undone, deleted, and indexed with them, learning categories
+learnings saved, revised, undone, deleted, and indexed with them, the move of learnings and the company doc onto pages
+against data laid out as production's, up, down to the row, and up again, with no passage re-embedded, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
@@ -400,7 +401,7 @@ Project Manager or a session's agent attributes wakes nothing.
 
 ### `timeline_record_events`
 
-The history of what records are attributed to, one row per change, shaped like `learning_events`; see
+The history of what records are attributed to, one row per change, shaped like `page_events`; see
 `docs/connectors.md`, The timeline. Cascades with its record and its project. `timeline_record_events_record` on
 `(timeline_record_id, id)` reads one record's history in order; `timeline_record_events_pair` on
 `(timeline_record_id, project_id)` answers whether a person decided a pair, which Elysia then leaves alone.
@@ -415,28 +416,17 @@ The history of what records are attributed to, one row per change, shaped like `
 | `data`               | `JSONB`       | `{ before, after }`, each `{ confidence, attributedBy }` or `null`, and `undid` for an undo |
 | `created_at`         | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
-### `company_doc_sections`
-
-The company doc's seven fixed sections, one row each, seeded by the migration as the system user; see
-`docs/knowledge.md`, The company doc. Each section is a source of the knowledge index (`knowledge_documents`).
-
-| Column        | Type          | Notes                                                                 |
-|---------------|---------------|-----------------------------------------------------------------------|
-| `section`     | `TEXT`        | Primary key: `company`, `leadership`, `people`, `stakeholders`, `products`, `projects`, or `glossary` |
-| `content`     | `TEXT`        | Markdown, at most 12,000 characters; empty until written              |
-| `created_by`  | `UUID`        | References `users`; the system user                                   |
-| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger        |
-
 ### `company_doc_proposals`
 
-Changes proposed to one section, each waiting for a person to approve or reject it. The partial unique index
+Changes proposed to one section of the company doc, whose sections are pages (`docs/knowledge.md`, Pages, Learnings and
+the company doc), each waiting for a person to approve or reject it. The partial unique index
 `company_doc_proposals_pending_once` on `(section, md5(content))` while `pending` keeps the same change pending once;
 `company_doc_proposals_by_state` on `(state, id)` reads what waits and what was rejected.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
 | `id`                 | `UUID`        | UUIDv7, primary key                                                    |
-| `section`            | `TEXT`        | References `company_doc_sections`                                      |
+| `section`            | `TEXT`        | The section's key: `company`, `leadership`, `people`, `stakeholders`, `products`, `projects`, or `glossary` |
 | `base_content`       | `TEXT`        | The section as it read when the change was proposed                    |
 | `content`            | `TEXT`        | The section as the change would leave it; never `base_content`         |
 | `reason`             | `TEXT`        | 1 to 2,000 characters                                                  |
@@ -448,20 +438,6 @@ Changes proposed to one section, each waiting for a person to approve or reject 
 | `created_by`         | `UUID`        | References `users`: the person, or Elysia's or the coding agent's machine user |
 | `agent`, `agent_name` | `TEXT`       | The agent acting for them: `mcp:<client id>` with the name it registered, `session:<number>`, or `project_manager:<project id>` |
 | `created_at`         | `TIMESTAMPTZ` | Written by the API                                                     |
-
-### `company_doc_events`
-
-The company doc's history, one row per change, shaped like `learning_events`; see `docs/knowledge.md`, History and
-undo.
-
-| Column        | Type          | Notes                                                                 |
-|---------------|---------------|-----------------------------------------------------------------------|
-| `id`          | `UUID`        | UUIDv7, primary key; orders entries as they were written              |
-| `kind`        | `TEXT`        | `edited` or `approved`; text, so a later kind needs no enum migration |
-| `created_by`  | `UUID`        | References `users`: who edited, approved, or undid                    |
-| `proposal_id` | `UUID`        | References `company_doc_proposals`: set exactly on `approved`         |
-| `data`        | `JSONB`       | `changes`, each section `{ from, to }`, and `undid` for an undo       |
-| `created_at`  | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
 ### `agent_guidance_versions`
 
@@ -495,16 +471,14 @@ How far the company doc's review has read the timeline (`docs/engine.md`, The co
 The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
 a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
 source deletes its document and passages, a document for a source already gone is refused, and indexing a source
-again upserts its one document on that column. The sources are a timeline record, a learning, a section of the
-company doc, and a page.
+again upserts its one document on that column. The sources are a timeline record and a page; `source` tells a learning
+and a company doc section from any other page.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
 | `id`                 | `UUID`        | UUIDv7, primary key                                                    |
 | `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, `learning`, `company_doc`, or `page` |
 | `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
-| `learning_id`        | `UUID`        | Unique; references `learnings`, cascading                              |
-| `company_doc_section` | `TEXT`       | Unique; references `company_doc_sections`, cascading                   |
 | `page_id`            | `UUID`        | Unique; references `pages`, cascading                                  |
 | `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
@@ -582,19 +556,24 @@ newest row in `page_versions`, written together, so the tree and title searches 
 siblings from tying, deleted ones included, and its index reads a parent's children in order; it is deferrable, so
 renumbering them in one statement is checked when the statement ends. A live page's parent being live, and no page
 being under itself at any depth, are the API's to keep, under one advisory lock (`crate::models::page`), since neither
-is a rule of one row.
+is a rule of one row. A learning is a page with a category and evidence: the partial unique index
+`pages_learning_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
+included, so saving a title again revises its learning, and `migrate run` rebuilds it with every other text index when
+the collation changes (Collations, above). The Learnings page, the Company page, and the company doc's seven sections
+are seeded by the migration at ids fixed in code (`crate::models::page`, `Section::page_id`); the last seven keep their
+limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`.
 
 | Column            | Type          | Notes                                                                 |
 |-------------------|---------------|-----------------------------------------------------------------------|
-| `id`              | `UUID`        | UUIDv7, primary key                                                   |
+| `id`              | `UUID`        | UUIDv7, primary key, or a fixed page's fixed id                       |
 | `parent_id`       | `UUID`        | References `pages`; NULL at the top of the tree; never itself          |
 | `position`        | `BIGINT`      | Its place among its siblings, lowest first, with gaps; deleted pages keep theirs |
 | `title`           | `TEXT`        | 1 to 300 characters, on one line                                      |
-| `body`            | `TEXT`        | Markdown, at most 100,000 characters; may be empty                    |
+| `body`            | `TEXT`        | Markdown, at most 100,000 characters, 20,000 on a learning and 12,000 on a company doc section; may be empty, but not on a learning |
 | `category`        | `TEXT`        | References `learning_categories (key)`, on a page that is a learning; `pages_category` counts and moves them |
 | `evidence`        | `TEXT`        | 1 to 20,000 characters, set with `category`; indexed after the body    |
 | `current_version` | `INTEGER`     | The newest of its versions                                            |
-| `proposal_only`   | `BOOLEAN`     | Agents may only propose to it; people edit it directly                |
+| `proposal_only`   | `BOOLEAN`     | Agents may only propose to it; people edit it directly. The Company page and the doc's sections |
 | `deleted_at`      | `TIMESTAMPTZ` | Soft delete; NULL while the page is live. Descendants deleted with it share the instant, which is how restoring it finds them |
 | `created_by`      | `UUID`        | References `users`: who created it                                    |
 | `created_at`      | `TIMESTAMPTZ` | Written by the API, the moment it was created                         |
@@ -620,45 +599,25 @@ since.
 
 ### `page_events`
 
-Everything that happened to a page, publishes included, one row per change, shaped like `learning_events`; see
-`docs/knowledge.md`, Pages, History. Cascades with its page. `page_events_page_id_idx` on `(page_id, id)` reads one
-page's history in order.
+Everything that happened to a page, publishes included, one row per change on each page it reached; see
+`docs/knowledge.md`, Pages, History. Cascades with its page. The primary key `(page_id, id)` reads one page's history in
+order, and `page_events_id` on `id` reads a feed across pages and finds a change's rows: one change to several company
+doc sections is one id with a row on each.
 
 | Column                | Type          | Notes                                                             |
 |-----------------------|---------------|-------------------------------------------------------------------|
-| `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
+| `id`                  | `UUID`        | UUIDv7; orders entries as they were written, and is shared by the rows of one change |
 | `page_id`             | `UUID`        | References `pages`, cascading                                     |
-| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, or `restored`; text, as for learnings, so a later kind needs no enum migration |
+| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, or `restored`; text, as for action items, so a later kind needs no enum migration |
 | `created_by`          | `UUID`        | References `users`: who made the change                           |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_versions`                  |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
 | `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment of the change                      |
 
-### `learnings`
-
-What people and their agents learned, written for the next agent; see `docs/knowledge.md`, Learnings. The unique
-index `learnings_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
-included, so saving a title again revises its learning; `migrate run` rebuilds it with every other text index when the
-collation changes (Collations, above).
-
-| Column       | Type                | Notes                                                                  |
-|--------------|---------------------|------------------------------------------------------------------------|
-| `id`         | `UUID`              | UUIDv7, primary key                                                    |
-| `title`      | `TEXT`              | The takeaway, 1 to 300 characters, on one line                         |
-| `body`       | `TEXT`              | 1 to 20,000 characters                                                 |
-| `category`   | `TEXT`              | References `learning_categories (key)`; `learnings_category_idx` counts and moves a category's learnings |
-| `evidence`   | `TEXT`              | 1 to 20,000 characters                                                 |
-| `agent`      | `TEXT`              | The agent acting for `created_by` at the first save, `mcp:<client id>`; NULL when the person saved it |
-| `agent_name` | `TEXT`              | What that agent called itself, up to 200 characters; set only with `agent` |
-| `deleted_at` | `TIMESTAMPTZ`       | Soft delete; NULL while the learning is live                           |
-| `created_by` | `UUID`              | References `users`: who first saved it                                 |
-| `created_at` | `TIMESTAMPTZ`       | Written by the API, the moment of the first save                       |
-| `updated_at` | `TIMESTAMPTZ`       | Maintained by trigger                                                  |
-
 ### `learning_categories`
 
 The categories learnings are filed under: Elysium's nine built-in ones, seeded by the migration, and the workspace's
-own, which admins add; see `docs/knowledge.md`, Categories. `learnings.category` references `key` with `NO ACTION`, so
+own, which admins add; see `docs/knowledge.md`, Categories. `pages.category` references `key` with `NO ACTION`, so
 removing a category that learnings still use fails with the foreign key violation Diesel recognizes; the API moves them
 first. Changes are recorded in `user_events` as a workspace setting's are. Rolling the migration back refuses while any
 learning is filed under a workspace category, rather than refile or drop it.
@@ -673,22 +632,6 @@ learning is filed under a workspace category, rather than refile or drop it.
 | `created_by`  | `UUID`        | References `users`; the system user for the nine                      |
 | `created_at`  | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                                 |
-
-### `learning_events`
-
-The history of learnings, one row per change, shaped like `action_item_events`; see `docs/knowledge.md`, History and
-undo. Cascades with its learning. `learning_events_learning_id_idx` on `(learning_id, id)` reads one learning's history
-in order.
-
-| Column        | Type          | Notes                                                                 |
-|---------------|---------------|-----------------------------------------------------------------------|
-| `id`          | `UUID`        | UUIDv7, primary key; orders entries as they were written              |
-| `learning_id` | `UUID`        | References `learnings`, cascading                                     |
-| `kind`        | `TEXT`        | `created`, `revised`, `deleted`, or `restored`; text, as for action items, so a later kind needs no enum migration |
-| `created_by`  | `UUID`        | References `users`: who made the change                               |
-| `agent`, `agent_name` | `TEXT` | The agent acting for them, as on `learnings`                        |
-| `data`        | `JSONB`       | A JSON object shaped by `kind`                                        |
-| `created_at`  | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
 ### `meetings`
 
@@ -1841,7 +1784,7 @@ workspace has one row per kind too.
 
 ### `workflow_run_events`
 
-A run's history: its start, and every step a person retried, skipped, or resumed. Shaped like `learning_events`.
+A run's history: its start, and every step a person retried, skipped, or resumed. Shaped like `page_events`.
 
 | Column        | Type          | Notes                                                                  |
 |---------------|---------------|------------------------------------------------------------------------|

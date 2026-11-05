@@ -34,7 +34,7 @@ pub use self::save_learning::{SaveLearningRequest, save};
 use crate::auth::MemberUser;
 use crate::models::agent::{Agent, Author};
 use crate::models::learning::{HistoryEntry, Learning, Recorded};
-use crate::realtime::ServerEvent;
+use crate::routes::v1::pages;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -148,10 +148,6 @@ fn author<'a>(member: &MemberUser, agent: Option<&'a Agent>) -> Author<'a> {
 
 /// Announces a write that changed something, and answers the learning it left.
 fn announce(state: &AppState, recorded: Recorded) -> LearningResponse {
-    if !recorded.history.is_empty() {
-        state.events.publish(&ServerEvent::LearningChanged {
-            id: recorded.learning.id,
-        });
-    }
+    pages::announce(&state.events, &recorded.changed, &recorded.learnings);
     LearningResponse::from(recorded.learning)
 }

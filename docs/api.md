@@ -663,8 +663,9 @@ The doc answers `sections`, each with `section`, `purpose` (what belongs there, 
 `source`, `timelineRecordId`, `workflowRunId`, `state`, `decidedBy`, `decidedAt`, `createdBy`, `agent` (`{ id, name }`
 or `null`), and `createdAt`; a history entry has `id`, `kind`, `createdBy`, `proposalId`, `data`, and `createdAt`.
 
-`PATCH` trims each section and answers `400` for one past 12,000 characters or a key that is not a section; sections
-left out keep their text. Approving and rejecting answer `{ proposal, doc }`, and `409` for a proposal already decided;
+The doc's sections are pages (`docs/knowledge.md`, Pages, Learnings and the company doc), which these routes read and
+write in the shapes above. `PATCH` trims each section and answers `400` for one past 12,000 characters or a key that is
+not a section; sections left out keep their text. Approving and rejecting answer `{ proposal, doc }`, and `409` for a proposal already decided;
 approving one whose lines changed since answers `409 proposal_overlaps` and leaves it pending. Undo answers the doc,
 and `409` when the change has nothing left to reverse. Review answers `{ run: { id, state }, started }`: `201` with a
 new run, `200` with the one already live.
@@ -697,8 +698,9 @@ nothing, and neither does restoring a version whose text is current. Restoring a
 
 Every route answers admins and members, and a guest `403 members_only`; the feed answers admins alone.
 
-A `Learning` has `id`, `title`, `body`, `category`, `evidence`, `agent` (`{ id, name }` or `null`), `createdBy`,
-`createdAt`, `updatedAt`, and `deletedAt`. A `LearningHistoryEntry` has `id`, `learningId`, `kind`, `createdBy`,
+A learning is a page, and its `id` is the page's (`docs/knowledge.md`, Pages, Learnings and the company doc), which these
+routes read and write in the shapes below. A `Learning` has `id`, `title`, `body`, `category`, `evidence`, `agent`
+(`{ id, name }` or `null`), `createdBy`, `createdAt`, `updatedAt`, and `deletedAt`. A `LearningHistoryEntry` has `id`, `learningId`, `kind`, `createdBy`,
 `agent`, `data`, and `createdAt`.
 
 `POST` requires `title` (up to 300 characters, trimmed and its spacing collapsed), `body` and `evidence` (each up to
@@ -714,18 +716,21 @@ The knowledge base's pages, one tree for the whole workspace (`docs/knowledge.md
 and members, and a guest `403 members_only`. `page.changed` carries an id alone, once for each page a change touched;
 load it with `GET /{id}`, which answers a deleted page too.
 
-A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `currentVersion`,
-`proposalOnly`, `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`,
-`createdAt`, and `deletedAt`. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, and
-`deletedAt`: the list builds the tree by `parentId`, and only the order of `position` among siblings means anything. A
-`PageVersionSummary` has `pageId`, `version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a
-`PageVersion` adds `body`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`,
+A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `publishedBy`,
+`publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`, and `deletedAt`. A
+`PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, and `deletedAt`: the list builds the
+tree by `parentId`, and only the order of `position` among siblings means anything. A `PageVersionSummary` has `pageId`,
+`version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a `PageVersion` adds `body`, `category`, and
+`evidence`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`,
 or `restored`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages, History.
 
 `POST /` takes `title` (1 to 300 characters, trimmed and its spacing collapsed), and optionally `parentId` and `body`
 (up to 100,000 characters, its line endings normalized and its trailing whitespace dropped), and appends the page to
 its parent's children. `POST /{id}/publish` takes `baseVersion`, the `currentVersion` the edit was made from, `title`,
-and `body`, the page whole. `POST /{id}/move` takes `parentId` and `after`, both required and either `null`: the page
+and `body`, the page whole, and on a learning `category` and `evidence`, both or neither: left out, it keeps its own,
+and one alone answers `422`. A category no one has answers `400` naming every key there is, as does a learning's body
+outside 1 to 20,000 characters or a company doc section's past 12,000. `POST /{id}/move` takes `parentId` and `after`, both required and either `null`: the page
 it goes under, or the top of the tree, and the live sibling it goes right after, or first. Moving a page where it
 already is, or publishing or restoring what it already says, records nothing and announces nothing; a publish answers
 `unchanged`.
@@ -737,6 +742,9 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; load the page again   |
 | `page_deleted`        | A publish, restore of a version, or move of a deleted page                       |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
+| `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
+| `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
+| `page_not_a_learning` | A publish named a category and evidence for a page that is no learning           |
 | `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |
 | `page_placement_gone` | `after` is not a live child of the parent named; load the tree again             |
 | `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |

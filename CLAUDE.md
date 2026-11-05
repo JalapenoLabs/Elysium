@@ -409,6 +409,9 @@ Everything else follows these rules:
 
 ## The company doc
 
+- The doc is seven proposal-only pages under the Company page, each section's id fixed in code, with its history in
+  their versions and `page_events`. Those pages, the Company page, and the Learnings page are fixed: nobody moves,
+  deletes, or renames one. See `docs/knowledge.md`, Pages, Learnings and the company doc.
 - One document per instance knows the company in seven fixed sections: company, leadership, people, stakeholders,
   products, projects, and glossary, the last two carrying how names and jargon are spelled. See `docs/knowledge.md`,
   The company doc.
@@ -607,7 +610,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   its document, and each passage has a generated `english` tsvector and a `vector(768)` embedding. Every source enters
   and leaves it through `knowledge_document::upsert` and `remove`, in the transaction that changes the source. See
   `docs/knowledge.md`.
-- Learnings (`learnings`, history in `learning_events`) are indexed the moment they are saved. A title names one
+- A learning is a page with a category and evidence, under the Learnings page (`crate::models::learning` over
+  `crate::models::page`), indexed the moment it is saved. A title names one
   learning whatever its case, so saving it again revises that learning; every change can be undone. The knowledge
   base's routes and tools refuse guests (`MemberUser`). See `docs/knowledge.md`, Learnings.
 - A learning's category is a row of `learning_categories`: Elysium's nine built-in ones, fixed, and the workspace's

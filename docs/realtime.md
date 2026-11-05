@@ -40,11 +40,11 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `browserSession.startedOver` | `{ id, createdBy }` | A browser went back to its start page, other tabs closed, profile kept |
 | `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
 | `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
-| `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
+| `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone, through its own routes or as a page, alongside `page.changed`; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
 | `page.changed`           | `{ id }`         | A knowledge base page was created, published, moved, deleted, or restored, or its place among its siblings was renumbered, once for each page a change touched; never its text, since guests hear it too; members gather a burst, then reload the list and the pages a view holds, see `docs/frontend.md`, Pages |
 | `knowledgeAsk.changed`   | `{ id, askedBy, state }` | A question asked of the knowledge base was made, taken, answered, or failed; never the question or its answer; the asker loads it by id, see `docs/knowledge.md`, Asking |
 | `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
-| `companyDoc.changed`     | none             | The company doc changed, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |
+| `companyDoc.changed`     | none             | The company doc changed, through its own routes or a section's page, alongside `page.changed`, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |
 | `agentGuidance.changed`  | none             | An admin saved or restored a version of the agent guidance; members load it again, see `docs/knowledge.md`, Agent guidance |
 | `modelSetting.changed`   | `{ agent }`      | An admin chose what a step or agent runs on, or let it follow its kind again; admins load the list again, see `docs/engine.md`, Models |
 | `kindModelSetting.changed` | `{ kind, projectId }` | Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or one project, or put it back; admins load the workspace's list again, and a page showing a project's loads it again |

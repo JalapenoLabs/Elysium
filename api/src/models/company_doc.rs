@@ -15,17 +15,17 @@
 //!   section changed merges the two changes three ways, as git merges a branch, and refuses one
 //!   whose changes overlap rather than undoing someone's edit.
 //!
-//! Every change that writes the doc records a history entry in the same transaction, shaped as
-//! learnings' history is: `data.changes` holds each section it changed, `{ from, to }`, so
-//! [`undo`] can put back what any one change wrote, section by section, keeping a section
-//! changed again since. The same transaction indexes each changed section as its own document
-//! (`crate::models::knowledge_document`), so search finds what the doc says the moment it
-//! commits.
+//! Each section is a page (`crate::models::page`), proposal-only and fixed in its place under the
+//! Company page, so a change to the doc is a new version of each section it touches, indexed as its
+//! own document in the same transaction, and search finds what the doc says the moment it commits.
+//! One change has one id across the pages it reached. [`history`] reads those back as the doc's
+//! entries, each holding the sections it changed in `data.changes`, `{ from, to }`, so [`undo`] can
+//! put back what any one change wrote, section by section, keeping a section changed again since.
 //!
 //! The review's position on the timeline is kept here too ([`review_cursor`],
 //! [`advance_review_cursor`]); what it reads and how it proposes is `crate::company_doc::review`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -34,17 +34,17 @@ use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use uuid::Uuid;
+use tracing::{Level, event};
+use uuid::{Uuid, uuid};
 
 use crate::database::schema::{
-    company_doc_events, company_doc_proposals, company_doc_review_cursor, company_doc_sections,
+    company_doc_proposals, company_doc_review_cursor, page_events, page_versions, pages,
 };
-use crate::knowledge::passages;
-use crate::models::agent::Agent;
-use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
+use crate::models::agent::{self, Agent};
+use crate::models::page::{self, Page, PageContent, PageError, Provenance};
 use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 
-/// The longest a section may be, in characters, as `company_doc_sections.content` allows. Seven
+/// The longest a section may be, in characters, as `pages_company_doc_section_fits` allows. Seven
 /// of them fit the review's one prompt beside what it reads (`crate::company_doc::review`).
 pub const CONTENT_MAX_CHARACTERS: usize = 12_000;
 
@@ -81,6 +81,26 @@ impl Section {
         Self::Projects,
         Self::Glossary,
     ];
+
+    /// The page that holds it, seeded by its migration at this id.
+    pub const fn page_id(self) -> Uuid {
+        match self {
+            Self::Company => uuid!("00000000-0000-0000-0002-000000000001"),
+            Self::Leadership => uuid!("00000000-0000-0000-0002-000000000002"),
+            Self::People => uuid!("00000000-0000-0000-0002-000000000003"),
+            Self::Stakeholders => uuid!("00000000-0000-0000-0002-000000000004"),
+            Self::Products => uuid!("00000000-0000-0000-0002-000000000005"),
+            Self::Projects => uuid!("00000000-0000-0000-0002-000000000006"),
+            Self::Glossary => uuid!("00000000-0000-0000-0002-000000000007"),
+        }
+    }
+
+    /// The section page `id` holds, if it holds one.
+    pub fn of_page(id: Uuid) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|section| section.page_id() == id)
+    }
 
     /// The key stored in `section` and sent to clients.
     pub const fn as_str(self) -> &'static str {
@@ -145,26 +165,6 @@ pub struct DocSection {
     pub section: Section,
     pub content: String,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Queryable, Selectable)]
-#[diesel(table_name = company_doc_sections, check_for_backend(diesel::pg::Pg))]
-struct SectionRow {
-    section: String,
-    content: String,
-    updated_at: DateTime<Utc>,
-}
-
-impl SectionRow {
-    fn into_section(self) -> DocSection {
-        let section = Section::parse(&self.section)
-            .expect("the column's check holds only the sections this build knows");
-        DocSection {
-            section,
-            content: self.content,
-            updated_at: self.updated_at,
-        }
-    }
 }
 
 /// Where a proposal stands.
@@ -337,12 +337,11 @@ impl HistoryKind {
     }
 }
 
-/// A stored history entry.
-#[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
-#[diesel(table_name = company_doc_events, check_for_backend(diesel::pg::Pg))]
+/// One change to the doc: its rows on each section's page, read as one entry.
+#[derive(Debug, Clone)]
 pub struct HistoryEntry {
     pub id: Uuid,
-    /// A [`HistoryKind`] name, kept as text so entries a later version writes still load.
+    /// A [`HistoryKind`] name.
     pub kind: String,
     /// Who made the change.
     pub created_by: Uuid,
@@ -351,15 +350,16 @@ pub struct HistoryEntry {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Insertable)]
-#[diesel(table_name = company_doc_events)]
-struct HistoryRow {
-    id: Uuid,
-    kind: &'static str,
-    created_by: Uuid,
-    proposal_id: Option<Uuid>,
-    data: Value,
-    created_at: DateTime<Utc>,
+impl HistoryEntry {
+    /// The pages of the sections this change wrote, for announcing it.
+    pub fn pages(&self) -> Vec<Uuid> {
+        let changes = self.data.get("changes").and_then(Value::as_object);
+        changes
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, _)| Some(Section::parse(key)?.page_id()))
+            .collect()
+    }
 }
 
 /// Who makes a change to the doc itself, and when: always a person, since everyone else
@@ -370,12 +370,26 @@ pub struct Author {
     pub at: DateTime<Utc>,
 }
 
+impl Author {
+    /// This person writing a page, on their own.
+    const fn of_page(self) -> agent::Author<'static> {
+        agent::Author {
+            user_id: self.user_id,
+            agent: None,
+            at: self.at,
+        }
+    }
+}
+
 /// Why a change to the doc was refused.
 #[derive(Debug, thiserror::Error)]
 pub enum CompanyDocError {
     /// Includes [`DieselError::NotFound`] for an unknown proposal or history entry.
     #[error(transparent)]
     Database(#[from] DieselError),
+    /// A section's page refused the write.
+    #[error(transparent)]
+    Page(PageError),
     /// A proposal out of bounds, such as one with no edits; the message says which bound.
     #[error("{0}")]
     Invalid(String),
@@ -401,16 +415,40 @@ pub enum CompanyDocError {
     NothingToUndo(&'static str),
 }
 
+impl From<PageError> for CompanyDocError {
+    fn from(error: PageError) -> Self {
+        match error {
+            PageError::Database(error) => Self::Database(error),
+            other => Self::Page(other),
+        }
+    }
+}
+
+/// The ids of the pages that hold the sections.
+fn section_pages() -> [Uuid; Section::ALL.len()] {
+    Section::ALL.map(Section::page_id)
+}
+
 /// Every section, in order.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn sections(connection: &mut AsyncPgConnection) -> QueryResult<Vec<DocSection>> {
-    let rows: Vec<SectionRow> = company_doc_sections::table
-        .select(SectionRow::as_select())
+    let rows: Vec<(Uuid, String, DateTime<Utc>)> = pages::table
+        .filter(pages::id.eq_any(section_pages()))
+        .select((pages::id, pages::body, pages::updated_at))
         .load(connection)
         .await?;
-    let mut sections: Vec<DocSection> = rows.into_iter().map(SectionRow::into_section).collect();
+    let mut sections: Vec<DocSection> = rows
+        .into_iter()
+        .filter_map(|(id, content, updated_at)| {
+            Some(DocSection {
+                section: Section::of_page(id)?,
+                content,
+                updated_at,
+            })
+        })
+        .collect();
     sections.sort_by_key(|section| section.section);
     Ok(sections)
 }
@@ -442,16 +480,94 @@ pub async fn proposals(
     Ok(newest)
 }
 
-/// The doc's history, oldest first.
+/// The doc's history, oldest first: every version of a section since its first, with those one
+/// change published read back as one entry.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn history(connection: &mut AsyncPgConnection) -> QueryResult<Vec<HistoryEntry>> {
-    company_doc_events::table
-        .order(company_doc_events::id.asc())
-        .select(HistoryEntry::as_select())
+    let rows: Vec<page::HistoryEntry> = page_events::table
+        .filter(page_events::page_id.eq_any(section_pages()))
+        .filter(page_events::kind.eq(page::HistoryKind::Published.as_str()))
+        .order(page_events::id.asc())
+        .select(page::HistoryEntry::as_select())
         .load(connection)
-        .await
+        .await?;
+    let bodies: Vec<(Uuid, i32, String)> = page_versions::table
+        .filter(page_versions::page_id.eq_any(section_pages()))
+        .select((
+            page_versions::page_id,
+            page_versions::version,
+            page_versions::body,
+        ))
+        .load(connection)
+        .await?;
+    let bodies = bodies
+        .into_iter()
+        .map(|(page_id, version, body)| ((page_id, version), body))
+        .collect();
+    Ok(entries_of(rows, &bodies))
+}
+
+/// `rows`, each a section's part in a change and in the order of their ids, as the doc's entries.
+/// `bodies` holds every version of each section by page and number.
+fn entries_of(
+    rows: Vec<page::HistoryEntry>,
+    bodies: &HashMap<(Uuid, i32), String>,
+) -> Vec<HistoryEntry> {
+    let mut entries: Vec<HistoryEntry> = Vec::new();
+    for row in rows {
+        let Some((section, version)) = Section::of_page(row.page_id).zip(row.published_version())
+        else {
+            event!(
+                name: "company_doc.history.unreadable",
+                Level::WARN,
+                page.id = %row.page_id,
+                "a history entry that names no section's version; leaving it out",
+            );
+            continue;
+        };
+        let body_of = |version: i32| bodies.get(&(row.page_id, version));
+        let (Some(from), Some(to)) = (body_of(version - 1), body_of(version)) else {
+            event!(
+                name: "company_doc.history.unreadable",
+                Level::WARN,
+                page.id = %row.page_id,
+                page.version = version,
+                "a history entry names a version its section does not have; leaving it out",
+            );
+            continue;
+        };
+        let change = json!({ "from": from, "to": to });
+
+        if let Some(entry) = entries.last_mut().filter(|entry| entry.id == row.id) {
+            entry.data["changes"][section.as_str()] = change;
+            continue;
+        }
+        let mut data = json!({ "changes": { section.as_str(): change } });
+        if let Some(undid) = row.data.get("undid") {
+            data["undid"] = undid.clone();
+        }
+        let proposal_id = row
+            .data
+            .get("proposalId")
+            .and_then(Value::as_str)
+            .and_then(|id| id.parse().ok());
+        let kind = if proposal_id.is_some() {
+            HistoryKind::Approved
+        } else {
+            HistoryKind::Edited
+        };
+        entries.push(HistoryEntry {
+            id: row.id,
+            kind: kind.as_str().to_owned(),
+            created_by: row.created_by,
+            proposal_id,
+            data,
+            created_at: row.created_at,
+        });
+    }
+    entries
 }
 
 /// Writes each of `changes` over its section, as one change by `author`. Sections given their
@@ -473,7 +589,7 @@ pub async fn edit(
     }
     connection
         .transaction(async move |connection| {
-            Ok(write_sections(connection, changes, author, Written::Edit { undid: None }).await?)
+            write_sections(connection, changes, author, Written::Edit).await
         })
         .await
 }
@@ -494,8 +610,8 @@ pub async fn propose(
     connection
         .transaction(async move |connection| {
             let current = lock_section(connection, new.section).await?;
-            let content = apply_edits(&current.content, &new.edits)?;
-            if content == current.content {
+            let content = apply_edits(&current.body, &new.edits)?;
+            if content == current.body {
                 return Err(CompanyDocError::ChangesNothing(new.section));
             }
             if content.chars().count() > CONTENT_MAX_CHARACTERS {
@@ -506,7 +622,7 @@ pub async fn propose(
                 .values(ProposalRow {
                     id: Uuid::now_v7(),
                     section: new.section.as_str(),
-                    base_content: &current.content,
+                    base_content: &current.body,
                     content: &content,
                     reason: &new.reason,
                     quote: new.quote.as_deref(),
@@ -567,7 +683,7 @@ pub async fn approve(
             let section = Section::parse(&proposal.section)
                 .expect("the column references a section this build knows");
             let current = lock_section(connection, section).await?;
-            let content = merged(&proposal.base_content, &current.content, &proposal.content)
+            let content = merged(&proposal.base_content, &current.body, &proposal.content)
                 .ok_or(CompanyDocError::Overlaps(section))?;
             if content.chars().count() > CONTENT_MAX_CHARACTERS {
                 return Err(CompanyDocError::TooLong(section));
@@ -610,7 +726,7 @@ pub async fn reject(
 ///
 /// Each section the entry changed that still holds what it wrote gets back what it replaced; a
 /// section changed again since keeps its newer text, as undoing a learning's revision does
-/// (`crate::models::learning::undo`).
+/// ([`page::undo_version`]).
 ///
 /// # Errors
 /// `NotFound` for an unknown entry, and [`CompanyDocError::NothingToUndo`] when every section
@@ -622,34 +738,56 @@ pub async fn undo(
 ) -> Result<Option<HistoryEntry>, CompanyDocError> {
     connection
         .transaction(async move |connection| {
-            let entry: HistoryEntry = company_doc_events::table
-                .find(entry_id)
-                .select(HistoryEntry::as_select())
-                .first(connection)
+            let rows: Vec<page::HistoryEntry> = page_events::table
+                .filter(page_events::id.eq(entry_id))
+                .filter(page_events::page_id.eq_any(section_pages()))
+                .filter(page_events::kind.eq(page::HistoryKind::Published.as_str()))
+                .order(page_events::page_id.asc())
+                .select(page::HistoryEntry::as_select())
+                .load(connection)
                 .await?;
-            let written = written_changes(&entry.data).ok_or(CompanyDocError::NothingToUndo(
-                "this change's record cannot be read",
-            ))?;
-            let mut current = BTreeMap::new();
-            for section in written.keys() {
-                let locked = lock_section(connection, *section).await?;
-                current.insert(*section, locked.content);
+            if rows.is_empty() {
+                return Err(DieselError::NotFound.into());
             }
-            let reverted = reverted_sections(&current, &written);
-            if reverted.is_empty() {
+
+            let change = Uuid::now_v7();
+            let provenance = Provenance {
+                undid: Some(entry_id),
+                change: Some(change),
+                ..Provenance::default()
+            };
+            let mut changes = Map::new();
+            for row in &rows {
+                let (Some(section), Some(version)) =
+                    (Section::of_page(row.page_id), row.published_version())
+                else {
+                    return Err(CompanyDocError::NothingToUndo(
+                        "this change's record cannot be read",
+                    ));
+                };
+                let current = page::lock(connection, row.page_id).await?;
+                let undone =
+                    page::undo_version(connection, &current, version, provenance, author.of_page())
+                        .await?;
+                if let Some(undone) = undone {
+                    let reverted = json!({ "from": current.body, "to": undone.page.body });
+                    changes.insert(section.as_str().to_owned(), reverted);
+                }
+            }
+            if changes.is_empty() {
                 return Err(CompanyDocError::NothingToUndo(
                     "every section this change wrote has changed again since",
                 ));
             }
-            Ok(write_sections(
-                connection,
-                reverted,
-                author,
-                Written::Edit {
-                    undid: Some(entry.id),
-                },
-            )
-            .await?)
+            let data = json!({ "changes": changes, "undid": entry_id });
+            Ok(Some(HistoryEntry {
+                id: change,
+                kind: HistoryKind::Edited.as_str().to_owned(),
+                created_by: author.user_id,
+                proposal_id: None,
+                data,
+                created_at: author.at,
+            }))
         })
         .await
 }
@@ -657,102 +795,68 @@ pub async fn undo(
 /// How a call to [`write_sections`] is recorded.
 #[derive(Debug, Clone, Copy)]
 enum Written {
-    Edit { undid: Option<Uuid> },
+    Edit,
     Approval { proposal_id: Uuid },
 }
 
-/// Writes `changes` and records them as one entry, reindexing each section changed; answers
-/// `None`, recording nothing, when every section already held its text.
+/// Publishes `changes` on their sections' pages as one change, one version each under one id, in
+/// the order of the map, which is every writer's, so two changes never hold each other's sections.
+/// Answers `None`, recording nothing, when every section already held its text.
 async fn write_sections(
     connection: &mut AsyncPgConnection,
     changes: BTreeMap<Section, String>,
     author: Author,
     written: Written,
-) -> QueryResult<Option<HistoryEntry>> {
+) -> Result<Option<HistoryEntry>, CompanyDocError> {
+    let change = Uuid::now_v7();
+    let (kind, proposal_id) = match written {
+        Written::Edit => (HistoryKind::Edited, None),
+        Written::Approval { proposal_id } => (HistoryKind::Approved, Some(proposal_id)),
+    };
+    let provenance = Provenance {
+        change: Some(change),
+        proposal_id,
+        ..Provenance::default()
+    };
+
     let mut recorded = Map::new();
     for (section, content) in changes {
         let current = lock_section(connection, section).await?;
-        if current.content == content {
+        if current.body == content {
             continue;
         }
-        let updated: SectionRow =
-            diesel::update(company_doc_sections::table.find(section.as_str()))
-                .set(company_doc_sections::content.eq(&content))
-                .returning(SectionRow::as_returning())
-                .get_result(connection)
-                .await?;
-        reindex(connection, &updated.into_section(), author).await?;
+        let published = PageContent {
+            body: content.clone(),
+            ..current.content()
+        };
+        page::publish_content(
+            connection,
+            &current,
+            published,
+            provenance,
+            author.of_page(),
+        )
+        .await?;
         recorded.insert(
             section.as_str().to_owned(),
-            json!({ "from": current.content, "to": content }),
+            json!({ "from": current.body, "to": content }),
         );
     }
     if recorded.is_empty() {
         return Ok(None);
     }
-
-    let mut data = json!({ "changes": recorded });
-    let (kind, proposal_id) = match written {
-        Written::Edit { undid } => {
-            if let Some(undid) = undid {
-                data["undid"] = json!(undid);
-            }
-            (HistoryKind::Edited, None)
-        }
-        Written::Approval { proposal_id } => (HistoryKind::Approved, Some(proposal_id)),
-    };
-    let entry = diesel::insert_into(company_doc_events::table)
-        .values(HistoryRow {
-            id: Uuid::now_v7(),
-            kind: kind.as_str(),
-            created_by: author.user_id,
-            proposal_id,
-            data,
-            created_at: author.at,
-        })
-        .returning(HistoryEntry::as_returning())
-        .get_result(connection)
-        .await?;
-    Ok(Some(entry))
-}
-
-/// Puts `section` in the index as it now reads, or takes it out while it is empty. Attributed to
-/// the person whose change it now reads as.
-async fn reindex(
-    connection: &mut AsyncPgConnection,
-    section: &DocSection,
-    author: Author,
-) -> QueryResult<()> {
-    let source = KnowledgeSource::CompanyDocSection(section.section);
-    let passages = passages::split(&section.content);
-    if passages.is_empty() {
-        return knowledge_document::remove(connection, &source).await;
-    }
-    let document = IndexedDocument {
-        source,
-        title: format!("Company doc: {}", section.section.heading()),
-        // The doc lives in Elysium, so a citation opens it there.
-        url: None,
-        occurred_at: section.updated_at,
+    Ok(Some(HistoryEntry {
+        id: change,
+        kind: kind.as_str().to_owned(),
         created_by: author.user_id,
-        passages,
-    };
-    knowledge_document::upsert(connection, &document)
-        .await
-        .map(drop)
+        proposal_id,
+        data: json!({ "changes": recorded }),
+        created_at: author.at,
+    }))
 }
 
-async fn lock_section(
-    connection: &mut AsyncPgConnection,
-    section: Section,
-) -> QueryResult<DocSection> {
-    company_doc_sections::table
-        .find(section.as_str())
-        .for_update()
-        .select(SectionRow::as_select())
-        .first(connection)
-        .await
-        .map(SectionRow::into_section)
+async fn lock_section(connection: &mut AsyncPgConnection, section: Section) -> QueryResult<Page> {
+    page::lock(connection, section.page_id()).await
 }
 
 /// Locks proposal `id`, refusing one already decided.
@@ -847,31 +951,6 @@ fn merged(base: &str, current: &str, proposed: &str) -> Option<String> {
     )
     .ok()
     .map(|merged| merged.trim().to_owned())
-}
-
-/// Each section an entry's `data.changes` wrote, as `(from, to)`; `None` when it cannot be read.
-fn written_changes(data: &Value) -> Option<BTreeMap<Section, (String, String)>> {
-    let changes = data.get("changes")?.as_object()?;
-    let mut written = BTreeMap::new();
-    for (key, change) in changes {
-        let section = Section::parse(key)?;
-        let from = change.get("from")?.as_str()?.to_owned();
-        let to = change.get("to")?.as_str()?.to_owned();
-        written.insert(section, (from, to));
-    }
-    Some(written)
-}
-
-/// The sections of `current` that still hold what `written` wrote, each with what it replaced.
-fn reverted_sections(
-    current: &BTreeMap<Section, String>,
-    written: &BTreeMap<Section, (String, String)>,
-) -> BTreeMap<Section, String> {
-    written
-        .iter()
-        .filter(|(section, (_, to))| current.get(*section) == Some(to))
-        .map(|(section, (from, _))| (*section, from.clone()))
-        .collect()
 }
 
 /// How far the review has read the timeline: the ingestion instant and id of the last record it
@@ -1010,37 +1089,93 @@ mod tests {
         assert_eq!(merged(base, current, proposed), None);
     }
 
+    fn row(id: Uuid, section: Section, data: Value) -> page::HistoryEntry {
+        page::HistoryEntry {
+            id,
+            page_id: section.page_id(),
+            kind: page::HistoryKind::Published.as_str().to_owned(),
+            created_by: Uuid::nil(),
+            agent: None,
+            agent_name: None,
+            data,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn bodies() -> HashMap<(Uuid, i32), String> {
+        HashMap::from([
+            ((Section::People.page_id(), 1), String::new()),
+            ((Section::People.page_id(), 2), "- Priya".to_owned()),
+            ((Section::Glossary.page_id(), 1), String::new()),
+            ((Section::Glossary.page_id(), 2), "- ACME".to_owned()),
+        ])
+    }
+
     #[test]
-    fn undoing_puts_back_only_the_sections_that_still_hold_what_the_change_wrote() {
-        let data = json!({
-            "changes": {
-                "people": { "from": "- Priya", "to": "- Priya Raman" },
-                "glossary": { "from": "", "to": "- ACME" },
-            },
-        });
-        let written = written_changes(&data).expect("reads");
-        // Since the change, someone edited the glossary again.
-        let current = BTreeMap::from([
-            (Section::People, "- Priya Raman".to_owned()),
-            (Section::Glossary, "- ACME\n- Beta".to_owned()),
-        ]);
+    fn a_change_to_several_sections_reads_as_one_entry() {
+        let id = Uuid::now_v7();
+        let rows = vec![
+            row(id, Section::People, json!({ "version": 2 })),
+            row(id, Section::Glossary, json!({ "version": 2 })),
+        ];
 
-        let reverted = reverted_sections(&current, &written);
+        let entries = entries_of(rows, &bodies());
 
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, id);
+        assert_eq!(entries[0].kind, "edited");
         assert_eq!(
-            reverted,
-            BTreeMap::from([(Section::People, "- Priya".to_owned())])
+            entries[0].data,
+            json!({
+                "changes": {
+                    "people": { "from": "", "to": "- Priya" },
+                    "glossary": { "from": "", "to": "- ACME" },
+                },
+            })
+        );
+        let mut pages = entries[0].pages();
+        pages.sort();
+        assert_eq!(
+            pages,
+            [Section::People.page_id(), Section::Glossary.page_id()]
         );
     }
 
     #[test]
-    fn an_unreadable_change_is_refused_rather_than_guessed_at() {
-        for data in [
-            json!({}),
-            json!({ "changes": { "people": { "from": "a" } } }),
-            json!({ "changes": { "history": { "from": "a", "to": "b" } } }),
-        ] {
-            assert!(written_changes(&data).is_none(), "{data} is refused");
-        }
+    fn an_applied_proposal_and_an_undo_read_as_they_were_recorded() {
+        let proposal = Uuid::now_v7();
+        let undid = Uuid::now_v7();
+        let rows = vec![
+            row(
+                Uuid::now_v7(),
+                Section::People,
+                json!({ "version": 2, "proposalId": proposal }),
+            ),
+            row(
+                Uuid::now_v7(),
+                Section::Glossary,
+                json!({ "version": 2, "undid": undid }),
+            ),
+        ];
+
+        let entries = entries_of(rows, &bodies());
+
+        assert_eq!(
+            (entries[0].kind.as_str(), entries[0].proposal_id),
+            ("approved", Some(proposal))
+        );
+        assert_eq!(
+            (entries[1].kind.as_str(), &entries[1].data["undid"]),
+            ("edited", &json!(undid))
+        );
+    }
+
+    #[test]
+    fn a_row_with_nothing_to_read_is_left_out_rather_than_guessed_at() {
+        let rows = vec![
+            row(Uuid::now_v7(), Section::People, json!({})),
+            row(Uuid::now_v7(), Section::People, json!({ "version": 9 })),
+        ];
+        assert!(entries_of(rows, &bodies()).is_empty());
     }
 }

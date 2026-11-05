@@ -3,9 +3,10 @@
 //! The categories learnings are filed under: Elysium's nine built-in ones and the workspace's
 //! own (`docs/knowledge.md`, Categories).
 //!
-//! Every category is a row of `learning_categories`, and `learnings.category` references its
-//! key, so Postgres itself keeps a learning from outliving its category. The built-in rows are
-//! seeded by their migration and never change; admins add, edit, reorder, and remove the rest.
+//! Every category is a row of `learning_categories`, and `pages.category` references its key on
+//! each page that is a learning, so Postgres itself keeps a learning from outliving its category.
+//! The built-in rows are seeded by their migration and never change; admins add, edit, reorder, and
+//! remove the rest.
 //! A key never changes, since learnings and their history hold it.
 //!
 //! The list is a workspace setting, so each change is recorded in `user_events` beside the
@@ -22,7 +23,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::database::schema::{learning_categories, learnings};
+use crate::database::schema::{learning_categories, pages};
 use crate::models::agent::Author;
 use crate::models::learning::{self, LearningError, Recorded};
 use crate::models::user::{self, UserEventKind};
@@ -128,12 +129,16 @@ pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Learnin
 pub async fn learning_counts(
     connection: &mut AsyncPgConnection,
 ) -> QueryResult<HashMap<String, i64>> {
-    let counts: Vec<(String, i64)> = learnings::table
-        .group_by(learnings::category)
-        .select((learnings::category, diesel::dsl::count_star()))
+    let counts: Vec<(Option<String>, i64)> = pages::table
+        .filter(pages::category.is_not_null())
+        .group_by(pages::category)
+        .select((pages::category, diesel::dsl::count_star()))
         .load(connection)
         .await?;
-    Ok(counts.into_iter().collect())
+    Ok(counts
+        .into_iter()
+        .filter_map(|(key, count)| Some((key?, count)))
+        .collect())
 }
 
 /// Category `key`.
@@ -337,8 +342,8 @@ pub async fn remove(
                 return Err(CategoryError::BuiltIn);
             }
 
-            let filed: i64 = learnings::table
-                .filter(learnings::category.eq(key))
+            let filed: i64 = pages::table
+                .filter(pages::category.eq(key))
                 .count()
                 .get_result(connection)
                 .await?;

@@ -8,7 +8,8 @@
 //! fails to save leaves nothing indexed.
 //!
 //! Each kind of source is a column of `knowledge_documents` (`docs/database.md`), and
-//! [`KnowledgeSource`] is the one place that maps a kind to its column. Indexing a source again
+//! [`KnowledgeSource`] is the one place that maps a kind to its column: a timeline record's or a
+//! page's, learnings and the company doc's sections being pages. Indexing a source again
 //! is cheap when nothing changed: the SHA-256 of its text says so and its passages are left
 //! alone. When something did, passages are rewritten by position, and one whose text held keeps
 //! its embedding while one whose text moved waits for the embedding model again.
@@ -31,6 +32,7 @@ use crate::database::schema::{
 };
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
+use crate::models::page;
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,13 +40,9 @@ pub enum KnowledgeSource {
     /// The timeline record with this id, of this kind (`timeline_records.source_kind`), which
     /// the search's source filter names it by, such as `slack` or `meeting`.
     TimelineRecord { id: Uuid, kind: String },
-    /// The learning with this id.
-    Learning(Uuid),
-    /// This section of the company doc.
-    CompanyDocSection(Section),
     /// The page with this id, of this kind, which the search's source filter names it by, as a
     /// timeline record's kind is: `page`, and a kind of its own for a page that stands for
-    /// something a filter already names.
+    /// something a filter already names, `learning` and `company_doc`.
     Page { id: Uuid, kind: String },
 }
 
@@ -53,8 +51,6 @@ impl KnowledgeSource {
     pub fn label(&self) -> &str {
         match self {
             Self::TimelineRecord { kind, .. } | Self::Page { kind, .. } => kind,
-            Self::Learning(_) => "learning",
-            Self::CompanyDocSection(_) => "company_doc",
         }
     }
 }
@@ -99,7 +95,7 @@ struct NewPassage<'a> {
 
 /// The hex SHA-256 the document's text is recorded under. Each passage is followed by a byte no
 /// text contains, so moving words across a passage boundary changes it too.
-fn content_sha256(passages: &[String]) -> String {
+pub(crate) fn content_sha256(passages: &[String]) -> String {
     let mut hasher = Sha256::new();
     for passage in passages {
         hasher.update(passage.as_bytes());
@@ -120,16 +116,6 @@ async fn lock(
     match source {
         KnowledgeSource::TimelineRecord { id, .. } => query
             .filter(knowledge_documents::timeline_record_id.eq(id))
-            .first(connection)
-            .await
-            .optional(),
-        KnowledgeSource::Learning(id) => query
-            .filter(knowledge_documents::learning_id.eq(id))
-            .first(connection)
-            .await
-            .optional(),
-        KnowledgeSource::CompanyDocSection(section) => query
-            .filter(knowledge_documents::company_doc_section.eq(section.as_str()))
             .first(connection)
             .await
             .optional(),
@@ -158,26 +144,6 @@ async fn insert(
                 .values((
                     knowledge_documents::id.eq(id),
                     knowledge_documents::timeline_record_id.eq(timeline_record_id),
-                    fields,
-                ))
-                .execute(connection)
-                .await?;
-        }
-        KnowledgeSource::Learning(learning_id) => {
-            insert
-                .values((
-                    knowledge_documents::id.eq(id),
-                    knowledge_documents::learning_id.eq(learning_id),
-                    fields,
-                ))
-                .execute(connection)
-                .await?;
-        }
-        KnowledgeSource::CompanyDocSection(section) => {
-            insert
-                .values((
-                    knowledge_documents::id.eq(id),
-                    knowledge_documents::company_doc_section.eq(section.as_str()),
                     fields,
                 ))
                 .execute(connection)
@@ -256,18 +222,6 @@ pub async fn remove(
             diesel::delete(documents.filter(knowledge_documents::timeline_record_id.eq(id)))
                 .execute(connection)
                 .await?;
-        }
-        KnowledgeSource::Learning(id) => {
-            diesel::delete(documents.filter(knowledge_documents::learning_id.eq(id)))
-                .execute(connection)
-                .await?;
-        }
-        KnowledgeSource::CompanyDocSection(section) => {
-            diesel::delete(
-                documents.filter(knowledge_documents::company_doc_section.eq(section.as_str())),
-            )
-            .execute(connection)
-            .await?;
         }
         KnowledgeSource::Page { id, .. } => {
             diesel::delete(documents.filter(knowledge_documents::page_id.eq(id)))
@@ -377,8 +331,6 @@ struct DocumentRow {
     person_name: String,
     content_sha256: String,
     timeline_record_id: Option<Uuid>,
-    learning_id: Option<Uuid>,
-    company_doc_section: Option<String>,
     page_id: Option<Uuid>,
 }
 
@@ -408,8 +360,6 @@ pub async fn get(
             users::name,
             knowledge_documents::content_sha256,
             knowledge_documents::timeline_record_id,
-            knowledge_documents::learning_id,
-            knowledge_documents::company_doc_section,
             knowledge_documents::page_id,
         ))
         .first(connection)
@@ -457,13 +407,9 @@ pub async fn get(
         .load(connection)
         .await?;
 
-    // Exactly one source column is set (`knowledge_documents_one_source`).
-    let origin = match (row.learning_id, row.company_doc_section, row.page_id) {
-        (Some(learning_id), _, _) => Origin::Learning { learning_id },
-        (None, Some(section), _) => Origin::CompanyDoc { section },
-        (None, None, Some(page_id)) => Origin::Page { page_id },
-        (None, None, None) => Origin::TimelineRecord,
-    };
+    let origin = row.page_id.map_or(Origin::TimelineRecord, |page_id| {
+        origin_of_page(page_id, &row.source)
+    });
 
     Ok(Some(DocumentView {
         citation: Citation {
@@ -492,6 +438,22 @@ pub async fn get(
             })
             .collect(),
     }))
+}
+
+/// What a page's document opens as: a learning and a section stay named as such, which is how their
+/// citations open them, and the rest as the page they are. A learning's id is its page's.
+fn origin_of_page(page_id: Uuid, source: &str) -> Origin {
+    if let Some(section) = Section::of_page(page_id) {
+        return Origin::CompanyDoc {
+            section: section.as_str().to_owned(),
+        };
+    }
+    if source == page::LEARNING_INDEX_KIND {
+        return Origin::Learning {
+            learning_id: page_id,
+        };
+    }
+    Origin::Page { page_id }
 }
 
 /// A passage the embedding model has still to embed, as it read when it was taken.

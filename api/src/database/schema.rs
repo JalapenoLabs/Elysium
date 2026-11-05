@@ -487,19 +487,6 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    company_doc_events (id) {
-        id -> Uuid,
-        kind -> Text,
-        created_by -> Uuid,
-        proposal_id -> Nullable<Uuid>,
-        data -> Jsonb,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
     company_doc_proposals (id) {
         id -> Uuid,
         section -> Text,
@@ -528,18 +515,6 @@ diesel::table! {
         reviewed_through_at -> Nullable<Timestamptz>,
         reviewed_through_id -> Nullable<Uuid>,
         created_by -> Uuid,
-        updated_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    company_doc_sections (section) {
-        section -> Text,
-        content -> Text,
-        created_by -> Uuid,
-        created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
 }
@@ -1002,8 +977,6 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        learning_id -> Nullable<Uuid>,
-        company_doc_section -> Nullable<Text>,
         page_id -> Nullable<Uuid>,
     }
 }
@@ -1032,39 +1005,6 @@ diesel::table! {
         description -> Text,
         position -> Int4,
         built_in -> Bool,
-        created_by -> Uuid,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    learning_events (id) {
-        id -> Uuid,
-        learning_id -> Uuid,
-        kind -> Text,
-        created_by -> Uuid,
-        agent -> Nullable<Text>,
-        agent_name -> Nullable<Text>,
-        data -> Jsonb,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    learnings (id) {
-        id -> Uuid,
-        title -> Text,
-        body -> Text,
-        category -> Text,
-        evidence -> Text,
-        agent -> Nullable<Text>,
-        agent_name -> Nullable<Text>,
-        deleted_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
@@ -1228,7 +1168,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    page_events (id) {
+    page_events (page_id, id) {
         id -> Uuid,
         page_id -> Uuid,
         kind -> Text,
@@ -1903,13 +1843,9 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
-diesel::joinable!(company_doc_events -> company_doc_proposals (proposal_id));
-diesel::joinable!(company_doc_events -> users (created_by));
-diesel::joinable!(company_doc_proposals -> company_doc_sections (section));
 diesel::joinable!(company_doc_proposals -> timeline_records (timeline_record_id));
 diesel::joinable!(company_doc_proposals -> workflow_runs (workflow_run_id));
 diesel::joinable!(company_doc_review_cursor -> users (created_by));
-diesel::joinable!(company_doc_sections -> users (created_by));
 diesel::joinable!(connector_check_results -> connectors (connector_id));
 diesel::joinable!(connector_runs -> connectors (connector_id));
 diesel::joinable!(connectors -> browser_sessions (browser_session_id));
@@ -1957,17 +1893,11 @@ diesel::joinable!(kind_model_settings -> projects (project_id));
 diesel::joinable!(kind_model_settings -> users (created_by));
 diesel::joinable!(knowledge_asks -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
-diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
-diesel::joinable!(knowledge_documents -> learnings (learning_id));
 diesel::joinable!(knowledge_documents -> pages (page_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
 diesel::joinable!(knowledge_passages -> knowledge_documents (document_id));
 diesel::joinable!(learning_categories -> users (created_by));
-diesel::joinable!(learning_events -> learnings (learning_id));
-diesel::joinable!(learning_events -> users (created_by));
-diesel::joinable!(learnings -> learning_categories (category));
-diesel::joinable!(learnings -> users (created_by));
 diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
 diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
 diesel::joinable!(link_watch_cursors -> token_accounts (token_account_id));
@@ -2076,10 +2006,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     changesets,
     claude_accounts,
     coding_sessions,
-    company_doc_events,
     company_doc_proposals,
     company_doc_review_cursor,
-    company_doc_sections,
     connector_check_results,
     connector_runs,
     connectors,
@@ -2110,8 +2038,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     knowledge_documents,
     knowledge_passages,
     learning_categories,
-    learning_events,
-    learnings,
     link_watch_cursors,
     llms,
     mail_accounts,

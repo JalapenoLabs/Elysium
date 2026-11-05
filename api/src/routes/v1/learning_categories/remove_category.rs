@@ -20,6 +20,7 @@ use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::learning_category;
 use crate::realtime::ServerEvent;
+use crate::routes::v1::pages;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -51,9 +52,7 @@ pub async fn handle(
         learning_category::remove(&mut connection, &key, query.move_to.as_deref(), author).await?;
 
     for recorded in &moved {
-        state.events.publish(&ServerEvent::LearningChanged {
-            id: recorded.learning.id,
-        });
+        pages::announce(&state.events, &recorded.changed, &recorded.learnings);
     }
     state
         .events

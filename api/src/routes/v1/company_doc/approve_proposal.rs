@@ -17,7 +17,7 @@ use crate::auth::MemberUser;
 use crate::company_doc::{self, ProposalResponse};
 use crate::errors::ApiError;
 use crate::models::company_doc as doc;
-use crate::realtime::ServerEvent;
+use crate::routes::v1::pages;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -32,7 +32,11 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let proposal = doc::approve(&mut connection, id, author(&member)).await?;
-    state.events.publish(&ServerEvent::CompanyDocChanged);
+    let changed: Vec<Uuid> = doc::Section::parse(&proposal.section)
+        .map(doc::Section::page_id)
+        .into_iter()
+        .collect();
+    pages::announce(&state.events, &changed, &[]);
 
     Ok(Json(json!({
         "proposal": ProposalResponse::from(proposal),

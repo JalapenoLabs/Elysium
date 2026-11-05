@@ -20,8 +20,14 @@ use uuid::Uuid;
 
 use super::page_edit;
 use crate::models::agent::{Agent, Author};
+use crate::models::company_doc::{self, CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document;
-use crate::models::page::{self, PageEdit, PageError, Placement, Recorded};
+use crate::models::learning::{self, LearningContent};
+use crate::models::learning_category::{self, NewCategory};
+use crate::models::page::{
+    self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, LearningFields, PageEdit, PageError, Placement,
+    Recorded,
+};
 use crate::realtime::EventBus;
 use crate::routes;
 use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};
@@ -52,6 +58,7 @@ fn edit(title: &str, body: &str) -> PageEdit {
     PageEdit {
         title: title.to_owned(),
         body: body.to_owned(),
+        learning: None,
     }
 }
 
@@ -73,7 +80,7 @@ async fn matches(connection: &mut AsyncPgConnection, id: Uuid, query: &str) -> i
     diesel::sql_query(
         "SELECT count(*) AS count FROM knowledge_passages p \
          JOIN knowledge_documents d ON d.id = p.document_id \
-         WHERE d.page_id = $1 AND d.source = 'page' \
+         WHERE d.page_id = $1 \
            AND p.search_vector @@ websearch_to_tsquery('english', $2)",
     )
     .bind::<SqlUuid, _>(id)
@@ -101,13 +108,13 @@ async fn execute(connection: &mut AsyncPgConnection, statement: String) {
         .expect("the statement runs");
 }
 
-/// The titles of `parent_id`'s live children, in order.
+/// The titles of `parent_id`'s live children in order, leaving out the fixed pages every tree has.
 async fn children(connection: &mut AsyncPgConnection, parent_id: Option<Uuid>) -> Vec<String> {
     page::list(connection, false)
         .await
         .expect("listed")
         .into_iter()
-        .filter(|page| page.parent_id == parent_id)
+        .filter(|page| page.parent_id == parent_id && !page::is_fixed(page.id))
         .map(|page| page.title)
         .collect()
 }
@@ -519,7 +526,7 @@ async fn a_page_cannot_move_under_itself_a_deleted_parent_or_a_sibling_that_left
         PageError::PlacementGone
     )));
 
-    page::delete(&mut connection, other, author(None))
+    page::delete(&mut connection, other, author(None), None)
         .await
         .expect("deleted");
     let under_deleted = Placement {
@@ -614,6 +621,7 @@ async fn reordering_writes_one_row_until_a_spot_runs_out_of_room_and_keeps_the_o
         .await
         .expect("listed")
         .into_iter()
+        .filter(|page| page.parent_id.is_none())
         .map(|page| page.position)
         .collect();
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
@@ -628,10 +636,10 @@ async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_t
     let earlier = create(&mut connection, Some(top), "Deleted earlier").await;
     let below = create(&mut connection, Some(kept), "Below").await;
 
-    page::delete(&mut connection, earlier, author(None))
+    page::delete(&mut connection, earlier, author(None), None)
         .await
         .expect("deleted on its own");
-    let deleted = page::delete(&mut connection, top, author(None))
+    let deleted = page::delete(&mut connection, top, author(None), None)
         .await
         .expect("deleted");
     let mut changed = deleted.changed.clone();
@@ -651,7 +659,7 @@ async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_t
         4
     );
 
-    let refusal = page::restore(&mut connection, kept, author(None)).await;
+    let refusal = page::restore(&mut connection, kept, author(None), None).await;
     assert!(refused(&refusal, |error| matches!(
         error,
         PageError::ParentGone
@@ -662,7 +670,7 @@ async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_t
         PageError::Deleted
     )));
 
-    let restored = page::restore(&mut connection, top, author(None))
+    let restored = page::restore(&mut connection, top, author(None), None)
         .await
         .expect("restored");
     assert_eq!(restored.changed.len(), 3);
@@ -681,7 +689,7 @@ async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_t
     assert_eq!(history[1].data, json!({ "deletedWith": top }));
     assert_eq!(history[2].data["restoredWith"], json!(top));
 
-    page::restore(&mut connection, earlier, author(None))
+    page::restore(&mut connection, earlier, author(None), None)
         .await
         .expect("its parent is live again");
     assert_eq!(
@@ -698,12 +706,12 @@ async fn a_page_appended_while_another_is_deleted_never_takes_its_place() {
     create(&mut connection, None, "First").await;
     let second = create(&mut connection, None, "Second").await;
 
-    page::delete(&mut connection, second, author(None))
+    page::delete(&mut connection, second, author(None), None)
         .await
         .expect("deleted");
     create(&mut connection, None, "Third").await;
 
-    page::restore(&mut connection, second, author(None))
+    page::restore(&mut connection, second, author(None), None)
         .await
         .expect("nothing took its place");
     assert_eq!(
@@ -758,7 +766,7 @@ async fn agents_only_propose_to_a_proposal_only_page_and_people_still_edit_it() 
             error,
             PageError::ProposalOnly
         )));
-        let deleted = page::delete(&mut connection, parent, agent_author).await;
+        let deleted = page::delete(&mut connection, parent, agent_author, None).await;
         assert!(
             refused(&deleted, |error| matches!(error, PageError::ProposalOnly)),
             "deleting a parent would take it"
@@ -919,8 +927,12 @@ async fn members_create_publish_read_and_restore_pages_over_the_routes() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     let (_, listed) = call(&state, Method::GET, "/api/v1/pages", None).await;
-    assert_eq!(listed["pages"][0]["title"], "Deploying the API");
-    assert!(listed["pages"][0].get("body").is_none());
+    let listed = listed["pages"].as_array().expect("a list");
+    let own = listed.iter().find(|page| page["fixed"] == false);
+    let own = own.expect("the page beside the fixed ones");
+    assert_eq!(own["title"], "Deploying the API");
+    assert!(own.get("body").is_none());
+    assert_eq!(listed.len(), 10, "and the nine every tree starts with");
 }
 
 #[tokio::test]
@@ -1077,5 +1089,379 @@ async fn a_guest_reaches_no_page() {
             .current_version,
         1,
         "nothing a guest sent was written"
+    );
+}
+
+fn learning_content(title: &str, category: &str) -> LearningContent {
+    LearningContent {
+        title: title.to_owned(),
+        body: "Run the linter first.".to_owned(),
+        category: category.to_owned(),
+        evidence: "It caught it on WAY-123.".to_owned(),
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn nobody_moves_deletes_or_renames_a_page_elysium_relies_on() {
+    let (_url, mut connection) = migrated_database().await;
+    let other = create(&mut connection, None, "Runbooks").await;
+
+    for id in [
+        LEARNINGS_PAGE_ID,
+        COMPANY_PAGE_ID,
+        Section::Company.page_id(),
+        Section::Glossary.page_id(),
+    ] {
+        let deleted = page::delete(&mut connection, id, author(None), None).await;
+        assert!(refused(&deleted, |error| matches!(error, PageError::Fixed)));
+
+        let placement = Placement {
+            parent_id: Some(other),
+            after: None,
+        };
+        let moved = page::move_page(&mut connection, id, placement, author(None)).await;
+        assert!(refused(&moved, |error| matches!(error, PageError::Fixed)));
+
+        let stored = page::find(&mut connection, id).await.expect("seeded");
+        let renamed = page::publish(
+            &mut connection,
+            id,
+            edit("Something else", &stored.body),
+            stored.current_version,
+            author(None),
+        )
+        .await;
+        assert!(refused(&renamed, |error| matches!(error, PageError::Fixed)));
+    }
+
+    let root = page::find(&mut connection, LEARNINGS_PAGE_ID)
+        .await
+        .expect("seeded");
+    let written = page::publish(
+        &mut connection,
+        LEARNINGS_PAGE_ID,
+        edit(&root.title, "What the company has learned."),
+        root.current_version,
+        author(None),
+    )
+    .await
+    .expect("what a fixed page says is any page's to write");
+    assert_eq!(written.page.current_version, 2);
+
+    let company = page::find(&mut connection, COMPANY_PAGE_ID)
+        .await
+        .expect("seeded");
+    let agent = Agent::mcp_client("claude-code-client", "Claude Code").expect("recordable");
+    let by_agent = page::publish(
+        &mut connection,
+        COMPANY_PAGE_ID,
+        edit(&company.title, "An agent's change."),
+        company.current_version,
+        author(Some(&agent)),
+    )
+    .await;
+    assert!(refused(&by_agent, |error| matches!(
+        error,
+        PageError::ProposalOnly
+    )));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_learning_keeps_its_fields_and_its_title_through_every_page_write() {
+    let (_url, mut connection) = migrated_database().await;
+    let first = learning::save(
+        &mut connection,
+        learning_content("Lint first", "convention"),
+        author(None),
+    )
+    .await
+    .expect("saved");
+    let id = first.learning.id;
+    assert_eq!(
+        page::find(&mut connection, id)
+            .await
+            .expect("a page")
+            .parent_id,
+        Some(LEARNINGS_PAGE_ID),
+    );
+    let second = learning::save(
+        &mut connection,
+        learning_content("Pin every version", "convention"),
+        author(None),
+    )
+    .await
+    .expect("saved");
+
+    // Publishing the page leaves what it does not name.
+    page::publish(
+        &mut connection,
+        id,
+        edit("Lint first", "Lint, then build."),
+        1,
+        author(None),
+    )
+    .await
+    .expect("published");
+    let learning = learning::find(&mut connection, id).await.expect("found");
+    assert_eq!(learning.body, "Lint, then build.");
+    assert_eq!(learning.category, "convention");
+    assert_eq!(learning.evidence, "It caught it on WAY-123.");
+
+    // A title names one learning, whichever way it is written.
+    let taken = page::publish(
+        &mut connection,
+        id,
+        edit("PIN every version", "Lint, then build."),
+        2,
+        author(None),
+    )
+    .await;
+    assert!(refused(&taken, |error| matches!(
+        error,
+        PageError::TitleTaken
+    )));
+
+    // A page that is no learning may share a learning's title.
+    let plain = create(&mut connection, None, "Lint first").await;
+    let filed = PageEdit {
+        learning: Some(LearningFields {
+            category: "convention".to_owned(),
+            evidence: "It held.".to_owned(),
+        }),
+        ..edit("Lint first", "")
+    };
+    let not_one = page::publish(&mut connection, plain, filed, 1, author(None)).await;
+    assert!(refused(&not_one, |error| matches!(
+        error,
+        PageError::NotALearning
+    )));
+
+    // It keeps the bounds it had before it was a page.
+    let empty = page::publish(&mut connection, id, edit("Lint first", ""), 2, author(None)).await;
+    assert!(refused(&empty, |error| matches!(
+        error,
+        PageError::BodyOutOfBounds { .. }
+    )));
+
+    // Moved anywhere, it is still a learning, and saving its title still revises it.
+    let placement = Placement {
+        parent_id: Some(plain),
+        after: None,
+    };
+    page::move_page(&mut connection, id, placement, author(None))
+        .await
+        .expect("moved");
+    let saved = learning::save(
+        &mut connection,
+        learning_content("Lint first", "pitfall"),
+        author(None),
+    )
+    .await
+    .expect("saved");
+    assert_eq!(saved.learning.id, id);
+    assert_eq!(saved.learning.category, "pitfall");
+    let kinds: Vec<String> = learning::history(&mut connection, id)
+        .await
+        .expect("reads")
+        .into_iter()
+        .map(|entry| entry.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        ["created", "revised", "revised"],
+        "a move is the page's history, not the learning's"
+    );
+
+    let listed = learning::list(&mut connection, false).await.expect("lists");
+    let mut ids: Vec<Uuid> = listed.iter().map(|learning| learning.id).collect();
+    ids.sort();
+    let mut expected = [id, second.learning.id];
+    expected.sort();
+    assert_eq!(ids, expected, "only learnings are listed as learnings");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_version_filed_under_a_removed_category_comes_back_where_the_learning_is() {
+    let (_url, mut connection) = migrated_database().await;
+    let category = NewCategory {
+        key: "rtl".to_owned(),
+        label: "RTL".to_owned(),
+        description: "Hardware design notes.".to_owned(),
+    };
+    learning_category::create(&mut connection, category, TEST_PERSON_ID)
+        .await
+        .expect("added");
+    let saved = learning::save(
+        &mut connection,
+        learning_content("Lint first", "rtl"),
+        author(None),
+    )
+    .await
+    .expect("saved");
+    let id = saved.learning.id;
+    learning_category::remove(&mut connection, "rtl", Some("convention"), author(None))
+        .await
+        .expect("removed");
+    page::publish(
+        &mut connection,
+        id,
+        edit("Lint first", "Lint, then build."),
+        2,
+        author(None),
+    )
+    .await
+    .expect("published");
+
+    let restored = page::restore_version(&mut connection, id, 1, author(None))
+        .await
+        .expect("restored rather than a server error");
+
+    assert_eq!(restored.page.body, "Run the linter first.");
+    assert_eq!(restored.page.category.as_deref(), Some("convention"));
+    let version = page::find_version(&mut connection, id, 1)
+        .await
+        .expect("kept");
+    assert_eq!(
+        version.category.as_deref(),
+        Some("rtl"),
+        "the version still records what it held"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn the_routes_publish_a_learnings_fields_and_refuse_what_it_cannot_hold() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let saved = learning::save(
+        &mut connection,
+        learning_content("Lint first", "convention"),
+        author(None),
+    )
+    .await
+    .expect("saved");
+    let publish = format!("/api/v1/pages/{}/publish", saved.learning.id);
+
+    let (status, published) = call(
+        &state,
+        Method::POST,
+        &publish,
+        Some(&json!({
+            "baseVersion": 1,
+            "title": "Lint first",
+            "body": "Run the linter first.",
+            "category": "pitfall",
+            "evidence": "  It caught it twice.  ",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{published}");
+    assert_eq!(published["page"]["category"], "pitfall");
+    assert_eq!(published["page"]["evidence"], "It caught it twice.");
+    assert_eq!(published["page"]["fixed"], false);
+
+    let (_, version) = call(
+        &state,
+        Method::GET,
+        &format!("/api/v1/pages/{}/versions/1", saved.learning.id),
+        None,
+    )
+    .await;
+    assert_eq!(version["version"]["category"], "convention");
+    assert_eq!(version["version"]["evidence"], "It caught it on WAY-123.");
+
+    let (status, alone) = call(
+        &state,
+        Method::POST,
+        &publish,
+        Some(&json!({
+            "baseVersion": 2,
+            "title": "Lint first",
+            "body": "Run the linter first.",
+            "category": "convention",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{alone}");
+
+    let (status, unknown) = call(
+        &state,
+        Method::POST,
+        &publish,
+        Some(&json!({
+            "baseVersion": 2,
+            "title": "Lint first",
+            "body": "Run the linter first.",
+            "category": "gotcha",
+            "evidence": "It held.",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{unknown}");
+
+    let (status, too_long) = call(
+        &state,
+        Method::POST,
+        &format!("/api/v1/pages/{}/publish", Section::People.page_id()),
+        Some(&json!({
+            "baseVersion": 1,
+            "title": "People",
+            "body": "x".repeat(CONTENT_MAX_CHARACTERS + 1),
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{too_long}");
+
+    let (status, fixed) = call(
+        &state,
+        Method::DELETE,
+        &format!("/api/v1/pages/{LEARNINGS_PAGE_ID}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(fixed["code"], "page_fixed");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_section_published_as_a_page_is_a_change_to_the_doc() {
+    let (url, mut connection) = migrated_database().await;
+    let mut state = app_state(&url).await;
+    state.events = EventBus::in_process();
+    let mut heard = state.events.subscribe();
+
+    let page_id = Section::Glossary.page_id();
+    let (status, published) = call(
+        &state,
+        Method::POST,
+        &format!("/api/v1/pages/{page_id}/publish"),
+        Some(&json!({ "baseVersion": 1, "title": "Glossary", "body": "- ACME: a client" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{published}");
+    assert_eq!(published["page"]["fixed"], true);
+    assert_eq!(published["page"]["proposalOnly"], true);
+
+    let history = company_doc::history(&mut connection).await.expect("reads");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].kind, "edited");
+    assert_eq!(
+        history[0].data["changes"]["glossary"],
+        json!({ "from": "", "to": "- ACME: a client" })
+    );
+
+    let mut kinds = Vec::new();
+    while let Ok(payload) = heard.try_recv() {
+        let event: Value = serde_json::from_str(&payload).expect("JSON");
+        kinds.push(event["type"].as_str().expect("a type").to_owned());
+    }
+    assert!(kinds.contains(&"page.changed".to_owned()), "{kinds:?}");
+    assert!(
+        kinds.contains(&"companyDoc.changed".to_owned()),
+        "{kinds:?}"
     );
 }

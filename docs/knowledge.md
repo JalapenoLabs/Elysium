@@ -17,7 +17,7 @@ below); the embedding model, with the engine's embedder giving every passage its
 turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, and their
-place in the index, through the API (Pages, below).
+place in the index, through the API, with learnings and the company doc among them (Pages, below).
 
 ## What is indexed
 
@@ -25,7 +25,7 @@ place in the index, through the API (Pages, below).
   Jira, YouTrack, and GitHub issues and comments, and agent turn summaries.
 - Learnings that people and agents save.
 - The company doc, one document per section (The company doc, below).
-- Pages, one document per page, reading as its newest version (Pages, below).
+- Every other page, one document per page, reading as its newest version (Pages, below).
 
 Repository code is not indexed: agents with a checkout search it directly.
 
@@ -96,7 +96,7 @@ every call, so a session a guest started reaches none of it; Elysia's turns read
   passages in Postgres itself, and a document for a source already gone is refused. Indexing a source again upserts
   its one document on that column; the SHA-256 of the text it was indexed from says whether anything changed, and
   passages are rewritten by position, so one whose text held keeps its embedding. The columns today are a timeline
-  record's, a learning's, a company doc section's, and a page's.
+  record's and a page's; a learning and a company doc section are pages, told apart by their document's `source`.
 - Every source enters the index through one function, `knowledge_document::upsert` (`api/src/models/`), and leaves it
   through `remove`. Each takes the caller's transaction, so a source and its document always change together, and
   `KnowledgeSource` is the one place that maps a kind of source to its column. A source's text is cut into passages
@@ -400,13 +400,13 @@ embeddings/measure.sh
 
 A learning is written for the next agent: its title is the takeaway, its body leads with the rule or decision, then
 when it applies and why, and its evidence shows it is true. It records its category, who saved it, and the agent
-acting for them. The model is `api/src/models/learning.rs`, the routes `/api/v1/learnings` (`docs/api.md`), and the
-tables `learnings` and `learning_events` (`docs/database.md`).
+acting for them. A learning is a page with a category and evidence (Pages, Learnings and the company doc, below). The
+rules here are `api/src/models/learning.rs` and the routes `/api/v1/learnings` (`docs/api.md`).
 
 | Field      | Holds                                                                                        |
 |------------|----------------------------------------------------------------------------------------------|
 | `title`    | The takeaway, one line of up to 300 characters, trimmed and its spacing collapsed             |
-| `body`     | The rule or decision first, then when it applies and why; Markdown, up to 20,000 characters   |
+| `body`     | The rule or decision first, then when it applies and why; Markdown, 1 to 20,000 characters   |
 | `category` | The key of its category: a built-in one or the workspace's own (Categories, below)          |
 | `evidence` | What shows it is true: a command and its output, a link, a quote and who said it, a meeting   |
 | `createdBy` | Who first saved it; who changed it since is in its history                                  |
@@ -433,8 +433,9 @@ knowledge base adds (decisions, incidents, project state).
 | `incident`    | What broke, why, and what fixed it                                                  |
 
 - **One list of rows.** Every category, built-in or the workspace's own, is a row of `learning_categories`
-  (`api/src/models/learning_category.rs`), and a learning's `category` references its key, so Postgres itself keeps a
-  learning from outliving its category. The nine are seeded by their migration with the descriptions above.
+  (`api/src/models/learning_category.rs`), and a learning's page references its key (`pages.category`), so Postgres
+  itself keeps a learning from outliving its category. The nine are seeded by their migration with the descriptions
+  above.
 - **A category** is a key, a label, a description, and a place in the order. The key is what a learning stores and an
   agent sends: a lowercase letter, then up to 49 lowercase letters, digits, or underscores, such as `eda_tools`. It
   never changes, since learnings and their history hold it; the label and description can. The description says what
@@ -449,7 +450,9 @@ knowledge base adds (decisions, incidents, project state).
   included, is removed only once the admin names the category they move to; otherwise the removal answers
   `409 category_in_use`. The web app asks where they move before it removes one. Each move is a revision in that learning's history
   by the admin, in the same transaction as the removal, so no learning is ever left without a category and each move
-  shows in its history. Undoing a move would put back a category that no longer exists, so it answers `409`.
+  shows in its history. Undoing a move would put back a category that no longer exists, so it answers `409`. Restoring a
+  version filed under a removed category brings back what it says under the category the learning has now, and the
+  version keeps recording the one it held.
 - **Agents read the list as it stands.** Whenever a client lists the MCP server's tools, `learning_save`'s schema
   offers every category's key with its label and description, so an agent choosing one sees the workspace's own
   beside the nine. A save naming a key no category has is refused with every key there is.
@@ -462,30 +465,32 @@ change them together, the seed through a migration of its own.
 
 ### Saving revises by title
 
-- A title names one learning, whatever its case or spacing (`learnings_title_unique` on `lower(title)`). Saving a title
-  no learning has creates one; saving one a learning has revises it, so an agent corrects a learning by saving its
-  title again.
+- A title names one learning, whatever its case or spacing (`pages_learning_title_unique` on `lower(title)`, for pages
+  that are learnings). Saving a title no learning has creates one, under the Learnings page; saving one a learning has
+  revises it, wherever in the tree it sits, so an agent corrects a learning by saving its title again.
 - Saving a deleted learning's title brings it back, revised. The unique title includes deleted learnings, so restoring
-  one never meets a live twin.
+  one never meets a live twin. One deleted along with a page above it comes back once that page has.
 - A save that changes nothing records nothing and answers `unchanged`.
 - A learning is searchable the moment it is saved: the save indexes it in its own transaction (Search, above), as the
   Onyx knowledge-save sidecar's `save_learning` does today. Its document is the title, body, and evidence in that
-  order, under the source `learning`, dated when the learning last changed and attributed to whoever first saved it.
-  It has no `url`: a learning lives in Elysium, so a citation opens it by id.
+  order, under the source `learning`, dated when its newest version was published and attributed to who published it,
+  as every page's is. It has no `url`: a learning lives in Elysium, so a citation opens it by id.
 
 ### History and undo
 
-Every write records a history entry in the same transaction, shaped as action items' history is
-(`docs/action-items.md`, History): who made the change, the agent acting for them, and `data` holding what changed.
+Every write records a history entry in the same transaction, on its page (Pages, History). A learning's history reads
+as action items' does (`docs/action-items.md`, History): who made the change, the agent acting for them, and `data`
+holding what changed. `crate::models::learning` reads it from the page's entries and versions, so a `revised` entry's
+`changes` are always what lies between two versions, and a page's moves are not part of it.
 
 | Kind       | `data`                                                                    |
 |------------|---------------------------------------------------------------------------|
 | `created`  | The learning as first saved: `{ title, body, category, evidence }`          |
-| `revised`  | `changes`: each field that changed, `{ from, to }`; `undid` when an undo wrote it |
+| `revised`  | `changes`: each field that changed, `{ from, to }`; `undid` when an undo wrote it, and `restoredFrom` when a page's version was restored |
 | `deleted`  | Empty, or `{ undid }`                                                     |
 | `restored` | `{ deletedAt }`, the deletion it reversed, and `undid` for an undo         |
 
-- Every revision is kept: a correction, a save of the same title, and an undo are each a `revised` entry.
+- Every revision is kept as a version: a correction, a save of the same title, and an undo are each a `revised` entry.
 - Any entry can be undone, by anyone, and the undo is an entry of its own naming the one it reversed (`undid`), so it
   can be undone in turn. A revision is undone field by field: a field that still holds what it wrote gets back what it
   replaced, and one changed again since keeps its newer value, as undoing a changeset does. Undoing the first save or a
@@ -511,10 +516,11 @@ workspace's own; it is a setting, so it stays in Settings. See `docs/frontend.md
 ## The company doc
 
 One document per instance knows the company. Every agent reads it, and correcting a meeting's transcript leans on it
-most (`docs/engine.md`, Meetings), so it carries how the company spells its people's names and its jargon. The model
-is `api/src/models/company_doc.rs`, what every caller shares of it `api/src/company_doc/`, the routes
-`/api/v1/company-doc` (`docs/api.md`), and the tables `company_doc_sections`, `company_doc_proposals`,
-`company_doc_events`, and `company_doc_review_cursor` (`docs/database.md`).
+most (`docs/engine.md`, Meetings), so it carries how the company spells its people's names and its jargon. Each
+section is a page under the Company page (Pages, Learnings and the company doc, below). The model is
+`api/src/models/company_doc.rs`, what every caller shares of it `api/src/company_doc/`, the routes
+`/api/v1/company-doc` (`docs/api.md`), and the tables `company_doc_proposals` and `company_doc_review_cursor`
+(`docs/database.md`).
 
 ### Sections
 
@@ -530,7 +536,7 @@ The doc has seven fixed sections, each Markdown of at most 12,000 characters, in
 | `projects`     | The work under way, and who is on it                                                     |
 | `glossary`     | Names, acronyms, and jargon, one per line in alphabetical order, as the company spells them |
 
-The sections are rows seeded by their migration; people never add or remove one. The limit keeps the whole doc
+The sections are pages seeded by their migration; nobody adds, removes, moves, or renames one. The limit keeps the whole doc
 inside the review's one prompt beside what it reads (`docs/engine.md`, The company doc). The API names and describes
 each section to agents in English; the web app names and describes them from its translations.
 
@@ -573,7 +579,10 @@ turns and for the review, which also names its run.
 
 ### History and undo
 
-Every change that writes the doc records a history entry in the same transaction, shaped as learnings' history is:
+Every change that writes the doc is one entry, whichever sections it reached, shaped as learnings' history is. The doc
+keeps no history of its own: each section it wrote has a version and a row in its page's history, those rows sharing
+one id, and `company_doc::history` reads them back as one entry. Publishing a section's page directly, or restoring one
+of its versions, is a change to the doc like any other and reads as an `edited` entry.
 
 | Kind       | `data`                                                                                   |
 |------------|------------------------------------------------------------------------------------------|
@@ -596,7 +605,8 @@ an admin chose another. Its schedule, its window, and how it fits one prompt are
 
 Each section is a document of its own (`company_doc`, titled "Company doc: Glossary" and so on), upserted in the
 transaction that changes it, so search finds what the doc says the moment it commits and a citation names the section.
-An empty section leaves the index. A section's document is attributed to the person whose change it now reads as.
+Its text is the section's alone, without its page's title. An empty section leaves the index. A section's document is
+attributed to the person whose change it now reads as.
 
 ### Agents read it
 
@@ -884,15 +894,19 @@ who made it, the agent acting for them, and `data`.
 | Kind        | `data`                                                                                  |
 |-------------|-----------------------------------------------------------------------------------------|
 | `created`   | `{ parentId, version }`                                                                 |
-| `published` | `{ version }`, with `restoredFrom` for a restore                                        |
+| `published` | `{ version }`, with `restoredFrom` for a restore, `undid` for an undo of a learning or the company doc, and `proposalId` for an approved proposal |
 | `moved`     | `{ from, to }`, each `{ parentId, after }`: the two values a move takes                 |
-| `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it                        |
-| `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back |
+| `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it; `undid` for an undo    |
+| `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back; `undid` for an undo |
 
 Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
 as a page's history and as a feed across every page, in order by id. A later kind of change adds a kind, with no
-migration. Nothing here has an undo of its own: a version is undone by restoring the one before it, a deletion by
-restoring the page, and a move by moving it back to its `from`.
+migration. A page has no undo of its own: a version is undone by restoring the one before it, a deletion by restoring
+the page, and a move by moving it back to its `from`. Learnings and the company doc keep the field-by-field undo they
+promise (Learnings and the company doc, below).
+
+An entry is named by its page and its id. One change that reaches several pages is one id with a row on each, which is
+how a save of several company doc sections stays one change with one Undo.
 
 ### Who changes pages
 
@@ -905,7 +919,11 @@ restoring the page, and a move by moving it back to its `from`.
   Anything but a person acting alone is refused, publishing, restoring, moving, or deleting it, or deleting a page
   above it, with `409 page_proposal_only`. Who that is is read from the user as well as the agent named, so Elysia, who
   writes as her machine user with no agent, is refused too, and a caller that forgets to name its agent is refused all
-  the same. No route sets it.
+  the same. No route sets it: the Company page and the doc's sections are the only ones that have it.
+- **Fixed pages.** The Learnings page, the Company page, and the doc's seven sections are ones Elysium relies on, each at
+  an id fixed in code, and they keep their place: nobody moves, deletes, or renames one, people included, with
+  `409 page_fixed`. What a fixed page says is written like any page's, under its rule above. Other pages may sit
+  beside and under them.
 - Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
   event (`docs/realtime.md`).
 
@@ -917,6 +935,44 @@ then its evidence on a page that has any, cut into passages as every source is. 
 source `page`, dated when its newest version was published, and attributed to who published it, since those are its
 words now. It has no `url`: a page lives in Elysium, so a citation opens it by id, and `knowledge_get` answers its
 origin as `{ kind: "page", pageId }`. A deleted page leaves the index and comes back with its page.
+
+A learning's document keeps the source `learning`, and a section's `company_doc` with the title "Company doc: Glossary"
+and so on, so the search's filter and citations name them as they always have; `knowledge_get` answers their origins
+as `{ kind: "learning", learningId }`, the page's id, and `{ kind: "companyDoc", section }`. A fixed page is indexed
+from its body alone, so one that says nothing has no document.
+
+### Learnings and the company doc
+
+A learning is a page with a category and evidence, created under the Learnings page, and keeps its id as the page's. The
+company doc is seven proposal-only pages under the Company page, each section's id fixed in code
+(`Section::page_id`). Both are written through what every publish comes down to (`page::publish_content`), so each
+change is a version with who made it and the agent acting for them, in the index in the same transaction, and they add
+only their own rules: saving by title and the category's checks (`crate::models::learning`), and proposals, approval
+with its three-way merge, and the review (`crate::models::company_doc`).
+
+- **A learning is what it holds, not where it sits.** `pages.category` makes a page a learning, wherever it is moved;
+  a page placed under Learnings without one is an ordinary page and is not listed as a learning. No page becomes a
+  learning by publishing one: `409 page_not_a_learning`.
+- **Their bounds stay.** A learning's body is 1 to 20,000 characters and a section's at most 12,000, in the database and
+  whichever way it is written, so the review's one prompt still fits the doc.
+- **Undo.** Undoing is generic over a page's fields (`page::undo_version`): each field that still holds what a version
+  wrote gets back what it replaced, a field changed again since keeps its newer value, and the reversal is the next
+  version, naming the entry it undid. A learning's undo works on its four fields; the company doc's on each section's
+  body, under one id across the sections it reaches. Undoing a learning's first save or restore deletes it, and undoing
+  a deletion restores it, through the page's own delete and restore.
+- **Every entry reads as it did.** The routes for learnings and the doc answer the same shapes they always have, from
+  the pages' versions and history: an entry written before learnings were pages keeps its id and can be undone. Its
+  `revised` or `edited` kind is what a `published` row reads as there.
+- **What people see.** The Learnings tab, the admins' feed, and Settings, Company doc work as they did, each entry with
+  its Undo, and every revision and section change is also a version of its page, which can be read, compared, and
+  restored like any other. A move shows in a page's history and not in a learning's. Restoring a version puts back the
+  whole of it, where Undo puts back only what is still there to reverse. A learning's search result is attributed to
+  who published its newest version, rather than who first saved it, as a page's is.
+- **Moved in one migration, and back.** Revisions replay into versions from each one's own history, and a history that
+  does not replay onto its row stops the migration, which changes nothing; a document moves to its page's column in
+  place, so its passages keep their embeddings, and its text is what they were embedded from, so indexing it again
+  re-embeds nothing. `down.sql` hands every row back exactly, and carries what was written since in the old tables'
+  shapes; pages of someone's own left under what goes move to the top of the tree.
 
 ### In the web app
 
@@ -934,10 +990,6 @@ link that opens the image in a new tab. Files attached to a page (Roadmap) are s
 
 ### Roadmap
 
-- **Learnings and the company doc are pages.** A learning is a page under Learnings, keeping its takeaway title,
-  category, and evidence as page fields, and its revisions as versions. The company doc is seven proposal-only pages
-  under Company, with the same approval and three-way merge. Their documents carry over by moving each row's source to
-  its page's column, so their passages keep their embeddings and their `source` keeps its name.
 - **Editing.** People edit in a Tiptap 3 rich editor and the page stays Markdown, so agents read and write it plainly
   and diffs stay readable. Publish is the page's one Save. Any two versions can be compared.
 - **Organizing.** Add, drag, and delete from the tree, with deleting asking what happens to a page's children.

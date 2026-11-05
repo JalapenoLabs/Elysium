@@ -228,24 +228,25 @@ async fn embeddings_are_the_models_size_and_name_their_model() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn a_learning_is_a_source_of_its_own_that_takes_its_document_with_it() {
+async fn a_page_is_a_source_of_its_own_that_takes_its_document_with_it() {
     let mut connection = indexed_message().await;
     connection
         .batch_execute(
-            "INSERT INTO learnings (id, title, body, category, evidence, created_by, created_at) \
-             VALUES ('00000000-0000-7000-8000-0000000000f1', 'Pin every tool version', \
-                     'Never use latest.', 'convention', 'CI drifted.', \
+            "INSERT INTO pages (id, position, title, category, evidence, body, created_by, \
+                                created_at) \
+             VALUES ('00000000-0000-7000-8000-0000000000f1', 1, 'Pin every tool version', \
+                     'convention', 'CI drifted.', 'Never use latest.', \
                      '0199a3c4-0000-7000-8000-00000000beef', now()); \
-             INSERT INTO knowledge_documents (id, source, learning_id, occurred_at, \
-                                              content_sha256, created_by) \
+             INSERT INTO knowledge_documents (id, source, page_id, occurred_at, content_sha256, \
+                                              created_by) \
              VALUES (gen_random_uuid(), 'learning', '00000000-0000-7000-8000-0000000000f1', \
                      now(), repeat('a', 64), '0199a3c4-0000-7000-8000-00000000beef');",
         )
         .await
-        .expect("a learning and its document are stored");
+        .expect("a page and its document are stored");
 
     let both = diesel::sql_query(
-        "UPDATE knowledge_documents SET learning_id = '00000000-0000-7000-8000-0000000000f1' \
+        "UPDATE knowledge_documents SET page_id = '00000000-0000-7000-8000-0000000000f1' \
          WHERE id = $1",
     )
     .bind::<SqlUuid, _>(DOCUMENT)
@@ -254,9 +255,9 @@ async fn a_learning_is_a_source_of_its_own_that_takes_its_document_with_it() {
     assert!(both.is_err(), "a document has exactly one source");
 
     connection
-        .batch_execute("DELETE FROM learnings WHERE id = '00000000-0000-7000-8000-0000000000f1'")
+        .batch_execute("DELETE FROM pages WHERE id = '00000000-0000-7000-8000-0000000000f1'")
         .await
-        .expect("the learning is deleted");
+        .expect("the page is deleted");
     let learning_documents = "SELECT 1 FROM knowledge_documents WHERE source = 'learning'";
     assert_eq!(count(&mut connection, learning_documents).await, 0);
     assert_eq!(

@@ -12,7 +12,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use chrono::Utc;
 use diesel::QueryableByName;
-use diesel::sql_types::{BigInt, Text};
+use diesel::sql_types::{BigInt, Text, Uuid as SqlUuid};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -68,10 +68,10 @@ async fn matches(connection: &mut AsyncPgConnection, section: Section, query: &s
     diesel::sql_query(
         "SELECT count(*) AS count FROM knowledge_passages p \
          JOIN knowledge_documents d ON d.id = p.document_id \
-         WHERE d.company_doc_section = $1 AND d.source = 'company_doc' \
+         WHERE d.page_id = $1 AND d.source = 'company_doc' \
            AND p.search_vector @@ websearch_to_tsquery('english', $2)",
     )
-    .bind::<Text, _>(section.as_str())
+    .bind::<SqlUuid, _>(section.page_id())
     .bind::<Text, _>(query)
     .get_result::<Count>(connection)
     .await
@@ -98,7 +98,7 @@ async fn the_doc_starts_with_every_section_empty_and_out_of_the_index() {
             .all(|section| section.content.is_empty())
     );
     let indexed: Count = diesel::sql_query(
-        "SELECT count(*) AS count FROM knowledge_documents WHERE company_doc_section IS NOT NULL",
+        "SELECT count(*) AS count FROM knowledge_documents WHERE source = 'company_doc'",
     )
     .get_result(&mut connection)
     .await

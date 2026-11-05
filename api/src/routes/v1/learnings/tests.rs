@@ -68,7 +68,7 @@ async fn matches(connection: &mut AsyncPgConnection, id: Uuid, query: &str) -> i
     diesel::sql_query(
         "SELECT count(*) AS count FROM knowledge_passages p \
          JOIN knowledge_documents d ON d.id = p.document_id \
-         WHERE d.learning_id = $1 AND d.source = 'learning' \
+         WHERE d.page_id = $1 AND d.source = 'learning' \
            AND p.search_vector @@ websearch_to_tsquery('english', $2)",
     )
     .bind::<SqlUuid, _>(id)
@@ -80,7 +80,7 @@ async fn matches(connection: &mut AsyncPgConnection, id: Uuid, query: &str) -> i
 }
 
 async fn documents_of(connection: &mut AsyncPgConnection, id: Uuid) -> i64 {
-    diesel::sql_query("SELECT count(*) AS count FROM knowledge_documents WHERE learning_id = $1")
+    diesel::sql_query("SELECT count(*) AS count FROM knowledge_documents WHERE page_id = $1")
         .bind::<SqlUuid, _>(id)
         .get_result::<Count>(connection)
         .await
@@ -123,7 +123,7 @@ async fn a_saved_learning_is_searchable_at_once_by_exact_keys_and_by_sentences()
     let unembedded: Count = diesel::sql_query(
         "SELECT count(*) AS count FROM knowledge_passages p \
          JOIN knowledge_documents d ON d.id = p.document_id \
-         WHERE d.learning_id = $1 AND p.embedding IS NULL",
+         WHERE d.page_id = $1 AND p.embedding IS NULL",
     )
     .bind::<SqlUuid, _>(id)
     .get_result(&mut connection)
@@ -354,7 +354,10 @@ async fn indexing_again_keeps_the_embedding_of_every_passage_whose_text_held() {
     )
     .await
     .expect("saved");
-    let source = KnowledgeSource::Learning(saved.learning.id);
+    let source = KnowledgeSource::Page {
+        id: saved.learning.id,
+        kind: "learning".to_owned(),
+    };
     let document = |passages: &[&str]| IndexedDocument {
         source: source.clone(),
         title: "A learning".to_owned(),
@@ -370,7 +373,7 @@ async fn indexing_again_keeps_the_embedding_of_every_passage_whose_text_held() {
     let embedding = format!("[{}]", vec!["0.5"; 768].join(","));
     diesel::sql_query(
         "UPDATE knowledge_passages SET embedding = $1::vector, embedding_model = 'test' \
-         WHERE document_id = (SELECT id FROM knowledge_documents WHERE learning_id = $2)",
+         WHERE document_id = (SELECT id FROM knowledge_documents WHERE page_id = $2)",
     )
     .bind::<Text, _>(embedding)
     .bind::<SqlUuid, _>(saved.learning.id)
@@ -384,7 +387,7 @@ async fn indexing_again_keeps_the_embedding_of_every_passage_whose_text_held() {
 
     let passages: Vec<Passage> = diesel::sql_query(
         "SELECT position, content, embedding_model FROM knowledge_passages \
-         WHERE document_id = (SELECT id FROM knowledge_documents WHERE learning_id = $1) \
+         WHERE document_id = (SELECT id FROM knowledge_documents WHERE page_id = $1) \
          ORDER BY position",
     )
     .bind::<SqlUuid, _>(saved.learning.id)

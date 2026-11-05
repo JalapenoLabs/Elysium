@@ -19,25 +19,47 @@
 //! Deleting is soft and takes a page's descendants with it, giving them all one `deleted_at`.
 //! Restoring brings back the ones that carry its instant, so a child deleted on its own beforehand
 //! stays deleted.
+//!
+//! A learning is a page with a category and evidence (`crate::models::learning`), and the company
+//! doc is seven pages under one (`crate::models::company_doc`). Both are written through
+//! [`publish_content`] and [`undo_version`], so they keep their own rules over the versions, history,
+//! and index every page has. The pages they rely on are fixed: nobody moves, deletes, or renames one.
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::max;
 use diesel::prelude::*;
-use diesel::result::Error as DieselError;
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_types::{BigInt, Nullable, Text, Uuid as SqlUuid};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::{Value, json};
 use tracing::{Level, event};
-use uuid::Uuid;
+use uuid::{Uuid, uuid};
 
 use crate::database::schema::{page_events, page_versions, pages};
 use crate::knowledge::passages;
 use crate::models::agent::{Agent, Author};
+use crate::models::company_doc::{CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
-use crate::models::user;
+use crate::models::{learning_category, user};
 
-/// What the search's source filter calls a page's document.
+/// The page every learning is created under, seeded by its migration at this id.
+pub const LEARNINGS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000001");
+
+/// The page the company doc's sections sit under, seeded by its migration at this id. Each section's
+/// own page is [`Section::page_id`].
+pub const COMPANY_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000002");
+
+/// What the search's source filter calls each kind of page's document. A learning's and a section's
+/// keep the names they had before they were pages, which clients filter by.
 const INDEX_KIND: &str = "page";
+pub const LEARNING_INDEX_KIND: &str = "learning";
+const COMPANY_DOC_INDEX_KIND: &str = "company_doc";
+
+/// The longest a learning's body may be, in characters, as `pages_learning_body_fits` allows.
+const LEARNING_BODY_MAX_CHARACTERS: usize = 20_000;
+
+/// The unique index that makes a title name one learning.
+const LEARNING_TITLE_INDEX: &str = "pages_learning_title_unique";
 
 /// The distance between siblings as they are appended and renumbered.
 ///
@@ -61,13 +83,68 @@ pub struct PageContent {
     pub evidence: Option<String>,
 }
 
-/// What a person or an agent writes when they publish. The rest of a page's content stays.
+/// What a person or an agent writes when they publish.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageEdit {
     /// On one line, trimmed and its spacing collapsed.
     pub title: String,
     /// Markdown; may be empty.
     pub body: String,
+    /// What a learning holds beyond a title and body. `None` leaves a learning's as they are.
+    pub learning: Option<LearningFields>,
+}
+
+/// What makes a page a learning: always both, as `pages_learning_fields_together` holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LearningFields {
+    /// The key of the category it is filed under.
+    pub category: String,
+    /// What shows it is true.
+    pub evidence: String,
+}
+
+/// What a version's history entry says beyond its number.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Provenance {
+    /// The version a restore copied.
+    pub restored_from: Option<i32>,
+    /// The entry this one reverses, for an undo.
+    pub undid: Option<Uuid>,
+    /// The company doc proposal it applied.
+    pub proposal_id: Option<Uuid>,
+    /// The id of the one change this is part of, when a change reaches several pages. A change that
+    /// reaches one page takes an id of its own.
+    pub change: Option<Uuid>,
+}
+
+impl PageEdit {
+    /// The content a new page holds.
+    fn into_content(self) -> PageContent {
+        let (category, evidence) = self
+            .learning
+            .map(|fields| (fields.category, fields.evidence))
+            .unzip();
+        PageContent {
+            title: self.title,
+            body: self.body,
+            category,
+            evidence,
+        }
+    }
+
+    /// The content `page` holds with this written over it.
+    fn over(self, page: &Page) -> PageContent {
+        let (category, evidence) = self.learning.map_or_else(
+            || (page.category.clone(), page.evidence.clone()),
+            |fields| (Some(fields.category), Some(fields.evidence)),
+        );
+        PageContent {
+            title: self.title,
+            body: self.body,
+            category,
+            evidence,
+        }
+    }
 }
 
 /// Where a page goes: under `parent_id`, or at the top of the tree, right after sibling `after`, or
@@ -100,7 +177,7 @@ pub struct Page {
 }
 
 impl Page {
-    fn content(&self) -> PageContent {
+    pub fn content(&self) -> PageContent {
         PageContent {
             title: self.title.clone(),
             body: self.body.clone(),
@@ -108,6 +185,22 @@ impl Page {
             evidence: self.evidence.clone(),
         }
     }
+
+    /// Whether this page is a learning, wherever in the tree it sits.
+    pub const fn is_learning(&self) -> bool {
+        self.category.is_some()
+    }
+
+    /// The company doc section this page holds, if it is one.
+    pub fn section(&self) -> Option<Section> {
+        Section::of_page(self.id)
+    }
+}
+
+/// Whether page `id` is one Elysium relies on: the Learnings and Company pages and the doc's sections.
+/// Nobody moves, deletes, or renames one, people included.
+pub fn is_fixed(id: Uuid) -> bool {
+    id == LEARNINGS_PAGE_ID || id == COMPANY_PAGE_ID || Section::of_page(id).is_some()
 }
 
 /// A page as the tree lists it, without what it says.
@@ -151,7 +244,7 @@ pub struct PageVersion {
 }
 
 impl PageVersion {
-    fn into_content(self) -> PageContent {
+    pub fn into_content(self) -> PageContent {
         PageContent {
             title: self.summary.title,
             body: self.body,
@@ -166,15 +259,17 @@ impl PageVersion {
 pub enum HistoryKind {
     /// The page was created. `data` is `{ parentId, version }`.
     Created,
-    /// A version was published. `data` is `{ version }`, with `restoredFrom` for a restore.
+    /// A version was published. `data` is `{ version }`, with `restoredFrom` for a restore, `undid`
+    /// for an undo, and `proposalId` for an approved company doc proposal.
     Published,
     /// It moved, or changed place among its siblings. `data` is `{ from, to }`, each
     /// `{ parentId, after }`: the two values a move takes, so putting a page back is a move.
     Moved,
-    /// `data` is empty, or `{ deletedWith }`, the ancestor whose deletion took it.
+    /// `data` is empty, or `{ deletedWith }`, the ancestor whose deletion took it, with `undid` for
+    /// an undo.
     Deleted,
     /// `data` is `{ deletedAt }`, the deletion it reversed, with `restoredWith`, the ancestor
-    /// whose restore brought it back.
+    /// whose restore brought it back, and `undid` for an undo.
     Restored,
 }
 
@@ -189,11 +284,28 @@ impl HistoryKind {
             Self::Restored => "restored",
         }
     }
+
+    /// The kind a stored name stands for; `None` for one a later version wrote.
+    pub fn parse(name: &str) -> Option<Self> {
+        [
+            Self::Created,
+            Self::Published,
+            Self::Moved,
+            Self::Deleted,
+            Self::Restored,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == name)
+    }
 }
 
 /// A stored history entry.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
-#[diesel(table_name = page_events, check_for_backend(diesel::pg::Pg))]
+#[diesel(
+    table_name = page_events,
+    primary_key(page_id, id),
+    check_for_backend(diesel::pg::Pg)
+)]
 pub struct HistoryEntry {
     pub id: Uuid,
     pub page_id: Uuid,
@@ -207,6 +319,14 @@ pub struct HistoryEntry {
     pub created_at: DateTime<Utc>,
 }
 
+impl HistoryEntry {
+    /// The version an entry of [`HistoryKind::Published`] wrote.
+    pub fn published_version(&self) -> Option<i32> {
+        let version = self.data.get("version")?.as_i64()?;
+        i32::try_from(version).ok()
+    }
+}
+
 #[derive(Insertable)]
 #[diesel(table_name = pages)]
 struct PageRow<'a> {
@@ -215,6 +335,8 @@ struct PageRow<'a> {
     position: i64,
     title: &'a str,
     body: &'a str,
+    category: Option<&'a str>,
+    evidence: Option<&'a str>,
     created_by: Uuid,
     created_at: DateTime<Utc>,
 }
@@ -262,18 +384,42 @@ pub struct Recorded {
     /// Every page clients must load again: empty when the write turned out to change nothing, and
     /// more than the page itself when its descendants or its siblings changed with it.
     pub changed: Vec<Uuid>,
+    /// Those of them that are learnings, whose own event clients hear too.
+    pub learnings: Vec<Uuid>,
+    /// What the write recorded of the page itself, oldest first; empty when it changed nothing.
+    pub history: Vec<HistoryEntry>,
 }
 
 impl Recorded {
-    fn of(page: Page) -> Self {
-        let changed = vec![page.id];
-        Self { page, changed }
+    fn of(page: Page, entry: HistoryEntry) -> Self {
+        Self {
+            changed: vec![page.id],
+            learnings: page.is_learning().then_some(page.id).into_iter().collect(),
+            history: vec![entry],
+            page,
+        }
     }
 
     const fn unchanged(page: Page) -> Self {
         Self {
             page,
             changed: Vec::new(),
+            learnings: Vec::new(),
+            history: Vec::new(),
+        }
+    }
+
+    /// `page`, after a write that reached every one of `touched`, recording `entry` on it.
+    fn of_many(page: Page, touched: &[Page], entry: Option<HistoryEntry>) -> Self {
+        Self {
+            page,
+            changed: touched.iter().map(|page| page.id).collect(),
+            learnings: touched
+                .iter()
+                .filter(|page| page.is_learning())
+                .map(|page| page.id)
+                .collect(),
+            history: entry.into_iter().collect(),
         }
     }
 }
@@ -301,6 +447,34 @@ pub enum PageError {
     /// The parent a move names is the page itself or one of its descendants.
     #[error("a page cannot move under itself")]
     UnderItself,
+    /// The write would move, delete, or rename a page Elysium relies on ([`is_fixed`]).
+    #[error("this page holds its place: it cannot be moved, deleted, or renamed")]
+    Fixed,
+    /// Another learning, deleted ones included, has the title.
+    #[error("another learning already has this title")]
+    TitleTaken,
+    /// No category has the key a write named. `known` is every key there is, in the order they are
+    /// offered, so the agent or person who named it can choose again.
+    #[error("`{key}` is not a learning category; use one of: {}", known.join(", "))]
+    UnknownCategory { key: String, known: Vec<String> },
+    /// A publish named a category and evidence for a page that is no learning.
+    #[error("only a learning has a category and evidence")]
+    NotALearning,
+    /// What a learning or a company doc section says is outside what it may hold.
+    #[error("this page's body is {min} to {max} characters")]
+    BodyOutOfBounds { min: usize, max: usize },
+}
+
+/// [`DieselError`]'s unique violation of [`LEARNING_TITLE_INDEX`], and any other error as it is.
+fn title_taken(error: DieselError) -> PageError {
+    match &error {
+        DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, information)
+            if information.constraint_name() == Some(LEARNING_TITLE_INDEX) =>
+        {
+            PageError::TitleTaken
+        }
+        _ => error.into(),
+    }
 }
 
 /// Creates a page from `edit`, last among `parent_id`'s children, as its version 1.
@@ -327,24 +501,40 @@ pub async fn create(
                 .await?;
             let position = between(last, None).expect("the end always has room");
 
+            let content = edit.into_content();
+            require_fits(None, &content)?;
+            if let Some(category) = &content.category {
+                hold_category(connection, category).await?;
+            }
             let page: Page = diesel::insert_into(pages::table)
                 .values(PageRow {
                     id: Uuid::now_v7(),
                     parent_id,
                     position,
-                    title: &edit.title,
-                    body: &edit.body,
+                    title: &content.title,
+                    body: &content.body,
+                    category: content.category.as_deref(),
+                    evidence: content.evidence.as_deref(),
                     created_by: author.user_id,
                     created_at: author.at,
                 })
                 .returning(Page::as_returning())
                 .get_result(connection)
-                .await?;
-            insert_version(connection, &page, &page.content(), None, author).await?;
+                .await
+                .map_err(title_taken)?;
+            insert_version(connection, &page, &content, None, author).await?;
             let data = json!({ "parentId": parent_id, "version": page.current_version });
-            record(connection, page.id, HistoryKind::Created, author, data).await?;
+            let entry = record(
+                connection,
+                page.id,
+                None,
+                HistoryKind::Created,
+                author,
+                data,
+            )
+            .await?;
             reindex(connection, &page).await?;
-            Ok(Recorded::of(page))
+            Ok(Recorded::of(page, entry))
         })
         .await
 }
@@ -357,8 +547,10 @@ pub async fn create(
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::Deleted`] for a deleted one,
-/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to, and
-/// [`PageError::Changed`] when a version was published since `base_version`.
+/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to,
+/// [`PageError::Changed`] when a version was published since `base_version`, [`PageError::Fixed`]
+/// for a new title on a fixed page, [`PageError::NotALearning`] for a category and evidence on a page
+/// that is no learning, and the refusals of [`publish_content`].
 pub async fn publish(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -370,20 +562,94 @@ pub async fn publish(
         .transaction(async move |connection| {
             let page = lock(connection, id).await?;
             require_writable(connection, &page, author).await?;
-            if edit.title == page.title && edit.body == page.body {
+            if edit.learning.is_some() && !page.is_learning() {
+                return Err(PageError::NotALearning);
+            }
+            let content = edit.over(&page);
+            if content == page.content() {
                 return Ok(Recorded::unchanged(page));
             }
             if base_version != page.current_version {
                 return Err(PageError::Changed);
             }
-            let content = PageContent {
-                title: edit.title,
-                body: edit.body,
-                ..page.content()
-            };
-            write_version(connection, &page, &content, None, author).await
+            if is_fixed(id) && content.title != page.title {
+                return Err(PageError::Fixed);
+            }
+            publish_content(connection, &page, content, Provenance::default(), author).await
         })
         .await
+}
+
+/// Publishes `content` over `page` as its next version, recording `provenance` in its history.
+///
+/// This is what every publish comes down to, for the writes with rules of their own over a page:
+/// saving a learning and changing the company doc. `page` must be locked ([`lock`]) in the caller's
+/// transaction, and whether the author may write it is the caller's to decide. A deleted page takes
+/// the version and stays out of the index, which is how removing a category moves a deleted learning.
+///
+/// # Errors
+/// [`PageError::TitleTaken`] for a learning given another's title, [`PageError::UnknownCategory`]
+/// for a category that does not exist, and [`PageError::BodyOutOfBounds`] for a body a learning or
+/// a section may not hold.
+pub async fn publish_content(
+    connection: &mut AsyncPgConnection,
+    page: &Page,
+    content: PageContent,
+    provenance: Provenance,
+    author: Author<'_>,
+) -> Result<Recorded, PageError> {
+    require_fits(Section::of_page(page.id), &content)?;
+    if let Some(category) = content
+        .category
+        .as_ref()
+        .filter(|_| content.category != page.category)
+    {
+        hold_category(connection, category).await?;
+    }
+
+    let version = page.current_version + 1;
+    let published: Page = diesel::update(pages::table.find(page.id))
+        .set((
+            pages::title.eq(&content.title),
+            pages::body.eq(&content.body),
+            pages::category.eq(&content.category),
+            pages::evidence.eq(&content.evidence),
+            pages::current_version.eq(version),
+        ))
+        .returning(Page::as_returning())
+        .get_result(connection)
+        .await
+        .map_err(title_taken)?;
+    insert_version(
+        connection,
+        &published,
+        &content,
+        provenance.restored_from,
+        author,
+    )
+    .await?;
+
+    let mut data = json!({ "version": version });
+    if let Some(restored_from) = provenance.restored_from {
+        data["restoredFrom"] = json!(restored_from);
+    }
+    if let Some(undid) = provenance.undid {
+        data["undid"] = json!(undid);
+    }
+    if let Some(proposal_id) = provenance.proposal_id {
+        data["proposalId"] = json!(proposal_id);
+    }
+    let entry = record(
+        connection,
+        page.id,
+        provenance.change,
+        HistoryKind::Published,
+        author,
+        data,
+    )
+    .await?;
+    reindex(connection, &published).await?;
+    Ok(Recorded::of(published, entry))
 }
 
 /// Publishes version `version` of page `id` as its next version, naming the one it copied, so
@@ -392,9 +658,13 @@ pub async fn publish(
 /// It names no base version, unlike [`publish`]: what it replaces stays a version of its own, so
 /// restoring over someone's change costs them nothing.
 ///
+/// A version filed under a category removed since comes back filed where the learning is now: the
+/// category is gone, and refusing would leave what the version says out of reach.
+///
 /// # Errors
-/// `NotFound` for an unknown page or version, [`PageError::Deleted`] for a deleted page, and
-/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to.
+/// `NotFound` for an unknown page or version, [`PageError::Deleted`] for a deleted page,
+/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to, and
+/// [`PageError::TitleTaken`] for a learning's version whose title another learning has now.
 pub async fn restore_version(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -405,13 +675,54 @@ pub async fn restore_version(
         .transaction(async move |connection| {
             let page = lock(connection, id).await?;
             require_writable(connection, &page, author).await?;
-            let content = find_version(connection, id, version).await?.into_content();
+            let mut content = find_version(connection, id, version).await?.into_content();
+            if let Some(category) = &content.category
+                && !learning_category::hold(connection, category).await?
+            {
+                content.category.clone_from(&page.category);
+            }
             if content == page.content() {
                 return Ok(Recorded::unchanged(page));
             }
-            write_version(connection, &page, &content, Some(version), author).await
+            let provenance = Provenance {
+                restored_from: Some(version),
+                ..Provenance::default()
+            };
+            publish_content(connection, &page, content, provenance, author).await
         })
         .await
+}
+
+/// Reverses what version `version` of `page` changed: each field that still holds what that version
+/// wrote gets back what it replaced, and one changed again since keeps its newer value, as undoing a
+/// changeset does (`docs/action-items.md`, Undoing). The reversal is the next version, naming what it
+/// undid in `provenance`. Answers `None`, recording nothing, when no field still holds what it wrote.
+///
+/// `page` must be locked ([`lock`]) in the caller's transaction.
+///
+/// # Errors
+/// `NotFound` for an unknown version or one with none before it, and the refusals of
+/// [`publish_content`].
+pub async fn undo_version(
+    connection: &mut AsyncPgConnection,
+    page: &Page,
+    version: i32,
+    provenance: Provenance,
+    author: Author<'_>,
+) -> Result<Option<Recorded>, PageError> {
+    let wrote = find_version(connection, page.id, version)
+        .await?
+        .into_content();
+    let replaced = find_version(connection, page.id, version - 1)
+        .await?
+        .into_content();
+    let reverted = reverted_content(page.content(), &wrote, replaced);
+    if reverted == page.content() {
+        return Ok(None);
+    }
+    publish_content(connection, page, reverted, provenance, author)
+        .await
+        .map(Some)
 }
 
 /// Moves page `id` to `placement`, with everything under it, writing its own row alone unless its
@@ -420,9 +731,9 @@ pub async fn restore_version(
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::Deleted`] for a deleted one,
 /// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to,
-/// [`PageError::ParentGone`] for a parent that does not exist or is deleted,
-/// [`PageError::UnderItself`] for a parent that is the page or a descendant of it, and
-/// [`PageError::PlacementGone`] when `after` is not a live child of the parent.
+/// [`PageError::Fixed`] for a fixed page, [`PageError::ParentGone`] for a parent that does not exist
+/// or is deleted, [`PageError::UnderItself`] for a parent that is the page or a descendant of it,
+/// and [`PageError::PlacementGone`] when `after` is not a live child of the parent.
 pub async fn move_page(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -434,6 +745,9 @@ pub async fn move_page(
             hold_tree(connection).await?;
             let page = lock(connection, id).await?;
             require_writable(connection, &page, author).await?;
+            if is_fixed(id) {
+                return Err(PageError::Fixed);
+            }
             if let Some(parent_id) = placement.parent_id {
                 require_live_parent(connection, parent_id).await?;
                 if subtree(connection, id).await?.contains(&parent_id) {
@@ -461,9 +775,9 @@ pub async fn move_page(
                 "from": { "parentId": page.parent_id, "after": follows },
                 "to": { "parentId": placement.parent_id, "after": placement.after },
             });
-            record(connection, id, HistoryKind::Moved, author, data).await?;
+            let entry = record(connection, id, None, HistoryKind::Moved, author, data).await?;
 
-            let mut recorded = Recorded::of(moved);
+            let mut recorded = Recorded::of(moved, entry);
             recorded
                 .changed
                 .extend(renumbered.into_iter().filter(|sibling| *sibling != id));
@@ -473,15 +787,17 @@ pub async fn move_page(
 }
 
 /// Deletes page `id` softly with every live page under it, taking them all out of the index.
-/// Deleting a deleted page changes nothing.
+/// Deleting a deleted page changes nothing. `undid` names the entry this reverses, for an undo.
 ///
 /// # Errors
-/// `NotFound` for an unknown page, and [`PageError::ProposalOnly`] for an agent when any of them
-/// is a page agents only propose to, in which case none is deleted.
+/// `NotFound` for an unknown page, [`PageError::ProposalOnly`] for an agent when any of them is a
+/// page agents only propose to, and [`PageError::Fixed`] when any of them is a fixed page, in which
+/// cases none is deleted.
 pub async fn delete(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     author: Author<'_>,
+    undid: Option<Uuid>,
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
@@ -503,30 +819,48 @@ pub async fn delete(
             for page in &going {
                 refuse_agents(connection, page, author).await?;
             }
+            if going.iter().any(|page| is_fixed(page.id)) {
+                return Err(PageError::Fixed);
+            }
             let changed: Vec<Uuid> = going.iter().map(|page| page.id).collect();
             diesel::update(pages::table.filter(pages::id.eq_any(&changed)))
                 .set(pages::deleted_at.eq(author.at))
                 .execute(connection)
                 .await?;
 
-            for page_id in &changed {
-                let data = if *page_id == id {
+            let mut entry_of_page = None;
+            for going_page in &going {
+                let mut data = if going_page.id == id {
                     json!({})
                 } else {
                     json!({ "deletedWith": id })
                 };
-                record(connection, *page_id, HistoryKind::Deleted, author, data).await?;
-                knowledge_document::remove(connection, &index_source(*page_id)).await?;
+                if let Some(undid) = undid.filter(|_| going_page.id == id) {
+                    data["undid"] = json!(undid);
+                }
+                let entry = record(
+                    connection,
+                    going_page.id,
+                    None,
+                    HistoryKind::Deleted,
+                    author,
+                    data,
+                )
+                .await?;
+                if going_page.id == id {
+                    entry_of_page = Some(entry);
+                }
+                knowledge_document::remove(connection, &index_source(going_page)).await?;
             }
             let page = find(connection, id).await?;
-            Ok(Recorded { page, changed })
+            Ok(Recorded::of_many(page, &going, entry_of_page))
         })
         .await
 }
 
 /// Brings deleted page `id` back to where it was, with the descendants its deletion took, into the
 /// index again. A descendant deleted on its own beforehand stays deleted. Restoring a live page
-/// changes nothing.
+/// changes nothing. `undid` names the entry this reverses, for an undo.
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::ParentGone`] while its parent is deleted, since a
@@ -536,6 +870,7 @@ pub async fn restore(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     author: Author<'_>,
+    undid: Option<Uuid>,
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
@@ -568,17 +903,32 @@ pub async fn restore(
                     .get_results(connection)
                     .await?;
 
-            for page in &restored {
-                let data = if page.id == id {
+            let mut entry_of_page = None;
+            for restored_page in &restored {
+                let mut data = if restored_page.id == id {
                     json!({ "deletedAt": deleted_at })
                 } else {
                     json!({ "deletedAt": deleted_at, "restoredWith": id })
                 };
-                record(connection, page.id, HistoryKind::Restored, author, data).await?;
-                reindex(connection, page).await?;
+                if let Some(undid) = undid.filter(|_| restored_page.id == id) {
+                    data["undid"] = json!(undid);
+                }
+                let entry = record(
+                    connection,
+                    restored_page.id,
+                    None,
+                    HistoryKind::Restored,
+                    author,
+                    data,
+                )
+                .await?;
+                if restored_page.id == id {
+                    entry_of_page = Some(entry);
+                }
+                reindex(connection, restored_page).await?;
             }
             let page = find(connection, id).await?;
-            Ok(Recorded { page, changed })
+            Ok(Recorded::of_many(page, &restored, entry_of_page))
         })
         .await
 }
@@ -683,6 +1033,22 @@ pub async fn history(
         .await
 }
 
+/// History entry `entry_id` of page `id`.
+///
+/// # Errors
+/// `NotFound` for an unknown entry, or one of another page.
+pub async fn history_entry(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    entry_id: Uuid,
+) -> QueryResult<HistoryEntry> {
+    page_events::table
+        .find((id, entry_id))
+        .select(HistoryEntry::as_select())
+        .first(connection)
+        .await
+}
+
 /// Takes the lock every change to the tree's shape holds until its transaction ends.
 ///
 /// Row locks cannot keep the tree's rules, which span pages no one row names: two moves at once
@@ -696,7 +1062,11 @@ async fn hold_tree(connection: &mut AsyncPgConnection) -> QueryResult<()> {
         .map(drop)
 }
 
-async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
+/// Locks page `id` until the transaction ends, and answers it.
+///
+/// # Errors
+/// `NotFound` for an unknown page.
+pub async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
     pages::table
         .find(id)
         .for_update()
@@ -748,6 +1118,37 @@ async fn refuse_agents(
         return Err(PageError::ProposalOnly);
     }
     Ok(())
+}
+
+/// Refuses `key` unless a category has it, which then stays until the transaction ends, so a
+/// learning is never filed under a category being removed at the same moment.
+async fn hold_category(connection: &mut AsyncPgConnection, key: &str) -> Result<(), PageError> {
+    if learning_category::hold(connection, key).await? {
+        return Ok(());
+    }
+    let known = learning_category::list(connection)
+        .await?
+        .into_iter()
+        .map(|category| category.key)
+        .collect();
+    Err(PageError::UnknownCategory {
+        key: key.to_owned(),
+        known,
+    })
+}
+
+/// Refuses `content` when a learning or company doc section cannot hold it. `section` is the section
+/// it is written to, if any. They keep the bounds they always had; a page's own are the routes'.
+fn require_fits(section: Option<Section>, content: &PageContent) -> Result<(), PageError> {
+    let (min, max) = match (section, &content.category) {
+        (Some(_), _) => (0, CONTENT_MAX_CHARACTERS),
+        (None, Some(_)) => (1, LEARNING_BODY_MAX_CHARACTERS),
+        (None, None) => return Ok(()),
+    };
+    if (min..=max).contains(&content.body.chars().count()) {
+        return Ok(());
+    }
+    Err(PageError::BodyOutOfBounds { min, max })
 }
 
 /// Page `id` and every page under it, deleted ones included, at any depth.
@@ -875,38 +1276,6 @@ async fn renumber(
     Ok(rows.into_iter().map(|row| row.id).collect())
 }
 
-/// Writes `content` as `page`'s next version: its version row, the copy on the page, the history
-/// entry, and the index, together. `restored_from` names the version a restore copied.
-async fn write_version(
-    connection: &mut AsyncPgConnection,
-    page: &Page,
-    content: &PageContent,
-    restored_from: Option<i32>,
-    author: Author<'_>,
-) -> Result<Recorded, PageError> {
-    let version = page.current_version + 1;
-    let published: Page = diesel::update(pages::table.find(page.id))
-        .set((
-            pages::title.eq(&content.title),
-            pages::body.eq(&content.body),
-            pages::category.eq(&content.category),
-            pages::evidence.eq(&content.evidence),
-            pages::current_version.eq(version),
-        ))
-        .returning(Page::as_returning())
-        .get_result(connection)
-        .await?;
-    insert_version(connection, &published, content, restored_from, author).await?;
-
-    let mut data = json!({ "version": version });
-    if let Some(restored_from) = restored_from {
-        data["restoredFrom"] = json!(restored_from);
-    }
-    record(connection, page.id, HistoryKind::Published, author, data).await?;
-    reindex(connection, &published).await?;
-    Ok(Recorded::of(published))
-}
-
 /// Stores `content` as `page`'s current version.
 async fn insert_version(
     connection: &mut AsyncPgConnection,
@@ -934,16 +1303,19 @@ async fn insert_version(
         .map(drop)
 }
 
+/// Records a history entry on page `page_id`, under `change` when it is part of a change that
+/// reaches several pages.
 async fn record(
     connection: &mut AsyncPgConnection,
     page_id: Uuid,
+    change: Option<Uuid>,
     kind: HistoryKind,
     author: Author<'_>,
     data: Value,
-) -> QueryResult<()> {
+) -> QueryResult<HistoryEntry> {
     diesel::insert_into(page_events::table)
         .values(HistoryRow {
-            id: Uuid::now_v7(),
+            id: change.unwrap_or_else(Uuid::now_v7),
             page_id,
             kind: kind.as_str(),
             created_by: author.user_id,
@@ -952,41 +1324,88 @@ async fn record(
             data,
             created_at: author.at,
         })
-        .execute(connection)
+        .returning(HistoryEntry::as_returning())
+        .get_result(connection)
         .await
-        .map(drop)
 }
 
-fn index_source(id: Uuid) -> KnowledgeSource {
-    KnowledgeSource::Page {
-        id,
-        kind: INDEX_KIND.to_owned(),
+/// `current` with each field that holds what a version `wrote` put back to what it `replaced`.
+fn reverted_content(
+    current: PageContent,
+    wrote: &PageContent,
+    replaced: PageContent,
+) -> PageContent {
+    fn revert<Field: PartialEq>(current: Field, wrote: &Field, replaced: Field) -> Field {
+        if current == *wrote { replaced } else { current }
+    }
+    PageContent {
+        title: revert(current.title, &wrote.title, replaced.title),
+        body: revert(current.body, &wrote.body, replaced.body),
+        category: revert(current.category, &wrote.category, replaced.category),
+        evidence: revert(current.evidence, &wrote.evidence, replaced.evidence),
     }
 }
 
-/// Puts `page`, which is live, in the index as its newest version reads.
+/// What the index calls `page`'s source. The kind is what the search's source filter names it by.
+fn index_source(page: &Page) -> KnowledgeSource {
+    let kind = if page.section().is_some() {
+        COMPANY_DOC_INDEX_KIND
+    } else if page.is_learning() {
+        LEARNING_INDEX_KIND
+    } else {
+        INDEX_KIND
+    };
+    KnowledgeSource::Page {
+        id: page.id,
+        kind: kind.to_owned(),
+    }
+}
+
+/// Puts `page` in the index as its newest version reads, or takes it out while it is deleted or says
+/// nothing.
 ///
 /// Dated when that version was published, and attributed to who published it, since those are its
 /// words now. A page lives in Elysium, so its citation opens it there by id rather than following a
 /// link.
-async fn reindex(connection: &mut AsyncPgConnection, page: &Page) -> QueryResult<()> {
+pub(crate) async fn reindex(connection: &mut AsyncPgConnection, page: &Page) -> QueryResult<()> {
+    let source = index_source(page);
+    let passages = passages::split(&indexed_text(page));
+    if page.deleted_at.is_some() || passages.is_empty() {
+        return knowledge_document::remove(connection, &source).await;
+    }
     let published = version_summary(connection, page.id, page.current_version).await?;
     let document = IndexedDocument {
-        source: index_source(page.id),
-        title: page.title.clone(),
+        source,
+        title: indexed_title(page),
         url: None,
         occurred_at: published.created_at,
         created_by: published.created_by,
-        passages: passages::split(&indexed_text(page)),
+        passages,
     };
     knowledge_document::upsert(connection, &document)
         .await
         .map(drop)
 }
 
-/// What a page is indexed from: its title and body, then its evidence on a page that has any, in
-/// the order a learning's document holds them.
+/// What a citation calls `page`. A section's page is titled as the section is, which alone would not
+/// say whose glossary a search found.
+fn indexed_title(page: &Page) -> String {
+    match page.section() {
+        Some(section) => format!("Company doc: {}", section.heading()),
+        None => page.title.clone(),
+    }
+}
+
+/// What `page` is indexed from: its title and body, then its evidence on a page that has any, in the
+/// order a learning's document holds them.
+///
+/// A fixed page is its body alone. Its title is a heading the doc's own structure already gives, and
+/// the text its passages were embedded from is what keeps their embeddings when a section is
+/// indexed again; an empty one says nothing, and has no document.
 fn indexed_text(page: &Page) -> String {
+    if is_fixed(page.id) {
+        return page.body.clone();
+    }
     let mut text = format!("{}\n\n{}", page.title, page.body);
     if let Some(evidence) = &page.evidence {
         text.push_str("\n\n");
@@ -998,6 +1417,15 @@ fn indexed_text(page: &Page) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn content() -> PageContent {
+        PageContent {
+            title: "Runbook".to_owned(),
+            body: "Restart it.".to_owned(),
+            category: Some("procedure".to_owned()),
+            evidence: Some("It came back.".to_owned()),
+        }
+    }
 
     fn page() -> Page {
         Page {
@@ -1057,6 +1485,113 @@ mod tests {
         assert_eq!(
             indexed_text(&learning),
             "Runbook\n\nRestart it.\n\nIt came back."
+        );
+    }
+
+    #[test]
+    fn a_section_is_indexed_from_its_body_alone_under_the_docs_name_for_it() {
+        let glossary = Page {
+            id: Section::Glossary.page_id(),
+            title: "Glossary".to_owned(),
+            body: "- ACME: a client".to_owned(),
+            ..page()
+        };
+        assert_eq!(indexed_text(&glossary), "- ACME: a client");
+        assert_eq!(indexed_title(&glossary), "Company doc: Glossary");
+        assert_eq!(index_source(&glossary).label(), "company_doc");
+    }
+
+    #[test]
+    fn a_learnings_document_keeps_the_name_the_filter_knows_it_by() {
+        let learning = Page {
+            category: Some("procedure".to_owned()),
+            evidence: Some("It came back.".to_owned()),
+            ..page()
+        };
+        assert_eq!(index_source(&learning).label(), "learning");
+        assert_eq!(index_source(&page()).label(), "page");
+    }
+
+    #[test]
+    fn an_empty_section_says_nothing_to_index() {
+        let empty = Page {
+            id: Section::People.page_id(),
+            body: String::new(),
+            ..page()
+        };
+        assert!(passages::split(&indexed_text(&empty)).is_empty());
+    }
+
+    #[test]
+    fn the_pages_elysium_relies_on_are_fixed_and_no_others() {
+        assert!(is_fixed(LEARNINGS_PAGE_ID));
+        assert!(is_fixed(COMPANY_PAGE_ID));
+        for section in Section::ALL {
+            assert!(is_fixed(section.page_id()), "{section:?}");
+        }
+        assert!(!is_fixed(Uuid::now_v7()));
+    }
+
+    #[test]
+    fn a_learning_and_a_section_keep_their_bounds_and_a_page_has_only_the_routes() {
+        let body_of = |length: usize| PageContent {
+            body: "x".repeat(length),
+            ..content()
+        };
+        require_fits(None, &body_of(LEARNING_BODY_MAX_CHARACTERS)).expect("fits");
+        assert!(matches!(
+            require_fits(None, &body_of(LEARNING_BODY_MAX_CHARACTERS + 1)),
+            Err(PageError::BodyOutOfBounds { .. })
+        ));
+        assert!(matches!(
+            require_fits(None, &body_of(0)),
+            Err(PageError::BodyOutOfBounds { .. })
+        ));
+
+        let section = Some(Section::Glossary);
+        let plain = |length: usize| PageContent {
+            body: "x".repeat(length),
+            category: None,
+            evidence: None,
+            ..content()
+        };
+        require_fits(section, &plain(0)).expect("fits");
+        assert!(matches!(
+            require_fits(section, &plain(CONTENT_MAX_CHARACTERS + 1)),
+            Err(PageError::BodyOutOfBounds { .. })
+        ));
+        require_fits(None, &plain(CONTENT_MAX_CHARACTERS + 1)).expect("fits");
+    }
+
+    #[test]
+    fn undoing_puts_back_only_the_fields_that_still_hold_what_the_version_wrote() {
+        let replaced = content();
+        let wrote = PageContent {
+            body: "Revised body.".to_owned(),
+            category: Some("pitfall".to_owned()),
+            ..content()
+        };
+        // Since the version, someone changed the category again.
+        let current = PageContent {
+            category: Some("reference".to_owned()),
+            ..wrote.clone()
+        };
+
+        let reverted = reverted_content(current, &wrote, replaced.clone());
+
+        assert_eq!(
+            reverted.body, replaced.body,
+            "the body it wrote is put back"
+        );
+        assert_eq!(
+            reverted.category.as_deref(),
+            Some("reference"),
+            "a field changed since keeps its newer value"
+        );
+        assert_eq!(
+            reverted_content(replaced.clone(), &wrote, replaced.clone()),
+            replaced,
+            "an undone version has nothing left to put back"
         );
     }
 }

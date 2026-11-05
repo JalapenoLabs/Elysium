@@ -317,7 +317,7 @@ async fn a_paraphrase_is_found_by_its_meaning_alone() {
     // The model puts the question beside the learning it paraphrases, with no word in common.
     let passage = diesel::sql_query(
         "SELECT content FROM knowledge_passages WHERE document_id = \
-         (SELECT id FROM knowledge_documents WHERE learning_id = $1)",
+         (SELECT id FROM knowledge_documents WHERE page_id = $1)",
     )
     .bind::<SqlUuid, _>(releasing)
     .get_result::<Content>(&mut connection)

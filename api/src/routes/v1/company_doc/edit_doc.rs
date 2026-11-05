@@ -16,7 +16,7 @@ use crate::auth::MemberUser;
 use crate::company_doc::{self, CompanyDocResponse};
 use crate::errors::ApiError;
 use crate::models::company_doc::{self as doc, Section};
-use crate::realtime::ServerEvent;
+use crate::routes::v1::pages;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -43,8 +43,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let entry = doc::edit(&mut connection, changes, author(&member)).await?;
-    if entry.is_some() {
-        state.events.publish(&ServerEvent::CompanyDocChanged);
+    if let Some(entry) = entry {
+        pages::announce(&state.events, &entry.pages(), &[]);
     }
 
     Ok(Json(company_doc::read(&mut connection).await?))

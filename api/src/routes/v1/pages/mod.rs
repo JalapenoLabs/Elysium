@@ -37,10 +37,13 @@ use validator::{Validate, ValidationError, ValidationErrors};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
+use crate::models::company_doc::Section;
 use crate::models::page::{
-    self, HistoryEntry, Page, PageEdit, PageSummary, PageVersion, Recorded, VersionSummary,
+    self, HistoryEntry, LearningFields, Page, PageEdit, PageSummary, PageVersion, Recorded,
+    VersionSummary,
 };
-use crate::realtime::ServerEvent;
+use crate::realtime::{EventBus, ServerEvent};
+use crate::routes::v1::action_items::validate_not_blank;
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
@@ -72,10 +75,16 @@ pub struct PageResponse {
     title: String,
     /// Markdown.
     body: String,
+    /// The key of the category a learning is filed under; `null` on a page that is no learning.
+    category: Option<String>,
+    /// What shows a learning is true; `null` on a page that is no learning.
+    evidence: Option<String>,
     /// The newest version, which a publish names as `baseVersion`.
     current_version: i32,
     /// Agents may only propose changes to it.
     proposal_only: bool,
+    /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
+    fixed: bool,
     /// Who published the newest version, and when.
     published_by: Uuid,
     published_at: DateTime<Utc>,
@@ -94,8 +103,11 @@ impl PageResponse {
             id: page.id,
             parent_id: page.parent_id,
             position: page.position,
+            fixed: page::is_fixed(page.id),
             title: page.title,
             body: page.body,
+            category: page.category,
+            evidence: page.evidence,
             current_version: page.current_version,
             proposal_only: page.proposal_only,
             published_by: published.created_by,
@@ -117,12 +129,15 @@ pub struct PageSummaryResponse {
     position: i64,
     title: String,
     current_version: i32,
+    /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
+    fixed: bool,
     deleted_at: Option<DateTime<Utc>>,
 }
 
 impl From<PageSummary> for PageSummaryResponse {
     fn from(page: PageSummary) -> Self {
         Self {
+            fixed: page::is_fixed(page.id),
             id: page.id,
             parent_id: page.parent_id,
             position: page.position,
@@ -171,6 +186,10 @@ pub struct VersionResponse {
     summary: VersionSummaryResponse,
     /// Markdown.
     body: String,
+    /// The category it was filed under, as it was then; `null` on a page that is no learning.
+    category: Option<String>,
+    /// What showed it was true; `null` on a page that is no learning.
+    evidence: Option<String>,
 }
 
 impl From<PageVersion> for VersionResponse {
@@ -178,6 +197,8 @@ impl From<PageVersion> for VersionResponse {
         Self {
             summary: VersionSummaryResponse::from(version.summary),
             body: version.body,
+            category: version.category,
+            evidence: version.evidence,
         }
     }
 }
@@ -248,6 +269,19 @@ struct PageText {
     body: String,
 }
 
+/// A learning's category and evidence as a page is published with them, and what they may be.
+#[derive(Debug, Validate)]
+struct LearningText {
+    #[validate(length(min = 1, max = 50))]
+    category: String,
+    #[validate(
+        length(min = 1, max = 20000),
+        custom(function = "validate_no_nul"),
+        custom(function = "validate_not_blank")
+    )]
+    evidence: String,
+}
+
 /// What `title` and `body` publish as, once normalized and checked.
 ///
 /// The title is trimmed and its whitespace collapsed. The body's line endings are normalized and
@@ -265,7 +299,47 @@ fn page_edit(title: &str, body: &str) -> Result<PageEdit, ValidationErrors> {
     Ok(PageEdit {
         title: text.title,
         body: text.body,
+        learning: None,
     })
+}
+
+/// What a learning's `category` and `evidence` publish as, trimmed as saving one trims them. Both or
+/// neither: a learning holds both, and a publish that names neither leaves them as they are.
+///
+/// # Errors
+/// What is wrong with either, keyed `category` and `evidence`, and either one given alone.
+fn learning_fields(
+    category: Option<&str>,
+    evidence: Option<&str>,
+) -> Result<Option<LearningFields>, ValidationErrors> {
+    let (category, evidence) = match (category, evidence) {
+        (None, None) => return Ok(None),
+        (Some(category), Some(evidence)) => (category, evidence),
+        (category, _) => {
+            let missing = if category.is_none() {
+                "category"
+            } else {
+                "evidence"
+            };
+            let mut errors = ValidationErrors::new();
+            errors.add(
+                missing,
+                ValidationError::new("required").with_message(
+                    "a learning's category and evidence are published together".into(),
+                ),
+            );
+            return Err(errors);
+        }
+    };
+    let text = LearningText {
+        category: category.trim().to_owned(),
+        evidence: evidence.trim().to_owned(),
+    };
+    text.validate()?;
+    Ok(Some(LearningFields {
+        category: text.category,
+        evidence: text.evidence,
+    }))
 }
 
 /// Postgres's text cannot hold a NUL, which JSON can carry, so it is refused here rather than
@@ -277,15 +351,27 @@ fn validate_no_nul(value: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// Announces every page a write changed, as a page and as what else it stands for: clients showing
+/// learnings and the company doc hear those events, not the tree's. A section is the doc changing.
+pub fn announce(events: &EventBus, changed: &[Uuid], learnings: &[Uuid]) {
+    for id in changed {
+        events.publish(&ServerEvent::PageChanged { id: *id });
+    }
+    for id in learnings {
+        events.publish(&ServerEvent::LearningChanged { id: *id });
+    }
+    if changed.iter().any(|id| Section::of_page(*id).is_some()) {
+        events.publish(&ServerEvent::CompanyDocChanged);
+    }
+}
+
 /// Announces every page a write changed, and answers the page it left.
 async fn answer(
     state: &AppState,
     connection: &mut AsyncPgConnection,
     recorded: Recorded,
 ) -> Result<PageResponse, ApiError> {
-    for id in recorded.changed {
-        state.events.publish(&ServerEvent::PageChanged { id });
-    }
+    announce(&state.events, &recorded.changed, &recorded.learnings);
     response(connection, recorded.page).await
 }
 

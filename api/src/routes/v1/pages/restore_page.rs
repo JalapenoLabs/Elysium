@@ -42,6 +42,6 @@ pub async fn restore(
         .get()
         .await
         .context("no database connection available")?;
-    let recorded = page::restore(&mut connection, id, author).await?;
+    let recorded = page::restore(&mut connection, id, author, None).await?;
     answer(state, &mut connection, recorded).await
 }

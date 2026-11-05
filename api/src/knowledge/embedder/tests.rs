@@ -61,7 +61,10 @@ async fn index_as(connection: &mut AsyncPgConnection, id: Uuid, passages: &[Stri
     knowledge_document::upsert(
         connection,
         &IndexedDocument {
-            source: KnowledgeSource::Learning(id),
+            source: KnowledgeSource::Page {
+                id,
+                kind: "learning".to_owned(),
+            },
             title: "A learning".to_owned(),
             url: None,
             occurred_at: Utc::now(),
@@ -78,7 +81,7 @@ async fn passages(connection: &mut AsyncPgConnection, id: Uuid) -> Vec<Passage> 
     diesel::sql_query(
         "SELECT position, content, embedding::text AS embedding, embedding_model \
          FROM knowledge_passages \
-         WHERE document_id = (SELECT id FROM knowledge_documents WHERE learning_id = $1) \
+         WHERE document_id = (SELECT id FROM knowledge_documents WHERE page_id = $1) \
          ORDER BY position",
     )
     .bind::<SqlUuid, _>(id)
@@ -211,7 +214,7 @@ async fn embeddings_of_another_model_are_forgotten_and_made_again() {
     let older = format!("[{}]", vec!["0.5"; DIMENSIONS].join(","));
     diesel::sql_query(
         "UPDATE knowledge_passages SET embedding = $1::vector, embedding_model = 'an-older-model' \
-         WHERE document_id = (SELECT id FROM knowledge_documents WHERE learning_id = $2)",
+         WHERE document_id = (SELECT id FROM knowledge_documents WHERE page_id = $2)",
     )
     .bind::<Text, _>(older)
     .bind::<SqlUuid, _>(theirs)

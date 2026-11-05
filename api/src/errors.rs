@@ -148,6 +148,7 @@ impl From<crate::models::learning::LearningError> for ApiError {
             unknown @ LearningError::UnknownCategory { .. } => {
                 Self::BadRequest(unknown.to_string())
             }
+            LearningError::Page(page) => page.into(),
         }
     }
 }
@@ -181,6 +182,21 @@ impl From<crate::models::page::PageError> for ApiError {
                 "the page it would follow is no longer under that parent; load the tree again",
             ),
             PageError::UnderItself => ("page_under_itself", "a page cannot move under itself"),
+            PageError::Fixed => (
+                "page_fixed",
+                "this page holds its place: it cannot be moved, deleted, or renamed",
+            ),
+            PageError::TitleTaken => (
+                "page_title_taken",
+                "another learning already has this title",
+            ),
+            PageError::NotALearning => (
+                "page_not_a_learning",
+                "only a learning has a category and evidence",
+            ),
+            refused @ (PageError::UnknownCategory { .. } | PageError::BodyOutOfBounds { .. }) => {
+                return Self::BadRequest(refused.to_string());
+            }
         };
         Self::CodedConflict { code, message }
     }
@@ -192,6 +208,7 @@ impl From<crate::models::company_doc::CompanyDocError> for ApiError {
 
         match error {
             CompanyDocError::Database(database) => database.into(),
+            CompanyDocError::Page(page) => page.into(),
             refused @ (CompanyDocError::Invalid(_)
             | CompanyDocError::TooLong(_)
             | CompanyDocError::EditDoesNotApply(_)

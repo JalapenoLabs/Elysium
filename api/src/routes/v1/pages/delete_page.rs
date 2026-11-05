@@ -38,7 +38,7 @@ pub async fn delete(state: &AppState, author: Author<'_>, id: Uuid) -> Result<()
         .get()
         .await
         .context("no database connection available")?;
-    let recorded = page::delete(&mut connection, id, author).await?;
+    let recorded = page::delete(&mut connection, id, author, None).await?;
     answer(state, &mut connection, recorded).await?;
     Ok(())
 }
