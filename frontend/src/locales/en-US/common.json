@@ -105,6 +105,67 @@
     "imageUnavailable": "Image unavailable",
     "imageUnavailableNamed": "Image unavailable: {{name}}"
   },
+  "markdownEditor": {
+    "toolbarLabel": "Formatting",
+    "slashLabel": "Add a block",
+    "noCommands": "No matching block",
+    "undo": "Undo",
+    "redo": "Redo",
+    "marks": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "strike": "Strikethrough",
+      "code": "Inline code",
+      "link": "Link"
+    },
+    "commands": {
+      "paragraph": "Text",
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "bulletList": "Bulleted list",
+      "orderedList": "Numbered list",
+      "taskList": "Task list",
+      "quote": "Quote",
+      "codeBlock": "Code block",
+      "table": "Table",
+      "divider": "Divider",
+      "image": "Image"
+    },
+    "tags": {
+      "paragraph": "paragraph plain",
+      "heading1": "h1 title",
+      "heading2": "h2 subtitle",
+      "heading3": "h3",
+      "bulletList": "unordered ul bullets",
+      "orderedList": "ordered ol numbers",
+      "taskList": "todo checkbox checklist",
+      "quote": "blockquote citation",
+      "codeBlock": "snippet fence pre",
+      "table": "grid rows columns",
+      "divider": "horizontal rule line hr separator",
+      "image": "picture photo"
+    },
+    "table": {
+      "addRow": "Add a row below",
+      "addColumn": "Add a column to the right",
+      "deleteRow": "Delete this row",
+      "deleteColumn": "Delete this column",
+      "delete": "Delete the table"
+    },
+    "link": {
+      "title": "Link",
+      "address": "Address",
+      "apply": "Apply",
+      "remove": "Remove link"
+    },
+    "image": {
+      "title": "Add an image",
+      "address": "Address",
+      "description": "Description",
+      "insert": "Add image"
+    }
+  },
   "imagePreview": {
     "open": "View {{name}} larger"
   },

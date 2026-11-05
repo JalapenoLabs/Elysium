@@ -1,0 +1,192 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* The Markdown editor. Its text carries `.markdown`, so it reads as the page will
+   (`src/theme/markdown.css`); these rules are what only editing needs. Loaded with the editor. */
+
+.markdown-editor {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+/* Stays in sight as a long page scrolls beneath it, and scrolls sideways on a phone rather than
+   stacking up over the text. */
+.markdown-editor-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 0.25rem 0.75rem;
+  overflow-x: auto;
+  padding: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: var(--surface);
+}
+
+@media (min-width: 40rem) {
+  .markdown-editor-toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
+.markdown-editor-toolbar-group {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.125rem;
+}
+
+.markdown-editor-text {
+  min-height: 24rem;
+  padding: 1rem;
+  outline: none;
+}
+
+/* A page's own title is its one `h1`, so a heading reads a level down (`Markdown.tsx`), here too. */
+.markdown-editor-text h1,
+.markdown-editor-text h2,
+.markdown-editor-text h3,
+.markdown-editor-text h4,
+.markdown-editor-text h5,
+.markdown-editor-text h6 {
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdown-editor-text h1 {
+  font-size: 1.5rem;
+}
+
+.markdown-editor-text h2 {
+  font-size: 1.25rem;
+}
+
+.markdown-editor-text h3 {
+  font-size: 1.0625rem;
+}
+
+.markdown-editor-text h4,
+.markdown-editor-text h5,
+.markdown-editor-text h6 {
+  font-size: 1rem;
+  opacity: 1;
+}
+
+.markdown-editor-text > :first-child {
+  margin-top: 0;
+}
+
+.markdown-editor-text p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Tiptap's task items: a checkbox beside a block of text. */
+.markdown-editor-text ul[data-type='taskList'] {
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-editor-text ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.markdown-editor-text ul[data-type='taskList'] li > label {
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+
+.markdown-editor-text ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.markdown-editor-text ul[data-type='taskList'] li > div > p {
+  margin-block: 0.25rem;
+}
+
+/* Scrolls on its own, as a table does when read. */
+.markdown-editor-text .tableWrapper {
+  overflow-x: auto;
+  margin-block: 1rem;
+}
+
+.markdown-editor-text th p,
+.markdown-editor-text td p {
+  margin: 0;
+}
+
+.markdown-editor-text th,
+.markdown-editor-text td {
+  min-width: 6rem;
+}
+
+.markdown-editor-text [data-align='center'] {
+  text-align: center;
+}
+
+.markdown-editor-text [data-align='right'] {
+  text-align: end;
+}
+
+.markdown-editor-text .selectedCell {
+  background: var(--accent-soft);
+}
+
+/* Markdown the editor carries as it is written. It looks like what it is: source. */
+.markdown-editor-text pre[data-markdown-block] {
+  border-style: dashed;
+  white-space: pre-wrap;
+}
+
+.markdown-editor-text code[data-markdown-inline] {
+  border: 1px dashed var(--border);
+  background: none;
+}
+
+.markdown-editor-image {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.markdown-editor-text .ProseMirror-selectednode {
+  outline: 2px solid var(--focus);
+  border-radius: 0.25rem;
+}
+
+.markdown-editor-slash-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: 16rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
+}
+
+.markdown-editor-slash-menu button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  text-align: start;
+}
+
+.markdown-editor-slash-menu button[aria-selected='true'] {
+  background: var(--default);
+}
