@@ -98,6 +98,13 @@
   "picker": {
     "placeholder": "Choose"
   },
+  "markdown": {
+    "copyCode": "Copy code",
+    "opensInNewTab": "Opens in a new tab",
+    "remoteImage": "Open image: {{name}}",
+    "imageUnavailable": "Image unavailable",
+    "imageUnavailableNamed": "Image unavailable: {{name}}"
+  },
   "imagePreview": {
     "open": "View {{name}} larger"
   },
@@ -115,6 +122,7 @@
     "actions": "Actions",
     "back": "Back to {{page}}",
     "breadcrumbs": "Breadcrumbs",
+    "moreBreadcrumbs": "Pages in between",
     "help": "Help",
     "leave": {
       "title": "Unsaved changes",

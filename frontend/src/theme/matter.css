@@ -74,6 +74,14 @@
   --elysia-needs-you: #d6489a;
   --elysia-held: var(--muted);
   --elysia-done: var(--success);
+
+  /* Code in Markdown, in Matter's hues, each at least 4.5:1 on the code block's background. */
+  --code-comment: #5c6f85;
+  --code-keyword: #1f6a98;
+  --code-string: #4a7a24;
+  --code-number: #8a6f12;
+  --code-title: #a3467a;
+  --code-type: #2f7a78;
 }
 
 [data-theme='dark'] {
@@ -141,6 +149,14 @@
   --elysia-needs-you: #f28ac4;
   --elysia-held: var(--muted);
   --elysia-done: var(--success);
+
+  /* Code in Markdown, in Matter's hues, each at least 4.5:1 on the code block's background. */
+  --code-comment: #7f93ab;
+  --code-keyword: #4cbbff;
+  --code-string: #9fd356;
+  --code-number: #e2c15a;
+  --code-title: #f28ac4;
+  --code-type: #5fd0c8;
 }
 
 /* Field shape for both themes: rounder, taller, and flat, in the manner of HeroUI v2's

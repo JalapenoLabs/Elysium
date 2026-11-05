@@ -7,11 +7,12 @@ import type { PageAction } from './pageActions'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs, buttonVariants, Link, Tooltip } from '@heroui/react'
+import { buttonVariants, Link, Tooltip } from '@heroui/react'
 import { LuArrowLeft } from 'react-icons/lu'
 import { HelpPopover } from '../../components/HelpPopover'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { PageActions } from './PageActions'
+import { PageBreadcrumbs } from './PageBreadcrumbs'
 
 export type PageCrumb = {
   label: string
@@ -79,7 +80,7 @@ export function PageHeader(props: PageHeaderProps) {
         <Link
           href={parent.href}
           aria-label={t('page.back', { page: parent.label })}
-          className={buttonVariants({ isIconOnly: true, size: 'sm', variant: 'ghost' })}
+          className={`shrink-0 ${buttonVariants({ isIconOnly: true, size: 'sm', variant: 'ghost' })}`}
         >
           <LuArrowLeft className='size-4' aria-hidden />
         </Link>
@@ -87,14 +88,7 @@ export function PageHeader(props: PageHeaderProps) {
           <span>{t('page.back', { page: parent.label })}</span>
         </Tooltip.Content>
       </Tooltip>
-      <Breadcrumbs className='page-breadcrumbs min-w-0'>
-        {props.parents?.map((crumb) => <Breadcrumbs.Item key={crumb.href} href={crumb.href}>{
-          crumb.label
-        }</Breadcrumbs.Item>)}
-        <Breadcrumbs.Item>
-          <span className='truncate'>{props.title}</span>
-        </Breadcrumbs.Item>
-      </Breadcrumbs>
+      <PageBreadcrumbs parents={props.parents ?? []} title={props.title} />
     </nav>}
 
     <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>

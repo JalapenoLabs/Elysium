@@ -1,5 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
+// Before every other import, since a schema may be built as any module loads.
+import './zodConfig'
+
 // Core
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -14,9 +17,6 @@ import { store } from './store'
 import { ConfirmGate } from './gates/ConfirmGate'
 import { PromptGate } from './gates/PromptGate'
 
-// Utility
-import { z } from 'zod'
-
 // Misc
 import './i18n'
 import './index.css'
@@ -25,11 +25,6 @@ import { startSidebarSync } from './layout/startSidebarSync'
 import { startSessionsViewSync } from './pages/Coding/startSessionsViewSync'
 import { router } from './router'
 import { startThemeSync } from './theme/startThemeSync'
-
-// Zod compiles validators with `new Function` when it can, and finds out by trying
-// once. The page's Content Security Policy forbids eval, so that probe would be
-// reported as a violation on every load; jitless skips it. Before the first parse.
-z.config({ jitless: true })
 
 // These run once, outside React, so StrictMode's double effects never register listeners
 // twice. The event stream waits for a signed-in person with access: `AuthGate` opens it.

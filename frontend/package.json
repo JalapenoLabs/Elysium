@@ -43,9 +43,12 @@
     "react-hook-form": "^7.88.0",
     "react-i18next": "^17.0.14",
     "react-icons": "^5.7.0",
+    "react-markdown": "10.1.0",
     "react-redux": "^9.3.0",
     "react-resizable-panels": "^4.13.3",
     "react-router": "^8.3.1",
+    "rehype-highlight": "7.0.2",
+    "remark-gfm": "4.0.1",
     "swr": "^2.5.1",
     "three": "^0.183.0",
     "zod": "^4.6.4"
