@@ -15,7 +15,7 @@ import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
-import type { KnowledgePage, KnowledgePageSummary } from './api/routes/pageRoutes'
+import type { KnowledgePage, KnowledgePageSummary, PageHistoryEntry, PageVersion } from './api/routes/pageRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Meeting } from './api/routes/meetingRoutes'
 import type { Project } from './api/routes/projectRoutes'
@@ -273,6 +273,36 @@ export function makePage(overrides: Partial<KnowledgePage> & Pick<KnowledgePage,
     agent: null,
     createdBy: 'user-1',
     createdAt: '2026-11-01T12:00:00Z',
+    ...overrides,
+  }
+}
+
+export function makePageHistoryEntry(
+  overrides: Partial<PageHistoryEntry> & Pick<PageHistoryEntry, 'id'>,
+): PageHistoryEntry {
+  return {
+    pageId: 'page-1',
+    kind: 'published',
+    createdBy: 'user-1',
+    agent: null,
+    data: {},
+    createdAt: '2026-11-01T12:00:00Z',
+    ...overrides,
+  }
+}
+
+export function makePageVersion(
+  overrides: Partial<PageVersion> & Pick<PageVersion, 'pageId' | 'version'>,
+): PageVersion {
+  return {
+    title: 'A page',
+    restoredFrom: null,
+    createdBy: 'user-1',
+    agent: null,
+    createdAt: '2026-11-01T12:00:00Z',
+    body: '',
+    category: null,
+    evidence: null,
     ...overrides,
   }
 }

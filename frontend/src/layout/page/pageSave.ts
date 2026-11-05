@@ -9,7 +9,7 @@ import type { RefCallback } from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 
 // Misc
-import { TAB_PARAM } from '../../urls'
+import { PAGE_COMPARE_FROM_PARAM, PAGE_COMPARE_TO_PARAM, PAGE_VERSION_PARAM, TAB_PARAM } from '../../urls'
 
 // The one save a page has, as the form that owns it describes it. `Page` draws its Save
 // button from this in the header and on the floating card, presses it for Ctrl+S and
@@ -128,6 +128,10 @@ export function leavesWithoutAsking(state: unknown) {
     && state.leavesWithoutAsking === true
 }
 
+// What a query can name without touching what a page edits: its open tab, and what a knowledge
+// page's History tab is showing.
+const VIEW_ONLY_PARAMS = [ TAB_PARAM, PAGE_VERSION_PARAM, PAGE_COMPARE_FROM_PARAM, PAGE_COMPARE_TO_PARAM ]
+
 // Whether going from one address of a page to another, both on the same path, can swap what
 // the page edits, so the leave prompt must ask first. A query such as Jira's `?project=` picks
 // the record a form edits. The open tab (`?tab=`) never does: it shows another part of the
@@ -135,8 +139,10 @@ export function leavesWithoutAsking(state: unknown) {
 export function swapsWhatPageEdits(currentSearch: string, nextSearch: string) {
   const current = new URLSearchParams(currentSearch)
   const next = new URLSearchParams(nextSearch)
-  current.delete(TAB_PARAM)
-  next.delete(TAB_PARAM)
+  for (const param of VIEW_ONLY_PARAMS) {
+    current.delete(param)
+    next.delete(param)
+  }
   current.sort()
   next.sort()
   return current.toString() !== next.toString()

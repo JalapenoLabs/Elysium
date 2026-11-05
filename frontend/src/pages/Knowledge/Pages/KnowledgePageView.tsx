@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ParseKeys } from 'i18next'
+
 // Core
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
@@ -9,18 +11,29 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectOpenedPage, selectPageTree } from '../../../store/pagesSlice'
 
 // User interface
-import { buttonVariants, Chip, Link, Spinner } from '@heroui/react'
+import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
 import { LuPencil } from 'react-icons/lu'
+import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { ChildPageList } from './ChildPageList'
 import { LearningFields } from './LearningFields'
 import { PageArticle } from './PageArticle'
 import { PageByline } from './PageByline'
+import { PageHistory } from './PageHistory'
 
 // Misc
 import { usePageLoader } from '../../../hooks/useServerData'
-import { getKnowledgePageUrl, getLearningEditUrl, UrlTree } from '../../../urls'
+import { useTabParam } from '../../../hooks/useTabParam'
+import { getKnowledgePageUrl, getLearningEditUrl, PAGE_HISTORY_TAB, UrlTree } from '../../../urls'
 import { findPageAncestors } from './pageTree'
+
+const TABS = [ 'read', PAGE_HISTORY_TAB ] as const
+type Tab = typeof TABS[number]
+
+const tabLabelKeys = {
+  read: 'pages.tabs.read',
+  [PAGE_HISTORY_TAB]: 'pages.tabs.history',
+} as const satisfies Record<Tab, ParseKeys<'knowledge'>>
 
 type Props = {
   pageId: string
@@ -36,6 +49,7 @@ function KnowledgePageReader(props: Props) {
   const tree = useAppSelector(selectPageTree)
   const summary = tree.byId.get(props.pageId)
   const childPages = tree.childrenByParent.get(props.pageId) ?? []
+  const [ selectedTab, selectTab ] = useTabParam(TABS)
 
   const parents = [
     { label: t('title'), href: UrlTree.knowledge },
@@ -68,16 +82,35 @@ function KnowledgePageReader(props: Props) {
       <span>{t('pages.edit')}</span>
     </Link>}
   >
-    {page && <PageArticle
-      markdown={page.body}
-      byline={<PageByline page={page} />}
-      learning={page.category && page.evidence
-        ? <LearningFields category={page.category} evidence={page.evidence} />
-        : undefined}
-      childPages={childPages.length
-        ? <ChildPageList pages={childPages} />
-        : undefined}
-    />}
+    {page && <PageTabs
+      label={t('pages.tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={TABS.map((tab) => ({
+        id: tab,
+        label: t(tabLabelKeys[tab]),
+        // Versions number from one, so the count needs no load and a page's text never waits on it.
+        count: tab === PAGE_HISTORY_TAB
+          ? page.currentVersion
+          : null,
+      }))}
+    >
+      <Tabs.Panel id='read' className='mt-0 p-0'>
+        <PageArticle
+          markdown={page.body}
+          byline={<PageByline page={page} />}
+          learning={page.category && page.evidence
+            ? <LearningFields category={page.category} evidence={page.evidence} />
+            : undefined}
+          childPages={childPages.length
+            ? <ChildPageList pages={childPages} />
+            : undefined}
+        />
+      </Tabs.Panel>
+      <Tabs.Panel id={PAGE_HISTORY_TAB} className='mt-0 p-0'>
+        <PageHistory page={page} />
+      </Tabs.Panel>
+    </PageTabs>}
     {!page && status === 'loading' && <div className='grid place-items-center py-16'>
       <Spinner />
     </div>}

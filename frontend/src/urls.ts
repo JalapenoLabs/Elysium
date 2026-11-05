@@ -159,6 +159,13 @@ export const KRATOS_FLOW_PARAM = 'flow'
 // a link can open one.
 export const TAB_PARAM = 'tab'
 
+// What a knowledge page's History tab shows: one version read through, or two compared. They live
+// in the address, so Back returns to the list and a comparison can be linked to.
+export const PAGE_HISTORY_TAB = 'history'
+export const PAGE_VERSION_PARAM = 'version'
+export const PAGE_COMPARE_FROM_PARAM = 'from'
+export const PAGE_COMPARE_TO_PARAM = 'to'
+
 // Settings
 // The first page in the sidebar; the app has no home page.
 export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.actionItems
@@ -263,6 +270,18 @@ export function getLearningEditUrl(learningId: string) {
 
 export function getKnowledgePageUrl(pageId: string) {
   return UrlTree.knowledgePage.replace(':pageId', pageId)
+}
+
+export function getPageHistoryUrl(pageId: string) {
+  return `${getKnowledgePageUrl(pageId)}?${TAB_PARAM}=${PAGE_HISTORY_TAB}`
+}
+
+export function getPageVersionUrl(pageId: string, version: number) {
+  return `${getPageHistoryUrl(pageId)}&${PAGE_VERSION_PARAM}=${version}`
+}
+
+export function getPageCompareUrl(pageId: string, from: number, to: number) {
+  return `${getPageHistoryUrl(pageId)}&${PAGE_COMPARE_FROM_PARAM}=${from}&${PAGE_COMPARE_TO_PARAM}=${to}`
 }
 
 // A document of the knowledge base, opened at one of its passages when a citation names one.

@@ -821,8 +821,8 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   cheap, and `buildPageTree` nests it (`selectPageTree`). A page's text loads when it opens (`usePageLoader`), into
   `pagesSlice`'s `openedById`. `pageLoaded` feeds both halves, so a write dispatches what it answers and the tree
   follows at once. `page.changed` carries an id and one change can touch many pages (a branch deleted, a parent's
-  children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page a
-  view holds: nobody fetches text for a page they do not have open.
+  children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page and
+  history a view holds: nobody fetches text for a page they do not have open.
 - **The tree** (`PageTree`) is React Aria's `NavigationTree`, which HeroUI does not wrap: a tree's arrow keys, one tab
   stop, a real link on every row, and the current page scrolled into view. `selectedRoute` marks the current row and
   gives its link `aria-current`. Every page is a node, open or not, since React Aria learns a row can open from its
@@ -836,6 +836,16 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   page's own actions, Save, and tabs go on that `Page`. `PageArticle` lays it out top to bottom: `byline`, `labels`,
   the text, `attachments`, `childPages`. Each is a slot that takes no space until it is given, so an old version can
   read through it with its own byline.
+- **History** (`PageHistory`) is a page's second tab, and what it shows lives in the address (`getPageVersionUrl`,
+  `getPageCompareUrl`), so Back leaves a comparison and a link opens one. `swapsWhatPageEdits` leaves those parameters
+  out, as it does the tab: looking through versions never asks about unsaved edits. The list is one read of
+  `GET /pages/{id}/history` through SWR, which holds no text, so `page.changed` revalidates it and a long history costs
+  only what is drawn, 30 entries at a time. `describePageHistory` reads each entry's `data` defensively, since entries
+  come from every version of the API and from learnings and the company doc, and an unknown kind reads as a change.
+  A version's body loads when it is read or compared and never again (`swr/immutable`), since a version never changes.
+- **Restoring** (`RestoreVersionButton`) acts at once, and the toast's Undo restores the version just replaced, which
+  is `currentVersion - 1` of what the restore answers, so it holds even if someone published meanwhile. It reads the
+  page's save (`PageSaveStateContext`) and waits while the page is dirty.
 
 ### Markdown
 
@@ -1086,8 +1096,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 
 The shared `src/components/` pieces are `DayPicker` (a date without a time), `MultiPicker` (tags from a searchable
 list), `OptionSelect` (a labelled select over a short list), `EmptyNotice` (what a list shows instead of an empty
-table), and `TextDiff` (two versions of a text line by line, added lines green, removed ones red,
-long unchanged runs folded; `textDiff.ts`, on the `diff` package, decides the rows).
+table), and `TextDiff` (two versions of a text line by line, added lines green, removed ones red, the words that
+changed marked inside a line replaced by a similar one, long unchanged runs folded; `textDiff.ts`, on the `diff` package,
+decides the rows).
 
 ### Coding
 

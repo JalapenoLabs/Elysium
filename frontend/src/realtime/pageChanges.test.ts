@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Misc
-import { pageKey, PAGES_KEY } from '../api/routes/pageRoutes'
+import { pageHistoryKey, pageKey, PAGES_KEY } from '../api/routes/pageRoutes'
 import { PAGE_CHANGES_WINDOW_MS } from '../constants'
 import { reloadChangedPage } from './pageChanges'
 
@@ -30,7 +30,7 @@ describe('reloadChangedPage', () => {
     expect(mutateMock).not.toHaveBeenCalled()
   })
 
-  it('ends a burst in one load of the list and one of each page it named', () => {
+  it('ends a burst in one load of the list and one of each page and history it named', () => {
     reloadChangedPage('one')
     reloadChangedPage('two')
     reloadChangedPage('one')
@@ -40,7 +40,9 @@ describe('reloadChangedPage', () => {
     expect(mutateMock.mock.calls.map(([ key ]) => key)).toEqual([
       PAGES_KEY,
       pageKey('one'),
+      pageHistoryKey('one'),
       pageKey('two'),
+      pageHistoryKey('two'),
     ])
   })
 
@@ -52,6 +54,10 @@ describe('reloadChangedPage', () => {
     reloadChangedPage('two')
     vi.advanceTimersByTime(PAGE_CHANGES_WINDOW_MS)
 
-    expect(mutateMock.mock.calls.map(([ key ]) => key)).toEqual([ PAGES_KEY, pageKey('two') ])
+    expect(mutateMock.mock.calls.map(([ key ]) => key)).toEqual([
+      PAGES_KEY,
+      pageKey('two'),
+      pageHistoryKey('two'),
+    ])
   })
 })

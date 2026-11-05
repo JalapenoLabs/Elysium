@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 // Misc
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
+import { pageAgentName } from './pageHistoryPresentation'
 
 type Props = {
   page: Pick<KnowledgePage, 'publishedBy' | 'publishedAt' | 'agent'>
@@ -23,7 +24,7 @@ export function PageByline(props: Props) {
   return <div className='flex flex-wrap items-center gap-x-2 text-sm opacity-70'>
     <span>{
       agent
-        ? t('pages.publishedByAgent', { name, agent: agent.name ?? t('pages.agentUnnamed') })
+        ? t('pages.publishedByAgent', { name, agent: pageAgentName(agent, t) })
         : t('pages.publishedBy', { name })
     }</span>
     <span aria-hidden>·</span>

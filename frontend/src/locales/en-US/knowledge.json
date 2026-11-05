@@ -27,7 +27,66 @@
     "publishedBy": "Last edited by {{name}}",
     "publishedByAgent": "Last edited by {{name}} through {{agent}}",
     "agentUnnamed": "an agent",
-    "childPages": "Child pages"
+    "agentSession": "session {{number}}",
+    "agentProjectManager": "the Project Manager",
+    "childPages": "Child pages",
+    "tabs": {
+      "label": "Page views",
+      "read": "Page",
+      "history": "History"
+    },
+    "history": {
+      "loadError": "This page's history can't be loaded right now.",
+      "versionUnavailable": "This version isn't available.",
+      "version": "Version {{version}}",
+      "current": "Current",
+      "back": "All versions",
+      "older": "Show older",
+      "changes": "Changes",
+      "read": "Read",
+      "readLabel": "Read version {{version}}",
+      "restore": "Restore",
+      "restoreLabel": "Restore version {{version}}",
+      "saveFirst": "Publish or discard your changes first",
+      "pick": "Pick version {{version}} to compare",
+      "pickTwo": "Pick two versions to compare",
+      "pickOneMore": "Pick one more version",
+      "picked": "Version {{first}} and version {{second}}",
+      "compare": "Compare",
+      "same": "These versions say the same thing.",
+      "foldedLines_one": "{{count, compact}} unchanged line",
+      "foldedLines_other": "{{count, compact}} unchanged lines",
+      "whoThroughAgent": "{{name}} through {{agent}}",
+      "topLevel": "the top of the tree",
+      "deletedParent": "a deleted page",
+      "fields": {
+        "title": "Title",
+        "category": "Category",
+        "body": "Text",
+        "evidence": "Evidence"
+      },
+      "sentences": {
+        "created": "{{who}} created this page",
+        "published": "{{who}} published this version",
+        "restored": "{{who}} restored version {{version}}",
+        "undid": "{{who}} undid version {{version}}",
+        "undidEarlier": "{{who}} undid an earlier change",
+        "approved": "{{who}} approved a proposal",
+        "moved": "{{who}} moved this page from {{from}} to {{to}}",
+        "reordered": "{{who}} changed this page's place among its siblings",
+        "deleted": "{{who}} deleted this page",
+        "deletedWith": "{{who}} deleted a page above this one, and this page with it",
+        "broughtBack": "{{who}} brought this page back",
+        "broughtBackWith": "{{who}} brought back a page above this one, and this page with it",
+        "changed": "{{who}} changed this page"
+      },
+      "toasts": {
+        "restored": "Version {{version}} restored as version {{newVersion}}",
+        "alreadyCurrent": "The page already says what version {{version}} says",
+        "titleTaken": "Another learning has this version's title now",
+        "deleted": "This page was deleted, so its versions can't be restored"
+      }
+    }
   },
   "ask": {
     "label": "Question",
