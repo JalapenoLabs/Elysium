@@ -18,7 +18,8 @@
 //!
 //! Deleting is soft and takes a page's descendants with it, giving them all one `deleted_at`.
 //! Restoring brings back the ones that carry its instant, so a child deleted on its own beforehand
-//! stays deleted.
+//! stays deleted. [`delete_keeping_children`] instead moves a page's children into its place, and
+//! restoring it moves them back.
 //!
 //! A learning is a page with a category and evidence (`crate::models::learning`), and the company
 //! doc is seven pages under one (`crate::models::company_doc`). Both are written through
@@ -31,6 +32,7 @@ use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_types::{BigInt, Nullable, Text, Uuid as SqlUuid};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::{Uuid, uuid};
@@ -266,7 +268,7 @@ pub enum HistoryKind {
     /// `{ parentId, after }`: the two values a move takes, so putting a page back is a move.
     Moved,
     /// `data` is empty, or `{ deletedWith }`, the ancestor whose deletion took it, with `undid` for
-    /// an undo.
+    /// an undo, or `{ keptChildren }`, each child moved into its place and the position it left.
     Deleted,
     /// `data` is `{ deletedAt }`, the deletion it reversed, with `restoredWith`, the ancestor
     /// whose restore brought it back, and `undid` for an undo.
@@ -422,6 +424,38 @@ impl Recorded {
             history: entry.into_iter().collect(),
         }
     }
+
+    /// Counts `moved`, which this write moved too, and `renumbered`, whose positions it changed.
+    fn absorb(&mut self, moved: &[Page], renumbered: Vec<Uuid>) {
+        self.changed.extend(moved.iter().map(|page| page.id));
+        self.changed.extend(renumbered);
+        self.changed.sort_unstable();
+        self.changed.dedup();
+        self.learnings.extend(
+            moved
+                .iter()
+                .filter(|page| page.is_learning())
+                .map(|page| page.id),
+        );
+    }
+}
+
+/// A child [`delete_keeping_children`] moved into its page's place, and the position under that page
+/// it left, which the page's `deleted` entry keeps so that restoring the page puts it back exactly.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct KeptChild {
+    id: Uuid,
+    position: i64,
+}
+
+/// What moving a page's children into its place did.
+#[derive(Debug, Default)]
+struct LiftedChildren {
+    /// The children, as they now are.
+    moved: Vec<Page>,
+    kept: Vec<KeptChild>,
+    /// The siblings renumbered to make room.
+    renumbered: Vec<Uuid>,
 }
 
 /// Why a write to a page was refused.
@@ -763,18 +797,11 @@ pub async fn move_page(
             }
 
             let (position, renumbered) = position_at(connection, placement, id).await?;
-            let moved = diesel::update(pages::table.find(id))
-                .set((
-                    pages::parent_id.eq(placement.parent_id),
-                    pages::position.eq(position),
-                ))
-                .returning(Page::as_returning())
-                .get_result(connection)
-                .await?;
-            let data = json!({
-                "from": { "parentId": page.parent_id, "after": follows },
-                "to": { "parentId": placement.parent_id, "after": placement.after },
-            });
+            let moved = place(connection, id, placement.parent_id, position).await?;
+            let data = moved_data(
+                (page.parent_id, follows),
+                (placement.parent_id, placement.after),
+            );
             let entry = record(connection, id, None, HistoryKind::Moved, author, data).await?;
 
             let mut recorded = Recorded::of(moved, entry);
@@ -807,60 +834,219 @@ pub async fn delete(
                 return Ok(Recorded::unchanged(page));
             }
 
-            let under = subtree(connection, id).await?;
-            let going: Vec<Page> = pages::table
-                .filter(pages::id.eq_any(&under))
-                .filter(pages::deleted_at.is_null())
-                .order(pages::id.asc())
-                .for_update()
-                .select(Page::as_select())
-                .load(connection)
-                .await?;
-            for page in &going {
-                refuse_agents(connection, page, author).await?;
-            }
-            if going.iter().any(|page| is_fixed(page.id)) {
-                return Err(PageError::Fixed);
-            }
-            let changed: Vec<Uuid> = going.iter().map(|page| page.id).collect();
-            diesel::update(pages::table.filter(pages::id.eq_any(&changed)))
-                .set(pages::deleted_at.eq(author.at))
-                .execute(connection)
-                .await?;
-
-            let mut entry_of_page = None;
-            for going_page in &going {
-                let mut data = if going_page.id == id {
-                    json!({})
-                } else {
-                    json!({ "deletedWith": id })
-                };
-                if let Some(undid) = undid.filter(|_| going_page.id == id) {
-                    data["undid"] = json!(undid);
-                }
-                let entry = record(
-                    connection,
-                    going_page.id,
-                    None,
-                    HistoryKind::Deleted,
-                    author,
-                    data,
-                )
-                .await?;
-                if going_page.id == id {
-                    entry_of_page = Some(entry);
-                }
-                knowledge_document::remove(connection, &index_source(going_page)).await?;
-            }
-            let page = find(connection, id).await?;
-            Ok(Recorded::of_many(page, &going, entry_of_page))
+            let data = undid.map_or_else(|| json!({}), |undid| json!({ "undid": undid }));
+            take_down(connection, id, Uuid::now_v7(), data, author).await
         })
         .await
 }
 
+/// Deletes page `id` softly and alone: its live children take its place among its siblings, in
+/// their order, each with everything under it, so nothing but the page leaves the tree. Each move is
+/// in that child's history, under the deletion's one change, and restoring the page moves them
+/// back. Deleting a deleted page changes nothing.
+///
+/// # Errors
+/// As [`delete`], for the page and each of its children, since moving one writes it too.
+pub async fn delete_keeping_children(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    author: Author<'_>,
+) -> Result<Recorded, PageError> {
+    connection
+        .transaction(async move |connection| {
+            hold_tree(connection).await?;
+            let page = lock(connection, id).await?;
+            if page.deleted_at.is_some() {
+                return Ok(Recorded::unchanged(page));
+            }
+
+            let change = Uuid::now_v7();
+            let lifted = lift_children(connection, &page, change, author).await?;
+            let data = json!({ "keptChildren": lifted.kept });
+            let mut recorded = take_down(connection, id, change, data, author).await?;
+            recorded.absorb(&lifted.moved, lifted.renumbered);
+            Ok(recorded)
+        })
+        .await
+}
+
+/// Deletes page `id` with every live page under it, recording `data` on the page itself as `change`.
+/// The caller holds the tree and has found the page live.
+async fn take_down(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    change: Uuid,
+    data: Value,
+    author: Author<'_>,
+) -> Result<Recorded, PageError> {
+    let under = subtree(connection, id).await?;
+    let going: Vec<Page> = pages::table
+        .filter(pages::id.eq_any(&under))
+        .filter(pages::deleted_at.is_null())
+        .order(pages::id.asc())
+        .for_update()
+        .select(Page::as_select())
+        .load(connection)
+        .await?;
+    for page in &going {
+        refuse_agents(connection, page, author).await?;
+    }
+    if going.iter().any(|page| is_fixed(page.id)) {
+        return Err(PageError::Fixed);
+    }
+    let changed: Vec<Uuid> = going.iter().map(|page| page.id).collect();
+    diesel::update(pages::table.filter(pages::id.eq_any(&changed)))
+        .set(pages::deleted_at.eq(author.at))
+        .execute(connection)
+        .await?;
+
+    let mut entry_of_page = None;
+    for going_page in &going {
+        let (entry_id, entry_data) = if going_page.id == id {
+            (Some(change), data.clone())
+        } else {
+            (None, json!({ "deletedWith": id }))
+        };
+        let entry = record(
+            connection,
+            going_page.id,
+            entry_id,
+            HistoryKind::Deleted,
+            author,
+            entry_data,
+        )
+        .await?;
+        if going_page.id == id {
+            entry_of_page = Some(entry);
+        }
+        knowledge_document::remove(connection, &index_source(going_page)).await?;
+    }
+    let page = find(connection, id).await?;
+    Ok(Recorded::of_many(page, &going, entry_of_page))
+}
+
+/// Moves `page`'s live children, in their order, to right after it among its siblings. The caller
+/// holds the tree and is about to delete `page`, so they end up where it was.
+async fn lift_children(
+    connection: &mut AsyncPgConnection,
+    page: &Page,
+    change: Uuid,
+    author: Author<'_>,
+) -> Result<LiftedChildren, PageError> {
+    let children: Vec<Page> = pages::table
+        .filter(pages::parent_id.eq(page.id))
+        .filter(pages::deleted_at.is_null())
+        .order(pages::position.asc())
+        .for_update()
+        .select(Page::as_select())
+        .load(connection)
+        .await?;
+
+    let mut lifted = LiftedChildren::default();
+    let mut previous = None;
+    // Each lands after the one before it, the first after `page`, which is still live here. Its
+    // history names who it follows once `page` is gone.
+    let mut lands_after = page.id;
+    let mut reads_after = sibling_before(connection, page).await?;
+    for child in children {
+        refuse_agents(connection, &child, author).await?;
+        if is_fixed(child.id) {
+            return Err(PageError::Fixed);
+        }
+
+        let placement = Placement {
+            parent_id: page.parent_id,
+            after: Some(lands_after),
+        };
+        let (position, renumbered) = position_at(connection, placement, child.id).await?;
+        lifted.renumbered.extend(renumbered);
+        let moved = place(connection, child.id, page.parent_id, position).await?;
+        let data = moved_data((Some(page.id), previous), (page.parent_id, reads_after));
+        record(
+            connection,
+            child.id,
+            Some(change),
+            HistoryKind::Moved,
+            author,
+            data,
+        )
+        .await?;
+
+        lifted.kept.push(KeptChild {
+            id: child.id,
+            position: child.position,
+        });
+        lifted.moved.push(moved);
+        previous = Some(child.id);
+        lands_after = child.id;
+        reads_after = Some(child.id);
+    }
+    Ok(lifted)
+}
+
+/// The children the deletion at `deleted_at` left in page `id`'s place, as it recorded them.
+async fn kept_children(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    deleted_at: DateTime<Utc>,
+) -> Result<Vec<KeptChild>, PageError> {
+    let deletion: Option<Value> = page_events::table
+        .filter(page_events::page_id.eq(id))
+        .filter(page_events::kind.eq(HistoryKind::Deleted.as_str()))
+        .filter(page_events::created_at.eq(deleted_at))
+        .select(page_events::data)
+        .first(connection)
+        .await
+        .optional()?;
+    let Some(kept) = deletion.and_then(|mut data| data.get_mut("keptChildren").map(Value::take))
+    else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_value(kept)
+        .map_err(|error| DieselError::DeserializationError(Box::new(error)).into())
+}
+
+/// Moves `kept`, the children `page`'s deletion moved into its place, back under it at the positions
+/// they left, recording each as part of `change`. The caller holds the tree and has restored the
+/// page. Nothing can have taken those positions, since a deleted page's children change no further.
+/// A child moved or deleted since stays where someone put it.
+async fn return_children(
+    connection: &mut AsyncPgConnection,
+    page: &Page,
+    kept: Vec<KeptChild>,
+    change: Uuid,
+    author: Author<'_>,
+) -> Result<Vec<Page>, PageError> {
+    let mut returned = Vec::new();
+    for kept_child in kept {
+        let child = lock(connection, kept_child.id).await?;
+        if child.deleted_at.is_some() || child.parent_id != page.parent_id {
+            continue;
+        }
+        refuse_agents(connection, &child, author).await?;
+
+        let follows = sibling_before(connection, &child).await?;
+        let moved = place(connection, child.id, Some(page.id), kept_child.position).await?;
+        let lands_after = sibling_before(connection, &moved).await?;
+        let data = moved_data((child.parent_id, follows), (Some(page.id), lands_after));
+        record(
+            connection,
+            child.id,
+            Some(change),
+            HistoryKind::Moved,
+            author,
+            data,
+        )
+        .await?;
+        returned.push(moved);
+    }
+    Ok(returned)
+}
+
 /// Brings deleted page `id` back to where it was, with the descendants its deletion took, into the
-/// index again. A descendant deleted on its own beforehand stays deleted. Restoring a live page
-/// changes nothing. `undid` names the entry this reverses, for an undo.
+/// index again, and with the children [`delete_keeping_children`] moved out of it. A descendant
+/// deleted on its own beforehand stays deleted. Restoring a live page changes nothing. `undid` names
+/// the entry this reverses, for an undo.
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::ParentGone`] while its parent is deleted, since a
@@ -903,6 +1089,7 @@ pub async fn restore(
                     .get_results(connection)
                     .await?;
 
+            let change = Uuid::now_v7();
             let mut entry_of_page = None;
             for restored_page in &restored {
                 let mut data = if restored_page.id == id {
@@ -916,7 +1103,7 @@ pub async fn restore(
                 let entry = record(
                     connection,
                     restored_page.id,
-                    None,
+                    (restored_page.id == id).then_some(change),
                     HistoryKind::Restored,
                     author,
                     data,
@@ -928,7 +1115,11 @@ pub async fn restore(
                 reindex(connection, restored_page).await?;
             }
             let page = find(connection, id).await?;
-            Ok(Recorded::of_many(page, &restored, entry_of_page))
+            let kept = kept_children(connection, id, deleted_at).await?;
+            let returned = return_children(connection, &page, kept, change, author).await?;
+            let mut recorded = Recorded::of_many(page, &restored, entry_of_page);
+            recorded.absorb(&returned, Vec::new());
+            Ok(recorded)
         })
         .await
 }
@@ -1274,6 +1465,28 @@ async fn renumber(
     .load(connection)
     .await?;
     Ok(rows.into_iter().map(|row| row.id).collect())
+}
+
+/// Puts page `id` under `parent_id` at `position`, and answers it as it now is.
+async fn place(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    parent_id: Option<Uuid>,
+    position: i64,
+) -> QueryResult<Page> {
+    diesel::update(pages::table.find(id))
+        .set((pages::parent_id.eq(parent_id), pages::position.eq(position)))
+        .returning(Page::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// What a `moved` entry holds: each end as the parent and sibling a move would name to go there.
+fn moved_data(from: (Option<Uuid>, Option<Uuid>), to: (Option<Uuid>, Option<Uuid>)) -> Value {
+    json!({
+        "from": { "parentId": from.0, "after": from.1 },
+        "to": { "parentId": to.0, "after": to.1 },
+    })
 }
 
 /// Stores `content` as `page`'s current version.

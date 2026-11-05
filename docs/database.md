@@ -561,7 +561,9 @@ is a rule of one row. A learning is a page with a category and evidence: the par
 included, so saving a title again revises its learning, and `migrate run` rebuilds it with every other text index when
 the collation changes (Collations, above). The Learnings page, the Company page, and the company doc's seven sections
 are seeded by the migration at ids fixed in code (`crate::models::page`, `Section::page_id`); the last seven keep their
-limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`.
+limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`. `updated_at` says when
+what a page holds last changed, so its trigger skips a row whose parent or position changes: a move or a renumbering
+never reorders the Learnings list.
 
 | Column            | Type          | Notes                                                                 |
 |-------------------|---------------|-----------------------------------------------------------------------|

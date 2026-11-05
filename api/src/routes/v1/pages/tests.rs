@@ -629,6 +629,49 @@ async fn reordering_writes_one_row_until_a_spot_runs_out_of_room_and_keeps_the_o
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_page_changing_place_leaves_when_it_was_last_changed_alone() {
+    let (_url, mut connection) = migrated_database().await;
+    let first = create(&mut connection, None, "First").await;
+    let last = create(&mut connection, None, "Last").await;
+    let before = page::find(&mut connection, last)
+        .await
+        .expect("found")
+        .updated_at;
+
+    // Crowds the spot before Last until its siblings are renumbered, which writes Last's row too.
+    for number in 0..24 {
+        let page_id = create(&mut connection, None, &format!("Page {number}")).await;
+        let placement = Placement {
+            parent_id: None,
+            after: Some(first),
+        };
+        page::move_page(&mut connection, page_id, placement, author(None))
+            .await
+            .expect("moved");
+    }
+    let placement = Placement {
+        parent_id: Some(first),
+        after: None,
+    };
+    let moved = page::move_page(&mut connection, last, placement, author(None))
+        .await
+        .expect("moved");
+    assert_eq!(moved.page.updated_at, before, "it says what it said");
+
+    let published = page::publish(
+        &mut connection,
+        last,
+        edit("Last", "New words."),
+        1,
+        author(None),
+    )
+    .await
+    .expect("published");
+    assert!(published.page.updated_at > before);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_took() {
     let (_url, mut connection) = migrated_database().await;
     let top = create(&mut connection, None, "Top").await;
@@ -697,6 +740,254 @@ async fn deleting_takes_what_is_under_a_page_and_restoring_brings_back_what_it_t
         ["Kept", "Deleted earlier"],
         "it comes back where it was"
     );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_a_page_alone_leaves_its_children_in_its_place_until_it_is_restored() {
+    let (_url, mut connection) = migrated_database().await;
+    create(&mut connection, None, "Before").await;
+    let doomed = create(&mut connection, None, "Doomed").await;
+    create(&mut connection, None, "After").await;
+    let first = create(&mut connection, Some(doomed), "First").await;
+    let earlier = create(&mut connection, Some(doomed), "Deleted earlier").await;
+    let second = create(&mut connection, Some(doomed), "Second").await;
+    let below = create(&mut connection, Some(first), "Below").await;
+    page::delete(&mut connection, earlier, author(None), None)
+        .await
+        .expect("deleted on its own");
+    let first_position = page::find(&mut connection, first)
+        .await
+        .expect("found")
+        .position;
+
+    let deleted = page::delete_keeping_children(&mut connection, doomed, author(None))
+        .await
+        .expect("deleted alone");
+    let mut expected = vec![doomed, first, second];
+    expected.sort();
+    assert_eq!(deleted.changed, expected, "and nothing below its children");
+    assert!(deleted.page.deleted_at.is_some());
+    assert_eq!(
+        children(&mut connection, None).await,
+        ["Before", "First", "Second", "After"]
+    );
+    assert_eq!(children(&mut connection, Some(first)).await, ["Below"]);
+    assert!(!is_indexed(&mut connection, doomed).await);
+    for id in [first, second, below] {
+        assert!(is_indexed(&mut connection, id).await, "they never left");
+    }
+
+    let again = page::delete_keeping_children(&mut connection, doomed, author(None))
+        .await
+        .expect("already deleted");
+    assert!(again.changed.is_empty());
+
+    let restored = page::restore(&mut connection, doomed, author(None), None)
+        .await
+        .expect("restored");
+    assert_eq!(restored.changed, expected);
+    assert_eq!(
+        children(&mut connection, None).await,
+        ["Before", "Doomed", "After"]
+    );
+    assert_eq!(
+        children(&mut connection, Some(doomed)).await,
+        ["First", "Second"]
+    );
+    assert_eq!(children(&mut connection, Some(first)).await, ["Below"]);
+    assert_eq!(
+        page::find(&mut connection, first)
+            .await
+            .expect("found")
+            .position,
+        first_position,
+        "exactly where it was"
+    );
+    assert!(is_indexed(&mut connection, doomed).await);
+
+    page::restore(&mut connection, earlier, author(None), None)
+        .await
+        .expect("its parent is live again");
+    assert_eq!(
+        children(&mut connection, Some(doomed)).await,
+        ["First", "Deleted earlier", "Second"],
+        "nothing took its place either"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_page_deleted_alone_records_each_move_as_one_change_and_restoring_it_another() {
+    let (_url, mut connection) = migrated_database().await;
+    let before = create(&mut connection, None, "Before").await;
+    let doomed = create(&mut connection, None, "Doomed").await;
+    let first = create(&mut connection, Some(doomed), "First").await;
+    let second = create(&mut connection, Some(doomed), "Second").await;
+
+    page::delete_keeping_children(&mut connection, doomed, author(None))
+        .await
+        .expect("deleted alone");
+    let history = page::history(&mut connection, first)
+        .await
+        .expect("history");
+    assert_eq!(kinds(&history), ["created", "moved"]);
+    assert_eq!(
+        history[1].data,
+        json!({
+            "from": { "parentId": doomed, "after": null },
+            "to": { "parentId": null, "after": before },
+        })
+    );
+    let history = page::history(&mut connection, second)
+        .await
+        .expect("history");
+    assert_eq!(
+        history[1].data,
+        json!({
+            "from": { "parentId": doomed, "after": first },
+            "to": { "parentId": null, "after": first },
+        })
+    );
+    let deletion = page::history(&mut connection, doomed)
+        .await
+        .expect("history");
+    assert_eq!(kinds(&deletion), ["created", "deleted"]);
+    assert_eq!(deletion[1].id, history[1].id, "one change, one entry id");
+
+    page::restore(&mut connection, doomed, author(None), None)
+        .await
+        .expect("restored");
+    let history = page::history(&mut connection, second)
+        .await
+        .expect("history");
+    assert_eq!(kinds(&history), ["created", "moved", "moved"]);
+    assert_eq!(
+        history[2].data,
+        json!({
+            "from": { "parentId": null, "after": doomed },
+            "to": { "parentId": doomed, "after": first },
+        })
+    );
+    let restoring = page::history(&mut connection, doomed)
+        .await
+        .expect("history");
+    assert_eq!(kinds(&restoring), ["created", "deleted", "restored"]);
+    assert_eq!(restoring[2].id, history[2].id);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn restoring_a_page_leaves_a_kept_child_where_someone_has_put_it_since() {
+    let (_url, mut connection) = migrated_database().await;
+    let doomed = create(&mut connection, None, "Doomed").await;
+    let elsewhere = create(&mut connection, None, "Elsewhere").await;
+    let moved = create(&mut connection, Some(doomed), "Moved").await;
+    let gone = create(&mut connection, Some(doomed), "Gone").await;
+    let staying = create(&mut connection, Some(doomed), "Staying").await;
+
+    page::delete_keeping_children(&mut connection, doomed, author(None))
+        .await
+        .expect("deleted alone");
+    let placement = Placement {
+        parent_id: Some(elsewhere),
+        after: None,
+    };
+    page::move_page(&mut connection, moved, placement, author(None))
+        .await
+        .expect("moved");
+    page::delete(&mut connection, gone, author(None), None)
+        .await
+        .expect("deleted");
+
+    let restored = page::restore(&mut connection, doomed, author(None), None)
+        .await
+        .expect("restored");
+    let mut expected = vec![doomed, staying];
+    expected.sort();
+    assert_eq!(restored.changed, expected);
+    assert_eq!(children(&mut connection, Some(elsewhere)).await, ["Moved"]);
+    assert_eq!(children(&mut connection, Some(doomed)).await, ["Staying"]);
+
+    page::restore(&mut connection, gone, author(None), None)
+        .await
+        .expect("it sits at the top of the tree now");
+    assert_eq!(
+        children(&mut connection, None).await,
+        ["Doomed", "Gone", "Elsewhere"]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn children_kept_in_a_spot_with_no_room_keep_their_order_and_say_who_was_renumbered() {
+    let (_url, mut connection) = migrated_database().await;
+    let doomed = create(&mut connection, None, "Doomed").await;
+    let next = create(&mut connection, None, "Next").await;
+    let mut titles = Vec::new();
+    for number in 0..25 {
+        let title = format!("Child {number}");
+        create(&mut connection, Some(doomed), &title).await;
+        titles.push(title);
+    }
+
+    let deleted = page::delete_keeping_children(&mut connection, doomed, author(None))
+        .await
+        .expect("deleted alone");
+
+    let mut expected = titles.clone();
+    expected.push("Next".to_owned());
+    assert_eq!(children(&mut connection, None).await, expected);
+    assert!(
+        deleted.changed.contains(&next),
+        "a sibling renumbered to make room is announced"
+    );
+    let mut unique = deleted.changed.clone();
+    unique.dedup();
+    assert_eq!(unique, deleted.changed, "and only once");
+
+    page::restore(&mut connection, doomed, author(None), None)
+        .await
+        .expect("restored");
+    assert_eq!(children(&mut connection, Some(doomed)).await, titles);
+    assert_eq!(children(&mut connection, None).await, ["Doomed", "Next"]);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn keeping_children_refuses_what_moving_them_would_refuse_and_changes_nothing() {
+    let (_url, mut connection) = migrated_database().await;
+    let parent = create(&mut connection, None, "Parent").await;
+    create(&mut connection, Some(parent), "Ordinary").await;
+    let guarded = create(&mut connection, Some(parent), "Guarded").await;
+    execute(
+        &mut connection,
+        format!("UPDATE pages SET proposal_only = TRUE WHERE id = '{guarded}'"),
+    )
+    .await;
+
+    let session = Agent::session(12);
+    let refusal =
+        page::delete_keeping_children(&mut connection, parent, author(Some(&session))).await;
+    assert!(
+        refused(&refusal, |error| matches!(error, PageError::ProposalOnly)),
+        "keeping a child moves it, which an agent may not do to this one"
+    );
+    assert_eq!(
+        children(&mut connection, Some(parent)).await,
+        ["Ordinary", "Guarded"]
+    );
+    assert_eq!(children(&mut connection, None).await, ["Parent"]);
+
+    let fixed = page::delete_keeping_children(&mut connection, COMPANY_PAGE_ID, author(None)).await;
+    assert!(refused(&fixed, |error| matches!(error, PageError::Fixed)));
+    let company_pages = page::list(&mut connection, false)
+        .await
+        .expect("listed")
+        .into_iter()
+        .filter(|page| page.parent_id == Some(COMPANY_PAGE_ID))
+        .count();
+    assert_eq!(company_pages, 7, "the doc's sections stayed under it");
 }
 
 #[tokio::test]
@@ -995,6 +1286,48 @@ async fn members_move_delete_and_restore_pages_over_the_routes() {
         .map(|entry| entry["kind"].as_str().expect("a kind"))
         .collect();
     assert_eq!(recorded, ["created", "deleted", "restored"]);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_member_deletes_a_page_alone_and_restoring_it_puts_its_children_back() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let top = create(&mut connection, None, "Top").await;
+    let child = create(&mut connection, Some(top), "Child").await;
+    set_role(&mut connection, "member").await;
+
+    let (status, _) = call(
+        &state,
+        Method::DELETE,
+        &format!("/api/v1/pages/{top}?keepChildren=true"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, read) = call(&state, Method::GET, &format!("/api/v1/pages/{child}"), None).await;
+    assert_eq!(read["page"]["parentId"], Value::Null);
+    assert_eq!(read["page"]["deletedAt"], Value::Null);
+
+    let (status, restored) = call(
+        &state,
+        Method::POST,
+        &format!("/api/v1/pages/{top}/restore"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{restored}");
+    let (_, read) = call(&state, Method::GET, &format!("/api/v1/pages/{child}"), None).await;
+    assert_eq!(read["page"]["parentId"], json!(top));
+
+    let (status, _) = call(
+        &state,
+        Method::DELETE,
+        &format!("/api/v1/pages/{top}?keepChildren=maybe"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
