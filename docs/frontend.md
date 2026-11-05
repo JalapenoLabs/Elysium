@@ -868,7 +868,7 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   someone is writing. Publish is the page's one Save (`save` on `Page`), disabled until something differs, so a page
   opened and left alone sends nothing. A fixed page's title stays as it is. A learning shows its evidence and category
   below the text (`LearningEditFields`) and always publishes them. A company doc section's bound is the API's to say,
-  in the toast. What is typed is a draft under `knowledge-page.<id>`, with the version it was edited from, so a
+  in the toast, as is a page deleted while it was being edited, which keeps the text open. What is typed is a draft under `knowledge-page.<id>`, with the version it was edited from, so a
   reload still knows what it has not seen.
 - **A conflict** (`PageConflictDialog`): a publish refused with `409 page_changed` reads the page and the version the
   person started from, and shows who published, what changed since they opened it, and how it stands against their
@@ -933,8 +933,7 @@ Everything it does is for reading text that cannot be trusted (`docs/security.md
   closed is closed once something follows it.
 - **What the editor cannot hold stays Markdown.** As it opens, each block is passed through the document and back,
   and one that comes back different opens as `markdownBlock`, its source in a dashed block, editable as text: raw HTML,
-  link definitions, footnote definitions, a list mixing tasks and plain items, a list item that starts with a code
-  block. Inside a line, raw HTML, a reference, and a footnote mark are one `markdownInline` token, removed whole. Nothing
+  link definitions, footnote definitions, and a list mixing tasks and plain items. Inside a line, raw HTML, a reference, and a footnote mark are one `markdownInline` token, removed whole. Nothing
   is lost by editing beside them.
 - **Slash commands.** `/` after a space or at a line's start opens `SlashMenu`, narrowed by what follows, searching names
   and hidden words. `editorCommands.ts` lists the blocks, for it and the toolbar. Focus stays in the editor, and the

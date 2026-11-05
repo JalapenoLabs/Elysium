@@ -197,6 +197,18 @@ function PageEditor(props: EditorProps) {
   </Page>
 }
 
+// Going back to reading is for a page already deleted when it opened. One deleted while someone
+// edits it stays open, so they keep their text, and Publish says what happened.
+function LivePageEditor(props: EditorProps) {
+  const [ wasDeleted ] = useState(Boolean(props.page.deletedAt))
+
+  if (wasDeleted) {
+    console.debug('EditKnowledgePage went back to a deleted page, which changes no further', { id: props.page.id })
+    return <Navigate to={getKnowledgePageUrl(props.page.id)} replace />
+  }
+  return <PageEditor page={props.page} />
+}
+
 type LoaderProps = {
   pageId: string
 }
@@ -206,12 +218,8 @@ function PageEditorLoader(props: LoaderProps) {
   const status = usePageLoader(props.pageId)
   const page = useAppSelector((state) => selectOpenedPage(state, props.pageId))
 
-  if (page?.deletedAt) {
-    console.debug('EditKnowledgePage went back to a deleted page, which changes no further', { pageId: props.pageId })
-    return <Navigate to={getKnowledgePageUrl(props.pageId)} replace />
-  }
   if (page) {
-    return <PageEditor page={page} />
+    return <LivePageEditor page={page} />
   }
 
   return <Page

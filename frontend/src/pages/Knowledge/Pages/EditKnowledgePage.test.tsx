@@ -178,6 +178,25 @@ describe('EditKnowledgePage', () => {
     expect(vi.mocked(publishPage).mock.lastCall?.[1].baseVersion).toBe(4)
   })
 
+  it('goes back to reading a page already deleted', () => {
+    const { router } = renderEditor(makePage({ id: PAGE_ID, deletedAt: '2026-11-01T12:00:00Z' }))
+
+    expect(router.state.location.pathname).toBe(getKnowledgePageUrl(PAGE_ID))
+  })
+
+  it('keeps the text of someone editing a page that is deleted meanwhile', () => {
+    const page = makePage({ id: PAGE_ID, body: 'Text.' })
+    const { store, router } = renderEditor(page)
+
+    typeBody('My words.')
+    act(() => {
+      store.dispatch(pageLoaded({ ...page, deletedAt: '2026-11-01T12:00:00Z' }))
+    })
+
+    expect(router.state.location.pathname).toBe(getKnowledgePageEditUrl(PAGE_ID))
+    expect(screen.getByRole('textbox', { name: 'Page text' })).toHaveProperty('value', 'My words.')
+  })
+
   it('tells a refusal it knows in its own words and stays', async () => {
     const page = makePage({ id: PAGE_ID, body: 'Text.' })
     vi.mocked(publishPage).mockRejectedValue(

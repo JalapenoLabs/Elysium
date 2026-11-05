@@ -41,6 +41,7 @@ export const markdownCorpus = {
   orderedLists: '1. one\n2. two\n3. three\n\n3) three\n4) four\n\n1. same\n1. same\n1. same',
   orderedFromSeven: '7. seven\n8. eight\n9. nine\n10. ten',
   mixedList: '- one\n  1. two\n  2. three\n- four\n  > quoted\n- ```\n  code first\n  ```',
+  listItemStartingWithTable: '- one\n-\n  | a |\n  | - |\n  | b |\n- ```\n  code\n  ```',
   taskLists: '- [ ] open\n- [x] done\n  - [ ] nested\n\n* [X] upper\n\n- [ ] task\n- plain in the same list',
   emptyItems: '-\n- has text\n-\n\n1.\n2. has text',
   indentedList: ' - one space\n - one space\n\n   - three spaces',

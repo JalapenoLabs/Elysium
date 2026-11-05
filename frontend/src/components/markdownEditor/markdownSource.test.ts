@@ -106,6 +106,8 @@ describe('what opens as rich text', () => {
     [ 'nestedEmphasis', [ 'paragraph' ]],
     [ 'emphasis', [ 'paragraph' ]],
     [ 'dangerousAddresses', [ 'paragraph' ]],
+    [ 'mixedList', [ 'bulletList' ]],
+    [ 'listItemStartingWithTable', [ 'bulletList' ]],
     [ 'rawHtml', [
       'markdownBlock',
       'paragraph',
@@ -129,6 +131,23 @@ describe('what opens as rich text', () => {
   it('keeps what it has no node for as text, in place', () => {
     const { document } = readMarkdown(markdownCorpus.rawHtml, schema)
     expect(document.textContent).toContain('<script>alert(1)</script>')
+  })
+})
+
+describe('a page written by the editor', () => {
+  it('opens as it was written, with a table in a list item it added', () => {
+    const source = readMarkdown('- one', schema)
+    const table = schema.nodes.table.create(null, schema.nodes.tableRow.create(null, [
+      schema.nodes.tableHeader.create(null, schema.nodes.paragraph.create(null, schema.text('Term'))),
+    ]))
+    const item = schema.nodes.listItem.create(null, [ schema.nodes.paragraph.create(), table ])
+    const list = source.document.child(0)
+
+    const document = new Transform(source.document).insert(list.nodeSize - 1, item).doc
+    const written = writeMarkdown(source, document)
+
+    expect(written).toBe('- one\n-\n  | Term |\n  | - |')
+    expect(blockKinds(readMarkdown(written, schema).document)).toEqual([ 'bulletList' ])
   })
 })
 

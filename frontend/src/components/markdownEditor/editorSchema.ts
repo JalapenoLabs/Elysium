@@ -9,7 +9,7 @@ import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { HardBreak } from '@tiptap/extension-hard-break'
 import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { ListItem, TaskItem, TaskList } from '@tiptap/extension-list'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { ReactNodeViewRenderer } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
@@ -94,6 +94,11 @@ const MarkdownImage = Image.extend({
   },
 })
 
+// A Markdown list item may start with any block, such as a table added to an empty one or a code
+// fence an agent wrote, where the stock items insist on a paragraph first.
+const MarkdownListItem = ListItem.extend({ content: 'block+' })
+const MarkdownTaskItem = TaskItem.extend({ content: 'block+' })
+
 // A cell holds one line of Markdown, so one paragraph, which also leaves Enter nothing to split.
 const MarkdownTableCell = TableCell.extend({ content: 'paragraph' })
 const MarkdownTableHeader = TableHeader.extend({ content: 'paragraph' })
@@ -154,6 +159,7 @@ export const markdownSchemaExtensions: AnyExtension[] = [
     codeBlock: false,
     hardBreak: false,
     link: false,
+    listItem: false,
     trailingNode: false,
     underline: false,
   }),
@@ -173,7 +179,8 @@ export const markdownSchemaExtensions: AnyExtension[] = [
   MarkdownTableHeader,
   MarkdownTableCell,
   TaskList,
-  TaskItem.configure({ nested: true }),
+  MarkdownListItem,
+  MarkdownTaskItem.configure({ nested: true }),
   MarkdownBlock,
   MarkdownInline,
   MarkdownAttributes,
