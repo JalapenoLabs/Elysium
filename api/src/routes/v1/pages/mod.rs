@@ -11,6 +11,7 @@
 //! calls what the route calls and its change is validated, recorded, indexed, and announced exactly
 //! as one made in the browser, naming the agent acting for its person.
 
+mod add_label;
 mod create_page;
 mod delete_page;
 mod get_page;
@@ -20,13 +21,14 @@ mod list_pages;
 mod list_versions;
 mod move_page;
 mod publish_page;
+mod remove_label;
 mod restore_page;
 mod restore_version;
 #[cfg(test)]
 mod tests;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use serde::Serialize;
@@ -42,6 +44,7 @@ use crate::models::page::{
     self, HistoryEntry, LearningFields, Page, PageEdit, PageSummary, PageVersion, Recorded,
     VersionSummary,
 };
+use crate::models::page_label;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::routes::v1::learnings::AgentResponse;
@@ -54,6 +57,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/publish", post(publish_page::handle))
         .route("/{id}/move", post(move_page::handle))
         .route("/{id}/restore", post(restore_page::handle))
+        .route("/{id}/labels", post(add_label::handle))
+        .route("/{id}/labels/{label}", delete(remove_label::handle))
         .route("/{id}/history", get(list_history::handle))
         .route("/{id}/versions", get(list_versions::handle))
         .route("/{id}/versions/{version}", get(get_version::handle))
@@ -85,6 +90,8 @@ pub struct PageResponse {
     proposal_only: bool,
     /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
     fixed: bool,
+    /// The labels it carries, in order. No part of a version.
+    labels: Vec<String>,
     /// Who published the newest version, and when.
     published_by: Uuid,
     published_at: DateTime<Utc>,
@@ -93,12 +100,15 @@ pub struct PageResponse {
     /// Who created it.
     created_by: Uuid,
     created_at: DateTime<Utc>,
+    /// When what it holds last changed: published, deleted, or restored. A move or a label leaves
+    /// it alone.
+    updated_at: DateTime<Utc>,
     /// Set while it is deleted; it can be restored.
     deleted_at: Option<DateTime<Utc>>,
 }
 
 impl PageResponse {
-    fn new(page: Page, published: VersionSummary) -> Self {
+    fn new(page: Page, published: VersionSummary, labels: Vec<String>) -> Self {
         Self {
             id: page.id,
             parent_id: page.parent_id,
@@ -110,11 +120,13 @@ impl PageResponse {
             evidence: page.evidence,
             current_version: page.current_version,
             proposal_only: page.proposal_only,
+            labels,
             published_by: published.created_by,
             published_at: published.created_at,
             agent: AgentResponse::new(published.agent, published.agent_name),
             created_by: page.created_by,
             created_at: page.created_at,
+            updated_at: page.updated_at,
             deleted_at: page.deleted_at,
         }
     }
@@ -131,11 +143,15 @@ pub struct PageSummaryResponse {
     current_version: i32,
     /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
     fixed: bool,
+    /// The labels it carries, in order: all a client needs to filter the tree, list a label's
+    /// pages, and suggest the labels in use.
+    labels: Vec<String>,
+    updated_at: DateTime<Utc>,
     deleted_at: Option<DateTime<Utc>>,
 }
 
-impl From<PageSummary> for PageSummaryResponse {
-    fn from(page: PageSummary) -> Self {
+impl PageSummaryResponse {
+    fn new(page: PageSummary, labels: Vec<String>) -> Self {
         Self {
             fixed: page::is_fixed(page.id),
             id: page.id,
@@ -143,6 +159,8 @@ impl From<PageSummary> for PageSummaryResponse {
             position: page.position,
             title: page.title,
             current_version: page.current_version,
+            labels,
+            updated_at: page.updated_at,
             deleted_at: page.deleted_at,
         }
     }
@@ -209,7 +227,7 @@ impl From<PageVersion> for VersionResponse {
 pub struct HistoryEntryResponse {
     id: Uuid,
     page_id: Uuid,
-    /// `created`, `published`, `moved`, `deleted`, or `restored`.
+    /// `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, or `unlabeled`.
     kind: String,
     /// Who made the change.
     created_by: Uuid,
@@ -375,13 +393,14 @@ async fn answer(
     response(connection, recorded.page).await
 }
 
-/// `page` as clients see it, with who published its newest version.
+/// `page` as clients see it, with who published its newest version and the labels it carries.
 async fn response(
     connection: &mut AsyncPgConnection,
     page: Page,
 ) -> Result<PageResponse, ApiError> {
     let published = page::version_summary(connection, page.id, page.current_version).await?;
-    Ok(PageResponse::new(page, published))
+    let labels = page_label::of_page(connection, page.id).await?;
+    Ok(PageResponse::new(page, published, labels))
 }
 
 /// A write that publishes, answered with what it did.

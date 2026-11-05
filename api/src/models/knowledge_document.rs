@@ -32,7 +32,7 @@ use crate::database::schema::{
 };
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
-use crate::models::page;
+use crate::models::{page, page_label};
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,6 +317,8 @@ pub struct DocumentView {
     pub passage_count: usize,
     /// The projects its timeline record is attributed to, by name; none for any other source.
     pub projects: Vec<ProjectReference>,
+    /// The labels its page carries, in order; none for any other source.
+    pub labels: Vec<String>,
     /// Others whose records hold the same text, earliest first.
     pub also_recorded_by: Vec<Copy>,
 }
@@ -391,6 +393,11 @@ pub async fn get(
         None => Vec::new(),
     };
 
+    let labels = match row.page_id {
+        Some(page_id) => page_label::of_page(connection, page_id).await?,
+        None => Vec::new(),
+    };
+
     // Through `knowledge_documents_copies`, so copies are found however large the index grows.
     let copies: Vec<(Uuid, Uuid, String)> = knowledge_documents::table
         .inner_join(users::table)
@@ -429,6 +436,7 @@ pub async fn get(
         passage_count: passages.len(),
         passages,
         projects,
+        labels,
         also_recorded_by: copies
             .into_iter()
             .map(|(document_id, person_id, name)| Copy {

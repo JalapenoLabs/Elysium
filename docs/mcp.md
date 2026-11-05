@@ -129,7 +129,8 @@ Tools are named for what they act on, then what they do.
   `knowledge_get`, and `meetings_list` call the knowledge routes' own functions (`search`, `open`, and `list_meetings`
   in `api/src/routes/v1/knowledge/`) with the connecting person, so a client finds what that person would in the
   browser, whoever's record it is, and its searches spend the person's one search budget. Their descriptions teach
-  searching well: exact keys by their words, questions by their meaning, filters that only narrow, and citing by
+  searching well: exact keys by their words, questions by their meaning, filters that only narrow (a page's `label`
+  among them), and citing by
   title, person, and date. The writing ones record the client as the agent
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
   is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes

@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use super::PageSummaryResponse;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::page;
+use crate::models::{page, page_label};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -44,10 +44,14 @@ pub async fn list(state: &AppState, deleted: bool) -> Result<Vec<PageSummaryResp
         .get()
         .await
         .context("no database connection available")?;
+    let mut labels = page_label::by_page(&mut connection).await?;
     let pages = page::list(&mut connection, deleted)
         .await?
         .into_iter()
-        .map(PageSummaryResponse::from)
+        .map(|page| {
+            let labels = labels.remove(&page.id).unwrap_or_default();
+            PageSummaryResponse::new(page, labels)
+        })
         .collect();
     Ok(pages)
 }

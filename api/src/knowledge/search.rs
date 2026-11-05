@@ -145,6 +145,9 @@ pub struct SearchFilters {
     pub occurred_from: Option<DateTime<Utc>>,
     /// Only what was said before this moment.
     pub occurred_before: Option<DateTime<Utc>>,
+    /// Only pages carrying this label, in the form `page_labels` stores it. Nothing else has
+    /// labels, so everything else is left out.
+    pub label: Option<String>,
 }
 
 /// One search: what was typed or asked, what it narrows to, and how many results it answers.
@@ -246,7 +249,7 @@ impl Candidate {
     }
 }
 
-/// The filters both rankings apply, binding `$2` to `$6` in [`SearchFilters`]' order. A
+/// The filters both rankings apply, binding `$2` to `$7` in [`SearchFilters`]' order. A
 /// macro, so each query stays one string literal.
 macro_rules! filters {
     () => {
@@ -256,7 +259,10 @@ macro_rules! filters {
          ))
          AND ($4::uuid IS NULL OR documents.created_by = $4::uuid)
          AND ($5::timestamptz IS NULL OR documents.occurred_at >= $5::timestamptz)
-         AND ($6::timestamptz IS NULL OR documents.occurred_at < $6::timestamptz)"
+         AND ($6::timestamptz IS NULL OR documents.occurred_at < $6::timestamptz)
+         AND ($7::text IS NULL OR documents.page_id IN (
+             SELECT page_id FROM page_labels WHERE label = $7::text
+         ))"
     };
 }
 
@@ -282,13 +288,13 @@ const BY_WORDS: &str = concat!(
     filters!(),
     " ORDER BY ts_rank_cd(passages.search_vector, query) DESC,
          passages.document_id DESC, passages.position
-     LIMIT $7"
+     LIMIT $8"
 );
 
 /// The passages nearest `$1`, an embedding in pgvector's text form, by cosine distance through
-/// the HNSW index, among those embedded by `$8`. The scan is iterative (`hnsw.iterative_scan`),
+/// the HNSW index, among those embedded by `$9`. The scan is iterative (`hnsw.iterative_scan`),
 /// so filters that leave out most neighbours still answer the full limit; its order is then
-/// relaxed, so the outer query orders again. Those farther than `$9` are left out after the
+/// relaxed, so the outer query orders again. Those farther than `$10` are left out after the
 /// scan, never during it, which would make it read on in search of more.
 const BY_MEANING: &str = concat!(
     "WITH nearest AS MATERIALIZED (
@@ -296,10 +302,10 @@ const BY_MEANING: &str = concat!(
              passages.embedding <=> $1::vector AS distance
          FROM knowledge_passages passages
          JOIN knowledge_documents documents ON documents.id = passages.document_id
-         WHERE passages.embedding_model = $8 ",
+         WHERE passages.embedding_model = $9 ",
     filters!(),
     " ORDER BY distance
-         LIMIT $7
+         LIMIT $8
      )
      SELECT ",
     candidate_columns!(),
@@ -308,7 +314,7 @@ const BY_MEANING: &str = concat!(
          ON passages.document_id = nearest.document_id AND passages.position = nearest.position
      JOIN knowledge_documents documents ON documents.id = passages.document_id
      JOIN users people ON people.id = documents.created_by
-     WHERE nearest.distance <= $9
+     WHERE nearest.distance <= $10
      ORDER BY nearest.distance, passages.document_id DESC, passages.position"
 );
 
@@ -382,6 +388,7 @@ impl KnowledgeSearch {
                     .bind::<Nullable<SqlUuid>, _>(filters.person_id)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_from)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_before)
+                    .bind::<Nullable<Text>, _>(&filters.label)
                     .bind::<BigInt, _>(CANDIDATES)
                     .load::<Candidate>(connection)
                     .await?;
@@ -405,6 +412,7 @@ impl KnowledgeSearch {
                     .bind::<Nullable<SqlUuid>, _>(filters.person_id)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_from)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_before)
+                    .bind::<Nullable<Text>, _>(&filters.label)
                     .bind::<BigInt, _>(CANDIDATES)
                     .bind::<Text, _>(MODEL)
                     .bind::<Double, _>(MAX_MEANING_DISTANCE)

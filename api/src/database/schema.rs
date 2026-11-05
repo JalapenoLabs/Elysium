@@ -1183,6 +1183,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    page_labels (page_id, label) {
+        page_id -> Uuid,
+        label -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     page_versions (page_id, version) {
         page_id -> Uuid,
         version -> Int4,
@@ -1916,6 +1927,8 @@ diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(page_events -> pages (page_id));
 diesel::joinable!(page_events -> users (created_by));
+diesel::joinable!(page_labels -> pages (page_id));
+diesel::joinable!(page_labels -> users (created_by));
 diesel::joinable!(page_versions -> pages (page_id));
 diesel::joinable!(page_versions -> users (created_by));
 diesel::joinable!(pages -> learning_categories (category));
@@ -2048,6 +2061,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     meetings,
     model_settings,
     page_events,
+    page_labels,
     page_versions,
     pages,
     password_vault,

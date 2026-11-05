@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=`: the documents
+//! `GET /api/v1/knowledge/search?q=&source=&project=&person=&label=&from=&to=&limit=`: the documents
 //! whose passages match `q` by their words or their meaning, best first, each with its best
 //! passages and its citation. See `crate::knowledge::search` and `docs/api.md`, Knowledge.
 //!
@@ -8,6 +8,7 @@
 //! - `project` a project's id, which keeps timeline records attributed to it;
 //! - `person` a user's id, which keeps what came from them, as a narrowing and never a limit on
 //!   what the caller may read;
+//! - `label` a page label, which keeps the pages carrying it;
 //! - `from` and `to` moments with an offset, what was said from one and before the other.
 //!
 //! The work is [`search`], which the MCP server's `knowledge_search` and the agents' tool of the
@@ -29,6 +30,7 @@ use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::knowledge::search::{self, KnowledgeSearch, SearchAnswer, SearchFilters, SearchRequest};
 use crate::middleware::rate_limit::{Decision, whole_seconds};
+use crate::models::page_label::Label;
 use crate::routes::v1::action_items::comma_separated;
 use crate::state::AppState;
 
@@ -58,6 +60,9 @@ pub struct SearchKnowledgeRequest {
     /// Only what came from this person, by their user id: their mail, messages, meetings,
     /// learnings, and company doc edits.
     pub person: Option<Uuid>,
+    /// Only pages carrying this label, however it is cased or spaced. Nothing but pages has
+    /// labels, so this leaves everything else out. A learning's category is not a label.
+    pub label: Option<String>,
     /// Only what was said at or after this moment, with an offset, such as
     /// `2026-11-04T09:00:00Z`.
     pub from: Option<DateTime<Utc>>,
@@ -78,6 +83,7 @@ pub struct SearchQuery {
     source: Vec<String>,
     project: Option<Uuid>,
     person: Option<Uuid>,
+    label: Option<String>,
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
     limit: Option<usize>,
@@ -90,6 +96,7 @@ impl From<SearchQuery> for SearchKnowledgeRequest {
             sources: query.source,
             project: query.project,
             person: query.person,
+            label: query.label,
             from: query.from,
             to: query.to,
             limit: query.limit,
@@ -147,8 +154,8 @@ pub async fn handle(
 ///
 /// # Errors
 /// [`ApiError::TooManyRequests`] once `reader` has spent their budget, which a request refused
-/// for its arguments still spends; [`ApiError::Validation`] for arguments outside their limits;
-/// and an internal error when the database does not answer.
+/// for its arguments still spends; [`ApiError::Validation`] for arguments outside their limits,
+/// or a label no page could carry; and an internal error when the database does not answer.
 pub async fn search(
     knowledge: &KnowledgeSearch,
     database: &Pool,
@@ -164,6 +171,8 @@ pub async fn search(
         });
     }
     request.validate()?;
+    // Read as a label is written, so a filter typed `On Call` finds the label `on-call`.
+    let label = request.label.as_deref().map(Label::parse).transpose()?;
 
     let request = SearchRequest {
         query: request.query,
@@ -173,6 +182,7 @@ pub async fn search(
             person_id: request.person,
             occurred_from: request.from,
             occurred_before: request.to,
+            label: label.map(|label| label.as_str().to_owned()),
         },
         limit: request.limit.unwrap_or(search::DEFAULT_LIMIT),
     };

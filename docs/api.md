@@ -156,11 +156,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/pages/{id}/publish`          | `200` `{ page, outcome }`, `published` or `unchanged`; members |
 | POST   | `/api/v1/pages/{id}/move`             | `200` `{ page }`; members                           |
 | POST   | `/api/v1/pages/{id}/restore`          | `200` `{ page }`, with the pages its deletion took; members |
+| POST   | `/api/v1/pages/{id}/labels`           | `200` `{ page }`; puts a label on it; members       |
+| DELETE | `/api/v1/pages/{id}/labels/{label}`   | `200` `{ page }`; takes a label off it; members     |
 | GET    | `/api/v1/pages/{id}/history`          | `200` `{ history: PageHistoryEntry[] }`, oldest first; members |
 | GET    | `/api/v1/pages/{id}/versions`         | `200` `{ versions: PageVersionSummary[] }`, newest first; members |
 | GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
 | POST   | `/api/v1/pages/{id}/versions/{version}/restore` | `200` `{ page, outcome }`, `published` or `unchanged`; members |
-| GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
+| GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&label=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
 | GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
 | GET    | `/api/v1/knowledge/meetings?from=&to=&person=&project=&limit=` | `200` `{ meetings: KnowledgeMeeting[] }`, newest first, whoever recorded them; members |
 | POST   | `/api/v1/knowledge/asks`              | `201` `{ ask: KnowledgeAsk }`, queued, or answered when the search found nothing; members |
@@ -717,13 +719,17 @@ and members, and a guest `403 members_only`. `page.changed` carries an id alone,
 load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
-`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `publishedBy`,
-`publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`, and `deletedAt`. A
-`PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, and `deletedAt`: the list builds the
-tree by `parentId`, and only the order of `position` among siblings means anything. A `PageVersionSummary` has `pageId`,
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
+`publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`,
+`updatedAt`, and `deletedAt`. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
+`labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
+siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
+the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move or a label. A
+`PageVersionSummary` has `pageId`,
 `version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a `PageVersion` adds `body`, `category`, and
-`evidence`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`,
-or `restored`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages, History.
+`evidence`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`, `restored`,
+`labeled`, or `unlabeled`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages,
+History.
 
 `POST /` takes `title` (1 to 300 characters, trimmed and its spacing collapsed), and optionally `parentId` and `body`
 (up to 100,000 characters, its line endings normalized and its trailing whitespace dropped), and appends the page to
@@ -731,18 +737,21 @@ its parent's children. `POST /{id}/publish` takes `baseVersion`, the `currentVer
 and `body`, the page whole, and on a learning `category` and `evidence`, both or neither: left out, it keeps its own,
 and one alone answers `422`. A category no one has answers `400` naming every key there is, as does a learning's body
 outside 1 to 20,000 characters or a company doc section's past 12,000. `POST /{id}/move` takes `parentId` and `after`, both required and either `null`: the page
-it goes under, or the top of the tree, and the live sibling it goes right after, or first. Moving a page where it
-already is, or publishing or restoring what it already says, records nothing and announces nothing; a publish answers
-`unchanged`. `DELETE /{id}?keepChildren=true` deletes the page alone: its live children take its place among its
-siblings, each move recorded in that child's history as part of the deletion, and `POST /{id}/restore` moves back those
-still where it left them.
+it goes under, or the top of the tree, and the live sibling it goes right after, or first. `POST /{id}/labels` takes
+`label`, stored lowercase with spaces as hyphens; it, and the `{label}` of `DELETE /{id}/labels/{label}`, answer `422`
+for anything but 1 to 50 letters, digits, hyphens, underscores, and dots, starting with a letter or digit. Neither makes
+a version (`docs/knowledge.md`, Pages, Labels). Moving a page where it already is, publishing or restoring what it
+already says, putting on a label it carries, or taking off one it does not, records nothing and announces nothing; a
+publish answers `unchanged`. `DELETE /{id}?keepChildren=true` deletes the page alone: its live children take its place
+among its siblings, each move recorded in that child's history as part of the deletion, and `POST /{id}/restore` moves
+back those still where it left them.
 
 Refusals are `409` with a `code` the web app explains in its own words:
 
 | `code`                | When                                                                            |
 |-----------------------|---------------------------------------------------------------------------------|
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; load the page again   |
-| `page_deleted`        | A publish, restore of a version, or move of a deleted page                       |
+| `page_deleted`        | A publish, restore of a version, move, or label change of a deleted page         |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
 | `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
@@ -750,6 +759,7 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |
 | `page_placement_gone` | `after` is not a live child of the parent named; load the tree again             |
 | `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |
+| `page_label_limit`    | The page already carries 50 labels, as many as a page may                        |
 
 ### `/api/v1/learning-categories`
 
@@ -992,8 +1002,8 @@ document came from.
 
 `GET /search` takes `q` (up to 500 characters; nothing but spaces answers no results), `source` (comma-separated
 source names, up to 32, each a lowercase letter then letters, digits, or underscores), `project` and `person` (ids),
-`from` and `to` (moments with an offset; `from` before `to`), and `limit` (1 to 50, default 10). Anything else is
-`400`, a value out of bounds `422`. It answers the documents found best first, and whether the query was searched by
+`label` (a page label, read as a label is written, which keeps pages alone), `from` and `to` (moments with an offset;
+`from` before `to`), and `limit` (1 to 50, default 10). Anything else is `400`, a value out of bounds `422`. It answers the documents found best first, and whether the query was searched by
 meaning as well as by words.
 
 A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Citation` (`documentId`, `source`,
@@ -1001,10 +1011,10 @@ A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Cit
 best first, the other documents holding the same text (`{ documentId, person }`, earliest first), and its fused score,
 comparable within one answer only.
 
-A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, alsoRecordedBy }`: every passage in
-order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after
+A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, labels, alsoRecordedBy }`: every passage
+in order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after
 `toPosition` is `422`), how many passages it has in all, the projects its timeline record is attributed to
-(`{ id, name }`), and `origin`, what it was made from: `{ kind: "timelineRecord" }`, whose record stays its owner's and
+(`{ id, name }`), the labels its page carries, and `origin`, what it was made from: `{ kind: "timelineRecord" }`, whose record stays its owner's and
 is not named, `{ kind: "learning", learningId }`, `{ kind: "companyDoc", section, pageId }`, or `{ kind: "page", pageId }`. An id
 the index does not hold is `404`.
 

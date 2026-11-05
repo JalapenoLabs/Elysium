@@ -610,11 +610,26 @@ doc sections is one id with a row on each.
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7; orders entries as they were written, and is shared by the rows of one change |
 | `page_id`             | `UUID`        | References `pages`, cascading                                     |
-| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, or `restored`; text, as for action items, so a later kind needs no enum migration |
+| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, or `unlabeled`; text, as for action items, so a later kind needs no enum migration |
 | `created_by`          | `UUID`        | References `users`: who made the change                           |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_versions`                  |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
 | `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment of the change                      |
+
+### `page_labels`
+
+The labels pages carry, one row each; see `docs/knowledge.md`, Pages, Labels. Cascades with its page, and stays while a
+page is deleted softly, which is how a restored page keeps its labels. Nothing here is copied to `knowledge_documents`:
+the search's label filter starts from `page_labels_label` on `(label, page_id)` and reads a document's page. What makes a
+label well formed is the API's one rule (`crate::models::page_label::Label`); the table holds its length. Rolling the
+migration back drops the `labeled` and `unlabeled` entries of `page_events` with it.
+
+| Column       | Type          | Notes                                                                       |
+|--------------|---------------|-----------------------------------------------------------------------------|
+| `page_id`    | `UUID`        | Primary key with `label`; references `pages`, cascading                      |
+| `label`      | `TEXT`        | Lowercase with hyphens for spaces; 1 to 50 characters                        |
+| `created_by` | `UUID`        | References `users`: who put it on                                            |
+| `created_at` | `TIMESTAMPTZ` | Written by the API, the moment it went on                                    |
 
 ### `learning_categories`
 

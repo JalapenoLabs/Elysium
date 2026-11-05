@@ -25,6 +25,8 @@
 //! doc is seven pages under one (`crate::models::company_doc`). Both are written through
 //! [`publish_content`] and [`undo_version`], so they keep their own rules over the versions, history,
 //! and index every page has. The pages they rely on are fixed: nobody moves, deletes, or renames one.
+//!
+//! Labels are no part of a version: `crate::models::page_label` writes them, as history alone.
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::max;
@@ -215,6 +217,7 @@ pub struct PageSummary {
     pub title: String,
     pub current_version: i32,
     pub deleted_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
 }
 
 /// A version without what it says: who published it, and when.
@@ -273,6 +276,10 @@ pub enum HistoryKind {
     /// `data` is `{ deletedAt }`, the deletion it reversed, with `restoredWith`, the ancestor
     /// whose restore brought it back, and `undid` for an undo.
     Restored,
+    /// A label was put on it. `data` is `{ label }`.
+    Labeled,
+    /// A label was taken off it. `data` is `{ label }`.
+    Unlabeled,
 }
 
 impl HistoryKind {
@@ -284,6 +291,8 @@ impl HistoryKind {
             Self::Moved => "moved",
             Self::Deleted => "deleted",
             Self::Restored => "restored",
+            Self::Labeled => "labeled",
+            Self::Unlabeled => "unlabeled",
         }
     }
 
@@ -295,6 +304,8 @@ impl HistoryKind {
             Self::Moved,
             Self::Deleted,
             Self::Restored,
+            Self::Labeled,
+            Self::Unlabeled,
         ]
         .into_iter()
         .find(|kind| kind.as_str() == name)
@@ -393,7 +404,7 @@ pub struct Recorded {
 }
 
 impl Recorded {
-    fn of(page: Page, entry: HistoryEntry) -> Self {
+    pub(super) fn of(page: Page, entry: HistoryEntry) -> Self {
         Self {
             changed: vec![page.id],
             learnings: page.is_learning().then_some(page.id).into_iter().collect(),
@@ -402,7 +413,7 @@ impl Recorded {
         }
     }
 
-    const fn unchanged(page: Page) -> Self {
+    pub(super) const fn unchanged(page: Page) -> Self {
         Self {
             page,
             changed: Vec::new(),
@@ -497,6 +508,9 @@ pub enum PageError {
     /// What a learning or a company doc section says is outside what it may hold.
     #[error("this page's body is {min} to {max} characters")]
     BodyOutOfBounds { min: usize, max: usize },
+    /// The page already carries as many labels as one page may.
+    #[error("a page carries at most {max} labels")]
+    TooManyLabels { max: i64 },
 }
 
 /// [`DieselError`]'s unique violation of [`LEARNING_TITLE_INDEX`], and any other error as it is.
@@ -1518,7 +1532,7 @@ async fn insert_version(
 
 /// Records a history entry on page `page_id`, under `change` when it is part of a change that
 /// reaches several pages.
-async fn record(
+pub(super) async fn record(
     connection: &mut AsyncPgConnection,
     page_id: Uuid,
     change: Option<Uuid>,

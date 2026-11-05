@@ -16,7 +16,7 @@ below); the embedding model, with the engine's embedder giving every passage its
 (Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
 turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
-Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, and their
+Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels, and their
 place in the index, through the API, with learnings and the company doc among them (Pages, below).
 
 ## What is indexed
@@ -169,6 +169,7 @@ Every filter applies to both rankings, inside the query, and narrows; none is ac
 | `source`  | Documents of these sources (`slack`, `outlook`, `meeting`, `learning`, `company_doc`, `page`, and the rest) |
 | `project` | Timeline records attributed to it, at any confidence; learnings, the company doc, and pages have none |
 | `person`  | Documents whose record, learning, section edit, or newest version came from this person (`created_by`) |
+| `label`   | Pages carrying this label, however it was typed (Pages, Labels); nothing else has labels     |
 | `from`, `to` | What was said from one moment and before the other, with offsets                             |
 
 ### When meaning is not available
@@ -902,12 +903,14 @@ who made it, the agent acting for them, and `data`.
 | `moved`     | `{ from, to }`, each `{ parentId, after }`: the two values a move takes                 |
 | `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it; `undid` for an undo; `{ keptChildren }`, each `{ id, position }`, when it went alone |
 | `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back; `undid` for an undo |
+| `labeled`   | `{ label }`                                                                             |
+| `unlabeled` | `{ label }`                                                                             |
 
 Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
 as a page's history and as a feed across every page, in order by id. A later kind of change adds a kind, with no
 migration. A page has no undo of its own: a version is undone by restoring the one before it, a deletion by restoring
-the page, and a move by moving it back to its `from`. Learnings and the company doc keep the field-by-field undo they
-promise (Learnings and the company doc, below).
+the page, a move by moving it back to its `from`, and a label by putting it back. Learnings and the company doc keep the
+field-by-field undo they promise (Learnings and the company doc, below).
 
 An entry is named by its page and its id. One change that reaches several pages is one id with a row on each, which is
 how a save of several company doc sections stays one change with one Undo, and how a child's move reads as part of the
@@ -931,6 +934,35 @@ deletion that left it in its parent's place, or the restore that took it back.
   beside and under them.
 - Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
   event (`docs/realtime.md`).
+
+### Labels
+
+Any page takes any number of labels, which cut across the tree. The model is `api/src/models/page_label.rs`, the table
+`page_labels`, and the routes `POST /{id}/labels` and `DELETE /{id}/labels/{label}`.
+
+- **One spelling.** A label is stored lowercase with each run of spaces made one hyphen, so `On Call` and `on-call` are
+  one label, whichever way it is written or searched for. It is 1 to 50 characters of letters and digits of any
+  alphabet, hyphens, underscores, and dots, and starts with a letter or digit. Anything else is refused with `422` and
+  what a label may be, rather than cleaned up: a slash or a run of dots would change the address it is removed at.
+- **At most 50 on a page.** Nothing about labels needs a limit that low to work. It bounds what an agent's loop can pile
+  on, and no page reads well past it.
+- **A label is not content.** Adding or removing one makes no version, moves no `updated_at`, and is no part of what a
+  version restores, so restoring an old version keeps the page's labels as they are. It is an entry in the page's
+  history, in the same transaction, naming who did it and the agent acting for them, and it announces `page.changed`. A
+  label already there, or one the page does not carry, records nothing.
+- **Who labels.** Everyone who may read the page: people, and agents acting for them or as themselves, through a
+  function taking an `Author` (`page_label::add` and `remove`) as every write of a page does. A proposal-only page keeps
+  what it says from agents, and a fixed page keeps its place and name; a label changes neither, and labelling is what
+  `docs/vision.md` starts in the tier that needs no approval, so both take labels from anyone, and the history says
+  who. Only a deleted page refuses, with `409 page_deleted`, as it changes no further; it keeps its labels and comes back
+  with them.
+- **A learning's category is not a label.** It is a filed, fixed choice with rules of its own. A learning is a page, so
+  it can also carry labels, which stay out of its own history and feed, as a move does.
+- **In the index, a label is metadata read through the page.** Nothing about it is copied to `knowledge_documents` or
+  into a passage: the search's `label` filter and a document's `labels` read `page_labels` through the document's page,
+  as the `project` filter reads a record's attributions. So a label reaches the index in the transaction that writes it,
+  and no change of labels can touch a document's text, its SHA-256, or an embedding. The cost is that a label's words
+  are not searched: `runbook` in a search box finds pages that say it, and the filter finds pages that carry it.
 
 ### In the index
 
@@ -987,7 +1019,8 @@ with its three-way merge, and the review (`crate::models::company_doc`).
 The Knowledge area (`/knowledge`) opens on its first page, beside the tree. A panel on the left holds Search, Ask, and
 Learnings, then every page, so everything in the area sits beside the tree; below `lg` it is a drawer. Each page has its
 own address (`/knowledge/pages/<id>`), and reads as its path through the tree, its title, who last edited it and when,
-its text, and its child pages. Which branches a person leaves open stays with them on each browser. A deleted page reads
+its labels, its text, and its child pages. A label opens every page carrying it (`/knowledge/labels/<label>`), and the
+panel's filter narrows the tree to them and the pages above them. Which branches a person leaves open stays with them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
 The tree is also where people organize pages. Each row's menu adds a child page, moves the page, or deletes it. A page
@@ -1024,7 +1057,6 @@ Markdown editor.
 ### Roadmap
 
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
-- **Labels.** Any page takes any number of labels, which filter the tree, search, and a page per label.
 - **Projects.** A page can be linked to projects, so a project shows its docs.
 - **Search.** A search scoped to pages beside the knowledge base's search of everything, and pages in the topbar's
   search.

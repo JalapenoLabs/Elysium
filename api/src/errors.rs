@@ -194,6 +194,10 @@ impl From<crate::models::page::PageError> for ApiError {
                 "page_not_a_learning",
                 "only a learning has a category and evidence",
             ),
+            PageError::TooManyLabels { .. } => (
+                "page_label_limit",
+                "this page carries as many labels as a page may; remove one first",
+            ),
             refused @ (PageError::UnknownCategory { .. } | PageError::BodyOutOfBounds { .. }) => {
                 return Self::BadRequest(refused.to_string());
             }

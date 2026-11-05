@@ -56,6 +56,7 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
                 "sources": ["slack", "meeting"],
                 "project": id,
                 "person": id,
+                "label": "runbook",
                 "from": "2026-11-01T00:00:00Z",
                 "to": "2026-11-04T00:00:00Z",
                 "limit": 5,

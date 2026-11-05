@@ -52,7 +52,7 @@ fn every_argument_is_described_and_no_other_is_taken() {
         (
             "knowledge_search",
             &[
-                "query", "sources", "project", "person", "from", "to", "limit",
+                "query", "sources", "project", "person", "label", "from", "to", "limit",
             ],
         ),
         (

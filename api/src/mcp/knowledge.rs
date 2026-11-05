@@ -64,7 +64,8 @@ pub const SEARCH_DESCRIPTION: &str = "Searches the company's knowledge base: the
     exact words: a key, name, or error message such as WAY-123 (keep its dash) is found by its \
     words, a paraphrase by its meaning, and \"quotes\" keep a phrase together. Filters only \
     narrow: sources (such as meeting, slack, outlook, learning, company_doc, page), project, \
-    person (whoever said or wrote it), and from and to. Each result is a citation (documentId, \
+    person (whoever said or wrote it), label (a label on a page, which leaves out everything \
+    but pages), and from and to. Each result is a citation (documentId, \
     title, source, the person it came from, when, and its url outside Elysium if it has one) \
     with up to three of its best \
     passages and their positions; open a document, or the passages around one, with \

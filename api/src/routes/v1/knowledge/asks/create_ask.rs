@@ -127,6 +127,7 @@ pub async fn ask(
             sources: request.sources,
             project: request.project,
             person: request.person,
+            label: None,
             from: request.from,
             to: request.to,
             limit: Some(ASK_DOCUMENTS),
