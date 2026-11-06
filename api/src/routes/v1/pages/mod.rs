@@ -21,10 +21,13 @@ mod delete_page;
 mod get_page;
 mod get_passage;
 mod get_version;
+mod link_project;
 mod list_history;
 mod list_pages;
 mod list_versions;
 mod move_page;
+#[cfg(test)]
+mod project_link_tests;
 mod publish_page;
 mod read_attachment;
 mod remove_attachment;
@@ -35,11 +38,12 @@ mod restore_version;
 mod save_page;
 #[cfg(test)]
 mod tests;
+mod unlink_project;
 mod upload_attachment;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use serde::Serialize;
@@ -65,6 +69,7 @@ use crate::models::page::{
 };
 use crate::models::page_attachment::{self, PageAttachment};
 use crate::models::page_label;
+use crate::models::page_project;
 use crate::page_attachments::{self, MAX_ATTACHMENT_BYTES};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::validate_not_blank;
@@ -108,6 +113,10 @@ pub fn router() -> Router<AppState> {
             "/{id}/versions/{version}/restore",
             post(restore_version::handle),
         )
+        .route(
+            "/{id}/projects/{project_id}",
+            put(link_project::handle).delete(unlink_project::handle),
+        )
 }
 
 /// A page as clients see it.
@@ -149,6 +158,8 @@ pub struct PageResponse {
     updated_at: DateTime<Utc>,
     /// Set while it is deleted; it can be restored.
     deleted_at: Option<DateTime<Utc>>,
+    /// The projects it is linked to, oldest link first.
+    project_ids: Vec<Uuid>,
 }
 
 impl PageResponse {
@@ -157,6 +168,7 @@ impl PageResponse {
         published: VersionSummary,
         labels: Vec<String>,
         attachments: Vec<AttachmentResponse>,
+        project_ids: Vec<Uuid>,
     ) -> Self {
         Self {
             id: page.id,
@@ -178,6 +190,7 @@ impl PageResponse {
             created_at: page.created_at,
             updated_at: page.updated_at,
             deleted_at: page.deleted_at,
+            project_ids,
         }
     }
 }
@@ -240,7 +253,7 @@ pub struct PageSummaryResponse {
 }
 
 impl PageSummaryResponse {
-    fn new(page: PageSummary, labels: Vec<String>) -> Self {
+    pub fn new(page: PageSummary, labels: Vec<String>) -> Self {
         Self {
             fixed: page::is_fixed(page.id),
             id: page.id,
@@ -317,7 +330,7 @@ pub struct HistoryEntryResponse {
     id: Uuid,
     page_id: Uuid,
     /// `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, `unlabeled`, `attached`,
-    /// or `detached`.
+    /// `detached`, `project_linked`, or `project_unlinked`.
     kind: String,
     /// Who made the change.
     created_by: Uuid,
@@ -486,8 +499,8 @@ async fn answer(
     response(connection, recorded.page).await
 }
 
-/// `page` as clients see it, with who published its newest version and the labels and files it
-/// carries.
+/// `page` as clients see it, with who published its newest version, the labels and files it
+/// carries, and the projects it is linked to.
 async fn response(
     connection: &mut AsyncPgConnection,
     page: Page,
@@ -499,7 +512,14 @@ async fn response(
         .into_iter()
         .map(AttachmentResponse::from)
         .collect();
-    Ok(PageResponse::new(page, published, labels, attachments))
+    let project_ids = page_project::projects_of(connection, page.id).await?;
+    Ok(PageResponse::new(
+        page,
+        published,
+        labels,
+        attachments,
+        project_ids,
+    ))
 }
 
 /// A write that publishes, answered with what it did.

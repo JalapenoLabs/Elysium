@@ -1213,6 +1213,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    page_projects (page_id, project_id) {
+        page_id -> Uuid,
+        project_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     page_versions (page_id, version) {
         page_id -> Uuid,
         version -> Int4,
@@ -1952,6 +1963,9 @@ diesel::joinable!(page_events -> pages (page_id));
 diesel::joinable!(page_events -> users (created_by));
 diesel::joinable!(page_labels -> pages (page_id));
 diesel::joinable!(page_labels -> users (created_by));
+diesel::joinable!(page_projects -> pages (page_id));
+diesel::joinable!(page_projects -> projects (project_id));
+diesel::joinable!(page_projects -> users (created_by));
 diesel::joinable!(page_versions -> pages (page_id));
 diesel::joinable!(page_versions -> users (created_by));
 diesel::joinable!(pages -> learning_categories (category));
@@ -2085,6 +2099,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     page_attachments,
     page_events,
     page_labels,
+    page_projects,
     page_versions,
     pages,
     password_vault,

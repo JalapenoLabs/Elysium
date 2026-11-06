@@ -5,7 +5,7 @@
 //! passages and its citation. See `crate::knowledge::search` and `docs/api.md`, Knowledge.
 //!
 //! - `source` is a comma-separated list of the index's source names, such as `slack,learning`;
-//! - `project` a project's id, which keeps timeline records attributed to it;
+//! - `project` a project's id, which keeps timeline records attributed to it and pages linked to it;
 //! - `person` a user's id, which keeps what came from them, as a narrowing and never a limit on
 //!   what the caller may read;
 //! - `label` a page label, which keeps the pages carrying it;
@@ -54,8 +54,7 @@ pub struct SearchKnowledgeRequest {
         custom(function = "validate_sources")
     )]
     pub sources: Vec<String>,
-    /// Only what was attributed to this project, by its id. Learnings and the company doc
-    /// belong to no project, so this leaves them out.
+    /// Only timeline records attributed to this project, by its id, and pages linked to it.
     pub project: Option<Uuid>,
     /// Only what came from this person, by their user id: their mail, messages, meetings,
     /// learnings, and company doc edits.

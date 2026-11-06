@@ -611,7 +611,7 @@ doc sections is one id with a row on each.
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7; orders entries as they were written, and is shared by the rows of one change |
 | `page_id`             | `UUID`        | References `pages`, cascading                                     |
-| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, or `unlabeled`; text, as for action items, so a later kind needs no enum migration |
+| `kind`                | `TEXT`        | `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, `unlabeled`, `project_linked`, or `project_unlinked`; text, as for action items, so a later kind needs no enum migration |
 | `created_by`          | `UUID`        | References `users`: who made the change                           |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_versions`                  |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
@@ -654,6 +654,21 @@ migration back drops the `labeled` and `unlabeled` entries of `page_events` with
 | `label`      | `TEXT`        | Lowercase with hyphens for spaces; 1 to 50 characters                        |
 | `created_by` | `UUID`        | References `users`: who put it on                                            |
 | `created_at` | `TIMESTAMPTZ` | Written by the API, the moment it went on                                    |
+
+### `page_projects`
+
+Which pages are linked to which projects; see `docs/knowledge.md`, Pages, Projects. Cascades with either side, though
+deleting a project takes its links out first, so each page's history records it (`crate::models::page_project`). Writes
+hold the project before they lock the page, the order that deletion takes them in, so the two never wait on each other.
+The primary key reads a page's projects, and `page_projects_project_id_idx` a project's pages, for its list and the
+search's `project` filter.
+
+| Column       | Type          | Notes                                                                      |
+|--------------|---------------|----------------------------------------------------------------------------|
+| `page_id`    | `UUID`        | References `pages`, cascading                                              |
+| `project_id` | `UUID`        | References `projects`, cascading                                           |
+| `created_by` | `UUID`        | References `users`: who linked it; the agent acting for them is in the page's history |
+| `created_at` | `TIMESTAMPTZ` | Written by the API, the moment it was linked                               |
 
 ### `learning_categories`
 

@@ -54,6 +54,7 @@ pub mod model_setting;
 pub mod page;
 pub mod page_attachment;
 pub mod page_label;
+pub mod page_project;
 pub mod password_vault;
 pub mod project;
 pub mod project_issue_tracker;

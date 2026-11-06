@@ -6,7 +6,7 @@
 //! workspace and the history of its turns, which are removed deliberately, one session at a
 //! time.
 //!
-//! Its action items and initiatives stay, taken out of the project in the same
+//! Its action items, initiatives, and linked pages stay, taken out of the project in the same
 //! transaction, each with the removal in its history and on the event stream.
 
 use anyhow::Context;
@@ -21,10 +21,12 @@ use uuid::Uuid;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_event::Recorded;
-use crate::models::{action_item, initiative, project};
+use crate::models::agent::Author;
+use crate::models::{action_item, initiative, page_project, project};
 use crate::realtime::ServerEvent;
 use crate::routes::v1::action_items::{item_responses, publish_history};
 use crate::routes::v1::initiatives::publish_initiative_write;
+use crate::routes::v1::pages;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -47,11 +49,17 @@ pub async fn handle(
                 action_item::remove_all_from_project(connection, id, current.actor(), now).await?;
             let initiatives =
                 initiative::remove_all_from_project(connection, id, current.actor(), now).await?;
+            let author = Author {
+                user_id: current.id(),
+                agent: None,
+                at: now,
+            };
+            let unlinked = page_project::remove_all_from_project(connection, id, author).await?;
             project::delete(connection, id).await?;
-            Ok::<_, DieselError>((items, initiatives))
+            Ok::<_, DieselError>((items, initiatives, unlinked))
         })
         .await;
-    let (items, initiatives) = match deleted {
+    let (items, initiatives, unlinked) = match deleted {
         Ok(removed) => removed,
         Err(DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _)) => {
             return Err(ApiError::Conflict(
@@ -65,6 +73,9 @@ pub async fn handle(
     // could fail. Leaving a project moves no initiative's progress, so items are published
     // on their own, once each, with no initiative fan-out.
     state.events.publish(&ServerEvent::ProjectDeleted { id });
+    for page in unlinked {
+        pages::announce(&state.events, &page.changed, &page.learnings);
+    }
 
     let mut live_items = Vec::new();
     for Recorded { record, history } in items {

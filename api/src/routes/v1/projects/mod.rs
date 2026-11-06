@@ -2,14 +2,16 @@
 
 //! `/api/v1/projects`: what coding sessions are grouped under, the models a project's own agents
 //! run on (`/{id}/model-settings`, `docs/engine.md`, Models), its Project Manager
-//! (`/{id}/project-manager`, [`project_manager`]), and how its workers' containers are readied
-//! (`/{id}/worker-setup`, `docs/engine.md`, Workers).
+//! (`/{id}/project-manager`, [`project_manager`]), how its workers' containers are readied
+//! (`/{id}/worker-setup`, `docs/engine.md`, Workers), and the knowledge base pages linked to it
+//! (`/{id}/pages`, `docs/knowledge.md`, Pages).
 
 mod create_project;
 mod delete_cover;
 mod delete_project;
 mod get_cover;
 mod list_model_settings;
+mod list_pages;
 mod list_projects;
 pub mod project_manager;
 mod reset_model_setting;
@@ -50,6 +52,7 @@ pub fn router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
         .route("/{id}/cover/restore", post(restore_cover::handle))
+        .route("/{id}/pages", get(list_pages::handle))
         .route("/{id}/model-settings", get(list_model_settings::handle))
         .route(
             "/{id}/model-settings/{kind}",

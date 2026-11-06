@@ -4,11 +4,12 @@
 //!
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
-//! says how its changes reach the work and where its issues file ([`Writes`]), and carries
-//! everything that woke it: the messages, the records newly on its timeline, the batches that
-//! finished, and the promises found on its project or whose work finished. Every turn also carries
-//! each promise still owed a follow-up, woken for or not, so a turn that failed never strands one.
-//! It is a plain function of its inputs, so it is tested without a runner.
+//! names the docs linked to it, says how its changes reach the work and where its issues file
+//! ([`Writes`]), and carries everything that woke it: the messages, the records newly on its
+//! timeline, the batches that finished, and the promises found on its project or whose work
+//! finished. Every turn also carries each promise still owed a follow-up, woken for or not, so a
+//! turn that failed never strands one. It is a plain function of its inputs, so it is tested
+//! without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -32,6 +33,10 @@ pub const EXCERPT_MAX_CHARACTERS: usize = 800;
 /// How much of a project's description the prompt quotes, in characters.
 const DESCRIPTION_MAX_CHARACTERS: usize = 1_000;
 
+/// How many of a project's docs the prompt names, newest published first. Each is only a title, so
+/// these fit however long they run; the rest are a `manager_pages` call away.
+const PAGES_MAX: usize = 50;
+
 /// The longest prompt, in bytes: under the 128 KiB Linux allows one argument, with room for the
 /// runner's own.
 pub const PROMPT_MAX_BYTES: usize = 100_000;
@@ -47,6 +52,16 @@ pub struct ProjectBrief {
     pub description: String,
     /// The repositories it declares for its workers, which its batches name.
     pub repositories: Vec<String>,
+    /// The knowledge base pages linked to it, its docs, newest published first.
+    pub pages: Vec<PromptPage>,
+}
+
+/// A knowledge base page linked to its project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptPage {
+    pub id: Uuid,
+    pub title: String,
+    pub published_at: DateTime<Utc>,
 }
 
 /// A message a person or Elysia sent it.
@@ -248,6 +263,29 @@ fn render_project(prompt: &mut String, project: &ProjectBrief) {
             "The repositories it declares for its workers, which a batch names as it needs: {}",
             project.repositories.join(", ")
         );
+    }
+    render_pages(prompt, &project.pages);
+}
+
+/// The project's docs by title, whatever woke it: a page linked since its last turn wakes nothing,
+/// so this is how it learns of one.
+fn render_pages(prompt: &mut String, pages: &[PromptPage]) {
+    if pages.is_empty() {
+        return;
+    }
+    prompt.push_str("Its docs, the knowledge base pages linked to it, which manager_page reads:\n");
+    for page in pages.iter().take(PAGES_MAX) {
+        let _ = writeln!(
+            prompt,
+            "- {} (page {}, published {})",
+            page.title,
+            page.id,
+            page.published_at.to_rfc3339()
+        );
+    }
+    if pages.len() > PAGES_MAX {
+        let more = pages.len() - PAGES_MAX;
+        let _ = writeln!(prompt, "- and {more} more, which manager_pages lists");
     }
 }
 
@@ -458,6 +496,7 @@ mod tests {
                 name: "Launch".to_owned(),
                 description: "The spring launch.".to_owned(),
                 repositories: vec!["https://github.com/JalapenoLabs/Launch.git".to_owned()],
+                pages: Vec::new(),
             },
             writes: Writes {
                 direct: false,
@@ -484,6 +523,39 @@ mod tests {
             confidence: 0.82,
             attributed_by_person: false,
         }
+    }
+
+    fn linked_page(title: &str) -> PromptPage {
+        PromptPage {
+            id: Uuid::nil(),
+            title: title.to_owned(),
+            published_at: now(),
+        }
+    }
+
+    #[test]
+    fn it_names_the_projects_docs_on_every_turn_and_says_nothing_of_none() {
+        assert!(!render(&context(), now()).contains("Its docs"));
+
+        let mut linked = context();
+        linked.project.pages.push(linked_page("Launch checklist"));
+
+        let prompt = render(&linked, now());
+        assert!(prompt.contains("Its docs, the knowledge base pages linked to it"));
+        assert!(prompt.contains("- Launch checklist (page 00000000-0000-0000-0000-000000000000"));
+    }
+
+    #[test]
+    fn it_names_the_newest_docs_and_points_to_the_rest() {
+        let mut linked = context();
+        linked.project.pages = (0..PAGES_MAX + 3)
+            .map(|index| linked_page(&format!("Doc {index}")))
+            .collect();
+
+        let prompt = render(&linked, now());
+        assert!(prompt.contains(&format!("- Doc {} ", PAGES_MAX - 1)));
+        assert!(!prompt.contains(&format!("- Doc {PAGES_MAX} ")));
+        assert!(prompt.contains("- and 3 more, which manager_pages lists"));
     }
 
     #[test]

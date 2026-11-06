@@ -28,7 +28,8 @@ use uuid::Uuid;
 
 use crate::database::schema::sql_types::Vector;
 use crate::database::schema::{
-    knowledge_documents, knowledge_passages, projects, timeline_record_projects, users,
+    knowledge_documents, knowledge_passages, page_projects, projects, timeline_record_projects,
+    users,
 };
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
@@ -318,7 +319,8 @@ pub struct DocumentView {
     pub passages: Vec<Passage>,
     /// How many passages the document has, whichever of them were answered.
     pub passage_count: usize,
-    /// The projects its timeline record is attributed to, by name; none for any other source.
+    /// The projects its timeline record is attributed to or its page is linked to, by name; none
+    /// for any other source.
     pub projects: Vec<ProjectReference>,
     /// The labels its page carries, in order; none for any other source.
     pub labels: Vec<String>,
@@ -360,6 +362,34 @@ pub async fn passage_of_page(
         .first(connection)
         .await
         .optional()
+}
+
+/// The projects `row`'s timeline record is attributed to or its page is linked to, by name.
+async fn projects_of(
+    connection: &mut AsyncPgConnection,
+    row: &DocumentRow,
+) -> QueryResult<Vec<ProjectReference>> {
+    match (row.timeline_record_id, row.page_id) {
+        (Some(record_id), _) => {
+            timeline_record_projects::table
+                .inner_join(projects::table)
+                .filter(timeline_record_projects::timeline_record_id.eq(record_id))
+                .select((projects::id, projects::name))
+                .order(projects::name.asc())
+                .load(connection)
+                .await
+        }
+        (None, Some(page_id)) => {
+            page_projects::table
+                .inner_join(projects::table)
+                .filter(page_projects::page_id.eq(page_id))
+                .select((projects::id, projects::name))
+                .order(projects::name.asc())
+                .load(connection)
+                .await
+        }
+        (None, None) => Ok(Vec::new()),
+    }
 }
 
 /// The document `id` whole: its citation, what it was made from, every passage in order, its
@@ -404,18 +434,7 @@ pub async fn get(
         .load(connection)
         .await?;
 
-    let projects: Vec<ProjectReference> = match row.timeline_record_id {
-        Some(record_id) => {
-            timeline_record_projects::table
-                .inner_join(projects::table)
-                .filter(timeline_record_projects::timeline_record_id.eq(record_id))
-                .select((projects::id, projects::name))
-                .order(projects::name.asc())
-                .load(connection)
-                .await?
-        }
-        None => Vec::new(),
-    };
+    let projects = projects_of(connection, &row).await?;
 
     let labels = match row.page_id {
         Some(page_id) => page_label::of_page(connection, page_id).await?,

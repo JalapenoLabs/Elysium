@@ -26,8 +26,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::prompt::{
-    self, ProjectBrief, PromptBatch, PromptMessage, PromptPromise, PromptRecord, PromptWork,
-    TurnContext, Writes,
+    self, ProjectBrief, PromptBatch, PromptMessage, PromptPage, PromptPromise, PromptRecord,
+    PromptWork, TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
@@ -38,11 +38,14 @@ use crate::database::Pool;
 use crate::elysia::prompt::read_back;
 use crate::elysia::runner::{ElysiaOutcome, RunnerError};
 use crate::models::attribution::ELYSIA_ACTOR;
+use crate::models::project::Project;
 use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
 use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::work_batch::worker::Wait;
-use crate::models::{action_item, project, timeline_record, work_batch, worker_setup};
+use crate::models::{
+    action_item, page_project, project, timeline_record, work_batch, worker_setup,
+};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
 use crate::tools::{self, CallScope, ProjectManagerScope};
@@ -377,23 +380,42 @@ async fn load_context(
             direct: project.manager_writes_directly,
             tracker: tracker_brief(connection, turn.project_id).await?,
         },
-        project: ProjectBrief {
-            id: project.id,
-            name: project.name,
-            description: project.description,
-            repositories: worker_setup::find(connection, turn.project_id)
-                .await?
-                .repositories
-                .into_iter()
-                .map(|repository| repository.url)
-                .collect(),
-        },
+        project: project_brief(connection, project).await?,
         messages,
         records,
         batches,
         promises,
         retried,
         still_waiting: project_manager::waiting_count(connection, turn.project_id).await?,
+    })
+}
+
+/// `project` as a turn is told it: what it is, the repositories it declares, and its docs.
+async fn project_brief(
+    connection: &mut AsyncPgConnection,
+    project: Project,
+) -> anyhow::Result<ProjectBrief> {
+    let repositories = worker_setup::find(connection, project.id)
+        .await?
+        .repositories
+        .into_iter()
+        .map(|repository| repository.url)
+        .collect();
+    let pages = page_project::pages_of(connection, project.id)
+        .await?
+        .into_iter()
+        .map(|linked| PromptPage {
+            id: linked.page.id,
+            title: linked.page.title,
+            published_at: linked.published_at,
+        })
+        .collect();
+    Ok(ProjectBrief {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        repositories,
+        pages,
     })
 }
 

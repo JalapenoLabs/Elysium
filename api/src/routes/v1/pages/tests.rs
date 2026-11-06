@@ -50,7 +50,7 @@ struct DocumentId {
     id: Uuid,
 }
 
-fn author(agent: Option<&Agent>) -> Author<'_> {
+pub(super) fn author(agent: Option<&Agent>) -> Author<'_> {
     Author {
         user_id: TEST_PERSON_ID,
         agent,
@@ -66,7 +66,11 @@ fn edit(title: &str, body: &str) -> PageEdit {
     }
 }
 
-async fn create(connection: &mut AsyncPgConnection, parent_id: Option<Uuid>, title: &str) -> Uuid {
+pub(super) async fn create(
+    connection: &mut AsyncPgConnection,
+    parent_id: Option<Uuid>,
+    title: &str,
+) -> Uuid {
     page::create(
         connection,
         parent_id,
@@ -1082,7 +1086,7 @@ async fn agents_only_propose_to_a_proposal_only_page_and_people_still_edit_it() 
 }
 
 /// A router test's answer to `method path` with `body`, as the test person.
-async fn call(
+pub(super) async fn call(
     state: &crate::state::AppState,
     method: Method,
     path: &str,
@@ -1112,7 +1116,7 @@ async fn call(
     )
 }
 
-async fn set_role(connection: &mut AsyncPgConnection, role: &str) {
+pub(super) async fn set_role(connection: &mut AsyncPgConnection, role: &str) {
     execute(
         connection,
         format!("UPDATE users SET role = '{role}' WHERE id = '{TEST_PERSON_ID}'"),

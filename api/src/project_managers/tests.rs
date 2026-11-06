@@ -19,7 +19,10 @@ use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
+use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
+use crate::models::page::{self, PageEdit};
+use crate::models::page_project;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager::{self, TurnStatus, WakeKind};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, TimelineRecord};
@@ -174,6 +177,81 @@ async fn a_record_newly_on_a_project_wakes_its_project_manager_once() {
     assert_eq!(
         waiting_kinds(&mut connection, website).await,
         [WakeKind::Record]
+    );
+}
+
+/// A page linked to a project, as the test person.
+async fn linked_page(connection: &mut AsyncPgConnection, project_id: Uuid, title: &str) -> Uuid {
+    let author = Author {
+        user_id: TEST_PERSON_ID,
+        agent: None,
+        at: Utc::now(),
+    };
+    let edit = PageEdit {
+        title: title.to_owned(),
+        body: format!("{title}, in full."),
+        learning: None,
+    };
+    let page_id = page::create(connection, None, edit, author)
+        .await
+        .expect("created")
+        .page
+        .id;
+    page_project::link(connection, page_id, project_id, author)
+        .await
+        .expect("linked");
+    page_id
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_page_linked_to_a_project_wakes_nothing_and_is_named_on_its_next_turn() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Noted.\nSummary: Read the checklist.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let website = project_named(&mut connection, "Website").await;
+    let page_id = linked_page(&mut connection, launch, "Launch checklist").await;
+    linked_page(&mut connection, website, "Website style guide").await;
+
+    assert!(
+        waiting_kinds(&mut connection, launch).await.is_empty(),
+        "a link is no wake: nothing has to happen because of it"
+    );
+
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    go_quiet(&mut connection).await;
+    dispatch_once(&context).await;
+
+    let turns = asked(&script);
+    assert_eq!(turns.len(), 1);
+    assert!(
+        turns[0].prompt.contains("Launch checklist")
+            && turns[0].prompt.contains(&page_id.to_string()),
+        "the turn names the project's docs: {}",
+        turns[0].prompt
+    );
+    assert!(
+        !turns[0].prompt.contains("Website style guide"),
+        "and no other project's"
+    );
+
+    let linked = page_project::linked_page(&mut connection, launch, page_id)
+        .await
+        .expect("reads")
+        .expect("linked here");
+    assert_eq!(linked.body, "Launch checklist, in full.");
+    assert!(
+        page_project::linked_page(&mut connection, website, page_id)
+            .await
+            .expect("reads")
+            .is_none(),
+        "a Project Manager reads its own project's pages"
     );
 }
 

@@ -169,7 +169,7 @@ Every filter applies to both rankings, inside the query, and narrows; none is ac
 | Filter    | Keeps                                                                                            |
 |-----------|--------------------------------------------------------------------------------------------------|
 | `source`  | Documents of these sources (`slack`, `outlook`, `meeting`, `learning`, `company_doc`, `page`, and the rest) |
-| `project` | Timeline records attributed to it, at any confidence; learnings, the company doc, and pages have none |
+| `project` | Timeline records attributed to it, at any confidence, and pages linked to it, learnings and the company doc's sections among them |
 | `person`  | Documents whose record, learning, section edit, or newest version came from this person (`created_by`) |
 | `label`   | Pages carrying this label, however it was typed (Pages, Labels); nothing else has labels     |
 | `from`, `to` | What was said from one moment and before the other, with offsets                             |
@@ -861,8 +861,8 @@ claims, never the question or a passage.
 
 Everything authored is one kind: a page. People and their agents read and write pages the way they use Confluence, in
 one tree for the whole workspace. The model is `api/src/models/page.rs`, the routes `/api/v1/pages` (`docs/api.md`),
-and the tables `pages`, `page_versions`, and `page_events` (`docs/database.md`), and the Knowledge area reads them (In
-the web app, below). The rest of the design (Roadmap, below) is the issues in the Knowledge base milestone.
+and the tables `pages`, `page_versions`, `page_events`, and `page_projects` (`docs/database.md`), and the Knowledge area
+reads them (In the web app, below). The rest of the design (Roadmap, below) is the issues in the Knowledge base milestone.
 
 ### The tree
 
@@ -925,6 +925,8 @@ who made it, the agent acting for them, and `data`.
 | `unlabeled` | `{ label }`                                                                             |
 | `attached`  | `{ attachmentId, name }`, for a file added or put back                                  |
 | `detached`  | `{ attachmentId, name }`, for a file taken off                                          |
+| `project_linked` | `{ projectId, projectName }`, the name as it was then, since an entry outlives a project deleted later |
+| `project_unlinked` | `{ projectId, projectName }`, by hand or because the project was deleted                   |
 
 Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
 as a page's history and as a feed across every page, in order by id. A later kind of change adds a kind, with no
@@ -1052,6 +1054,30 @@ the rows are `api/src/models/page_attachment.rs` and the table `page_attachments
   rows, removed ones included, deletes each file, then the rows. Neither of that table's foreign keys cascades, so nothing
   can drop a row, and with it the only record of a file, by accident.
 
+### Projects
+
+With one tree and no spaces, a project shows its docs through links: a page may be linked to any number of projects, and
+a project to any number of pages (`crate::models::page_project`, `page_projects`).
+
+- **A link is not a version.** It changes nothing a page says, so it is an entry in the page's history alone (History,
+  above) and leaves the index as it is. `page.changed` announces it.
+- **It changes nobody's access.** Every member reads every page and no guest reads any, linked or not. A guest on a
+  project sees no docs there: `GET /api/v1/projects/{id}/pages` refuses them with `403 members_only`, as every page route
+  does, and the web app shows them no Docs tab.
+- **People and agents link alike.** Each write takes an `Author`, so an agent is named in the page's history as it is for
+  a publish. Any page can be linked, a proposal-only or fixed one included: those rules guard what a page says and where
+  it sits, and a link touches neither. Linking a page already linked, or taking off a link that is not there, records
+  nothing.
+- **A deleted page keeps its links** and takes no new ones, so it comes back as it went. A project lists live pages
+  alone.
+- **Deleting a project takes its pages off it** in the same transaction, each recorded in the page's history as a
+  `project_unlinked`, deleted pages included. The pages stay.
+- **Searching by project finds them.** The search's `project` filter keeps a linked page, learning, or company doc section
+  beside what is attributed to the project, and it only narrows, as every filter does. `knowledge_get` names a page's
+  projects, as it does a timeline record's.
+- **Project Managers read them.** Every turn's prompt names its project's docs, and `manager_pages` and `manager_page`
+  list and read them (`docs/engine.md`, Project Managers). Linking a page wakes nobody.
+
 ### In the index
 
 A page is a source of the index (Search, above): one document, reading as its newest version, upserted in the
@@ -1145,11 +1171,10 @@ with its three-way merge, and the review (`crate::models::company_doc`).
 The Knowledge area (`/knowledge`) opens on its first page, beside the tree. A panel on the left holds Search, Ask, and
 Learnings, then every page, so everything in the area sits beside the tree; below `lg` it is a drawer. Each page has its
 own address (`/knowledge/pages/<id>`), and reads as its path through the tree, its title, who last edited it and when,
-its labels, its text, its attachments, and its child pages. A label opens every page carrying it
-(`/knowledge/labels/<label>`), and the
-panel's filters narrow the tree by title as it is typed and by label, to what matches and the pages above it, opened. No
-title matching offers a search of what pages say (Finding pages, above). Which branches a person leaves open stays with
-them on each browser. A deleted page reads
+its labels, the projects it is linked to, its text, its attachments, and its child pages. A label opens every page
+carrying it (`/knowledge/labels/<label>`), and the panel's filters narrow the tree by title as it is typed and by label,
+to what matches and the pages above it, opened. No title matching offers a search of what pages say (Finding pages,
+above). Which branches a person leaves open stays with them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
 The tree is also where people organize pages. Each row's menu adds a child page, moves the page, or deletes it. A page
@@ -1169,13 +1194,18 @@ link that opens the image in a new tab. A file attached to a page is served by E
 link to any other file downloads it.
 
 A page's History tab lists everything that happened to it, newest first: each version with who published it, the agent
-acting for them, and when, and between them its moves, deletions, restorations, and labels, so what learnings and the
+acting for them, and when, and between them its moves, deletions, restorations, labels, and links to projects, so what learnings and the
 company doc carried over reads here too. A version opens on what it changed from the one before. Ticking any two compares them, older
 against newer, line by line on the Markdown with the changed words marked, and a change to a title, category, or
 evidence shows the same way. Read shows a version as it read, in the page's own layout. Restore acts at once, with Undo
 in its toast, since nothing is lost: Undo restores the version it replaced, and both stay versions. A person restores a
 proposal-only page as they edit one. Restore is not offered on a deleted page, which refuses it, and waits while the
 page has unsaved edits.
+
+A page shows the projects it is linked to, each opening that project's docs, with a field that adds another and an X that
+takes one off. A project's Docs tab lists the pages linked to it, with their count on the tab, and links another picked
+from the tree by title or by where it sits. Each is an action, not a field of either, so it applies at once, with Undo
+in its toast, and asks for no Save or Publish. A guest has no Docs tab.
 
 People edit a page in a rich editor at `/knowledge/pages/<id>/edit`, and create one at `/knowledge/pages/new`. The page
 stays Markdown, so agents read and write it plainly and diffs stay readable: every block nobody touched keeps its
@@ -1193,7 +1223,6 @@ page's history restores it afterwards.
 ### Roadmap
 
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
-- **Projects.** A page can be linked to projects, so a project shows its docs.
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call
   (`upload_attachment::upload_file`, `remove`, `restore`), each taking an `Author`.

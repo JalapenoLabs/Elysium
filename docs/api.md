@@ -169,6 +169,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
 | GET    | `/api/v1/pages/{id}/passages/{position}` | `200` `{ passage: { position, content } }`, `404` when the index holds none there; members |
 | POST   | `/api/v1/pages/{id}/versions/{version}/restore` | `200` `{ page, outcome }`, `published` or `unchanged`; members |
+| PUT    | `/api/v1/pages/{id}/projects/{projectId}` | `200` `{ page }`, linked to the project; members  |
+| DELETE | `/api/v1/pages/{id}/projects/{projectId}` | `200` `{ page }`, off the project; members        |
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&label=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
 | GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
 | GET    | `/api/v1/knowledge/meetings?from=&to=&person=&project=&limit=` | `200` `{ meetings: KnowledgeMeeting[] }`, newest first, whoever recorded them; members |
@@ -230,6 +232,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the body is the image file     |
 | DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the image is kept to restore    |
 | POST   | `/api/v1/projects/{id}/cover/restore` | `200` `{ project }`, showing the removed cover again |
+| GET    | `/api/v1/projects/{id}/pages`         | `200` `{ pages: ProjectPage[] }`, newest published first; members |
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
@@ -727,16 +730,18 @@ load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
 `evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
-`attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`,
-`updatedAt`, and `deletedAt`. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
+`attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest
+version), `createdBy`, `createdAt`, `updatedAt`, `deletedAt`, and `projectIds`, the projects it is linked to, oldest link
+first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
 `labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
-the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move or a label. A
+the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move, a label, or a
+link. A `ProjectPage` is a `PageSummary` with `publishedBy`, `publishedAt`, `linkedBy`, and `linkedAt`. A
 `PageVersionSummary` has `pageId`,
 `version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a `PageVersion` adds `body`, `category`, and
 `evidence`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`, `restored`,
-`labeled`, `unlabeled`, `attached`, or `detached`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages,
-History.
+`labeled`, `unlabeled`, `attached`, `detached`, `project_linked`, or `project_unlinked`), `createdBy`, `agent`, `data`,
+and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages, History.
 
 `POST /` takes `title` (1 to 300 characters, trimmed and its spacing collapsed), and optionally `parentId` and `body`
 (up to 100,000 characters, its line endings normalized and its trailing whitespace dropped), and appends the page to
@@ -747,9 +752,10 @@ outside 1 to 20,000 characters or a company doc section's past 12,000. `POST /{i
 it goes under, or the top of the tree, and the live sibling it goes right after, or first. `POST /{id}/labels` takes
 `label`, stored lowercase with spaces as hyphens; it, and the `{label}` of `DELETE /{id}/labels/{label}`, answer `422`
 for anything but 1 to 50 letters, digits, hyphens, underscores, and dots, starting with a letter or digit. Neither makes
-a version (`docs/knowledge.md`, Pages, Labels). Moving a page where it already is, publishing or restoring what it
-already says, putting on a label it carries, or taking off one it does not, records nothing and announces nothing; a
-publish answers `unchanged`. `DELETE /{id}?keepChildren=true` deletes the page alone: its live children take its place
+a version (`docs/knowledge.md`, Pages, Labels), and neither does a link to a project, which takes any page that is not
+deleted; an unknown page or project answers `404`. Moving a page where it already is, publishing or restoring what it
+already says, putting on a label it carries, taking off one it does not, or making or removing a link that is already
+as asked, records nothing and announces nothing; a publish answers `unchanged`. `DELETE /{id}?keepChildren=true` deletes the page alone: its live children take its place
 among its siblings, each move recorded in that child's history as part of the deletion, and `POST /{id}/restore` moves
 back those still where it left them.
 
@@ -758,7 +764,7 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `code`                | When                                                                            |
 |-----------------------|---------------------------------------------------------------------------------|
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
-| `page_deleted`        | A publish, restore of a version, move, or label change of a deleted page         |
+| `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
 | `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |

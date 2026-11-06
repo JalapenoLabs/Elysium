@@ -27,6 +27,8 @@ use crate::middleware::rate_limit::Decision;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::learning::{self, LearningContent};
+use crate::models::page::{self, PageEdit};
+use crate::models::page_project;
 use crate::models::project::{self, NewProject};
 use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::routes;
@@ -345,6 +347,101 @@ async fn a_paraphrase_is_found_by_its_meaning_alone() {
     let answer = search(&words_only, "q=how+do+we+ship").await;
     assert_eq!(answer["searchedByMeaning"], false);
     assert!(titles(&answer).is_empty(), "{answer}");
+}
+
+/// A page about the budget, published by `author`.
+async fn budget_page(connection: &mut AsyncPgConnection, title: &str, author: Author<'_>) -> Uuid {
+    let edit = PageEdit {
+        title: title.to_owned(),
+        body: "How the budget is approved.".to_owned(),
+        learning: None,
+    };
+    page::create(connection, None, edit, author)
+        .await
+        .expect("created")
+        .page
+        .id
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_project_finds_its_linked_pages_and_the_person_filter_still_narrows_them() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let jamie = coworker(&mut connection, "Jamie").await;
+    let roadmap = project::create(
+        &mut connection,
+        &NewProject {
+            created_by: TEST_PERSON_ID,
+            name: "Roadmap".to_owned(),
+            description: String::new(),
+        },
+    )
+    .await
+    .expect("the project is created")
+    .id;
+    let author = Author {
+        user_id: TEST_PERSON_ID,
+        agent: None,
+        at: at(0),
+    };
+
+    let linked_page = budget_page(&mut connection, "Budget runbook", author).await;
+    let jamies_author = Author {
+        user_id: jamie,
+        ..author
+    };
+    let jamies_page = budget_page(&mut connection, "Budget notes", jamies_author).await;
+    budget_page(&mut connection, "Budget elsewhere", author).await;
+    let learning = save_learning(
+        &mut connection,
+        "Budget approvals",
+        "Every budget over a thousand needs two approvals.",
+    )
+    .await;
+    for page_id in [linked_page, jamies_page, learning] {
+        page_project::link(&mut connection, page_id, roadmap, author)
+            .await
+            .expect("linked");
+    }
+
+    let answer = search(&state, &format!("q=budget&project={roadmap}")).await;
+    let mut found = titles(&answer);
+    found.sort();
+    assert_eq!(
+        found,
+        ["Budget approvals", "Budget notes", "Budget runbook"]
+    );
+
+    let answer = search(
+        &state,
+        &format!("q=budget&project={roadmap}&person={jamie}"),
+    )
+    .await;
+    assert_eq!(titles(&answer), ["Budget notes"], "narrowed, never widened");
+
+    let answer = search(&state, &format!("q=budget&project={roadmap}&source=page")).await;
+    let mut found = titles(&answer);
+    found.sort();
+    assert_eq!(found, ["Budget notes", "Budget runbook"]);
+
+    // A citation says which projects the page is on.
+    let document_id = answer["results"][0]["citation"]["documentId"]
+        .as_str()
+        .expect("a document");
+    let (status, document) = get(
+        &state,
+        &format!("/api/v1/knowledge/documents/{document_id}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{document}");
+    assert_eq!(document["document"]["projects"][0]["name"], "Roadmap");
+
+    page_project::unlink(&mut connection, linked_page, roadmap, author)
+        .await
+        .expect("unlinked");
+    let answer = search(&state, &format!("q=budget&project={roadmap}&source=page")).await;
+    assert_eq!(titles(&answer), ["Budget notes"]);
 }
 
 #[tokio::test]

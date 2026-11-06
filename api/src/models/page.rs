@@ -285,6 +285,11 @@ pub enum HistoryKind {
     Attached,
     /// A file was taken off it. `data` is `{ attachmentId, name }`.
     Detached,
+    /// It was linked to a project. `data` is `{ projectId, projectName }`, the name as it was then,
+    /// since the entry outlives a project deleted later.
+    ProjectLinked,
+    /// Its link to a project went, by hand or with the project. `data` is `{ projectId, projectName }`.
+    ProjectUnlinked,
 }
 
 impl HistoryKind {
@@ -300,6 +305,8 @@ impl HistoryKind {
             Self::Unlabeled => "unlabeled",
             Self::Attached => "attached",
             Self::Detached => "detached",
+            Self::ProjectLinked => "project_linked",
+            Self::ProjectUnlinked => "project_unlinked",
         }
     }
 
@@ -315,6 +322,8 @@ impl HistoryKind {
             Self::Unlabeled,
             Self::Attached,
             Self::Detached,
+            Self::ProjectLinked,
+            Self::ProjectUnlinked,
         ]
         .into_iter()
         .find(|kind| kind.as_str() == name)

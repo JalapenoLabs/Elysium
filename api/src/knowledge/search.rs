@@ -136,8 +136,8 @@ pub struct SearchFilters {
     /// Only documents of these sources (`knowledge_documents.source`), or every source when
     /// empty.
     pub sources: Vec<String>,
-    /// Only timeline records attributed to this project. Learnings and the company doc belong
-    /// to no project, so they are left out.
+    /// Only timeline records attributed to this project and pages linked to it. Whatever else is
+    /// indexed belongs to no project, so it is left out.
     pub project_id: Option<Uuid>,
     /// Only documents from this person's records, learnings, or edits.
     pub person_id: Option<Uuid>,
@@ -257,9 +257,13 @@ impl Candidate {
 macro_rules! filters {
     () => {
         "AND (cardinality($2::text[]) = 0 OR documents.source = ANY($2::text[]))
-         AND ($3::uuid IS NULL OR documents.timeline_record_id IN (
-             SELECT timeline_record_id FROM timeline_record_projects WHERE project_id = $3::uuid
-         ))
+         AND ($3::uuid IS NULL
+             OR documents.timeline_record_id IN (
+                 SELECT timeline_record_id FROM timeline_record_projects WHERE project_id = $3::uuid
+             )
+             OR documents.page_id IN (
+                 SELECT page_id FROM page_projects WHERE project_id = $3::uuid
+             ))
          AND ($4::uuid IS NULL OR documents.created_by = $4::uuid)
          AND ($5::timestamptz IS NULL OR documents.occurred_at >= $5::timestamptz)
          AND ($6::timestamptz IS NULL OR documents.occurred_at < $6::timestamptz)

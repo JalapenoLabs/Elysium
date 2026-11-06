@@ -2,9 +2,10 @@
 
 //! `elysium_project_manager`: a Project Manager's own tools, for its one project.
 //!
-//! It reads its project's timeline, every owner's records on it, and its batches, and it submits
-//! and withdraws batches for the worker pool. It also keeps its project's promises: it lists them,
-//! ties each to the work that keeps it, and drafts a follow-up once that work is done, through
+//! It reads its project's timeline, every owner's records on it, its batches, and the knowledge
+//! base pages linked to the project, and it submits and withdraws batches for the worker pool. It
+//! also keeps its project's promises: it lists them, ties each to the work that keeps it, and
+//! drafts a follow-up once that work is done, through
 //! `crate::project_managers::promises`. And it changes its project's action items and files their
 //! issues in the project's tracker (`manager_make_changes`, in
 //! `crate::tools::work::manager_changes`, beside the other work tools whose staging it shares).
@@ -25,6 +26,7 @@ use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
+use crate::models::page_project;
 use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
@@ -39,11 +41,12 @@ use crate::worker_pool::actions::announce;
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_project_manager",
     instructions: Instructions::Fixed(
-        "Your project's timeline and its work batches. manager_timeline lists what is \
+        "Your project's timeline, its docs, and its work batches. manager_timeline lists what is \
         on the project's timeline, newest first: meeting topics, messages, mail, your own turns \
-        and batches. manager_record reads one record in full. manager_batches lists the batches \
-        you submitted and where each stands; check it before submitting, so no work is \
-        submitted twice. manager_submit_batch hands a piece of work to a worker: write its goal \
+        and batches. manager_record reads one record in full. manager_pages lists the knowledge \
+        base pages linked to the project, its docs, and manager_page reads one. manager_batches \
+        lists the batches you submitted and where each stands; check it before submitting, so \
+        no work is submitted twice. manager_submit_batch hands a piece of work to a worker: write its goal \
         so a worker who has seen nothing else can finish it, and name the records and action \
         items it came from. Batches wait in one queue for the whole workspace, which a person or \
         Elysia may reorder or pause. manager_cancel_batch withdraws a batch no worker has started \
@@ -60,7 +63,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 10] = [
+const TOOLS: [Tool; 12] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -74,6 +77,22 @@ const TOOLS: [Tool; 10] = [
         description: "Reads one record on this project's timeline in full.",
         input_schema: record_schema,
         run: |context, scope, arguments| run_record(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_pages",
+        description: "Lists the knowledge base pages linked to this project, its docs, newest \
+            published first: each one's id, title, version, and when it was published and \
+            linked. A page linked since your last turn is here.",
+        input_schema: pages_schema,
+        run: |context, scope, arguments| run_pages(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_page",
+        description: "Reads one page linked to this project: its title, version, and text, \
+            which is Markdown, with a learning's category and evidence. A long page answers in \
+            parts: pass offset as the nextOffset it gave to read on.",
+        input_schema: page_schema,
+        run: |context, scope, arguments| run_page(context, scope, arguments).boxed(),
     },
     Tool {
         name: "manager_batches",
@@ -165,6 +184,10 @@ const TIMELINE_EXCERPT_CHARACTERS: usize = 600;
 /// How much of a record's text `manager_record` shows, in characters: far more than a turn
 /// needs from one record, and a bound on one answer.
 const RECORD_MAX_CHARACTERS: usize = 40_000;
+
+/// How much of a page's text `manager_page` answers at once, in characters. A page holds up to
+/// 100,000, more than one answer should, so a longer one reads in parts.
+const PAGE_PART_CHARACTERS: usize = 40_000;
 
 /// How many batches `manager_batches` lists.
 const BATCHES_MAX: i64 = 100;
@@ -269,6 +292,30 @@ fn record_schema() -> Value {
         "type": "object",
         "properties": { "recordId": id_property("The record's id, from manager_timeline.") },
         "required": ["recordId"],
+        "additionalProperties": false,
+    })
+}
+
+fn pages_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+    })
+}
+
+fn page_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "pageId": id_property("The page's id, from your prompt or manager_pages."),
+            "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Where to read on from: the nextOffset the last part answered.",
+            },
+        },
+        "required": ["pageId"],
         "additionalProperties": false,
     })
 }
@@ -448,6 +495,14 @@ struct RecordArguments {
     record_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PageArguments {
+    page_id: Uuid,
+    #[serde(default)]
+    offset: usize,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BatchesArguments {
@@ -551,6 +606,81 @@ async fn run_record(
     let mut view = record_view(record, attribution, RECORD_MAX_CHARACTERS);
     view["url"] = json!(record.url);
     Ok(json!({ "record": view }))
+}
+
+async fn run_pages(
+    context: &ToolContext,
+    scope: &CallScope,
+    _arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let pages = page_project::pages_of(&mut connection, manager.project_id)
+        .await
+        .map_err(|error| internal(scope, "manager.pages", &error))?;
+    let listed: Vec<Value> = pages
+        .into_iter()
+        .map(|linked| {
+            json!({
+                "id": linked.page.id,
+                "title": linked.page.title,
+                "version": linked.page.current_version,
+                "publishedAt": linked.published_at,
+                "linkedAt": linked.linked_at,
+            })
+        })
+        .collect();
+    Ok(json!({ "pages": listed }))
+}
+
+async fn run_page(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: PageArguments = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let linked = page_project::linked_page(&mut connection, manager.project_id, arguments.page_id)
+        .await
+        .map_err(|error| internal(scope, "manager.page", &error))?;
+    let Some(page) = linked else {
+        return Err(ToolError::NotFound(format!(
+            "page {} is not linked to this project; call manager_pages for the ones that are",
+            arguments.page_id
+        )));
+    };
+    let (text, next_offset) = page_part(&page.body, arguments.offset);
+    Ok(json!({
+        "page": {
+            "id": page.id,
+            "title": page.title,
+            "version": page.current_version,
+            "category": page.category,
+            "evidence": page.evidence,
+            "text": text,
+            "nextOffset": next_offset,
+        },
+    }))
+}
+
+/// One part of a page's `body` from `offset`, in characters, and where the next begins, if any.
+fn page_part(body: &str, offset: usize) -> (String, Option<usize>) {
+    let mut rest = body.chars().skip(offset);
+    let part: String = rest.by_ref().take(PAGE_PART_CHARACTERS).collect();
+    let next_offset = rest
+        .next()
+        .is_some()
+        .then_some(offset + PAGE_PART_CHARACTERS);
+    (part, next_offset)
 }
 
 async fn run_batches(
@@ -811,4 +941,173 @@ fn batch_view(batch: &WorkBatch) -> Value {
         "waitingDetail": batch.waiting_detail,
         "waitingUntil": batch.waiting_until,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode, header};
+    use secrecy::ExposeSecret;
+    use serde_json::{Value, json};
+    use tower::ServiceExt as _;
+    use uuid::Uuid;
+
+    use super::{PAGE_PART_CHARACTERS, SERVER, page_part};
+    use crate::models::agent::Author;
+    use crate::models::page::{self, PageEdit};
+    use crate::models::page_project;
+    use crate::models::project::{self, NewProject};
+    use crate::routes;
+    use crate::runner::McpServer;
+    use crate::state::AppState;
+    use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database};
+    use crate::tools::{CallScope, ProjectManagerScope};
+
+    /// What a turn's agent reads from calling `tool` with `arguments`: whether it failed, and the
+    /// text.
+    async fn call(state: &AppState, bearer: &str, tool: &str, arguments: Value) -> (bool, String) {
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": tool, "arguments": arguments },
+        });
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/agent-tools/{}", SERVER.name))
+            .header(header::HOST, "api:8080")
+            .header(header::AUTHORIZATION, bearer)
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json, text/event-stream")
+            .body(Body::from(body.to_string()))
+            .expect("a request builds");
+        let response = routes::router(state)
+            .with_state(state.clone())
+            .oneshot(request)
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::OK, "{tool}");
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 22)
+            .await
+            .expect("the body reads");
+        let answer: Value = serde_json::from_slice(&bytes).expect("the server answers JSON");
+        let result = &answer["result"];
+        let text = result["content"][0]["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{tool} answers text: {answer}"))
+            .to_owned();
+        (result["isError"] == true, text)
+    }
+
+    /// The JSON a call that succeeded answered.
+    fn answered((failed, text): (bool, String)) -> Value {
+        assert!(!failed, "{text}");
+        serde_json::from_str(&text).expect("a success is JSON")
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_project_manager_reads_its_projects_docs_in_parts_and_no_other_page() {
+        let (url, mut connection) = migrated_database().await;
+        let state = app_state(&url).await;
+        let project_id = project::create(
+            &mut connection,
+            &NewProject {
+                name: "Launch".to_owned(),
+                description: String::new(),
+                created_by: TEST_PERSON_ID,
+            },
+        )
+        .await
+        .expect("a project")
+        .id;
+        let author = Author {
+            user_id: TEST_PERSON_ID,
+            agent: None,
+            at: chrono::Utc::now(),
+        };
+        let long_body = "a".repeat(PAGE_PART_CHARACTERS + 5);
+        let mut page_ids = Vec::new();
+        for (title, body) in [
+            ("Launch checklist", long_body.as_str()),
+            ("Someone else's page", "Private to its project."),
+        ] {
+            let edit = PageEdit {
+                title: title.to_owned(),
+                body: body.to_owned(),
+                learning: None,
+            };
+            let created = page::create(&mut connection, None, edit, author)
+                .await
+                .expect("a page");
+            page_ids.push(created.page.id);
+        }
+        let (linked, unlinked) = (page_ids[0], page_ids[1]);
+        page_project::link(&mut connection, linked, project_id, author)
+            .await
+            .expect("linked");
+
+        let scope = CallScope::ProjectManager(ProjectManagerScope {
+            project_id,
+            turn_id: Uuid::now_v7(),
+        });
+        let grant = state
+            .grants
+            .grant(&scope, &[&SERVER])
+            .await
+            .expect("a grant is stored");
+        let McpServer::Http { headers, .. } = &grant.mcp_servers()[0] else {
+            panic!("tools are served over HTTP");
+        };
+        let bearer = headers[0].1.expose_secret().to_owned();
+
+        let listed = answered(call(&state, &bearer, "manager_pages", json!({})).await);
+        assert_eq!(listed["pages"].as_array().expect("pages").len(), 1);
+        assert_eq!(listed["pages"][0]["title"], "Launch checklist");
+
+        let arguments = json!({ "pageId": linked });
+        let first = answered(call(&state, &bearer, "manager_page", arguments).await);
+        assert_eq!(first["page"]["nextOffset"], PAGE_PART_CHARACTERS);
+
+        let arguments = json!({ "pageId": linked, "offset": PAGE_PART_CHARACTERS });
+        let rest = answered(call(&state, &bearer, "manager_page", arguments).await);
+        assert_eq!(rest["page"]["text"], "aaaaa");
+        assert_eq!(rest["page"]["nextOffset"], Value::Null);
+
+        let arguments = json!({ "pageId": unlinked });
+        let (failed, text) = call(&state, &bearer, "manager_page", arguments).await;
+        assert!(failed, "a page off the project is refused: {text}");
+        assert!(text.contains("not linked to this project"), "{text}");
+        assert!(!text.contains("Private to its project."), "{text}");
+    }
+
+    #[test]
+    fn a_short_page_answers_whole() {
+        assert_eq!(page_part("Short.", 0), ("Short.".to_owned(), None));
+    }
+
+    #[test]
+    fn a_long_page_reads_in_parts_that_add_up_to_it() {
+        // Multibyte, so a part is cut between characters and never inside one.
+        let body = "é".repeat(PAGE_PART_CHARACTERS + 3);
+
+        let (first, next_offset) = page_part(&body, 0);
+        assert_eq!(first.chars().count(), PAGE_PART_CHARACTERS);
+        assert_eq!(next_offset, Some(PAGE_PART_CHARACTERS));
+
+        let (rest, next_offset) = page_part(&body, PAGE_PART_CHARACTERS);
+        assert_eq!(rest, "ééé");
+        assert_eq!(next_offset, None);
+    }
+
+    #[test]
+    fn a_page_exactly_one_part_long_has_no_next_part() {
+        let body = "a".repeat(PAGE_PART_CHARACTERS);
+        assert_eq!(page_part(&body, 0).1, None);
+    }
+
+    #[test]
+    fn an_offset_past_the_end_reads_nothing() {
+        assert_eq!(page_part("Short.", 100), (String::new(), None));
+    }
 }

@@ -386,7 +386,8 @@ pub async fn undo(
     author: Author<'_>,
 ) -> Result<Recorded, LearningError> {
     use page::HistoryKind::{
-        Attached, Created, Deleted, Detached, Labeled, Moved, Published, Restored, Unlabeled,
+        Attached, Created, Deleted, Detached, Labeled, Moved, ProjectLinked, ProjectUnlinked,
+        Published, Restored, Unlabeled,
     };
 
     connection
@@ -409,7 +410,11 @@ pub async fn undo(
                 Some(Deleted) => page::restore(connection, id, author, undid).await?,
                 Some(Published) if is_deleted => return Err(LearningError::Deleted),
                 Some(Published) => undo_revision(connection, id, &entry, author).await?,
-                Some(Moved | Labeled | Unlabeled | Attached | Detached) | None => {
+                Some(
+                    Moved | Labeled | Unlabeled | Attached | Detached | ProjectLinked
+                    | ProjectUnlinked,
+                )
+                | None => {
                     return Err(LearningError::NothingToUndo(
                         "this kind of change cannot be undone",
                     ));
@@ -584,9 +589,9 @@ fn entry_of(
         | page::HistoryKind::Labeled
         | page::HistoryKind::Unlabeled
         | page::HistoryKind::Attached
-        | page::HistoryKind::Detached => {
-            return None;
-        }
+        | page::HistoryKind::Detached
+        | page::HistoryKind::ProjectLinked
+        | page::HistoryKind::ProjectUnlinked => return None,
     };
     Some(HistoryEntry {
         id: entry.id,

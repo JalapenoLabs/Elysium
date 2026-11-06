@@ -450,6 +450,9 @@ trackers (Its writes, below), and its tabs on the project's page.
   - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);
   - **a promise**: one segmenting found on its project, or one whose work just finished (Follow-ups, below); a promise
     waits once however often it is woken for meanwhile.
+
+  Linking a page to its project wakes nothing, since nothing has to happen because of a link and a wake spends a turn:
+  every turn's prompt names the project's docs, so the next turn finds it, and a person who wants it read says so.
 - **Debounced and coalesced.** The dispatcher (`project_managers::dispatcher`) starts a project's turn once its wakes
   have been quiet for 30 seconds, or two minutes after the oldest arrived however busy it stays, and at once for a
   message, someone being there for the answer (`project_managers::queue`, a pure function tested alone). A turn takes
@@ -465,14 +468,16 @@ trackers (Its writes, below), and its tabs on the project's page.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
-  where its issues file (or why nowhere), and carries what woke it: each message, each record's kind, title,
+  where its issues file (or why nowhere), names the project's docs, the knowledge base pages linked to it, up to 50 of
+  them newest published first, and carries what woke it: each message, each record's kind, title,
   summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
   one. It ends with a `Summary:` line, which
   heads it; the text before it is its reply.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
-  `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
+  `manager_record` read its project's timeline, every owner's records on it, `manager_pages` and `manager_page` list and
+  read the pages linked to its project, a long one in parts, and refuse any other, `manager_batches` lists its batches,
   `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on,
   `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and

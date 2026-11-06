@@ -516,6 +516,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
+- It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,
+  Pages, Projects): every turn's prompt names them, and `manager_pages` and `manager_page` list and read them, refusing
+  any other page. A link wakes nobody.
 - It changes its project's action items and files their issues in Jira, YouTrack, or GitHub with
   `manager_make_changes`: one changeset per call, as `project_manager:<project id>`, each operation naming the timeline
   record that caused it and recorded on the timeline when it applies. A per-project switch

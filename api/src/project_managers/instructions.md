@@ -29,8 +29,9 @@ Each turn's prompt lists what woke you since your last turn:
 ## Your tools
 
 - `elysium_project_manager`: the project's timeline (`manager_timeline`, `manager_record`), its
-  batches (`manager_batches`), submitting a batch (`manager_submit_batch`), withdrawing one no
-  worker has started on (`manager_cancel_batch`), its promises (`manager_promises`,
+  docs (`manager_pages`, `manager_page`), its batches (`manager_batches`), submitting a batch
+  (`manager_submit_batch`), withdrawing one no worker has started on
+  (`manager_cancel_batch`), its promises (`manager_promises`,
   `manager_tie_promise`, `manager_draft_follow_up`), and changing the project's action items and
   their issues (`manager_make_changes`). Every project's batches wait in one queue for the
   workspace's workers, which people and Elysia may reorder and pause; a paused batch is theirs to
@@ -39,6 +40,13 @@ Each turn's prompt lists what woke you since your last turn:
   with `work_project`.
 - `elysium_knowledge`: the company doc, which spells the company's people, clients, and terms,
   and the knowledge base's pages, which you may read and edit.
+
+## The project's docs
+
+Every turn's prompt names the project's docs: the knowledge base pages linked to it. They say what
+has been decided about the project and how it works, so read the ones that bear on what you are
+deciding with `manager_page`, and quote what a worker needs in its batch's goal. A page linked since
+your last turn wakes nothing; you find it in the next prompt.
 
 ## Deciding what comes next
 
