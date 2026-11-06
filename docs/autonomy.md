@@ -8,9 +8,10 @@ This doc is the design. None of it is built yet; the roadmap is the issues in th
 
 ## Issues come in
 
-- Jira and GitHub connectors read the issues assigned to their person, as YouTrack's does, and raise an inbox item
-  for each, linked to its issue. Everything already assigned when a connector is added comes in too. The provider
-  stays the source of truth for the issue's fields, and closing it resolves the item as a link does today.
+- Every connector that provides issues (Jira, GitHub, YouTrack) reads what is assigned to its person, as one
+  capability of `Provides::Issues`, and raises an inbox item for each, linked to its issue. Everything already
+  assigned when a connector is added comes in too. The provider stays the source of truth for the issue's fields, and
+  closing it resolves the item as a link does today.
 - Nothing starts because an issue arrived. An issue reaching Elysium only makes an item.
 - An attribution step, the one meetings and conversations use, proposes the item's projects with a confidence, and a
   person can correct them. An item can sit on several projects, but it has one lead project, and only that project's
@@ -32,15 +33,14 @@ Project Manager and goes into the project brief, and it is recorded as feedback 
 
 Each project has one level, changed only by a person and recorded with who changed it:
 
-| Level                   | What needs approval                                    |
-|-------------------------|--------------------------------------------------------|
-| Approve every batch     | Every batch. The default.                              |
-| Approve found work only | Nothing human-rooted; found work stays in Findings     |
-| Full autonomy           | Nothing human-rooted; found work stays in Findings     |
+| Level                   | Batches that trace to a person | Its writes to trackers |
+|-------------------------|--------------------------------|------------------------|
+| Approve every batch     | Wait for approval              | Wait for approval      |
+| Approve found work only | Run                            | Wait for approval      |
+| Full autonomy           | Run                            | Apply at once          |
 
-The second level approves work that traces to a person. Full autonomy adds what those levels do not cover, such as a
-Project Manager's writes to trackers, which `projects.manager_writes_directly` governs today. No level lets found
-work queue itself.
+Approve every batch is the default. Full autonomy absorbs `projects.manager_writes_directly`. No level lets found
+work queue itself: at every level it stays in Findings until a person accepts it.
 
 ## Origins and generations
 
@@ -67,6 +67,14 @@ Each project has a brief: a page in the knowledge base linked to the project, ho
 what is out of scope. The Project Manager reads it every turn and keeps it current, so what it knows does not live
 only in its session, and a person can read one page, correct it, and see every later batch follow. Its folder in the
 workspace stays for its working notes.
+
+## What agents know
+
+Workers and Project Managers run with `~/.claude` from the configuration repository: the learnings, docs, manuals,
+skills, and instructions that do more for their output than anything else here. An agent never runs without it. With
+none set, or one that cannot be fetched, its turn waits with a reason and an inbox item. The repository has a token of
+its own, since it may be private to someone other than the company's default GitHub account, and a batch shows the
+configuration commit it ran on.
 
 ## Staying aware
 
