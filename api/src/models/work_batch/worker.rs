@@ -22,6 +22,7 @@ use super::{BatchState, EventKind, Slot, WorkBatch, record};
 use crate::database::schema::{work_batch_events, work_batches};
 use crate::models::project_manager;
 use crate::models::user::CODING_AGENT_USER_ID;
+use crate::runner::configuration::Checkout;
 
 /// The longest a wait's detail, matching `work_batches.waiting_detail`.
 pub const WAIT_DETAIL_MAX_CHARACTERS: usize = 4_000;
@@ -315,6 +316,27 @@ pub async fn set_session(
             .filter(work_batches::claim_token.eq(slot.token)),
     )
     .set(work_batches::worker_session_id.eq(session_id))
+    .execute(connection)
+    .await
+    .map(drop)
+}
+
+/// Records `checkout` as the configuration `slot`'s worker runs on, which the batch's page shows.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_configuration(
+    connection: &mut AsyncPgConnection,
+    slot: &Slot,
+    checkout: &Checkout,
+) -> QueryResult<()> {
+    let stored = serde_json::to_value(checkout).expect("a checkout serializes");
+    diesel::update(
+        work_batches::table
+            .find(slot.batch.id)
+            .filter(work_batches::claim_token.eq(slot.token)),
+    )
+    .set(work_batches::configuration.eq(stored))
     .execute(connection)
     .await
     .map(drop)

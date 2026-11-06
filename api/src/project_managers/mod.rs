@@ -49,6 +49,7 @@ use uuid::Uuid;
 use self::dispatcher::DispatchContext;
 use self::runner::ManagerRunner;
 use self::status::{Status, StatusInputs};
+use crate::agent_configuration::{self, Hold};
 use crate::database::Pool;
 use crate::models::action_item_link::LinkProvider;
 use crate::models::draft;
@@ -116,6 +117,8 @@ pub struct Snapshot {
     pub status: Status,
     /// How many wakes wait for its next turn.
     pub waiting: i64,
+    /// While no Project Manager may start without the configuration repository, why.
+    pub configuration_hold: Option<Hold>,
     /// Its latest turns, newest first, each with what woke it.
     pub turns: Vec<(Turn, Vec<Wake>)>,
     /// Its latest batches, newest first.
@@ -179,6 +182,7 @@ pub async fn snapshot(
         })
         .collect();
 
+    let configuration_hold = agent_configuration::current_hold(connection).await?;
     let status = status::derive(&StatusInputs {
         is_running: turns
             .first()
@@ -187,6 +191,7 @@ pub async fn snapshot(
         usage_paused_until: state
             .as_ref()
             .and_then(|manager| manager.usage_paused_until),
+        configuration_held: configuration_hold.is_some(),
         last_turn_failed: turns
             .iter()
             .find(|turn| turn.status != TurnStatus::Running)
@@ -223,6 +228,7 @@ pub async fn snapshot(
         state,
         status,
         waiting,
+        configuration_hold,
         turns,
         batches,
         promises,

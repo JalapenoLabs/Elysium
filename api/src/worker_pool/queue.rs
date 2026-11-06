@@ -10,16 +10,17 @@ use diesel_async::AsyncPgConnection;
 use uuid::Uuid;
 
 use super::order::{self, Waiting};
-use crate::models::user;
+use crate::agent_configuration::{Hold, hold};
 use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::models::worker_pool;
+use crate::models::{agent_configuration, user};
 
 /// The most waiting batches read, oldest first. A queue longer than this is far more work than
 /// the pool gets through in a day; the newest wait unread until the oldest move on.
 pub const MAX_WAITING: i64 = 1_000;
 
 /// The pool as the queue shows it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pool {
     /// How many workers run at once; `None` before an engine has looked, when an admin chose no
     /// size, since only the engine knows its CPU cores.
@@ -33,6 +34,9 @@ pub struct Pool {
     pub in_use: usize,
     /// While every Claude account is at its usage limit, when the first resets.
     pub usage_held_until: Option<DateTime<Utc>>,
+    /// While no worker may start without the configuration repository, why
+    /// (`crate::agent_configuration`).
+    pub configuration_hold: Option<Hold>,
 }
 
 /// The work queue at a moment.
@@ -58,6 +62,7 @@ pub async fn read(
     now: DateTime<Utc>,
 ) -> diesel::QueryResult<Queue> {
     let settings = user::workspace_settings(connection).await?;
+    let configuration = agent_configuration::find(connection).await?;
     let seen = worker_pool::find(connection).await?;
     let in_slots = work_batch::in_slots(connection).await?;
     let waiting = work_batch::in_states(
@@ -85,6 +90,7 @@ pub async fn read(
         usage_held_until: seen
             .and_then(|pool| pool.usage_held_until)
             .filter(|until| *until > now),
+        configuration_hold: hold(&settings, &configuration),
     };
 
     let mut by_slots: HashMap<Uuid, usize> = HashMap::new();

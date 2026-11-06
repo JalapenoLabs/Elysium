@@ -336,6 +336,25 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    agent_configuration_status (singleton) {
+        singleton -> Bool,
+        repository -> Nullable<Text>,
+        github_credential_id -> Nullable<Uuid>,
+        commit_sha -> Nullable<Text>,
+        commit_subject -> Nullable<Text>,
+        fetched_at -> Nullable<Timestamptz>,
+        skipped -> Jsonb,
+        error -> Nullable<Text>,
+        failed_at -> Nullable<Timestamptz>,
+        inbox_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     agent_guidance_versions (version) {
         version -> Int4,
         content -> Text,
@@ -1787,6 +1806,7 @@ diesel::table! {
         waiting_until -> Nullable<Timestamptz>,
         worker_report -> Nullable<Jsonb>,
         worker_log -> Text,
+        configuration -> Nullable<Jsonb>,
     }
 }
 
@@ -1849,6 +1869,7 @@ diesel::table! {
         backup_storage_location_id -> Nullable<Uuid>,
         worker_pool_size -> Nullable<Int4>,
         page_attachment_storage_location_id -> Nullable<Uuid>,
+        agent_configuration_github_credential_id -> Nullable<Uuid>,
     }
 }
 
@@ -1871,6 +1892,8 @@ diesel::joinable!(action_item_links -> token_accounts (token_account_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
+diesel::joinable!(agent_configuration_status -> action_items (inbox_item_id));
+diesel::joinable!(agent_configuration_status -> users (created_by));
 diesel::joinable!(agent_guidance_versions -> users (created_by));
 diesel::joinable!(agent_tool_grants -> users (created_by));
 diesel::joinable!(authenticator_nicknames -> users (user_id));
@@ -2036,6 +2059,7 @@ diesel::joinable!(workflow_run_events -> step_jobs (step_job_id));
 diesel::joinable!(workflow_run_events -> users (created_by));
 diesel::joinable!(workflow_run_events -> workflow_runs (run_id));
 diesel::joinable!(workflow_runs -> users (created_by));
+diesel::joinable!(workspace_settings -> github_credentials (agent_configuration_github_credential_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -2046,6 +2070,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    agent_configuration_status,
     agent_guidance_versions,
     agent_tool_grants,
     authenticator_nicknames,

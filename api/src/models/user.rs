@@ -233,6 +233,8 @@ pub struct WorkspaceSettings {
     /// The git repository every agent's `~/.claude` is checked out from. See
     /// `crate::runner::configuration`.
     pub agent_configuration_repository: Option<String>,
+    /// The GitHub token that reads it; `None` reads it as anyone may.
+    pub agent_configuration_github_credential_id: Option<Uuid>,
     /// The storage location the databases are backed up to every night. See `crate::backups`.
     pub backup_storage_location_id: Option<Uuid>,
     /// How many workers run at once; `None` follows the default the engine derives from its CPU
@@ -254,6 +256,12 @@ pub struct WorkspaceSettingsChanges {
         reason = "leave as it is, clear, and set are three distinct changes"
     )]
     pub agent_configuration_repository: Option<Option<String>>,
+    /// `Some(None)` reads the repository without a token.
+    #[expect(
+        clippy::option_option,
+        reason = "leave as it is, clear, and set are three distinct changes"
+    )]
+    pub agent_configuration_github_credential_id: Option<Option<Uuid>>,
     /// `Some(None)` turns backups off.
     #[expect(
         clippy::option_option,
@@ -279,6 +287,7 @@ impl WorkspaceSettingsChanges {
         self.signup_open.is_none()
             && self.require_mfa.is_none()
             && self.agent_configuration_repository.is_none()
+            && self.agent_configuration_github_credential_id.is_none()
             && self.backup_storage_location_id.is_none()
             && self.worker_pool_size.is_none()
             && self.page_attachment_storage_location_id.is_none()
@@ -738,6 +747,8 @@ pub async fn update_workspace_settings(
                         "signupOpen": before.signup_open,
                         "requireMfa": before.require_mfa,
                         "agentConfigurationRepository": before.agent_configuration_repository,
+                        "agentConfigurationGithubCredentialId":
+                            before.agent_configuration_github_credential_id,
                         "backupStorageLocationId": before.backup_storage_location_id,
                         "workerPoolSize": before.worker_pool_size,
                         "pageAttachmentStorageLocationId": before.page_attachment_storage_location_id,
@@ -746,6 +757,8 @@ pub async fn update_workspace_settings(
                         "signupOpen": after.signup_open,
                         "requireMfa": after.require_mfa,
                         "agentConfigurationRepository": after.agent_configuration_repository,
+                        "agentConfigurationGithubCredentialId":
+                            after.agent_configuration_github_credential_id,
                         "backupStorageLocationId": after.backup_storage_location_id,
                         "workerPoolSize": after.worker_pool_size,
                         "pageAttachmentStorageLocationId": after.page_attachment_storage_location_id,
@@ -1199,6 +1212,7 @@ mod tests {
                     "signupOpen": true,
                     "requireMfa": false,
                     "agentConfigurationRepository": null,
+                    "agentConfigurationGithubCredentialId": null,
                     "backupStorageLocationId": null,
                     "workerPoolSize": null,
                     "pageAttachmentStorageLocationId": null,
@@ -1207,6 +1221,7 @@ mod tests {
                     "signupOpen": false,
                     "requireMfa": false,
                     "agentConfigurationRepository": null,
+                    "agentConfigurationGithubCredentialId": null,
                     "backupStorageLocationId": null,
                     "workerPoolSize": null,
                     "pageAttachmentStorageLocationId": null,

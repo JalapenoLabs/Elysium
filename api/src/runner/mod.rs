@@ -12,7 +12,9 @@
 //!   ([`workspace`]), never in the API's own container, as the [`workspace::AGENT_USER`]
 //!   account. `/workspace` is a volume, so repositories, sessions, and Claude's own
 //!   transcripts outlive the container. `~/.claude` is `/workspace/.claude`, fetched from the
-//!   configuration repository the agent settings name ([`configuration`]).
+//!   configuration repository the agent settings name ([`Runner::fetch_configuration`]).
+//!   Whoever runs the runner decides when: the engine's keeper (`crate::agent_configuration`)
+//!   for the shared workspace, and each worker for its own container.
 //! - **Order.** Turns of one conversation run one after another, in the order submitted;
 //!   turns of different conversations run side by side, at most [`MAX_CONCURRENT_TURNS`] at
 //!   once.
@@ -54,7 +56,7 @@ use tracing::{Level, event};
 use url::Url;
 use uuid::Uuid;
 
-use self::configuration::ConfigurationSource;
+use self::configuration::{ConfigurationSource, Fetched};
 #[cfg(test)]
 use self::credentials::ClaudeCredential;
 use self::credentials::LoadedCredentials;
@@ -475,9 +477,10 @@ impl Runner {
         true
     }
 
-    /// Brings the workspace up, kills turns a previous run left behind, and fetches
-    /// `~/.claude`. The first turn does this itself; calling it at startup moves an image
-    /// pull out of that turn's way. Once it has succeeded it does nothing.
+    /// Brings the workspace up and kills turns a previous run left behind. The first turn does
+    /// this itself; calling it at startup moves an image pull out of that turn's way. Once it
+    /// has succeeded it does nothing. It never fetches `~/.claude`, which
+    /// [`Self::fetch_configuration`] does when its caller decides.
     ///
     /// # Errors
     /// Describes what failed, for the turn that needed it.
@@ -487,32 +490,52 @@ impl Runner {
             return Ok(());
         }
         self.inner.executor.prepare().await?;
-        let repository = self.inner.configuration.load().await?;
-        self.inner
-            .executor
-            .provision_configuration(repository)
-            .await?;
         *prepared = true;
         event!(name: "runner.workspace.ready", Level::INFO, "the workspace is ready for turns");
         Ok(())
     }
 
-    /// Fetches `~/.claude` again, after the configuration repository was changed. Running
-    /// turns keep the files they started with until they read them again.
+    /// Fetches `~/.claude` from the configuration repository the settings name, with its own
+    /// token, into the workspace, preparing the workspace first. Running turns keep the files
+    /// they started with until they read them again. A workspace that does not come up, a
+    /// fetch git refuses, and a checkout that cannot be adapted are all the attempt's outcome.
     ///
     /// # Errors
-    /// Describes what failed.
-    pub async fn refresh_configuration(&self) -> anyhow::Result<()> {
-        let prepared = self.inner.prepared.lock().await;
-        if !*prepared {
-            // The next turn prepares, which fetches the new repository.
-            return Ok(());
+    /// Propagates a database error reading the settings, or a token that cannot be opened.
+    pub async fn fetch_configuration(&self) -> anyhow::Result<Fetched> {
+        let Some(repository) = self.inner.configuration.load().await? else {
+            event!(
+                name: "runner.configuration.unset",
+                Level::INFO,
+                "no configuration repository is set; nothing to fetch",
+            );
+            return Ok(Fetched::Unset);
+        };
+        let outcome = async {
+            self.prepare().await?;
+            self.inner
+                .executor
+                .provision_configuration(&repository)
+                .await
         }
-        let repository = self.inner.configuration.load().await?;
-        self.inner
-            .executor
-            .provision_configuration(repository)
-            .await
+        .await
+        .map_err(|error| format!("{error:#}"));
+        Ok(Fetched::Attempted {
+            source: repository.source(),
+            outcome,
+        })
+    }
+
+    /// The commit of the configuration repository checked out in the workspace, if any.
+    ///
+    /// # Errors
+    /// Propagates Docker's refusal.
+    pub async fn configuration_commit(&self) -> anyhow::Result<Option<String>> {
+        match &self.inner.executor {
+            Executor::Workspace(workspace) => configuration::checked_out(workspace).await,
+            #[cfg(test)]
+            Executor::Fake(_fake) => Ok(None),
+        }
     }
 
     /// Kills every turn and waits briefly for them to report it. Called once, by the server
@@ -579,12 +602,12 @@ impl Executor {
 
     async fn provision_configuration(
         &self,
-        repository: Option<configuration::ConfigurationRepository>,
-    ) -> anyhow::Result<()> {
+        repository: &configuration::ConfigurationRepository,
+    ) -> anyhow::Result<configuration::Checkout> {
         match self {
             Self::Workspace(workspace) => configuration::provision(workspace, repository).await,
             #[cfg(test)]
-            Self::Fake(_fake) => Ok(()),
+            Self::Fake(_fake) => anyhow::bail!("the fake workspace fetches no configuration"),
         }
     }
 }

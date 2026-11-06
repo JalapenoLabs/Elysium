@@ -1,10 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `PATCH /api/v1/workspace-settings`: open or close sign-up, require an authenticator app of
-//! everyone, name the repository agents' `~/.claude` comes from, or size the worker pool.
+//! everyone, name the repository agents' `~/.claude` comes from and the GitHub token that reads
+//! it, or size the worker pool.
 //!
-//! A changed repository is fetched into the workspace in the background; a fetch that fails
-//! is logged, and the next turn's preparation reports it to whoever started the turn.
+//! A changed repository or token is fetched into the workspace by the engine at once
+//! (`crate::agent_configuration::keeper`), which is the check: the settings page shows the
+//! commit it fetched and when, or why it could not, as the engine announces it.
 
 use anyhow::Context;
 use axum::Json;
@@ -13,12 +15,15 @@ use axum::extract::rejection::JsonRejection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use url::Url;
+use uuid::Uuid;
 
 use super::WorkspaceSettingsResponse;
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
 use crate::models::user::{self, WorkspaceSettingsChanges};
+use crate::models::{agent_configuration, github_credential};
 use crate::realtime::{ServerEvent, Signal};
+use crate::runner::configuration::TOKEN_HOST;
 use crate::state::AppState;
 
 /// The longest repository URL kept, as the column's check allows.
@@ -38,6 +43,14 @@ pub struct RequestBody {
         reason = "absent, null, and a URL are three distinct requests"
     )]
     agent_configuration_repository: Option<Option<String>>,
+    /// Absent leaves it, `null` reads the repository without a token, and an id chooses that
+    /// GitHub token, for a github.com repository alone.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[expect(
+        clippy::option_option,
+        reason = "absent, null, and an id are three distinct requests"
+    )]
+    agent_configuration_github_credential_id: Option<Option<Uuid>>,
     /// Absent leaves it, `null` follows the default, and a whole number of at least one sets it.
     #[serde(default, with = "::serde_with::rust::double_option")]
     #[expect(
@@ -57,31 +70,46 @@ pub async fn handle(
         .agent_configuration_repository
         .map(|repository| repository.map(|url| validate_repository(&url)).transpose())
         .transpose()?;
-    let repository_changes = repository.is_some();
+    let configuration_changes =
+        repository.is_some() || body.agent_configuration_github_credential_id.is_some();
     if body.worker_pool_size.flatten().is_some_and(|size| size < 1) {
         return Err(ApiError::BadRequest(
             "workerPoolSize must be at least one worker".to_owned(),
         ));
     }
     let pool_changes = body.worker_pool_size.is_some();
-    let changes = WorkspaceSettingsChanges {
-        signup_open: body.signup_open,
-        require_mfa: body.require_mfa,
-        agent_configuration_repository: repository,
-        worker_pool_size: body.worker_pool_size,
-        ..WorkspaceSettingsChanges::default()
-    };
-
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
+    if configuration_changes {
+        let current = user::workspace_settings(&mut connection).await?;
+        check_token_choice(
+            &mut connection,
+            repository
+                .clone()
+                .unwrap_or(current.agent_configuration_repository),
+            body.agent_configuration_github_credential_id
+                .unwrap_or(current.agent_configuration_github_credential_id),
+        )
+        .await?;
+    }
+    let changes = WorkspaceSettingsChanges {
+        signup_open: body.signup_open,
+        require_mfa: body.require_mfa,
+        agent_configuration_repository: repository,
+        agent_configuration_github_credential_id: body.agent_configuration_github_credential_id,
+        worker_pool_size: body.worker_pool_size,
+        ..WorkspaceSettingsChanges::default()
+    };
     let settings = user::update_workspace_settings(&mut connection, changes, admin.id()).await?;
+    let status = agent_configuration::find(&mut connection).await?;
     drop(connection);
 
-    if repository_changes {
-        // The runner is the engine's; it fetches the new repository into the workspace.
+    if configuration_changes {
+        // The engine fetches the repository with its token into the workspace, and records how
+        // it went; until then workers and Project Managers wait.
         state.events.signal(&Signal::AgentConfiguration);
     }
     if pool_changes {
@@ -90,7 +118,7 @@ pub async fn handle(
         state.events.publish(&ServerEvent::WorkerPoolChanged);
     }
 
-    let response = WorkspaceSettingsResponse::from(settings);
+    let response = WorkspaceSettingsResponse::new(settings, &status);
     state
         .events
         .publish(&ServerEvent::WorkspaceSettingsUpdated(response.clone()));
@@ -98,8 +126,8 @@ pub async fn handle(
 }
 
 /// Accepts an https URL with a path and no credentials, the shape the column allows. A token
-/// in the URL would be stored in the clear and shown to every admin; the default GitHub token
-/// is used instead.
+/// in the URL would be stored in the clear and shown to every admin; the token chosen beside it
+/// is sealed instead.
 fn validate_repository(raw: &str) -> Result<String, ApiError> {
     let trimmed = raw.trim();
     let refuse =
@@ -113,13 +141,42 @@ fn validate_repository(raw: &str) -> Result<String, ApiError> {
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err(refuse(
-            "must not carry credentials; a github.com repository is read with the default GitHub token",
+            "must not carry credentials; choose the GitHub token that reads it instead",
         ));
     }
     if url.host_str().is_none() || url.path().trim_matches('/').is_empty() {
         return Err(refuse("must name a repository"));
     }
     Ok(url.into())
+}
+
+/// Refuses a token for a repository off github.com, where a GitHub token must never be sent,
+/// and an id that names no GitHub token.
+async fn check_token_choice(
+    connection: &mut diesel_async::AsyncPgConnection,
+    repository: Option<String>,
+    github_credential_id: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let Some(id) = github_credential_id else {
+        return Ok(());
+    };
+    // With no repository the token waits for one; it is read only for github.com.
+    let off_github = repository.as_deref().is_some_and(|repository| {
+        !Url::parse(repository).is_ok_and(|url| url.host_str() == Some(TOKEN_HOST))
+    });
+    if off_github {
+        return Err(ApiError::BadRequest(
+            "agentConfigurationGithubCredentialId is only for a repository on github.com"
+                .to_owned(),
+        ));
+    }
+    match github_credential::find(connection, id).await {
+        Ok(_credential) => Ok(()),
+        Err(diesel::result::Error::NotFound) => Err(ApiError::BadRequest(
+            "agentConfigurationGithubCredentialId names no GitHub token".to_owned(),
+        )),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[cfg(test)]

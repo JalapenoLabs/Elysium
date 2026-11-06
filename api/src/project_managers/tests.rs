@@ -29,7 +29,7 @@ use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, Tim
 use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::models::work_batch::{self, BatchState, Priority};
 use crate::realtime::EventBus;
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, fetched_agent_configuration, migrated_database};
 use crate::tools::grants::Grants;
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -95,7 +95,8 @@ async fn go_quiet(connection: &mut AsyncPgConnection) {
 async fn scripted(
     outcomes: Vec<ElysiaOutcome>,
 ) -> (DispatchContext, Arc<Mutex<Script>>, AsyncPgConnection) {
-    let (url, connection) = migrated_database().await;
+    let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let database = crate::connections::connect_postgres(&url, 4)
         .await
         .expect("Postgres accepts connections");

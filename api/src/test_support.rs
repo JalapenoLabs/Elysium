@@ -72,6 +72,37 @@ pub async fn migrated_database() -> (SecretString, AsyncPgConnection) {
     (url, connection)
 }
 
+/// Names a public configuration repository and records a good fetch of it, so workers and
+/// Project Managers may start (`crate::agent_configuration`), as on any deployment set up for
+/// them. Tests of the hold itself leave this out.
+pub async fn fetched_agent_configuration(connection: &mut AsyncPgConnection) {
+    use diesel::ExpressionMethods;
+
+    use crate::database::schema::workspace_settings;
+    use crate::runner::configuration::{Checkout, Source};
+
+    let repository = "https://github.com/acme/agents".to_owned();
+    diesel::update(workspace_settings::table)
+        .set(workspace_settings::agent_configuration_repository.eq(&repository))
+        .execute(connection)
+        .await
+        .expect("the repository is named");
+    let source = Source {
+        repository: repository.clone(),
+        github_credential_id: None,
+    };
+    let checkout = Checkout {
+        repository,
+        commit: "611c46a583443c3a8dd4caad4a89dffa964add43".to_owned(),
+        subject: "Agents' configuration".to_owned(),
+        fetched_at: chrono::Utc::now(),
+        skipped: Vec::new(),
+    };
+    crate::models::agent_configuration::record_fetched(connection, &source, &checkout)
+        .await
+        .expect("the fetch is recorded");
+}
+
 /// A cipher under a fresh random key.
 pub fn cipher() -> Cipher {
     Cipher::from_base64_key(&SecretString::from(generate_key())).expect("generated keys are valid")

@@ -13,7 +13,10 @@
 //!    which the work queue's page shows (`crate::models::worker_pool`);
 //! 3. reads the queue ([`super::queue`]) and, when the pool is over its size, takes back the slots
 //!    handed out last that no worker has started on;
-//! 4. unless a usage limit holds the pool, hands each free slot to the next batch in order.
+//! 4. unless the configuration repository or a usage limit holds the pool, hands each free slot
+//!    to the next batch in order. No worker starts without the configuration repository
+//!    (`crate::agent_configuration`), so while it holds the pool batches wait queued, holding no
+//!    slot, and the one inbox item saying why is raised once any wait.
 //!
 //! After each look the workers (`super::worker`) look too: a worker for every slot held, none
 //! for a slot lost, each at the pool's CPU share.
@@ -31,6 +34,7 @@ use uuid::Uuid;
 
 use super::queue;
 use super::worker::Workers;
+use crate::agent_configuration;
 use crate::database::Pool;
 use crate::models::work_batch::{self, BatchState, Slot};
 use crate::models::worker_pool;
@@ -153,6 +157,28 @@ impl Scheduler {
                 waiting.pool.in_use - size,
             )
             .await?;
+            return Ok(next_due);
+        }
+        if let Some(hold) = &waiting.pool.configuration_hold {
+            if !waiting.next.is_empty() {
+                // One item, however many batches wait; the person reads why there.
+                if let Err(error) =
+                    agent_configuration::raise_hold(&mut connection, &self.events, hold).await
+                {
+                    event!(
+                        name: "worker_pool.configuration_hold.raise_failure",
+                        Level::WARN,
+                        error.message = %format!("{error:#}"),
+                        "could not raise the inbox item for batches the configuration holds back",
+                    );
+                }
+            }
+            event!(
+                name: "worker_pool.configuration_held",
+                Level::DEBUG,
+                hold = ?hold,
+                "no worker starts without the configuration repository; no slot is handed out",
+            );
             return Ok(next_due);
         }
         if let Some(resets_at) = usage_held_until {

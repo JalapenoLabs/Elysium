@@ -73,6 +73,9 @@ pub struct BatchResponse {
     waiting_detail: Option<String>,
     /// When its worker looks again, unless a question is answered first.
     waiting_until: Option<DateTime<Utc>>,
+    /// The configuration its worker runs on, once its container fetched it: `{ repository,
+    /// commit, subject, fetchedAt, skipped: [{ kind, name, reason, detail? }] }`.
+    configuration: Option<Value>,
 }
 
 impl From<WorkBatch> for BatchResponse {
@@ -99,6 +102,7 @@ impl From<WorkBatch> for BatchResponse {
             waiting_on: batch.waiting_on,
             waiting_detail: batch.waiting_detail,
             waiting_until: batch.waiting_until,
+            configuration: batch.configuration,
         }
     }
 }
@@ -109,7 +113,7 @@ impl From<WorkBatch> for BatchResponse {
 pub struct BatchEventResponse {
     id: Uuid,
     /// `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`,
-    /// `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished`.
+    /// `assigned`, `unassigned`, `started`, `requeued`, `waiting`, `answered`, or `finished`.
     kind: String,
     data: Value,
     created_by: Uuid,
