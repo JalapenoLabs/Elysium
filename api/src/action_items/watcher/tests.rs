@@ -12,7 +12,7 @@ use crate::action_items::links::tests::{
     DONE, FakeJiraIssue, JIRA_ACCOUNT_ID, LinkFixture, REPOSITORY,
 };
 use crate::github::fake::{FakeIssue, LOGIN};
-use crate::models::action_item::{ActionItemChanges, ActionItemPriority, Owner};
+use crate::models::action_item::{ActionItemChanges, ActionItemPriority};
 use crate::models::action_item_event::list_for_item;
 use crate::models::action_item_link::Claim;
 use crate::models::initiative::NewInitiative;
@@ -841,7 +841,8 @@ async fn the_cursor_survives_a_restart() {
         .received()
         .into_iter()
         .rev()
-        .find(|request| request.path.ends_with("/issues"))
+        // The repository's listing, not the one of what is assigned to the token's account.
+        .find(|request| request.path == format!("/repos/{REPOSITORY}/issues"))
         .expect("a listing");
     let since = url::form_urlencoded::parse(listing.query.as_bytes())
         .find(|(key, _value)| key == "since")

@@ -747,6 +747,7 @@ async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() 
         &NewGithubCredential {
             created_by: TEST_PERSON_ID,
             name: "Personal".to_owned(),
+            connector_content: serde_json::json!({ "repositories": "*" }),
             verified: github_credential::VerifiedToken {
                 kind: GithubTokenKind::Classic,
                 token: SecretString::from("ghp_token"),

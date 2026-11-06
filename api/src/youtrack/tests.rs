@@ -279,7 +279,18 @@ async fn issues(
             .map(|(_key, value)| value.clone())
             .unwrap_or_default()
     };
-    let text = parameter("query");
+    // `for: me` asks for the token's user's issues, and `#Unresolved` for unresolved ones; what is
+    // left names projects or issues.
+    let asked = parameter("query");
+    let for_me = asked.contains("for: me");
+    let unresolved_only = asked.contains("#Unresolved");
+    let text = asked
+        .replace(" for: me", "")
+        .replace("for: me", "")
+        .replace(" #Unresolved", "")
+        .replace("#Unresolved", "")
+        .trim()
+        .to_owned();
     let skip: usize = parameter("$skip").parse().unwrap_or(0);
     let top: usize = parameter("$top").parse().unwrap_or(42);
     let listed = |prefix: &str| -> Option<Vec<String>> {
@@ -309,6 +320,8 @@ async fn issues(
                 .is_none_or(|names| names.contains(&issue.project))
         })
         .filter(|issue| keys.as_ref().is_none_or(|keys| keys.contains(&issue.key)))
+        .filter(|issue| !for_me || issue.assignee.as_deref() == Some(ME))
+        .filter(|issue| !unresolved_only || !issue.is_resolved())
         .skip(skip)
         .take(top)
         .map(issue_json)

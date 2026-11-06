@@ -9,7 +9,9 @@
 //! an `event` turn is still queued, a new batch joins it instead of queueing another.
 //!
 //! What she ignores: her own changes (actor `elysia`), what coding agents do (they report
-//! through their own sessions), and anything a person did that is not new work or a note. A
+//! through their own sessions), an issue arriving (the item and link an issue connector's
+//! watcher makes for it, since nothing starts because an issue arrived), and anything a person
+//! did that is not new work or a note. A
 //! `resync`, meaning changes may have been lost on the way, always reaches her.
 
 use std::time::Duration;
@@ -23,6 +25,7 @@ use uuid::Uuid;
 
 use super::trigger;
 use crate::connectors::ConnectorKind;
+use crate::connectors::kinds::{self, Provides};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn};
 use crate::models::user::SYSTEM_USER_ID;
@@ -103,7 +106,14 @@ fn history_is_relevant(data: &Value) -> bool {
             && ConnectorKind::BROWSER_READ
                 .iter()
                 .any(|browser_read| browser_read.as_str() == watched);
-        return !raised_for_a_message;
+        // An issue reaching Elysium, whether assigned to its person or a container's child, only
+        // makes an item linked to it (`crate::action_items::assigned`): nothing starts because
+        // it arrived, so she is not woken by it.
+        let an_issue_arrived = matches!(kind, "created" | "link_added")
+            && kinds::providing(Provides::Issues)
+                .iter()
+                .any(|issue_kind| issue_kind.as_str() == watched);
+        return !raised_for_a_message && !an_issue_arrived;
     }
     PERSON_KINDS.contains(&kind)
 }
@@ -305,12 +315,30 @@ mod tests {
         // What the other watchers record, and a later change to a message's item, still are.
         for (actor, kind) in [
             ("watcher:confluence", "created"),
-            ("watcher:youtrack", "created"),
             ("watcher:jira", "state_changed"),
             ("watcher:slack", "state_changed"),
         ] {
             let change = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
             assert!(classify(&change).is_some(), "{actor} {kind}");
+        }
+    }
+
+    #[test]
+    fn an_issue_arriving_wakes_her_for_nothing_but_what_happens_to_it_later_does() {
+        // The item an assigned issue raises, and its link, start nothing.
+        for actor in ["watcher:jira", "watcher:github", "watcher:youtrack"] {
+            for kind in ["created", "link_added"] {
+                let arrived = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
+                assert!(classify(&arrived).is_none(), "{actor} {kind}");
+            }
+        }
+        // The issue closing, or its person being unassigned, are news.
+        for kind in ["state_changed", "unassigned"] {
+            let later = bus(
+                "history.appended",
+                &json!({ "actor": "watcher:jira", "kind": kind }),
+            );
+            assert!(classify(&later).is_some(), "{kind}");
         }
     }
 

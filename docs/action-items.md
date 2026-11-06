@@ -139,6 +139,7 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `comment_deleted`    | `{ commentId, body }`, so it can be put back    |
 | `project_added`, `project_removed` | `{ projectId }`                   |
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
+| `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
 
 Kinds and actors are stored as text rather than enums, so later stages add kinds without an enum migration. Only a
 comment's author edits or deletes it: the user cannot rewrite what Elysia or an agent said. The one exception is undoing
@@ -333,6 +334,10 @@ How the watcher reads:
   landed, is not read as news.
 - A primary link's assignee changing moves the item's owner, with the watcher as the actor. Only a change moves it, so
   an owner the user set by hand stays until the assignee changes again.
+- A linked issue the user was assigned being unassigned, or given to someone else, leaves the item where it is and says
+  so: `unassigned` is recorded in its history, naming who has it now, and the item page shows it. Whether the work is
+  still the user's is theirs to decide.
+- Each pass also brings in the issues assigned to every issue connector's person ([Assigned issues](#assigned-issues)).
 - A credential that cannot be read records why on its cursor and is read again from the same point next pass; a
   container that cannot be read records why on itself. Neither stops the rest of the pass.
 - The watcher runs in the engine (`docs/engine.md`). It stops with the engine's shutdown token, and the engine awaits it
@@ -365,6 +370,49 @@ links to that choice under Settings, Jira (`docs/frontend.md`).
 
 Notification emails from Jira and GitHub about a linked issue are matched to that issue's item rather than becoming
 items of their own. That is on the roadmap.
+
+## Assigned issues
+
+Every connector that provides issues (Jira, GitHub, YouTrack, `docs/connectors.md`) brings in what is assigned to its
+person, as one capability of `Provides::Issues`: a kind that declares it, and names its link provider in
+`kinds::link_provider` (a test fails when it does not), gets this with nothing else to build. The code is
+`api/src/action_items/assigned.rs`, run by the watcher on each pass for every active issue connector's account.
+
+- **What is read.** Every open issue assigned to the connector's account, through its link provider's `assigned`,
+  bounded by the connector's content: Jira by its account's allowlist (`docs/jira.md`), GitHub by the repositories it
+  chose (`docs/github.md`, Assigned issues), YouTrack by the projects it chose. Pull requests are left out. Each issue
+  is checked again on the way back, so one the provider lists loosely, not open or not the person's, brings nothing in.
+- **What it makes.** Each issue the connector has not brought in before raises one inbox item, owned by the user,
+  titled as the issue, starting from its priority and due date, in no project, with the issue linked as its primary
+  through the connector's account. It is recorded as the watcher of its service (`watcher:jira`), as ingest raises
+  items: like the link watcher, it records what already happened in a provider. From then on the link is followed like
+  any other: the issue closing resolves the item, and its being unassigned is recorded on it (Links and the watcher).
+- **Everything comes in.** The first read brings in everything already assigned, unlike a mailbox's, which records its
+  backlog without raising anything: an assigned issue is owed work however old it is.
+- **Never twice.** `assigned_issues` (`docs/database.md`) keeps one row per connector and issue, written in the same
+  transaction as the item and its link, and an issue is linked once per account. So an issue never raises a second
+  item: not on the next pass, nor after a restart, nor when two engines read at once (the second's transaction is
+  refused and writes nothing), nor once its item was dismissed, deleted, or unlinked from it. One already linked by
+  hand through the same account raises nothing, and is recorded as brought in, naming its item. Matching is per
+  account, by the issue's own id: Jira and YouTrack ids and keys repeat across sites, so a match by key alone could
+  join two different issues. So an issue linked by hand through another account of the same provider comes in as an
+  item of its own.
+- **Every pass reads it all.** Each pass reads the whole of what is assigned rather than what changed since a cursor, so
+  a widened content, or an issue assigned in a project just picked, comes in on the next pass with no cursor to reset.
+  A read takes at most ten pages of a hundred, most recently updated first; most people's fit in one request. Past a
+  thousand, the rest come in once they are next updated, and the pass logs that it was cut short. Items are made
+  oldest first, each in its own transaction, so the inbox lists them in the order they were last worked on. One that
+  cannot be stored is passed over, so it never holds back the rest, and the pass fails naming it, so its connector
+  shows why until it comes in.
+- **Nothing starts.** An issue arriving makes an item and nothing else. The item is in no project, so no Project
+  Manager hears of it, and Elysia's intake leaves the items and links issue kinds' watchers make alone. It waits in the
+  inbox for a person.
+- **Reported as runs.** What a pass brought in counts toward its connector's run with the changes it read, and a read
+  that fails is a failed run of the connector, YouTrack's included (`docs/connectors.md`, Sync status and activity).
+
+An issue that was dismissed stays dismissed if it is unassigned and later assigned to the person again. Removing a
+connector removes its account and the links made through it, and forgets what it brought in, so adding it again brings
+everything assigned in again as new items.
 
 ## Changesets
 

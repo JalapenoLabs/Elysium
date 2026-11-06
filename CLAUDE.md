@@ -269,8 +269,8 @@ Everything else follows these rules:
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
-  one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
-  raises an inbox item as `watcher:youtrack`. The first read records nothing.
+  a comment from someone else on their issue or mentioning them raises an inbox item as `watcher:youtrack`. The first
+  read records nothing. Its assigned issues come in through the watcher, as every issue connector's do.
 - Slack reads through its own browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
   web API with the web client's session, which never leaves the page, and only read methods. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
@@ -470,6 +470,12 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait
   (`api/src/action_items/links/`), so routes and tools never match on the provider. Every Jira call goes through the
   credential's allowlist, as the Jira routes' calls do.
+- Every connector whose kind provides issues (Jira, GitHub, YouTrack) brings in what is assigned to its person on each
+  watcher pass, bounded by its content (the Jira allowlist, chosen repositories, chosen projects): every open assigned
+  issue, the first read included, raises one inbox item as `watcher:<service>`, linked to it as its primary, in no
+  project, and starts nothing. `assigned_issues` keeps one row per connector and issue, so none raises a second. Being
+  unassigned leaves the item and records `unassigned` on it. A new issue kind gets this by declaring
+  `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`, Assigned issues.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
 - Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own

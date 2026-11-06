@@ -15,6 +15,7 @@ use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::connectors::ConnectorKind;
@@ -77,6 +78,8 @@ pub struct NewGithubCredential {
     pub verified: VerifiedToken,
     /// Who is creating it.
     pub created_by: Uuid,
+    /// What the GitHub connector it carries reads (`crate::connectors::kinds::github::Content`).
+    pub connector_content: Value,
 }
 
 /// A partial update. `None` leaves a column untouched. A token always arrives with what
@@ -189,7 +192,8 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<G
         .await
 }
 
-/// Seals the token and inserts the credential with a new `UUIDv7` id.
+/// Seals the token and inserts the credential with a new `UUIDv7` id, with the GitHub connector
+/// it carries.
 ///
 /// # Errors
 /// Propagates database errors, including a unique violation on `name`.
@@ -216,6 +220,7 @@ pub async fn create(
     };
 
     let created_by = new_credential.created_by;
+    let connector_content = new_credential.connector_content.clone();
     connection
         .transaction(async move |connection| {
             let credential = diesel::insert_into(github_credentials::table)
@@ -225,15 +230,13 @@ pub async fn create(
                 .await?;
             // Every GitHub account carries its GitHub connector, where its reading is shown,
             // checked, and paused. See `crate::connectors`.
-            connector::create(
-                connection,
-                NewConnector::new(
-                    ConnectorKind::Github.as_str(),
-                    AccountRef::Github(id),
-                    created_by,
-                ),
-            )
-            .await?;
+            let mut new_connector = NewConnector::new(
+                ConnectorKind::Github.as_str(),
+                AccountRef::Github(id),
+                created_by,
+            );
+            new_connector.content = connector_content;
+            connector::create(connection, new_connector).await?;
             Ok(credential)
         })
         .await
@@ -395,6 +398,7 @@ mod tests {
         NewGithubCredential {
             created_by: TEST_PERSON_ID,
             name: name.to_owned(),
+            connector_content: serde_json::json!({ "repositories": "*" }),
             verified: verified(login, &["repo", "read:org"]),
         }
     }

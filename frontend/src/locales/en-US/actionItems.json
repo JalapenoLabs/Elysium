@@ -146,6 +146,8 @@
     "commentWriteCancelled": "stopped trying to post a comment to {{key}}",
     "issueFilingCancelled": "stopped trying to file its issue in {{provider}} {{destination}}",
     "pullRequestClosed": "{{key}} closed without merging",
+    "unassigned": "{{key}} is no longer assigned to you",
+    "reassigned": "{{key}} was assigned to {{assignee}} instead of you",
     "containerLinked": "linked {{key}}",
     "containerUnlinked": "unlinked {{key}}",
     "unknownKind": "recorded {{kind}}",

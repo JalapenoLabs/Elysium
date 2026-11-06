@@ -15,6 +15,10 @@
 //! Jira call, GitHub's fixed host every GitHub call, and a YouTrack account's own site every
 //! YouTrack call.
 //!
+//! A provider also answers the open issues assigned to a credential's own account
+//! ([`Provider::assigned`]), bounded by the content of the connector the credential is, which
+//! `crate::action_items::assigned` brings in as inbox items.
+//!
 //! What a provider's change does to an item is decided in [`rules`], without a database or
 //! a provider, so each case in the design is a plain test.
 
@@ -31,6 +35,7 @@ use std::sync::Arc;
 use chrono::{DateTime, NaiveDate, Utc};
 use futures_util::future::BoxFuture;
 use serde::Serialize;
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::crypto::Cipher;
@@ -86,6 +91,16 @@ impl Remote {
         }
     }
 
+    /// The title an item created from the thing starts with: the thing's own, or its key when
+    /// it has none, cut to what an item holds.
+    pub fn item_title(&self) -> String {
+        let title = self.title.trim();
+        if title.is_empty() {
+            return self.key.clone();
+        }
+        title.chars().take(ITEM_TITLE_MAX_CHARACTERS).collect()
+    }
+
     /// The priority an item created from the thing starts with. Never synced afterwards: the
     /// item's priority is the item's own.
     pub fn starting_priority(&self) -> ActionItemPriority {
@@ -107,6 +122,9 @@ impl Remote {
             .map(|moment| moment.and_utc())
     }
 }
+
+/// The longest title an item created from a linked thing starts with, matching the items table.
+const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 
 /// Jira's and YouTrack's default priority names, and the ones common schemes add, as an item's
 /// priority. A name not listed, such as YouTrack's `Normal`, starts the item at `normal`.
@@ -140,6 +158,15 @@ pub struct Children {
     pub items: Vec<Remote>,
     /// The container held more than were read, so a child missing from `items` may still be
     /// in it.
+    pub truncated: bool,
+}
+
+/// The open issues assigned to a credential's own account, as many as one read takes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AssignedIssues {
+    /// Most recently updated first, so a read cut short keeps the issues being worked on.
+    pub items: Vec<Remote>,
+    /// More were assigned than one read takes; the rest come in as they are next updated.
     pub truncated: bool,
 }
 
@@ -289,6 +316,16 @@ pub trait Provider: Send + Sync {
         &'call self,
         container: &'call InitiativeLink,
     ) -> BoxFuture<'call, Result<Children, LinkError>>;
+
+    /// The open issues assigned to the credential's own account, most recently updated first,
+    /// bounded by `content`, the credential's connector's: Jira by the credential's allowlist,
+    /// GitHub by the repositories it chose, YouTrack by the projects it chose. Pull requests are
+    /// left out: the issues they fix are the work.
+    fn assigned<'call>(
+        &'call self,
+        credential_id: Uuid,
+        content: &'call Value,
+    ) -> BoxFuture<'call, Result<AssignedIssues, LinkError>>;
 
     /// Moves a linked issue to done, unless it is there already. The provider's current
     /// state is read first, so a retried write never moves an issue twice.

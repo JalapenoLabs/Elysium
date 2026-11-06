@@ -350,6 +350,7 @@ fn issue_json(origin: &str, repository: &str, number: u64, issue: &FakeIssue) ->
         "state": if issue.is_open { "open" } else { "closed" },
         "state_reason": issue.state_reason,
         "assignee": issue.assignee.as_ref().map(|login| json!({ "login": login })),
+        "assignees": issue.assignee.iter().map(|login| json!({ "login": login })).collect::<Vec<Value>>(),
         "updated_at": issue.updated_at,
     });
     // Only the links: whether it merged is asked of the pull request itself, since GitHub
@@ -451,6 +452,29 @@ async fn answer(
                 })
                 .collect();
             axum::Json(listed).into_response()
+        }
+
+        // What is assigned to the token's account, across every repository, as
+        // `filter=assigned` lists it.
+        (Method::GET, ["issues"]) => {
+            if parameter(&query, "filter").as_deref() != Some("assigned") {
+                return github_error(StatusCode::UNPROCESSABLE_ENTITY, "Validation Failed");
+            }
+            let open_only = parameter(&query, "state").as_deref() == Some("open");
+            let mut listed: Vec<(&(String, u64), &FakeIssue)> = state
+                .issues
+                .iter()
+                .filter(|(_key, issue)| issue.assignee.as_deref() == Some(LOGIN))
+                .filter(|(_key, issue)| !open_only || issue.is_open)
+                .collect();
+            listed.sort_by_key(|(_key, issue)| std::cmp::Reverse(issue.updated_at));
+            let issues: Vec<Value> = listed
+                .into_iter()
+                .map(|((repository, number), issue)| {
+                    issue_json(&origin, repository, *number, issue)
+                })
+                .collect();
+            axum::Json(issues).into_response()
         }
 
         (Method::GET, ["repos", owner, name, "issues"]) => {

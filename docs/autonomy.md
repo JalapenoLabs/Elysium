@@ -4,15 +4,17 @@ Elysium does the work and its person stays the architect: they set direction, an
 they must, such as a message to send, something irreversible, or a decision about direction. Trust is earned, so
 autonomy is a dial a person turns per project, and no setting lets work feed itself.
 
-This doc is the design. None of it is built yet; the roadmap is the issues in the Autonomy milestone.
+This doc is the design. What is built says so; the rest is the roadmap, the issues in the Autonomy milestone.
 
 ## Issues come in
 
-- Every connector that provides issues (Jira, GitHub, YouTrack) reads what is assigned to its person, as one
+- Built: every connector that provides issues (Jira, GitHub, YouTrack) reads what is assigned to its person, as one
   capability of `Provides::Issues`, and raises an inbox item for each, linked to its issue. Everything already
-  assigned when a connector is added comes in too. The provider stays the source of truth for the issue's fields, and
-  closing it resolves the item as a link does today.
-- Nothing starts because an issue arrived. An issue reaching Elysium only makes an item.
+  assigned when a connector is added comes in too. The provider stays the source of truth for the issue's fields;
+  closing it resolves the item, and being unassigned leaves the item and says so. See `docs/action-items.md`,
+  Assigned issues.
+- Built: nothing starts because an issue arrived. An issue reaching Elysium only makes an item, in no project, which
+  wakes neither a Project Manager nor Elysia.
 - An attribution step, the one meetings and conversations use, proposes the item's projects with a confidence, and a
   person can correct them. An item can sit on several projects, but it has one lead project, and only that project's
   Project Manager works it, one batch at a time.

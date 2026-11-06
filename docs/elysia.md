@@ -122,10 +122,12 @@ A turn records what started it in `trigger_kind`, text so later sources add kind
 
 The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
 
-- every action item and initiative history entry the watcher records (`watcher:<provider>`): what changed in Jira or
-  GitHub, and what Confluence and YouTrack raised, but not the inbox item a Slack, Teams, or mail message raises
+- every action item and initiative history entry the watcher records (`watcher:<provider>`): what changed in Jira,
+  GitHub, or YouTrack, and what Confluence raised, but not the inbox item a Slack, Teams, or mail message raises
   (`created` by `watcher:slack`, `watcher:teams`, `watcher:outlook`, or `watcher:gmail`), since that message's
-  conversation run handles it;
+  conversation run handles it, nor an issue arriving (`created` and `link_added` by the watcher of a kind that provides
+  issues: an assigned issue, or a container's child), since nothing starts because an issue arrived
+  (`docs/action-items.md`, Assigned issues);
 - a person creating an item or commenting on one;
 - a decision on a changeset she proposed;
 - `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them, except a message that joined a

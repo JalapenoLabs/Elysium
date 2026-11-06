@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Links through a Jira Cloud credential: issues on items, and epics or saved filters as
-//! initiatives' containers.
+//! Links through a Jira Cloud credential: issues on items, epics or saved filters as
+//! initiatives' containers, and the open issues assigned to the credential's account, which come
+//! in as items.
 //!
 //! Every call goes through the credential's allowlist, the same way the Jira routes do:
 //! an issue by key through `allowed_issue`, which checks the key's project before the call
@@ -24,11 +25,13 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
+use serde_json::Value;
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{
-    Children, Destination, IssueToFile, LinkError, Provider, Remote, RemoteContainer, WriteOutcome,
+    AssignedIssues, Children, Destination, IssueToFile, LinkError, Provider, Remote,
+    RemoteContainer, WriteOutcome,
 };
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -59,6 +62,15 @@ const CHANGE_PAGE_LIMIT: usize = 1;
 /// A container past it is marked truncated and its children are never taken out, since a
 /// child missing from a cut short read may still be there.
 const CHILD_PAGE_LIMIT: usize = 10;
+
+/// How many pages of the person's assigned issues one read takes, so 1,000 at most, the same
+/// bound as a container's children. Past it, the least recently updated wait until they change.
+const ASSIGNED_PAGE_LIMIT: usize = 10;
+
+/// The person's open issues, the ones being worked on first. `currentUser()` is the account the
+/// credential's token belongs to, which is whose a Jira connector is.
+const ASSIGNED_JQL: &str =
+    "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
 
 /// Minutes added to every "updated since" search, so an issue updated in the moment the
 /// cursor was taken, or while Jira's clock and Elysium's disagree a little, is read again
@@ -239,6 +251,20 @@ impl JiraProvider {
         let mut children = self.search(&stored, &conditions, CHILD_PAGE_LIMIT).await?;
         children.title = title;
         Ok(children)
+    }
+
+    /// The open issues assigned to the credential's own account, in the allowed projects: the
+    /// search is bounded to the allowlist like every other, so the allowlist is all a Jira
+    /// connector's content is.
+    async fn assigned(&self, credential_id: Uuid) -> Result<AssignedIssues, LinkError> {
+        let stored = self.open(credential_id).await?;
+        let found = self
+            .search(&stored, ASSIGNED_JQL, ASSIGNED_PAGE_LIMIT)
+            .await?;
+        Ok(AssignedIssues {
+            items: found.items,
+            truncated: found.truncated,
+        })
     }
 
     async fn close(&self, link: &ActionItemLink) -> Result<WriteOutcome, LinkError> {
@@ -617,6 +643,14 @@ impl Provider for JiraProvider {
         container: &'call InitiativeLink,
     ) -> BoxFuture<'call, Result<Children, LinkError>> {
         Self::children(self, container).boxed()
+    }
+
+    fn assigned<'call>(
+        &'call self,
+        credential_id: Uuid,
+        _content: &'call Value,
+    ) -> BoxFuture<'call, Result<AssignedIssues, LinkError>> {
+        Self::assigned(self, credential_id).boxed()
     }
 
     fn close<'call>(
