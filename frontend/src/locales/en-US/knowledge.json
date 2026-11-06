@@ -86,6 +86,8 @@
         "unlabeled": "{{who}} removed the label {{label}}",
         "attached": "{{who}} attached {{name}}",
         "detached": "{{who}} removed the attachment {{name}}",
+        "projectLinked": "{{who}} linked this page to {{project}}",
+        "projectUnlinked": "{{who}} took this page off {{project}}",
         "changed": "{{who}} changed this page"
       },
       "toasts": {
@@ -176,6 +178,17 @@
       "seeAgain": "See what changed",
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
     }
+  },
+  "projectLinks": {
+    "label": "Projects",
+    "add": "Add to project",
+    "noneToAdd": "No projects to add",
+    "remove": "Take off {{project}}",
+    "unknownProject": "A project",
+    "linked": "Linked {{page}} to {{project}}",
+    "unlinked": "Took {{page}} off {{project}}",
+    "linkFailed": "The page wasn't linked",
+    "unlinkFailed": "The page wasn't taken off the project"
   },
   "labels": {
     "label": "Labels",

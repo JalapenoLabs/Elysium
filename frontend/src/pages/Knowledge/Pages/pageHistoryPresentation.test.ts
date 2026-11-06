@@ -125,6 +125,25 @@ describe('describePageHistory', () => {
     expect(describeOne({ kind: 'labeled', data: {}}).sentence).toBe('changed')
   })
 
+  it('names the project a change linked or took it off, as it was called then', () => {
+    const data = { projectId: 'launch', projectName: 'Launch' }
+
+    expect(describeOne({ kind: 'project_linked', data })).toMatchObject({
+      sentence: 'projectLinked',
+      project: 'Launch',
+      version: null,
+    })
+    expect(describeOne({ kind: 'project_unlinked', data })).toMatchObject({
+      sentence: 'projectUnlinked',
+      project: 'Launch',
+      version: null,
+    })
+  })
+
+  it('reads a project entry of an unknown shape as a change', () => {
+    expect(describeOne({ kind: 'project_linked', data: {}}).sentence).toBe('changed')
+  })
+
   it('still reads a kind a later API writes as a change', () => {
     expect(describeOne({ kind: 'labelled', data: { label: 'Finance' }})).toMatchObject({
       sentence: 'changed',

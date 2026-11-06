@@ -265,6 +265,7 @@ export function makePageSummary(
 
 export function makePage(overrides: Partial<KnowledgePage> & Pick<KnowledgePage, 'id'>): KnowledgePage {
   return {
+    projectIds: [],
     ...makePageSummary(overrides),
     body: '',
     attachments: [],

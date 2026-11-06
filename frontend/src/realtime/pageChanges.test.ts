@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Misc
-import { pageHistoryKey, pageKey, PAGES_KEY } from '../api/routes/pageRoutes'
+import { pageHistoryKey, pageKey, PAGES_KEY, projectPagesKey } from '../api/routes/pageRoutes'
 import { PAGE_CHANGES_WINDOW_MS } from '../constants'
 import { reloadChangedPage } from './pageChanges'
 
@@ -39,11 +39,24 @@ describe('reloadChangedPage', () => {
 
     expect(mutateMock.mock.calls.map(([ key ]) => key)).toEqual([
       PAGES_KEY,
+      expect.any(Function),
       pageKey('one'),
       pageHistoryKey('one'),
       pageKey('two'),
       pageHistoryKey('two'),
     ])
+  })
+
+  it('loads the docs of whichever project a view holds, and no other key', () => {
+    reloadChangedPage('one')
+
+    vi.advanceTimersByTime(PAGE_CHANGES_WINDOW_MS)
+
+    const matchesProjectPages = mutateMock.mock.calls[1][0]
+    expect(matchesProjectPages(projectPagesKey('launch'))).toBe(true)
+    expect(matchesProjectPages('v1/projects/launch/model-settings')).toBe(false)
+    expect(matchesProjectPages('v1/projects')).toBe(false)
+    expect(matchesProjectPages(PAGES_KEY)).toBe(false)
   })
 
   it('starts over for the next burst', () => {
@@ -56,6 +69,7 @@ describe('reloadChangedPage', () => {
 
     expect(mutateMock.mock.calls.map(([ key ]) => key)).toEqual([
       PAGES_KEY,
+      expect.any(Function),
       pageKey('two'),
       pageHistoryKey('two'),
     ])

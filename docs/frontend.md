@@ -836,8 +836,8 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   cheap, and `buildPageTree` nests it (`selectPageTree`). A page's text loads when it opens (`usePageLoader`), into
   `pagesSlice`'s `openedById`. `pageLoaded` feeds both halves, so a write dispatches what it answers and the tree
   follows at once. `page.changed` carries an id and one change can touch many pages (a branch deleted, a parent's
-  children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page and
-  history a view holds: nobody fetches text for a page they do not have open.
+  children renumbered), so `reloadChangedPage` gathers a burst for 300ms, then reloads the list once and each page,
+  history, and project's docs a view holds: nobody fetches text for a page they do not have open.
 - **The tree** (`PageTree`) is React Aria's `NavigationTree`, which HeroUI does not wrap: a tree's arrow keys, a real
   link on every row, and the current page scrolled into view. Tab goes through a row's link, drag button, and menu, then
   out of the tree. `selectedRoute` marks the current row and gives its link `aria-current`. Every page is a node, open
@@ -886,7 +886,7 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 - **A page** (`KnowledgePageView`) is a standard `Page`: the breadcrumb is its path through the tree, and the title and
   path show from the tree before its text arrives. It is keyed by page, so nothing carries from one to the next. A
   page's own actions, Save, and tabs go on that `Page`. `PageArticle` lays it out top to bottom: `byline`, `labels`,
-  the text, `attachments`, `childPages`. Each is a slot that takes no space until it is given, so an old version can
+  `projects`, the text, `attachments`, `childPages`. Each is a slot that takes no space until it is given, so an old version can
   read through it with its own byline.
 - **Attachments** (`PageAttachments`, in that slot, and under the editor) list a page's files from `page.attachments`, so
   `page.changed` keeps them current with no loader of their own. `usePageAttachmentUpload` attaches one file a call and
@@ -929,6 +929,13 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   them) and adds what is typed on Enter, the API deciding what it is. A label is an action, not a field (Saving), so each
   change applies at once, away from Publish, and answers with `pageLoaded`. Taking one off offers Undo in its toast; a
   refusal is a toast with the API's reason, the text left to correct. A deleted page shows them without the controls.
+- **Projects** (`PageProjects`) fill the `projects` slot: each a chip opening that project's Docs tab
+  (`getProjectDocsUrl`), with an X, then an `AddPicker` of the projects the page is not on: a searchable list that holds
+  no value, so it reads as what it does again once one is picked, where a `ComboBox` reopens as its text clears.
+  `usePageProjectLinks` makes
+  every change, from a page or from a project's Docs tab (Projects page), so both ends answer the same: a link is an
+  action, not a field (Saving), so it applies at once, dispatches `pageLoaded`, revalidates the project's list, and offers
+  Undo in its toast, and a refusal is a toast with the API's reason. A deleted page shows them without the controls.
 - **A label's page** (`KnowledgeLabelPage`) is a `SmartTable` of the live pages carrying it, read from the tree: each
   page's link, where it sits, its other labels, and when it last changed, with search, sorting, and export in the
   titlebar. A label nothing carries any more says so, since a link to it may outlive it.
@@ -1416,9 +1423,18 @@ to the models its agents run on (see Models), Workers, a link to how its workers
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Project Manager, Work batches, and
-Promises (for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the session on
-the Coding page). Switching tabs keeps unsaved edits.
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Work batches, and
+Promises (these four for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
+session on the Coding page). A guest's tabs leave those four out of `useTabParam` too, so `?tab=docs` opens the first tab
+for them. Switching tabs keeps unsaved edits.
+
+The Docs tab (`ProjectPages`) lists the knowledge base pages linked to the project in a `SmartTable`
+(`ProjectPagesTable`): each page's link, where it sits, its labels, who last published it, and who linked it, with
+search, Columns, and export beside the `AddPicker` that links another. It offers the tree's pages not linked yet, by
+title or path, which is why the panel, and only the panel, loads the tree. A row's action takes the page off, with Undo
+in its toast (`usePageProjectLinks`, see Pages). The list is read from SWR alone (`useProjectPages`), since no other view
+shows it, by `ProjectLists` for the tab's count, and for members alone; `page.changed` revalidates it, since the event
+names no project.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
 waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): the "Write to trackers

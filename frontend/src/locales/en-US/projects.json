@@ -118,6 +118,23 @@
     "newInitiative": "New initiative",
     "initiativesEmpty": "No initiatives in this project yet."
   },
+  "docs": {
+    "tab": "Docs",
+    "label": "The project's docs",
+    "empty": "No pages are linked to this project yet.",
+    "loadError": "This project's docs can't be loaded right now.",
+    "add": "Link a page",
+    "noneToAdd": "No pages to link",
+    "unlink": "Take off this project",
+    "topOfTree": "Top of the tree",
+    "columns": {
+      "page": "Page",
+      "location": "Location",
+      "labels": "Labels",
+      "published": "Published",
+      "linked": "Linked"
+    }
+  },
   "manager": {
     "tab": "Project Manager",
     "loadError": "The Project Manager could not be loaded.",

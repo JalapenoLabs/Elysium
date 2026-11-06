@@ -24,6 +24,8 @@ export const pageHistorySentenceKeys = {
   unlabeled: 'pages.history.sentences.unlabeled',
   attached: 'pages.history.sentences.attached',
   detached: 'pages.history.sentences.detached',
+  projectLinked: 'pages.history.sentences.projectLinked',
+  projectUnlinked: 'pages.history.sentences.projectUnlinked',
   changed: 'pages.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'knowledge'>>
 
@@ -42,6 +44,8 @@ export type PageHistoryRow = {
   label: string | null
   // The file it attached or took off.
   attachment: { id: string, name: string } | null
+  // The project it was linked to or taken off, as it was called then.
+  project: string | null
 }
 
 type EntryReading = Partial<PageHistoryRow> & Pick<PageHistoryRow, 'sentence'>
@@ -117,6 +121,17 @@ function readAttachment(data: PageHistoryEntry['data'], sentence: 'attached' | '
   return { sentence, attachment: { id: data.attachmentId, name: data.name }}
 }
 
+function readProject(
+  data: PageHistoryEntry['data'],
+  sentence: 'projectLinked' | 'projectUnlinked',
+): EntryReading {
+  if (typeof data.projectName !== 'string') {
+    console.debug('A page history entry names no project', { data })
+    return { sentence: 'changed' }
+  }
+  return { sentence, project: data.projectName }
+}
+
 // `data` is whatever the API stored, in any version of it, so each kind is read defensively: entries
 // that came from learnings and the company doc hold less than a page's own.
 const readersByKind = {
@@ -137,6 +152,8 @@ const readersByKind = {
   unlabeled: (data) => readLabel(data, 'unlabeled'),
   attached: (data) => readAttachment(data, 'attached'),
   detached: (data) => readAttachment(data, 'detached'),
+  project_linked: (data) => readProject(data, 'projectLinked'),
+  project_unlinked: (data) => readProject(data, 'projectUnlinked'),
 } as const satisfies Record<
   string,
   (data: PageHistoryEntry['data'], versionByEntryId: Map<string, number>) => EntryReading
@@ -161,7 +178,16 @@ export function describePageHistory(history: PageHistoryEntry[]): PageHistoryRow
     const reading: EntryReading = isKnownKind(entry.kind)
       ? readersByKind[entry.kind](entry.data, versionByEntryId)
       : { sentence: 'changed' }
-    rows.push({ entry, version, otherVersion: null, move: null, label: null, attachment: null, ...reading })
+    rows.push({
+      entry,
+      version,
+      otherVersion: null,
+      move: null,
+      label: null,
+      attachment: null,
+      project: null,
+      ...reading,
+    })
   }
 
   return rows.reverse()

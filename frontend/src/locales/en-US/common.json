@@ -96,7 +96,8 @@
     "someone": "Someone"
   },
   "picker": {
-    "placeholder": "Choose"
+    "placeholder": "Choose",
+    "search": "Search"
   },
   "markdown": {
     "copyCode": "Copy code",

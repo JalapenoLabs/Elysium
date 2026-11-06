@@ -109,6 +109,7 @@ export function PageHistoryList(props: Props) {
             to: row.move && parentName(row.move.toParentId),
             label: row.label,
             name: row.attachment?.name,
+            project: row.project,
           })}
           isPicked={version !== null && props.picked.includes(version)}
           onPickChange={canCompare && version !== null

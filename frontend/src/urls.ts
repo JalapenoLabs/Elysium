@@ -173,6 +173,8 @@ export const TAB_PARAM = 'tab'
 // What a knowledge page's History tab shows: one version read through, or two compared. They live
 // in the address, so Back returns to the list and a comparison can be linked to.
 export const PAGE_HISTORY_TAB = 'history'
+// The project's tab listing the pages linked to it.
+export const PROJECT_DOCS_TAB = 'docs'
 export const PAGE_VERSION_PARAM = 'version'
 export const PAGE_COMPARE_FROM_PARAM = 'from'
 export const PAGE_COMPARE_TO_PARAM = 'to'
@@ -222,6 +224,10 @@ export function getNewInitiativeUrl(projectId: string) {
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getProjectDocsUrl(projectId: string) {
+  return `${getProjectViewUrl(projectId)}?${TAB_PARAM}=${PROJECT_DOCS_TAB}`
 }
 
 export function getProjectModelsUrl(projectId: string) {

@@ -17,6 +17,7 @@ type Props = {
   byline: ReactNode
   // Each of these fills its place when given, and takes no space when not.
   labels?: ReactNode
+  projects?: ReactNode
   // A learning's category and evidence, on a page that is one.
   learning?: ReactNode
   attachments?: ReactNode
@@ -32,6 +33,7 @@ export function PageArticle(props: Props) {
     <div className='relaxed flex flex-wrap items-center gap-x-3 gap-y-2'>
       {props.byline}
       {props.labels}
+      {props.projects}
     </div>
     {props.markdown && <Markdown className='relaxed' markdown={props.markdown} markedRange={props.markedRange} />}
     {!props.markdown && !props.childPages && <p className='relaxed text-sm opacity-70'>{t('pages.empty')}</p>}

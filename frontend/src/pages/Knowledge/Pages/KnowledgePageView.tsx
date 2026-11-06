@@ -23,6 +23,7 @@ import { PageAttachments } from './PageAttachments'
 import { PageByline } from './PageByline'
 import { PageHistory } from './PageHistory'
 import { PageLabels } from './PageLabels'
+import { PageProjects } from './PageProjects'
 import { RestorePageButton } from './RestorePageButton'
 
 // Misc
@@ -134,6 +135,7 @@ function KnowledgePageReader(props: Props) {
           markedRange={markedRange}
           byline={<PageByline page={page} />}
           labels={<PageLabels page={page} />}
+          projects={<PageProjects page={page} />}
           learning={page.category && page.evidence
             ? <LearningFields category={page.category} evidence={page.evidence} />
             : undefined}

@@ -54,6 +54,9 @@ export type KnowledgePage = KnowledgePageSummary & {
   evidence: string | null
   // Agents may only propose changes to it.
   proposalOnly: boolean
+  // The projects it is linked to, oldest link first. A link is no version, and changes nobody's
+  // access.
+  projectIds: string[]
   // Who published the newest version, and when.
   publishedBy: string
   publishedAt: string
@@ -63,11 +66,23 @@ export type KnowledgePage = KnowledgePageSummary & {
   createdAt: string
 }
 
+// Mirrors `ProjectPageResponse` in api/src/routes/v1/projects/list_pages.rs: a live page as the
+// project linked to it lists it.
+export type ProjectPage = KnowledgePageSummary & {
+  // Who published the newest version, and when.
+  publishedBy: string
+  publishedAt: string
+  // Who linked it to the project, and when.
+  linkedBy: string
+  linkedAt: string
+}
+
 // Mirrors `HistoryEntryResponse`: one thing that happened to a page, publishes included.
 export type PageHistoryEntry = {
   id: string
   pageId: string
-  // `created`, `published`, `moved`, `deleted`, or `restored`; a later API may write others.
+  // `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, `unlabeled`,
+  // `project_linked`, or `project_unlinked`; a later API may write others.
   kind: string
   // Who made the change, and the agent that acted for them.
   createdBy: string
@@ -116,6 +131,10 @@ export function pageKey(pageId: string) {
 
 export function pageHistoryKey(pageId: string) {
   return `${pageKey(pageId)}/history`
+}
+
+export function projectPagesKey(projectId: string) {
+  return `v1/projects/${projectId}/pages`
 }
 
 // A version never changes once written, so nothing revalidates this key.
@@ -345,4 +364,27 @@ export function choosePageAttachmentDestination(storageLocationId: string | null
   return apiClient
     .put(`${PAGE_ATTACHMENT_POLICY_KEY}/destination`, { json: { storageLocationId }})
     .json<PageAttachmentPolicyResponse>()
+}
+
+type ListProjectPagesResponse = {
+  pages: ProjectPage[]
+}
+
+// The live pages linked to a project, its docs, newest published first; members alone.
+export function listProjectPages(projectId: string) {
+  return apiClient
+    .get(projectPagesKey(projectId))
+    .json<ListProjectPagesResponse>()
+}
+
+export function linkPageToProject(pageId: string, projectId: string) {
+  return apiClient
+    .put(`${pageKey(pageId)}/projects/${projectId}`)
+    .json<GetPageResponse>()
+}
+
+export function unlinkPageFromProject(pageId: string, projectId: string) {
+  return apiClient
+    .delete(`${pageKey(pageId)}/projects/${projectId}`)
+    .json<GetPageResponse>()
 }
