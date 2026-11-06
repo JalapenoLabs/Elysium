@@ -238,6 +238,8 @@ pub struct WorkspaceSettings {
     /// How many workers run at once; `None` follows the default the engine derives from its CPU
     /// cores. See `crate::worker_pool`.
     pub worker_pool_size: Option<i32>,
+    /// The storage location new page attachments go to. See `crate::page_attachments`.
+    pub page_attachment_storage_location_id: Option<Uuid>,
 }
 
 /// A partial update of the workspace settings. `None` leaves a setting as it is.
@@ -264,6 +266,12 @@ pub struct WorkspaceSettingsChanges {
         reason = "leave as it is, follow the default, and set are three distinct changes"
     )]
     pub worker_pool_size: Option<Option<i32>>,
+    /// `Some(None)` stops taking page attachments.
+    #[expect(
+        clippy::option_option,
+        reason = "leave as it is, clear, and set are three distinct changes"
+    )]
+    pub page_attachment_storage_location_id: Option<Option<Uuid>>,
 }
 
 impl WorkspaceSettingsChanges {
@@ -273,6 +281,7 @@ impl WorkspaceSettingsChanges {
             && self.agent_configuration_repository.is_none()
             && self.backup_storage_location_id.is_none()
             && self.worker_pool_size.is_none()
+            && self.page_attachment_storage_location_id.is_none()
     }
 }
 
@@ -731,6 +740,7 @@ pub async fn update_workspace_settings(
                         "agentConfigurationRepository": before.agent_configuration_repository,
                         "backupStorageLocationId": before.backup_storage_location_id,
                         "workerPoolSize": before.worker_pool_size,
+                        "pageAttachmentStorageLocationId": before.page_attachment_storage_location_id,
                     },
                     "after": {
                         "signupOpen": after.signup_open,
@@ -738,6 +748,7 @@ pub async fn update_workspace_settings(
                         "agentConfigurationRepository": after.agent_configuration_repository,
                         "backupStorageLocationId": after.backup_storage_location_id,
                         "workerPoolSize": after.worker_pool_size,
+                        "pageAttachmentStorageLocationId": after.page_attachment_storage_location_id,
                     },
                 }),
             )
@@ -1190,6 +1201,7 @@ mod tests {
                     "agentConfigurationRepository": null,
                     "backupStorageLocationId": null,
                     "workerPoolSize": null,
+                    "pageAttachmentStorageLocationId": null,
                 },
                 "after": {
                     "signupOpen": false,
@@ -1197,6 +1209,7 @@ mod tests {
                     "agentConfigurationRepository": null,
                     "backupStorageLocationId": null,
                     "workerPoolSize": null,
+                    "pageAttachmentStorageLocationId": null,
                 },
             })]
         );

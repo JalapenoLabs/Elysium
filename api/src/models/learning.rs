@@ -385,7 +385,9 @@ pub async fn undo(
     entry_id: Uuid,
     author: Author<'_>,
 ) -> Result<Recorded, LearningError> {
-    use page::HistoryKind::{Created, Deleted, Labeled, Moved, Published, Restored, Unlabeled};
+    use page::HistoryKind::{
+        Attached, Created, Deleted, Detached, Labeled, Moved, Published, Restored, Unlabeled,
+    };
 
     connection
         .transaction(async move |connection| {
@@ -407,7 +409,7 @@ pub async fn undo(
                 Some(Deleted) => page::restore(connection, id, author, undid).await?,
                 Some(Published) if is_deleted => return Err(LearningError::Deleted),
                 Some(Published) => undo_revision(connection, id, &entry, author).await?,
-                Some(Moved | Labeled | Unlabeled) | None => {
+                Some(Moved | Labeled | Unlabeled | Attached | Detached) | None => {
                     return Err(LearningError::NothingToUndo(
                         "this kind of change cannot be undone",
                     ));
@@ -578,7 +580,11 @@ fn entry_of(
         }
         page::HistoryKind::Deleted => (HistoryKind::Deleted, entry.data.clone()),
         page::HistoryKind::Restored => (HistoryKind::Restored, entry.data.clone()),
-        page::HistoryKind::Moved | page::HistoryKind::Labeled | page::HistoryKind::Unlabeled => {
+        page::HistoryKind::Moved
+        | page::HistoryKind::Labeled
+        | page::HistoryKind::Unlabeled
+        | page::HistoryKind::Attached
+        | page::HistoryKind::Detached => {
             return None;
         }
     };
@@ -691,7 +697,7 @@ pub async fn feed(
     before: Option<Uuid>,
     limit: i64,
 ) -> QueryResult<Vec<(HistoryEntry, Learning)>> {
-    // A move and a label are a page's alone, and a limit counts only what the feed shows.
+    // Moves, labels, and files are a page's alone, and a limit counts only what the feed shows.
     let mut query = page_events::table
         .inner_join(pages::table)
         .filter(pages::category.is_not_null())
@@ -699,6 +705,8 @@ pub async fn feed(
             page::HistoryKind::Moved.as_str(),
             page::HistoryKind::Labeled.as_str(),
             page::HistoryKind::Unlabeled.as_str(),
+            page::HistoryKind::Attached.as_str(),
+            page::HistoryKind::Detached.as_str(),
         ]))
         .select((page::HistoryEntry::as_select(), Page::as_select()))
         .order(page_events::id.desc())

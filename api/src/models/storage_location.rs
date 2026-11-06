@@ -606,12 +606,22 @@ pub async fn update(
 /// while it is chosen. See `crate::backups`.
 pub const BACKUP_DESTINATION_CONSTRAINT: &str = "workspace_settings_backup_storage_location";
 
+/// The foreign key that keeps the location new page attachments go to from being deleted while it
+/// is chosen. See `crate::page_attachments`.
+pub const ATTACHMENT_DESTINATION_CONSTRAINT: &str =
+    "workspace_settings_page_attachment_storage_location";
+
+/// The foreign key that keeps a location from being deleted while page attachments are in it, which
+/// would leave them unreadable.
+pub const ATTACHMENT_FILES_CONSTRAINT: &str = "page_attachments_storage_location";
+
 /// Deletes one location. Files already written there stay with the provider.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id, and a foreign key
-/// violation while Studio items keep files there or backups go there
-/// ([`BACKUP_DESTINATION_CONSTRAINT`]).
+/// violation while Studio items or page attachments keep files there, or backups or new attachments
+/// go there ([`BACKUP_DESTINATION_CONSTRAINT`], [`ATTACHMENT_DESTINATION_CONSTRAINT`],
+/// [`ATTACHMENT_FILES_CONSTRAINT`]).
 pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
     let deleted = diesel::delete(storage_locations::table.find(id))
         .execute(connection)

@@ -149,6 +149,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learnings/{id}/restore`      | `200` `{ learning }`                                |
 | GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
 | POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
+| GET    | `/api/v1/page-attachments`            | `200` `{ policy }`: where attachments go and what a page takes; members |
+| PUT    | `/api/v1/page-attachments/destination` | `200` `{ policy }`; admins choose `storageLocationId`, or `null` to stop, after the location answers |
 | GET    | `/api/v1/pages`                       | `200` `{ pages: PageSummary[] }`, in order among their siblings; `?deleted=true` the deleted ones; members |
 | POST   | `/api/v1/pages`                       | `201` `{ page }`, as its version 1; members         |
 | GET    | `/api/v1/pages/{id}`                  | `200` `{ page }`, deleted or not; members           |
@@ -158,6 +160,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/pages/{id}/restore`          | `200` `{ page }`, with the pages its deletion took; members |
 | POST   | `/api/v1/pages/{id}/labels`           | `200` `{ page }`; puts a label on it; members       |
 | DELETE | `/api/v1/pages/{id}/labels/{label}`   | `200` `{ page }`; takes a label off it; members     |
+| POST   | `/api/v1/pages/{id}/attachments?name=` | `201` `{ attachment, page }`; the body is the file; members |
+| GET    | `/api/v1/pages/{id}/attachments/{attachmentId}/{name}` | `200` the file; members |
+| DELETE | `/api/v1/pages/{id}/attachments/{attachmentId}` | `200` `{ page }`; takes a file off it; members |
+| POST   | `/api/v1/pages/{id}/attachments/{attachmentId}/restore` | `200` `{ page }`; puts a file back; members |
 | GET    | `/api/v1/pages/{id}/history`          | `200` `{ history: PageHistoryEntry[] }`, oldest first; members |
 | GET    | `/api/v1/pages/{id}/versions`         | `200` `{ versions: PageVersionSummary[] }`, newest first; members |
 | GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
@@ -247,7 +253,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
 | PATCH  | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
-| DELETE | `/api/v1/storage-locations/{id}`      | `204`; files already saved stay with the provider   |
+| DELETE | `/api/v1/storage-locations/{id}`      | `204`; files already saved stay with the provider; `409` `backup_destination`, `attachment_destination`, or `attachment_files` while one of those holds it |
 | POST   | `/api/v1/storage-locations/{id}/test` | `200` `{ result }` from listing its directory       |
 | GET    | `/api/v1/coding-sessions`             | `200` `{ sessions: CodingSession[] }`, newest first |
 | POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; clones its repositories        |
@@ -721,7 +727,7 @@ load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
 `evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
-`publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`,
+`attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest version), `createdBy`, `createdAt`,
 `updatedAt`, and `deletedAt`. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
 `labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
@@ -729,7 +735,7 @@ the labels in use. `updatedAt` moves when a page is published, deleted, or resto
 `PageVersionSummary` has `pageId`,
 `version`, `title`, `restoredFrom`, `createdBy`, `agent`, and `createdAt`; a `PageVersion` adds `body`, `category`, and
 `evidence`. A `PageHistoryEntry` has `id`, `pageId`, `kind` (`created`, `published`, `moved`, `deleted`, `restored`,
-`labeled`, or `unlabeled`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages,
+`labeled`, `unlabeled`, `attached`, or `detached`), `createdBy`, `agent`, `data`, and `createdAt`; `data` by kind is in `docs/knowledge.md`, Pages,
 History.
 
 `POST /` takes `title` (1 to 300 characters, trimmed and its spacing collapsed), and optionally `parentId` and `body`
@@ -762,6 +768,31 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |
 | `page_label_limit`    | The page already carries 50 labels, as many as a page may                        |
 | `page_is_a_learning`  | An agent's `page_save` named a learning, or a new page directly under Learnings  |
+| `page_attachment_limit` | The page already holds 200 attachments, as many as a page may                  |
+| `attachment_no_location` | Nothing can be attached until an admin chooses a storage location           |
+
+An `Attachment` has `id`, `pageId`, `name`, `url` (the address a page's Markdown refers to it by), `sizeBytes`, `isImage`
+(whether it displays in a page; anything else is a link that downloads), `createdBy`, `agent` (`{ id, name }` or `null`),
+and `createdAt`.
+
+`POST /{id}/attachments?name=<file name>` takes the file as its body, with its `Content-Length`, which it needs before
+a byte moves, and whatever `Content-Type` it was sent with: what a file is comes from its name. It streams straight to the
+storage location, and has a deadline of ten minutes rather than the usual 30 seconds (`docs/security.md`, Request
+hygiene). A refused file answers `400` with a `code`, or `413` for a size, and leaves nothing with the provider:
+
+| `code`                    | When                                                                        |
+|---------------------------|-----------------------------------------------------------------------------|
+| `attachment_too_large`    | Its length is over 50 MB (`413`)                                            |
+| `attachment_empty`        | It holds nothing                                                            |
+| `attachment_name`         | Nothing is left of its name once it is cleaned                              |
+| `attachment_type`         | Its extension is not one a page takes                                       |
+| `attachment_not_an_image` | It is named as an image, and its first bytes are not that image             |
+
+`GET /{id}/attachments/{attachmentId}/{name}` finds the file by its id, whatever `{name}` says, and answers a removed
+one `404`. Its `Content-Type` and `Content-Disposition` follow `docs/security.md`, Page attachments. `DELETE` and `restore`
+record nothing for a file already removed or already back. All of these answer a deleted page's files as `GET` and
+refuse a change with `409 page_deleted`. A `Policy` from `/api/v1/page-attachments` has `destinationId`, `null` until an
+admin chooses one, `maxBytes`, and `extensions`, lowercase and without their dots.
 
 ### `/api/v1/learning-categories`
 

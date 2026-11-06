@@ -278,6 +278,28 @@ Knowledge base pages are Markdown that agents write, so the app treats them as h
 - **Highlighting.** highlight.js marks tokens with class names, and evaluates nothing and needs no WebAssembly.
   Highlighters that do (Shiki) would need `'wasm-unsafe-eval'`, and write inline styles.
 
+### Page attachments
+
+Anyone who edits a page can upload to it, an agent included, and the file is served on Elysium's own origin, so whoever
+uploads chooses every byte of something a person's browser opens there. `api/src/page_attachments.rs` holds the rules:
+
+- **Nothing the uploader says about a file is believed.** What it is comes from its extension, through a list of what
+  pages take, and the type a request or provider names is never used. HTML, scripts, and programs are not on the list.
+- **Only a proven image displays.** PNG, JPEG, GIF, and WebP are served `inline` with their own type, once their first
+  bytes match, checked as the file arrives. `<img>` runs nothing either way, and the web app's `img-src 'self'` already covers
+  them. Every other file is `Content-Disposition: attachment`, which a browser saves and never renders.
+- **SVG is bytes.** It can carry a script, so it is accepted as a file to download, served as
+  `application/octet-stream` with `attachment`, and never as an image, even in `<img>`, where `nosniff` keeps it from
+  drawing: a reference to one written by hand shows as unavailable.
+- **The second wall.** Every response under `/api` carries `nosniff` and the sandboxing policy above, so a file that
+  reached a browser some other way would still run nothing on Elysium's origin.
+- **Names.** Paths, control characters, and the invisible characters that reorder text are dropped, so `exe.gnp` cannot pass
+  as something else. The address, the provider's key, and the `filename` a browser falls back to use a plain form of
+  the name, of letters, digits, and hyphens, and `filename*` percent-encodes the real one, so no name reaches a header or
+  a key unescaped.
+- **Who reads.** `MemberUser` on every route, so a guest gets `403`, and `Cache-Control: private`, kept for an hour so a
+  page of images does not spend its rate limit, which is how long a browser that already read a removed file can keep it.
+
 Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside the same policy:
 
 - **Decoders.** Its Draco, KTX2, and Meshopt decoders are off. They load from Google's CDN and run as blob workers
@@ -303,8 +325,12 @@ API share one origin through nginx, so browsers never need a cross-origin grant.
 ## Request hygiene
 
 - 30 second handler timeout (`408`). It bounds producing the response, so the event stream, once open, is not
-  cut off.
-- 1 MiB body cap in both nginx and the API (`413`).
+  cut off. One route has its own: attaching a file to a page answers only once the storage provider has it, so it gets
+  ten minutes (`crate::middleware::request_timeout`, which names it by the pattern that matched). That is safe for that
+  route alone. nginx holds the file until it has arrived whole, so a slow client never reaches the API, and the transfer
+  to the provider ends by itself once it stops moving for 60 seconds (`docs/storage.md`, Streaming and timeouts).
+- 1 MiB body cap in both nginx and the API (`413`), with larger ones on the routes that take a file: 10 MB for a project's
+  cover, and 50 MB for a page's attachment, which streams to its provider rather than being held in memory.
 - Panics in a handler become `500` instead of dropping the connection.
 - The API container runs as an unprivileged user.
 

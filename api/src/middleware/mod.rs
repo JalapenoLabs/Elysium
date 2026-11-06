@@ -4,5 +4,6 @@
 
 pub mod cors;
 pub mod rate_limit;
+pub mod request_timeout;
 pub mod security_headers;
 pub mod trace;

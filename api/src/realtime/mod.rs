@@ -162,6 +162,10 @@ pub enum ServerEvent {
     /// load it again.
     #[serde(rename = "learningCategories.changed")]
     LearningCategoriesChanged,
+    /// An admin chose where page attachments go, which decides whether anyone can attach a file.
+    /// Nothing more: a guest hears every event and reaches no knowledge base; members load it again.
+    #[serde(rename = "pageAttachments.changed")]
+    PageAttachmentsChanged,
     /// The company doc changed, or a change to it was proposed or decided. Nothing more: the
     /// doc is one, and a guest hears every event and reaches no knowledge base; members load it
     /// again.

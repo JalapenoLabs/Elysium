@@ -23,6 +23,10 @@ pub enum ApiError {
     /// GitHub token that may not file a report.
     #[error("{message}")]
     CodedBadRequest { code: &'static str, message: String },
+    /// A body over what its route takes, such as a file too large to attach. Named by a stable
+    /// `code`, since the web app says the limit in its own words.
+    #[error("{message}")]
+    PayloadTooLarge { code: &'static str, message: String },
     /// A person past a limit the code sets, such as the reports they may file a day. Named by a
     /// stable `code`; the message says when the limit lifts.
     #[error("{message}")]
@@ -200,6 +204,15 @@ impl From<crate::models::page::PageError> for ApiError {
             PageError::TooManyLabels { .. } => (
                 "page_label_limit",
                 "this page carries as many labels as a page may; remove one first",
+            ),
+            PageError::TooManyAttachments { .. } => (
+                "page_attachment_limit",
+                "this page holds as many attachments as a page may; remove one first",
+            ),
+            PageError::NoAttachmentLocation => (
+                "attachment_no_location",
+                "no storage location is chosen for attachments; an admin chooses one in Settings, \
+                 Storage",
             ),
             refused @ (PageError::UnknownCategory { .. } | PageError::BodyOutOfBounds { .. }) => {
                 return Self::BadRequest(refused.to_string());
@@ -470,6 +483,10 @@ impl ApiError {
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, json!({ "message": message })),
             Self::CodedBadRequest { code, message } => (
                 StatusCode::BAD_REQUEST,
+                json!({ "message": message, "code": code }),
+            ),
+            Self::PayloadTooLarge { code, message } => (
+                StatusCode::PAYLOAD_TOO_LARGE,
                 json!({ "message": message, "code": code }),
             ),
             Self::TooManyRequests { code, message } => (

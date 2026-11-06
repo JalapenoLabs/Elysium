@@ -617,6 +617,29 @@ doc sections is one id with a row on each.
 | `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
 | `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment of the change                      |
 
+### `page_attachments`
+
+The files attached to pages, one row each; see `docs/knowledge.md`, Pages, Attachments. Neither of its foreign keys
+cascades: a row is the only record of a file kept with a provider, so a page cannot be deleted for good, nor a location
+forgotten, without dealing with its files first. Rolling the migration back drops the `attached` and `detached` entries of
+`page_events` with it. `page_attachments_of_page` on `(page_id, created_at)`, for the rows not removed, lists what a
+page holds, and `page_attachments_location` finds what a location holds.
+
+| Column                | Type          | Notes                                                                 |
+|-----------------------|---------------|-----------------------------------------------------------------------|
+| `id`                  | `UUID`        | Primary key; UUIDv7                                                   |
+| `page_id`             | `UUID`        | References `pages`                                                    |
+| `storage_location_id` | `UUID`        | Where this file went, through `page_attachments_storage_location`, so a location holding one stays |
+| `storage_path`        | `TEXT`        | Relative to the location's directory                                  |
+| `file_name`           | `TEXT`        | The name people see, cleaned; 1 to 200 characters                     |
+| `content_type`        | `TEXT`        | What it is served as, from the API's table of what a page takes       |
+| `size_bytes`          | `BIGINT`      | Above zero                                                            |
+| `created_by`          | `UUID`        | References `users`                                                    |
+| `agent`               | `TEXT`        | Nullable; the agent acting for them, as `page_versions` records it    |
+| `agent_name`          | `TEXT`        | Nullable; what it called itself                                       |
+| `created_at`          | `TIMESTAMPTZ` |                                                                       |
+| `deleted_at`          | `TIMESTAMPTZ` | Nullable; set when it was taken off its page, its file left in place  |
+
 ### `page_labels`
 
 The labels pages carry, one row each; see `docs/knowledge.md`, Pages, Labels. Cascades with its page, and stays while a
@@ -1365,6 +1388,7 @@ One row, always present (`singleton` is its key and must be true).
 | `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
 | `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
+| `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
 | `worker_pool_size` | `INTEGER` | Nullable; how many workers run at once, at least one with no maximum, `NULL` for the default (one per CPU core the engine sees minus two, at least one) |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |

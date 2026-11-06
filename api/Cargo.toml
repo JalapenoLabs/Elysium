@@ -35,6 +35,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 instant-xml = "0.7.6"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 mimalloc = "0.1.52"
+percent-encoding = "2.3.2"
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager", "script"] }
 # Redaction of problem reports: deterministic patterns, compiled once. See `crate::issue_reports`.
 regex = "1.13.1"
@@ -72,8 +73,6 @@ zeroize = "1.9.0"
 [dev-dependencies]
 # Paused time, so the runner's twenty-minute heartbeat is tested without waiting for it.
 tokio = { version = "1.53.1", features = ["test-util"] }
-# Decodes the path segments the fake GitHub receives, such as a label with a space in it.
-percent-encoding = "2.3.2"
 # Build directories for the web app tests, shaped like `vite build` output.
 tempfile = "3.27.0"
 

@@ -93,6 +93,7 @@ mod tests {
         "/api/v1/jira-credentials",
         "/api/v1/llms",
         "/api/v1/mail/accounts",
+        "/api/v1/page-attachments",
         "/api/v1/projects",
         "/api/v1/storage-locations",
         "/api/v1/updates",

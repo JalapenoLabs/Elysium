@@ -281,6 +281,10 @@ pub enum HistoryKind {
     Labeled,
     /// A label was taken off it. `data` is `{ label }`.
     Unlabeled,
+    /// A file was attached, or put back after being removed. `data` is `{ attachmentId, name }`.
+    Attached,
+    /// A file was taken off it. `data` is `{ attachmentId, name }`.
+    Detached,
 }
 
 impl HistoryKind {
@@ -294,6 +298,8 @@ impl HistoryKind {
             Self::Restored => "restored",
             Self::Labeled => "labeled",
             Self::Unlabeled => "unlabeled",
+            Self::Attached => "attached",
+            Self::Detached => "detached",
         }
     }
 
@@ -307,6 +313,8 @@ impl HistoryKind {
             Self::Restored,
             Self::Labeled,
             Self::Unlabeled,
+            Self::Attached,
+            Self::Detached,
         ]
         .into_iter()
         .find(|kind| kind.as_str() == name)
@@ -512,6 +520,12 @@ pub enum PageError {
     /// The page already carries as many labels as one page may.
     #[error("a page carries at most {max} labels")]
     TooManyLabels { max: i64 },
+    /// The page already holds as many attachments as one page may.
+    #[error("a page holds at most {max} attachments")]
+    TooManyAttachments { max: i64 },
+    /// No admin has chosen a storage location for attachments.
+    #[error("no storage location is chosen for attachments")]
+    NoAttachmentLocation,
 }
 
 /// [`DieselError`]'s unique violation of [`LEARNING_TITLE_INDEX`], and any other error as it is.
@@ -1327,7 +1341,7 @@ async fn require_live_parent(
 }
 
 /// Refuses a change to `page`'s content or place while it is deleted or agents may not write it.
-async fn require_writable(
+pub(super) async fn require_writable(
     connection: &mut AsyncPgConnection,
     page: &Page,
     author: Author<'_>,

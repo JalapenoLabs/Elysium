@@ -20,12 +20,10 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::http::StatusCode;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::timeout::TimeoutLayer;
 use tracing::{Level, event};
 
 use crate::agent_guidance::AgentGuidance;
@@ -241,9 +239,9 @@ fn build_router(
         .layer(middleware::trace::propagate_request_id_layer())
         .layer(middleware::trace::layer())
         .layer(CatchPanicLayer::new())
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
+        .layer(axum::middleware::from_fn_with_state(
             config.request_timeout,
+            middleware::request_timeout::enforce,
         ))
         .layer(DefaultBodyLimit::max(config.max_request_body_bytes))
         .layer(axum::middleware::from_fn(
@@ -302,7 +300,7 @@ where
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use axum::routing::get;
     use tower::ServiceExt;
 

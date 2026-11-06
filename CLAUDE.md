@@ -343,6 +343,11 @@ Everything else follows these rules:
   does.
 - Coding agents reach their project's locations through the `elysium_storage` MCP tools at `/api/agent-tools`. Every
   call re-checks the location against the project in the database. See `api/src/tools/` and `docs/storage.md`.
+- Files attached to knowledge base pages go to one location an admin chooses, and each row keeps the location it landed
+  in. Limits and what a page takes are code constants (`api/src/page_attachments.rs`), served to the web app. They are
+  served to members alone: a proven image displays, and anything else downloads and never renders on Elysium's origin.
+  An attachment is no part of a version, and a page's text refers to one as plain Markdown. Nothing is deleted for good
+  yet, so a deleted page keeps its files. See `docs/knowledge.md`, Pages, Attachments, and `docs/security.md`.
 
 ## Studio
 

@@ -6,7 +6,9 @@
 //! location that Studio items keep files in cannot be deleted: their files would be orphaned
 //! and the items unreadable, so those items are deleted permanently first. Nor can the location
 //! the databases are backed up to, or backups would stop without anyone saying; an admin
-//! chooses another in Settings, Backups first.
+//! chooses another in Settings, Backups first. Page attachments hold a location the same two ways:
+//! while it is the one chosen for them, and while any file of theirs is in it, since a page's text
+//! still links to those.
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -42,6 +44,25 @@ pub async fn handle(
                     code: "backup_destination",
                     message: "the databases are backed up to this location; choose another in \
                               Settings, Backups first",
+                }
+            }
+            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, info)
+                if info.constraint_name()
+                    == Some(storage_location::ATTACHMENT_DESTINATION_CONSTRAINT) =>
+            {
+                ApiError::CodedConflict {
+                    code: "attachment_destination",
+                    message: "new page attachments go to this location; choose another in \
+                              Settings, Storage first",
+                }
+            }
+            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, info)
+                if info.constraint_name()
+                    == Some(storage_location::ATTACHMENT_FILES_CONSTRAINT) =>
+            {
+                ApiError::CodedConflict {
+                    code: "attachment_files",
+                    message: "pages keep attachments in this location",
                 }
             }
             DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {

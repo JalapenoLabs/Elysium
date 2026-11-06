@@ -11,6 +11,9 @@
 //! calls what the route calls and its change is validated, recorded, indexed, and announced exactly
 //! as one made in the browser, naming the agent acting for its person. They take the database and
 //! the event bus rather than the app's state, since a turn's tools have those alone.
+//!
+//! A page's attachments are here too, and answer the same people. The rules for what a page takes
+//! and how a file is served are `crate::page_attachments`.
 
 mod add_label;
 mod create_page;
@@ -23,14 +26,19 @@ mod list_pages;
 mod list_versions;
 mod move_page;
 mod publish_page;
+mod read_attachment;
+mod remove_attachment;
 mod remove_label;
+mod restore_attachment;
 mod restore_page;
 mod restore_version;
 mod save_page;
 #[cfg(test)]
 mod tests;
+mod upload_attachment;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
@@ -55,7 +63,9 @@ use crate::models::page::{
     self, HistoryEntry, LearningFields, Page, PageEdit, PageSummary, PageVersion, Recorded,
     VersionSummary,
 };
+use crate::models::page_attachment::{self, PageAttachment};
 use crate::models::page_label;
+use crate::page_attachments::{self, MAX_ATTACHMENT_BYTES};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::routes::v1::learnings::AgentResponse;
@@ -71,6 +81,26 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/labels", post(add_label::handle))
         .route("/{id}/labels/{label}", delete(remove_label::handle))
         .route("/{id}/passages/{position}", get(get_passage::handle))
+        .route(
+            "/{id}/attachments",
+            // Files outgrow the API-wide body limit. The route refuses a larger one by its declared
+            // length before a byte moves, and this holds a body that lied about it.
+            post(upload_attachment::handle).layer(DefaultBodyLimit::max(
+                usize::try_from(MAX_ATTACHMENT_BYTES).unwrap_or(usize::MAX),
+            )),
+        )
+        .route(
+            "/{id}/attachments/{attachment_id}",
+            delete(remove_attachment::handle),
+        )
+        .route(
+            "/{id}/attachments/{attachment_id}/restore",
+            post(restore_attachment::handle),
+        )
+        .route(
+            "/{id}/attachments/{attachment_id}/{name}",
+            get(read_attachment::handle),
+        )
         .route("/{id}/history", get(list_history::handle))
         .route("/{id}/versions", get(list_versions::handle))
         .route("/{id}/versions/{version}", get(get_version::handle))
@@ -104,6 +134,8 @@ pub struct PageResponse {
     fixed: bool,
     /// The labels it carries, in order. No part of a version.
     labels: Vec<String>,
+    /// The files it holds, the oldest first. No part of a version.
+    attachments: Vec<AttachmentResponse>,
     /// Who published the newest version, and when.
     published_by: Uuid,
     published_at: DateTime<Utc>,
@@ -120,7 +152,12 @@ pub struct PageResponse {
 }
 
 impl PageResponse {
-    fn new(page: Page, published: VersionSummary, labels: Vec<String>) -> Self {
+    fn new(
+        page: Page,
+        published: VersionSummary,
+        labels: Vec<String>,
+        attachments: Vec<AttachmentResponse>,
+    ) -> Self {
         Self {
             id: page.id,
             parent_id: page.parent_id,
@@ -133,6 +170,7 @@ impl PageResponse {
             current_version: page.current_version,
             proposal_only: page.proposal_only,
             labels,
+            attachments,
             published_by: published.created_by,
             published_at: published.created_at,
             agent: AgentResponse::new(published.agent, published.agent_name),
@@ -140,6 +178,45 @@ impl PageResponse {
             created_at: page.created_at,
             updated_at: page.updated_at,
             deleted_at: page.deleted_at,
+        }
+    }
+}
+
+/// A file on a page as clients see it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentResponse {
+    id: Uuid,
+    page_id: Uuid,
+    name: String,
+    /// Where it is served, which a page's Markdown refers to it by.
+    url: String,
+    size_bytes: i64,
+    /// Whether it displays in a page. The API decides, from a list of what is safe to: anything
+    /// else is a link that downloads.
+    is_image: bool,
+    /// Who added it, and the agent that acted for them, if one did.
+    created_by: Uuid,
+    agent: Option<AgentResponse>,
+    created_at: DateTime<Utc>,
+}
+
+impl From<PageAttachment> for AttachmentResponse {
+    fn from(attachment: PageAttachment) -> Self {
+        Self {
+            url: page_attachments::address(
+                attachment.page_id,
+                attachment.id,
+                &attachment.file_name,
+            ),
+            is_image: page_attachments::displays_inline(&attachment.content_type),
+            id: attachment.id,
+            page_id: attachment.page_id,
+            name: attachment.file_name,
+            size_bytes: attachment.size_bytes,
+            created_by: attachment.created_by,
+            agent: AgentResponse::new(attachment.agent, attachment.agent_name),
+            created_at: attachment.created_at,
         }
     }
 }
@@ -239,7 +316,8 @@ impl From<PageVersion> for VersionResponse {
 pub struct HistoryEntryResponse {
     id: Uuid,
     page_id: Uuid,
-    /// `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, or `unlabeled`.
+    /// `created`, `published`, `moved`, `deleted`, `restored`, `labeled`, `unlabeled`, `attached`,
+    /// or `detached`.
     kind: String,
     /// Who made the change.
     created_by: Uuid,
@@ -408,14 +486,20 @@ async fn answer(
     response(connection, recorded.page).await
 }
 
-/// `page` as clients see it, with who published its newest version and the labels it carries.
+/// `page` as clients see it, with who published its newest version and the labels and files it
+/// carries.
 async fn response(
     connection: &mut AsyncPgConnection,
     page: Page,
 ) -> Result<PageResponse, ApiError> {
     let published = page::version_summary(connection, page.id, page.current_version).await?;
     let labels = page_label::of_page(connection, page.id).await?;
-    Ok(PageResponse::new(page, published, labels))
+    let attachments = page_attachment::of_page(connection, page.id)
+        .await?
+        .into_iter()
+        .map(AttachmentResponse::from)
+        .collect();
+    Ok(PageResponse::new(page, published, labels, attachments))
 }
 
 /// A write that publishes, answered with what it did.

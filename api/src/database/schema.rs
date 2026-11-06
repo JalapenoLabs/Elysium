@@ -1168,6 +1168,25 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    page_attachments (id) {
+        id -> Uuid,
+        page_id -> Uuid,
+        storage_location_id -> Uuid,
+        storage_path -> Text,
+        file_name -> Text,
+        content_type -> Text,
+        size_bytes -> Int8,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+        deleted_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     page_events (page_id, id) {
         id -> Uuid,
         page_id -> Uuid,
@@ -1818,6 +1837,7 @@ diesel::table! {
         agent_configuration_repository -> Nullable<Text>,
         backup_storage_location_id -> Nullable<Uuid>,
         worker_pool_size -> Nullable<Int4>,
+        page_attachment_storage_location_id -> Nullable<Uuid>,
     }
 }
 
@@ -1925,6 +1945,9 @@ diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
+diesel::joinable!(page_attachments -> pages (page_id));
+diesel::joinable!(page_attachments -> storage_locations (storage_location_id));
+diesel::joinable!(page_attachments -> users (created_by));
 diesel::joinable!(page_events -> pages (page_id));
 diesel::joinable!(page_events -> users (created_by));
 diesel::joinable!(page_labels -> pages (page_id));
@@ -1999,7 +2022,6 @@ diesel::joinable!(workflow_run_events -> step_jobs (step_job_id));
 diesel::joinable!(workflow_run_events -> users (created_by));
 diesel::joinable!(workflow_run_events -> workflow_runs (run_id));
 diesel::joinable!(workflow_runs -> users (created_by));
-diesel::joinable!(workspace_settings -> storage_locations (backup_storage_location_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -2060,6 +2082,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_transcriptions,
     meetings,
     model_settings,
+    page_attachments,
     page_events,
     page_labels,
     page_versions,

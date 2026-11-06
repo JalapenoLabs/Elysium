@@ -48,6 +48,7 @@ mod meetings;
 mod middleware;
 mod models;
 mod oauth;
+mod page_attachments;
 mod passwords;
 mod project_managers;
 mod realtime;
