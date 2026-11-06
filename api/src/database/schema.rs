@@ -361,6 +361,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    assigned_issues (id) {
+        id -> Uuid,
+        connector_id -> Uuid,
+        external_id -> Text,
+        action_item_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     authenticator_nicknames (user_id) {
         user_id -> Uuid,
         nickname -> Text,
@@ -1885,6 +1898,9 @@ diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(agent_guidance_versions -> users (created_by));
 diesel::joinable!(agent_tool_grants -> users (created_by));
+diesel::joinable!(assigned_issues -> action_items (action_item_id));
+diesel::joinable!(assigned_issues -> connectors (connector_id));
+diesel::joinable!(assigned_issues -> users (created_by));
 diesel::joinable!(authenticator_nicknames -> users (user_id));
 diesel::joinable!(authenticator_replacements -> users (user_id));
 diesel::joinable!(browser_sessions -> users (created_by));
@@ -2063,6 +2079,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_items,
     agent_guidance_versions,
     agent_tool_grants,
+    assigned_issues,
     authenticator_nicknames,
     authenticator_replacements,
     browser_sessions,

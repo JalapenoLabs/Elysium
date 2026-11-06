@@ -23,7 +23,9 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::connectors::ConnectorKind;
+use crate::connectors::kinds::{self, Provides};
 use crate::database::schema::{browser_sessions, connectors};
+use crate::models::action_item_link::LinkCredential;
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = connectors, check_for_backend(diesel::pg::Pg))]
@@ -248,32 +250,26 @@ pub async fn find_by_account(
     query.first(connection).await.optional()
 }
 
-/// The Atlassian and GitHub accounts whose Jira or GitHub connector is paused, which the link
-/// watcher skips. Only those kinds count: a Confluence connector's Atlassian account is its own,
-/// and the watcher never reads through it.
+/// The accounts of every paused connector the link watcher reads through, which it skips: those
+/// of the kinds that provide issues (Jira, GitHub, YouTrack). Only those kinds count: a
+/// Confluence connector's Atlassian account is its own, and the watcher never reads through it.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn paused_link_accounts(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Uuid>> {
-    let link_kinds = ConnectorKind::LINKS.map(ConnectorKind::as_str);
-    let paused: Vec<(Option<Uuid>, Option<Uuid>)> = connectors::table
+pub async fn paused_link_accounts(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Vec<LinkCredential>> {
+    let issue_kinds: Vec<&str> = kinds::providing(Provides::Issues)
+        .into_iter()
+        .map(ConnectorKind::as_str)
+        .collect();
+    let paused: Vec<Connector> = connectors::table
         .filter(connectors::is_active.eq(false))
-        .filter(connectors::kind.eq_any(link_kinds))
-        .filter(
-            connectors::jira_credential_id
-                .is_not_null()
-                .or(connectors::github_credential_id.is_not_null()),
-        )
-        .select((
-            connectors::jira_credential_id,
-            connectors::github_credential_id,
-        ))
+        .filter(connectors::kind.eq_any(issue_kinds))
+        .select(Connector::as_select())
         .load(connection)
         .await?;
-    Ok(paused
-        .into_iter()
-        .filter_map(|(jira, github)| jira.or(github))
-        .collect())
+    Ok(paused.iter().filter_map(kinds::issue_credential).collect())
 }
 
 /// Stores a new connector. One that reads through a browser needs its creator to own that

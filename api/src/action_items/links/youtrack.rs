@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Links through a person's YouTrack token account: issues on items. Initiatives contain no
-//! YouTrack issues yet, so a container is refused.
+//! Links through a person's YouTrack token account: issues on items, and the unresolved issues
+//! assigned to the token's user in the connector's chosen projects, which come in as items.
+//! Initiatives contain no YouTrack issues yet, so a container is refused.
 //!
 //! Every call goes through `crate::youtrack` to the site the account names, signed in as the
 //! token's user, so a link reaches no further than that person can.
@@ -22,13 +23,16 @@ use chrono::{DateTime, TimeDelta, Utc};
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
 use secrecy::SecretString;
+use serde_json::Value;
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{
-    Children, Destination, IssueToFile, LinkError, Provider, Remote, RemoteContainer, WriteOutcome,
+    AssignedIssues, Children, Destination, IssueToFile, LinkError, Provider, Remote,
+    RemoteContainer, WriteOutcome,
 };
 use crate::connectors::AccountKind;
+use crate::connectors::kinds::youtrack::{Content, project_query};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::action_item::Owner;
@@ -51,6 +55,13 @@ const CURSOR_OVERLAP_MINUTES: i64 = 5;
 /// How many of a project's latest issues a filing tried before looks through for the one its
 /// earlier attempt opened. That issue is among the newest the project has, so a page is plenty.
 const FILED_SEARCH_SIZE: u32 = 50;
+
+/// How many of the person's assigned issues one page of a read asks for.
+const ASSIGNED_PAGE_SIZE: u32 = 100;
+
+/// How many pages of the person's assigned issues one read takes, so 1,000 at most, the bound the
+/// other providers keep. Past it, the least recently updated wait until they change.
+const ASSIGNED_PAGE_LIMIT: u32 = 10;
 
 /// The resolved states a close prefers, in order, when a project has several. YouTrack's default
 /// workflow resolves to `Fixed`, and its Kanban and Scrum templates to `Done`; the rest are the
@@ -225,6 +236,62 @@ impl YoutrackProvider {
             }
         }
         Ok(remotes)
+    }
+
+    /// The unresolved issues assigned to the token's user in the projects `content` chose, the
+    /// way the connector's reader bounds what it reads.
+    async fn assigned(
+        &self,
+        account_id: Uuid,
+        content: &Value,
+    ) -> Result<AssignedIssues, LinkError> {
+        let content: Content = serde_json::from_value(content.clone()).map_err(|error| {
+            LinkError::Internal(anyhow::anyhow!(
+                "a YouTrack connector's content is not a selection of projects: {error}"
+            ))
+        })?;
+        let opened = self.open(account_id).await?;
+        let reachable = self.youtrack.list_projects(&opened.site()).await?;
+        let Some(projects) = project_query(&content.projects, &reachable.items) else {
+            // Every chosen project is gone or archived, which the connector's checks say;
+            // nothing is assigned in a project nobody can read.
+            event!(
+                name: "links.youtrack.assigned.no_projects",
+                Level::DEBUG,
+                account.id = %account_id,
+                "a YouTrack connector reads no project the token reaches",
+            );
+            return Ok(AssignedIssues::default());
+        };
+        // `for: me` is the token's user as assignee, and `#Unresolved` every state YouTrack does
+        // not count as resolved.
+        let query = format!("{projects} for: me #Unresolved");
+
+        let mut items = Vec::new();
+        for page in 0..ASSIGNED_PAGE_LIMIT {
+            let found = self
+                .youtrack
+                .search(
+                    &opened.site(),
+                    query.trim(),
+                    page * ASSIGNED_PAGE_SIZE,
+                    ASSIGNED_PAGE_SIZE,
+                )
+                .await?;
+            let is_full = found.len() == ASSIGNED_PAGE_SIZE as usize;
+            items.extend(found.into_iter().map(|issue| remote(&opened, issue)));
+            if !is_full {
+                return Ok(AssignedIssues {
+                    items,
+                    truncated: false,
+                });
+            }
+        }
+        // Every page came back full, so more may be assigned than one read takes.
+        Ok(AssignedIssues {
+            items,
+            truncated: true,
+        })
     }
 
     async fn close(&self, link: &ActionItemLink) -> Result<WriteOutcome, LinkError> {
@@ -460,6 +527,14 @@ impl Provider for YoutrackProvider {
         _container: &'call InitiativeLink,
     ) -> BoxFuture<'call, Result<Children, LinkError>> {
         async { Err(no_containers()) }.boxed()
+    }
+
+    fn assigned<'call>(
+        &'call self,
+        credential_id: Uuid,
+        content: &'call Value,
+    ) -> BoxFuture<'call, Result<AssignedIssues, LinkError>> {
+        Self::assigned(self, credential_id, content).boxed()
     }
 
     fn close<'call>(

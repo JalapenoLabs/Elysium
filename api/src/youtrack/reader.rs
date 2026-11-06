@@ -7,18 +7,15 @@
 //! For each active connector: sign in with its account's token, list the issues its chosen
 //! projects updated since its cursor, most recent first, and the comments on each. A new issue
 //! and each new comment become a timeline record (one already recorded for the connector is
-//! skipped, by its external id, `issue:<id>` or `comment:<id>`). One that wants its person's
-//! attention also raises an inbox action item, recorded as the watcher of YouTrack
-//! (`watcher:youtrack`), in the same transaction as its record. Other changes to an issue, such
-//! as its state, are not recorded: following an issue's state is what linking it to an item is
-//! for.
+//! skipped, by its external id, `issue:<id>` or `comment:<id>`). A comment that wants its
+//! person's attention also raises an inbox action item, recorded as the watcher of YouTrack
+//! (`watcher:youtrack`), in the same transaction as its record: one someone else wrote, on an
+//! issue the user is assigned or reported, or that mentions `@<login>`. Other changes to an
+//! issue, such as its state, are not recorded: following an issue's state is what linking it to
+//! an item is for.
 //!
-//! What wants attention:
-//!
-//! | Record    | When                                                                      |
-//! |-----------|---------------------------------------------------------------------------|
-//! | An issue  | It is assigned to the token's user, and someone else reported it          |
-//! | A comment | Someone else wrote it, on an issue the user is assigned or reported, or it mentions `@<login>` |
+//! An issue raises nothing here. One assigned to the user comes in through the link watcher, as
+//! every issue connector's do, as an item linked to it (`crate::action_items::assigned`).
 //!
 //! # The first read
 //!
@@ -398,7 +395,9 @@ fn reads_of(
             title: format!("{} {}", issue.key, issue.summary),
             body: issue.description.clone(),
             url: Some(url.clone()),
-            wants_attention: assigned_to_me && !reported_by_me,
+            // An issue assigned to the user comes in as an item linked to it, through the link
+            // watcher (`crate::action_items::assigned`), so its record raises nothing of its own.
+            wants_attention: false,
             metadata: json!({}),
             // An issue and its comments are not a conversation.
             conversation: None,
@@ -472,7 +471,7 @@ mod tests {
     const SITE: &str = "https://acme.youtrack.cloud";
 
     #[test]
-    fn a_new_issue_someone_else_assigned_to_me_wants_attention() {
+    fn a_new_issue_assigned_to_me_is_recorded_and_left_to_the_watcher_to_bring_in() {
         let reads = reads_of(
             SITE,
             "alex",
@@ -487,18 +486,6 @@ mod tests {
         assert_eq!(
             reads[0].url.as_deref(),
             Some("https://acme.youtrack.cloud/issue/JL-1")
-        );
-        assert!(reads[0].wants_attention);
-    }
-
-    #[test]
-    fn an_issue_i_reported_for_myself_is_recorded_without_raising_anything() {
-        let reads = reads_of(
-            SITE,
-            "alex",
-            &issue("alex", Some("alex"), 20),
-            &[],
-            Some(at(10)),
         );
         assert!(!reads[0].wants_attention);
     }
@@ -625,7 +612,7 @@ mod tests {
             events: events.clone(),
             cipher: Arc::clone(&cipher),
             youtrack,
-            activity: Activity::new(database, events),
+            activity: Activity::new(database, events.clone()),
         });
 
         let mut new_account = NewTokenAccount::new(
@@ -661,10 +648,34 @@ mod tests {
 
         // Someone comments on the old issue and files a new one for me.
         someone_comments_and_files_an_issue(&shared);
+        let mut heard = events.subscribe();
         reader.read_now(&baselined).await;
         let (ids, raised) = recorded(&mut connection, stored.id).await;
         assert_eq!(ids, ["comment:4-1", "issue:2-2"]);
-        assert_eq!(raised, 2, "both are someone else's, on my issues");
+        assert_eq!(
+            raised, 1,
+            "the comment is someone else's on my issue; the issue is the watcher's to bring in"
+        );
+        // Elysia hears of the comment's item through its record alone, since her intake leaves
+        // every item a watcher raises out (`crate::elysia::intake`): the record must name it.
+        let mut naming_an_item = Vec::new();
+        while let Ok(message) = heard.try_recv() {
+            let change: serde_json::Value = serde_json::from_str(&message).expect("an event");
+            if change["type"] == "timelineRecord.created"
+                && !change["data"]["actionItemId"].is_null()
+            {
+                naming_an_item.push(message);
+            }
+        }
+        assert_eq!(
+            naming_an_item.len(),
+            1,
+            "the comment's record names its item"
+        );
+        assert!(
+            crate::elysia::intake::classify(&naming_an_item[0]).is_some(),
+            "and reaches Elysia"
+        );
 
         // Nothing new: nothing recorded twice.
         let advanced = connector::find(&mut connection, stored.id)

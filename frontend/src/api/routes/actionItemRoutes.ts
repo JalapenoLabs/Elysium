@@ -97,6 +97,7 @@ export const HISTORY_KINDS = [
   'link_write_cancelled',
   'issue_filing_cancelled',
   'pull_request_closed',
+  'unassigned',
   'container_linked',
   'container_unlinked',
 ] as const

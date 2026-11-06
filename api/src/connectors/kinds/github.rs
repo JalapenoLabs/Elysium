@@ -3,16 +3,20 @@
 //! GitHub: issues and pull requests, read through a GitHub account by the link watcher. See
 //! `docs/github.md`.
 //!
-//! It reads whatever its token reaches, so it has no content of its own. A GitHub account
-//! carries exactly one GitHub connector, made with it, since links can be made through any
-//! token and the watcher reads through each; a new GitHub connector is always a new account.
+//! Its content is the repositories whose issues assigned to the token's account come in as
+//! items (`crate::action_items::assigned`): every one the token reaches (`"*"`), or the ones
+//! picked from what it lists, stored as GitHub spells them. Links are not bounded by it: a link
+//! can be made to anything the token reaches. A GitHub account carries exactly one GitHub
+//! connector, made with it, since links can be made through any token and the watcher reads
+//! through each; a new GitHub connector is always a new account.
 
 use secrecy::SecretString;
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
 
 use super::{
-    AccountChoice, AccountDefinition, AccountField, AccountFieldType, Definition, Provides,
-    Replies, Source,
+    AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
+    ContentFieldType, Definition, Provides, Replies, Source, parse_content,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -25,6 +29,7 @@ use crate::models::github_credential;
 use crate::realtime::ServerEvent;
 use crate::routes::v1::github_credentials::GithubToken;
 use crate::routes::v1::github_credentials::create_github_credential::{self, RequestBody};
+use crate::routes::v1::jira_credentials::Selection;
 use crate::state::AppState;
 
 pub const DEFINITION: Definition = Definition {
@@ -33,7 +38,11 @@ pub const DEFINITION: Definition = Definition {
     account: AccountKind::Github,
     provides: &[Provides::Issues],
     start_url: None,
-    content: &[],
+    content: &[ContentField {
+        id: "repositories",
+        field: ContentFieldType::Selection,
+        required: true,
+    }],
     checks: &[
         CheckSpec {
             id: "sign_in",
@@ -91,6 +100,51 @@ pub const ACCOUNT: AccountDefinition = AccountDefinition {
 #[derive(Debug, serde::Deserialize)]
 struct NewToken {
     token: GithubToken,
+}
+
+/// The repositories a GitHub connector brings assigned issues in from, `owner/name` as GitHub
+/// spells them.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Content {
+    pub repositories: Selection<String>,
+}
+
+/// `selection` as a connector stores it, each pick matched against `reachable`, what the token
+/// lists, in any case, and kept as GitHub spells it.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] naming a pick the token does not reach, or for picking nothing.
+pub fn stored_content(
+    selection: &Selection<String>,
+    reachable: &[ListedRepository],
+) -> Result<Value, ApiError> {
+    let Selection::Only(picked) = selection else {
+        return Ok(json!({ "repositories": "*" }));
+    };
+    let mut names: Vec<&str> = Vec::with_capacity(picked.len());
+    let mut missing: Vec<&str> = Vec::new();
+    for pick in picked {
+        let found = reachable
+            .iter()
+            .find(|repository| repository.full_name.eq_ignore_ascii_case(pick.trim()));
+        match found {
+            Some(repository) => names.push(&repository.full_name),
+            None => missing.push(pick),
+        }
+    }
+    if !missing.is_empty() {
+        return Err(ApiError::BadRequest(format!(
+            "the token does not reach {}",
+            missing.join(", ")
+        )));
+    }
+    if names.is_empty() {
+        return Err(ApiError::BadRequest(
+            "pick at least one repository, or every repository".to_owned(),
+        ));
+    }
+    Ok(json!({ "repositories": names }))
 }
 
 pub async fn prepare_checks(
@@ -208,30 +262,95 @@ impl GithubChecks {
 }
 
 /// A GitHub connector comes with its new GitHub account, `new`, made the way Settings, GitHub
-/// makes one.
+/// makes one, reading the repositories `content` picks.
 ///
 /// # Errors
-/// As [`create_github_credential::create_credential`].
+/// As [`create_github_credential::create_credential`], and [`ApiError::BadRequest`] for content
+/// that is not a selection of repositories.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
     new: Value,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    if content.as_object().is_some_and(|fields| !fields.is_empty()) {
-        return Err(ApiError::BadRequest(
-            "github reads everything its token reaches and takes no content".to_owned(),
-        ));
-    }
+    let content: Content = parse_content(ConnectorKind::Github, content)?;
     let body: RequestBody = serde_json::from_value(new).map_err(|error| {
         ApiError::BadRequest(format!("a new GitHub account is not valid: {error}"))
     })?;
-    let credential = create_github_credential::create_credential(state, current.id(), body).await?;
+    let credential = create_github_credential::create_credential(
+        state,
+        current.id(),
+        body,
+        &content.repositories,
+    )
+    .await?;
 
     let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
     let found =
         connector::find_by_account(&mut connection, AccountRef::Github(credential.id)).await?;
     found.ok_or(ApiError::NotFound)
+}
+
+/// What `repositories` can pick from through `account`: every repository its token lists.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for a new account that is not valid, [`ApiError::NotFound`] for an
+/// account that does not exist, and whatever GitHub answered.
+pub async fn options(state: &AppState, account: AccountChoice) -> Result<Value, ApiError> {
+    let token = match account {
+        AccountChoice::Existing { id } => stored_token(state, id).await?,
+        AccountChoice::New { new } => {
+            let fields: NewToken = super::parse_new_account(AccountKind::Github, new)?;
+            fields.token.0
+        }
+    };
+    let listing = state.github.list_repositories(&token).await?;
+    let options: Vec<Value> = listing
+        .repositories
+        .iter()
+        .map(|repository| json!({ "id": repository.full_name, "label": repository.full_name }))
+        .collect();
+    let mut fields = Map::new();
+    fields.insert(
+        "repositories".to_owned(),
+        json!({ "options": options, "truncated": listing.truncated }),
+    );
+    Ok(Value::Object(fields))
+}
+
+/// Replaces the repositories it brings assigned issues in from, checked against what the token
+/// lists now.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for content that is not a selection or names a repository the token
+/// does not reach, and whatever GitHub answered.
+pub async fn update_content(
+    state: &AppState,
+    stored: &Connector,
+    content: Value,
+) -> Result<Connector, ApiError> {
+    let content: Content = parse_content(ConnectorKind::Github, content)?;
+    let id = stored.github_credential_id.ok_or_else(|| {
+        ApiError::BadRequest("a GitHub connector reads through a GitHub account".to_owned())
+    })?;
+    let reachable = match &content.repositories {
+        Selection::All => Vec::new(),
+        Selection::Only(_picked) => {
+            let token = stored_token(state, id).await?;
+            state.github.list_repositories(&token).await?.repositories
+        }
+    };
+    let stored_value = stored_content(&content.repositories, &reachable)?;
+    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
+    let updated = connector::set_content(
+        &mut connection,
+        stored.id,
+        stored_value,
+        stored.storage_location_id,
+    )
+    .await?;
+    state.connectors.activity.changed(stored.id);
+    Ok(updated)
 }
 
 /// Removes the connector with its GitHub account, as Settings, GitHub removes one.
@@ -270,6 +389,52 @@ mod tests {
             .find(|(check, _outcome)| *check == id)
             .map(|(_check, outcome)| outcome.clone())
             .expect("the check ran")
+    }
+
+    fn listed(full_name: &str) -> ListedRepository {
+        let (owner, name) = full_name.split_once('/').expect("owner/name");
+        ListedRepository {
+            full_name: full_name.to_owned(),
+            owner: owner.to_owned(),
+            name: name.to_owned(),
+            is_private: false,
+            is_archived: false,
+            default_branch: "main".to_owned(),
+            clone_url: format!("https://github.com/{full_name}.git"),
+            pushed_at: None,
+            role_can_push: true,
+        }
+    }
+
+    #[test]
+    fn repositories_are_stored_as_github_spells_them_and_only_if_the_token_reaches_them() {
+        let reachable = [
+            listed("JalapenoLabs/Elysium"),
+            listed("JalapenoLabs/Seraphim"),
+        ];
+
+        let everything = stored_content(&Selection::All, &[]).expect("everything");
+        assert_eq!(everything, json!({ "repositories": "*" }));
+
+        let picked = Selection::Only(vec!["jalapenolabs/elysium".to_owned()]);
+        assert_eq!(
+            stored_content(&picked, &reachable).expect("picked"),
+            json!({ "repositories": ["JalapenoLabs/Elysium"] })
+        );
+
+        let unreachable = Selection::Only(vec!["acme/secret".to_owned()]);
+        let refused = stored_content(&unreachable, &reachable).expect_err("refused");
+        assert!(refused.to_string().contains("acme/secret"), "{refused}");
+
+        stored_content(&Selection::Only(Vec::new()), &reachable).expect_err("nothing picked");
+    }
+
+    #[test]
+    fn content_names_its_repositories_or_everything() {
+        let everything: Content =
+            serde_json::from_value(json!({ "repositories": "*" })).expect("parses");
+        assert_eq!(everything.repositories, Selection::All);
+        serde_json::from_value::<Content>(json!({})).expect_err("a choice is required");
     }
 
     #[tokio::test]

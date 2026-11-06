@@ -83,6 +83,7 @@ impl Fixture {
             &NewGithubCredential {
                 created_by: person,
                 name: name.to_owned(),
+                connector_content: serde_json::json!({ "repositories": "*" }),
                 verified: github_credential::VerifiedToken {
                     kind: GithubTokenKind::Classic,
                     token: SecretString::from(fake::TOKEN),

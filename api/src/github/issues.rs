@@ -117,6 +117,9 @@ pub struct Issue {
     pub state_reason: Option<String>,
     /// The login of the first assignee, or `None` when nobody is assigned.
     pub assignee: Option<String>,
+    /// Every assignee's login, the first among them. An issue is a person's when they are any
+    /// of its assignees.
+    pub assignees: Vec<String>,
     /// `Some` for a pull request, saying whether it merged.
     pub pull_request: Option<PullRequest>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -165,6 +168,8 @@ pub struct IssueQuery<'a> {
     pub label: Option<&'a str>,
     /// Only issues this login opened.
     pub creator: Option<&'a str>,
+    /// Only issues this login is any of the assignees of.
+    pub assignee: Option<&'a str>,
 }
 
 impl IssueQuery<'_> {
@@ -186,6 +191,9 @@ impl IssueQuery<'_> {
         }
         if let Some(creator) = self.creator {
             parameters.append_pair("creator", creator);
+        }
+        if let Some(assignee) = self.assignee {
+            parameters.append_pair("assignee", assignee);
         }
         parameters.finish()
     }
@@ -233,6 +241,35 @@ impl Github {
             query.parameters()
         );
         let listing: Paged<IssueBody> = self.paged(token, &path, page_limit, "issues").await?;
+        Ok(Paged {
+            items: listing
+                .items
+                .into_iter()
+                .map(IssueBody::into_issue)
+                .collect(),
+            truncated: listing.truncated,
+            scopes: listing.scopes,
+        })
+    }
+
+    /// The open issues and pull requests assigned to the token's own account, in every
+    /// repository the token can see, most recently updated first, following pages up to
+    /// `page_limit`. One listing for the account, so reading what is assigned costs the same
+    /// however many repositories it spans.
+    ///
+    /// # Errors
+    /// As [`Github::issue`].
+    pub async fn list_assigned_issues(
+        &self,
+        token: &SecretString,
+        page_limit: usize,
+    ) -> Result<Paged<Issue>, GithubError> {
+        let path = format!(
+            "/issues?filter=assigned&state=open&sort=updated&direction=desc&per_page={PAGE_SIZE}"
+        );
+        let listing: Paged<IssueBody> = self
+            .paged(token, &path, page_limit, "assigned issues")
+            .await?;
         Ok(Paged {
             items: listing
                 .items
@@ -537,6 +574,8 @@ struct IssueBody {
     state: String,
     state_reason: Option<String>,
     assignee: Option<LoginBody>,
+    #[serde(default)]
+    assignees: Vec<LoginBody>,
     pull_request: Option<PullRequestBody>,
     updated_at: Option<DateTime<Utc>>,
 }
@@ -596,6 +635,11 @@ impl IssueBody {
             is_open: self.state == "open",
             state_reason: self.state_reason,
             assignee: self.assignee.map(|assignee| assignee.login),
+            assignees: self
+                .assignees
+                .into_iter()
+                .map(|assignee| assignee.login)
+                .collect(),
             pull_request: self.pull_request.map(|pull_request| PullRequest {
                 merged: pull_request.merged_at.is_some(),
             }),

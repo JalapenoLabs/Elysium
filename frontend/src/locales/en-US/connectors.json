@@ -104,6 +104,7 @@
     "kind": "Token type",
     "apiKey": "API key",
     "projects": "Projects",
+    "repositories": "Repositories",
     "boards": "Boards",
     "spaces": "Spaces",
     "conversations": "Conversations",
