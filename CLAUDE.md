@@ -183,7 +183,10 @@ Everything else follows these rules:
   it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
   `docs/coding.md`, Claude accounts.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
-- Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings.
+- Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings, read with a
+  GitHub token of its own chosen beside it, and adapted to the container that runs it. No worker or Project Manager
+  turn starts without it: the pool and the Project Managers wait, saying why, with one inbox item. Coding sessions and
+  Elysia are not held. See `docs/coding.md`, `~/.claude`.
 - Elysium's tools reach agents at `/api/agent-tools/{server}`, under a per-turn grant scoped to the session, and every
   call re-checks the database. nginx never routes that path.
 - Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own

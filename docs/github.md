@@ -61,6 +61,17 @@ token GitHub refuses answers `400`, and an unreachable GitHub `502`.
 
 Deleting a credential only makes Elysium forget the token. It keeps working until it is revoked on GitHub.
 
+## The configuration repository's token
+
+The configuration repository agents' `~/.claude` comes from (`docs/coding.md`, `~/.claude`) is read with a token of
+its own, chosen beside it under Settings, LLMs, Agent configuration
+(`workspace_settings.agent_configuration_github_credential_id`), never the workspace's default: a company's default
+token is usually a fine-grained token of a work account, which can never reach a repository another account owns, even
+as a collaborator. Its owner adds a fine-grained token scoped to that repository with read-only Contents, under
+Connectors like any other, and chooses it there. The token is sent to github.com alone, so the settings refuse one for
+a repository on another host. Replacing a token's value or deleting a token signals the engine to fetch the
+repository again, so the settings page shows at once whether it still reads.
+
 ## Which token a session gets
 
 A session starts with one token, or none, chosen at three levels:

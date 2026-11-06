@@ -465,6 +465,10 @@ trackers (Its writes, below), and its tabs on the project's page.
   every credential is spent, which also holds its project until the limit resets (`usage_paused_until`). The next
   turn is told some of what woke it went to a turn that did not finish, so it checks before doing anything twice. A
   turn that failed of itself keeps its wakes, since trying again at once would most likely fail the same way.
+- **Never without its configuration.** No turn starts while the configuration repository holds agents back
+  (`crate::agent_configuration`, `docs/coding.md`, `~/.claude`): no repository set, one being fetched, or one whose
+  last fetch failed. The wakes wait, the project's tab shows its Project Manager held with the reason, and one inbox
+  item says why for every held project and batch. The keeper signals `projectManagers` once a fetch succeeds.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
@@ -572,8 +576,8 @@ and publishes `workBatch.changed` and `projectManager.changed`.
   with who made it: `submitted` by its Project Manager; `pinned` and `unpinned` (run next, and back to its place),
   `reprioritized` (`{ before, after }`, each `{ priority, scheduledFor }`), `paused` (`{ from }`), `resumed`, and
   `cancelled` (`{ reason }`) by a person, Elysia, or its Project Manager; `assigned` and `unassigned` by the pool, as the
-  system user; `started`, `waiting` (`{ on, detail, until }`), and `finished` (`{ succeeded }`) by its worker, as the
-  coding agent; and `answered` (`{ answer }`) by its Project Manager. A change that moves nothing writes nothing.
+  system user; `started`, `requeued` (`{ reason }`, its slot given back before its first turn), `waiting`
+  (`{ on, detail, until }`), and `finished` (`{ succeeded }`) by its worker, as the coding agent; and `answered` (`{ answer }`) by its Project Manager. A change that moves nothing writes nothing.
 - **One way in.** The work queue's routes, Elysia's tools, and a Project Manager's tools all change a batch through
   `worker_pool::actions`, so each change is checked, recorded, announced, and signalled alike.
 
@@ -631,11 +635,16 @@ would have.
 The scheduler (`worker_pool::scheduler`) looks when it is signalled (`workerPool`: a batch submitted, resumed, or
 reprioritized, a slot given back, the size changed), when the next scheduled batch comes due, when a usage hold ends,
 and every 15 seconds. It renews and adopts leases, records the CPU cores it sees and any usage hold on the `worker_pool`
-row, which the queue's page reads, takes back slots the pool lost, then, unless a usage limit holds the pool, hands each
-free slot to the next batch in order.
+row, which the queue's page reads, takes back slots the pool lost, then, unless the configuration repository or a
+usage limit holds the pool, hands each free slot to the next batch in order.
 
 - **Size.** `workspace_settings.worker_pool_size`, or by default one worker per CPU core the engine sees
   (`available_parallelism`, which follows the container's CPU quota) minus two, at least one (`worker_pool::size`).
+- **The configuration gate.** No slot is handed out while the configuration repository holds agents back
+  (`crate::agent_configuration::hold`: no repository set, one being fetched, or one whose last fetch failed), so a
+  batch never holds a slot it cannot use. Batches wait `queued`; the work queue and every queued batch's page say why,
+  and while any wait one inbox item does (`agent_configuration::raise_hold`), raised once however many batches and
+  looks there are, and resolved by the keeper once a fetch succeeds. The keeper signals `workerPool` then.
 - **The usage gate.** No slot is handed out while every Claude credential that could serve a turn is an account at its
   usage limit (`runner::credentials::usage_hold`, the runner's own rule, read without decrypting anything). An API key or
   a subscription token still serves, and with no credential at all a turn runs on the workspace's login, so neither
@@ -644,7 +653,8 @@ free slot to the next batch in order.
 ### The work queue
 
 `GET /api/v1/work-queue` (`worker_pool::queue`) answers the pool (its size, the size an admin chose, the default, the
-CPU cores, the slots in use, and a usage hold's end), the batches in its slots, every batch it may hand a slot now in
+CPU cores, the slots in use, a usage hold's end, and why the configuration repository holds it, if it does), the
+batches in its slots, every batch it may hand a slot now in
 order, those scheduled for later, and those paused. People change a batch with `PATCH /api/v1/work-batches/{id}` and
 `POST /api/v1/work-batches/{id}/cancel`; admins size the pool from Settings, Worker pool. The page is `/work-queue`
 (`docs/frontend.md`, Work queue). A batch's goal and title quote what was ingested, so the queue and its batches
@@ -669,9 +679,15 @@ worker's own tools.
   submodule that does not clone, one the token cannot read or that is gone, stops setup, and the batch fails with a
   result naming the submodule, its URL, and what git said. Setup runs once per container: a marker on its volume says
   it finished. Workers may clone more repositories themselves.
-- **`~/.claude`** is fetched from the configuration repository into the worker's own volume as its container comes up,
-  as the shared workspace's is (`docs/coding.md`, `~/.claude`), which is where `/steamroll-issues` and the agents'
-  settings come from.
+- **`~/.claude`** is fetched from the configuration repository into the worker's own volume with the repository's own
+  token, and adapted to the container, as its container comes up and before setup (`docs/coding.md`, `~/.claude`);
+  it is where `/steamroll-issues` and the agents' settings come from. The commit, its subject, and what was left out
+  are recorded on the batch (`work_batches.configuration`), shown on its page, and written to its log. A container
+  that already holds the checkout its batch recorded keeps it, so every turn of a batch runs on one commit. A worker
+  never runs without it: a fetch that fails three tries 30 seconds apart is recorded as the configuration's failure,
+  which holds the pool, and the batch gives its slot back (`work_batch::requeue`, a `requeued` entry with the reason)
+  and waits in the queue again, its container removed. A batch a turn already worked on cannot wait in the queue,
+  since its work lives in its container, so it fails instead, saying why.
 - **Its turns** run on a runner of its own, so a worker never waits for the shared workspace's eight turn slots; the
   pool's size bounds workers. Every turn's prompt is `/goal`, holding out until the worker has reported on its batch
   with `worker_finish` or `worker_wait` as the last thing it did, a condition it can always make true itself. Its

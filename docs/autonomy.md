@@ -4,7 +4,8 @@ Elysium does the work and its person stays the architect: they set direction, an
 they must, such as a message to send, something irreversible, or a decision about direction. Trust is earned, so
 autonomy is a dial a person turns per project, and no setting lets work feed itself.
 
-This doc is the design. None of it is built yet; the roadmap is the issues in the Autonomy milestone.
+What agents know is built and describes how it works today. The rest of this doc is the design; its roadmap is the
+issues in the Autonomy milestone.
 
 ## Issues come in
 
@@ -71,10 +72,14 @@ workspace stays for its working notes.
 ## What agents know
 
 Workers and Project Managers run with `~/.claude` from the configuration repository: the learnings, docs, manuals,
-skills, and instructions that do more for their output than anything else here. An agent never runs without it. With
-none set, or one that cannot be fetched, its turn waits with a reason and an inbox item. The repository has a token of
-its own, since it may be private to someone other than the company's default GitHub account, and a batch shows the
-configuration commit it ran on.
+skills, and instructions that do more for their output than anything else here. Neither runs without it. With none
+set, one being fetched, or one whose last fetch failed, the pool hands out no slot and Project Managers start no turn:
+batches wait queued and wakes wait, each showing the reason, and one inbox item says why until a fetch succeeds. The
+repository has a GitHub token of its own, chosen beside it, since it may be private to an account the company's default
+token cannot reach. Settings fetches it on every save and shows the commit and when; every worker fetches it again,
+leaves out what only another machine can run, and its batch shows the commit it ran on and what was left out. Coding
+sessions and Elysia are not held, since a person watches each session and Elysia is who reports the hold. See
+`docs/coding.md`, `~/.claude`.
 
 ## Staying aware
 

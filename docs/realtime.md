@@ -164,8 +164,8 @@ event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells
 already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), something woke
 a project's Project Manager (`projectManagers`), a batch was queued or a pool slot freed (`workerPool`), a link owes its
 provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
-container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository
-changed (`agentConfiguration`), a workflow run was started or a person retried, skipped, or resumed one of its
+container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository or
+a GitHub token changed or an admin asked for a fetch (`agentConfiguration`), a workflow run was started or a person retried, skipped, or resumed one of its
 steps (`workflows`), someone asked the knowledge base a question (`knowledgeAsks`), or a message that asks something
 of its person joined its conversation (`conversations`).
 
