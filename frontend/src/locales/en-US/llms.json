@@ -7,12 +7,39 @@
   },
   "agentConfiguration": {
     "title": "Agent configuration",
-    "help": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when it starts and whenever this changes. A github.com repository is read with the default GitHub token.",
+    "help": "Workers and Project Managers run Claude Code only with the configuration in this repository: its CLAUDE.md, docs, skills, and settings. Elysium fetches it when it starts, whenever this changes, and in every worker before its first turn, and leaves out what only another machine can run. Coding sessions and Elysia use the last fetch.",
     "repository": "Configuration repository",
-    "repositoryHint": "An https git URL without credentials. Leave blank to use Claude Code's defaults.",
+    "repositoryHint": "An https git URL without credentials.",
+    "token": "GitHub token",
+    "tokenHint": "Reads a private github.com repository. A fine-grained token with read-only Contents on just this repository is enough.",
     "saved": "Agent configuration saved",
     "loadError": "The agent configuration could not be loaded.",
-    "adminOnly": "Only admins change the agent configuration."
+    "adminOnly": "Only admins change the agent configuration.",
+    "lastFetch": "Last fetch",
+    "fetchNow": "Fetch now",
+    "fetchAsked": "Fetching the configuration repository",
+    "fetchedAt": "Fetched {{time}}",
+    "skippedTitle": "Left out",
+    "nothingSkipped": "Nothing was left out.",
+    "hold": {
+      "unset": "No configuration repository is set, so workers and Project Managers wait.",
+      "fetching": "Fetching the configuration repository. Workers and Project Managers start once it is fetched.",
+      "failed": "The configuration repository could not be fetched, so workers and Project Managers wait."
+    },
+    "skippedKinds": {
+      "hook": "Hook",
+      "plugin": "Plugin",
+      "mcpServer": "MCP server",
+      "environment": "Environment variable",
+      "setting": "Setting"
+    },
+    "skipReasons": {
+      "missingCommand": "Its command is not installed here.",
+      "missingPath": "A path it names does not exist here.",
+      "loopback": "It reaches a server on its owner's own machine.",
+      "notInstalled": "Plugins install from a marketplace, which the repository does not carry.",
+      "reserved": "Elysium sets this itself for every turn."
+    }
   },
   "table": {
     "label": "LLM credentials",

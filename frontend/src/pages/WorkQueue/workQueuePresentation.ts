@@ -139,6 +139,7 @@ export const historyKindLabelKeys = {
   assigned: 'history.kinds.assigned',
   unassigned: 'history.kinds.unassigned',
   started: 'history.kinds.started',
+  requeued: 'history.kinds.requeued',
   waiting: 'history.kinds.waiting',
   answered: 'history.kinds.answered',
   finished: 'history.kinds.finished',

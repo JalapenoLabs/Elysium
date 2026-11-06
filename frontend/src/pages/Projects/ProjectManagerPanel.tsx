@@ -11,6 +11,7 @@ import { selectProjectManager } from '../../store/projectManagersSlice'
 
 // User interface
 import { Chip, Spinner } from '@heroui/react'
+import { ConfigurationHoldAlert } from '../../components/ConfigurationHoldAlert'
 import { ProjectManagerComposer } from './ProjectManagerComposer'
 import { ProjectManagerTurnRow } from './ProjectManagerTurnRow'
 import { ProjectManagerWrites } from './ProjectManagerWrites'
@@ -25,8 +26,9 @@ type Props = {
   status: LoadStatus
 }
 
-// The project's Project Manager: what it is doing, how its changes reach the work, a box to write
-// to it, and its latest turns, newest first, each collapsed to its summary.
+// The project's Project Manager: what it is doing, why its waiting work waits on the
+// configuration repository, how its changes reach the work, a box to write to it, and its latest
+// turns, newest first, each collapsed to its summary.
 export function ProjectManagerPanel(props: Props) {
   const { t } = useTranslation('projects')
   const manager = useAppSelector((state) => selectProjectManager(state, props.projectId))
@@ -51,6 +53,10 @@ export function ProjectManagerPanel(props: Props) {
         t('manager.heldUntil', { time: formatDateTime(manager.usagePausedUntil) })
       }</span>}
     </div>
+
+    {manager.configurationHold && manager.waiting > 0 && <ConfigurationHoldAlert
+      hold={manager.configurationHold}
+    />}
 
     <ProjectManagerWrites manager={manager} />
 

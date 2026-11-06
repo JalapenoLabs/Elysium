@@ -2,7 +2,6 @@
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // Redux
 import { selectIsAdmin } from '../../../store/authSlice'
@@ -19,9 +18,9 @@ import { AgentConfigurationSettings } from './AgentConfigurationSettings'
 import { useWorkspaceSettingsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 
-// `/settings/llms/agent-configuration`: the repository every agent's Claude Code configuration
-// is checked out from, on a page of its own beside the LLM list. Admins only, as the workspace
-// settings are.
+// `/settings/llms/agent-configuration`: the repository every worker's and Project Manager's
+// Claude Code configuration is checked out from, its token, and how its last fetch went, on a
+// page of its own beside the LLM list. Admins only, as the workspace settings are.
 export function AgentConfigurationPage() {
   const { t } = useTranslation('llms')
   const isAdmin = useAppSelector(selectIsAdmin)
@@ -42,13 +41,9 @@ function AgentConfigurationForm() {
   const { t } = useTranslation('llms')
   const status = useWorkspaceSettingsLoader()
   const settings = useAppSelector(selectWorkspaceSettings)
-  const navigate = useNavigate()
 
   if (settings) {
-    return <AgentConfigurationSettings
-      settings={settings}
-      onSaved={() => void navigate(UrlTree.settingsLlms)}
-    />
+    return <AgentConfigurationSettings settings={settings} />
   }
   if (status === 'failed') {
     return <p className='py-10 text-center text-sm text-danger'>{t('agentConfiguration.loadError')}</p>

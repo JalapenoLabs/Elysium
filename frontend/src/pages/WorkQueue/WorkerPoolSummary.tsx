@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Alert, Tooltip } from '@heroui/react'
+import { ConfigurationHoldAlert } from '../../components/ConfigurationHoldAlert'
 
 // Misc
 import { formatDateTime, formatRelativeTime } from '../../format/dates'
@@ -16,8 +17,9 @@ type Props = {
   pool: WorkerPool
 }
 
-// How busy the pool is, and, while every Claude account is at its usage limit, when its workers
-// start again: standing state, there whenever the page opens.
+// How busy the pool is, why no worker starts while the configuration repository holds them back,
+// and, while every Claude account is at its usage limit, when its workers start again: standing
+// state, there whenever the page opens.
 export function WorkerPoolSummary(props: Props) {
   const { t } = useTranslation('workQueue')
   const now = useNow()
@@ -28,6 +30,7 @@ export function WorkerPoolSummary(props: Props) {
         ? t('pool.busyUnsized', { count: props.pool.inUse })
         : t('pool.busy', { count: props.pool.size, inUse: props.pool.inUse })
     }</p>
+    {props.pool.configurationHold && <ConfigurationHoldAlert hold={props.pool.configurationHold} />}
     {props.pool.usageHeldUntil && <Alert status='warning' className='max-w-3xl'>
       <Alert.Indicator />
       <Alert.Content>
