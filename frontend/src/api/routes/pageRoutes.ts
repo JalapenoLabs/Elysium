@@ -27,10 +27,28 @@ export type KnowledgePageSummary = {
   deletedAt: string | null
 }
 
+// Mirrors `AttachmentResponse`: a file on a page.
+export type PageAttachment = {
+  id: string
+  pageId: string
+  name: string
+  // Where it is served, which a page's Markdown refers to it by.
+  url: string
+  sizeBytes: number
+  // Whether it displays in a page; anything else is a link that downloads. The API decides.
+  isImage: boolean
+  // Who added it, and the agent that acted for them.
+  createdBy: string
+  agent: LearningAgent | null
+  createdAt: string
+}
+
 // Mirrors `PageResponse`: one page whole.
 export type KnowledgePage = KnowledgePageSummary & {
   // Markdown, read through `Markdown` (src/components/markdown/).
   body: string
+  // The files it holds, the oldest first. No part of a version.
+  attachments: PageAttachment[]
   // What a learning holds beyond its text; null on every other page.
   category: string | null
   evidence: string | null
@@ -266,4 +284,65 @@ export function removePageLabel(pageId: string, label: string) {
   return apiClient
     .delete(`${pageKey(pageId)}/labels/${encodeURIComponent(label)}`)
     .json<GetPageResponse>()
+}
+
+type AttachPageFileResponse = {
+  attachment: PageAttachment
+  page: KnowledgePage
+}
+
+// Attaches a file. The body is the file itself, and the API takes what it is from its name.
+export function attachPageFile(pageId: string, file: File) {
+  return apiClient
+    .post(`${pageKey(pageId)}/attachments`, {
+      searchParams: { name: file.name },
+      body: file,
+      // A large file on a slow connection takes as long as it takes, and its row says it is on its
+      // way, so it needs neither the usual timeout nor the notice that a request is running long.
+      timeout: false,
+      fetch: (input, init) => globalThis.fetch(input, init),
+    })
+    .json<AttachPageFileResponse>()
+}
+
+// Takes a file off a page; `restorePageAttachment` puts it back.
+export function removePageAttachment(pageId: string, attachmentId: string) {
+  return apiClient
+    .delete(`${pageKey(pageId)}/attachments/${attachmentId}`)
+    .json<GetPageResponse>()
+}
+
+export function restorePageAttachment(pageId: string, attachmentId: string) {
+  return apiClient
+    .post(`${pageKey(pageId)}/attachments/${attachmentId}/restore`)
+    .json<GetPageResponse>()
+}
+
+// Mirrors `PolicyResponse`: what can be attached, which the API holds as constants.
+export type PageAttachmentPolicy = {
+  // The storage location new attachments go to; null until an admin chooses one.
+  destinationId: string | null
+  maxBytes: number
+  // Lowercase, without their dots.
+  extensions: string[]
+}
+
+// The SWR key `pageAttachments.changed` revalidates.
+export const PAGE_ATTACHMENT_POLICY_KEY = 'v1/page-attachments'
+
+type PageAttachmentPolicyResponse = {
+  policy: PageAttachmentPolicy
+}
+
+export function getPageAttachmentPolicy() {
+  return apiClient
+    .get(PAGE_ATTACHMENT_POLICY_KEY)
+    .json<PageAttachmentPolicyResponse>()
+}
+
+// Admins only. Null stops taking attachments; what is attached stays served.
+export function choosePageAttachmentDestination(storageLocationId: string | null) {
+  return apiClient
+    .put(`${PAGE_ATTACHMENT_POLICY_KEY}/destination`, { json: { storageLocationId }})
+    .json<PageAttachmentPolicyResponse>()
 }

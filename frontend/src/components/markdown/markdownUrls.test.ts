@@ -21,6 +21,14 @@ describe('readMarkdownLink', () => {
     expect(readMarkdownLink(`${origin}/projects`)).toEqual({ kind: 'internal', href: '/projects' })
   })
 
+  it('leaves a file the API serves to the browser, which no route of the app could show', () => {
+    const address = '/api/v1/pages/one/attachments/two/report.pdf'
+
+    expect(readMarkdownLink(address)).toEqual({ kind: 'file', href: address })
+    expect(readMarkdownLink(`${origin}${address}`)).toEqual({ kind: 'file', href: address })
+    expect(readMarkdownLink('/apiary').kind).toBe('internal')
+  })
+
   it('treats another origin as external, however it is spelled', () => {
     const external = { kind: 'external', href: 'https://example.com/' }
 

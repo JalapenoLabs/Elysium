@@ -14,9 +14,11 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page_attachment;
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -25,7 +27,14 @@ pub async fn handle(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, attachment_id)) = path?;
-    let page = remove(&state, author(&member), id, attachment_id).await?;
+    let page = remove(
+        &state.database,
+        &state.events,
+        author(&member),
+        id,
+        attachment_id,
+    )
+    .await?;
     Ok(Json(json!({ "page": page })))
 }
 
@@ -36,16 +45,16 @@ pub async fn handle(
 /// `404` for an unknown page or attachment, and `409` with `page_deleted` or `page_proposal_only` for
 /// a page that refuses it.
 pub async fn remove(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     attachment_id: Uuid,
 ) -> Result<PageResponse, ApiError> {
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page_attachment::remove(&mut connection, id, attachment_id, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }

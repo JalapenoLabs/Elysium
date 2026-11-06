@@ -17,7 +17,8 @@ type Props = ComponentProps<'a'> & ExtraProps
 
 // A link in a page's text. One that stays in Elysium routes in the app, one that leaves opens in
 // a new tab and says so, and one within the document stays a plain anchor, since the browser
-// scrolls to it and the router would not. An address `urlTransform` blanked keeps its text.
+// scrolls to it and the router would not. A file Elysium serves downloads, which `download` also
+// keeps out of the router. An address `urlTransform` blanked keeps its text.
 export function MarkdownLink(props: Props) {
   const { t } = useTranslation('common')
   const { children } = props
@@ -39,6 +40,11 @@ export function MarkdownLink(props: Props) {
   }
   if (target.kind === 'internal') {
     return <Link href={target.href}>
+      <span title={props.title}>{children}</span>
+    </Link>
+  }
+  if (target.kind === 'file') {
+    return <Link href={target.href} download>
       <span title={props.title}>{children}</span>
     </Link>
   }

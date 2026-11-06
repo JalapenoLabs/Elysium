@@ -181,7 +181,7 @@ where
 
     Ok(Attached {
         attachment: AttachmentResponse::from(attachment),
-        page: answer(state, &mut connection, recorded).await?,
+        page: answer(&state.events, &mut connection, recorded).await?,
     })
 }
 

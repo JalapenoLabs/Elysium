@@ -888,6 +888,15 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   page's own actions, Save, and tabs go on that `Page`. `PageArticle` lays it out top to bottom: `byline`, `labels`,
   the text, `attachments`, `childPages`. Each is a slot that takes no space until it is given, so an old version can
   read through it with its own byline.
+- **Attachments** (`PageAttachments`, in that slot, and under the editor) list a page's files from `page.attachments`, so
+  `page.changed` keeps them current with no loader of their own. `usePageAttachmentUpload` attaches one file a call and
+  says what went wrong in a toast of its own, so a refused file never holds up the ones beside it; the view holds it,
+  so what is on its way shows in one place. What a page takes is `usePageAttachmentPolicy`, read through SWR from
+  `GET /page-attachments` and revalidated by `pageAttachments.changed`, so the limits are never a second copy:
+  `describeFileRefusal` checks a file against them before it uploads, and `describeUploadRefusal` reads what the API
+  refused. The upload sends the file as its body, past ky's timeout and the slow request notice, since its row says it
+  is on its way. A row's name downloads it, and a link to a file in a page's text does too (`file` in `markdownUrls.ts`):
+  no route of the app's can show a path under `/api`, and `download` keeps it out of the router.
 - **History** (`PageHistory`) is a page's second tab, and what it shows lives in the address (`getPageVersionUrl`,
   `getPageCompareUrl`), so Back leaves a comparison and a link opens one. `swapsWhatPageEdits` leaves those parameters
   out, as it does the tab: looking through versions never asks about unsaved edits. The list is one read of
@@ -990,7 +999,14 @@ Everything it does is for reading text that cannot be trusted (`docs/security.md
   menu is a list box, so Esc closes it rather than leaving the page.
 - **Toolbar.** `EditorToolbar` stays in sight as the text scrolls, wrapping from `sm` and scrolling sideways on a phone.
   Table controls join it while the caret is in a table. Links and images by address ask in a dialog.
-- **Pasting.** Plain text is read as Markdown, except into code. Files are not taken: attachments are on the roadmap.
+- **Pasting.** Plain text is read as Markdown, except into code. A file pasted alone is attached. One beside text is
+  what a spreadsheet or word processor copies, as a picture of that text, so the text is what lands.
+- **Files.** A field takes them when it is given `attachments`: what `accept` offers and an `attach` that says why a file
+  was refused, or `{ canAttach: false, reason }`, which the toolbar's button shows on hover and a dropped file is told.
+  Files live outside the Markdown, so the field only places a reference, through `attachEditorFiles`: each uploads in
+  turn, holding its place with a decoration (`attachmentPlaceholders.ts`) that moves with the text as ProseMirror's own
+  upload example does, and which never reaches the document. An image becomes an `image` node and any other file a link,
+  after the block in code, which holds neither, and `writeMarkdown` writes only the block it landed in.
 - **Images and links** keep `Markdown`'s rules (`docs/security.md`). `EditorImage` draws through `MarkdownImage`, and an
   image's plain HTML carries `data-src` rather than `src`, since an element with one fetches the moment it is made.
 - **Tests.** `markdownCorpus.ts` holds what is hard to carry through, and `markdownSource.test.ts` runs it and every file

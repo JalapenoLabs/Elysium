@@ -923,11 +923,13 @@ who made it, the agent acting for them, and `data`.
 | `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back; `undid` for an undo |
 | `labeled`   | `{ label }`                                                                             |
 | `unlabeled` | `{ label }`                                                                             |
+| `attached`  | `{ attachmentId, name }`, for a file added or put back                                  |
+| `detached`  | `{ attachmentId, name }`, for a file taken off                                          |
 
 Versions hold what a page said, and the history everything that happened to it, publishes included, so one table reads
 as a page's history and as a feed across every page, in order by id. A later kind of change adds a kind, with no
 migration. A page has no undo of its own: a version is undone by restoring the one before it, a deletion by restoring
-the page, a move by moving it back to its `from`, and a label by putting it back. Learnings and the company doc keep the
+the page, a move by moving it back to its `from`, a label by putting it back, and a file taken off by restoring it. Learnings and the company doc keep the
 field-by-field undo they promise (Learnings and the company doc, below).
 
 An entry is named by its page and its id. One change that reaches several pages is one id with a row on each, which is
@@ -1009,6 +1011,46 @@ Any page takes any number of labels, which cut across the tree. The model is `ap
   as the `project` filter reads a record's attributions. So a label reaches the index in the transaction that writes it,
   and no change of labels can touch a document's text, its SHA-256, or an embedding. The cost is that a label's words
   are not searched: `runbook` in a search box finds pages that say it, and the filter finds pages that carry it.
+
+### Attachments
+
+Files and images attach to a page. The rules for what a page takes and how a file is served are `api/src/page_attachments.rs`,
+the rows are `api/src/models/page_attachment.rs` and the table `page_attachments`, and the routes are under
+`/api/v1/pages/{id}/attachments`, with what every page shares at `/api/v1/page-attachments`.
+
+- **Where they go.** One storage location, an admin's choice (Settings, Storage, Page attachments), saved like the
+  backups' destination: the location is reached before it is chosen, and the change is recorded with the workspace's
+  settings. Until one is chosen, nothing can be attached, and every page says so before anyone tries, naming who can fix
+  it. Each row keeps the location its file went to, so changing the choice moves nothing, and a location stays while it
+  is chosen or holds a file. Files sit under `page-attachments/<page>/<attachment>/<name>` in its directory, and do not
+  count toward its storage limit, as backups do not: that limit is what Studio holds itself to (`docs/storage.md`).
+- **An attachment is not content.** It makes no version and moves no `updated_at`, as a label does not, so a page
+  stays as it was. It is an entry in the page's history, and it announces `page.changed`, whose loaded page lists it.
+- **In the text it is plain Markdown.** The rich editor puts a reference where a file was dropped: `![name](address)` for
+  an image and `[name](address)` for anything else. The address is
+  `/api/v1/pages/<page>/attachments/<attachment>/<name>`, with its name in plain letters and hyphens so nothing needs
+  encoding, and a person or agent reading the source reads what it is. The id finds the file, and the last segment is for
+  whoever reads it. Each row of a page's list copies its Markdown, for a file attached without the editor.
+- **Limits are constants.** A file is at most 50 MB and a page holds at most 200, and `GET /api/v1/page-attachments`
+  serves the limits, so the web app refuses a file before it uploads, in its own words. The API refuses again,
+  whichever way a request arrives.
+- **What a page takes** is a list, by extension: images (PNG, JPEG, GIF, WebP), documents, text and data, spreadsheets,
+  slides, and archives. Anything else is refused, which is where HTML, scripts, and programs go. SVG is taken, as
+  diagrams come in it, but only ever downloads, since it can carry a script. An image shows only when its first bytes prove
+  it is that image. See `docs/security.md`, Page attachments.
+- **Who attaches.** Everyone who edits a page: people, and agents acting for them or as themselves, through functions
+  taking an `Author`. A file shows on its page and is what its text links to, so unlike a label it is what a page
+  presents, and a proposal-only page refuses agents here too (`page_proposal_only`). A fixed page takes files, since it
+  takes edits.
+- **Removing one** is soft. Its row keeps `deleted_at`, its address answers `404`, and an image in the text says it is
+  unavailable. Its file stays with the provider, and the entry in the page's history restores it, at the same address.
+- **A deleted page keeps its files.** It reads on at its address, so they are listed and served, and changes no further:
+  adding, removing, or restoring one answers `409 page_deleted`. Restoring the page finds them as they were.
+- **Nothing is deleted for good yet.** Pages and attachments are only ever deleted softly, so today every file stays with
+  its provider for as long as the location does, whether its page or its attachment was deleted. Deleting a page for
+  good is on the roadmap, and is where files finally go: it reads `storage_location_id` and `storage_path` from a page's
+  rows, removed ones included, deletes each file, then the rows. Neither of that table's foreign keys cascades, so nothing
+  can drop a row, and with it the only record of a file, by accident.
 
 ### In the index
 
@@ -1103,7 +1145,8 @@ with its three-way merge, and the review (`crate::models::company_doc`).
 The Knowledge area (`/knowledge`) opens on its first page, beside the tree. A panel on the left holds Search, Ask, and
 Learnings, then every page, so everything in the area sits beside the tree; below `lg` it is a drawer. Each page has its
 own address (`/knowledge/pages/<id>`), and reads as its path through the tree, its title, who last edited it and when,
-its labels, its text, and its child pages. A label opens every page carrying it (`/knowledge/labels/<label>`), and the
+its labels, its text, its attachments, and its child pages. A label opens every page carrying it
+(`/knowledge/labels/<label>`), and the
 panel's filters narrow the tree by title as it is typed and by label, to what matches and the pages above it, opened. No
 title matching offers a search of what pages say (Finding pages, above). Which branches a person leaves open stays with
 them on each browser. A deleted page reads
@@ -1122,7 +1165,8 @@ A page's text is Markdown, read to React elements, with GitHub's tables, task li
 for a block that names a common language. Agents write pages, so nothing in one is trusted: raw HTML shows as text and
 runs nothing, and only `http`, `https`, `mailto`, and relative addresses survive. An image on another origin never
 loads, since the Content Security Policy refuses it and loading it would tell a third party who read the page: it is a
-link that opens the image in a new tab. Files attached to a page (Roadmap) are served by Elysium, so they show inline.
+link that opens the image in a new tab. A file attached to a page is served by Elysium, so an image shows inline, and a
+link to any other file downloads it.
 
 A page's History tab lists everything that happened to it, newest first: each version with who published it, the agent
 acting for them, and when, and between them its moves, deletions, restorations, and labels, so what learnings and the
@@ -1140,10 +1184,19 @@ is the page's one Save. Someone who publishes over a version they have not seen 
 keeps their text. What the editor has no form for opens as its Markdown, and is never lost. See `docs/frontend.md`, The
 Markdown editor.
 
+A page's Attachments list each file with its size, who added it, and when, images as small pictures that open larger.
+Files attach by the button there or dropped on it, and in the editor by its toolbar's button, dropped on the text, or
+pasted, as a screenshot is, in which case each holds its place in the text until it arrives. A page being created has
+nothing to attach to yet, and says so. Removing a file happens at once, with Undo in its toast, and its entry in the
+page's history restores it afterwards.
+
 ### Roadmap
 
-- **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
+- **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Projects.** A page can be linked to projects, so a project shows its docs.
+- **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
+  needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call
+  (`upload_attachment::upload_file`, `remove`, `restore`), each taking an `Author`.
 
 ## Onyx
 

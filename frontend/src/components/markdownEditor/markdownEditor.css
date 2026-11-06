@@ -190,3 +190,18 @@
 .markdown-editor-slash-menu button[aria-selected='true'] {
   background: var(--default);
 }
+
+/* A file on its way, in the place it was dropped. Drawn by `attachmentPlaceholders.ts`, and never
+   part of the page's text. */
+.markdown-editor-uploading {
+  display: inline-block;
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--surface-secondary);
+  font-size: 0.875rem;
+}
+
+/* The empty page's placeholder is drawn over its first line, where this one sits. */
+.markdown-editor-text p.is-editor-empty:first-child:has(.markdown-editor-uploading)::before {
+  content: none;
+}

@@ -67,6 +67,9 @@ export type ServerEvent =
   // A workspace learning category was added, edited, reordered, or removed. Nothing more, for
   // the same reason; members load the list again.
   | { type: 'learningCategories.changed' }
+  // An admin chose where page attachments go. Nothing more, for the same reason; members load it
+  // again.
+  | { type: 'pageAttachments.changed' }
   // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
   // same reason; members load it again.
   | { type: 'companyDoc.changed' }

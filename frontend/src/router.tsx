@@ -85,6 +85,7 @@ import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { WorkspaceAccessPage } from './pages/Settings/Users/WorkspaceAccessPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
+import { AttachmentDestinationPage } from './pages/Settings/Storage/AttachmentDestinationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 import { BackupDestinationPage } from './pages/Settings/Backups/BackupDestinationPage'
@@ -518,6 +519,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsStorage,
       element: <ManageStoragePage />,
+    },
+    {
+      path: UrlTree.settingsStorageAttachments,
+      element: <AttachmentDestinationPage />,
     },
     {
       path: UrlTree.settingsStorageNew,

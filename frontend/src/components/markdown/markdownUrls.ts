@@ -5,11 +5,17 @@
 // the time these run, react-markdown's `urlTransform` has blanked any scheme it does not allow,
 // such as `javascript:` and `data:`.
 
+// Misc
+import { API_BASE_PATH } from '../../constants'
+
 export type MarkdownLinkTarget =
   // Within the document, such as a footnote: the browser scrolls to it.
   | { kind: 'fragment', href: string }
   // Elysium's own address, routed in the app.
   | { kind: 'internal', href: string }
+  // A file Elysium's API serves, such as a page's attachment: no route of the app's, so the browser
+  // follows it.
+  | { kind: 'file', href: string }
   | { kind: 'external', href: string }
   // Nothing left to follow.
   | { kind: 'none' }
@@ -43,7 +49,11 @@ export function readMarkdownLink(href: string | undefined): MarkdownLinkTarget {
     return { kind: 'none' }
   }
   if (url.origin === window.location.origin) {
-    return { kind: 'internal', href: `${url.pathname}${url.search}${url.hash}` }
+    const href = `${url.pathname}${url.search}${url.hash}`
+    if (url.pathname.startsWith(`${API_BASE_PATH}/`)) {
+      return { kind: 'file', href }
+    }
+    return { kind: 'internal', href }
   }
   return { kind: 'external', href: url.href }
 }

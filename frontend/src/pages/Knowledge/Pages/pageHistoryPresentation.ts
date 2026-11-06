@@ -22,6 +22,8 @@ export const pageHistorySentenceKeys = {
   broughtBackWith: 'pages.history.sentences.broughtBackWith',
   labeled: 'pages.history.sentences.labeled',
   unlabeled: 'pages.history.sentences.unlabeled',
+  attached: 'pages.history.sentences.attached',
+  detached: 'pages.history.sentences.detached',
   changed: 'pages.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'knowledge'>>
 
@@ -38,6 +40,8 @@ export type PageHistoryRow = {
   move: { fromParentId: string | null, toParentId: string | null } | null
   // The label it put on or took off.
   label: string | null
+  // The file it attached or took off.
+  attachment: { id: string, name: string } | null
 }
 
 type EntryReading = Partial<PageHistoryRow> & Pick<PageHistoryRow, 'sentence'>
@@ -105,6 +109,14 @@ function readLabel(data: PageHistoryEntry['data'], sentence: 'labeled' | 'unlabe
   return { sentence, label: data.label }
 }
 
+function readAttachment(data: PageHistoryEntry['data'], sentence: 'attached' | 'detached'): EntryReading {
+  if (typeof data.attachmentId !== 'string' || typeof data.name !== 'string') {
+    console.debug('A page history entry names no attachment', { data })
+    return { sentence: 'changed' }
+  }
+  return { sentence, attachment: { id: data.attachmentId, name: data.name }}
+}
+
 // `data` is whatever the API stored, in any version of it, so each kind is read defensively: entries
 // that came from learnings and the company doc hold less than a page's own.
 const readersByKind = {
@@ -123,6 +135,8 @@ const readersByKind = {
   }),
   labeled: (data) => readLabel(data, 'labeled'),
   unlabeled: (data) => readLabel(data, 'unlabeled'),
+  attached: (data) => readAttachment(data, 'attached'),
+  detached: (data) => readAttachment(data, 'detached'),
 } as const satisfies Record<
   string,
   (data: PageHistoryEntry['data'], versionByEntryId: Map<string, number>) => EntryReading
@@ -147,7 +161,7 @@ export function describePageHistory(history: PageHistoryEntry[]): PageHistoryRow
     const reading: EntryReading = isKnownKind(entry.kind)
       ? readersByKind[entry.kind](entry.data, versionByEntryId)
       : { sentence: 'changed' }
-    rows.push({ entry, version, otherVersion: null, move: null, label: null, ...reading })
+    rows.push({ entry, version, otherVersion: null, move: null, label: null, attachment: null, ...reading })
   }
 
   return rows.reverse()

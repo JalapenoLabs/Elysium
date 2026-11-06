@@ -267,6 +267,7 @@ export function makePage(overrides: Partial<KnowledgePage> & Pick<KnowledgePage,
   return {
     ...makePageSummary(overrides),
     body: '',
+    attachments: [],
     category: null,
     evidence: null,
     proposalOnly: false,

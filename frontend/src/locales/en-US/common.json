@@ -164,7 +164,9 @@
       "address": "Address",
       "description": "Description",
       "insert": "Add image"
-    }
+    },
+    "attach": "Attach a file",
+    "uploading": "Uploading {{name}}…"
   },
   "imagePreview": {
     "open": "View {{name}} larger"

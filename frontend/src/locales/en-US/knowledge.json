@@ -84,6 +84,8 @@
         "broughtBackWith": "{{who}} brought back a page above this one, and this page with it",
         "labeled": "{{who}} added the label {{label}}",
         "unlabeled": "{{who}} removed the label {{label}}",
+        "attached": "{{who}} attached {{name}}",
+        "detached": "{{who}} removed the attachment {{name}}",
         "changed": "{{who}} changed this page"
       },
       "toasts": {
@@ -192,6 +194,41 @@
       "labels": "Labels",
       "updated": "Updated",
       "topOfTree": "Top of the tree"
+    }
+  },
+  "attachments": {
+    "label": "Attachments",
+    "attach": "Attach files",
+    "dropHere": "Drop files here to attach them",
+    "hint": "Up to {{size}} each",
+    "uploading": "Uploading {{name}}…",
+    "added": "{{size}} · {{who}}",
+    "addedByAgent": "{{size}} · {{who}} through {{agent}}",
+    "download": "Download {{name}}",
+    "copyMarkdown": "Copy {{name}} as Markdown",
+    "remove": "Remove {{name}}",
+    "removed": "Removed {{name}}",
+    "removeFailed": "{{name}} wasn't removed",
+    "restore": "Restore",
+    "restoreLabel": "Restore {{name}}",
+    "restored": "Restored {{name}}",
+    "restoreFailed": "{{name}} wasn't restored",
+    "refused": "{{name}} wasn't attached",
+    "publishFirst": "Publish this page to attach files to it.",
+    "noLocation": "An admin chooses where attachments are kept, in Settings, Storage.",
+    "noLocationAdmin": "Choose where attachments are kept",
+    "unavailable": "Attachments can't be loaded right now.",
+    "uploadStopped": "The upload stopped before it finished. Try it again.",
+    "refusals": {
+      "tooLarge": "Files can be up to {{size}}.",
+      "empty": "This file is empty.",
+      "type": "Pages don't take .{{extension}} files.",
+      "unnamed": "A file needs a name and an extension.",
+      "notAnImage": "This file isn't the image its name says it is.",
+      "limit": "This page holds as many attachments as a page can. Remove one first.",
+      "noLocation": "An admin chooses where attachments are kept, in Settings, Storage.",
+      "pageDeleted": "This page was deleted. Restore it to attach files.",
+      "proposalOnly": "Only people can attach files to this page."
     }
   },
   "ask": {

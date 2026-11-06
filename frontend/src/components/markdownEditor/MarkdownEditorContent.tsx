@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { AttachedFile } from './attachEditorFiles'
 import type { EditorCommand } from './editorCommands'
 import type { MarkdownSource } from './markdownSource'
 import type { SlashMenuState } from './slashCommands'
@@ -9,6 +10,7 @@ import { Placeholder } from '@tiptap/extensions'
 import { Slice } from '@tiptap/pm/model'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // User interface
 import { EditorImageDialog } from './EditorImageDialog'
@@ -17,10 +19,26 @@ import { EditorToolbar } from './EditorToolbar'
 import { SlashMenu } from './SlashMenu'
 
 // Misc
+import { toast } from '../../toast/toast'
+import { attachEditorFiles } from './attachEditorFiles'
+import { AttachmentPlaceholders } from './attachmentPlaceholders'
 import { markdownSchemaExtensions } from './editorSchema'
 import { readMarkdown, writeMarkdown } from './markdownSource'
 import { SlashCommands } from './slashCommands'
 import './markdownEditor.css'
+
+// Whether this field can take files, and what it does with them. Files live outside the Markdown,
+// so whoever owns the field says where they go; this only puts a reference to each into the text.
+export type EditorAttachments =
+  | {
+    canAttach: true
+    // What the file picker offers, as an `accept` attribute.
+    accept: string
+    // Null when it was refused, having said why.
+    attach: (file: File) => Promise<AttachedFile | null>
+  }
+  // Said on the toolbar's button before anyone tries, and again to whoever drops a file anyway.
+  | { canAttach: false, reason: string }
 
 export type MarkdownEditorProps = {
   // Given to the text itself, so the field can be found as any other.
@@ -33,6 +51,8 @@ export type MarkdownEditorProps = {
   onChange: (markdown: string) => void
   // Puts the caret in the text as it opens.
   isFocused?: boolean
+  // Left out, the field takes no files.
+  attachments?: EditorAttachments
 }
 
 type EditorDialog = 'link' | 'image' | null
@@ -42,15 +62,19 @@ type EditorDialog = 'link' | 'image' | null
 // What it holds is a document, and what it reports is Markdown: `markdownSource.ts` carries every
 // block a person did not touch through unchanged, and nothing is reported until they touch one.
 export function MarkdownEditorContent(props: MarkdownEditorProps) {
+  const { t } = useTranslation('common')
   const [ slash, setSlash ] = useState<SlashMenuState | null>(null)
   const [ dialog, setDialog ] = useState<EditorDialog>(null)
   const sourceRef = useRef<MarkdownSource | null>(null)
   // What the editor last reported, or was given, which tells a change of its own from a new value.
   const writtenRef = useRef<string | null>(null)
   const slashKeysRef = useRef<((event: KeyboardEvent) => boolean) | null>(null)
+  // ProseMirror keeps the handlers it was made with, so they read whatever this holds now.
+  const takeFilesRef = useRef<((files: File[], position: number) => void) | null>(null)
 
   const [ extensions ] = useState(() => [
     ...markdownSchemaExtensions,
+    AttachmentPlaceholders,
     Placeholder.configure({ placeholder: props.placeholder }),
     SlashCommands.configure({
       onChange: setSlash,
@@ -78,6 +102,25 @@ export function MarkdownEditorContent(props: MarkdownEditorProps) {
       clipboardTextParser: (text, _context, _isPlain, view) => Slice.maxOpen(
         readMarkdown(text, view.state.schema).document.content,
       ),
+      // A file from a screenshot or a folder arrives alone. One beside text is what a spreadsheet or
+      // word processor copies, as a picture of that text, and the text is what was meant.
+      handlePaste: (view, event) => {
+        const transfer = event.clipboardData
+        if (!takeFilesRef.current || !transfer?.files.length || transfer.getData('text/plain')) {
+          return false
+        }
+        takeFilesRef.current([ ...transfer.files ], view.state.selection.from)
+        return true
+      },
+      handleDrop: (view, event, _slice, isMovedInside) => {
+        const files = event.dataTransfer?.files
+        if (!takeFilesRef.current || isMovedInside || !files?.length) {
+          return false
+        }
+        const dropped = view.posAtCoords({ left: event.clientX, top: event.clientY })
+        takeFilesRef.current([ ...files ], dropped?.pos ?? view.state.selection.from)
+        return true
+      },
     },
     onUpdate: ({ editor: updated }) => {
       if (!sourceRef.current) {
@@ -117,6 +160,25 @@ export function MarkdownEditorContent(props: MarkdownEditorProps) {
     }
   }, [ editor, isFocused ])
 
+  const { attachments } = props
+  useEffect(() => {
+    if (!editor || !attachments) {
+      takeFilesRef.current = null
+      return
+    }
+    takeFilesRef.current = (files, position) => {
+      if (!attachments.canAttach) {
+        console.debug('MarkdownEditorContent kept out a file it cannot take', { reason: attachments.reason })
+        toast.warning(attachments.reason)
+        return
+      }
+      void attachEditorFiles(editor, files, position, {
+        attach: attachments.attach,
+        uploadingLabel: (name) => t('markdownEditor.uploading', { name }),
+      })
+    }
+  }, [ editor, attachments, t ])
+
   if (!editor) {
     return <div className='markdown-editor' />
   }
@@ -140,6 +202,8 @@ export function MarkdownEditorContent(props: MarkdownEditorProps) {
       editor={editor}
       onOpenLink={() => setDialog('link')}
       onOpenImage={() => setDialog('image')}
+      attachments={props.attachments}
+      onChooseFiles={(files) => takeFilesRef.current?.(files, editor.state.selection.from)}
     />
     <EditorContent editor={editor} />
 

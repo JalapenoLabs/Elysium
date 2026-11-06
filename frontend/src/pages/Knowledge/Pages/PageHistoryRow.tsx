@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { buttonVariants, Checkbox, Chip, Link } from '@heroui/react'
 import { LuBookOpen, LuDot } from 'react-icons/lu'
+import { RestoreAttachmentButton } from './RestoreAttachmentButton'
 import { RestoreVersionButton } from './RestoreVersionButton'
 
 // Misc
@@ -36,12 +37,25 @@ export function PageHistoryRow(props: Props) {
   </div>
 
   if (version === null) {
-    return <li className='flex items-start gap-3 px-3 py-2'>
+    // A file taken off stays with its provider, so this is where it comes back from once its toast
+    // has gone. One back on the page already has nothing to restore.
+    const removed = row.sentence === 'detached'
+      && row.attachment
+      && !page.attachments.some((attachment) => attachment.id === row.attachment?.id)
+      ? row.attachment
+      : null
+
+    return <li className='flex flex-wrap items-start gap-x-3 px-3 py-2'>
       <LuDot className='size-5 shrink-0 opacity-50' aria-hidden />
-      <div className='min-w-0 text-sm'>
+      <div className='min-w-0 flex-1 text-sm'>
         <p className='opacity-70'>{props.sentence}</p>
         {when}
       </div>
+      {removed && !page.deletedAt && <RestoreAttachmentButton
+        pageId={page.id}
+        attachmentId={removed.id}
+        name={removed.name}
+      />}
     </li>
   }
 

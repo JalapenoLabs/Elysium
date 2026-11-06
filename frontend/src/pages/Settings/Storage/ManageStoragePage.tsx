@@ -13,6 +13,7 @@ import { selectAllStorageLocations, storageLocationDeleted } from '../../../stor
 import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
+import { AttachmentDestinationSummary } from './AttachmentDestinationSummary'
 import { StorageLocationTable } from './StorageLocationTable'
 
 // Misc
@@ -22,6 +23,16 @@ import { useConfirm } from '../../../hooks/useConfirm'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { toast } from '../../../toast/toast'
+
+// What keeps a location from being deleted, in the app's own words.
+const DELETE_REFUSAL_KEYS = {
+  backup_destination: 'delete.backupDestination',
+  attachment_destination: 'delete.attachmentDestination',
+  attachment_files: 'delete.attachmentFiles',
+} as const
+
+const deleteRefusalKeys: Record<string, typeof DELETE_REFUSAL_KEYS[keyof typeof DELETE_REFUSAL_KEYS] | undefined>
+  = DELETE_REFUSAL_KEYS
 
 // `/settings/storage`: the external locations Elysium saves files to.
 export function ManageStoragePage() {
@@ -63,8 +74,9 @@ export function ManageStoragePage() {
         catch (error) {
           console.debug('ManageStoragePage failed to delete a location', { error, locationId: location.id })
           // The API's own words for a refusal, such as Studio items that keep files here.
-          const message = getApiErrorCode(error) === 'backup_destination'
-            ? t('delete.backupDestination')
+          const refusalKey = deleteRefusalKeys[getApiErrorCode(error) ?? '']
+          const message = refusalKey
+            ? t(refusalKey)
             : getApiErrorMessage(error)
           toast.danger(message ?? t('common:errors.unexpected'))
           // Keeps the dialog open to try again.
@@ -100,5 +112,6 @@ export function ManageStoragePage() {
         onDelete={confirmDelete}
       />}
     </section>
+    {status === 'loaded' && <AttachmentDestinationSummary locations={locations} />}
   </SettingsPage>
 }

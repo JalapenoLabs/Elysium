@@ -66,6 +66,7 @@ import { AGENT_GUIDANCE_KEY } from '../api/routes/agentGuidanceRoutes'
 import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { getKnowledgeAsk } from '../api/routes/knowledgeRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
+import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
@@ -238,6 +239,13 @@ const handlers: Handlers = {
       return
     }
     void mutate(LEARNING_CATEGORIES_KEY)
+  },
+  // Whether a file can be attached, loaded again by the company's members only.
+  'pageAttachments.changed': () => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    void mutate(PAGE_ATTACHMENT_POLICY_KEY)
   },
   // The doc is one record, loaded again whole with its history, by the company's members only.
   'companyDoc.changed': () => {

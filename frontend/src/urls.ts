@@ -116,6 +116,7 @@ export const UrlTree = {
   settingsMailboxEdit: '/settings/email/:accountId/edit',
   settingsStorage: '/settings/storage',
   settingsStorageNew: '/settings/storage/new',
+  settingsStorageAttachments: '/settings/storage/attachments',
   settingsStorageEdit: '/settings/storage/:locationId/edit',
   settingsUpdates: '/settings/updates',
   settingsBackups: '/settings/backups',

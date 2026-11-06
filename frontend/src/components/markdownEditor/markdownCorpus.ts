@@ -35,6 +35,12 @@ export const markdownCorpus = {
     '![reference][image]',
     '[image]: /image.png',
   ].join('\n\n'),
+  attachments: [
+    '![Rollout plan](/api/v1/pages/0199a3c4-0000-7000-8000-000000000001/attachments/'
+      + '0199a3c4-0000-7000-8000-000000000002/Rollout-plan.png)',
+    '[report.pdf](/api/v1/pages/0199a3c4-0000-7000-8000-000000000001/attachments/'
+      + '0199a3c4-0000-7000-8000-000000000003/report.pdf) beside its text.',
+  ].join('\n\n'),
   bulletLists: '- dash\n- dash\n\n* star\n* star\n\n+ plus\n+ plus',
   nestedLists: '- one\n  - two\n    - three\n      more of three\n- four\n\n    still four',
   looseList: '- one\n\n- two\n\n  second paragraph\n\n- three',

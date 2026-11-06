@@ -19,6 +19,7 @@ import { LuGitCompareArrows } from 'react-icons/lu'
 import { MarkdownEditor } from '../../../components/markdownEditor/MarkdownEditor'
 import { Page } from '../../../layout/page/Page'
 import { LearningEditFields } from './LearningEditFields'
+import { PageAttachments } from './PageAttachments'
 import { PageConflictDialog } from './PageConflictDialog'
 
 // Misc
@@ -29,6 +30,7 @@ import { usePageLoader } from '../../../hooks/useServerData'
 import { getKnowledgePageUrl, UrlTree } from '../../../urls'
 import { createLearningPageFormSchema, createPageFormSchema, describePublishRefusal } from './pageForm'
 import { findPageAncestors } from './pageTree'
+import { usePageAttachmentUpload } from './usePageAttachments'
 import { toast } from '../../../toast/toast'
 
 type EditorProps = {
@@ -56,6 +58,7 @@ function PageEditor(props: EditorProps) {
   const [ conflict, setConflict ] = useState<PageConflict | null>(null)
   const [ isConflictOpen, setIsConflictOpen ] = useState(false)
   const isLearning = page.category !== null
+  const upload = usePageAttachmentUpload(page.id)
 
   const form = useForm<EditPageValues>({
     defaultValues: {
@@ -175,6 +178,7 @@ function PageEditor(props: EditorProps) {
         markdown={body}
         onChange={(value) => form.setValue('body', value, { shouldDirty: true })}
         isFocused
+        attachments={upload.editorAttachments}
       />
       {isLearning && <LearningEditFields
         category={values.category ?? ''}
@@ -182,6 +186,7 @@ function PageEditor(props: EditorProps) {
         onCategoryChange={(value) => form.setValue('category', value, { shouldDirty: true })}
         onEvidenceChange={(value) => form.setValue('evidence', value, { shouldDirty: true })}
       />}
+      <PageAttachments page={page} upload={upload} />
     </div>
 
     {conflict && <PageConflictDialog

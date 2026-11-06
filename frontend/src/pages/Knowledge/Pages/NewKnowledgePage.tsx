@@ -131,6 +131,8 @@ function NewPageForm() {
       placeholder={t('pages.editor.placeholder')}
       markdown={values.body ?? ''}
       onChange={(value) => form.setValue('body', value, { shouldDirty: true })}
+      // A file belongs to a page, and this one does not exist until it is published.
+      attachments={{ canAttach: false, reason: t('attachments.publishFirst') }}
     />
     <PageCreateFooter />
   </Form>

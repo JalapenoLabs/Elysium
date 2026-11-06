@@ -89,6 +89,15 @@ describe('describePageHistory', () => {
 
   it('says whether a deletion or restore came from a page above', () => {
     expect(describeOne({ kind: 'deleted', data: {}}).sentence).toBe('deleted')
+    expect(describeOne({ kind: 'attached', data: { attachmentId: 'file', name: 'plan.pdf' }})).toMatchObject({
+      sentence: 'attached',
+      attachment: { id: 'file', name: 'plan.pdf' },
+    })
+    expect(describeOne({ kind: 'detached', data: { attachmentId: 'file', name: 'plan.pdf' }})).toMatchObject({
+      sentence: 'detached',
+      attachment: { id: 'file', name: 'plan.pdf' },
+    })
+    expect(describeOne({ kind: 'detached', data: {}})).toMatchObject({ sentence: 'changed', attachment: null })
     expect(describeOne({ kind: 'deleted', data: { deletedWith: 'parent' }}).sentence).toBe('deletedWith')
     expect(describeOne({ kind: 'restored', data: { deletedAt: 'then' }}).sentence).toBe('broughtBack')
     expect(describeOne({ kind: 'restored', data: { restoredWith: 'parent' }}).sentence).toBe('broughtBackWith')

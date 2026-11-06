@@ -3,6 +3,7 @@
 import type { Editor } from '@tiptap/core'
 import type { IconType } from 'react-icons'
 import type { EditorCommand } from './editorCommands'
+import type { EditorAttachments } from './MarkdownEditorContent'
 
 // Core
 import { useEditorState } from '@tiptap/react'
@@ -27,12 +28,15 @@ import {
 } from 'react-icons/lu'
 
 // Misc
+import { AttachFileButton } from './AttachFileButton'
 import { editorCommands } from './editorCommands'
 
 type Props = {
   editor: Editor
   onOpenLink: () => void
   onOpenImage: () => void
+  attachments?: EditorAttachments
+  onChooseFiles: (files: File[]) => void
 }
 
 type ToolbarButtonProps = {
@@ -154,7 +158,12 @@ export function EditorToolbar(props: Props) {
             command.apply(editor.chain().focus()).run()
           }}
         />)
-    }</div>
+    }
+    {props.attachments && <AttachFileButton
+      attachments={props.attachments}
+      onChoose={props.onChooseFiles}
+    />}
+    </div>
 
     <div className='markdown-editor-toolbar-group'>
       <ToolbarButton

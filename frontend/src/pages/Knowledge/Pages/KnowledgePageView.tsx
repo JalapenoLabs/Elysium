@@ -19,6 +19,7 @@ import { Page } from '../../../layout/page/Page'
 import { ChildPageList } from './ChildPageList'
 import { LearningFields } from './LearningFields'
 import { PageArticle } from './PageArticle'
+import { PageAttachments } from './PageAttachments'
 import { PageByline } from './PageByline'
 import { PageHistory } from './PageHistory'
 import { PageLabels } from './PageLabels'
@@ -37,6 +38,7 @@ import {
 import { readPassageParam } from './pagePassage'
 import { findPageAncestors } from './pageTree'
 import { usePassageRange } from './usePassageRange'
+import { usePageAttachmentUpload } from './usePageAttachments'
 
 const TABS = [ 'read', PAGE_HISTORY_TAB ] as const
 type Tab = typeof TABS[number]
@@ -65,6 +67,7 @@ function KnowledgePageReader(props: Props) {
   const passagePosition = readPassageParam(params)
   // Only Read shows the text, so History asks for nothing, and coming back opens at the passage.
   const markedRange = usePassageRange(page, selectedTab === 'read' ? passagePosition : null)
+  const upload = usePageAttachmentUpload(props.pageId)
 
   const parents = [
     { label: t('title'), href: UrlTree.knowledge },
@@ -134,6 +137,7 @@ function KnowledgePageReader(props: Props) {
           learning={page.category && page.evidence
             ? <LearningFields category={page.category} evidence={page.evidence} />
             : undefined}
+          attachments={<PageAttachments page={page} upload={upload} />}
           childPages={childPages.length
             ? <ChildPageList pages={childPages} />
             : undefined}
