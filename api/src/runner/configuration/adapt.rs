@@ -79,8 +79,9 @@ done
 #[serde(rename_all = "camelCase")]
 pub struct Skipped {
     pub kind: SkippedKind,
-    /// What was left out, as the repository names it: a hook's event and command, a plugin, an
-    /// MCP server, an environment key, or a setting.
+    /// What was left out, as the repository names it: a hook's event and its executable or its
+    /// address's origin, a plugin, an MCP server, an environment key, or a setting. Never a
+    /// hook's arguments or a whole address, which may carry a secret.
     pub name: String,
     pub reason: SkipReason,
     /// The command, path, or address that decided it. Never a value of the environment, which
@@ -287,17 +288,14 @@ impl Walker<'_> {
                 .and_then(Value::as_str)
                 .and_then(|command| {
                     let arguments = hook.get("args").and_then(Value::as_array);
-                    let name = format!("{event}: {}", command_line(command, arguments));
-                    self.unrunnable(command, arguments.map(Vec::as_slice))
-                        .map(|refusal| (name, refusal))
+                    let words = words(command, arguments.map(Vec::as_slice));
+                    let executable = words.first()?.clone();
+                    self.unrunnable(&words)
+                        .map(|refusal| (format!("{event}: {executable}"), refusal))
                 }),
             Some("http") => hook.get("url").and_then(Value::as_str).and_then(|address| {
-                loopback_origin(address).map(|origin| {
-                    (
-                        format!("{event}: {address}"),
-                        (SkipReason::Loopback, origin),
-                    )
-                })
+                loopback_origin(address)
+                    .map(|origin| (format!("{event}: {origin}"), (SkipReason::Loopback, origin)))
             }),
             _other => None,
         };
@@ -322,10 +320,14 @@ impl Walker<'_> {
             if *is_enabled != Value::Bool(true) {
                 continue;
             }
-            let is_installed = installed
+            // Every install path is asked, never stopping at the first, so the probing walk
+            // asks each one the adapting walk may read.
+            let answers: Vec<bool> = installed
                 .iter()
                 .filter(|(id, _path)| id == plugin)
-                .any(|(_id, path)| (self.exists)(&Probe::Path(path.clone())));
+                .map(|(_id, path)| (self.exists)(&Probe::Path(path.clone())))
+                .collect();
+            let is_installed = answers.contains(&true);
             if !is_installed {
                 missing.push(plugin.clone());
             }
@@ -389,7 +391,7 @@ impl Walker<'_> {
                     .get("args")
                     .and_then(Value::as_array)
                     .map_or(&[][..], Vec::as_slice);
-                self.unrunnable(command, Some(arguments))
+                self.unrunnable(&words(command, Some(arguments)))
             } else {
                 None
             };
@@ -404,30 +406,9 @@ impl Walker<'_> {
         !left_out.is_empty()
     }
 
-    /// Why `command` cannot run here, with what decided it: its executable is not installed, or
-    /// a path among its words does not exist. With `arguments` it is an executable and its
-    /// arguments; without, a shell command line, whose leading `NAME=value` assignments are not
-    /// its executable.
-    fn unrunnable(
-        &mut self,
-        command: &str,
-        arguments: Option<&[Value]>,
-    ) -> Option<(SkipReason, String)> {
-        let words: Vec<String> = match arguments {
-            Some(arguments) => std::iter::once(command.to_owned())
-                .chain(
-                    arguments
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned),
-                )
-                .collect(),
-            None => shlex::split(command)
-                .unwrap_or_default()
-                .into_iter()
-                .skip_while(|word| is_assignment(word))
-                .collect(),
-        };
+    /// Why a command of `words` ([`words`]) cannot run here, with what decided it: its
+    /// executable is not installed, or a path among its arguments does not exist.
+    fn unrunnable(&mut self, words: &[String]) -> Option<(SkipReason, String)> {
         let (executable, rest) = words.split_first()?;
         let named = if executable.contains('/') {
             Probe::Path(executable.clone())
@@ -507,14 +488,25 @@ fn is_checkable_path(word: &str) -> bool {
     rest.is_some_and(|rest| !rest.contains(['$', '*', '?', '[', '`']))
 }
 
-/// A command and its arguments as one line, for a [`Skipped`]'s name.
-fn command_line(command: &str, arguments: Option<&Vec<Value>>) -> String {
-    let mut line = command.to_owned();
-    for argument in arguments.into_iter().flatten().filter_map(Value::as_str) {
-        line.push(' ');
-        line.push_str(argument);
+/// A command as its executable, then its arguments. With `arguments` the command is the
+/// executable; without, it is a shell command line, whose leading `NAME=value` assignments are
+/// not its executable.
+fn words(command: &str, arguments: Option<&[Value]>) -> Vec<String> {
+    match arguments {
+        Some(arguments) => std::iter::once(command.to_owned())
+            .chain(
+                arguments
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned),
+            )
+            .collect(),
+        None => shlex::split(command)
+            .unwrap_or_default()
+            .into_iter()
+            .skip_while(|word| is_assignment(word))
+            .collect(),
     }
-    line
 }
 
 fn object(file: &'static str, text: &str) -> Result<Map<String, Value>, AdaptError> {
@@ -635,7 +627,7 @@ mod tests {
                 "PreToolUse": [{
                     "hooks": [
                         { "type": "command", "command": "FORCE=1 bash ~/.claude/hooks/guard.sh" },
-                        { "type": "http", "url": "http://localhost:9000/hook" },
+                        { "type": "http", "url": "http://localhost:9000/hook?token=secret-value" },
                     ],
                 }],
             },
@@ -732,17 +724,17 @@ mod tests {
             [
                 (
                     SkippedKind::Hook,
-                    "PreToolUse: http://localhost:9000/hook",
+                    "PreToolUse: http://localhost:9000",
                     SkipReason::Loopback
                 ),
                 (
                     SkippedKind::Hook,
-                    "SessionStart: paplay ~/.claude/sounds/start.ogg",
+                    "SessionStart: paplay",
                     SkipReason::MissingCommand
                 ),
                 (
                     SkippedKind::Hook,
-                    "Stop: /home/alex/bin/notify --quiet",
+                    "Stop: /home/alex/bin/notify",
                     SkipReason::MissingCommand
                 ),
             ]
@@ -765,7 +757,7 @@ mod tests {
             adapted.skipped,
             [Skipped {
                 kind: SkippedKind::Hook,
-                name: "Stop: bash /home/alex/.local/bin/chime.sh".to_owned(),
+                name: "Stop: bash".to_owned(),
                 reason: SkipReason::MissingPath,
                 detail: Some("/home/alex/.local/bin/chime.sh".to_owned()),
             }]
@@ -861,6 +853,61 @@ mod tests {
                 (SkippedKind::McpServer, "tollbooth", SkipReason::Loopback),
             ]
         );
+    }
+
+    #[test]
+    fn a_hooks_name_never_carries_its_arguments_or_its_whole_address() {
+        let adapted = adapted();
+        for skipped in &adapted.skipped {
+            assert!(
+                !skipped.name.contains("secret") && !skipped.name.contains(".ogg"),
+                "{skipped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plugin_installed_at_its_second_path_stays_enabled() {
+        let files = Files {
+            settings: Some(json!({ "enabledPlugins": { "a@b": true } }).to_string()),
+            installed_plugins: Some(
+                json!({ "plugins": { "a@b": [
+                    { "scope": "user", "installPath": "/stale" },
+                    { "scope": "user", "installPath": "/live" },
+                ] } })
+                .to_string(),
+            ),
+            user_state: None,
+        };
+        let asked = probes(&files).expect("probes");
+        assert!(
+            asked.contains(&Probe::Path("/live".to_owned())),
+            "{asked:?}"
+        );
+        let found = HashSet::from([Probe::Path("/live".to_owned())]);
+        assert_eq!(adapt(&files, &found).expect("adapted"), Adapted::default());
+    }
+
+    #[test]
+    fn adapting_asks_nothing_the_probes_did_not() {
+        let files = owners_files();
+        let asked = probes(&files).expect("probes");
+        for found in [
+            HashSet::new(),
+            workspace_has(),
+            asked.iter().cloned().collect(),
+        ] {
+            let mut consulted = BTreeSet::new();
+            walk(&files, &mut |probe: &Probe| {
+                consulted.insert(probe.clone());
+                found.contains(probe)
+            })
+            .expect("walked");
+            assert!(
+                consulted.is_subset(&asked),
+                "{consulted:?} beyond {asked:?}"
+            );
+        }
     }
 
     #[test]

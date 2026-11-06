@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -107,30 +107,36 @@ pub async fn record_failed(
     at: DateTime<Utc>,
 ) -> QueryResult<Status> {
     let error: String = error.trim().chars().take(ERROR_MAX_CHARACTERS).collect();
-    let keeps_checkout = find(connection).await?.describes(source);
-    if keeps_checkout {
-        return diesel::update(agent_configuration_status::table)
-            .set((
-                agent_configuration_status::error.eq(&error),
-                agent_configuration_status::failed_at.eq(at),
-            ))
-            .returning(Status::as_returning())
-            .get_result(connection)
-            .await;
-    }
-    diesel::update(agent_configuration_status::table)
-        .set((
-            agent_configuration_status::repository.eq(&source.repository),
-            agent_configuration_status::github_credential_id.eq(source.github_credential_id),
-            agent_configuration_status::commit_sha.eq(None::<String>),
-            agent_configuration_status::commit_subject.eq(None::<String>),
-            agent_configuration_status::fetched_at.eq(None::<DateTime<Utc>>),
-            agent_configuration_status::skipped.eq(Value::Array(Vec::new())),
-            agent_configuration_status::error.eq(&error),
-            agent_configuration_status::failed_at.eq(at),
-        ))
-        .returning(Status::as_returning())
-        .get_result(connection)
+    connection
+        .transaction(async |connection| {
+            // Locked, so a fetch recorded meanwhile is never mistaken for the one this failed.
+            let keeps_checkout = lock(connection).await?.describes(source);
+            if keeps_checkout {
+                return diesel::update(agent_configuration_status::table)
+                    .set((
+                        agent_configuration_status::error.eq(&error),
+                        agent_configuration_status::failed_at.eq(at),
+                    ))
+                    .returning(Status::as_returning())
+                    .get_result(connection)
+                    .await;
+            }
+            diesel::update(agent_configuration_status::table)
+                .set((
+                    agent_configuration_status::repository.eq(&source.repository),
+                    agent_configuration_status::github_credential_id
+                        .eq(source.github_credential_id),
+                    agent_configuration_status::commit_sha.eq(None::<String>),
+                    agent_configuration_status::commit_subject.eq(None::<String>),
+                    agent_configuration_status::fetched_at.eq(None::<DateTime<Utc>>),
+                    agent_configuration_status::skipped.eq(Value::Array(Vec::new())),
+                    agent_configuration_status::error.eq(&error),
+                    agent_configuration_status::failed_at.eq(at),
+                ))
+                .returning(Status::as_returning())
+                .get_result(connection)
+                .await
+        })
         .await
 }
 

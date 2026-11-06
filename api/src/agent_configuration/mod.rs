@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::models::action_item::{
-    self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
+    self, ActionItem, ActionItemChanges, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
 use crate::models::action_item_event::Recorded;
 use crate::models::agent_configuration::{self as status_record, Status};
@@ -104,9 +104,11 @@ pub async fn current_hold(connection: &mut AsyncPgConnection) -> diesel::QueryRe
     Ok(hold(&settings, &status))
 }
 
-/// Raises the inbox item that says work is held back by `hold`, unless one raised before is
-/// still in the inbox or open. A hold that is only the engine fetching raises nothing: it lifts
-/// in moments on its own. Called by whoever holds work back, as it does.
+/// Raises the inbox item that says work is held back by `hold`. One raised before that is still
+/// in the inbox or open is kept, its title and notes brought up to `hold`, so the one item always
+/// says why work waits now, such as after the repository changed while it was failing. A hold that
+/// is only the engine fetching raises nothing: it lifts in moments on its own. Called by whoever
+/// holds work back, as it does.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -123,9 +125,18 @@ pub async fn raise_hold(
         .transaction(async |connection| {
             let status = status_record::lock(connection).await?;
             if let Some(raised) = status.inbox_item_id {
-                let item = action_item::find(connection, raised).await?;
-                if is_waiting_for_someone(&item) {
-                    return Ok::<_, WorkError>(None);
+                let existing = action_item::find(connection, raised).await?;
+                if is_waiting_for_someone(&existing) {
+                    // The same words change nothing and record nothing.
+                    let changes = ActionItemChanges {
+                        title: Some(item.title),
+                        notes: Some(item.notes),
+                        ..ActionItemChanges::default()
+                    };
+                    let updated =
+                        action_item::update(connection, raised, changes, Actor::System, now)
+                            .await?;
+                    return Ok::<_, WorkError>((!updated.history.is_empty()).then_some(updated));
                 }
             }
             let created = action_item::create(connection, item, Actor::System, now).await?;
@@ -141,7 +152,7 @@ pub async fn raise_hold(
         name: "agent_configuration.hold.raised",
         Level::INFO,
         action_item.id = %raised.record.id,
-        "raised an inbox item for work the configuration repository holds back",
+        "raised or updated the inbox item for work the configuration repository holds back",
     );
     publish(events, connection, raised, now).await
 }

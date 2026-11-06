@@ -73,20 +73,22 @@ they are adapted again.
 | `.claude.json` `mcpServers`      | its command is not installed, a path it names does not exist, or it listens on loopback |
 
 `statusLine` stays: turns run headless, which never draws one. Each thing left out is a `Skipped` (`kind`, `name`,
-`reason`, and the command, path, or address that decided it, never an environment value), shown under Settings and on
-every batch.
+`reason`, and the command, path, or address that decided it), shown under Settings and on every batch. None of it
+holds a secret a repository might: a hook is named by its event and executable or its address's origin, never its
+arguments, and an environment variable by its key, never its value.
 
 **Who fetches.** The engine's keeper (`crate::agent_configuration::keeper`) fetches into the shared workspace as the
 engine starts, whenever it hears `agentConfiguration` (an admin saved the repository or its token, asked with Fetch
 now, or edited or removed a GitHub token), and every five minutes while workers are held back for any reason but an
 unset repository. Each fetch's outcome is recorded in `agent_configuration_status`: the commit, its subject, when, and
-what was left out, or why it failed. The settings page shows it as it arrives, so saving is the check. Every worker
+what was left out, or why it failed, a token that cannot be opened included. The settings page shows it as it arrives, so saving is the check. Every worker
 fetches again into its own container before its first turn (`docs/engine.md`, Workers).
 
 **Never without it.** No worker or Project Manager turn starts while no repository is set, while a new one is being
 fetched, or while the last fetch failed (`crate::agent_configuration::hold`): the pool hands out no slot, and the
 Project Managers' wakes wait, each saying why on the work queue, the batch, and the project. One inbox item says so
-for all of them while work waits, and resolves itself once a fetch succeeds. Coding sessions, Studio items, and Elysia
+for all of them while work waits, kept to the current reason while it is open, and resolves itself once a fetch
+succeeds. Coding sessions, Studio items, and Elysia
 are not held: a person starts every session and watches it, and Elysia is who tells the person that work is held, so
 holding her would silence the message. They run on whatever checkout the shared workspace has.
 

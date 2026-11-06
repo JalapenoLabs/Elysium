@@ -497,13 +497,14 @@ impl Runner {
 
     /// Fetches `~/.claude` from the configuration repository the settings name, with its own
     /// token, into the workspace, preparing the workspace first. Running turns keep the files
-    /// they started with until they read them again. A workspace that does not come up, a
-    /// fetch git refuses, and a checkout that cannot be adapted are all the attempt's outcome.
+    /// they started with until they read them again. A token that cannot be opened, a workspace
+    /// that does not come up, a fetch git refuses, and a checkout that cannot be adapted are all
+    /// the attempt's outcome, so its caller records every one of them.
     ///
     /// # Errors
-    /// Propagates a database error reading the settings, or a token that cannot be opened.
+    /// Propagates a database error reading the settings.
     pub async fn fetch_configuration(&self) -> anyhow::Result<Fetched> {
-        let Some(repository) = self.inner.configuration.load().await? else {
+        let Some(loaded) = self.inner.configuration.load().await? else {
             event!(
                 name: "runner.configuration.unset",
                 Level::INFO,
@@ -511,17 +512,20 @@ impl Runner {
             );
             return Ok(Fetched::Unset);
         };
-        let outcome = async {
-            self.prepare().await?;
-            self.inner
-                .executor
-                .provision_configuration(&repository)
-                .await
-        }
-        .await
-        .map_err(|error| format!("{error:#}"));
+        let outcome = match loaded.repository {
+            Ok(repository) => async {
+                self.prepare().await?;
+                self.inner
+                    .executor
+                    .provision_configuration(&repository)
+                    .await
+            }
+            .await
+            .map_err(|error| format!("{error:#}")),
+            Err(error) => Err(error),
+        };
         Ok(Fetched::Attempted {
-            source: repository.source(),
+            source: loaded.source,
             outcome,
         })
     }

@@ -293,3 +293,33 @@ async fn a_failure_keeps_the_last_checkout_of_the_same_repository_only() {
     assert_eq!(refetched.error, None);
     assert_eq!(refetched.failed_at, None);
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_one_item_follows_the_hold_when_it_changes_while_open() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    raise_hold(&mut connection, &events, &Hold::Unset)
+        .await
+        .expect("raised");
+    let raised = status_record::find(&mut connection)
+        .await
+        .expect("status")
+        .inbox_item_id
+        .expect("an item");
+
+    let failed = Hold::Failed {
+        error: "remote: Repository not found.".to_owned(),
+        failed_at: Utc::now(),
+    };
+    raise_hold(&mut connection, &events, &failed)
+        .await
+        .expect("raised again");
+    let status = status_record::find(&mut connection).await.expect("status");
+    assert_eq!(status.inbox_item_id, Some(raised), "still one item");
+    let item = action_item::find(&mut connection, raised)
+        .await
+        .expect("the item");
+    assert_eq!(item.title, "The configuration repository could not be fetched");
+    assert!(item.notes.contains("Repository not found"));
+}

@@ -124,7 +124,6 @@ async fn a_worker_fetches_its_configuration_and_adapts_it_to_run_there() {
         CredentialSource::Fixed(Vec::new()),
         ConfigurationSource::Fixed(ConfigurationRepository {
             url: Url::parse(&repository).expect("a repository URL"),
-            github_credential_id: None,
             token: std::env::var("CONFIGURATION_TEST_TOKEN")
                 .ok()
                 .map(SecretString::from),

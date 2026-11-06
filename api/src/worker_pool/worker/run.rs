@@ -47,7 +47,7 @@ use crate::models::agent_configuration as agent_configuration_status;
 use crate::models::user::CODING_AGENT_USER_ID;
 use crate::models::work_batch::pull_request;
 use crate::models::work_batch::worker::{self as batch_worker, Report};
-use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, Slot};
+use crate::models::work_batch::{self, BatchState, EventKind, RESULT_MAX_CHARACTERS, Slot};
 use crate::models::{environment_variable, github_credential, project, worker_setup};
 use crate::project_managers::runner::TurnLog;
 use crate::realtime::Signal;
@@ -75,6 +75,13 @@ const PREPARE_ATTEMPTS: u32 = 3;
 
 /// How long between those tries.
 const PREPARE_BACKOFF: Duration = Duration::from_secs(30);
+
+/// How many times one batch's workers may fail to fetch the configuration repository before it
+/// fails. Each failure holds the pool until the engine fetches the repository again; a batch
+/// whose workers fail where the engine succeeds (a container too slow for a large repository, a
+/// network that cannot reach it) would otherwise cycle through the queue for good, raising a new
+/// inbox item each time.
+const MAX_CONFIGURATION_REQUEUES: usize = 3;
 
 /// How often a running turn's log is stored, so the batch's page follows the worker.
 const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(30);
@@ -500,11 +507,28 @@ impl Worker {
 
     /// Gives the slot back for `reason`, the batch waiting in the queue again, and removes the
     /// container. A batch a turn already worked on cannot wait in the queue, since its work lives
-    /// in this container, so it fails instead, saying why.
+    /// in this container, and one whose workers failed [`MAX_CONFIGURATION_REQUEUES`] times will
+    /// not on the next try, so each fails instead, saying why.
     async fn give_back(&self, context: &mut Job, reason: &str) -> anyhow::Result<Ended> {
         if context.slot.batch.worker_session_id.is_some() {
             let result = format!(
                 "{reason} The batch had already begun, so it could not wait in the queue for it."
+            );
+            return self.finish(context, false, &result).await;
+        }
+        let requeued_before = {
+            let mut connection = self.deps.database.get().await?;
+            work_batch::history(&mut connection, self.batch_id)
+                .await?
+                .iter()
+                .filter(|entry| entry.kind == EventKind::Requeued.as_str())
+                .count()
+        };
+        if requeued_before + 1 >= MAX_CONFIGURATION_REQUEUES {
+            let result = format!(
+                "{reason} Its workers could not fetch the configuration repository \
+                 {MAX_CONFIGURATION_REQUEUES} times, so the batch ends here rather than waiting \
+                 in the queue again."
             );
             return self.finish(context, false, &result).await;
         }

@@ -71,19 +71,7 @@ exit 0
 #[derive(Debug, Clone)]
 pub struct ConfigurationRepository {
     pub url: Url,
-    /// The GitHub token chosen for it, by id, as a fetch's status records it.
-    pub github_credential_id: Option<Uuid>,
     pub token: Option<SecretString>,
-}
-
-impl ConfigurationRepository {
-    /// What a fetch of it records it as.
-    pub fn source(&self) -> Source {
-        Source {
-            repository: self.url.to_string(),
-            github_credential_id: self.github_credential_id,
-        }
-    }
 }
 
 /// A repository and the token chosen for it, as the settings named them when a fetch began.
@@ -104,6 +92,15 @@ pub struct Checkout {
     pub subject: String,
     pub fetched_at: DateTime<Utc>,
     pub skipped: Vec<Skipped>,
+}
+
+/// The repository the settings name, and it with its token ready to fetch, or why it is not: a
+/// stored URL that no longer parses, or a token that cannot be opened, such as one sealed under
+/// another encryption key. Either is the fetch's failure, recorded for the repository like git's.
+#[derive(Debug)]
+pub struct Loaded {
+    pub source: Source,
+    pub repository: Result<ConfigurationRepository, String>,
 }
 
 /// How one fetch of the configuration repository went.
@@ -151,39 +148,54 @@ impl ConfigurationSource {
     /// The repository the workspace settings name, with the token chosen for it.
     ///
     /// # Errors
-    /// Propagates any database error, refuses a stored URL that no longer parses, and a chosen
-    /// token that cannot be opened.
-    pub async fn load(&self) -> anyhow::Result<Option<ConfigurationRepository>> {
+    /// Propagates a database error reading the settings. Everything about the repository itself
+    /// is [`Loaded::repository`]'s.
+    pub async fn load(&self) -> anyhow::Result<Option<Loaded>> {
         let (database, cipher) = match self {
             Self::Database { database, cipher } => (database, cipher),
             #[cfg(test)]
             Self::None => return Ok(None),
             #[cfg(test)]
-            Self::Fixed(repository) => return Ok(Some(repository.clone())),
+            Self::Fixed(repository) => {
+                return Ok(Some(Loaded {
+                    source: Source {
+                        repository: repository.url.to_string(),
+                        github_credential_id: None,
+                    },
+                    repository: Ok(repository.clone()),
+                }));
+            }
         };
         let mut connection = database.get().await?;
         let settings = user::workspace_settings(&mut connection).await?;
         let Some(stored) = settings.agent_configuration_repository else {
             return Ok(None);
         };
-        let url = Url::parse(&stored)?;
         let github_credential_id = settings.agent_configuration_github_credential_id;
-        let token = match github_credential_id {
-            // The settings refuse a token for any other host; this keeps it from ever leaving.
-            Some(id) if url.host_str() == Some(TOKEN_HOST) => {
-                let credential = github_credential::find(&mut connection, id).await?;
-                Some(credential.token(cipher).map_err(|error| {
-                    anyhow::anyhow!(
-                        "the configuration repository's token cannot be opened: {error}"
-                    )
-                })?)
-            }
-            _none_or_elsewhere => None,
-        };
-        Ok(Some(ConfigurationRepository {
-            url,
-            github_credential_id,
-            token,
+        let repository = async {
+            let url = Url::parse(&stored)?;
+            let token = match github_credential_id {
+                // The settings refuse a token for any other host; this keeps it from ever leaving.
+                Some(id) if url.host_str() == Some(TOKEN_HOST) => {
+                    let credential = github_credential::find(&mut connection, id).await?;
+                    Some(credential.token(cipher).map_err(|error| {
+                        anyhow::anyhow!(
+                            "the configuration repository's token cannot be opened: {error}"
+                        )
+                    })?)
+                }
+                _none_or_elsewhere => None,
+            };
+            anyhow::Ok(ConfigurationRepository { url, token })
+        }
+        .await
+        .map_err(|error| format!("{error:#}"));
+        Ok(Some(Loaded {
+            source: Source {
+                repository: stored,
+                github_credential_id,
+            },
+            repository,
         }))
     }
 }

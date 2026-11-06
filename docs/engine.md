@@ -687,7 +687,9 @@ worker's own tools.
   never runs without it: a fetch that fails three tries 30 seconds apart is recorded as the configuration's failure,
   which holds the pool, and the batch gives its slot back (`work_batch::requeue`, a `requeued` entry with the reason)
   and waits in the queue again, its container removed. A batch a turn already worked on cannot wait in the queue,
-  since its work lives in its container, so it fails instead, saying why.
+  since its work lives in its container, so it fails instead, saying why; so does one whose workers failed to fetch
+  it three times (`MAX_CONFIGURATION_REQUEUES`), which would otherwise cycle through the queue while the engine's own
+  fetch succeeds.
 - **Its turns** run on a runner of its own, so a worker never waits for the shared workspace's eight turn slots; the
   pool's size bounds workers. Every turn's prompt is `/goal`, holding out until the worker has reported on its batch
   with `worker_finish` or `worker_wait` as the last thing it did, a condition it can always make true itself. Its
