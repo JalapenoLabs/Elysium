@@ -129,6 +129,8 @@ Tools are named for what they act on, then what they do.
 | `page_move`            | `workspace:write` | Moves a page with everything under it, or reorders it                  |
 | `page_label_add`       | `workspace:write` | Puts a label on a page, which makes no version                         |
 | `page_label_remove`    | `workspace:write` | Takes a label off a page                                               |
+| `page_project_link`    | `workspace:write` | Links a page to a project, which lists it among its docs               |
+| `page_project_unlink`  | `workspace:write` | Takes a page off a project                                             |
 
 - **Knowledge base.** The knowledge, learning, company doc, and page tools answer admins and members alone, and a guest's
   client `403 members_only`, as the routes do (`docs/knowledge.md`, Who sees what). `knowledge_search`,
@@ -141,8 +143,9 @@ Tools are named for what they act on, then what they do.
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
   is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
   nothing until a person approves (`docs/knowledge.md`, The company doc).
-- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove` call what the page routes
-  call (`read`, `create`, `publish`, `move_to`, `add`, and `remove` in `api/src/routes/v1/pages/`), with the connecting
+- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`, and
+  `page_project_unlink` call what the page routes call (`read`, `create`, `publish`, `move_to`, `add`, `remove`, `link`,
+  and `unlink` in `api/src/routes/v1/pages/`), with the connecting
   person as author and the client as the agent, and `page_list` narrows what the list route reads to one branch, at most
   200 pages to an answer (`docs/knowledge.md`, MCP). A client that cannot be
   recorded as an agent reads pages and changes none, since its change would read as the person's own.

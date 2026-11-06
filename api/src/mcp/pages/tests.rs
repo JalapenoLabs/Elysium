@@ -1,9 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The page tools: their schemas, and, driven through the router at `/api/mcp` (#205), a member's
-//! client reading, editing, and labelling a page, its edit a version naming the person and the
-//! client, a stale save, the company doc and a learning refusing it, a read-only grant, a guest's
-//! client, and a client that could not be named.
+//! The page tools: their schemas, and, driven through the router at `/api/mcp` (#205, #206), a
+//! member's client reading, editing, labelling, and linking a page, its edit a version naming the
+//! person and the client, a stale save, the company doc and a learning refusing it, a read-only
+//! grant, a guest's client, and a client that could not be named.
 //!
 //! The router tests are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
@@ -18,6 +18,7 @@ use super::*;
 use crate::models::company_doc::Section;
 use crate::models::learning::{self, LearningContent};
 use crate::models::page::{self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID};
+use crate::models::project::{self, NewProject};
 use crate::oauth::{SCOPE_READ, SCOPE_WRITE};
 use crate::routes;
 use crate::routes::v1::knowledge::tests::set_role;
@@ -29,7 +30,7 @@ use crate::tools::knowledge::SERVER;
 #[test]
 fn the_tools_are_listed_and_every_argument_is_described() {
     let tools = Workspace::pages_router().list_all();
-    let expected: [(&str, &[&str]); 6] = [
+    let expected: [(&str, &[&str]); 8] = [
         ("page_read", &["id"]),
         ("page_list", &["parentId", "offset"]),
         (
@@ -39,6 +40,8 @@ fn the_tools_are_listed_and_every_argument_is_described() {
         ("page_move", &["id", "to"]),
         ("page_label_add", &["id", "label"]),
         ("page_label_remove", &["id", "label"]),
+        ("page_project_link", &["id", "projectId"]),
+        ("page_project_unlink", &["id", "projectId"]),
     ];
     assert_eq!(tools.len(), expected.len());
     for (name, arguments) in expected {
@@ -358,6 +361,49 @@ async fn a_members_client_labels_any_page_and_makes_no_version() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_members_client_links_a_page_to_a_project_and_makes_no_version() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let bearer = mcp_bearer(&state, &[SCOPE_READ, SCOPE_WRITE]).await;
+    let created = new_page(&state, &bearer, "Runbooks", "First.").await;
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+    let project_id = project::create(
+        &mut connection,
+        &NewProject {
+            name: "Launch".to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("a project")
+    .id;
+    let arguments = json!({ "id": id, "projectId": project_id });
+
+    let linked = call(&state, &bearer, "page_project_link", arguments.clone()).await;
+    let linked = &content(&linked)["page"];
+    assert_eq!(linked["projectIds"], json!([project_id]));
+    assert_eq!(linked["currentVersion"], 1, "a link is no version");
+    let history = page::history(&mut connection, id).await.expect("read");
+    let last = history.last().expect("the link is recorded");
+    assert_eq!(last.kind, "project_linked");
+    assert_eq!(last.created_by, TEST_PERSON_ID);
+    assert_eq!(last.agent.as_deref(), Some("mcp:test-client"));
+
+    let read = call(&state, &bearer, "page_read", json!({ "id": id })).await;
+    assert_eq!(content(&read)["page"]["projectIds"], json!([project_id]));
+
+    let unlinked = call(&state, &bearer, "page_project_unlink", arguments).await;
+    assert_eq!(content(&unlinked)["page"]["projectIds"], json!([]));
+    let history = page::history(&mut connection, id).await.expect("read");
+    assert_eq!(
+        history.last().map(|entry| entry.kind.as_str()),
+        Some("project_unlinked")
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_stale_save_is_refused_and_says_how_to_try_again() {
     let (url, _connection) = migrated_database().await;
     let state = app_state(&url).await;
@@ -577,6 +623,14 @@ async fn a_read_only_grant_reads_and_changes_nothing() {
             "page_label_remove",
             json!({ "id": page["id"], "label": "runbook" }),
         ),
+        (
+            "page_project_link",
+            json!({ "id": page["id"], "projectId": page["id"] }),
+        ),
+        (
+            "page_project_unlink",
+            json!({ "id": page["id"], "projectId": page["id"] }),
+        ),
     ] {
         let refused = call(&state, &reader, tool, arguments).await;
         let refused = refusal(&refused);
@@ -620,6 +674,14 @@ async fn a_guests_client_is_refused_every_page_tool() {
         (
             "page_label_remove",
             json!({ "id": page["id"], "label": "runbook" }),
+        ),
+        (
+            "page_project_link",
+            json!({ "id": page["id"], "projectId": page["id"] }),
+        ),
+        (
+            "page_project_unlink",
+            json!({ "id": page["id"], "projectId": page["id"] }),
         ),
     ] {
         let refused = call(&state, &bearer, tool, arguments).await;

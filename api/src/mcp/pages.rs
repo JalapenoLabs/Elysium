@@ -25,13 +25,15 @@ use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::agent::{Agent, Author};
 use crate::routes::v1::pages::{
-    self, ListPagesArguments, MovePageArguments, PageArguments, PageLabelArguments, SavePageRequest,
+    self, ListPagesArguments, MovePageArguments, PageArguments, PageLabelArguments,
+    PageProjectArguments, SavePageRequest,
 };
 use crate::state::AppState;
 
 /// What reading a page answers, shared with the agents' tool of the same name.
 pub const READ_DESCRIPTION: &str = "Reads one page of the company's knowledge base whole: its \
-    title, its text in Markdown, its parentId, its labels, and its currentVersion, which \
+    title, its text in Markdown, its parentId, its labels, the projectIds it is linked to, and \
+    its currentVersion, which \
     page_save needs, with who published that version and the agent acting for them. Find an id \
     with page_list, or as the pageId of a citation that names one. proposalOnly means a \
     company doc page, and a category with evidence means a learning; page_save changes neither.";
@@ -72,6 +74,18 @@ pub const LABEL_ADD_DESCRIPTION: &str = "Puts a label on a page of the knowledge
     part of what a page says: it makes no version, and any live page takes one, a company doc \
     page or a learning included. A label already there changes nothing, and a page carries at \
     most 50. Needs write access.";
+
+/// How to link a page to a project, shared with the agents' tool of the same name.
+pub const PROJECT_LINK_DESCRIPTION: &str = "Links a page of the knowledge base to a project, so \
+    the project lists it among its docs and the project's Project Manager reads it. A page may be \
+    linked to any number of projects. A link is no part of what a page says: it makes no version, \
+    changes nobody's access, and any live page takes one, a company doc page or a learning \
+    included. A link already there changes nothing. Needs write access.";
+
+/// How to take a page off a project, shared with the agents' tool of the same name.
+pub const PROJECT_UNLINK_DESCRIPTION: &str = "Takes a page of the knowledge base off a project's \
+    docs. Like linking it makes no version, and the page and the project both stay. A link that \
+    is not there changes nothing. Needs write access.";
 
 /// How to take a label off a page, shared with the agents' tool of the same name.
 pub const LABEL_REMOVE_DESCRIPTION: &str = "Takes a label off a page of the knowledge base. Like \
@@ -236,6 +250,74 @@ impl Workspace {
         )
         .await;
         answer(unlabeled.map(|page| json!({ "page": page })))
+    }
+
+    #[tool(name = "page_project_link", description = PROJECT_LINK_DESCRIPTION)]
+    async fn page_project_link(
+        &self,
+        Parameters(arguments): Parameters<PageProjectArguments>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let caller = caller(&context)?;
+        let member = match MemberUser::check(caller.user.clone()) {
+            Ok(member) => member,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        if let Some(refusal) = refuse_without_write(&caller) {
+            return Ok(refusal);
+        }
+        let agent = match recorded_agent(&self.state, &caller).await {
+            Ok(agent) => agent,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        let author = Author {
+            user_id: member.id(),
+            agent: Some(&agent),
+            at: Utc::now(),
+        };
+        let linked = pages::link_project(
+            &self.state.database,
+            &self.state.events,
+            author,
+            arguments.id,
+            arguments.project_id,
+        )
+        .await;
+        answer(linked.map(|page| json!({ "page": page })))
+    }
+
+    #[tool(name = "page_project_unlink", description = PROJECT_UNLINK_DESCRIPTION)]
+    async fn page_project_unlink(
+        &self,
+        Parameters(arguments): Parameters<PageProjectArguments>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let caller = caller(&context)?;
+        let member = match MemberUser::check(caller.user.clone()) {
+            Ok(member) => member,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        if let Some(refusal) = refuse_without_write(&caller) {
+            return Ok(refusal);
+        }
+        let agent = match recorded_agent(&self.state, &caller).await {
+            Ok(agent) => agent,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        let author = Author {
+            user_id: member.id(),
+            agent: Some(&agent),
+            at: Utc::now(),
+        };
+        let unlinked = pages::unlink_project(
+            &self.state.database,
+            &self.state.events,
+            author,
+            arguments.id,
+            arguments.project_id,
+        )
+        .await;
+        answer(unlinked.map(|page| json!({ "page": page })))
     }
 }
 

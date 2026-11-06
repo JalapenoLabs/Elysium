@@ -50,6 +50,8 @@ fn the_tools_share_the_mcp_servers_names() {
             "page_move",
             "page_label_add",
             "page_label_remove",
+            "page_project_link",
+            "page_project_unlink",
         ]
     );
 }
@@ -103,6 +105,8 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
         ),
         ("page_label_add", json!({ "id": id, "label": "runbook" })),
         ("page_label_remove", json!({ "id": id, "label": "runbook" })),
+        ("page_project_link", json!({ "id": id, "projectId": id })),
+        ("page_project_unlink", json!({ "id": id, "projectId": id })),
     ];
     for (name, arguments) in everything {
         let tool = TOOLS
@@ -130,6 +134,9 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             "page_list" => parse_arguments::<ListPagesArguments>(&text).map(|_parsed| ()),
             "page_save" => parse_arguments::<SavePageRequest>(&text).map(|_parsed| ()),
             "page_move" => parse_arguments::<MovePageArguments>(&text).map(|_parsed| ()),
+            "page_project_link" | "page_project_unlink" => {
+                parse_arguments::<PageProjectArguments>(&text).map(|_parsed| ())
+            }
             _ => parse_arguments::<PageLabelArguments>(&text).map(|_parsed| ()),
         };
         parsed.unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -564,6 +571,46 @@ async fn a_sessions_agent_edits_a_page_as_whoever_started_it_naming_the_session(
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_sessions_agent_links_a_page_to_a_project_naming_the_session() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let session = newest_session(&mut connection).await;
+    let created = new_page(&state, &bearer, "Runbooks", "First.").await;
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+    let project_id = project::create(
+        &mut connection,
+        &NewProject {
+            name: "Handbook".to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("a project")
+    .id;
+    let arguments = json!({ "id": id, "projectId": project_id });
+
+    let linked = answered(call(&state, &bearer, "page_project_link", arguments.clone()).await);
+    assert_eq!(linked["page"]["projectIds"], json!([project_id]));
+    assert_eq!(linked["page"]["currentVersion"], 1, "a link is no version");
+    let history = page::history(&mut connection, id).await.expect("read");
+    let last = history.last().expect("the link is recorded");
+    assert_eq!(last.kind, "project_linked");
+    assert_eq!(last.created_by, TEST_PERSON_ID);
+    assert_eq!(last.agent, Some(format!("session:{session}")));
+
+    let unlinked = answered(call(&state, &bearer, "page_project_unlink", arguments).await);
+    assert_eq!(unlinked["page"]["projectIds"], json!([]));
+
+    let unknown = json!({ "id": id, "projectId": Uuid::now_v7() });
+    let (failed, text) = call(&state, &bearer, "page_project_link", unknown).await;
+    assert!(failed, "{text}");
+    assert!(text.contains("no project"), "{text}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_turns_stale_save_and_wrong_arguments_say_what_to_do() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
@@ -712,6 +759,14 @@ async fn a_session_a_guest_or_someone_disabled_since_started_is_refused_every_pa
             "page_label_remove",
             json!({ "id": created["id"], "label": "runbook" }),
         ),
+        (
+            "page_project_link",
+            json!({ "id": created["id"], "projectId": created["id"] }),
+        ),
+        (
+            "page_project_unlink",
+            json!({ "id": created["id"], "projectId": created["id"] }),
+        ),
     ];
 
     // After the grant was minted: every call checks the starter again.
@@ -800,6 +855,14 @@ async fn a_worker_reads_pages_and_is_sent_to_its_project_manager_to_change_one()
         (
             "page_label_remove",
             json!({ "id": created["id"], "label": "runbook" }),
+        ),
+        (
+            "page_project_link",
+            json!({ "id": created["id"], "projectId": created["id"] }),
+        ),
+        (
+            "page_project_unlink",
+            json!({ "id": created["id"], "projectId": created["id"] }),
         ),
     ] {
         let (failed, text) = call(&state, &worker, tool, arguments).await;

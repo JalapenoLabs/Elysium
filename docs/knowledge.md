@@ -652,6 +652,8 @@ under the same names, descriptions, and argument schemas.
 | `page_move`           | Yes | Yes  | Moves a page with everything under it, or reorders it                 |
 | `page_label_add`      | Yes | Yes  | Puts a label on a page (Labels, below)                                |
 | `page_label_remove`   | Yes | Yes  | Takes a label off a page                                              |
+| `page_project_link`   | Yes | Yes  | Links a page to a project (Projects, below)                           |
+| `page_project_unlink` | Yes | Yes  | Takes a page off a project                                            |
 
 - **One function per route.** `knowledge_search`, `knowledge_get`, and `meetings_list` call the functions the
   knowledge routes call (`search`, `open`, and `list_meetings` in `api/src/routes/v1/knowledge/`), with the same
@@ -680,8 +682,8 @@ under the same names, descriptions, and argument schemas.
   strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
   narrow and `person` is whoever said it, what `searchedByMeaning: false` means, to cite by title, person, and date,
   and that results may quote a coworker's mail and are not for repeating outside the company.
-- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove` call what the page routes
-  call, with the argument structs beside those routes, so a turn's schemas are the MCP server's as the knowledge tools'
+- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`, and
+  `page_project_unlink` call what the page routes call, with the argument structs beside those routes, so a turn's schemas are the MCP server's as the knowledge tools'
   are. `page_list` answers one branch, from what `GET /api/v1/pages` reads: every learning is a page, so the flat list
   soon passes what a tool may answer (Claude Code refuses about 25,000 tokens, some 300 pages), and an agent wants to see
   how the tree is laid out, not all of it at once. It starts at the top and follows `childCount`; to find what a page
@@ -1064,9 +1066,10 @@ a project to any number of pages (`crate::models::page_project`, `page_projects`
 - **It changes nobody's access.** Every member reads every page and no guest reads any, linked or not. A guest on a
   project sees no docs there: `GET /api/v1/projects/{id}/pages` refuses them with `403 members_only`, as every page route
   does, and the web app shows them no Docs tab.
-- **People and agents link alike.** Each write takes an `Author`, so an agent is named in the page's history as it is for
-  a publish. Any page can be linked, a proposal-only or fixed one included: those rules guard what a page says and where
-  it sits, and a link touches neither. Linking a page already linked, or taking off a link that is not there, records
+- **People and agents link alike.** People link from a page or a project's Docs tab, and agents with
+  `page_project_link` and `page_project_unlink`, over MCP and in every turn but a pool worker's, which only reads. Each
+  write takes an `Author`, so an agent is named in the page's history as it is for a publish. Any page can be linked, a
+  proposal-only or fixed one included: those rules guard what a page says and where it sits, and a link touches neither. Linking a page already linked, or taking off a link that is not there, records
   nothing.
 - **A deleted page keeps its links** and takes no new ones, so it comes back as it went. A project lists live pages
   alone.

@@ -15,8 +15,8 @@
 //!   proposals; `company_doc_propose` proposes through `crate::company_doc::propose`, as the
 //!   session's coding agent, as Elysia, or as the Project Manager, and nothing changes until a
 //!   person approves it.
-//! - `page_read`, `page_list`, `page_save`, `page_move`, `page_label_add`, and `page_label_remove`
-//!   call the page routes' own functions (`routes::v1::pages`) with the arguments the MCP server
+//! - `page_read`, `page_list`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`,
+//!   `page_project_link`, and `page_project_unlink` call the page routes' own functions (`routes::v1::pages`) with the arguments the MCP server
 //!   takes. A change is made by whoever the turn acts for and names its agent ([`writer`]), so it
 //!   is recorded like any other. A pool worker reads pages and changes none.
 //!
@@ -42,7 +42,7 @@ use crate::errors::ApiError;
 use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRIPTION};
 use crate::mcp::pages::{
     LABEL_ADD_DESCRIPTION, LABEL_REMOVE_DESCRIPTION, LIST_DESCRIPTION, MOVE_DESCRIPTION,
-    READ_DESCRIPTION, SAVE_DESCRIPTION,
+    PROJECT_LINK_DESCRIPTION, PROJECT_UNLINK_DESCRIPTION, READ_DESCRIPTION, SAVE_DESCRIPTION,
 };
 use crate::models::agent::{Agent, Author};
 use crate::models::coding_session;
@@ -53,7 +53,7 @@ use crate::routes::v1::knowledge::{
 };
 use crate::routes::v1::pages::{
     self, ListPagesArguments, MovePageArguments, PAGE_IS_A_LEARNING, PageArguments,
-    PageLabelArguments, SavePageRequest,
+    PageLabelArguments, PageProjectArguments, SavePageRequest,
 };
 
 /// Its instructions are the company's agent guidance, so an admin's edit reaches every turn as it
@@ -64,7 +64,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 11] = [
+const TOOLS: [Tool; 13] = [
     Tool {
         name: "knowledge_search",
         description: SEARCH_DESCRIPTION,
@@ -134,6 +134,18 @@ const TOOLS: [Tool; 11] = [
         description: LABEL_REMOVE_DESCRIPTION,
         input_schema: schema_of::<PageLabelArguments>,
         run: |context, scope, arguments| run_page_label_remove(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_project_link",
+        description: PROJECT_LINK_DESCRIPTION,
+        input_schema: schema_of::<PageProjectArguments>,
+        run: |context, scope, arguments| run_page_project_link(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_project_unlink",
+        description: PROJECT_UNLINK_DESCRIPTION,
+        input_schema: schema_of::<PageProjectArguments>,
+        run: |context, scope, arguments| run_page_project_unlink(context, scope, arguments).boxed(),
     },
 ];
 
@@ -546,6 +558,67 @@ async fn run_page_label_remove(
     .await
     .map_err(|error| page_tool_error(scope, "pages.label_remove", error))?;
     Ok(json!({ "page": unlabeled }))
+}
+
+async fn run_page_project_link(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: PageProjectArguments = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let linked = pages::link_project(
+        &context.database,
+        &context.events,
+        author,
+        arguments.id,
+        arguments.project_id,
+    )
+    .await
+    .map_err(|error| link_tool_error(scope, "pages.project_link", error))?;
+    Ok(json!({ "page": linked }))
+}
+
+async fn run_page_project_unlink(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let arguments: PageProjectArguments = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let unlinked = pages::unlink_project(
+        &context.database,
+        &context.events,
+        author,
+        arguments.id,
+        arguments.project_id,
+    )
+    .await
+    .map_err(|error| link_tool_error(scope, "pages.project_unlink", error))?;
+    Ok(json!({ "page": unlinked }))
+}
+
+/// A link route's refusal as the agent reads it: a link names two things, so not finding one says
+/// so of both, where every other page tool's names the page alone.
+fn link_tool_error(scope: &CallScope, operation: &'static str, error: ApiError) -> ToolError {
+    match error {
+        ApiError::NotFound => ToolError::NotFound(
+            "the knowledge base holds no page, or Elysium no project, with that id; find a page \
+             with page_list"
+                .to_owned(),
+        ),
+        other => page_tool_error(scope, operation, other),
+    }
 }
 
 #[cfg(test)]

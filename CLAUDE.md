@@ -156,7 +156,8 @@ Everything else follows these rules:
 - The knowledge base's reading tools are also on the `elysium_knowledge` server every turn gets, under the same names
   and schemas. A turn reads for whoever started its session, checked on every call, and spends their search budget.
   See `docs/knowledge.md`, MCP.
-- Agents edit pages directly (`page_save`, `page_move`, `page_label_add`, `page_label_remove`), every change naming the
+- Agents edit pages directly (`page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`,
+  `page_project_unlink`), every change naming the
   person and their agent: an MCP client as its person, a session as whoever started it, a Project Manager and Elysia as
   themselves. A pool worker only reads. Company doc pages refuse edits, pointing at `company_doc_propose`, and learnings
   refuse them, pointing at `learning_save`; both still take labels. See `docs/knowledge.md`, Who changes pages.

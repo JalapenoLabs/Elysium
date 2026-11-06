@@ -8,15 +8,29 @@ use anyhow::Context;
 use axum::Json;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page_project;
+use crate::realtime::EventBus;
 use crate::state::AppState;
+
+/// A page and a project: what the link tools take, where a route has both in its path.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageProjectArguments {
+    /// The page, from `page_list`.
+    pub id: Uuid,
+    /// The project's id.
+    pub project_id: Uuid,
+}
 
 pub async fn handle(
     State(state): State<AppState>,
@@ -24,7 +38,14 @@ pub async fn handle(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, project_id)) = path?;
-    let page = link(&state, author(&member), id, project_id).await?;
+    let page = link(
+        &state.database,
+        &state.events,
+        author(&member),
+        id,
+        project_id,
+    )
+    .await?;
     Ok(Json(json!({ "page": page })))
 }
 
@@ -33,16 +54,16 @@ pub async fn handle(
 /// # Errors
 /// `404` for an unknown page or project, and `409 page_deleted` for a deleted page.
 pub async fn link(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     project_id: Uuid,
 ) -> Result<PageResponse, ApiError> {
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page_project::link(&mut connection, id, project_id, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }

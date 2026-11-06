@@ -12,9 +12,11 @@ use uuid::Uuid;
 
 use super::{PageResponse, answer, author};
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
 use crate::models::page_project;
+use crate::realtime::EventBus;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -23,26 +25,33 @@ pub async fn handle(
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, project_id)) = path?;
-    let page = unlink(&state, author(&member), id, project_id).await?;
+    let page = unlink(
+        &state.database,
+        &state.events,
+        author(&member),
+        id,
+        project_id,
+    )
+    .await?;
     Ok(Json(json!({ "page": page })))
 }
 
-/// Removes page `id`'s link to project `project_id` as `author`: what this route and an agent's tool
-/// both do.
+/// Takes page `id` off project `project_id` as `author`: what this route and an agent's tool both
+/// do.
 ///
 /// # Errors
 /// `404` for an unknown page or project, and `409 page_deleted` for a deleted page.
 pub async fn unlink(
-    state: &AppState,
+    database: &Pool,
+    events: &EventBus,
     author: Author<'_>,
     id: Uuid,
     project_id: Uuid,
 ) -> Result<PageResponse, ApiError> {
-    let mut connection = state
-        .database
+    let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
     let recorded = page_project::unlink(&mut connection, id, project_id, author).await?;
-    answer(state, &mut connection, recorded).await
+    answer(events, &mut connection, recorded).await
 }
