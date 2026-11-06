@@ -535,8 +535,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 ## The worker pool
 
+- Every batch a Project Manager submits starts `proposed` and waits for a person to approve it, edit and approve it,
+  or reject it with a reason, which wakes its Project Manager; the pool never gives a proposal a slot. Only a person
+  decides (`worker_pool::actions::approve` and `reject` take a `MemberUser`); Elysia and Project Managers list
+  proposals. Each project with proposals waiting has one inbox item counting them. See `docs/engine.md`, Proposed
+  batches.
 - One global pool of worker slots (`api/src/worker_pool/`); Project Managers never start containers. The engine's
-  scheduler hands each free slot to the first batch in order: run next, then due scheduled, ASAP, and normal, oldest
+  scheduler hands each free slot to the first approved batch in order: run next, then due scheduled, ASAP, and normal, oldest
   first, round robin across projects by the slots each holds (`worker_pool::order`, a pure function). None is handed
   out while every Claude account is at its usage limit. See `docs/engine.md`, Workers and the pool.
 - Its size is an admin setting (`workspace_settings.worker_pool_size`), by default one worker per CPU core the engine
@@ -560,9 +565,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   that all passed, every required check among them, no open review thread, no requested changes, and no merge queue,
   naming its head commit and never bypassing the branch's rules. Anything unread or unknown holds it, saying why. A
   merge, by Elysium or a person, is a `merged_pull_request` timeline record that wakes the Project Manager.
-- People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (run next, priority,
-  pause, resume, cancel), each change recorded in `work_batch_events` with who made it. The work queue is `/work-queue`,
-  for members.
+- People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (approve and reject,
+  for a person alone; run next, priority, pause, resume, cancel), each change recorded in `work_batch_events` with who
+  made it. The work queue is `/work-queue`, for members.
 
 ## One event stream keeps the frontend current
 
