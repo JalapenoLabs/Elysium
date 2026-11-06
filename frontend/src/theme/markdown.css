@@ -259,3 +259,12 @@
 .markdown .hljs-strong {
   font-weight: 600;
 }
+
+/* The passage a citation opened a page at. A shadow in the same color reaches past the block's edges
+   without moving a line, and across the margin to the next marked block. */
+.markdown .markdown-passage {
+  border-radius: 0.25rem;
+  background-color: var(--accent-soft);
+  box-shadow: 0 0 0 0.4rem var(--accent-soft);
+  scroll-margin-top: 2rem;
+}

@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { KnowledgePassage } from './knowledgeRoutes'
 import type { LearningAgent } from './learningRoutes'
 
 // Misc
@@ -86,6 +87,11 @@ export const PAGE_BODY_MAX_CHARACTERS = 100_000
 // The SWR keys `page.changed` revalidates, each only while a view holds it.
 export const PAGES_KEY = 'v1/pages'
 
+// A passage of a page, as of one version: publishing can recut its text.
+export function pagePassageKey(pageId: string, position: number, version: number) {
+  return [ 'page-passage', pageId, position, version ] as const
+}
+
 export function pageKey(pageId: string) {
   return `v1/pages/${pageId}`
 }
@@ -127,6 +133,18 @@ type ListPageHistoryResponse = {
 
 // Everything that happened to a page, oldest first, without what any version says, so a long
 // history stays light however large the page is.
+type GetPagePassageResponse = {
+  passage: KnowledgePassage
+}
+
+// One passage of a page as the index cut it, which a reader opened at it finds in the page's
+// Markdown. A page, or a place in it, the index no longer holds answers `404`.
+export function getPagePassage(pageId: string, position: number) {
+  return apiClient
+    .get(`v1/pages/${pageId}/passages/${position}`)
+    .json<GetPagePassageResponse>()
+}
+
 export function listPageHistory(pageId: string) {
   return apiClient
     .get(pageHistoryKey(pageId))

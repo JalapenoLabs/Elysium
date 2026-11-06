@@ -7,13 +7,14 @@ import type { TranslationNamespace } from '../i18n'
 import type { SearchGroup, SearchResult } from './searchTypes'
 
 // User interface
-import { LuCodeXml, LuFolderKanban, LuListTodo, LuTarget } from 'react-icons/lu'
+import { LuCodeXml, LuFileText, LuFolderKanban, LuListTodo, LuTarget } from 'react-icons/lu'
 
 // Misc
 import {
   getActionItemViewUrl,
   getCodingSessionUrl,
   getInitiativeViewUrl,
+  getKnowledgePageUrl,
   getProjectViewUrl,
 } from '../urls'
 import { scoreSearchMatch, toSearchWords } from './searchMatch'
@@ -24,6 +25,7 @@ const groupByKind = {
   project: 'projects',
   codingSession: 'codingSessions',
   initiative: 'initiatives',
+  page: 'knowledge',
 } as const satisfies Record<RecordSearchKind, SearchGroup>
 
 // Each kind's icon, as its area shows it in the sidebar and the registry.
@@ -32,6 +34,7 @@ const iconByKind = {
   project: LuFolderKanban,
   codingSession: LuCodeXml,
   initiative: LuTarget,
+  page: LuFileText,
 } as const satisfies Record<RecordSearchKind, IconType>
 
 // The records the API found, as results beside the registry's. Each is scored by its title
@@ -93,6 +96,14 @@ function describeHit(hit: RecordSearchHit, t: TFunction<TranslationNamespace[]>)
       return {
         target: { kind: 'link', href: getInitiativeViewUrl(hit.id) },
         detail: t(`initiatives:states.${hit.state}`),
+      } as const
+    case 'page':
+      return {
+        // The knowledge search finds a page by what it says, under this same id, so a page both
+        // find is one result.
+        id: `page:${hit.id}`,
+        target: { kind: 'link', href: getKnowledgePageUrl(hit.id) },
+        detail: t('knowledge:sources.page'),
       } as const
     default:
       return null

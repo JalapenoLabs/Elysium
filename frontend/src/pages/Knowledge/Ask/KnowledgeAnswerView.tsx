@@ -10,7 +10,7 @@ import { Link, Tooltip } from '@heroui/react'
 
 // Misc
 import { DateText } from '../../../format/DateText'
-import { getKnowledgeDocumentUrl } from '../../../urls'
+import { getKnowledgeCitationUrl } from '../../../urls'
 import { presentKnowledgeSource } from '../knowledgePresentation'
 import { presentClaims } from './knowledgeAskPresentation'
 
@@ -42,7 +42,7 @@ export function KnowledgeAnswerView(props: Props) {
           const title = source.citation.title || presentKnowledgeSource(source.citation.source, t).label
           return <Tooltip key={source.number} delay={300}>
             <Link
-              href={getKnowledgeDocumentUrl(source.citation.documentId, source.position)}
+              href={getKnowledgeCitationUrl(source.citation, source.position)}
               aria-label={t('ask.citation', { number: source.number, title })}
               className={CITATION_CLASS}
             >{
@@ -66,7 +66,7 @@ export function KnowledgeAnswerView(props: Props) {
             <SourceIcon className={`mt-0.5 size-4 shrink-0 ${presented.className}`} aria-hidden />
             <div className='min-w-0'>
               <Link
-                href={getKnowledgeDocumentUrl(source.citation.documentId, source.position)}
+                href={getKnowledgeCitationUrl(source.citation, source.position)}
                 className='text-link'
               >{
                   source.citation.title || presented.label

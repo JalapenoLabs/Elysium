@@ -19,8 +19,9 @@ import { HTTPError } from 'ky'
 import { getKnowledgeDocument } from '../../api/routes/knowledgeRoutes'
 import { DateText } from '../../format/DateText'
 import { listFormat } from '../../format/intl'
-import { getProjectViewUrl, KNOWLEDGE_PASSAGE_PARAM, UrlTree } from '../../urls'
+import { getProjectViewUrl, UrlTree } from '../../urls'
 import { presentKnowledgeSource, withoutTitle } from './knowledgePresentation'
+import { readPassageParam } from './Pages/pagePassage'
 
 // `/knowledge/documents/:documentId`: one document of the knowledge base whole, as every
 // citation opens it, whoever's record it came from (docs/knowledge.md, Who sees what). It says
@@ -37,18 +38,17 @@ export function KnowledgeDocumentPage() {
     () => getKnowledgeDocument(documentId),
   )
   const document = data?.document
-  const citedPosition = Number(params.get(KNOWLEDGE_PASSAGE_PARAM))
-  const hasCitedPassage = params.has(KNOWLEDGE_PASSAGE_PARAM) && Number.isInteger(citedPosition)
+  const citedPosition = readPassageParam(params)
 
   // Once the text is there, the passage the citation named is brought into view.
   useEffect(() => {
-    if (!document || !hasCitedPassage) {
+    if (!document || citedPosition === null) {
       return
     }
     window.document
       .getElementById(`passage-${citedPosition}`)
       ?.scrollIntoView({ block: 'center' })
-  }, [ document, hasCitedPassage, citedPosition ])
+  }, [ document, citedPosition ])
 
   const parents = [
     { label: t('title'), href: UrlTree.knowledge },
@@ -115,7 +115,7 @@ export function KnowledgeDocumentPage() {
         id={`passage-${passage.position}`}
         className={[
           'relaxed rounded-lg px-3 py-2 text-sm whitespace-pre-line',
-          hasCitedPassage && passage.position === citedPosition
+          passage.position === citedPosition
             ? 'bg-accent-soft'
             : '',
         ].join(' ')}

@@ -2,6 +2,9 @@
 
 import type { KnowledgePageSummary, PagePlacement } from '../../../api/routes/pageRoutes'
 
+// Misc
+import { scoreSearchMatch, toSearchWords } from '../../../search/searchMatch'
+
 export type PageTree = {
   byId: Map<string, KnowledgePageSummary>
   // Each page's children in order, under its id, and the top of the tree under null. A page with
@@ -48,23 +51,29 @@ export type PageDestination = {
 // test in `filterPageTree`, and no view changes.
 export type PageTreeFilter = {
   label: string | null
+  // What was typed. Each word begins a word of the title, as the global search reads a title.
+  title: string
 }
 
-export const NO_PAGE_TREE_FILTER: PageTreeFilter = { label: null }
+export const NO_PAGE_TREE_FILTER: PageTreeFilter = { label: null, title: '' }
 
 // The tree as `filter` leaves it: every page it matches, under the pages above it, so each still
 // shows where it sits. It is a tree of the same shape, which `PageTree` draws as it does the whole
 // one. With nothing to filter by, it is the tree itself.
 export function filterPageTree(tree: PageTree, filter: PageTreeFilter) {
   const { label } = filter
-  if (label === null) {
+  const titleWords = toSearchWords(filter.title)
+  if (label === null && !titleWords.length) {
     return tree
   }
 
   const matchedIds = new Set<string>()
   const contextIds = new Set<string>()
   for (const page of tree.byId.values()) {
-    if (!page.labels.includes(label)) {
+    if (label !== null && !page.labels.includes(label)) {
+      continue
+    }
+    if (titleWords.length && !isTitleMatch(page.title, titleWords)) {
       continue
     }
     matchedIds.add(page.id)
@@ -84,6 +93,26 @@ export function filterPageTree(tree: PageTree, filter: PageTreeFilter) {
   // `byId` holds the pages in list order, so nesting them again keeps their order.
   const kept = [ ...tree.byId.values() ].filter((page) => matchedIds.has(page.id) || contextIds.has(page.id))
   return { ...buildPageTree(kept), contextIds }
+}
+
+// Whether two filtered trees show the same pages the same way, so one can stand for the other. The
+// whole tree is never one of them: filtering it opens every branch, which is not how a person left
+// them.
+export function holdsSamePages(first: PageTree, second: PageTree) {
+  if (!first.contextIds || !second.contextIds || first.byId.size !== second.byId.size) {
+    return false
+  }
+  for (const [ id, page ] of first.byId) {
+    if (second.byId.get(id) !== page || first.contextIds.has(id) !== second.contextIds.has(id)) {
+      return false
+    }
+  }
+  return true
+}
+
+function isTitleMatch(title: string, queryWords: string[]) {
+  const text = { titleWords: toSearchWords(title), tagWords: [], parentWords: []}
+  return scoreSearchMatch(queryWords, text) !== null
 }
 
 // Every label the pages carry, once each, in reading order.

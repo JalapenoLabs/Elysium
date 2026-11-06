@@ -6,14 +6,15 @@ import type { SearchResult } from './searchTypes'
 
 // Misc
 import { presentKnowledgeSource } from '../pages/Knowledge/knowledgePresentation'
-import { getKnowledgeDocumentUrl } from '../urls'
+import { getKnowledgeCitationUrl } from '../urls'
 import { scoreSearchMatch, toSearchWords } from './searchMatch'
 
 // The documents the knowledge search found, as results beside the registry's and the records'.
 // Each is scored by its title with the registry's own rule, so the merged list ranks every
 // source alike, and carries the knowledge search's own order (`sourceRank`), which decides
 // between documents the title cannot tell apart: most are found by what they say, not by their
-// titles. Each opens its document at its best passage.
+// titles. Each opens at its best passage, in its page when it was indexed from one. A page's id
+// is the one the record search gives it, so a page found both ways is one result.
 export function toKnowledgeResults(
   results: KnowledgeResult[],
   query: string,
@@ -32,7 +33,9 @@ export function toKnowledgeResults(
       parentWords: [],
     }
     searchResults.push({
-      id: `knowledge:${citation.documentId}`,
+      id: citation.pageId
+        ? `page:${citation.pageId}`
+        : `knowledge:${citation.documentId}`,
       group: 'knowledge',
       title,
       detail: t('result.detail', { source: source.label, person: citation.person.name }),
@@ -41,7 +44,7 @@ export function toKnowledgeResults(
       sourceRank: index,
       target: {
         kind: 'link',
-        href: getKnowledgeDocumentUrl(citation.documentId, result.passages[0]?.position),
+        href: getKnowledgeCitationUrl(citation, result.passages[0]?.position),
       },
     })
   }

@@ -10,13 +10,19 @@ import { describe, expect, it } from 'vitest'
 import { toKnowledgeResults } from './knowledgeSearch'
 import { rankSearchResults } from './searchRanking'
 
-function result(documentId: string, title: string, source = 'slack'): KnowledgeResult {
+function result(
+  documentId: string,
+  title: string,
+  source = 'slack',
+  pageId: string | null = null,
+): KnowledgeResult {
   return {
     citation: {
       documentId,
       source,
       title,
       url: null,
+      pageId,
       occurredAt: '2026-11-01T10:00:00Z',
       person: { id: 'u1', name: 'Maya Chen' },
     },
@@ -40,6 +46,13 @@ describe('toKnowledgeResults', () => {
     expect(found.title).toBe('#web')
     expect(found.detail).toBe('Slack · Maya Chen')
     expect(found.target).toEqual({ kind: 'link', href: '/knowledge/documents/d1?passage=2' })
+  })
+
+  it('opens what was indexed from a page in the page, under the id the record search gives it', () => {
+    const [ found ] = toKnowledgeResults([ result('d1', 'Runbook', 'page', 'p1') ], 'safari', t)
+
+    expect(found.id).toBe('page:p1')
+    expect(found.target).toEqual({ kind: 'link', href: '/knowledge/pages/p1?passage=2' })
   })
 
   it('names a document without a title by its source', () => {

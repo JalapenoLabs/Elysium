@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { KnowledgeFilters } from './knowledgeFilters'
+import type { KnowledgeFilters, KnowledgeScope } from './knowledgeFilters'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -17,9 +17,10 @@ import { LuX } from 'react-icons/lu'
 
 // Misc
 import { formatCalendarDay } from '../../format/dates'
-import { presentKnowledgeSource } from './knowledgePresentation'
+import { filterWordsByScope, presentKnowledgeSource } from './knowledgePresentation'
 
 type Props = {
+  scope: KnowledgeScope
   filters: KnowledgeFilters
   onChange: (filters: KnowledgeFilters) => void
 }
@@ -39,6 +40,7 @@ export function KnowledgeFilterTags(props: Props) {
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const userNames = useAppSelector(selectUserNamesById, shallowEqual)
   const filters = props.filters
+  const words = filterWordsByScope[props.scope]
 
   const tags: FilterTag[] = filters.sources.map((source) => ({
     id: `source:${source}`,
@@ -57,7 +59,7 @@ export function KnowledgeFilterTags(props: Props) {
   if (filters.personId) {
     tags.push({
       id: 'person',
-      label: t('filters.tags.person', {
+      label: t(words.personTag, {
         name: userNames[filters.personId] ?? t('result.unknownPerson'),
       }),
       without: { ...filters, personId: null },
@@ -73,14 +75,14 @@ export function KnowledgeFilterTags(props: Props) {
   if (filters.fromDay) {
     tags.push({
       id: 'since',
-      label: t('filters.tags.since', { date: formatCalendarDay(filters.fromDay) }),
+      label: t(words.sinceTag, { date: formatCalendarDay(filters.fromDay) }),
       without: { ...filters, fromDay: null },
     })
   }
   if (filters.toDay) {
     tags.push({
       id: 'until',
-      label: t('filters.tags.until', { date: formatCalendarDay(filters.toDay) }),
+      label: t(words.untilTag, { date: formatCalendarDay(filters.toDay) }),
       without: { ...filters, toDay: null },
     })
   }

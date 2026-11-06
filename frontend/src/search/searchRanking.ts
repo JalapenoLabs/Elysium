@@ -1,10 +1,23 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { SearchGroup, SearchResult } from './searchTypes'
+import type { SearchGroup, SearchResult, SearchSourceAnswer } from './searchTypes'
 
 export type SearchResultSection = {
   group: SearchGroup
   results: SearchResult[]
+}
+
+// Every source's results, each thing once: two sources that found the same thing give it the same
+// id, and the later source's result stands. The knowledge search comes last, so a page found by its
+// title and by what it says opens at what it says.
+export function mergeSearchResults(sources: SearchSourceAnswer[]) {
+  const resultsById = new Map<string, SearchResult>()
+  for (const source of sources) {
+    for (const result of source.results) {
+      resultsById.set(result.id, result)
+    }
+  }
+  return [ ...resultsById.values() ]
 }
 
 // Every source's results in one order: the closest match first; then, between two results one

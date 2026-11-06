@@ -6,7 +6,7 @@ import type { SearchEntry } from '../../search/searchTypes'
 import { LuFilePlus, LuLibrary, LuSearch, LuSparkles } from 'react-icons/lu'
 
 // Misc
-import { UrlTree } from '../../urls'
+import { getKnowledgePagesSearchUrl, UrlTree } from '../../urls'
 
 // The knowledge base, its search, and asking it; the knowledge base is for members. Its learnings
 // register beside them, and its documents are found by the knowledge search itself
@@ -30,6 +30,16 @@ export const searchEntries: SearchEntry[] = [
     icon: LuSearch,
     audience: 'members',
     href: UrlTree.knowledgeSearch,
+  },
+  {
+    id: 'knowledgeSearchPages',
+    group: 'pages',
+    title: 'knowledge:search.searchPages',
+    parent: 'knowledge:title',
+    tags: 'search:tags.knowledgeSearchPages',
+    icon: LuSearch,
+    audience: 'members',
+    href: getKnowledgePagesSearchUrl(),
   },
   {
     id: 'knowledgeAsk',

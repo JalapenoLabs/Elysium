@@ -49,7 +49,7 @@ function renderTree(filter: PageTreeFilter, memory = makeMemory()) {
 
 describe('FilteredPageTree', () => {
   it('leaves the tree as the person keeps it with no filter on', () => {
-    renderTree({ label: null })
+    renderTree({ label: null, title: '' })
 
     expect(screen.getByRole('link', { name: 'Guide' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Notes' })).toBeDefined()
@@ -57,7 +57,7 @@ describe('FilteredPageTree', () => {
   })
 
   it('opens every branch holding a match and shows only what the filter leaves', () => {
-    renderTree({ label: 'on-call' })
+    renderTree({ label: 'on-call', title: '' })
 
     expect(screen.getByRole('link', { name: 'Runbook' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Guide' })).toBeDefined()
@@ -65,7 +65,7 @@ describe('FilteredPageTree', () => {
   })
 
   it('closes a branch for as long as the filter lasts, leaving what the person keeps open alone', () => {
-    const memory = renderTree({ label: 'on-call' })
+    const memory = renderTree({ label: 'on-call', title: '' })
 
     fireEvent.click(screen.getByRole('button', { name: /collapse|expand/i }))
 
@@ -74,7 +74,7 @@ describe('FilteredPageTree', () => {
   })
 
   it('moves a page among everything, not just what the filter leaves', async () => {
-    renderTree({ label: 'on-call' })
+    renderTree({ label: 'on-call', title: '' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Runbook' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Move' }))
@@ -84,8 +84,25 @@ describe('FilteredPageTree', () => {
     expect(await screen.findByRole('option', { name: 'Notes' })).toBeDefined()
   })
 
+  it('narrows to the titles typed, showing the pages above them open', () => {
+    renderTree({ label: null, title: 'run' })
+
+    expect(screen.getByRole('link', { name: 'Runbook' })).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Guide' })).toBeDefined()
+    expect(screen.queryByRole('link', { name: 'Notes' })).toBeNull()
+    expect(screen.getByRole('row', { name: 'Guide' }).getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('offers to search what pages say when no title matches', () => {
+    renderTree({ label: null, title: 'zeppelin' })
+
+    expect(screen.getByRole('status').textContent).toContain('No titles match.')
+    const link = screen.getByRole('link', { name: 'Search what pages say' })
+    expect(link.getAttribute('href')).toBe('/knowledge/search?tab=pages&q=zeppelin')
+  })
+
   it('says so when no page carries the label', () => {
-    renderTree({ label: 'never' })
+    renderTree({ label: 'never', title: '' })
 
     expect(screen.getByRole('status').textContent).toBe('No pages carry this label.')
     expect(screen.queryByRole('link')).toBeNull()

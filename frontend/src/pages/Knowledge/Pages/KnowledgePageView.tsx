@@ -5,7 +5,7 @@ import type { PageAction } from '../../../layout/page/pageActions'
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
@@ -34,7 +34,9 @@ import {
   PAGE_HISTORY_TAB,
   UrlTree,
 } from '../../../urls'
+import { readPassageParam } from './pagePassage'
 import { findPageAncestors } from './pageTree'
+import { usePassageRange } from './usePassageRange'
 
 const TABS = [ 'read', PAGE_HISTORY_TAB ] as const
 type Tab = typeof TABS[number]
@@ -59,6 +61,10 @@ function KnowledgePageReader(props: Props) {
   const summary = tree.byId.get(props.pageId)
   const childPages = tree.childrenByParent.get(props.pageId) ?? []
   const [ selectedTab, selectTab ] = useTabParam(TABS)
+  const [ params ] = useSearchParams()
+  const passagePosition = readPassageParam(params)
+  // Only Read shows the text, so History asks for nothing, and coming back opens at the passage.
+  const markedRange = usePassageRange(page, selectedTab === 'read' ? passagePosition : null)
 
   const parents = [
     { label: t('title'), href: UrlTree.knowledge },
@@ -120,7 +126,9 @@ function KnowledgePageReader(props: Props) {
     >
       <Tabs.Panel id='read' className='mt-0 p-0'>
         <PageArticle
+          key={passagePosition}
           markdown={page.body}
+          markedRange={markedRange}
           byline={<PageByline page={page} />}
           labels={<PageLabels page={page} />}
           learning={page.category && page.evidence

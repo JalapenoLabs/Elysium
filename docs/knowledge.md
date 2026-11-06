@@ -16,8 +16,9 @@ below); the embedding model, with the engine's embedder giving every passage its
 (Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
 turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
-Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels, and their
-place in the index, through the API, with learnings and the company doc among them (Pages, below).
+Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
+their place in the index, and finding them by title and text, with learnings and the company doc among them (Pages,
+below).
 
 ## What is indexed
 
@@ -158,7 +159,8 @@ Two people whose connectors read the same channel or space each have the record 
 twice), so the index holds two documents of one source with the same `content_sha256`. Their passages are the same
 text at the same positions and rank alike, so a result folds them: the earliest recorded is cited, and the others are
 listed as also recorded by their people. A document's own page lists its copies, found through
-`knowledge_documents_copies`.
+`knowledge_documents_copies`. Pages are not folded: two pages can say the same thing, such as two branches' empty
+Overview pages, and each is its own place in the tree.
 
 ### Filters
 
@@ -978,6 +980,44 @@ and so on, so the search's filter and citations name them as they always have; `
 as `{ kind: "learning", learningId }`, the page's id, and `{ kind: "companyDoc", section, pageId }`. A fixed page is
 indexed from its body alone, so one that says nothing has no document.
 
+### Finding pages
+
+Three ways, each for what it is best at, and none of them a second index.
+
+- **By title and text, on the Knowledge area.** The search's Pages tab is the knowledge search under the sources `page`,
+  `learning`, and `company_doc`: the same function, the same ranking, and the same budget as searching everything. It
+  needs no scope of its own in the API, so anything that asks for those sources, an agent included, finds what a
+  person finds.
+- **By title as it is typed, in the tree.** The panel's field narrows the tree in the browser, from what the tree already
+  loaded (Filtering the tree, `docs/frontend.md`), by the rule the global search reads a title with: every word typed
+  begins a word of the title.
+- **From anywhere, in the topbar.** A page's title is one more kind of record in `GET /api/v1/search`, matched as it is
+  typed through `pages_title_search`, since full text matches whole words only (`runb` never finds Runbook) and a
+  search by meaning would embed a query per keystroke. A guest's search holds none. The knowledge search answers
+  beside it with what pages say, and a page both find is one result, which opens at the passage.
+
+**A learning or a company doc section is a page here.** They sit in the tree and open as pages, and someone looking
+for how the team restarts a fleet does not care which kind of page wrote it down, so the Pages tab finds all three, and its
+filters can leave out a kind. Their own lists stay where they are.
+
+**Author and date are the newest version's.** Pages are filtered by who last published and when, labelled in the
+words of the page's byline (Last edited by, Edited since, Edited until). That is what each result shows and what its
+document holds (In the index, above): those are its words now. Anyone who ever published a version was the alternative,
+which would find a page for someone whose words may no longer be in it, under a name the result does not show.
+Machines count: Elysia and agents publish as themselves, so the filter offers them where the rest of the search offers
+people alone.
+
+**A result opens the page, at the passage.** Its citation names the page (`pageId`), so it opens
+`/knowledge/pages/<id>?passage=<position>`, as an answer's citation does, rather than the document view, which stays for
+timeline records. A passage is a cut of Markdown, so the page reads it back from the index (`GET
+/api/v1/pages/{id}/passages/{position}`) and finds it in the page's Markdown, rather than cutting the text a second time
+in the browser and having to agree with `passages::split` forever. The place found is an offset into the Markdown, and
+every rendered block still knows its offsets, so marking one needs no matching of rendered text, which has lost a
+table's pipes and a link's address. The page opens with the passage marked and in view. It opens at its top, with
+nothing marked, for whatever the page does not draw there: a link older than the text, evidence, or a footnote. Publishing
+keeps the mark where the text still is and never moves a reader. The History tab and the editor take no part, and coming
+back to the page's own tab opens at the passage again.
+
 ### Learnings and the company doc
 
 A learning is a page with a category and evidence, created under the Learnings page, and keeps its id as the page's. The
@@ -1020,7 +1060,9 @@ The Knowledge area (`/knowledge`) opens on its first page, beside the tree. A pa
 Learnings, then every page, so everything in the area sits beside the tree; below `lg` it is a drawer. Each page has its
 own address (`/knowledge/pages/<id>`), and reads as its path through the tree, its title, who last edited it and when,
 its labels, its text, and its child pages. A label opens every page carrying it (`/knowledge/labels/<label>`), and the
-panel's filter narrows the tree to them and the pages above them. Which branches a person leaves open stays with them on each browser. A deleted page reads
+panel's filters narrow the tree by title as it is typed and by label, to what matches and the pages above it, opened. No
+title matching offers a search of what pages say (Finding pages, above). Which branches a person leaves open stays with
+them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
 The tree is also where people organize pages. Each row's menu adds a child page, moves the page, or deletes it. A page
@@ -1058,8 +1100,6 @@ Markdown editor.
 
 - **Attachments.** Files and images attach to a page, inline or listed, saved to a storage location.
 - **Projects.** A page can be linked to projects, so a project shows its docs.
-- **Search.** A search scoped to pages beside the knowledge base's search of everything, and pages in the topbar's
-  search.
 - **Agents.** Tools to read and edit pages, every version kept, except that the company doc's pages keep their rule.
 
 ## Onyx

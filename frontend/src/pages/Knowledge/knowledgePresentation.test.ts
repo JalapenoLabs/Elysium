@@ -8,7 +8,34 @@ import { describe, expect, it } from 'vitest'
 import { LuFileText, LuLightbulb } from 'react-icons/lu'
 
 // Misc
-import { KNOWLEDGE_SOURCES, presentKnowledgeSource, withoutTitle } from './knowledgePresentation'
+import { excerptPassage, KNOWLEDGE_SOURCES, presentKnowledgeSource, withoutTitle } from './knowledgePresentation'
+
+describe('excerptPassage', () => {
+  const longLine = `${'Some words that lead up to it. '.repeat(10)}Restart the fleet here.`
+
+  it('leaves a passage whose first lines hold the match as it is', () => {
+    expect(excerptPassage('Restart the fleet.\n\nThen wait.', 'restart')).toBe('Restart the fleet.\n\nThen wait.')
+  })
+
+  it('starts at the line holding the most of what was searched for', () => {
+    const text = 'Section 1\n\nThe first point.\n\nThe second point of section 30.\n\nThe last.'
+
+    expect(excerptPassage(text, 'second point section 30'))
+      .toBe('… The second point of section 30.\n\nThe last.')
+  })
+
+  it('starts a long line shortly before its match, on a word', () => {
+    const excerpt = excerptPassage(longLine, 'fleet')
+
+    expect(excerpt.startsWith('… ')).toBe(true)
+    expect(excerpt.endsWith('Restart the fleet here.')).toBe(true)
+    expect(excerpt.length).toBeLessThan(90)
+  })
+
+  it('reads a passage found by its meaning from its start', () => {
+    expect(excerptPassage('Nothing typed is here.', 'zeppelin')).toBe('Nothing typed is here.')
+  })
+})
 
 describe('presentKnowledgeSource', () => {
   const t = i18next.getFixedT('en-US', 'knowledge')

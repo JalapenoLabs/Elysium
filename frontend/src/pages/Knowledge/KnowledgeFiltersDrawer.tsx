@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { FormEvent } from 'react'
-import type { KnowledgeFilters } from './knowledgeFilters'
+import type { KnowledgeFilters, KnowledgeScope } from './knowledgeFilters'
 
 // Core
 import { useState } from 'react'
@@ -25,13 +25,15 @@ import { parseDate } from '@internationalized/date'
 // Misc
 import { submitOnEnter } from '../../components/submitOnEnter'
 import { useProjectsLoader, useUsersLoader } from '../../hooks/useServerData'
-import { KNOWLEDGE_SOURCES, presentKnowledgeSource } from './knowledgePresentation'
+import { KNOWLEDGE_PAGES_SCOPE } from '../../urls'
+import { filterWordsByScope, presentKnowledgeSource } from './knowledgePresentation'
 import { NO_KNOWLEDGE_FILTERS } from './knowledgeFilters'
 
 // The select's choice for no project or no person: the filter is off.
 const ANY = 'any'
 
 type Props = {
+  scope: KnowledgeScope
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
   // The filters in force when the drawer opened, which it edits a copy of.
@@ -50,6 +52,8 @@ export function KnowledgeFiltersDrawer(props: Props) {
   const projects = useAppSelector(selectAllProjects)
   const users = useAppSelector(selectAllUsers)
   const labelsInUse = useAppSelector(selectLabelsInUse)
+  const words = filterWordsByScope[props.scope]
+  const isSearchingPages = props.scope === KNOWLEDGE_PAGES_SCOPE
 
   const projectOptions = [
     { id: ANY, label: t('filters.anyProject') },
@@ -57,7 +61,9 @@ export function KnowledgeFiltersDrawer(props: Props) {
   ]
   const personOptions = [{ id: ANY, label: t('filters.anyone') }]
   for (const user of users) {
-    if (user.kind === 'person') {
+    // Elysia and agents publish pages as themselves, so a page can be theirs to have last edited;
+    // what the rest of the index records comes from people.
+    if (user.kind === 'person' || isSearchingPages) {
       personOptions.push({ id: user.id, label: user.name })
     }
   }
@@ -83,8 +89,8 @@ export function KnowledgeFiltersDrawer(props: Props) {
                 value={draft.sources}
                 onChange={(sources) => setDraft({ ...draft, sources })}
               >
-                <Label>{t('filters.sources')}</Label>
-                {KNOWLEDGE_SOURCES.map((source) => {
+                <Label>{t(words.sourcesLabel)}</Label>
+                {words.sources.map((source) => {
                   const presented = presentKnowledgeSource(source, t)
                   const Icon = presented.icon
                   return <Checkbox key={source} id={`knowledge-filter-source-${source}`} value={source}>
@@ -99,7 +105,7 @@ export function KnowledgeFiltersDrawer(props: Props) {
                 })}
               </CheckboxGroup>
             </div>
-            <div className='compact'>
+            {!isSearchingPages && <div className='compact'>
               <OptionSelect
                 id='knowledge-filter-project'
                 label={t('filters.project')}
@@ -112,11 +118,11 @@ export function KnowledgeFiltersDrawer(props: Props) {
                     : value,
                 })}
               />
-            </div>
+            </div>}
             <div className='compact'>
               <OptionSelect
                 id='knowledge-filter-person'
-                label={t('filters.person')}
+                label={t(words.person)}
                 options={personOptions}
                 value={draft.personId ?? ANY}
                 onChange={(value) => setDraft({
@@ -139,7 +145,7 @@ export function KnowledgeFiltersDrawer(props: Props) {
             <div className='compact'>
               <DayPicker
                 id='knowledge-filter-since'
-                label={t('filters.since')}
+                label={t(words.since)}
                 calendarLabel={t('filters.calendar')}
                 value={draft.fromDay
                   ? parseDate(draft.fromDay)
@@ -150,7 +156,7 @@ export function KnowledgeFiltersDrawer(props: Props) {
             <div className='compact'>
               <DayPicker
                 id='knowledge-filter-until'
-                label={t('filters.until')}
+                label={t(words.until)}
                 calendarLabel={t('filters.calendar')}
                 value={draft.toDay
                   ? parseDate(draft.toDay)

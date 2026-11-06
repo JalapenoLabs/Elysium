@@ -6,7 +6,8 @@ import type { KnowledgeSearchQuery } from '../../api/routes/knowledgeRoutes'
 import { parseDate, toZoned } from '@internationalized/date'
 
 // Misc
-import { SEARCH_QUERY_PARAM } from '../../urls'
+import { KNOWLEDGE_PAGES_SCOPE, SEARCH_QUERY_PARAM } from '../../urls'
+import { PAGE_SOURCES } from './knowledgePresentation'
 
 // The Knowledge page's search and filters, kept in the address so a search can be shared,
 // reloaded, and come back to from a document. The API reads instants; the page reads days in
@@ -23,6 +24,10 @@ export type KnowledgeFilters = {
   fromDay: string | null
   toDay: string | null
 }
+
+// What the search covers, which is its tab: the whole knowledge base, or pages alone.
+export const KNOWLEDGE_SCOPES = [ 'everything', KNOWLEDGE_PAGES_SCOPE ] as const
+export type KnowledgeScope = typeof KNOWLEDGE_SCOPES[number]
 
 export const NO_KNOWLEDGE_FILTERS: KnowledgeFilters = {
   sources: [],
@@ -83,6 +88,32 @@ export function readKnowledgeFilters(params: URLSearchParams): KnowledgeFilters 
     fromDay: readDay(params.get(FILTER_PARAMS.fromDay)),
     toDay: readDay(params.get(FILTER_PARAMS.toDay)),
   }
+}
+
+function isPageSource(source: string) {
+  return PAGE_SOURCES.some((pageSource) => pageSource === source)
+}
+
+// The filters that apply within `scope`: pages belong to no project and come from no other
+// source, so a link or a tab change carrying either would answer nothing with no way to see why.
+export function scopeKnowledgeFilters(filters: KnowledgeFilters, scope: KnowledgeScope): KnowledgeFilters {
+  if (scope !== KNOWLEDGE_PAGES_SCOPE) {
+    return filters
+  }
+  return {
+    ...filters,
+    sources: filters.sources.filter(isPageSource),
+    projectId: null,
+  }
+}
+
+// The sources a search within `scope` asks for: those chosen, or all of pages' when none are, since
+// no source at all is the API's way of saying every one.
+export function readSearchedSources(filters: KnowledgeFilters, scope: KnowledgeScope): string[] {
+  if (filters.sources.length || scope !== KNOWLEDGE_PAGES_SCOPE) {
+    return filters.sources
+  }
+  return [ ...PAGE_SOURCES ]
 }
 
 // The address for `query` under `filters`, with nothing for a filter left open, keeping every

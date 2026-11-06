@@ -147,8 +147,11 @@ export const FOCUS_TURN_PARAM = 'turn'
 // open tab (`TAB_PARAM`).
 export const SEARCH_QUERY_PARAM = 'q'
 
-// The query parameter naming the passage a knowledge document opens at, which a citation names.
+// The query parameter naming the passage a knowledge document or page opens at, which a citation
+// names.
 export const KNOWLEDGE_PASSAGE_PARAM = 'passage'
+// The knowledge search's tab that searches pages alone.
+export const KNOWLEDGE_PAGES_SCOPE = 'pages'
 // The page a new page goes under, chosen already when it is added from the tree.
 export const NEW_PAGE_PARENT_PARAM = 'parent'
 
@@ -275,8 +278,13 @@ export function getLearningEditUrl(learningId: string) {
   return UrlTree.knowledgeLearningEdit.replace(':learningId', learningId)
 }
 
-export function getKnowledgePageUrl(pageId: string) {
-  return UrlTree.knowledgePage.replace(':pageId', pageId)
+// A page of the knowledge base, opened at one of its passages when a citation names one.
+export function getKnowledgePageUrl(pageId: string, passage?: number) {
+  const url = UrlTree.knowledgePage.replace(':pageId', pageId)
+  if (passage === undefined) {
+    return url
+  }
+  return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
 }
 
 export function getPageHistoryUrl(pageId: string) {
@@ -314,9 +322,27 @@ export function getKnowledgeDocumentUrl(documentId: string, passage?: number) {
   return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
 }
 
+// Where a citation opens: its page, read as it reads, when it was indexed from one, or else the
+// document, which is all a timeline record has for anyone but its owner.
+export function getKnowledgeCitationUrl(citation: { documentId: string, pageId: string | null }, passage?: number) {
+  if (citation.pageId) {
+    return getKnowledgePageUrl(citation.pageId, passage)
+  }
+  return getKnowledgeDocumentUrl(citation.documentId, passage)
+}
+
 // The knowledge search for `query`, as the topbar's results open it.
 export function getKnowledgeSearchUrl(query: string) {
   const params = new URLSearchParams({ [SEARCH_QUERY_PARAM]: query })
+  return `${UrlTree.knowledgeSearch}?${params.toString()}`
+}
+
+// The knowledge search of pages alone, for `query` when there is one.
+export function getKnowledgePagesSearchUrl(query?: string) {
+  const params = new URLSearchParams({ [TAB_PARAM]: KNOWLEDGE_PAGES_SCOPE })
+  if (query) {
+    params.set(SEARCH_QUERY_PARAM, query)
+  }
   return `${UrlTree.knowledgeSearch}?${params.toString()}`
 }
 

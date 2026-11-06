@@ -35,7 +35,7 @@ export function MarkdownCodeBlock(props: Props) {
     .join('')
     .trimEnd()
 
-  return <div className='markdown-code-block'>
+  return <div className={`markdown-code-block ${props.className ?? ''}`}>
     <pre>{props.children}</pre>
     {text && <div className='markdown-code-copy'>
       <CopyButton value={text} label={t('markdown.copyCode')} />

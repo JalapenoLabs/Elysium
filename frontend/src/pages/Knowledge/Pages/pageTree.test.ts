@@ -10,6 +10,7 @@ import {
   collectLabelsInUse,
   countPagesUnder,
   filterPageTree,
+  holdsSamePages,
   findDropPlacement,
   findPageAncestors,
   findPagePlacement,
@@ -56,11 +57,11 @@ describe('filterPageTree', () => {
   const tree = buildPageTree(summaries)
 
   it('is the tree itself with nothing to filter by', () => {
-    expect(filterPageTree(tree, { label: null })).toBe(tree)
+    expect(filterPageTree(tree, { label: null, title: '' })).toBe(tree)
   })
 
   it('keeps each page carrying the label under the pages above it, in order', () => {
-    const filtered = filterPageTree(tree, { label: 'on-call' })
+    const filtered = filterPageTree(tree, { label: 'on-call', title: '' })
 
     expect([ ...filtered.byId.keys() ]).toEqual([ 'guide', 'chapter', 'runbook', 'alerts' ])
     expect(filtered.childrenByParent.get(null)?.map((page) => page.id)).toEqual([ 'guide', 'alerts' ])
@@ -74,24 +75,82 @@ describe('filterPageTree', () => {
       makePageSummary({ id: 'parent', labels: [ 'on-call' ]}),
     ])
 
-    expect(filterPageTree(childFirst, { label: 'on-call' }).contextIds?.size).toBe(0)
+    expect(filterPageTree(childFirst, { label: 'on-call', title: '' }).contextIds?.size).toBe(0)
   })
 
   it('leaves out what sits under a match without carrying it', () => {
-    const filtered = filterPageTree(tree, { label: 'pager' })
+    const filtered = filterPageTree(tree, { label: 'pager', title: '' })
 
     expect([ ...filtered.byId.keys() ]).toEqual([ 'alerts' ])
     expect(filtered.childrenByParent.has('alerts')).toBe(false)
   })
 
+  it('keeps the titles typed, under the pages above them, every word beginning a word', () => {
+    const titled = buildPageTree([
+      makePageSummary({ id: 'guide', title: 'Guide' }),
+      makePageSummary({ id: 'chapter', parentId: 'guide', title: 'Operations' }),
+      makePageSummary({ id: 'runbook', parentId: 'chapter', title: 'Déploiement runbook' }),
+      makePageSummary({ id: 'notes', title: 'Notes' }),
+    ])
+
+    const filtered = filterPageTree(titled, { label: null, title: 'run DEPL' })
+
+    expect([ ...filtered.byId.keys() ]).toEqual([ 'guide', 'chapter', 'runbook' ])
+    expect([ ...filtered.contextIds ?? [] ]).toEqual([ 'chapter', 'guide' ])
+    expect(filterPageTree(titled, { label: null, title: 'book' }).byId.size).toBe(0)
+  })
+
+  it('is the tree itself for a title holding no words', () => {
+    expect(filterPageTree(tree, { label: null, title: ' - ' })).toBe(tree)
+  })
+
+  it('takes a title and a label together', () => {
+    const both = buildPageTree([
+      makePageSummary({ id: 'kept', title: 'Runbook', labels: [ 'on-call' ]}),
+      makePageSummary({ id: 'unlabeled', title: 'Runbook' }),
+      makePageSummary({ id: 'other-title', title: 'Notes', labels: [ 'on-call' ]}),
+    ])
+
+    expect([ ...filterPageTree(both, { label: 'on-call', title: 'run' }).byId.keys() ]).toEqual([ 'kept' ])
+  })
+
   it('holds nothing when no page carries the label', () => {
-    expect(filterPageTree(tree, { label: 'never' }).byId.size).toBe(0)
+    expect(filterPageTree(tree, { label: 'never', title: '' }).byId.size).toBe(0)
   })
 
   it('keeps a match whose parent the list does not hold, rather than walking past it', () => {
     const orphaned = buildPageTree([ makePageSummary({ id: 'orphan', parentId: 'gone', labels: [ 'on-call' ]}) ])
 
-    expect([ ...filterPageTree(orphaned, { label: 'on-call' }).byId.keys() ]).toEqual([ 'orphan' ])
+    expect([ ...filterPageTree(orphaned, { label: 'on-call', title: '' }).byId.keys() ]).toEqual([ 'orphan' ])
+  })
+})
+
+describe('holdsSamePages', () => {
+  const pages = buildPageTree([
+    makePageSummary({ id: 'parent', title: 'Guide' }),
+    makePageSummary({ id: 'child', parentId: 'parent', title: 'Guide to runbooks' }),
+    makePageSummary({ id: 'other', title: 'Notes' }),
+  ])
+
+  it('knows that another letter left the same pages showing', () => {
+    const first = filterPageTree(pages, { label: null, title: 'run' })
+    const second = filterPageTree(pages, { label: null, title: 'runb' })
+
+    expect(holdsSamePages(first, second)).toBe(true)
+  })
+
+  it('tells apart a page matched from one kept to show where a match sits', () => {
+    const first = filterPageTree(pages, { label: null, title: 'runbooks' })
+    const second = filterPageTree(pages, { label: null, title: 'guide' })
+
+    expect([ ...first.byId.keys() ]).toEqual([ ...second.byId.keys() ])
+    expect(holdsSamePages(first, second)).toBe(false)
+  })
+
+  it('never takes the whole tree for a filter that happens to match all of it', () => {
+    const everything = filterPageTree(pages, { label: null, title: 'g n' })
+
+    expect(holdsSamePages(pages, everything)).toBe(false)
   })
 })
 

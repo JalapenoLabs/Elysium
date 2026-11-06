@@ -13,6 +13,7 @@ export type RecordSearchHit =
   | { kind: 'project', id: string, title: string }
   | { kind: 'codingSession', id: number, title: string }
   | { kind: 'initiative', id: string, title: string, state: InitiativeState }
+  | { kind: 'page', id: string, title: string }
 
 export type RecordSearchKind = RecordSearchHit['kind']
 
@@ -21,7 +22,7 @@ type SearchRecordsResponse = {
   results: RecordSearchHit[]
 }
 
-// The action items, projects, coding sessions, and initiatives whose titles match `query`.
+// The action items, projects, coding sessions, initiatives, and pages whose titles match `query`.
 // Never retried: a newer keystroke asks again, and a retried older search could otherwise
 // answer after it. `signal` cancels it once a newer query replaces it.
 export function searchRecords(query: string, limit: number, signal: AbortSignal) {

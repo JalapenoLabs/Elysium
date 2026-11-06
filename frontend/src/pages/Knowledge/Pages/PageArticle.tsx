@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ReactNode } from 'react'
+import type { MarkdownRange } from '../../../components/markdown/rehypeMarkPassage'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -10,6 +11,8 @@ import { Markdown } from '../../../components/markdown/Markdown'
 
 type Props = {
   markdown: string
+  // The passage a citation opened the page at, marked and brought into view.
+  markedRange?: MarkdownRange | null
   // Who wrote it, and when: the current version's, or an old one's when reading its history.
   byline: ReactNode
   // Each of these fills its place when given, and takes no space when not.
@@ -30,7 +33,7 @@ export function PageArticle(props: Props) {
       {props.byline}
       {props.labels}
     </div>
-    {props.markdown && <Markdown className='relaxed' markdown={props.markdown} />}
+    {props.markdown && <Markdown className='relaxed' markdown={props.markdown} markedRange={props.markedRange} />}
     {!props.markdown && !props.childPages && <p className='relaxed text-sm opacity-70'>{t('pages.empty')}</p>}
     {props.learning && <div className='relaxed'>{props.learning}</div>}
     {props.attachments && <div className='relaxed'>{props.attachments}</div>}

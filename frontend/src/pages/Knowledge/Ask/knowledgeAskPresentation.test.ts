@@ -17,6 +17,7 @@ function source(number: number, title: string): KnowledgeAnswerSource {
       source: 'slack',
       title,
       url: null,
+      pageId: null,
       occurredAt: '2026-11-03T10:00:00Z',
       person: { id: 'person', name: 'Jordan Lee' },
     },

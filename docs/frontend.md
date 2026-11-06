@@ -531,12 +531,15 @@ searchbars); there is no separate command palette.
   the field), Enter opens the one highlighted, the first by default, and Esc clears the field, then leaves it; an Esc
   it used never reaches the page's Esc (`readPageShortcut`).
 - **Results.** The closest five, in sections by kind (Pages, Actions, then the records the API finds: Action items,
-  Projects, Coding sessions, Initiatives, then, for the company's members, the knowledge base's documents), each with
-  its icon and a quieter line (the page it sits under, a record's state, a session's number, a document's source and
-  person), then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing
+  Projects, Coding sessions, Initiatives, then, for the company's members, Knowledge: the knowledge base's documents and
+  pages), each with its icon and a quieter line (the page it sits under, a record's state, a session's number, a
+  document's source and person), then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing
   matching says so, above Ask Elysia; records the API could not search say that instead. Choosing a result, clicking
   anywhere else, or tabbing away clears it. Every result that goes somewhere is a real link; an action runs in place,
   and one that needs it asks first, as Sign out does. On phones the results span the screen under the topbar.
+- **A page found twice.** A page is found by its title (`useRecordSearch`, as you type) and by what it says
+  (`useKnowledgeResults`, in whole words or by meaning). Both name it `page:<id>`, and `mergeSearchResults` keeps one
+  result per id, the later source's, so it shows once and opens at the passage.
 - **The search page.** `SearchPage` shows every result for `?q=`, asking the API for the most of each kind it answers
   (50). `PageTabs` with `useTabParam` gives a tab for all of them, in sections as the topbar shows them, and one for
   each kind, each counting its results once the records have arrived; the open tab is `?tab=`. Typing replaces the
@@ -791,14 +794,21 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   (`CollapseEdgeButton`, shared with the sidebar) collapses it to a thin rail.
 
 - **The search** (`KnowledgeSearchPage`) is one field, focused as the page opens and by Ctrl+F, with the filters
-  button beside it, the filters in force as tags below (`KnowledgeFilterTags`, each removed with one click), then the
-  documents found, best first (`KnowledgeResultCard`): its source's logo, its title opening the document at its best
-  passage, its source, person, and date, up to three passages cut to three lines, each opening the document at
-  itself, and who else recorded the same text. While the embedding model cannot answer, a quiet line says the search
+  button beside it, tabs for Everything and Pages (`?tab=pages`, `getKnowledgePagesSearchUrl`), the filters in force as
+  tags below (`KnowledgeFilterTags`, each removed with one click), then the documents found, best first
+  (`KnowledgeResultCard`): its source's logo, its title opening it at its best passage, its source, person, and date, a
+  page's path through the tree, since pages can share a title, up to three passages cut to three lines from the line
+  holding the most of what was searched for (`excerptPassage`), each opening it at itself, and who else recorded the
+  same text. What was indexed from a page opens the page, and anything else the document (`getKnowledgeCitationUrl`), as
+  an answer's citations do. The tabs are one search: `readSearchedSources` names the three kinds of page for Pages, and
+  `scopeKnowledgeFilters` drops what no page could match, a project or another source, so a link carrying one
+  still answers. While the embedding model cannot answer, a quiet line says the search
   ran on exact words alone. `useKnowledgeSearch` asks through `useDebouncedRequest`, like the global search.
 - **Filters** (`KnowledgeFiltersDrawer`) open in a drawer from the right and apply together: sources (checkboxes, each
   with its logo), project, the person who recorded it, one page label (`LabelSelect`, offering the labels in use), and
-  a period of days, since and until, both included. The
+  a period of days, since and until, both included. On the Pages tab they read in the words of a page's byline
+  (`filterWordsByScope`): the kinds of page, last edited by, machines among them, and edited since and until, with no
+  project. The
   address keeps the query and the filters as days (`knowledgeFilters.ts`), and `toKnowledgeQuery` turns the days into
   instants in the viewer's zone, the last day lasting until it ends.
 - **A document** (`KnowledgeDocumentPage`) is read from SWR alone, since no other view shares it: its source, person,
@@ -832,8 +842,10 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   link on every row, and the current page scrolled into view. Tab goes through a row's link, drag button, and menu, then
   out of the tree. `selectedRoute` marks the current row and gives its link `aria-current`. Every page is a node, open
   or not, since React Aria learns a row can open from its nodes; rows are memoized, and only the ones that show are
-  drawn. A row costs about 1.7ms, so a branch of 2,000 open pages takes about 3.5 seconds to open. Past eight levels a
-  row stops indenting.
+  drawn. A row's menu and lock show only under a mouse or with focus in the row, and cost as much as the rest of it, so
+  they mount on the first of those (`hasControls`), or with the row on a touch screen, which always shows the menu. A
+  row costs about 1.5ms that way, so a branch of 2,000 open pages takes about 3 seconds to open. Past eight levels a row
+  stops indenting.
 - **Moving.** `useDragAndDrop` gives the tree a pointer's drag and a keyboard's, started from a row's `slot='drag'`
   button, and its hooks reach the `Tree` inside `NavigationTree` through `TreeContext`. Only `onMove` is set, since a
   same-parent drop would fire `onReorder` as well, and `findDropPlacement` turns its target into the `{ parentId, after }`
@@ -846,16 +858,31 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   brings the siblings it renumbered, which is also how someone else's move arrives. A deletion answers nothing and can
   change many pages, so it loads the list again. Rows are memoized, so `PageTree` hands them one function that reaches
   for the newest tree when pressed. A refusal loads the list again too, since it usually means this tree is behind.
-- **Filtering the tree.** `PageTreeFilters`, above the tree, holds everything that narrows it, today one label, and
-  stays out of the way until a label is in use. `KnowledgeFrame` keeps the `PageTreeFilter`, so the panel and the phone's
+- **Filtering the tree.** `PageTreeFilters`, above the tree, holds everything that narrows it: a field for its titles,
+  and a label once one is in use. Titles match in the browser, as the registry's do (`scoreSearchMatch`), so typing asks
+  the API for nothing. `KnowledgeFrame` keeps the `PageTreeFilter`, so the panel and the phone's
   drawer show one filter. `filterPageTree` is pure and answers a `PageTree` of the same shape, holding each match under
   the pages above it, which `PageTree` dims (`contextIds`), and `PageTree` draws that as `shownTree` while every move and
   deletion still reads the whole tree, so a drop lands among the siblings the filter hides; another filter is one more field of `PageTreeFilter` and one more
   test in `filterPageTree`. `FilteredPageTree` shows every branch holding a match open, and closing one lasts as
-  long as that filter, so the branches a person keeps open wait for the filter to come off.
+  long as those matches, so the branches a person keeps open wait for the filter to come off. A filter that leaves
+  nothing says so, and one typed offers to search what pages say. Every page a filter keeps is a node, so `aria-expanded`
+  and the arrow keys hold for what shows, and a match's unmatched children are left out with its chevron.
+- **Typing over a large tree.** Drawing rows outlasts a keystroke, so the field never waits on it: the filter is deferred
+  (`useDeferredValue`) and `ShownPageTree` is memoized on the result, so the field's own render passes the tree by and
+  a draw for a letter already replaced is abandoned. A letter that leaves the same pages showing draws nothing
+  (`holdsSamePages`). On 2,000 open matches a keystroke is handled in 4ms and a letter that changes nothing shows in
+  about 20ms; the worst case, every one of 2,000 rows appearing at once, takes about 3 seconds behind a responsive
+  field, and narrowing them back about 1. Drawing that many rows at once is the cost left, and a virtualized tree is the
+  answer if a real tree needs it.
 - **Per viewer.** `usePageTreeMemory` keeps the open branches and whether the panel is collapsed in localStorage, under
   a key ending in the person's id, so two people on one browser each keep their own, and follows other tabs. Opening a
   page opens the branches above it, once, so one closed afterwards stays closed.
+- **Opening at a passage.** `?passage=` on a page names a place in its document, which `usePassageRange` reads back from
+  the index and `findPassageRange` finds in the Markdown, paragraph by paragraph, since the index collapses the
+  whitespace between them. `readPassageParam` reads the address, and the document page reads it too. Only the Read tab
+  asks, and `PageArticle` is keyed by the passage, so another result of the same page scrolls again while a publish does
+  not. The parameter is view-only (`swapsWhatPageEdits`).
 - **A page** (`KnowledgePageView`) is a standard `Page`: the breadcrumb is its path through the tree, and the title and
   path show from the tree before its text arrives. It is keyed by page, so nothing carries from one to the next. A
   page's own actions, Save, and tabs go on that `Page`. `PageArticle` lays it out top to bottom: `byline`, `labels`,
@@ -914,6 +941,12 @@ Everything it does is for reading text that cannot be trusted (`docs/security.md
 - **Code.** `rehype-highlight` highlights a block that names one of highlight.js's common languages, with class names
   alone; anything else stays plain. Colors are `--code-*` in `matter.css`, per theme. A block scrolls sideways on its
   own, as a wide table does, so neither widens a page, and has a copy button.
+- **Marking.** `markedRange`, offsets into the Markdown, marks the blocks it reaches and scrolls the first into view, once.
+  `rehypeMarkPassage` does it on the syntax tree, where every block still has its source position, descending into a
+  list or a quote it only partly covers. A marked block is `.markdown-passage`, which `MarkdownCodeBlock` and the
+  table's wrapper carry onto what they draw. The scroll waits a frame, since a parent's effect in the same commit can put
+  the area back at its top (`KnowledgeFrame`). A range that reaches nothing drawn, such as a footnote, leaves the text at
+  its top.
 - **Styles.** `src/theme/markdown.css`, every rule scoped to `.markdown`, since rendered text has no Tailwind classes.
 
 ### The Markdown editor

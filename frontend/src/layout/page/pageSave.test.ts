@@ -7,6 +7,10 @@ import { describe, expect, it } from 'vitest'
 import { swapsWhatPageEdits } from './pageSave'
 
 describe('swapsWhatPageEdits', () => {
+  it('never asks about the passage a knowledge page opened at', () => {
+    expect(swapsWhatPageEdits('?passage=2', '?passage=3')).toBe(false)
+  })
+
   it('asks when the query can pick another record', () => {
     expect(swapsWhatPageEdits('?project=one', '?project=two')).toBe(true)
   })

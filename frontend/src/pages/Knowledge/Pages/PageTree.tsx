@@ -5,7 +5,7 @@ import type { KnowledgePageSummary, PagePlacement } from '../../../api/routes/pa
 import type { PageTree as PageTreeShape } from './pageTree'
 
 // Core
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router'
 
@@ -74,24 +74,35 @@ const ROW_CONTROLS_CLASS_NAME = [
 
 // Every page is a node of the tree, open or not: React Aria learns a row can open from its nodes,
 // for `aria-expanded` and the arrow keys, and draws only the rows that show. Memoized, so opening a
-// branch costs React Aria's walk over what shows rather than a render of every page.
+// branch costs React Aria's walk over what shows rather than a render of every page. A row's menu
+// and lock are most of what it costs to draw, and show only under a mouse or with focus in the row,
+// so they mount on the first of those; a touch screen, which has no hover and always shows the
+// menu, mounts them with the row.
 const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
   const { page, tree, onNavigate, onMove, onDelete } = props
   const { t } = useTranslation('knowledge')
+  const [ hasControls, setHasControls ] = useState(() => !window.matchMedia('(hover: hover)').matches)
+  // Never in the event itself. Tab out of the tree focuses its last control so the browser moves on
+  // from there, and a menu mounted in that focus would be where the browser moved on to.
+  const showControls = () => startTransition(() => setHasControls(true))
 
   return <NavigationTreeItem
     id={page.id}
     href={getKnowledgePageUrl(page.id)}
     textValue={page.title}
     className={ROW_CLASS_NAME}
+    onHoverStart={showControls}
   >
     <NavigationTreeItemContent>{
-      (row) => <div className={[
-        'flex min-w-0 items-center gap-0.5 py-0.5 pr-2',
-        // React Aria names the row's depth; past eight levels a row stops indenting, so a deep
-        // page's title keeps room in the panel.
-        'pl-[calc((min(var(--tree-item-level),8)-1)*0.875rem)]',
-      ].join(' ')}>
+      (row) => <div
+        onFocus={showControls}
+        className={[
+          'flex min-w-0 items-center gap-0.5 py-0.5 pr-2',
+          // React Aria names the row's depth; past eight levels a row stops indenting, so a deep
+          // page's title keeps room in the panel.
+          'pl-[calc((min(var(--tree-item-level),8)-1)*0.875rem)]',
+        ].join(' ')}
+      >
         {row.hasChildItems
           ? <Button
             slot='chevron'
@@ -124,7 +135,7 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
           <span title={page.title}>{page.title}</span>
         </Link>
         <div className={ROW_CONTROLS_CLASS_NAME}>
-          {page.fixed && <Tooltip delay={300}>
+          {hasControls && page.fixed && <Tooltip delay={300}>
             <Tooltip.Trigger
               aria-label={t('pages.actions.fixed')}
               className='grid size-6 shrink-0 place-items-center rounded pointer-coarse:sr-only'
@@ -152,7 +163,12 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
           >
             <LuGripVertical aria-hidden className='size-3.5' />
           </Button>
-          <PageRowActions page={page} onMove={onMove} onDelete={onDelete} onNavigate={onNavigate} />
+          {hasControls && <PageRowActions
+            page={page}
+            onMove={onMove}
+            onDelete={onDelete}
+            onNavigate={onNavigate}
+          />}
         </div>
       </div>
     }</NavigationTreeItemContent>

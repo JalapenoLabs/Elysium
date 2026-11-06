@@ -14,7 +14,7 @@ import { toRecordResults } from './recordSearch'
 import { toSearchWords } from './searchMatch'
 import { useDebouncedRequest } from './useDebouncedRequest'
 
-// The action items, projects, coding sessions, and initiatives whose titles match the query,
+// The action items, projects, coding sessions, initiatives, and pages whose titles match the query,
 // up to `limit` of each kind, from `GET /api/v1/search`, asked 300ms after typing stops and
 // cancelled when a newer query replaces it (`useDebouncedRequest`).
 export function useRecordSearch(query: string, limit: number): SearchSourceAnswer {

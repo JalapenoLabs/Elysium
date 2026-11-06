@@ -18,6 +18,8 @@ export type KnowledgeCitation = {
   title: string
   // Where it lives outside Elysium, when it does.
   url: string | null
+  // The page it was indexed from, a learning's or a company doc section's included.
+  pageId: string | null
   occurredAt: string
   person: KnowledgePerson
 }

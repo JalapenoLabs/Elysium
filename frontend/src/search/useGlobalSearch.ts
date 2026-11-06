@@ -16,7 +16,7 @@ import { useConfirm } from '../hooks/useConfirm'
 import { TRANSLATION_NAMESPACES } from '../i18n'
 import { findRegistryResults, prepareSearchEntries } from './registrySearch'
 import { registeredSearchEntries } from './searchRegistry'
-import { rankSearchResults } from './searchRanking'
+import { mergeSearchResults, rankSearchResults } from './searchRanking'
 import { useKnowledgeResults } from './useKnowledgeResults'
 import { useRecordSearch } from './useRecordSearch'
 
@@ -25,8 +25,8 @@ import { useRecordSearch } from './useRecordSearch'
 // it could not answer. The registry's pages and actions answer at once, in the browser; the
 // API's records (`useRecordSearch`) and, for the company's members, the knowledge base's
 // documents (`useKnowledgeResults`) answer 300ms after typing stops, `recordLimit` of each
-// kind. The topbar and the search page show every source's results, loading, and failure
-// alike.
+// kind. A page reaches both of those, by its title and by what it says, and shows once. The
+// topbar and the search page show every source's results, loading, and failure alike.
 export function useGlobalSearch(query: string, recordLimit = RECORD_SEARCH_TOPBAR_LIMIT) {
   const registry = useRegistrySearch(query)
   const records = useRecordSearch(query, recordLimit)
@@ -35,7 +35,7 @@ export function useGlobalSearch(query: string, recordLimit = RECORD_SEARCH_TOPBA
   return useMemo(() => {
     const sources = [ registry, records, knowledge ]
     return {
-      results: rankSearchResults(sources.flatMap((source) => source.results)),
+      results: rankSearchResults(mergeSearchResults(sources)),
       isLoading: sources.some((source) => source.isLoading),
       hasFailed: sources.some((source) => source.hasFailed),
     }

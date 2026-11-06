@@ -9,6 +9,8 @@ import {
   NO_KNOWLEDGE_FILTERS,
   readKnowledgeFilters,
   readKnowledgeQuery,
+  readSearchedSources,
+  scopeKnowledgeFilters,
   toKnowledgeQuery,
   writeKnowledgeSearch,
 } from './knowledgeFilters'
@@ -40,6 +42,40 @@ describe('readKnowledgeFilters', () => {
 
     expect(filters.fromDay).toBeNull()
     expect(filters.toDay).toBeNull()
+  })
+})
+
+describe('scopeKnowledgeFilters', () => {
+  const filters = {
+    ...NO_KNOWLEDGE_FILTERS,
+    sources: [ 'slack', 'learning' ],
+    projectId: 'p1',
+    personId: 'u1',
+  }
+
+  it('leaves everything to a search of everything', () => {
+    expect(scopeKnowledgeFilters(filters, 'everything')).toBe(filters)
+  })
+
+  it('drops what no page could match, so a link never answers nothing without saying why', () => {
+    expect(scopeKnowledgeFilters(filters, 'pages')).toEqual({
+      ...filters,
+      sources: [ 'learning' ],
+      projectId: null,
+    })
+  })
+})
+
+describe('readSearchedSources', () => {
+  it('searches every kind of page until some are chosen', () => {
+    expect(readSearchedSources(NO_KNOWLEDGE_FILTERS, 'pages')).toEqual([ 'page', 'learning', 'company_doc' ])
+
+    const onlyLearnings = { ...NO_KNOWLEDGE_FILTERS, sources: [ 'learning' ]}
+    expect(readSearchedSources(onlyLearnings, 'pages')).toEqual([ 'learning' ])
+  })
+
+  it('names no source for a search of everything', () => {
+    expect(readSearchedSources(NO_KNOWLEDGE_FILTERS, 'everything')).toEqual([])
   })
 })
 

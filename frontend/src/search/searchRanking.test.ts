@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { LuSearch } from 'react-icons/lu'
 
 // Misc
-import { groupSearchResults, rankSearchResults } from './searchRanking'
+import { groupSearchResults, mergeSearchResults, rankSearchResults } from './searchRanking'
 
 function result(id: string, group: SearchGroup, score: number, title = id): SearchResult {
   return {
@@ -21,6 +21,22 @@ function result(id: string, group: SearchGroup, score: number, title = id): Sear
     target: { kind: 'link', href: `/${id}` },
   }
 }
+
+describe('mergeSearchResults', () => {
+  it('shows a thing two sources found once, as the later source found it', () => {
+    const byTitle = { ...result('page:p1', 'knowledge', 3), detail: 'Page' }
+    const byText = { ...result('page:p1', 'knowledge', 3), detail: 'Page · Maya Chen' }
+    const answer = { isLoading: false, hasFailed: false }
+
+    const merged = mergeSearchResults([
+      { ...answer, results: [ byTitle, result('settings', 'pages', 1) ]},
+      { ...answer, results: [ byText ]},
+    ])
+
+    expect(merged.map((entry) => entry.id)).toEqual([ 'page:p1', 'settings' ])
+    expect(merged[0].detail).toBe('Page · Maya Chen')
+  })
+})
 
 describe('rankSearchResults', () => {
   it('puts the closest match first, then equal matches by title', () => {

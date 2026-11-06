@@ -7,7 +7,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { Provider } from 'react-redux'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
@@ -56,6 +56,36 @@ function renderTree(currentPageId: string, initialOpenIds: string[] = []) {
   </Provider>)
   return router
 }
+
+describe('a row\'s menu', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: query === '(hover: hover)',
+    }) as MediaQueryList)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('mounts as a mouse comes over the row', () => {
+    renderTree('notes')
+    expect(screen.queryByRole('button', { name: 'Actions for Notes' })).toBeNull()
+
+    fireEvent.pointerEnter(screen.getByRole('row', { name: 'Notes' }), { pointerType: 'mouse' })
+
+    expect(screen.getByRole('button', { name: 'Actions for Notes' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Actions for Guide' })).toBeNull()
+  })
+
+  it('mounts as focus reaches the row, so a keyboard can tab to it', () => {
+    renderTree('notes')
+
+    fireEvent.focus(screen.getByRole('link', { name: 'Notes' }))
+
+    expect(screen.getByRole('button', { name: 'Actions for Notes' })).toBeDefined()
+  })
+})
 
 describe('PageTree', () => {
   it('lists the top of the tree and shows no closed branch', () => {

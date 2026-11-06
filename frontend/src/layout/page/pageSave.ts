@@ -9,7 +9,13 @@ import type { RefCallback } from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 
 // Misc
-import { PAGE_COMPARE_FROM_PARAM, PAGE_COMPARE_TO_PARAM, PAGE_VERSION_PARAM, TAB_PARAM } from '../../urls'
+import {
+  KNOWLEDGE_PASSAGE_PARAM,
+  PAGE_COMPARE_FROM_PARAM,
+  PAGE_COMPARE_TO_PARAM,
+  PAGE_VERSION_PARAM,
+  TAB_PARAM,
+} from '../../urls'
 
 // The one save a page has, as the form that owns it describes it. `Page` draws its Save
 // button from this in the header and on the floating card, presses it for Ctrl+S and
@@ -129,8 +135,14 @@ export function leavesWithoutAsking(state: unknown) {
 }
 
 // What a query can name without touching what a page edits: its open tab, and what a knowledge
-// page's History tab is showing.
-const VIEW_ONLY_PARAMS = [ TAB_PARAM, PAGE_VERSION_PARAM, PAGE_COMPARE_FROM_PARAM, PAGE_COMPARE_TO_PARAM ]
+// page's tabs are showing.
+const VIEW_ONLY_PARAMS = [
+  TAB_PARAM,
+  KNOWLEDGE_PASSAGE_PARAM,
+  PAGE_VERSION_PARAM,
+  PAGE_COMPARE_FROM_PARAM,
+  PAGE_COMPARE_TO_PARAM,
+]
 
 // Whether going from one address of a page to another, both on the same path, can swap what
 // the page edits, so the leave prompt must ask first. A query such as Jira's `?project=` picks
