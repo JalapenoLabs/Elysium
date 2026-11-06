@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/work-queue`: the worker pool and every batch holding a slot or waiting for one,
-//! in the order the pool hands them slots. Members only, as every batch's route is. See
-//! `crate::worker_pool::queue` and `docs/engine.md`, Workers and the pool.
+//! in the order the pool hands them slots, and every batch proposed, waiting for a person. Members
+//! only, as every batch's route is. See `crate::worker_pool::queue` and `docs/engine.md`, Workers
+//! and the pool.
 
 use anyhow::Context;
 use axum::extract::State;
@@ -48,6 +49,8 @@ pub struct QueueResponse {
     /// Scheduled batches not yet due, soonest first.
     scheduled: Vec<EntryResponse>,
     paused: Vec<EntryResponse>,
+    /// Batches waiting for a person's approval, oldest first; the pool hands them nothing.
+    proposed: Vec<EntryResponse>,
 }
 
 impl From<Queue> for QueueResponse {
@@ -60,6 +63,7 @@ impl From<Queue> for QueueResponse {
             next: entries(queue.next),
             scheduled: entries(queue.scheduled),
             paused: entries(queue.paused),
+            proposed: entries(queue.proposed),
         }
     }
 }

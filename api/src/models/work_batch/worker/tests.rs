@@ -12,9 +12,9 @@ use crate::database::schema::project_manager_wakes;
 use crate::models::project::{self, NewProject};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::{
-    NewWorkBatch, Priority, assign, find, finish, history, start, submit,
+    NewWorkBatch, Priority, assign, find, finish, history, start,
 };
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
 /// A running batch of a new project named `name`, and the slot its worker holds.
 async fn running(connection: &mut AsyncPgConnection, name: &str) -> (Uuid, Slot) {
@@ -29,7 +29,7 @@ async fn running(connection: &mut AsyncPgConnection, name: &str) -> (Uuid, Slot)
     .await
     .expect("a project")
     .id;
-    let batch = submit(
+    let batch = approved_batch(
         connection,
         NewWorkBatch {
             id: Uuid::now_v7(),
@@ -45,8 +45,7 @@ async fn running(connection: &mut AsyncPgConnection, name: &str) -> (Uuid, Slot)
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )
-    .await
-    .expect("submitted");
+    .await;
     let slot = assign(connection, &[batch.id], 1, Utc::now())
         .await
         .expect("assigns")
@@ -193,6 +192,7 @@ async fn a_question_wakes_the_project_manager_whose_answer_ends_the_wait() {
         kinds(&mut connection, slot.batch.id).await,
         [
             "submitted",
+            "approved",
             "assigned",
             "started",
             "waiting",

@@ -2,7 +2,7 @@
 
 //! Work batches against Postgres: slots handed out under leases, fenced, taken over after a
 //! restart, and given back; and what people, Elysia, and Project Managers change while a batch
-//! waits, each in its history.
+//! waits, each in its history. A person's decision on a proposed batch is `approval/tests.rs`.
 
 use secrecy::ExposeSecret;
 
@@ -10,7 +10,7 @@ use super::*;
 use crate::database::schema::project_manager_wakes;
 use crate::models::project::{self, NewProject};
 use crate::models::user::ELYSIA_USER_ID;
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     project::create(
@@ -26,13 +26,14 @@ async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     .id
 }
 
+/// A batch a person approved, waiting for a slot.
 async fn submitted(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
     priority: Priority,
     scheduled_for: Option<DateTime<Utc>>,
 ) -> WorkBatch {
-    submit(
+    approved_batch(
         connection,
         NewWorkBatch {
             id: Uuid::now_v7(),
@@ -49,7 +50,6 @@ async fn submitted(
         },
     )
     .await
-    .expect("submitted")
 }
 
 async fn kinds(connection: &mut AsyncPgConnection, id: Uuid) -> Vec<String> {
@@ -127,7 +127,7 @@ async fn a_slot_is_handed_out_within_the_size_fenced_by_its_token_and_given_back
     assert_eq!(batch_wakes(&mut connection, launch).await, 1);
     assert_eq!(
         kinds(&mut connection, first.id).await,
-        ["submitted", "assigned", "started", "finished"]
+        ["submitted", "approved", "assigned", "started", "finished"]
     );
 
     let next = assign(&mut connection, &[second.id], 1, now)
@@ -327,15 +327,15 @@ async fn a_waiting_batch_is_paused_resumed_run_next_and_reprioritized_with_its_h
     let kinds: Vec<&str> = entries.iter().map(|entry| entry.kind.as_str()).collect();
     assert_eq!(
         kinds,
-        ["submitted", "pinned", "paused", "reprioritized", "resumed"]
+        ["submitted", "approved", "pinned", "paused", "reprioritized", "resumed"]
     );
-    assert_eq!(entries[2].created_by, ELYSIA_USER_ID);
-    assert_eq!(entries[2].data, json!({ "from": "queued" }));
+    assert_eq!(entries[3].created_by, ELYSIA_USER_ID);
+    assert_eq!(entries[3].data, json!({ "from": "queued" }));
     assert_eq!(
-        entries[3].data["before"],
+        entries[4].data["before"],
         json!({ "priority": "normal", "scheduledFor": null })
     );
-    assert_eq!(entries[3].data["after"]["priority"], "scheduled");
+    assert_eq!(entries[4].data["after"]["priority"], "scheduled");
 }
 
 #[tokio::test]
@@ -396,7 +396,7 @@ async fn a_shrunken_pool_takes_back_a_slot_no_worker_started_on() {
     assert!(queued.assigned_at.is_none());
     assert_eq!(
         kinds(&mut connection, batch.id).await,
-        ["submitted", "assigned", "unassigned"]
+        ["submitted", "approved", "assigned", "unassigned"]
     );
     assert!(
         unassign(&mut connection, &slots[0])
@@ -424,7 +424,8 @@ async fn cancelling_tells_the_project_manager_unless_it_withdrew_the_batch_itsel
         TEST_PERSON_ID,
     )
     .await
-    .expect("cancels");
+    .expect("cancels")
+    .batch;
     assert_eq!(cancelled.state, BatchState::Cancelled);
     assert_eq!(cancelled.result.as_deref(), Some("Launch moved a week."));
     assert_eq!(batch_wakes(&mut connection, launch).await, 1);

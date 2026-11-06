@@ -449,6 +449,23 @@ mod tests {
         }
     }
 
+    /// Only a person decides on a proposed work batch (`crate::worker_pool::actions`). No tool any
+    /// agent holds approves or rejects one, so a turn can list proposals but never let its own work
+    /// through.
+    #[test]
+    fn no_agent_tool_decides_on_a_proposed_batch() {
+        for server in SERVERS {
+            for tool in server.tools {
+                assert!(
+                    !tool.name.contains("approve") && !tool.name.contains("reject"),
+                    "{} on {} may not decide on a proposal",
+                    tool.name,
+                    server.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_declared_tool_is_dispatched() {
         for server in SERVERS {

@@ -16,7 +16,7 @@ use crate::models::promise::NewPromise;
 use crate::models::timeline_record::NewTimelineRecord;
 use crate::models::user::SYSTEM_USER_ID;
 use crate::models::work_batch::{NewWorkBatch, Priority};
-use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, approved_batch, migrated_database};
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     project::create(
@@ -99,7 +99,7 @@ async fn promise_in(
 }
 
 async fn queued_batch(connection: &mut AsyncPgConnection, project_id: Uuid) -> Uuid {
-    work_batch::submit(
+    approved_batch(
         connection,
         NewWorkBatch {
             id: Uuid::now_v7(),
@@ -116,7 +116,6 @@ async fn queued_batch(connection: &mut AsyncPgConnection, project_id: Uuid) -> U
         },
     )
     .await
-    .expect("submitted")
     .id
 }
 

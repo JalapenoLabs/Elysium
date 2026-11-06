@@ -319,9 +319,18 @@ fn render_batch(prompt: &mut String, batch: &PromptBatch) {
         BatchState::Succeeded => ("succeeded", "Its worker reported"),
         BatchState::Failed => ("failed", "Its worker reported"),
         BatchState::Cancelled => ("was cancelled", "Why"),
-        BatchState::Queued | BatchState::Paused | BatchState::Assigned | BatchState::Running => {
-            ("is still under way", "So far")
-        }
+        // A person declined it: what they said is the direction to follow, and it is never
+        // submitted again as it was.
+        BatchState::Rejected => (
+            "was rejected by a person, who said why. Follow what they said: plan again, and submit \
+             it changed or not at all, never as it was",
+            "Why",
+        ),
+        BatchState::Proposed
+        | BatchState::Queued
+        | BatchState::Paused
+        | BatchState::Assigned
+        | BatchState::Running => ("is still under way", "So far"),
     };
     let _ = write!(
         prompt,
@@ -453,6 +462,7 @@ fn render_promise(prompt: &mut String, promise: &PromptPromise) {
 /// How a batch's state reads in a sentence.
 const fn batch_state_words(state: BatchState) -> &'static str {
     match state {
+        BatchState::Proposed => "waiting for a person's approval",
         BatchState::Queued => "queued",
         BatchState::Paused => "paused",
         BatchState::Assigned => "waiting for its worker",
@@ -460,6 +470,7 @@ const fn batch_state_words(state: BatchState) -> &'static str {
         BatchState::Succeeded => "done",
         BatchState::Failed => "failed",
         BatchState::Cancelled => "cancelled",
+        BatchState::Rejected => "rejected by a person",
     }
 }
 
