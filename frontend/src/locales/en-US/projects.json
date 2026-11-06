@@ -141,6 +141,7 @@
     "statuses": {
       "running": "Working",
       "held": "Held by a usage limit",
+      "heldForConfiguration": "Held for its configuration",
       "errored": "Last turn failed",
       "waiting": "Starting soon",
       "idle": "Idle"

@@ -70,7 +70,7 @@ export function AgentConfigurationStatus(props: Props) {
       </Button>}
     </div>
 
-    {hold && <ConfigurationHoldAlert hold={hold} />}
+    {hold && <ConfigurationHoldAlert hold={hold} linksToSettings={false} />}
 
     {checkout && <div className='relaxed'>
       <p className='compact text-sm'>

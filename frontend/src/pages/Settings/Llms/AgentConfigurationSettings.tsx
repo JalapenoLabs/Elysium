@@ -74,7 +74,7 @@ export function AgentConfigurationSettings(props: Props) {
   })
 
   return <>
-    <Form className='relaxed compact max-w-2xl' onSubmit={onSubmit}>
+    <Form className='relaxed max-w-2xl' onSubmit={onSubmit}>
       <TextField
         id='agent-configuration-repository'
         className='compact'

@@ -19,6 +19,7 @@
     "fetchNow": "Fetch now",
     "fetchAsked": "Fetching the configuration repository",
     "fetchedAt": "Fetched {{time}}",
+    "failedAt": "Failed {{time}}",
     "skippedTitle": "Left out",
     "nothingSkipped": "Nothing was left out.",
     "hold": {

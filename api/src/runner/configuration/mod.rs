@@ -126,6 +126,9 @@ pub enum ConfigurationSource {
     },
     #[cfg(test)]
     None,
+    /// One repository, as a live test names it.
+    #[cfg(test)]
+    Fixed(ConfigurationRepository),
 }
 
 impl std::fmt::Debug for ConfigurationSource {
@@ -138,6 +141,8 @@ impl std::fmt::Debug for ConfigurationSource {
             Self::Database { .. } => formatter.write_str("ConfigurationSource::Database"),
             #[cfg(test)]
             Self::None => formatter.write_str("ConfigurationSource::None"),
+            #[cfg(test)]
+            Self::Fixed(_repository) => formatter.write_str("ConfigurationSource::Fixed"),
         }
     }
 }
@@ -153,6 +158,8 @@ impl ConfigurationSource {
             Self::Database { database, cipher } => (database, cipher),
             #[cfg(test)]
             Self::None => return Ok(None),
+            #[cfg(test)]
+            Self::Fixed(repository) => return Ok(Some(repository.clone())),
         };
         let mut connection = database.get().await?;
         let settings = user::workspace_settings(&mut connection).await?;

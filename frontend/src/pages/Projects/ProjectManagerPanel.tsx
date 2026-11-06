@@ -32,6 +32,9 @@ type Props = {
 export function ProjectManagerPanel(props: Props) {
   const { t } = useTranslation('projects')
   const manager = useAppSelector((state) => selectProjectManager(state, props.projectId))
+  // Held reads as why: the configuration repository holds every Project Manager back before a
+  // usage limit would.
+  const isHeldForConfiguration = manager?.status === 'held' && Boolean(manager.configurationHold)
 
   if (!manager) {
     return <div className='grid place-items-center py-10'>{
@@ -44,7 +47,9 @@ export function ProjectManagerPanel(props: Props) {
   return <section>
     <div className='relaxed flex flex-wrap items-center gap-3'>
       <Chip size='sm' variant='soft' color={managerStatusChipColors[manager.status]}>{
-        t(managerStatusLabelKeys[manager.status])
+        isHeldForConfiguration
+          ? t('manager.statuses.heldForConfiguration')
+          : t(managerStatusLabelKeys[manager.status])
       }</Chip>
       {manager.waiting > 0 && <span className='text-sm opacity-70'>{
         t('manager.waiting', { count: manager.waiting })
