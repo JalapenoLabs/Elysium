@@ -31,7 +31,11 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> starting $POSTGRES_IMAGE"
+# Every store-backed test creates a database of its own on this one server, and Docker's default
+# 64 MB of /dev/shm runs out partway through the suite ("could not resize shared memory segment"),
+# failing whichever tests come last.
 docker run --detach --rm --name "$container" \
+  --shm-size=512m \
   --env POSTGRES_USER="$ROLE" \
   --env POSTGRES_PASSWORD="$PASSWORD" \
   --env POSTGRES_DB="$DATABASE" \
