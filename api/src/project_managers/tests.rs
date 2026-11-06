@@ -181,6 +181,55 @@ async fn a_record_newly_on_a_project_wakes_its_project_manager_once() {
     );
 }
 
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn no_turn_starts_without_the_configuration_repository_and_its_wakes_wait() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Planned.\nSummary: Planned annual pricing.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    // The repository is named but its last fetch failed.
+    let source = crate::runner::configuration::Source {
+        repository: "https://github.com/acme/agents".to_owned(),
+        github_credential_id: None,
+    };
+    crate::models::agent_configuration::record_failed(
+        &mut connection,
+        &source,
+        "remote: Repository not found.",
+        Utc::now(),
+    )
+    .await
+    .expect("recorded");
+    let launch = project_named(&mut connection, "Launch").await;
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    go_quiet(&mut connection).await;
+
+    dispatch_once(&context).await;
+    assert!(asked(&script).is_empty(), "no turn starts");
+    assert_eq!(
+        waiting_kinds(&mut connection, launch).await,
+        [WakeKind::Record],
+        "what woke it waits for the repository"
+    );
+    let status = crate::models::agent_configuration::find(&mut connection)
+        .await
+        .expect("status");
+    assert!(status.inbox_item_id.is_some(), "one item says why");
+
+    fetched_agent_configuration(&mut connection).await;
+    dispatch_once(&context).await;
+    assert_eq!(
+        asked(&script).len(),
+        1,
+        "it starts once the repository is fetched"
+    );
+}
+
 /// A page linked to a project, as the test person.
 async fn linked_page(connection: &mut AsyncPgConnection, project_id: Uuid, title: &str) -> Uuid {
     let author = Author {

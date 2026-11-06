@@ -202,8 +202,9 @@ pub fn adapt(files: &Files, found: &HashSet<Probe>) -> Result<Adapted, AdaptErro
 }
 
 /// Walks every file once, asking `exists` about each command and path, and leaves out what does
-/// not exist. [`probes`] walks with an `exists` that records the question and answers yes, so
-/// both walks ask exactly the same things.
+/// not exist. [`probes`] walks with an `exists` that records the question and answers yes, so it
+/// asks everything; [`adapt`]'s walk stops asking about a hook once one answer leaves it out, so
+/// every question it asks was asked first.
 fn walk(files: &Files, exists: &mut dyn FnMut(&Probe) -> bool) -> Result<Adapted, AdaptError> {
     let mut walker = Walker {
         exists,

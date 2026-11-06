@@ -19,12 +19,12 @@ use url::Url;
 use uuid::Uuid;
 
 use super::configuration::{ConfigurationRepository, ConfigurationSource, Fetched};
-use crate::worker_pool::worker::container::Containers;
 use super::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer};
 use super::{
     ConversationId, CredentialSource, Executor, Runner, RunnerEvent, TurnMode, TurnRequest,
     TurnStatus, WorkspacePath,
 };
+use crate::worker_pool::worker::container::Containers;
 
 #[tokio::test]
 #[ignore = "needs RUNNER_TEST_DOCKER_URL and RUNNER_TEST_WORKSPACE_IMAGE; creates real containers"]
@@ -133,7 +133,10 @@ async fn a_worker_fetches_its_configuration_and_adapts_it_to_run_there() {
         CancellationToken::new(),
     );
 
-    let fetched = runner.fetch_configuration().await.expect("the settings read");
+    let fetched = runner
+        .fetch_configuration()
+        .await
+        .expect("the settings read");
     let held = runner.configuration_commit().await.expect("read");
     let hooks = workspace
         .run_script(AGENT_USER, HOOKS_SCRIPT, &[], Vec::new(), SCRIPT_TIMEOUT)
@@ -166,10 +169,7 @@ async fn a_worker_fetches_its_configuration_and_adapts_it_to_run_there() {
         "the worker's volume holds the commit it recorded"
     );
     assert!(
-        hooks
-            .output
-            .lines()
-            .all(|line| line.ends_with(" success")),
+        hooks.output.lines().all(|line| line.ends_with(" success")),
         "every hook left in runs in the worker"
     );
 }
