@@ -264,7 +264,7 @@ async fn arrive(
             Level::WARN,
             connector.id = %connector_id,
             links.key = %remote.key,
-            error.message = %error,
+            error.message = %format!("{error:#}"),
             "an assigned issue came in, but its item could not be announced; pages show it once reloaded",
         );
     }

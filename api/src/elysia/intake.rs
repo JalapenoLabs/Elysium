@@ -294,7 +294,9 @@ mod tests {
     #[test]
     fn an_item_a_connector_raises_reaches_her_through_its_record_alone() {
         // A comment wanting the person's attention on YouTrack, or a Confluence mention: the
-        // record names the item it raised, and that is how she hears of it.
+        // record names the item it raised, and that is how she hears of it. That every raised
+        // item's record names it is the reader's to keep, and YouTrack's reader test checks it
+        // end to end (`crate::youtrack::reader`).
         for source_kind in ["youtrack", "confluence"] {
             let record = bus(
                 "timelineRecord.created",

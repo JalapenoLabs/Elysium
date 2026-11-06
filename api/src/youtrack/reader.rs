@@ -612,7 +612,7 @@ mod tests {
             events: events.clone(),
             cipher: Arc::clone(&cipher),
             youtrack,
-            activity: Activity::new(database, events),
+            activity: Activity::new(database, events.clone()),
         });
 
         let mut new_account = NewTokenAccount::new(
@@ -648,12 +648,33 @@ mod tests {
 
         // Someone comments on the old issue and files a new one for me.
         someone_comments_and_files_an_issue(&shared);
+        let mut heard = events.subscribe();
         reader.read_now(&baselined).await;
         let (ids, raised) = recorded(&mut connection, stored.id).await;
         assert_eq!(ids, ["comment:4-1", "issue:2-2"]);
         assert_eq!(
             raised, 1,
             "the comment is someone else's on my issue; the issue is the watcher's to bring in"
+        );
+        // Elysia hears of the comment's item through its record alone, since her intake leaves
+        // every item a watcher raises out (`crate::elysia::intake`): the record must name it.
+        let mut naming_an_item = Vec::new();
+        while let Ok(message) = heard.try_recv() {
+            let change: serde_json::Value = serde_json::from_str(&message).expect("an event");
+            if change["type"] == "timelineRecord.created"
+                && !change["data"]["actionItemId"].is_null()
+            {
+                naming_an_item.push(message);
+            }
+        }
+        assert_eq!(
+            naming_an_item.len(),
+            1,
+            "the comment's record names its item"
+        );
+        assert!(
+            crate::elysia::intake::classify(&naming_an_item[0]).is_some(),
+            "and reaches Elysia"
         );
 
         // Nothing new: nothing recorded twice.
