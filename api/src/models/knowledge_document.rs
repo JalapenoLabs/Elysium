@@ -250,6 +250,9 @@ pub struct Citation {
     pub title: String,
     /// Where it lives outside Elysium, when it does.
     pub url: Option<String>,
+    /// The page it was indexed from, a learning's or a company doc section's included, which a
+    /// reader opens in place of the document.
+    pub page_id: Option<Uuid>,
     pub occurred_at: DateTime<Utc>,
     pub person: Person,
 }
@@ -338,6 +341,27 @@ struct DocumentRow {
     page_id: Option<Uuid>,
 }
 
+/// The passage at `position` of page `page_id`'s document, its text as the search cited it. `None`
+/// when the index holds no such passage: the page says nothing, or is deleted, or a link names a
+/// place its text no longer reaches.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn passage_of_page(
+    connection: &mut AsyncPgConnection,
+    page_id: Uuid,
+    position: i32,
+) -> QueryResult<Option<Passage>> {
+    knowledge_passages::table
+        .inner_join(knowledge_documents::table)
+        .filter(knowledge_documents::page_id.eq(page_id))
+        .filter(knowledge_passages::position.eq(position))
+        .select((knowledge_passages::position, knowledge_passages::content))
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// The document `id` whole: its citation, what it was made from, every passage in order, its
 /// projects, and the other documents holding the same text. `None` when the index holds no such
 /// document, such as one whose source was deleted.
@@ -399,11 +423,13 @@ pub async fn get(
     };
 
     // Through `knowledge_documents_copies`, so copies are found however large the index grows.
+    // Two pages saying the same thing are two pages, so only records have copies.
     let copies: Vec<(Uuid, Uuid, String)> = knowledge_documents::table
         .inner_join(users::table)
         .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
         .filter(knowledge_documents::source.eq(&row.source))
         .filter(knowledge_documents::id.ne(row.id))
+        .filter(knowledge_documents::page_id.is_null())
         .select((
             knowledge_documents::id,
             knowledge_documents::created_by,
@@ -426,6 +452,7 @@ pub async fn get(
             source: row.source,
             title: row.title,
             url: row.url,
+            page_id: row.page_id,
             occurred_at: row.occurred_at,
             person: Person {
                 id: row.created_by,

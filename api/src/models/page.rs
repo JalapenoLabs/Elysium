@@ -45,6 +45,7 @@ use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::{learning_category, user};
+use crate::search::{self, SearchTerms};
 
 /// The page every learning is created under, seeded by its migration at this id.
 pub const LEARNINGS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000001");
@@ -1170,6 +1171,36 @@ pub async fn list(
     query
         .filter(pages::deleted_at.is_null())
         .order(pages::position.asc())
+        .load(connection)
+        .await
+}
+
+/// The `limit` live pages whose titles match `terms` most closely, as id and title, learnings and
+/// the company doc's sections among them, since they are pages. See `crate::search` for how
+/// titles match and rank.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn search(
+    connection: &mut AsyncPgConnection,
+    terms: &SearchTerms,
+    limit: i64,
+) -> QueryResult<Vec<(Uuid, String)>> {
+    let mut query = pages::table
+        .filter(pages::deleted_at.is_null())
+        .into_boxed();
+    for pattern in terms.word_patterns() {
+        query = query.filter(search::matches(pages::title, pattern));
+    }
+
+    query
+        .order((
+            search::matches(pages::title, terms.title_start_pattern()).desc(),
+            search::similarity(pages::title, terms.text().to_owned()).desc(),
+            pages::title.asc(),
+        ))
+        .limit(limit)
+        .select((pages::id, pages::title))
         .load(connection)
         .await
 }

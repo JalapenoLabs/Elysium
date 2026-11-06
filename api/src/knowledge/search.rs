@@ -42,7 +42,7 @@
 //! index holds two documents of the same source with the same `content_sha256`. Their passages
 //! are the same text at the same positions, so they rank alike, and a result folds them into
 //! one: the earliest recorded is cited, and the others are listed as also recorded by their
-//! people.
+//! people. Pages are not folded: two pages saying the same thing are two pages.
 //!
 //! # When meaning is not available
 //!
@@ -223,6 +223,8 @@ struct Candidate {
     title: String,
     #[diesel(sql_type = Nullable<Text>)]
     url: Option<String>,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    page_id: Option<Uuid>,
     #[diesel(sql_type = Timestamptz)]
     occurred_at: DateTime<Utc>,
     #[diesel(sql_type = SqlUuid)]
@@ -240,6 +242,7 @@ impl Candidate {
             source: self.source.clone(),
             title: self.title.clone(),
             url: self.url.clone(),
+            page_id: self.page_id,
             occurred_at: self.occurred_at,
             person: Person {
                 id: self.created_by,
@@ -270,8 +273,8 @@ macro_rules! filters {
 macro_rules! candidate_columns {
     () => {
         "passages.document_id, passages.position, passages.content, documents.source,
-         documents.title, documents.url, documents.occurred_at, documents.created_by,
-         people.name AS person_name, documents.content_sha256"
+         documents.title, documents.url, documents.page_id, documents.occurred_at,
+         documents.created_by, people.name AS person_name, documents.content_sha256"
     };
 }
 
@@ -523,11 +526,16 @@ fn fuse(by_words: Vec<Candidate>, by_meaning: Vec<Candidate>, limit: usize) -> V
     }
 
     // Folded by what the text is: documents of one source holding the same text are one result.
-    let mut gathered: HashMap<(String, String), Gathered> = HashMap::new();
+    // A page is never folded: two pages saying the same thing are two pages, each with its own
+    // place in the tree, where two people's records of one message are one thing said.
+    let mut gathered: HashMap<(String, String, Option<Uuid>), Gathered> = HashMap::new();
     for (score, candidate) in scored.into_values() {
-        let result = gathered
-            .entry((candidate.source.clone(), candidate.content_sha256.clone()))
-            .or_default();
+        let key = (
+            candidate.source.clone(),
+            candidate.content_sha256.clone(),
+            candidate.page_id,
+        );
+        let result = gathered.entry(key).or_default();
         result.score = result.score.max(score);
         if !result
             .documents

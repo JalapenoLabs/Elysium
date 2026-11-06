@@ -1,17 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/search?q=&limit=`: the action items, projects, coding sessions, and
-//! initiatives whose titles match `q`, the closest `limit` of each kind (5 unless asked, at
-//! most 50), each kind in its own order.
+//! `GET /api/v1/search?q=&limit=`: the action items, projects, coding sessions, initiatives, and
+//! knowledge base pages whose titles match `q`, the closest `limit` of each kind (5 unless asked,
+//! at most 50), each kind in its own order.
 //!
 //! Each kind is searched among exactly the rows its own list route shows its caller: items and
-//! initiatives not deleted, every project, and the Coding area's sessions. Those lists answer
-//! everyone with access to the workspace, guests included (`docs/auth.md`, Roles), so this
-//! does too. A result carries what a row of results shows and no more: its kind, id, title,
-//! and, for items and initiatives, their state.
+//! initiatives not deleted, every project, the Coding area's sessions, and live pages. The first
+//! four lists answer everyone with access to the workspace, guests included (`docs/auth.md`,
+//! Roles), so this does too; pages answer the company's members alone, so a guest finds none. A
+//! result carries what a row of results shows and no more: its kind, id, title, and, for items
+//! and initiatives, their state.
 //!
 //! The knowledge base has a search of its own, `/api/v1/knowledge/search`, which answers admins
 //! and members alone (`docs/knowledge.md`, Who sees what); the web app asks it beside this one.
+//! It finds what pages say by whole words and by meaning. A page's title is here too because a
+//! title is matched as it is typed, by the words it begins, which neither of those does.
 
 use anyhow::Context;
 use axum::Json;
@@ -29,6 +32,7 @@ use crate::middleware::rate_limit::{Decision, whole_seconds};
 use crate::models::action_item::{self, ActionItemState};
 use crate::models::coding_session;
 use crate::models::initiative::{self, InitiativeState};
+use crate::models::page;
 use crate::models::project;
 use crate::search::{self, SearchTerms};
 use crate::state::AppState;
@@ -63,6 +67,10 @@ enum SearchHit {
         id: Uuid,
         title: String,
         state: InitiativeState,
+    },
+    Page {
+        id: Uuid,
+        title: String,
     },
 }
 
@@ -114,6 +122,11 @@ pub async fn handle(
     }
     for (id, title, state) in initiative::search(&mut connection, &terms, limit).await? {
         results.push(SearchHit::Initiative { id, title, state });
+    }
+    if user.0.is_company_member() {
+        for (id, title) in page::search(&mut connection, &terms, limit).await? {
+            results.push(SearchHit::Page { id, title });
+        }
     }
 
     Ok(Json(json!({ "results": results })))

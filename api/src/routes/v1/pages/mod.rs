@@ -15,6 +15,7 @@ mod add_label;
 mod create_page;
 mod delete_page;
 mod get_page;
+mod get_passage;
 mod get_version;
 mod list_history;
 mod list_pages;
@@ -59,6 +60,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/restore", post(restore_page::handle))
         .route("/{id}/labels", post(add_label::handle))
         .route("/{id}/labels/{label}", delete(remove_label::handle))
+        .route("/{id}/passages/{position}", get(get_passage::handle))
         .route("/{id}/history", get(list_history::handle))
         .route("/{id}/versions", get(list_versions::handle))
         .route("/{id}/versions/{version}", get(get_version::handle))

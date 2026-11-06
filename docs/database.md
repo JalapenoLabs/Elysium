@@ -104,10 +104,10 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 
 ## Searching titles
 
-The global search (`GET /api/v1/search`, `docs/api.md`) finds action items, projects, coding sessions, and initiatives
-by their titles through `pg_trgm`, created by the migration that adds its indexes:
+The global search (`GET /api/v1/search`, `docs/api.md`) finds action items, projects, coding sessions, initiatives,
+and pages by their titles through `pg_trgm`, created by the migration that adds its first indexes:
 
-- `action_items_title_search` and `initiatives_name_search`, where `deleted_at` is NULL;
+- `action_items_title_search`, `initiatives_name_search`, and `pages_title_search`, where `deleted_at` is NULL;
 - `projects_name_search`, over every project;
 - `coding_sessions_title_search`, where `studio_item_id` is NULL.
 

@@ -161,6 +161,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/pages/{id}/history`          | `200` `{ history: PageHistoryEntry[] }`, oldest first; members |
 | GET    | `/api/v1/pages/{id}/versions`         | `200` `{ versions: PageVersionSummary[] }`, newest first; members |
 | GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
+| GET    | `/api/v1/pages/{id}/passages/{position}` | `200` `{ passage: { position, content } }`, `404` when the index holds none there; members |
 | POST   | `/api/v1/pages/{id}/versions/{version}/restore` | `200` `{ page, outcome }`, `published` or `unchanged`; members |
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&label=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
 | GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
@@ -975,20 +976,21 @@ at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. 
 ### `/api/v1/search`
 
 The global search's records (`docs/frontend.md`, Global search). `GET` takes `q` (up to 200 characters) and
-`limit` (1 to 50, default 5), and answers the closest `limit` action items, projects, coding sessions, and
-initiatives whose titles match, each kind in its own order. A `SearchHit` is `{ kind, id, title }` with `kind` one
-of `actionItem`, `project`, `codingSession` (its `id` the session's number), or `initiative`; items and initiatives
-add their `state`. Nothing more is returned: a result is a row, and its page loads the rest.
+`limit` (1 to 50, default 5), and answers the closest `limit` action items, projects, coding sessions, initiatives,
+and pages whose titles match, each kind in its own order. A `SearchHit` is `{ kind, id, title }` with `kind` one of
+`actionItem`, `project`, `codingSession` (its `id` the session's number), `initiative`, or `page`; items and
+initiatives add their `state`. Nothing more is returned: a result is a row, and its page loads the rest.
 
 - **Matching.** Every word typed must begin a word of the title, case ignored; a word is a run of letters and digits,
   so `way 123` finds `WAY-123`, and a query of only punctuation finds nothing. Accents must match as typed.
 - **Ranking.** A title that begins with the typed words comes first, then the closest by pg_trgm's `similarity`,
   then alphabetically. The web app ranks every source's results again with one score.
 - **Visibility.** Each kind is searched among exactly what its list route shows: items and initiatives not deleted,
-  every project, and the Coding area's sessions (Studio's are left out). Those lists answer everyone with access to
-  the workspace, guests included, so search does too. The knowledge base has a search of its own,
+  every project, the Coding area's sessions (Studio's are left out), and live pages. The first four lists answer
+  everyone with access to the workspace, guests included, so search does too; pages answer admins and members alone,
+  so a guest's search holds none, with no refusal. The knowledge base has a search of its own,
   `/api/v1/knowledge/search` (below), which the web app asks beside this one for admins and members alone
-  (`docs/knowledge.md`, Who sees what).
+  (`docs/knowledge.md`, Who sees what). It finds what pages say; this finds their titles as they are typed.
 - **Budget.** Each person may search 20 times at once, refilling 5 a second, on top of the limit per client address;
   past it, `429` with the code `search_rate_limited`. Both are constants (`PER_PERSON` in `src/search/mod.rs`).
 
@@ -1007,7 +1009,8 @@ source names, up to 32, each a lowercase letter then letters, digits, or undersc
 meaning as well as by words.
 
 A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Citation` (`documentId`, `source`,
-`title`, `url` or `null`, `occurredAt`, and `person`, `{ id, name }`), up to three `{ position, content }` passages
+`title`, `url` or `null`, `pageId`, the page it was indexed from or `null`, `occurredAt`, and `person`, `{ id, name
+}`), up to three `{ position, content }` passages
 best first, the other documents holding the same text (`{ documentId, person }`, earliest first), and its fused score,
 comparable within one answer only.
 

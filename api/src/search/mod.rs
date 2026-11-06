@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Finding action items, projects, coding sessions, and initiatives by what was typed.
+//! Finding action items, projects, coding sessions, initiatives, and pages by what was typed.
 //!
 //! The global search (`GET /api/v1/search`, `crate::routes::v1::search`) asks each kind's
 //! model for its closest titles, using the pieces here, so every kind matches and ranks alike:

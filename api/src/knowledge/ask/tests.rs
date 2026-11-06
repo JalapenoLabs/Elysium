@@ -21,6 +21,7 @@ fn passage(label: usize, title: &str, content: &str) -> OfferedPassage {
             source: "slack".to_owned(),
             title: title.to_owned(),
             url: None,
+            page_id: None,
             occurred_at: when(),
             person: Person {
                 id: Uuid::now_v7(),

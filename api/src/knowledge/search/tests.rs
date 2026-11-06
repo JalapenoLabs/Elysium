@@ -23,6 +23,7 @@ fn passage(document: Uuid, position: i32, sha: &str) -> Candidate {
         source: "slack".to_owned(),
         title: format!("Document {document}"),
         url: None,
+        page_id: None,
         occurred_at: at(0),
         created_by: Uuid::nil(),
         person_name: "Alex".to_owned(),
@@ -136,6 +137,26 @@ fn the_same_text_from_another_source_stays_its_own_result() {
     let results = fuse(by_words, Vec::new(), 10);
 
     assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn two_pages_holding_the_same_text_stay_two_results() {
+    let (first, second, _) = documents();
+    let mut one = passage(first, 0, "shared");
+    one.source = "page".to_owned();
+    one.page_id = Some(Uuid::now_v7());
+    let mut other = passage(second, 0, "shared");
+    other.source = "page".to_owned();
+    other.page_id = Some(Uuid::now_v7());
+
+    let results = fuse(vec![one, other], Vec::new(), 10);
+
+    assert_eq!(results.len(), 2);
+    assert!(
+        results
+            .iter()
+            .all(|result| result.also_recorded_by.is_empty())
+    );
 }
 
 #[test]
