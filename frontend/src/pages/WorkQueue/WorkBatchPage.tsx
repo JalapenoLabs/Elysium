@@ -1,11 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { WorkBatch } from '../../api/routes/projectManagerRoutes'
-import type { WorkBatchHistoryEntry } from '../../api/routes/workQueueRoutes'
+import type { WorkBatch, WorkBatchState } from '../../api/routes/projectManagerRoutes'
+import type { WorkBatchHistoryEntry, WorkBatchWhy as Why } from '../../api/routes/workQueueRoutes'
 import type { PageAction } from '../../layout/page/pageActions'
 import type { PageCrumb } from '../../layout/page/PageHeader'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useParams } from 'react-router'
 import { shallowEqual } from 'react-redux'
@@ -17,17 +18,19 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 import { selectWorkBatch } from '../../store/workQueueSlice'
 
 // User interface
-import { Chip, Link, Spinner } from '@heroui/react'
+import { Button, Chip, Link, Spinner } from '@heroui/react'
+import { LuPencil } from 'react-icons/lu'
 import { Page } from '../../layout/page/Page'
 import { WorkBatchHistory } from './WorkBatchHistory'
 import { WorkBatchPullRequests } from './WorkBatchPullRequests'
+import { WorkBatchWhy } from './WorkBatchWhy'
 import { WorkerLog } from './WorkerLog'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { useNow } from '../../hooks/useNow'
 import { useProjectsLoader, useWorkBatchLoader } from '../../hooks/useServerData'
-import { getProjectViewUrl, UrlTree } from '../../urls'
+import { getProjectViewUrl, getWorkBatchEditUrl, UrlTree } from '../../urls'
 import {
   batchPriorityChipColors,
   batchPriorityLabelKeys,
@@ -40,13 +43,16 @@ import {
   actionLabelKeys,
   availableActions,
   currentWait,
+  DANGEROUS_ACTIONS,
   waitHeadingKeys,
   waitUntilKeys,
 } from './workQueuePresentation'
 
 // `/work-queue/:batchId`: one batch whole, what its worker waits on, its goal, the repositories it
-// needs, how it ended, the pull requests its worker opened, its history, and its worker's log, with
-// what may still be done to it in its Actions. A guest is sent to the start.
+// needs, why it exists, how it ended, the pull requests its worker opened, its history, and its
+// worker's log, with what may still be done to it in its Actions. A proposed batch leads with
+// Approve, and offers Edit, which approves it once changed, and Reject. A guest is sent to the
+// start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -76,14 +82,34 @@ function WorkBatchView(props: ViewProps) {
         </div>
     }</Page>
   }
-  return <WorkBatchDetails batch={loaded.batch} history={loaded.history} parents={parents} />
+  return <WorkBatchDetails
+    batch={loaded.batch}
+    why={loaded.why}
+    history={loaded.history}
+    parents={parents}
+  />
 }
 
 type DetailsProps = {
   batch: WorkBatch
+  why: Why
   history: WorkBatchHistoryEntry[]
   parents: PageCrumb[]
 }
+
+// The heading over a batch's result: what its worker reported, or why it was withdrawn or
+// declined.
+const resultHeadingKeys = {
+  proposed: 'batch.result',
+  queued: 'batch.result',
+  paused: 'batch.result',
+  assigned: 'batch.result',
+  running: 'batch.result',
+  succeeded: 'batch.result',
+  failed: 'batch.result',
+  cancelled: 'batch.cancelledBecause',
+  rejected: 'batch.rejectedBecause',
+} as const satisfies Record<WorkBatchState, string>
 
 function WorkBatchDetails(props: DetailsProps) {
   const { t } = useTranslation('workQueue')
@@ -92,16 +118,44 @@ function WorkBatchDetails(props: DetailsProps) {
   const now = useNow()
   useProjectsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
+  const [ isApproving, setIsApproving ] = useState(false)
   const batch = props.batch
   const wait = currentWait(batch)
+  const isProposed = batch.state === 'proposed'
 
-  const actions: PageAction[] = availableActions(batch, now).map((action) => ({
-    id: action,
-    label: t(actionLabelKeys[action]),
-    icon: actionIcons[action],
-    isDanger: action === 'cancel',
-    onAction: () => void act(batch, action),
-  }))
+  // A proposal's Approve stands on its own as the page's lead; Edit, a page of its own that
+  // approves it once changed, sits with Reject in the Actions.
+  const actions: PageAction[] = []
+  if (isProposed) {
+    actions.push({
+      id: 'edit',
+      label: t('actions.edit'),
+      icon: LuPencil,
+      href: getWorkBatchEditUrl(batch.id),
+    })
+  }
+  for (const action of availableActions(batch, now)) {
+    if (action === 'approve') {
+      continue
+    }
+    actions.push({
+      id: action,
+      label: t(actionLabelKeys[action]),
+      icon: actionIcons[action],
+      isDanger: DANGEROUS_ACTIONS.includes(action),
+      onAction: () => void act(batch, action),
+    })
+  }
+
+  async function approve() {
+    setIsApproving(true)
+    try {
+      await act(batch, 'approve')
+    }
+    finally {
+      setIsApproving(false)
+    }
+  }
 
   return <Page
     title={batch.title}
@@ -112,6 +166,10 @@ function WorkBatchDetails(props: DetailsProps) {
       }</Chip>
       {batch.pinnedAt && <Chip variant='soft' color='accent'>{t('table.runsNext')}</Chip>}
     </>}
+    primaryAction={isProposed && <Button isPending={isApproving} onPress={() => void approve()}>
+      <actionIcons.approve className='size-4' aria-hidden />
+      <span>{t(actionLabelKeys.approve)}</span>
+    </Button>}
     actions={actions}
   >
     <dl className='relaxed grid max-w-3xl grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm'>
@@ -149,11 +207,7 @@ function WorkBatchDetails(props: DetailsProps) {
     </section>}
 
     {batch.result && <section className='relaxed max-w-3xl'>
-      <h2 className='compact text-lg font-semibold'>{
-        batch.state === 'cancelled'
-          ? t('batch.cancelledBecause')
-          : t('batch.result')
-      }</h2>
+      <h2 className='compact text-lg font-semibold'>{t(resultHeadingKeys[batch.state])}</h2>
       <p className='whitespace-pre-wrap text-sm'>{batch.result}</p>
     </section>}
 
@@ -174,6 +228,11 @@ function WorkBatchDetails(props: DetailsProps) {
           </li>)
         }</ul>
         : <p className='text-sm opacity-70'>{t('batch.noRepositories')}</p>}
+    </section>
+
+    <section className='relaxed max-w-3xl'>
+      <h2 className='compact text-lg font-semibold'>{t('batch.why.title')}</h2>
+      <WorkBatchWhy why={props.why} />
     </section>
 
     {batch.startedAt && <WorkBatchPullRequests batchId={batch.id} />}

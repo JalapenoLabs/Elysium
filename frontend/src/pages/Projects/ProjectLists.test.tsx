@@ -11,13 +11,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Redux
 import { createAppStore } from '../../store'
 import { meLoaded } from '../../store/authSlice'
+import { projectManagerLoaded } from '../../store/projectManagersSlice'
 import { projectsLoaded } from '../../store/projectsSlice'
 
 // User interface
 import { ProjectLists } from './ProjectLists'
 
 // Misc
-import { makePageSummary, makeProject, makeUser } from '../../testFixtures'
+import {
+  makePageSummary,
+  makeProject,
+  makeProjectManager,
+  makeUser,
+  makeWorkBatch,
+} from '../../testFixtures'
 import { TestAriaRouter } from '../../testRouter'
 import { getProjectDocsUrl } from '../../urls'
 import { useProjectPages } from './useProjectPages'
@@ -59,6 +66,10 @@ function renderLists(role: UserRole, path: string) {
     authenticatorNickname: null,
   }))
   store.dispatch(projectsLoaded([ makeProject({ id: 'launch', name: 'Launch' }) ]))
+  store.dispatch(projectManagerLoaded(makeProjectManager({
+    projectId: 'launch',
+    proposed: [ makeWorkBatch({ id: 'pricing', projectId: 'launch', title: 'Annual pricing page' }) ],
+  })))
   const router = createMemoryRouter([{
     path: '*',
     element: <Provider store={store}>
@@ -82,6 +93,13 @@ describe('ProjectLists', () => {
     expect(screen.getByRole('tab', { name: /Docs/ }).textContent).toContain('1')
     expect(screen.getByRole('link', { name: 'Launch checklist' })).toBeTruthy()
     expect(useProjectPages).toHaveBeenCalledWith('launch', true)
+  })
+
+  it('lists what waits for the person\'s approval on its own tab, counted', () => {
+    renderLists('member', '/projects/launch?tab=proposed')
+
+    expect(screen.getByRole('tab', { name: /Proposed/, selected: true }).textContent).toContain('1')
+    expect(screen.getByRole('link', { name: 'Annual pricing page' })).toBeTruthy()
   })
 
   it('shows no count until the docs are known', () => {

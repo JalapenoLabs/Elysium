@@ -44,6 +44,7 @@ const MEMBER_TABS = [
   'timeline',
   PROJECT_DOCS_TAB,
   'manager',
+  'proposed',
   'batches',
   'promises',
   'sessions',
@@ -57,10 +58,11 @@ type Props = {
 
 // A project's lists below what it is about, one per tab, each named with its total: the items
 // still owed, its initiatives, its timeline, the knowledge base pages linked to it, its Project
-// Manager's turns, work batches, and the promises it keeps, and its coding sessions. A guest reads
-// no knowledge base, and the Project Manager's tabs quote what was ingested, so only the company's
-// members see those four. The open tab lives in the address, and switching never asks about the
-// page's unsaved changes, which stay as they are.
+// Manager's turns, the work batches waiting for a person's approval, its latest work batches, and
+// the promises it keeps, and its coding sessions. A guest reads no knowledge base, and the Project
+// Manager's tabs quote what was ingested, so only the company's members see those five. The open
+// tab lives in the address, and switching never asks about the page's unsaved changes, which stay
+// as they are.
 export function ProjectLists(props: Props) {
   const { t } = useTranslation([ 'projects', 'timeline' ])
   const isMember = useAppSelector(selectIsCompanyMember)
@@ -111,6 +113,12 @@ export function ProjectLists(props: Props) {
         ? [
           { id: PROJECT_DOCS_TAB, label: t('docs.tab'), count: docs.pages?.length ?? null },
           { id: 'manager', label: t('manager.tab'), count: null },
+          {
+            id: 'proposed',
+            label: t('batches.proposedTab'),
+            count: manager?.proposed.length ?? null,
+            isWaiting: true,
+          },
           { id: 'batches', label: t('batches.tab'), count: manager?.batches.length ?? null },
           { id: 'promises', label: t('promises.tab'), count: manager?.promises.length ?? null },
         ]
@@ -148,9 +156,16 @@ export function ProjectLists(props: Props) {
     {isMember && <Tabs.Panel id='manager'>
       <ProjectManagerPanel projectId={props.projectId} status={managerStatus} />
     </Tabs.Panel>}
+    {isMember && <Tabs.Panel id='proposed'>{
+      manager
+        ? <WorkBatchesTable list='proposed' batches={manager.proposed} />
+        : <div className='grid place-items-center py-10'>
+          <Spinner />
+        </div>
+    }</Tabs.Panel>}
     {isMember && <Tabs.Panel id='batches'>{
       manager
-        ? <WorkBatchesTable batches={manager.batches} />
+        ? <WorkBatchesTable list='latest' batches={manager.batches} />
         : <div className='grid place-items-center py-10'>
           <Spinner />
         </div>
