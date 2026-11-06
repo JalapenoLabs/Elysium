@@ -65,6 +65,10 @@ pub enum HistoryKind {
     /// A linked pull request closed without merging, which resolves nothing. `data` is
     /// `{ linkId, key, url }`.
     PullRequestClosed,
+    /// A linked issue assigned to the user was unassigned or given to someone else, which
+    /// changes nothing else about the item. `data` is `{ linkId, provider, key, url, assignee }`,
+    /// `assignee` being who has it now as the provider names them, or null for nobody.
+    Unassigned,
     /// An initiative was linked to a container. `data` is `{ linkId, provider, kind, key,
     /// url }`.
     ContainerLinked,
@@ -94,6 +98,7 @@ impl HistoryKind {
             Self::LinkWriteCancelled => "link_write_cancelled",
             Self::IssueFilingCancelled => "issue_filing_cancelled",
             Self::PullRequestClosed => "pull_request_closed",
+            Self::Unassigned => "unassigned",
             Self::ContainerLinked => "container_linked",
             Self::ContainerUnlinked => "container_unlinked",
         }

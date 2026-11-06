@@ -9,8 +9,10 @@
 //! an `event` turn is still queued, a new batch joins it instead of queueing another.
 //!
 //! What she ignores: her own changes (actor `elysia`), what coding agents do (they report
-//! through their own sessions), and anything a person did that is not new work or a note. A
-//! `resync`, meaning changes may have been lost on the way, always reaches her.
+//! through their own sessions), an item a watcher raises (she hears of one a connector raised
+//! through the timeline record it was raised with, and one the link watcher made is an issue
+//! arriving, which starts nothing), and anything a person did that is not new work or a note.
+//! A `resync`, meaning changes may have been lost on the way, always reaches her.
 
 use std::time::Duration;
 
@@ -22,7 +24,6 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::trigger;
-use crate::connectors::ConnectorKind;
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn};
 use crate::models::user::SYSTEM_USER_ID;
@@ -95,15 +96,15 @@ fn history_is_relevant(data: &Value) -> bool {
         return false;
     }
     let kind = data.get("kind").and_then(Value::as_str).unwrap_or_default();
-    if let Some(watched) = actor.strip_prefix("watcher:") {
-        // The inbox item a message read through a browser raises is that message's: the message
-        // joined its conversation, whose request run handles it (`crate::conversations`), so
-        // she is not woken for it twice.
-        let raised_for_a_message = kind == "created"
-            && ConnectorKind::BROWSER_READ
-                .iter()
-                .any(|browser_read| browser_read.as_str() == watched);
-        return !raised_for_a_message;
+    if actor.starts_with("watcher:") {
+        // An item a watcher raises is never news on its own, whichever service it watches.
+        // One a connector raises for something it read is written with that read's timeline
+        // record, whose `timelineRecord.created` names it (`actionItemId`) and reaches her
+        // unless the record's conversation handles it (`crate::connectors::ingest`). One the
+        // link watcher makes, with its link, is an issue arriving, assigned or a container's
+        // child, and nothing starts because an issue arrived (`crate::action_items::assigned`).
+        // What happens to an item afterwards, such as its issue closing, is news.
+        return !matches!(kind, "created" | "link_added");
     }
     PERSON_KINDS.contains(&kind)
 }
@@ -288,29 +289,63 @@ mod tests {
             &json!({ "id": "x", "conversationId": "0199a3c4-0000-7000-8000-00000000beef" }),
         );
         assert!(classify(&gathered).is_none());
+    }
 
-        // Nor is the inbox item the message raised.
-        for watcher in [
+    #[test]
+    fn an_item_a_connector_raises_reaches_her_through_its_record_alone() {
+        // A comment wanting the person's attention on YouTrack, or a Confluence mention: the
+        // record names the item it raised, and that is how she hears of it. That every raised
+        // item's record names it is the reader's to keep, and YouTrack's reader test checks it
+        // end to end (`crate::youtrack::reader`).
+        for source_kind in ["youtrack", "confluence"] {
+            let record = bus(
+                "timelineRecord.created",
+                &json!({
+                    "id": "x",
+                    "sourceKind": source_kind,
+                    "actionItemId": "0199a3c4-0000-7000-8000-00000000beef",
+                    "conversationId": null,
+                }),
+            );
+            assert!(classify(&record).is_some(), "{source_kind}");
+        }
+        // The item's own `created` entry would only tell her twice, so it is not news, whichever
+        // connector raised it.
+        for actor in [
             "watcher:slack",
             "watcher:teams",
             "watcher:outlook",
             "watcher:gmail",
+            "watcher:confluence",
+            "watcher:youtrack",
         ] {
             let raised = bus(
                 "history.appended",
-                &json!({ "actor": watcher, "kind": "created" }),
+                &json!({ "actor": actor, "kind": "created" }),
             );
-            assert!(classify(&raised).is_none(), "{watcher}");
+            assert!(classify(&raised).is_none(), "{actor}");
         }
-        // What the other watchers record, and a later change to a message's item, still are.
+    }
+
+    #[test]
+    fn an_issue_arriving_wakes_her_for_nothing_but_what_happens_to_it_later_does() {
+        // The item an assigned issue or a container's child makes, and its link, start nothing.
+        for actor in ["watcher:jira", "watcher:github", "watcher:youtrack"] {
+            for kind in ["created", "link_added"] {
+                let arrived = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
+                assert!(classify(&arrived).is_none(), "{actor} {kind}");
+            }
+        }
+        // What happens to a watched item later is news: its issue closing, its person being
+        // unassigned, or a message's item changing.
         for (actor, kind) in [
-            ("watcher:confluence", "created"),
-            ("watcher:youtrack", "created"),
             ("watcher:jira", "state_changed"),
+            ("watcher:jira", "unassigned"),
+            ("watcher:youtrack", "state_changed"),
             ("watcher:slack", "state_changed"),
         ] {
-            let change = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
-            assert!(classify(&change).is_some(), "{actor} {kind}");
+            let later = bus("history.appended", &json!({ "actor": actor, "kind": kind }));
+            assert!(classify(&later).is_some(), "{actor} {kind}");
         }
     }
 

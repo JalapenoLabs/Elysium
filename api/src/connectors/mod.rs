@@ -102,10 +102,12 @@ impl ConnectorKind {
         Self::Youtrack,
     ];
 
-    /// The kinds the link watcher reads (`crate::action_items::watcher`), which records its
-    /// progress per account rather than on the connector. Confluence's account is an Atlassian
-    /// one too, so anything about the watcher's reading asks for these kinds, never for an
-    /// Atlassian account alone.
+    /// The kinds whose reading state is the link watcher's (`crate::action_items::watcher`),
+    /// which records its progress per account rather than on the connector. Confluence's account
+    /// is an Atlassian one too, so the watcher's passes and counts ask for these kinds, never for
+    /// an Atlassian account alone. YouTrack is read by its own reader, so it is not among them,
+    /// though the watcher also reads its links; pausing is matched by the kinds that provide
+    /// issues (`crate::models::connector::paused_link_accounts`).
     pub const LINKS: [Self; 2] = [Self::Jira, Self::Github];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].

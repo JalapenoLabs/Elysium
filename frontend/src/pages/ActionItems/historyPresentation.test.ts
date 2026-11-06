@@ -136,6 +136,14 @@ describe('describeHistoryEntry', () => {
     expect(describeHistoryEntry(closed, context, t).summary).toBe('acme/elysium#9 closed without merging')
   })
 
+  it<Context>('says when a linked issue is no longer the person\'s, and whose it is now', ({ t, context }) => {
+    const unassigned = makeHistoryEntry({ id: 'e1', kind: 'unassigned', data: { key: 'ELY-12', assignee: null }})
+    const reassigned = makeHistoryEntry({ id: 'e2', kind: 'unassigned', data: { key: 'ELY-12', assignee: 'Bea' }})
+
+    expect(describeHistoryEntry(unassigned, context, t).summary).toBe('ELY-12 is no longer assigned to you')
+    expect(describeHistoryEntry(reassigned, context, t).summary).toBe('ELY-12 was assigned to Bea instead of you')
+  })
+
   it<Context>('still says something for a kind or a shape it does not know', ({ t, context }) => {
     const future = makeHistoryEntry({ id: 'e1', kind: 'linked' })
     const malformed = makeHistoryEntry({ id: 'e2', kind: 'state_changed', data: null })

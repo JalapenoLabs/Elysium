@@ -274,6 +274,17 @@ const describeByKind = {
     }),
     details: [],
   }),
+  // The item stays as it was: whether the work is still the person's is theirs to decide.
+  unassigned: (entry, _context, t) => {
+    const key = readString(entry.data, 'key') ?? t('history.values.unknownLink')
+    const assignee = readString(entry.data, 'assignee')
+    return {
+      summary: assignee
+        ? t('history.reassigned', { key, assignee })
+        : t('history.unassigned', { key }),
+      details: [],
+    }
+  },
   container_linked: (entry, _context, t) => ({
     summary: t('history.containerLinked', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
     details: [],

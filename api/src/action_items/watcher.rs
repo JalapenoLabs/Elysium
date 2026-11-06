@@ -9,11 +9,13 @@
 //!    primary links, and issues filed for items that asked for one. A write that fails or
 //!    waits keeps the provider's answer and is tried again next pass, until it lands or the
 //!    user cancels it.
-//! 2. For each credential a live link or container goes through, asks the provider for what
-//!    changed since the credential's cursor, and applies each change to its item through
-//!    [`rules`]. Each container's children are read whole and joined to, or taken out of,
-//!    the initiative.
-//! 3. Moves the credential's cursor to the moment the pass began, so a restart resumes there.
+//! 2. For each credential a live link or container goes through, and each active issue
+//!    connector's account, asks the provider for what changed since the credential's cursor,
+//!    and applies each change to its item through [`rules`]. Each container's children are
+//!    read whole and joined to, or taken out of, the initiative.
+//! 3. Brings in every issue assigned to an issue connector's person that it has not brought in
+//!    before, as an inbox item linked to its issue ([`assigned`]).
+//! 4. Moves the credential's cursor to the moment the pass began, so a restart resumes there.
 //!
 //! Every change goes out on the event stream as the routes' writes do. Applying is
 //! idempotent: a change read twice, or one Elysium made itself, finds the link already
@@ -38,19 +40,22 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::action_items::assigned;
 use crate::action_items::links::rules::{self, Reaction};
 use crate::action_items::links::{IssueToFile, LinkError, Links, Remote, WriteOutcome};
 use crate::action_items::{Actor, Transition, WorkError};
+use crate::connectors::ConnectorKind;
 use crate::connectors::activity::Activity;
+use crate::connectors::kinds::{self, Provides};
 use crate::database::Pool;
-use crate::models::action_item::{self, ActionItem, ActionItemState, NewActionItem};
+use crate::models::action_item::{self, ActionItem, ActionItemState, NewActionItem, Owner};
 use crate::models::action_item_event::{HistoryKind, Recorded};
 use crate::models::action_item_issue_filing::{self, Filed, IssueFiling};
 use crate::models::action_item_link::{
     self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState, NewLink, Observation,
 };
 use crate::models::action_item_link_write::{self, LinkWrite, LinkWriteKind};
-use crate::models::connector::{self, AccountRef};
+use crate::models::connector::{self, AccountRef, Connector};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::initiative_link::{self, InitiativeLink};
 use crate::models::{action_item_comment, initiative, link_watch_cursor};
@@ -68,10 +73,6 @@ pub const WATCH_INTERVAL: Duration = Duration::from_secs(60);
 /// holds back a new one; this keeps a long outage's backlog from holding one pass for
 /// minutes.
 const WRITES_PER_PASS: i64 = 100;
-
-/// The longest title an item created for a container's child starts with, matching the
-/// items table.
-const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 
 /// The longest title a filed issue opens with: Jira's summary limit of 255 characters, the
 /// strictest of the providers', so an item's issue reads the same in every tracker. The title
@@ -178,8 +179,9 @@ pub async fn pass(context: &WatchContext) {
             return;
         }
     };
-    for credential in credentials {
-        match watch_credential(context, credential, started).await {
+    for watched in &credentials {
+        let credential = watched.credential;
+        match watch_credential(context, watched, started).await {
             Ok(0) => {}
             Ok(changes) => {
                 report(
@@ -213,14 +215,24 @@ pub async fn pass(context: &WatchContext) {
     }
 }
 
+/// One account a pass reads: the links and containers that go through it, and, when it is an
+/// active issue connector's, what is assigned to that connector's person.
+#[derive(Debug, Clone)]
+struct Watched {
+    credential: LinkCredential,
+    /// The active connector of a kind that provides issues whose account this is.
+    issues: Option<Connector>,
+}
+
 /// What one account's pass came to, for its connector's activity.
 enum ConnectorRunOutcome<'message> {
     Changed(usize),
     Failed(&'message str),
 }
 
-/// Reports one account's pass as a run of the connector the account carries. An account
-/// without one, which no account made since connectors exist is, is not reported.
+/// Reports one account's pass as a run of the connector the account carries: the changes it
+/// read and the assigned issues it brought in, or why it failed. An account without one, which
+/// no account made since connectors exist is, is not reported.
 async fn report(
     context: &WatchContext,
     credential: LinkCredential,
@@ -230,17 +242,7 @@ async fn report(
     let account = match credential.provider {
         LinkProvider::Jira => AccountRef::Atlassian(credential.id),
         LinkProvider::Github => AccountRef::Github(credential.id),
-        // A YouTrack account's connector is its reader, whose runs are what it ingested; the
-        // watcher's reads of linked issues are not that connector's to report.
-        LinkProvider::Youtrack => {
-            event!(
-                name: "links.watcher.report.skipped",
-                Level::DEBUG,
-                credential.id = %credential.id,
-                "a YouTrack account's link reads are not reported as its connector's runs",
-            );
-            return;
-        }
+        LinkProvider::Youtrack => AccountRef::Token(credential.id),
     };
     let found = async {
         let mut connection = connect(&context.database).await?;
@@ -264,15 +266,48 @@ async fn report(
     context.activity.record(run).await;
 }
 
-/// Every credential links are made through, except those whose connector is paused.
-async fn credentials(context: &WatchContext) -> anyhow::Result<Vec<LinkCredential>> {
+/// Every credential links are made through, except those whose connector is paused, and every
+/// active issue connector's account, with the connector whose assigned issues it brings in.
+async fn credentials(context: &WatchContext) -> anyhow::Result<Vec<Watched>> {
     let mut connection = connect(&context.database).await?;
-    let credentials = link_watch_cursor::credentials_to_watch(&mut connection).await?;
+    let linked = link_watch_cursor::credentials_to_watch(&mut connection).await?;
     let paused = connector::paused_link_accounts(&mut connection).await?;
-    Ok(credentials
+    let mut watched: Vec<Watched> = linked
         .into_iter()
-        .filter(|credential| !paused.contains(&credential.id))
-        .collect())
+        .filter(|credential| !paused.contains(credential))
+        .map(|credential| Watched {
+            credential,
+            issues: None,
+        })
+        .collect();
+
+    // A paused connector is not listed, so nothing is brought in through it.
+    let issue_kinds: Vec<&str> = kinds::providing(Provides::Issues)
+        .into_iter()
+        .map(ConnectorKind::as_str)
+        .collect();
+    for issue_connector in connector::list_active(&mut connection, &issue_kinds).await? {
+        let Some(credential) = kinds::issue_credential(&issue_connector) else {
+            event!(
+                name: "links.watcher.connector.unread",
+                Level::WARN,
+                connector.id = %issue_connector.id,
+                "an issue connector has no account to read what is assigned through",
+            );
+            continue;
+        };
+        match watched
+            .iter_mut()
+            .find(|entry| entry.credential == credential)
+        {
+            Some(entry) => entry.issues = Some(issue_connector),
+            None => watched.push(Watched {
+                credential,
+                issues: Some(issue_connector),
+            }),
+        }
+    }
+    Ok(watched)
 }
 
 async fn record_failure(context: &WatchContext, credential: LinkCredential, error: &anyhow::Error) {
@@ -291,13 +326,15 @@ async fn record_failure(context: &WatchContext, credential: LinkCredential, erro
     }
 }
 
-/// Reads one credential's changes since its cursor and its containers' children, then
-/// moves the cursor to `started`. Answers how many linked changes the provider reported.
+/// Reads one credential's changes since its cursor and its containers' children, moves the
+/// cursor to `started`, then brings in what is assigned to its issue connector's person.
+/// Answers how many linked changes the provider reported and items the assigned issues raised.
 async fn watch_credential(
     context: &WatchContext,
-    credential: LinkCredential,
+    watched: &Watched,
     started: DateTime<Utc>,
 ) -> anyhow::Result<usize> {
+    let credential = watched.credential;
     let mut connection = connect(&context.database).await?;
     let links = action_item_link::watched(&mut connection, credential).await?;
     let containers = initiative_link::watched(&mut connection, credential).await?;
@@ -326,8 +363,16 @@ async fn watch_credential(
         sync_container(context, container, Utc::now()).await?;
     }
 
+    // The cursor moves before the assigned read, which it does not bound: that read is whole on
+    // every pass, so one that fails is tried again in full next pass anyway, and holding the
+    // cursor back for it would only make the next link read ask for more than changed.
     let mut connection = connect(&context.database).await?;
     link_watch_cursor::advance(&mut connection, credential, started).await?;
+    drop(connection);
+
+    if let Some(issue_connector) = &watched.issues {
+        changes += assigned::bring_in(context, issue_connector, credential).await?;
+    }
     Ok(changes)
 }
 
@@ -375,6 +420,27 @@ pub async fn apply_change(
                 let reaction =
                     rules::react(link.observed_state, remote.state, written.record.state);
                 apply_reaction(connection, link, reaction, actor, now, &mut written).await?;
+
+                // Being unassigned leaves the item where it is, and says so on it: the person
+                // decides whether the work is still theirs.
+                if link.observed_owner() == Owner::User && remote.owner != Owner::User {
+                    let entry = action_item_link::record_on_item(
+                        connection,
+                        link.action_item_id,
+                        HistoryKind::Unassigned,
+                        actor,
+                        json!({
+                            "linkId": link.id,
+                            "provider": link.provider,
+                            "key": remote.key,
+                            "url": remote.url,
+                            "assignee": remote.assignee,
+                        }),
+                        now,
+                    )
+                    .await?;
+                    written.history.push(entry);
+                }
 
                 let new_owner = rules::owner_change(
                     link.is_primary,
@@ -603,18 +669,8 @@ async fn create_child(
     actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<action_item_link::Linked, WorkError> {
-    let title = if remote.title.trim().is_empty() {
-        remote.key.clone()
-    } else {
-        remote
-            .title
-            .trim()
-            .chars()
-            .take(ITEM_TITLE_MAX_CHARACTERS)
-            .collect()
-    };
     let new_item = NewActionItem {
-        title,
+        title: remote.item_title(),
         notes: String::new(),
         state: ActionItemState::Open,
         priority: remote.starting_priority(),

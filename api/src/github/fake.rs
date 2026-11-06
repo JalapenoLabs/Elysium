@@ -41,7 +41,10 @@ pub(crate) struct FakeIssue {
     pub(crate) body: String,
     pub(crate) is_open: bool,
     pub(crate) state_reason: Option<String>,
+    /// The first assignee's login.
     pub(crate) assignee: Option<String>,
+    /// Everyone else assigned, after the first, since GitHub lets several people share one.
+    pub(crate) co_assignees: Vec<String>,
     /// `Some(merged)` for a pull request.
     pub(crate) pull_request: Option<bool>,
     pub(crate) milestone: Option<u64>,
@@ -58,6 +61,7 @@ impl FakeIssue {
             is_open: true,
             state_reason: None,
             assignee: None,
+            co_assignees: Vec::new(),
             pull_request: None,
             milestone: None,
             labels: Vec::new(),
@@ -71,6 +75,11 @@ impl FakeIssue {
             pull_request: Some(false),
             ..Self::open(title)
         }
+    }
+
+    /// Everyone assigned, the first among them.
+    fn assignees(&self) -> impl Iterator<Item = &String> {
+        self.assignee.iter().chain(&self.co_assignees)
     }
 }
 
@@ -350,6 +359,10 @@ fn issue_json(origin: &str, repository: &str, number: u64, issue: &FakeIssue) ->
         "state": if issue.is_open { "open" } else { "closed" },
         "state_reason": issue.state_reason,
         "assignee": issue.assignee.as_ref().map(|login| json!({ "login": login })),
+        "assignees": issue
+            .assignees()
+            .map(|login| json!({ "login": login }))
+            .collect::<Vec<Value>>(),
         "updated_at": issue.updated_at,
     });
     // Only the links: whether it merged is asked of the pull request itself, since GitHub
@@ -453,6 +466,29 @@ async fn answer(
             axum::Json(listed).into_response()
         }
 
+        // What is assigned to the token's account, across every repository, as
+        // `filter=assigned` lists it.
+        (Method::GET, ["issues"]) => {
+            if parameter(&query, "filter").as_deref() != Some("assigned") {
+                return github_error(StatusCode::UNPROCESSABLE_ENTITY, "Validation Failed");
+            }
+            let open_only = parameter(&query, "state").as_deref() == Some("open");
+            let mut listed: Vec<(&(String, u64), &FakeIssue)> = state
+                .issues
+                .iter()
+                .filter(|(_key, issue)| issue.assignees().any(|login| login == LOGIN))
+                .filter(|(_key, issue)| !open_only || issue.is_open)
+                .collect();
+            listed.sort_by_key(|(_key, issue)| std::cmp::Reverse(issue.updated_at));
+            let issues: Vec<Value> = listed
+                .into_iter()
+                .map(|((repository, number), issue)| {
+                    issue_json(&origin, repository, *number, issue)
+                })
+                .collect();
+            axum::Json(issues).into_response()
+        }
+
         (Method::GET, ["repos", owner, name, "issues"]) => {
             let repository = format!("{owner}/{name}");
             let open_only = parameter(&query, "state").as_deref() == Some("open");
@@ -462,6 +498,7 @@ async fn answer(
             let milestone: Option<u64> =
                 parameter(&query, "milestone").and_then(|number| number.parse().ok());
             let label = parameter(&query, "labels");
+            let assignee = parameter(&query, "assignee");
 
             let mut listed: Vec<(&u64, &FakeIssue)> = state
                 .issues
@@ -475,6 +512,11 @@ async fn answer(
                     label
                         .as_ref()
                         .is_none_or(|label| issue.labels.contains(label))
+                })
+                .filter(|(_number, issue)| {
+                    assignee
+                        .as_ref()
+                        .is_none_or(|assignee| issue.assignees().any(|login| login == assignee))
                 })
                 .collect();
             listed.sort_by_key(|(_number, issue)| std::cmp::Reverse(issue.updated_at));

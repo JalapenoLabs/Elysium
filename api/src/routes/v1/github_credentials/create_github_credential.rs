@@ -16,11 +16,13 @@ use super::{
     GithubCredentialResponse, GithubToken, matches_kind, token_shape_message, validate_not_blank,
 };
 use crate::auth::CurrentUser;
+use crate::connectors::kinds::github as github_kind;
 use crate::errors::ApiError;
 use crate::models::github_credential::{
     self, GithubCredential, GithubTokenKind, NewGithubCredential, VerifiedToken,
 };
 use crate::realtime::ServerEvent;
+use crate::routes::v1::jira_credentials::Selection;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -38,25 +40,28 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
-    let credential = create_credential(&state, current.id(), body).await?;
+    // Settings, GitHub makes a connector that reads every repository the token reaches; which
+    // ones is chosen on the connector's page.
+    let credential = create_credential(&state, current.id(), body, &Selection::All).await?;
     Ok((
         StatusCode::CREATED,
         Json(json!({ "credential": GithubCredentialResponse::new(credential) })),
     ))
 }
 
-/// Creates a credential, and with it its GitHub connector, for `created_by`, once GitHub has
-/// accepted the token. The hub's GitHub connectors are made here too
-/// (`crate::connectors::kinds::github`), so both check exactly the same things.
+/// Creates a credential, and with it its GitHub connector reading `repositories`, for
+/// `created_by`, once GitHub has accepted the token. The hub's GitHub connectors are made here
+/// too (`crate::connectors::kinds::github`), so both check exactly the same things.
 ///
 /// # Errors
 /// [`ApiError::Validation`] for fields out of shape, [`ApiError::BadRequest`] for a token that
-/// is not shaped like its kind or that GitHub refuses, and [`ApiError::BadGateway`] when GitHub
-/// cannot be reached.
+/// is not shaped like its kind or that GitHub refuses, or a repository it does not reach, and
+/// [`ApiError::BadGateway`] when GitHub cannot be reached.
 pub async fn create_credential(
     state: &AppState,
     created_by: Uuid,
     body: RequestBody,
+    repositories: &Selection<String>,
 ) -> Result<GithubCredential, ApiError> {
     body.validate()?;
 
@@ -69,9 +74,22 @@ pub async fn create_credential(
     // A token is stored only once GitHub has accepted it, so every row names the account
     // it acts as and says when it expires.
     let account = state.github.verify(&body.token.0).await?;
+    // A pick is checked against what the token reaches before anything is stored, and stored as
+    // GitHub spells it.
+    let reachable = match repositories {
+        Selection::All => Vec::new(),
+        Selection::Only(_picked) => {
+            state
+                .github
+                .list_repositories(&body.token.0)
+                .await?
+                .repositories
+        }
+    };
     let new_credential = NewGithubCredential {
         created_by,
         name: body.name,
+        connector_content: github_kind::stored_content(repositories, &reachable)?,
         verified: VerifiedToken {
             kind: body.kind,
             token: body.token.0,

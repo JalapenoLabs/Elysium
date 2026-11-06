@@ -174,7 +174,8 @@ Action items link to GitHub issues and pull requests, and initiatives to a repos
 | Call                                                | Used for                                              |
 |-----------------------------------------------------|-------------------------------------------------------|
 | `GET /repos/{owner}/{repo}/issues/{number}`         | One issue or pull request: its state, reason, assignee, and whether it merged |
-| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, `labels`, or `creator`, paged |
+| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, `labels`, `creator`, or `assignee`, paged |
+| `GET /issues?filter=assigned&state=open`            | The open issues assigned to the token's account, in every repository it sees, most recently updated first |
 | `GET /repos/{owner}/{repo}/pulls/{number}`          | Whether a closed pull request merged                  |
 | `PATCH /repos/{owner}/{repo}/issues/{number}`       | Closing an issue as completed                         |
 | `POST /repos/{owner}/{repo}/issues/{number}/comments` | Posting an item's comment                          |
@@ -188,6 +189,9 @@ kinds. GitHub does not promise `merged_at` in that object, so a closed pull requ
 from the pull request itself before it counts as closed without merging. An issue closed with `state_reason: not_planned` dismisses its item; any other close resolves it. Path segments
 are percent-encoded, so a label with a space or a slash stays one segment, and owner and name are checked against
 GitHub's alphabets before they reach a path.
+
+An issue is the token's account's when that account is any of its assignees, since GitHub lets several people share
+one; otherwise it is its first assignee's.
 
 For picking, `GET /api/v1/github-credentials/{id}/repositories/{owner}/{name}/issues` answers a repository's open
 issues, or its open pull requests with `kind=pull-request`, from one page of the hundred most recently updated;
@@ -205,6 +209,23 @@ sessions get (Which token a session gets, above), in the repository its project'
 linked as the item's primary. A filing tried before first lists the issues that token's account opened in the
 repository since its first attempt and links the one with exactly its title, so a retry never opens two. A repository
 is named as a tracker from the token's listing, archived ones left out, and checked with GitHub before it is stored.
+
+### Assigned issues
+
+A GitHub connector's content is the repositories whose issues assigned to the token's account come in as inbox items
+(`docs/action-items.md`, Assigned issues): `{"repositories": "*"}`, every one the token reaches, or a list picked from
+what the token lists (Listing a token's repositories, below), stored as GitHub spells each name. A token added under
+Settings, GitHub reads every repository; the connector's page narrows it. The content bounds only what comes in: a
+link can still be made to anything the token reaches.
+
+The watcher bounds the read in what it asks GitHub, as Jira's and YouTrack's reads are bounded in their queries. A
+connector reading every repository takes one listing for the account, `GET /issues?filter=assigned&state=open`, which
+costs one request for most people whatever number of repositories it spans. One that chose repositories lists each of
+them, `GET /repos/{owner}/{repo}/issues?assignee=<login>&state=open`, a request per chosen repository, so issues
+assigned elsewhere never use up the read before a chosen repository is reached. Either listing takes at most ten pages
+of a hundred, and pull requests are left out. A chosen repository the token cannot read fails the read, naming it, so
+the connector shows which pick to change. A fine-grained token answers for the repositories it was granted; that the
+account listing works with one has not yet been checked against GitHub itself.
 
 ## Merging a worker's pull requests
 
