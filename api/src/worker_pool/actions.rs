@@ -16,8 +16,6 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::auth::MemberUser;
-use crate::models::action_item::ActionItem;
-use crate::models::action_item_event::Recorded;
 use crate::models::work_batch::approval::{self, Edits};
 use crate::models::work_batch::{
     self, ChangeError, Changes, RESULT_MAX_CHARACTERS, WorkBatch, Written,
@@ -140,32 +138,23 @@ pub async fn publish(
     written: Written,
 ) -> WorkBatch {
     announce(events, &written.batch);
-    if let Some(item) = written.approval_item {
-        publish_approval_item(connection, events, item, &written.batch).await;
-    }
-    written.batch
-}
-
-/// Announces the approval item a write changed. The item is written either way; a client that
-/// missed it reads it on its next load, so a failure is logged rather than undoing the batch's
-/// change.
-async fn publish_approval_item(
-    connection: &mut AsyncPgConnection,
-    events: &EventBus,
-    item: Recorded<ActionItem>,
-    batch: &WorkBatch,
-) {
+    let Some(item) = written.approval_item else {
+        return written.batch;
+    };
     let item_id = item.record.id;
+    // The item is written either way, and a client that missed it reads it on its next load, so a
+    // failure is logged rather than failing a change already made.
     if let Err(error) = publish_item_write(events, connection, item, &[], Utc::now()).await {
         event!(
             name: "worker_pool.approval_item.unpublished",
             Level::WARN,
-            work_batch.id = %batch.id,
+            work_batch.id = %written.batch.id,
             action_item.id = %item_id,
             error.message = %error,
             "a project's approval item was written but could not be announced",
         );
     }
+    written.batch
 }
 
 /// `reason`, trimmed, when it holds text and fits a batch's result.

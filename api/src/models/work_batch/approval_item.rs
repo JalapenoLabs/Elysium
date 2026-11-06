@@ -81,11 +81,8 @@ pub async fn refresh(
             action_item::transition(connection, item.id, Transition::Resolve, actor, now).await
         }
         (Some(item), _) => {
-            let wording = new_item(
-                &project_name(connection, project_id).await?,
-                project_id,
-                waiting,
-            );
+            let name = project::find(connection, project_id).await?.name;
+            let wording = new_item(&name, project_id, waiting);
             let changes = ActionItemChanges {
                 title: Some(wording.title),
                 notes: Some(wording.notes),
@@ -94,11 +91,8 @@ pub async fn refresh(
             action_item::update(connection, item.id, changes, actor, now).await
         }
         (None, _) => {
-            let wording = new_item(
-                &project_name(connection, project_id).await?,
-                project_id,
-                waiting,
-            );
+            let name = project::find(connection, project_id).await?.name;
+            let wording = new_item(&name, project_id, waiting);
             let raised = action_item::create(connection, wording, actor, now)
                 .await
                 .map_err(database_only)?;
@@ -165,10 +159,6 @@ async fn remember(
         .execute(connection)
         .await
         .map(drop)
-}
-
-async fn project_name(connection: &mut AsyncPgConnection, project_id: Uuid) -> QueryResult<String> {
-    Ok(project::find(connection, project_id).await?.name)
 }
 
 /// The item for `waiting` proposed batches of the project named `name`, whose words an open item
