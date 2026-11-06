@@ -362,3 +362,41 @@ async fn the_one_item_follows_the_hold_when_it_changes_while_open() {
     );
     assert!(item.notes.contains("Repository not found"));
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_attempt_recorded_while_an_admin_replaces_the_repository_waits_and_records_nothing() {
+    use diesel_async::{AsyncConnection, SimpleAsyncConnection};
+    use secrecy::ExposeSecret;
+
+    let (url, mut connection) = migrated_database().await;
+    set_repository(&mut connection, Some(REPOSITORY)).await;
+    let before = status_record::find(&mut connection).await.expect("status");
+
+    // An admin's change to the settings, under way and not yet committed.
+    let mut admin = AsyncPgConnection::establish(url.expose_secret())
+        .await
+        .expect("a second connection");
+    admin
+        .batch_execute(
+            "BEGIN; UPDATE workspace_settings \
+             SET agent_configuration_repository = 'https://github.com/someone/else'",
+        )
+        .await
+        .expect("the change begins");
+
+    let recording = tokio::spawn(async move {
+        status_record::record_failed(&mut connection, &source(None), "timed out", Utc::now())
+            .await
+            .expect("read")
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!recording.is_finished(), "it waits for the admin's change");
+    admin.batch_execute("COMMIT").await.expect("committed");
+
+    let after = recording.await.expect("recorded");
+    assert_eq!(
+        after, before,
+        "an attempt at the replaced repository records nothing"
+    );
+}

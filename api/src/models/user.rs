@@ -712,6 +712,21 @@ pub async fn workspace_settings(
         .await
 }
 
+/// The workspace settings, their row locked for the rest of the transaction, so no change to them
+/// commits until it ends.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn lock_workspace_settings(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<WorkspaceSettings> {
+    workspace_settings::table
+        .select(WorkspaceSettings::as_select())
+        .for_update()
+        .first(connection)
+        .await
+}
+
 /// Applies `changes` to the workspace settings, recording the values before and after.
 ///
 /// # Errors

@@ -82,13 +82,16 @@ pub fn named_source(settings: &WorkspaceSettings) -> Option<Source> {
 }
 
 /// The status locked for the rest of the transaction, and whether `source` is what the settings
-/// name now, which is the only attempt worth recording.
+/// name now, which is the only attempt worth recording. The settings are locked too, so an
+/// admin's change cannot commit between this read and the write that follows: it waits, and the
+/// next attempt is at what it names. A settings change locks the settings alone, so the two never
+/// wait on each other in a circle.
 async fn lock_for(
     connection: &mut AsyncPgConnection,
     source: &Source,
 ) -> QueryResult<(Status, bool)> {
     let status = lock(connection).await?;
-    let settings = user::workspace_settings(connection).await?;
+    let settings = user::lock_workspace_settings(connection).await?;
     let is_current = named_source(&settings).as_ref() == Some(source);
     if !is_current {
         tracing::event!(
