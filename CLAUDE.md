@@ -248,15 +248,16 @@ Everything else follows these rules:
   kind. What a kind provides is how a loop finds the kinds it reads, such as meetings. The API serves the definitions
   and the web app draws forms and check lists from them, naming every id from its translations.
 - An Atlassian account carries one connector: Jira's, holding its allowlist, or Confluence's, which allows no Jira
-  project or board and is never offered as a Jira site. Anything about the link watcher's reading (paused accounts, its
-  pass, linked-issue counts) is matched by kind (`ConnectorKind::LINKS`) as well as account, never by account alone.
+  project or board and is never offered as a Jira site. Anything about the link watcher's reading is matched by kind
+  as well as account, never by account alone: paused accounts by the kinds that provide issues, its pass and
+  linked-issue counts by `ConnectorKind::LINKS`.
 - A secret a migration copies into a new row is re-sealed for that row by the API at startup (`secret_copies`), since
   the migrator holds no key. See `docs/secrets.md`.
 - Checks run in order, a dependency that did not pass skips what builds on it, and they run before a connector is
   saved and on demand. Progress is published as ids and states only; a stored connector's last results are kept.
 - Syncs that record something or fail are runs (`connector_runs`), reported through `connectors::activity`; a
-  connector's status is paused, syncing, error, or active. A paused Jira or GitHub connector's account is skipped by
-  the link watcher. `connector.changed` carries an id alone.
+  connector's status is paused, syncing, error, or active. A paused issue connector's account (Jira, GitHub, or
+  YouTrack) is skipped by the link watcher. `connector.changed` carries an id alone.
 - Outlook and Gmail read through the connector's own browser over DevTools, with one page script per service; the
   check is cheap and deterministic, and nothing it does marks mail read.
 - Confluence Cloud reads through its own Atlassian account, every five minutes, the pages and comments changed in

@@ -122,16 +122,18 @@ A turn records what started it in `trigger_kind`, text so later sources add kind
 
 The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
 
-- every action item and initiative history entry the watcher records (`watcher:<provider>`): what changed in Jira,
-  GitHub, or YouTrack, and what Confluence raised, but not the inbox item a Slack, Teams, or mail message raises
-  (`created` by `watcher:slack`, `watcher:teams`, `watcher:outlook`, or `watcher:gmail`), since that message's
-  conversation run handles it, nor an issue arriving (`created` and `link_added` by the watcher of a kind that provides
-  issues: an assigned issue, or a container's child), since nothing starts because an issue arrived
+- every action item and initiative history entry the watcher records (`watcher:<provider>`), such as what changed in
+  Jira, GitHub, or YouTrack, except an item it raises (`created` and `link_added`, whichever service). An item a
+  connector raises for something it read is written with that read's timeline record, whose `timelineRecord.created`
+  names it (`actionItemId`), so she hears of what Confluence or YouTrack raised through the record, and the record of
+  a Slack, Teams, or mail message is its conversation run's to handle. An item the link watcher makes, with its link, is
+  an issue arriving, assigned or a container's child, and nothing starts because an issue arrived
   (`docs/action-items.md`, Assigned issues);
 - a person creating an item or commenting on one;
 - a decision on a changeset she proposed;
-- `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them, except a message that joined a
-  conversation (`conversationId`), which that conversation's request run handles (`docs/engine.md`, Conversations);
+- `timelineRecord.created`: mail, chat, meetings, Confluence, and YouTrack, once connectors ingest them, naming the
+  inbox item a record raised (`actionItemId`), except a message that joined a conversation (`conversationId`), which
+  that conversation's request run handles (`docs/engine.md`, Conversations);
 - `resync`: changes may have been lost on their way to her (`docs/realtime.md`), so she checks the workspace herself.
 
 It ignores her own changes, coding agents' and Project Managers' changes, what a Project Manager puts on a timeline,

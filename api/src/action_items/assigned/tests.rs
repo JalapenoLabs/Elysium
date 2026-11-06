@@ -20,6 +20,7 @@ use crate::models::action_item::{self, ActionItem, ActionItemPriority};
 use crate::models::action_item_event::list_for_item;
 use crate::models::action_item_link::ActionItemLink;
 use crate::models::connector::{self, AccountRef, NewConnector};
+use crate::models::link_watch_cursor;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID};
 use crate::youtrack::tests::{FakeIssue as FakeYoutrackIssue, sample_issue};
 
@@ -355,4 +356,165 @@ async fn unassigning_leaves_the_item_and_says_so_and_closing_resolves_it() {
         ActionItemState::Resolved
     );
     assert_eq!(item_count(&mut fixture).await, 1, "nothing came in twice");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_github_issue_shared_with_someone_else_is_still_the_persons() {
+    let mut fixture = LinkFixture::start().await;
+    // Sam was assigned first; the person shares it.
+    fixture.github.put_issue(
+        REPOSITORY,
+        8,
+        FakeIssue {
+            assignee: Some("sam".to_owned()),
+            co_assignees: vec![LOGIN.to_owned()],
+            ..FakeIssue::open("Pair on it")
+        },
+    );
+
+    pass(&fixture.context()).await;
+
+    let github = links_through(&mut fixture.connection, fixture.github_credential).await;
+    assert_eq!(github.len(), 1, "it came in");
+    let raised = item(&mut fixture, github[0].action_item_id).await;
+    assert_eq!(
+        raised.owner(),
+        Owner::User,
+        "the person is one of its assignees"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn chosen_repositories_are_each_asked_for_what_is_assigned_in_them() {
+    let mut fixture = LinkFixture::start().await;
+    choose_repositories(&mut fixture, json!([REPOSITORY])).await;
+    fixture
+        .github
+        .put_issue(REPOSITORY, 1, github_issue_of_mine("Here"));
+    fixture.github.put_issue(
+        REPOSITORY,
+        2,
+        FakeIssue {
+            assignee: Some("sam".to_owned()),
+            ..FakeIssue::open("Sam's")
+        },
+    );
+    fixture
+        .github
+        .put_issue("acme/other", 3, github_issue_of_mine("Elsewhere"));
+
+    pass(&fixture.context()).await;
+
+    let keys: Vec<String> = links_through(&mut fixture.connection, fixture.github_credential)
+        .await
+        .into_iter()
+        .map(|link| link.external_key)
+        .collect();
+    assert_eq!(keys, [format!("{REPOSITORY}#1")]);
+    // The bound is in what GitHub was asked, not a filter over the account's listing, so what is
+    // assigned elsewhere never uses up the read before a chosen repository is reached.
+    let requests = fixture.github.received();
+    assert!(
+        requests.iter().all(|request| request.path != "/issues"),
+        "the account's listing is not read when repositories are chosen"
+    );
+    let asked = requests
+        .iter()
+        .find(|request| {
+            request.path == format!("/repos/{REPOSITORY}/issues")
+                && request.query.contains(&format!("assignee={LOGIN}"))
+        })
+        .expect("the chosen repository is listed by assignee");
+    assert!(asked.query.contains("state=open"), "{}", asked.query);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_assigned_read_that_fails_never_holds_the_link_cursor_back() {
+    let mut fixture = LinkFixture::start().await;
+    fixture
+        .github
+        .put_issue(REPOSITORY, 12, FakeIssue::open("Linked"));
+    let remote = fixture
+        .github_provider()
+        .find(
+            fixture.github_credential.id,
+            LinkKind::Issue,
+            &format!("{REPOSITORY}#12"),
+        )
+        .await
+        .expect("found");
+    action_item_link::create_linked_item(
+        &mut fixture.connection,
+        NewActionItem {
+            title: remote.title.clone(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::Nobody,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        },
+        NewLink {
+            credential: fixture.github_credential,
+            kind: LinkKind::Issue,
+            external_id: remote.external_id.clone(),
+            observation: remote.observation(),
+        },
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("linked");
+    // A content the GitHub read cannot take, so every assigned read fails.
+    choose_repositories(&mut fixture, json!(5)).await;
+
+    let before = Utc::now();
+    pass(&fixture.context()).await;
+
+    let cursor = link_watch_cursor::find(&mut fixture.connection, fixture.github_credential)
+        .await
+        .expect("read")
+        .expect("a cursor after a pass");
+    assert!(
+        cursor.watched_through >= before,
+        "the links were read, so the next pass asks only for what changed since"
+    );
+    assert!(
+        cursor.last_error.is_some(),
+        "the failed read still says why"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_paused_youtrack_connector_is_not_read_by_the_watcher() {
+    let mut fixture = LinkFixture::start().await;
+    youtrack_connector(&mut fixture, json!(["0-1"])).await;
+    let youtrack = connector::find_by_account(
+        &mut fixture.connection,
+        AccountRef::Token(fixture.youtrack_account.id),
+    )
+    .await
+    .expect("read")
+    .expect("the account carries its connector");
+    connector::set_active(&mut fixture.connection, youtrack.id, false)
+        .await
+        .expect("paused");
+    fixture.put_youtrack_issue(sample_issue("2-1", "JL-1", 1_000_000));
+
+    let paused = connector::paused_link_accounts(&mut fixture.connection)
+        .await
+        .expect("listed");
+    assert_eq!(paused, [fixture.youtrack_account]);
+    pass(&fixture.context()).await;
+    assert!(
+        links_through(&mut fixture.connection, fixture.youtrack_account)
+            .await
+            .is_empty(),
+        "nothing comes in through a paused connector"
+    );
 }

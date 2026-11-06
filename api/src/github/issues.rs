@@ -168,6 +168,8 @@ pub struct IssueQuery<'a> {
     pub label: Option<&'a str>,
     /// Only issues this login opened.
     pub creator: Option<&'a str>,
+    /// Only issues this login is any of the assignees of.
+    pub assignee: Option<&'a str>,
 }
 
 impl IssueQuery<'_> {
@@ -189,6 +191,9 @@ impl IssueQuery<'_> {
         }
         if let Some(creator) = self.creator {
             parameters.append_pair("creator", creator);
+        }
+        if let Some(assignee) = self.assignee {
+            parameters.append_pair("assignee", assignee);
         }
         parameters.finish()
     }

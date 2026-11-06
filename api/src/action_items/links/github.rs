@@ -46,8 +46,9 @@ const CHANGE_PAGE_LIMIT: usize = 3;
 /// A container past it is marked truncated and its children are never taken out.
 const CHILD_PAGE_LIMIT: usize = 10;
 
-/// How many pages of the token's assigned issues one read takes, so 1,000 at most, the same
-/// bound as a container's children. Past it, the least recently updated wait until they change.
+/// How many pages of assigned issues one listing takes, so 1,000 at most, the same bound as a
+/// container's children: the account's listing, or each chosen repository's. Past it, the least
+/// recently updated wait until they change.
 const ASSIGNED_PAGE_LIMIT: usize = 10;
 
 /// Minutes taken off every "updated since" listing, so an issue updated in the moment the
@@ -350,8 +351,18 @@ impl GithubProvider {
     }
 
     /// The open issues assigned to the token's account in the repositories `content` chose,
-    /// from one listing of everything assigned to the account, so a read costs the same however
-    /// many repositories it spans.
+    /// most recently updated first, bounded in what is asked of GitHub as Jira's and YouTrack's
+    /// reads are bounded in their queries.
+    ///
+    /// A connector reading every repository takes one listing of everything assigned to the
+    /// account, which costs the same however many repositories it spans. One that chose
+    /// repositories lists each of them by assignee instead, a request per repository, so what
+    /// is assigned elsewhere never spends the read's cap before a chosen repository is reached.
+    ///
+    /// # Errors
+    /// A chosen repository the token cannot read fails the read, naming it, as a Jira or
+    /// YouTrack query naming a project it cannot read does, so the connector shows which pick
+    /// to change rather than reading less than it says.
     async fn assigned(
         &self,
         credential_id: Uuid,
@@ -363,26 +374,46 @@ impl GithubProvider {
             ))
         })?;
         let opened = self.open(credential_id).await?;
-        let listing = self
-            .github
-            .list_assigned_issues(&opened.token, ASSIGNED_PAGE_LIMIT)
-            .await?;
-        let is_chosen = |repository: &str| match &content.repositories {
-            Selection::All => true,
-            Selection::Only(names) => names
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(repository)),
+        let (listed, truncated) = match &content.repositories {
+            Selection::All => {
+                let listing = self
+                    .github
+                    .list_assigned_issues(&opened.token, ASSIGNED_PAGE_LIMIT)
+                    .await?;
+                (listing.items, listing.truncated)
+            }
+            Selection::Only(names) => {
+                let query = IssueQuery {
+                    open_only: true,
+                    assignee: Some(opened.login.as_str()),
+                    ..IssueQuery::default()
+                };
+                let mut listed = Vec::new();
+                let mut truncated = false;
+                for name in names {
+                    let repository = parse_repository(name)?;
+                    let listing = self
+                        .github
+                        .list_issues(&opened.token, &repository, &query, ASSIGNED_PAGE_LIMIT)
+                        .await
+                        .map_err(|error| {
+                            LinkError::Upstream(format!("cannot read {name}'s issues: {error}"))
+                        })?;
+                    listed.extend(listing.items);
+                    truncated |= listing.truncated;
+                }
+                // Each repository lists its own newest first; the read answers newest first
+                // across all of them.
+                listed.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+                (listed, truncated)
+            }
         };
-        let items = listing
-            .items
+        let items = listed
             .into_iter()
-            .filter(|issue| issue.pull_request.is_none() && is_chosen(&issue.repository))
+            .filter(|issue| issue.pull_request.is_none())
             .map(|issue| remote(&opened, issue))
             .collect();
-        Ok(AssignedIssues {
-            items,
-            truncated: listing.truncated,
-        })
+        Ok(AssignedIssues { items, truncated })
     }
 
     async fn close(&self, link: &ActionItemLink) -> Result<WriteOutcome, LinkError> {

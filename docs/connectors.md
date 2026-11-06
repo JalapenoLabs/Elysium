@@ -92,8 +92,9 @@ paused. Jira and GitHub are read by the link watcher, which records its progress
 so their last sync and last error come from there.
 
 Confluence's account is an Atlassian one too, so anything about the link watcher's reading is matched by kind as well
-as account (`ConnectorKind::LINKS`, Jira and GitHub): which accounts the paused connectors stop the watcher on, whose
-watcher pass and errors a connector shows, and whose linked issues it counts.
+as account: which accounts the paused connectors stop the watcher on, by the kinds that provide issues (Jira, GitHub,
+and YouTrack, whose links and assigned issues the watcher reads); and whose watcher pass and errors a connector shows,
+and whose linked issues it counts, by `ConnectorKind::LINKS` (Jira and GitHub, whose reading state is the watcher's).
 
 ### Who sees what
 
@@ -204,8 +205,8 @@ provider and no further). A run lives in memory (`CheckRuns`) for half an hour a
 
 `api/src/connectors/activity.rs` is where every loop that reads a connector reports its syncs. A sync that recorded
 something, or failed, is stored as a run (`connector_runs`): records stored for a mailbox, meetings listed or
-processed, changes the watcher read and assigned issues it brought in. A sync that found nothing new is not stored, since a mailbox is read every minute.
-Each connector keeps its newest 50 runs.
+processed, changes the watcher read and assigned issues it brought in. A sync that found nothing new is not stored,
+since a mailbox is read every minute. Each connector keeps its newest 50 runs.
 
 A connector's status is, in order:
 
@@ -216,9 +217,10 @@ A connector's status is, in order:
 | `error`   | Its last read failed, or its account is asking to be signed in again  |
 | `active`  | Otherwise                                                             |
 
-`syncing` is a mark on the connector's row (`syncing_since`), so the API shows what the engine is doing. A paused Jira
-or GitHub connector's account is skipped by the link watcher's reads; writes the user already approved still land. No
-paused issue connector brings in what is assigned to its person. A paused mailbox or meeting source is not read.
+`syncing` is a mark on the connector's row (`syncing_since`), so the API shows what the engine is doing. A paused issue
+connector's account (Jira, GitHub, or YouTrack) is skipped by the link watcher's reads, so neither its links nor what is
+assigned to its person are read; writes the user already approved still land. A paused mailbox or meeting source is not
+read.
 
 `POST /connectors/{id}/sync` reads a connector now, which is also how a failed sync is retried. Every reader runs in the
 engine (`docs/engine.md`), so the API marks the connector syncing and signals the engine, which reads it with its kind's
@@ -486,13 +488,15 @@ hundred), and its writes open issues, comment, and move an issue's state (`POST 
 `/api/issues/<id>/comments`, and `/api/issues/<id>` with the state field), as the token's user. A Project Manager files
 issues in a YouTrack project through a person's account when its project names that tracker (`docs/engine.md`, Its
 writes). A watcher pass over the account that read a change, brought an issue in, or failed is reported as a run of
-its connector, beside the reader's. The `issue id:` and `for: me` searches, creating issues, and moving a state through the state field's `$type` (`StateProjectCustomField`,
-`StateIssueCustomField`) follow JetBrains' REST documentation and are tested against a fake site
-(`api/src/youtrack/tests.rs`); they have not yet been run against a live YouTrack Cloud site.
+its connector, beside the reader's. The `issue id:` and `for: me` searches, creating issues, and moving a state through
+the state field's `$type` (`StateProjectCustomField`, `StateIssueCustomField`) follow JetBrains' REST documentation and
+are tested against a fake site (`api/src/youtrack/tests.rs`); they have not yet been run against a live YouTrack Cloud
+site.
 
 A comment that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction: one
-someone else wrote, on an issue the user is assigned or reported, or that mentions `@<login>`. An issue's record raises
-nothing, since an issue assigned to the user already comes in as an item linked to it.
+someone else wrote, on an issue the user is assigned or reported, or that mentions `@<login>`. Its record names the
+item, which is how Elysia hears of it. An issue's record raises nothing, since an issue assigned to the user already
+comes in as an item linked to it.
 
 The cursor is the newest update read, in YouTrack's own clock (`{"baselined": true, "since": <ms>}`). The first read
 records nothing and only sets it, so connecting a site does not fill the timeline and the inbox with its history. A

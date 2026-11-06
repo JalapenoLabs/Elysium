@@ -174,7 +174,7 @@ Action items link to GitHub issues and pull requests, and initiatives to a repos
 | Call                                                | Used for                                              |
 |-----------------------------------------------------|-------------------------------------------------------|
 | `GET /repos/{owner}/{repo}/issues/{number}`         | One issue or pull request: its state, reason, assignee, and whether it merged |
-| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, `labels`, or `creator`, paged |
+| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, `labels`, `creator`, or `assignee`, paged |
 | `GET /issues?filter=assigned&state=open`            | The open issues assigned to the token's account, in every repository it sees, most recently updated first |
 | `GET /repos/{owner}/{repo}/pulls/{number}`          | Whether a closed pull request merged                  |
 | `PATCH /repos/{owner}/{repo}/issues/{number}`       | Closing an issue as completed                         |
@@ -218,10 +218,14 @@ what the token lists (Listing a token's repositories, below), stored as GitHub s
 Settings, GitHub reads every repository; the connector's page narrows it. The content bounds only what comes in: a
 link can still be made to anything the token reaches.
 
-The watcher reads them with one listing for the account, `GET /issues?filter=assigned&state=open`, at most ten pages of
-a hundred, and keeps the issues in chosen repositories; pull requests are left out. So a read costs one request for
-most people whatever number of repositories it spans. A fine-grained token answers for the repositories it was granted;
-that the listing works with one has not yet been checked against GitHub itself.
+The watcher bounds the read in what it asks GitHub, as Jira's and YouTrack's reads are bounded in their queries. A
+connector reading every repository takes one listing for the account, `GET /issues?filter=assigned&state=open`, which
+costs one request for most people whatever number of repositories it spans. One that chose repositories lists each of
+them, `GET /repos/{owner}/{repo}/issues?assignee=<login>&state=open`, a request per chosen repository, so issues
+assigned elsewhere never use up the read before a chosen repository is reached. Either listing takes at most ten pages
+of a hundred, and pull requests are left out. A chosen repository the token cannot read fails the read, naming it, so
+the connector shows which pick to change. A fine-grained token answers for the repositories it was granted; that the
+account listing works with one has not yet been checked against GitHub itself.
 
 ## Merging a worker's pull requests
 

@@ -35,9 +35,13 @@
 //!
 //! # Nothing starts
 //!
-//! An issue arriving makes an item and nothing else. The item belongs to no project, so no
-//! Project Manager hears of it, and Elysia's intake leaves the items issue kinds' watchers raise
-//! alone (`crate::elysia::intake`). It waits in the inbox for a person.
+//! An issue arriving makes an item and its link, and nothing else. The item belongs to no
+//! project, so no Project Manager hears of it, and Elysia's intake leaves the items and links a
+//! watcher makes alone (`crate::elysia::intake`). It waits in the inbox for a person.
+//!
+//! What a connector records on the timeline is apart from this. YouTrack's reader records every
+//! new issue in its chosen projects, assigned or not, and that record reaches Elysia as every
+//! ingested record does; it is news of the project, not of the assignment.
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -246,9 +250,24 @@ async fn arrive(
         return Ok(false);
     };
 
+    // The item is in once its transaction commits. Announcing it reads it back to publish, and
+    // a read that fails then is said for what it is, never as the issue not coming in: the
+    // next pass finds it brought in and leaves it be.
     let action_item_id = linked.item.record.id;
-    publish_item_write(&context.events, connection, linked.item, &[], now).await?;
-    publish_item_links(&context.events, connection, action_item_id).await?;
+    let announced = async {
+        publish_item_write(&context.events, connection, linked.item, &[], now).await?;
+        publish_item_links(&context.events, connection, action_item_id).await
+    };
+    if let Err(error) = announced.await {
+        event!(
+            name: "links.assigned.unannounced",
+            Level::WARN,
+            connector.id = %connector_id,
+            links.key = %remote.key,
+            error.message = %error,
+            "an assigned issue came in, but its item could not be announced; pages show it once reloaded",
+        );
+    }
     Ok(true)
 }
 

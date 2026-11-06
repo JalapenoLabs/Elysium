@@ -274,7 +274,7 @@ async fn credentials(context: &WatchContext) -> anyhow::Result<Vec<Watched>> {
     let paused = connector::paused_link_accounts(&mut connection).await?;
     let mut watched: Vec<Watched> = linked
         .into_iter()
-        .filter(|credential| !paused.contains(&credential.id))
+        .filter(|credential| !paused.contains(credential))
         .map(|credential| Watched {
             credential,
             issues: None,
@@ -326,8 +326,8 @@ async fn record_failure(context: &WatchContext, credential: LinkCredential, erro
     }
 }
 
-/// Reads one credential's changes since its cursor and its containers' children, brings in
-/// what is assigned to its issue connector's person, then moves the cursor to `started`.
+/// Reads one credential's changes since its cursor and its containers' children, moves the
+/// cursor to `started`, then brings in what is assigned to its issue connector's person.
 /// Answers how many linked changes the provider reported and items the assigned issues raised.
 async fn watch_credential(
     context: &WatchContext,
@@ -362,12 +362,17 @@ async fn watch_credential(
     for container in &containers {
         sync_container(context, container, Utc::now()).await?;
     }
+
+    // The cursor moves before the assigned read, which it does not bound: that read is whole on
+    // every pass, so one that fails is tried again in full next pass anyway, and holding the
+    // cursor back for it would only make the next link read ask for more than changed.
+    let mut connection = connect(&context.database).await?;
+    link_watch_cursor::advance(&mut connection, credential, started).await?;
+    drop(connection);
+
     if let Some(issue_connector) = &watched.issues {
         changes += assigned::bring_in(context, issue_connector, credential).await?;
     }
-
-    let mut connection = connect(&context.database).await?;
-    link_watch_cursor::advance(&mut connection, credential, started).await?;
     Ok(changes)
 }
 

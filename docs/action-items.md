@@ -404,9 +404,11 @@ person, as one capability of `Provides::Issues`: a kind that declares it, and na
   oldest first, each in its own transaction, so the inbox lists them in the order they were last worked on. One that
   cannot be stored is passed over, so it never holds back the rest, and the pass fails naming it, so its connector
   shows why until it comes in.
-- **Nothing starts.** An issue arriving makes an item and nothing else. The item is in no project, so no Project
-  Manager hears of it, and Elysia's intake leaves the items and links issue kinds' watchers make alone. It waits in the
-  inbox for a person.
+- **Nothing starts.** An issue arriving makes an item and its link, and nothing else. The item is in no project, so no
+  Project Manager hears of it, and Elysia's intake leaves the items and links a watcher makes alone
+  (`docs/elysia.md`, Triggers). It waits in the inbox for a person. What a connector records on the timeline is apart
+  from this: YouTrack's reader records every new issue in its chosen projects, assigned or not, and that record reaches
+  Elysia as every ingested record does, as news of the project rather than of the assignment.
 - **Reported as runs.** What a pass brought in counts toward its connector's run with the changes it read, and a read
   that fails is a failed run of the connector, YouTrack's included (`docs/connectors.md`, Sync status and activity).
 
