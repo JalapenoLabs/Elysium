@@ -11,9 +11,7 @@ use super::*;
 use crate::database::schema::project_manager_wakes;
 use crate::models::project::{self, NewProject};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
-use crate::models::work_batch::{
-    NewWorkBatch, Priority, assign, find, finish, history, start,
-};
+use crate::models::work_batch::{NewWorkBatch, Priority, assign, find, finish, history, start};
 use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
 /// A running batch of a new project named `name`, and the slot its worker holds.

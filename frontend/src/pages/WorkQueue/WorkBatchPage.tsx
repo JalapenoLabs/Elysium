@@ -221,7 +221,7 @@ function WorkBatchDetails(props: DetailsProps) {
       {batch.repositories.length
         ? <ul className='flex flex-col gap-1 text-sm'>{
           batch.repositories.map((repository) => <li key={repository.url}>
-            <span className='font-mono'>{repository.url}</span>
+            <span className='break-all font-mono'>{repository.url}</span>
             {repository.baseBranch && <span className='ml-2 opacity-70'>{
               t('batch.fromBranch', { branch: repository.baseBranch })
             }</span>}

@@ -383,7 +383,10 @@ pub struct Written {
 ///
 /// # Errors
 /// Propagates any database error, including a field outside its column's checks.
-pub async fn submit(connection: &mut AsyncPgConnection, batch: NewWorkBatch) -> QueryResult<Written> {
+pub async fn submit(
+    connection: &mut AsyncPgConnection,
+    batch: NewWorkBatch,
+) -> QueryResult<Written> {
     connection
         .transaction(async |connection| {
             let by = batch.created_by;

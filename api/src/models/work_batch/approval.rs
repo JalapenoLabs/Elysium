@@ -158,7 +158,11 @@ async fn settle(
 fn changed_fields(proposed: &WorkBatch, edits: &Edits) -> (Map<String, Value>, Map<String, Value>) {
     let mut before = Map::new();
     let mut after = Map::new();
-    if let Some(title) = edits.title.as_ref().filter(|title| **title != proposed.title) {
+    if let Some(title) = edits
+        .title
+        .as_ref()
+        .filter(|title| **title != proposed.title)
+    {
         before.insert("title".to_owned(), json!(proposed.title));
         after.insert("title".to_owned(), json!(title));
     }

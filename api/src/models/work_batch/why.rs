@@ -68,16 +68,18 @@ pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> Quer
         .load::<(Uuid, String, String, DateTime<Utc>, Option<Uuid>)>(connection)
         .await?
         .into_iter()
-        .map(|(record_id, source_kind, title, occurred_at, document_id)| {
-            let cause = Cause {
-                record_id,
-                source_kind,
-                title,
-                occurred_at,
-                document_id,
-            };
-            (record_id, cause)
-        })
+        .map(
+            |(record_id, source_kind, title, occurred_at, document_id)| {
+                let cause = Cause {
+                    record_id,
+                    source_kind,
+                    title,
+                    occurred_at,
+                    document_id,
+                };
+                (record_id, cause)
+            },
+        )
         .collect();
     let mut items: HashMap<Uuid, Item> = action_items::table
         .filter(action_items::id.eq_any(&item_ids))

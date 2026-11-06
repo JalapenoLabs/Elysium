@@ -88,7 +88,10 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
 
     let first = proposed(&mut connection, launch, "Pricing page").await;
     assert_eq!(first.batch.state, BatchState::Proposed);
-    let raised = first.approval_item.expect("the first proposal raises the item").record;
+    let raised = first
+        .approval_item
+        .expect("the first proposal raises the item")
+        .record;
     assert_eq!(raised.title, "Approve a work batch for Launch");
     assert_eq!(raised.state, ActionItemState::Inbox);
     assert_eq!(raised.created_by, PROJECT_MANAGER_USER_ID);
@@ -120,7 +123,49 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
     assert_eq!(approved.batch.state, BatchState::Queued);
     let counted_down = approved.approval_item.expect("one fewer waits").record;
     assert_eq!(counted_down.title, "Approve a work batch for Launch");
-    let kinds: Vec<(String, Uuid)> = entries(&mut connection, first.batch.id)
+
+    let rejected = reject(
+        &mut connection,
+        second.batch.id,
+        "Not this quarter.",
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("rejects");
+    let resolved = rejected.approval_item.expect("none is left").record;
+    assert_eq!(resolved.id, raised.id);
+    assert_eq!(resolved.state, ActionItemState::Resolved);
+    let standing = action_item::find(&mut connection, other_item.id)
+        .await
+        .expect("reads");
+    assert_eq!(
+        standing.state,
+        ActionItemState::Inbox,
+        "the other project's still waits"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_decision_is_the_persons_and_a_rejection_wakes_its_project_manager_with_why() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let first = proposed(&mut connection, launch, "Pricing page")
+        .await
+        .batch;
+    let second = proposed(&mut connection, launch, "Docs").await.batch;
+
+    approve(
+        &mut connection,
+        first.id,
+        Edits::default(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("approves");
+    let kinds: Vec<(String, Uuid)> = entries(&mut connection, first.id)
         .await
         .into_iter()
         .map(|(kind, _data, by)| (kind, by))
@@ -133,28 +178,31 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
         ],
         "approving unchanged records no edit"
     );
+    assert_eq!(
+        batch_wakes(&mut connection, first.id).await,
+        0,
+        "approving wakes nothing"
+    );
 
     let rejected = reject(
         &mut connection,
-        second.batch.id,
+        second.id,
         "We are not touching the docs this quarter.",
         TEST_PERSON_ID,
         Utc::now(),
     )
     .await
-    .expect("rejects");
-    assert_eq!(rejected.batch.state, BatchState::Rejected);
+    .expect("rejects")
+    .batch;
+    assert_eq!(rejected.state, BatchState::Rejected);
     assert_eq!(
-        rejected.batch.result.as_deref(),
+        rejected.result.as_deref(),
         Some("We are not touching the docs this quarter.")
     );
-    assert!(rejected.batch.finished_at.is_some());
-    assert!(rejected.batch.assigned_at.is_none());
-    let resolved = rejected.approval_item.expect("none is left").record;
-    assert_eq!(resolved.id, raised.id);
-    assert_eq!(resolved.state, ActionItemState::Resolved);
+    assert!(rejected.finished_at.is_some());
+    assert!(rejected.assigned_at.is_none());
     assert_eq!(
-        entries(&mut connection, second.batch.id).await.last(),
+        entries(&mut connection, second.id).await.last(),
         Some(&(
             "rejected".to_owned(),
             json!({ "reason": "We are not touching the docs this quarter." }),
@@ -163,20 +211,15 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
         "the reason is recorded as the person's feedback"
     );
     assert_eq!(
-        batch_wakes(&mut connection, second.batch.id).await,
+        batch_wakes(&mut connection, second.id).await,
         1,
         "the rejection wakes its Project Manager with the reason"
     );
-    assert_eq!(
-        batch_wakes(&mut connection, first.batch.id).await,
-        0,
-        "approving wakes nothing"
-    );
 
-    // Decided, neither can be decided again, and the other project's item stands.
+    // Decided, neither can be decided again.
     let again = approve(
         &mut connection,
-        second.batch.id,
+        second.id,
         Edits::default(),
         TEST_PERSON_ID,
         Utc::now(),
@@ -184,14 +227,10 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
     .await
     .expect_err("already rejected");
     assert!(matches!(again, ChangeError::Refused(_)));
-    let twice = reject(&mut connection, first.batch.id, "No.", TEST_PERSON_ID, Utc::now())
+    let twice = reject(&mut connection, first.id, "No.", TEST_PERSON_ID, Utc::now())
         .await
         .expect_err("already approved");
     assert!(matches!(twice, ChangeError::Refused(_)));
-    let standing = action_item::find(&mut connection, other_item.id)
-        .await
-        .expect("reads");
-    assert_eq!(standing.state, ActionItemState::Inbox);
 }
 
 #[tokio::test]
@@ -199,7 +238,9 @@ async fn one_item_per_project_counts_what_waits_and_resolves_when_none_is_left()
 async fn edits_apply_before_approval_and_only_what_changed_is_recorded() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
-    let batch = proposed(&mut connection, launch, "Pricing page").await.batch;
+    let batch = proposed(&mut connection, launch, "Pricing page")
+        .await
+        .batch;
     let due = Utc::now() + chrono::TimeDelta::days(2);
 
     let edits = Edits {
@@ -220,8 +261,14 @@ async fn edits_apply_before_approval_and_only_what_changed_is_recorded() {
     assert_eq!(approved.title, "Annual pricing page");
     assert_eq!(approved.goal, batch.goal);
     assert_eq!(approved.priority, Priority::Scheduled);
-    assert_eq!(approved.scheduled_for.map(|at| at.timestamp()), Some(due.timestamp()));
-    assert_eq!(approved.repositories()[0].base_branch.as_deref(), Some("develop"));
+    assert_eq!(
+        approved.scheduled_for.map(|at| at.timestamp()),
+        Some(due.timestamp())
+    );
+    assert_eq!(
+        approved.repositories()[0].base_branch.as_deref(),
+        Some("develop")
+    );
 
     let recorded = entries(&mut connection, batch.id).await;
     let kinds: Vec<&str> = recorded.iter().map(|(kind, _, _)| kind.as_str()).collect();
@@ -230,7 +277,10 @@ async fn edits_apply_before_approval_and_only_what_changed_is_recorded() {
     assert_eq!(*by, TEST_PERSON_ID);
     let mut changed: Vec<&String> = edited["after"].as_object().expect("after").keys().collect();
     changed.sort();
-    assert_eq!(changed, ["priority", "repositories", "scheduledFor", "title"]);
+    assert_eq!(
+        changed,
+        ["priority", "repositories", "scheduledFor", "title"]
+    );
     assert_eq!(edited["before"]["title"], "Pricing page");
     assert_eq!(edited["before"]["priority"], "normal");
     assert_eq!(edited["after"]["repositories"][0]["baseBranch"], "develop");
@@ -241,7 +291,9 @@ async fn edits_apply_before_approval_and_only_what_changed_is_recorded() {
 async fn nothing_but_a_decision_moves_a_proposal_and_withdrawing_one_counts_down() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
-    let batch = proposed(&mut connection, launch, "Pricing page").await.batch;
+    let batch = proposed(&mut connection, launch, "Pricing page")
+        .await
+        .batch;
 
     // Elysia, the Project Manager, and a person alike cannot resume, pause, run next, or
     // reprioritize a proposal: resuming it would queue what nobody approved.
@@ -280,12 +332,16 @@ async fn nothing_but_a_decision_moves_a_proposal_and_withdrawing_one_counts_down
             .expect_err("a proposal moves only by a decision");
         assert!(matches!(refused, ChangeError::Refused(_)), "{changes:?}");
     }
-    let still = work_batch::find(&mut connection, batch.id).await.expect("reads");
+    let still = work_batch::find(&mut connection, batch.id)
+        .await
+        .expect("reads");
     assert_eq!(still.state, BatchState::Proposed);
     assert_eq!(still.priority, Priority::Normal);
 
     // Its Project Manager withdraws it, and the item it raised resolves with nothing left.
-    let item = approval_item_of(&mut connection, launch).await.expect("an item");
+    let item = approval_item_of(&mut connection, launch)
+        .await
+        .expect("an item");
     let withdrawn = work_batch::cancel(
         &mut connection,
         batch.id,
@@ -309,9 +365,15 @@ async fn an_item_its_person_closed_stays_closed_until_the_next_proposal() {
     let first = proposed(&mut connection, launch, "Pricing page").await;
     let second = proposed(&mut connection, launch, "Docs").await;
     let item = first.approval_item.expect("raised").record.id;
-    action_item::transition(&mut connection, item, Transition::Dismiss, TEST_PERSON, Utc::now())
-        .await
-        .expect("dismissed by hand");
+    action_item::transition(
+        &mut connection,
+        item,
+        Transition::Dismiss,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("dismissed by hand");
 
     // Deciding what remains leaves the dismissed item alone, and raises nothing.
     let approved = approve(
@@ -324,7 +386,9 @@ async fn an_item_its_person_closed_stays_closed_until_the_next_proposal() {
     .await
     .expect("approves");
     assert!(approved.approval_item.is_none());
-    let dismissed = action_item::find(&mut connection, item).await.expect("reads");
+    let dismissed = action_item::find(&mut connection, item)
+        .await
+        .expect("reads");
     assert_eq!(dismissed.state, ActionItemState::Dismissed);
     assert_eq!(dismissed.title, "Approve 2 work batches for Launch");
 
@@ -333,6 +397,9 @@ async fn an_item_its_person_closed_stays_closed_until_the_next_proposal() {
     let raised = third.approval_item.expect("a new item").record;
     assert_ne!(raised.id, item);
     assert_eq!(raised.title, "Approve 2 work batches for Launch");
-    assert_eq!(approval_item_of(&mut connection, launch).await, Some(raised.id));
+    assert_eq!(
+        approval_item_of(&mut connection, launch).await,
+        Some(raised.id)
+    );
     assert_eq!(second.batch.state, BatchState::Proposed);
 }

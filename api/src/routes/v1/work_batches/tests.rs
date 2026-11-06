@@ -199,7 +199,7 @@ async fn a_member_reorders_pauses_and_cancels_what_waits() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn a_member_approves_edits_and_rejects_what_was_proposed() {
+async fn a_member_approves_a_proposal_as_it_is_or_edited() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
     let launch = project_named(&mut connection, "Launch").await;
@@ -223,7 +223,9 @@ async fn a_member_approves_edits_and_rejects_what_was_proposed() {
     )
     .await;
     assert_eq!(
-        manager["projectManager"]["proposed"].as_array().map(Vec::len),
+        manager["projectManager"]["proposed"]
+            .as_array()
+            .map(Vec::len),
         Some(2)
     );
 
@@ -262,6 +264,15 @@ async fn a_member_approves_edits_and_rejects_what_was_proposed() {
     assert_eq!(approved["history"][2]["createdBy"], json!(TEST_PERSON_ID));
     let (_, queue) = call(&state, Method::GET, "/api/v1/work-queue", None).await;
     assert_eq!(queue["workQueue"]["next"][0]["id"], json!(pricing));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_member_rejects_a_proposal_saying_why() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let docs = proposed(&mut connection, launch, "Docs").await;
 
     let (status, _blank) = call(
         &state,

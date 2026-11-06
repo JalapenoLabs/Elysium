@@ -327,7 +327,14 @@ async fn a_waiting_batch_is_paused_resumed_run_next_and_reprioritized_with_its_h
     let kinds: Vec<&str> = entries.iter().map(|entry| entry.kind.as_str()).collect();
     assert_eq!(
         kinds,
-        ["submitted", "approved", "pinned", "paused", "reprioritized", "resumed"]
+        [
+            "submitted",
+            "approved",
+            "pinned",
+            "paused",
+            "reprioritized",
+            "resumed"
+        ]
     );
     assert_eq!(entries[3].created_by, ELYSIA_USER_ID);
     assert_eq!(entries[3].data, json!({ "from": "queued" }));

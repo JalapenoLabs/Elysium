@@ -81,7 +81,11 @@ pub async fn refresh(
             action_item::transition(connection, item.id, Transition::Resolve, actor, now).await
         }
         (Some(item), _) => {
-            let wording = new_item(&project_name(connection, project_id).await?, project_id, waiting);
+            let wording = new_item(
+                &project_name(connection, project_id).await?,
+                project_id,
+                waiting,
+            );
             let changes = ActionItemChanges {
                 title: Some(wording.title),
                 notes: Some(wording.notes),
@@ -90,7 +94,11 @@ pub async fn refresh(
             action_item::update(connection, item.id, changes, actor, now).await
         }
         (None, _) => {
-            let wording = new_item(&project_name(connection, project_id).await?, project_id, waiting);
+            let wording = new_item(
+                &project_name(connection, project_id).await?,
+                project_id,
+                waiting,
+            );
             let raised = action_item::create(connection, wording, actor, now)
                 .await
                 .map_err(database_only)?;

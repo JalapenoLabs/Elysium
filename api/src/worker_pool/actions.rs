@@ -209,6 +209,6 @@ mod tests {
         let person = user::find(&mut connection, TEST_PERSON_ID)
             .await
             .expect("the test person");
-        assert!(MemberUser::check(person).is_ok());
+        MemberUser::check(person).expect("a person decides");
     }
 }

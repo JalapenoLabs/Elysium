@@ -273,7 +273,9 @@ async fn a_proposed_batch_never_gets_a_slot_through_restarts_and_lapsed_leases()
     let mut third = scheduler(&url, 8).await;
     third.look().await.expect("looks");
 
-    let still = work_batch::find(&mut connection, waiting.id).await.expect("reads");
+    let still = work_batch::find(&mut connection, waiting.id)
+        .await
+        .expect("reads");
     assert_eq!(still.state, BatchState::Proposed);
     assert!(still.assigned_at.is_none());
 
@@ -286,5 +288,8 @@ async fn a_proposed_batch_never_gets_a_slot_through_restarts_and_lapsed_leases()
         ))
         .execute(&mut connection)
         .await;
-    assert!(claimed.is_err(), "work_batches_claimed_while_in_a_slot refuses it");
+    assert!(
+        claimed.is_err(),
+        "work_batches_claimed_while_in_a_slot refuses it"
+    );
 }

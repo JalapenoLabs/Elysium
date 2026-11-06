@@ -129,10 +129,12 @@ async fn batch_finished(
         | BatchState::Assigned
         | BatchState::Running => Ok(false),
         BatchState::Succeeded => Ok(true),
-        BatchState::Failed | BatchState::Cancelled | BatchState::Rejected => Err(PromiseError::Refused(format!(
-            "batch {batch_id} did not succeed and never will; tie the promise to the work that \
+        BatchState::Failed | BatchState::Cancelled | BatchState::Rejected => {
+            Err(PromiseError::Refused(format!(
+                "batch {batch_id} did not succeed and never will; tie the promise to the work that \
              replaces it"
-        ))),
+            )))
+        }
     }
 }
 

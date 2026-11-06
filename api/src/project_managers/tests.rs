@@ -587,7 +587,10 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     let nothing = work_batch::assign(&mut connection, &[batch.id], 1, Utc::now())
         .await
         .expect("looks");
-    assert!(nothing.is_empty(), "a proposed batch is never handed a slot");
+    assert!(
+        nothing.is_empty(),
+        "a proposed batch is never handed a slot"
+    );
     work_batch::approval::approve(
         &mut connection,
         batch.id,
