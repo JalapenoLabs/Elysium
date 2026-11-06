@@ -3,6 +3,10 @@
 //! How the last fetch of the configuration repository went: the commit it checked out and what
 //! it left out, or why it failed, and the inbox item raised while work waits on it. One row,
 //! written as the engine fetches. See `crate::agent_configuration`.
+//!
+//! Only an attempt at the repository and token the settings name now is recorded: a slow
+//! worker's fetch of a repository an admin since replaced records nothing, so it never
+//! overwrites the current repository's status.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -11,6 +15,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::agent_configuration_status;
+use crate::models::user::{self, WorkspaceSettings};
 use crate::runner::configuration::{Checkout, Source};
 
 /// The longest error kept, as the column allows.
@@ -68,7 +73,36 @@ pub async fn lock(connection: &mut AsyncPgConnection) -> QueryResult<Status> {
         .await
 }
 
-/// Records that `source` was fetched into `checkout`, clearing any failure.
+/// The repository and token `settings` name, if they name a repository.
+pub fn named_source(settings: &WorkspaceSettings) -> Option<Source> {
+    Some(Source {
+        repository: settings.agent_configuration_repository.clone()?,
+        github_credential_id: settings.agent_configuration_github_credential_id,
+    })
+}
+
+/// The status locked for the rest of the transaction, and whether `source` is what the settings
+/// name now, which is the only attempt worth recording.
+async fn lock_for(
+    connection: &mut AsyncPgConnection,
+    source: &Source,
+) -> QueryResult<(Status, bool)> {
+    let status = lock(connection).await?;
+    let settings = user::workspace_settings(connection).await?;
+    let is_current = named_source(&settings).as_ref() == Some(source);
+    if !is_current {
+        tracing::event!(
+            name: "agent_configuration.attempt.stale",
+            tracing::Level::INFO,
+            url.full = %source.repository,
+            "a fetch of a repository the settings no longer name is not recorded",
+        );
+    }
+    Ok((status, is_current))
+}
+
+/// Records that `source` was fetched into `checkout`, clearing any failure. Nothing is recorded
+/// when the settings name another repository or token now.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -78,25 +112,35 @@ pub async fn record_fetched(
     checkout: &Checkout,
 ) -> QueryResult<Status> {
     let skipped = serde_json::to_value(&checkout.skipped).expect("skipped items serialize");
-    diesel::update(agent_configuration_status::table)
-        .set((
-            agent_configuration_status::repository.eq(&source.repository),
-            agent_configuration_status::github_credential_id.eq(source.github_credential_id),
-            agent_configuration_status::commit_sha.eq(&checkout.commit),
-            agent_configuration_status::commit_subject.eq(&checkout.subject),
-            agent_configuration_status::fetched_at.eq(checkout.fetched_at),
-            agent_configuration_status::skipped.eq(skipped),
-            agent_configuration_status::error.eq(None::<String>),
-            agent_configuration_status::failed_at.eq(None::<DateTime<Utc>>),
-        ))
-        .returning(Status::as_returning())
-        .get_result(connection)
+    connection
+        .transaction(async |connection| {
+            let (status, is_current) = lock_for(connection, source).await?;
+            if !is_current {
+                return Ok(status);
+            }
+            diesel::update(agent_configuration_status::table)
+                .set((
+                    agent_configuration_status::repository.eq(&source.repository),
+                    agent_configuration_status::github_credential_id
+                        .eq(source.github_credential_id),
+                    agent_configuration_status::commit_sha.eq(&checkout.commit),
+                    agent_configuration_status::commit_subject.eq(&checkout.subject),
+                    agent_configuration_status::fetched_at.eq(checkout.fetched_at),
+                    agent_configuration_status::skipped.eq(skipped),
+                    agent_configuration_status::error.eq(None::<String>),
+                    agent_configuration_status::failed_at.eq(None::<DateTime<Utc>>),
+                ))
+                .returning(Status::as_returning())
+                .get_result(connection)
+                .await
+        })
         .await
 }
 
 /// Records that fetching `source` failed with `error` at `at`. The last good checkout is kept
 /// while it is of the same repository and token, since the workspace still holds it; one of
-/// another is forgotten.
+/// another is forgotten. Nothing is recorded when the settings name another repository or token
+/// now.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -110,8 +154,11 @@ pub async fn record_failed(
     connection
         .transaction(async |connection| {
             // Locked, so a fetch recorded meanwhile is never mistaken for the one this failed.
-            let keeps_checkout = lock(connection).await?.describes(source);
-            if keeps_checkout {
+            let (status, is_current) = lock_for(connection, source).await?;
+            if !is_current {
+                return Ok(status);
+            }
+            if status.describes(source) {
                 return diesel::update(agent_configuration_status::table)
                     .set((
                         agent_configuration_status::error.eq(&error),

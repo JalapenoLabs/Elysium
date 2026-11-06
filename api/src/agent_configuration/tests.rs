@@ -10,7 +10,7 @@ use serde_json::json;
 use super::*;
 use crate::database::schema::workspace_settings;
 use crate::models::user::SYSTEM_USER_ID;
-use crate::runner::configuration::Checkout;
+use crate::runner::configuration::{Checkout, Source};
 use crate::test_support::migrated_database;
 
 const REPOSITORY: &str = "https://github.com/navarrotech/agents";
@@ -263,12 +263,16 @@ async fn an_item_the_person_dismissed_is_raised_again_and_fetching_raises_none()
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_failure_keeps_the_last_checkout_of_the_same_repository_only() {
     let (_url, mut connection) = migrated_database().await;
-    let token = Some(Uuid::now_v7());
-    status_record::record_fetched(&mut connection, &source(token), &checkout())
+    let other = Source {
+        repository: "https://github.com/someone/else".to_owned(),
+        github_credential_id: None,
+    };
+    set_repository(&mut connection, Some(REPOSITORY)).await;
+    status_record::record_fetched(&mut connection, &source(None), &checkout())
         .await
         .expect("recorded");
     let failed =
-        status_record::record_failed(&mut connection, &source(token), "timed out", Utc::now())
+        status_record::record_failed(&mut connection, &source(None), "timed out", Utc::now())
             .await
             .expect("recorded");
     assert_eq!(
@@ -277,21 +281,53 @@ async fn a_failure_keeps_the_last_checkout_of_the_same_repository_only() {
     );
     assert_eq!(failed.error.as_deref(), Some("timed out"));
 
-    let other =
-        status_record::record_failed(&mut connection, &source(None), "not found", Utc::now())
-            .await
-            .expect("recorded");
+    set_repository(&mut connection, Some(&other.repository)).await;
+    let forgotten = status_record::record_failed(&mut connection, &other, "not found", Utc::now())
+        .await
+        .expect("recorded");
     assert_eq!(
-        other.commit_sha, None,
-        "a checkout read with another token is forgotten"
+        forgotten.commit_sha, None,
+        "a checkout of another repository is forgotten"
     );
-    assert_eq!(other.github_credential_id, None);
+    assert_eq!(
+        forgotten.repository.as_deref(),
+        Some(other.repository.as_str())
+    );
 
-    let refetched = status_record::record_fetched(&mut connection, &source(None), &checkout())
+    let refetched = status_record::record_fetched(&mut connection, &other, &checkout())
         .await
         .expect("recorded");
     assert_eq!(refetched.error, None);
     assert_eq!(refetched.failed_at, None);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_slow_attempt_at_a_replaced_repository_records_nothing() {
+    let (_url, mut connection) = migrated_database().await;
+    let replacement = Source {
+        repository: "https://github.com/someone/else".to_owned(),
+        github_credential_id: None,
+    };
+    // A worker began on the old repository; meanwhile an admin replaced it and it was fetched.
+    set_repository(&mut connection, Some(&replacement.repository)).await;
+    let fetched = status_record::record_fetched(&mut connection, &replacement, &checkout())
+        .await
+        .expect("recorded");
+
+    let stale =
+        status_record::record_failed(&mut connection, &source(None), "timed out", Utc::now())
+            .await
+            .expect("read");
+    assert_eq!(
+        stale, fetched,
+        "the old repository's failure changes nothing"
+    );
+    let stale = status_record::record_fetched(&mut connection, &source(None), &checkout())
+        .await
+        .expect("read");
+    assert_eq!(stale, fetched, "nor does its success");
+    assert_eq!(current_hold(&mut connection).await.expect("read"), None);
 }
 
 #[tokio::test]
@@ -320,6 +356,9 @@ async fn the_one_item_follows_the_hold_when_it_changes_while_open() {
     let item = action_item::find(&mut connection, raised)
         .await
         .expect("the item");
-    assert_eq!(item.title, "The configuration repository could not be fetched");
+    assert_eq!(
+        item.title,
+        "The configuration repository could not be fetched"
+    );
     assert!(item.notes.contains("Repository not found"));
 }

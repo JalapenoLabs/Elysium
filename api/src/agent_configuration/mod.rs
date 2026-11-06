@@ -48,7 +48,6 @@ use crate::models::user::{self, WorkspaceSettings};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::publish_item_write;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
-use crate::runner::configuration::Source;
 
 /// Why workers and Project Managers may not start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -72,12 +71,8 @@ pub enum Hold {
 /// Whether agents that need the configuration repository may start, given the workspace
 /// `settings` and the last fetch's `status`; `None` when they may.
 pub fn hold(settings: &WorkspaceSettings, status: &Status) -> Option<Hold> {
-    let Some(repository) = &settings.agent_configuration_repository else {
+    let Some(source) = status_record::named_source(settings) else {
         return Some(Hold::Unset);
-    };
-    let source = Source {
-        repository: repository.clone(),
-        github_credential_id: settings.agent_configuration_github_credential_id,
     };
     if !status.describes(&source) {
         return Some(Hold::Fetching);

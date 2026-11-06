@@ -139,9 +139,16 @@ fn validate_repository(raw: &str) -> Result<String, ApiError> {
     if url.scheme() != "https" {
         return Err(refuse("must be an https URL"));
     }
-    if !url.username().is_empty() || url.password().is_some() {
+    // A query or fragment is no part of a repository, and could carry a token into the
+    // settings, every batch, and every fetch's error, where it would be shown.
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
         return Err(refuse(
-            "must not carry credentials; choose the GitHub token that reads it instead",
+            "must not carry credentials, a query, or a fragment; choose the GitHub token that \
+             reads it instead",
         ));
     }
     if url.host_str().is_none() || url.path().trim_matches('/').is_empty() {
@@ -192,6 +199,8 @@ mod tests {
         for refused in [
             "http://github.com/someone/dotclaude",
             "https://x-access-token:ghp_x@github.com/someone/dotclaude",
+            "https://github.com/someone/dotclaude.git?token=ghp_x",
+            "https://github.com/someone/dotclaude.git#ghp_x",
             "https://github.com/",
             "git@github.com:someone/dotclaude.git",
         ] {

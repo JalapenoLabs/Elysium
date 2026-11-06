@@ -46,7 +46,7 @@ startup, keeping its volume.
 
 `~/.claude` comes from the configuration repository: the learnings, docs, manuals, skills, and instructions that do
 more for an agent's work than anything else Elysium gives it. Admins name it under Settings, LLMs, Agent configuration
-(`agentConfigurationRepository`, an https URL without credentials), with the GitHub token that reads it
+(`agentConfigurationRepository`, an https URL without credentials, a query, or a fragment), with the GitHub token that reads it
 (`agentConfigurationGithubCredentialId`), chosen beside it from the GitHub tokens under Connectors. The token is the
 repository's own, never the workspace's default: the repository may be private to an account a company's default
 token cannot reach, as a fine-grained token cannot reach another account's repository even as a collaborator. A
@@ -81,7 +81,8 @@ arguments, and an environment variable by its key, never its value.
 engine starts, whenever it hears `agentConfiguration` (an admin saved the repository or its token, asked with Fetch
 now, or edited or removed a GitHub token), and every five minutes while workers are held back for any reason but an
 unset repository. Each fetch's outcome is recorded in `agent_configuration_status`: the commit, its subject, when, and
-what was left out, or why it failed, a token that cannot be opened included. The settings page shows it as it arrives, so saving is the check. Every worker
+what was left out, or why it failed, a token that cannot be opened included. Only an attempt at the repository and
+token the settings name now is recorded, so a slow worker's fetch of a repository since replaced changes nothing. The settings page shows it as it arrives, so saving is the check. Every worker
 fetches again into its own container before its first turn (`docs/engine.md`, Workers).
 
 **Never without it.** No worker or Project Manager turn starts while no repository is set, while a new one is being
