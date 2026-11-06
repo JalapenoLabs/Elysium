@@ -108,10 +108,11 @@ pub async fn refresh(
 /// waiting for a slot when proposals began, which the migration held for approval. A project whose
 /// person closed its item by hand has a row, so it is left alone, and once raised, a project's
 /// item is kept by [`refresh`] alone, so running this again raises nothing. The engine runs it as
-/// its pool starts. Answers the items it raised, for the caller to announce.
+/// its pool starts. A project whose item cannot be raised is logged and left for the next run.
+/// Answers the items it raised, for the caller to announce.
 ///
 /// # Errors
-/// Propagates any database error.
+/// Propagates a database error reading which projects need one.
 pub async fn reconcile(
     connection: &mut AsyncPgConnection,
     now: DateTime<Utc>,
@@ -132,8 +133,18 @@ pub async fn reconcile(
             .transaction(async |connection| {
                 refresh(connection, project_id, Cause::Proposed, actor, now).await
             })
-            .await?;
-        raised.extend(item);
+            .await;
+        // One project that fails waits for the next start; the rest are still told.
+        match item {
+            Ok(item) => raised.extend(item),
+            Err(error) => tracing::event!(
+                name: "work_batch.approval_item.reconcile_failure",
+                tracing::Level::WARN,
+                project.id = %project_id,
+                error.message = %error,
+                "could not raise a project's approval item; the next start tries again",
+            ),
+        }
     }
     Ok(raised)
 }
