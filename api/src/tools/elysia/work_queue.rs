@@ -264,7 +264,7 @@ mod tests {
     use super::*;
     use crate::models::project::NewProject;
     use crate::models::user::PROJECT_MANAGER_USER_ID;
-    use crate::models::work_batch::NewWorkBatch;
+    use crate::models::work_batch::{self, NewWorkBatch};
     use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
     #[test]
@@ -327,6 +327,26 @@ mod tests {
             .await;
             ids.push(batch.id);
         }
+        // A proposal waits for a person: she sees it, apart from what the pool hands slots to.
+        let waiting = work_batch::submit(
+            &mut connection,
+            NewWorkBatch {
+                id: Uuid::now_v7(),
+                project_id: launch,
+                title: "Proposed work".to_owned(),
+                goal: "Do the work.".to_owned(),
+                repositories: json!([]),
+                priority: Priority::Asap,
+                scheduled_for: None,
+                turn_id: None,
+                source_record_ids: json!([]),
+                action_item_ids: json!([]),
+                created_by: PROJECT_MANAGER_USER_ID,
+            },
+        )
+        .await
+        .expect("submitted")
+        .batch;
 
         let answer = read_queue(&mut connection, Utc::now())
             .await
@@ -335,5 +355,8 @@ mod tests {
         assert_eq!(answer["next"][1]["batchId"], json!(ids[0]));
         assert_eq!(answer["next"][0]["project"], "Launch");
         assert_eq!(answer["inSlots"], json!([]));
+        assert_eq!(answer["proposed"][0]["batchId"], json!(waiting.id));
+        assert_eq!(answer["proposed"][0]["state"], "proposed");
+        assert_eq!(answer["next"].as_array().map(Vec::len), Some(2));
     }
 }
