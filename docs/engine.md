@@ -608,6 +608,8 @@ submits everything; the gate is between its plan and the pool.
   to date, and resolved by whoever decided the last. It names the project and the count alone, never a batch's title,
   which is for members. A person who resolves or dismisses it by hand is done with it: deciding the batches that remain
   changes nothing, and the next proposal raises a new one (`work_batch_approval_items` holds which item a project has).
+  As the pool's scheduler starts, it raises the item of any project whose proposals never had one, such as batches
+  held for approval without a submission (`approval_item::reconcile`), so no proposal waits unseen.
 - **Why it exists.** A batch's page reads the timeline records its Project Manager named as its cause, by title and
   kind with the knowledge base's document for each, and the action items it works on (`work_batch::why`). The full
   chain, from meeting quote to pull request, is on the roadmap (`docs/autonomy.md`, Staying aware).

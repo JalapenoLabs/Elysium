@@ -403,3 +403,73 @@ async fn an_item_its_person_closed_stays_closed_until_the_next_proposal() {
     );
     assert_eq!(second.batch.state, BatchState::Proposed);
 }
+
+/// A batch proposed without a submission, as the migration that began proposals left every batch
+/// waiting for a slot: no history entry of a submission, and no approval item.
+async fn held_for_approval(connection: &mut AsyncPgConnection, project_id: Uuid) -> Uuid {
+    let id = Uuid::now_v7();
+    diesel::insert_into(work_batches::table)
+        .values((
+            NewWorkBatch {
+                id,
+                project_id,
+                title: "Waiting since before proposals".to_owned(),
+                goal: "Do the work.".to_owned(),
+                repositories: json!([]),
+                priority: Priority::Normal,
+                scheduled_for: None,
+                turn_id: None,
+                source_record_ids: json!([]),
+                action_item_ids: json!([]),
+                created_by: PROJECT_MANAGER_USER_ID,
+            },
+            work_batches::state.eq(BatchState::Proposed),
+        ))
+        .execute(connection)
+        .await
+        .expect("held");
+    id
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn proposals_that_never_raised_an_item_raise_one_once() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    held_for_approval(&mut connection, launch).await;
+    held_for_approval(&mut connection, launch).await;
+    // A project whose person closed its item by hand is left alone.
+    let website = project_named(&mut connection, "Website").await;
+    let told = proposed(&mut connection, website, "Footer").await;
+    let closed = told.approval_item.expect("raised").record.id;
+    action_item::transition(
+        &mut connection,
+        closed,
+        Transition::Dismiss,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("dismissed by hand");
+
+    let raised = approval_item::reconcile(&mut connection, Utc::now())
+        .await
+        .expect("reconciles");
+    assert_eq!(raised.len(), 1, "only the project never told");
+    let item = &raised[0].record;
+    assert_eq!(item.title, "Approve 2 work batches for Launch");
+    assert_eq!(item.state, ActionItemState::Inbox);
+    assert_eq!(
+        approval_item_of(&mut connection, launch).await,
+        Some(item.id)
+    );
+    assert_eq!(
+        approval_item_of(&mut connection, website).await,
+        Some(closed)
+    );
+
+    let again = approval_item::reconcile(&mut connection, Utc::now())
+        .await
+        .expect("reconciles");
+    assert!(again.is_empty(), "an item is raised once");
+}

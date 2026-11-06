@@ -18,7 +18,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
 use super::BatchState;
@@ -101,6 +101,41 @@ pub async fn refresh(
         }
     };
     written.map(Some).map_err(database_only)
+}
+
+/// Raises the item of every project whose batches are proposed but that never had one, at `now`,
+/// each in its own transaction: batches that became proposed without a submission, such as those
+/// waiting for a slot when proposals began, which the migration held for approval. A project whose
+/// person closed its item by hand has a row, so it is left alone, and once raised, a project's
+/// item is kept by [`refresh`] alone, so running this again raises nothing. The engine runs it as
+/// its pool starts. Answers the items it raised, for the caller to announce.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reconcile(
+    connection: &mut AsyncPgConnection,
+    now: DateTime<Utc>,
+) -> QueryResult<Vec<Recorded<ActionItem>>> {
+    let never_told: Vec<Uuid> = work_batches::table
+        .filter(work_batches::state.eq(BatchState::Proposed))
+        .filter(diesel::dsl::not(work_batches::project_id.eq_any(
+            work_batch_approval_items::table.select(work_batch_approval_items::project_id),
+        )))
+        .select(work_batches::project_id)
+        .distinct()
+        .load(connection)
+        .await?;
+    let mut raised = Vec::with_capacity(never_told.len());
+    for project_id in never_told {
+        let actor = Actor::ProjectManager(project_id);
+        let item = connection
+            .transaction(async |connection| {
+                refresh(connection, project_id, Cause::Proposed, actor, now).await
+            })
+            .await?;
+        raised.extend(item);
+    }
+    Ok(raised)
 }
 
 /// The actor an approval item's history names for a change `by` made to one of `project_id`'s

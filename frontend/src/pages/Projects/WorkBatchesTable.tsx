@@ -43,6 +43,12 @@ const columnKeysByList = {
   proposed: [ 'title', 'priority', 'submitted' ],
 } as const satisfies Record<WorkBatchesList, readonly BatchColumnKey[]>
 
+// The latest list keeps the key it always had, so saved column layouts stay.
+const tableStorageIds = {
+  latest: 'elysium.projects.batches.table.v1',
+  proposed: 'elysium.projects.batches.proposed.table.v1',
+} as const satisfies Record<WorkBatchesList, string>
+
 const emptyKeysByList = {
   latest: 'batches.empty',
   proposed: 'batches.proposedEmpty',
@@ -156,7 +162,7 @@ export function WorkBatchesTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: `project-work-batches-${props.list}-table`,
-      tableLocalStorageId: `elysium.projects.batches.${props.list}.table.v2`,
+      tableLocalStorageId: tableStorageIds[props.list],
     }}
     tableAriaLabel={t('batches.label')}
     data={props.batches}

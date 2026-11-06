@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ParseKeys } from 'i18next'
 import type { WorkBatch, WorkBatchState } from '../../api/routes/projectManagerRoutes'
 import type { WorkBatchHistoryEntry, WorkBatchWhy as Why } from '../../api/routes/workQueueRoutes'
 import type { PageAction } from '../../layout/page/pageActions'
@@ -109,7 +110,7 @@ const resultHeadingKeys = {
   failed: 'batch.result',
   cancelled: 'batch.cancelledBecause',
   rejected: 'batch.rejectedBecause',
-} as const satisfies Record<WorkBatchState, string>
+} as const satisfies Record<WorkBatchState, ParseKeys<'workQueue'>>
 
 function WorkBatchDetails(props: DetailsProps) {
   const { t } = useTranslation('workQueue')

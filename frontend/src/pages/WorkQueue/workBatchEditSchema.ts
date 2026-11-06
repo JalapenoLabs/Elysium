@@ -24,11 +24,14 @@ export const BATCH_GOAL_MAX_CHARACTERS = 20_000
 const SCHEDULE_HORIZON_MS = 365 * 24 * 60 * 60 * 1000
 
 // Built per render with `t` so messages are already translated, and with `now`, since a scheduled
-// time must still be ahead of it.
+// time picked here must still be ahead of it. A time left as `proposed` holds it is not checked:
+// approving sends no priority then, as the API checks only what changes, so a proposal whose time
+// passed while it waited is approved as it is and runs at once, as Approve on its own page does.
 export function createWorkBatchEditSchema(
   t: TFunction<'workQueue'>,
   codingT: TFunction<'coding'>,
   now: number,
+  proposed: Pick<WorkBatch, 'priority' | 'scheduledFor'>,
 ) {
   return z.object({
     title: z
@@ -78,6 +81,12 @@ export function createWorkBatchEditSchema(
         : Number.NaN
       if (Number.isNaN(at)) {
         context.addIssue({ code: 'custom', path: [ 'scheduledFor' ], message: t('edit.errors.scheduleRequired') })
+        return
+      }
+      const isAsProposed = proposed.priority === 'scheduled'
+        && proposed.scheduledFor !== null
+        && Date.parse(proposed.scheduledFor) === at
+      if (isAsProposed) {
         return
       }
       if (at <= now) {

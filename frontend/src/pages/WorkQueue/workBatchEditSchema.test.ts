@@ -16,7 +16,7 @@ const NOW = Date.parse('2026-11-06T12:00:00Z')
 // testSetup initializes the app's i18next instance with the en-US translations.
 const t = i18next.getFixedT(DEFAULT_LOCALE, 'workQueue')
 const codingT = i18next.getFixedT(DEFAULT_LOCALE, 'coding')
-const schema = createWorkBatchEditSchema(t, codingT, NOW)
+const schema = createWorkBatchEditSchema(t, codingT, NOW, { priority: 'normal', scheduledFor: null })
 
 function proposed(overrides: Partial<WorkBatch> = {}) {
   return makeWorkBatch({ id: 'batch-1', ...overrides })
@@ -55,6 +55,21 @@ describe('createWorkBatchEditSchema', () => {
     expect(firstIssue({ ...values, scheduledFor: '2026-11-06T11:00:00Z' })).toBe(t('edit.errors.schedulePast'))
     expect(firstIssue({ ...values, scheduledFor: '2028-01-01T00:00:00Z' })).toBe(t('edit.errors.scheduleTooFar'))
     expect(schema.safeParse({ ...values, scheduledFor: '2026-11-07T09:00:00Z' }).success).toBe(true)
+  })
+})
+
+describe('a proposal whose time lapsed while it waited', () => {
+  const lapsed = proposed({ priority: 'scheduled', scheduledFor: '2026-11-05T09:00:00Z' })
+  const lapsedSchema = createWorkBatchEditSchema(t, codingT, NOW, lapsed)
+
+  it('is approved as proposed, sending no change', () => {
+    const output = lapsedSchema.parse(toWorkBatchEditValues(lapsed))
+    expect(toWorkBatchEdits(lapsed, output)).toEqual({})
+  })
+
+  it('still needs a time picked here to be ahead of now', () => {
+    const values = { ...toWorkBatchEditValues(lapsed), scheduledFor: '2026-11-06T11:00:00Z' }
+    expect(lapsedSchema.safeParse(values).error?.issues[0]?.message).toBe(t('edit.errors.schedulePast'))
   })
 })
 

@@ -65,8 +65,8 @@ export function WorkBatchEditForm(props: Props) {
   // When the page opened: a scheduled time must still be ahead of it.
   const [ openedAt ] = useState(() => Date.now())
   const schema = useMemo(
-    () => createWorkBatchEditSchema(t, codingTranslation.t, openedAt),
-    [ t, codingTranslation.t, openedAt ],
+    () => createWorkBatchEditSchema(t, codingTranslation.t, openedAt, props.batch),
+    [ t, codingTranslation.t, openedAt, props.batch ],
   )
   const form = useForm<WorkBatchEditValues, unknown, WorkBatchEditOutput>({
     resolver: zodResolver(schema),

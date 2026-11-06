@@ -51,8 +51,9 @@ pub const SERVER: ToolServer = ToolServer {
         and action items it came from. Every batch waits for a person to approve it, edit and \
         approve it, or reject it with a reason, which wakes you; only then does it wait in the \
         one queue for the whole workspace, which a person or Elysia may reorder or pause. \
-        manager_cancel_batch withdraws a batch no worker has started on yet. A running batch's worker may wait on a question only you or the person can \
-        answer; manager_answer_batch answers it. manager_promises lists what the person promised to tell people once the \
+        manager_cancel_batch withdraws a batch no worker has started on yet. A running batch's \
+        worker may wait on a question only you or the person can answer; manager_answer_batch \
+        answers it. manager_promises lists what the person promised to tell people once the \
         project's work is done; manager_tie_promise ties a promise to the batch or action item \
         that keeps it, and manager_draft_follow_up drafts its follow-up, in the person's voice, \
         once that work is done. A follow-up is never sent until the person sends it. \

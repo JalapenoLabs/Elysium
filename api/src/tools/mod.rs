@@ -449,9 +449,10 @@ mod tests {
         }
     }
 
-    /// Only a person decides on a proposed work batch (`crate::worker_pool::actions`). No tool any
-    /// agent holds approves or rejects one, so a turn can list proposals but never let its own work
-    /// through.
+    /// Only a person decides on a proposed work batch. The boundary is the type:
+    /// `crate::worker_pool::actions::approve` and `reject` take a `MemberUser`, which no machine
+    /// user is. This is a tripwire beside it, by name, so a tool meant to decide is noticed in
+    /// review; it cannot prove a tool by another name does not.
     #[test]
     fn no_agent_tool_decides_on_a_proposed_batch() {
         for server in SERVERS {
