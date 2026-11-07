@@ -50,6 +50,7 @@ pub use self::signals::{Signal, SignalReceiver, Wake};
 use crate::agent_models::AgentKind;
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
+use crate::models::finding::FindingState;
 use crate::models::knowledge_ask::KnowledgeAskState;
 use crate::models::step_job::StepJobState;
 use crate::models::work_batch::BatchState;
@@ -249,6 +250,14 @@ pub enum ServerEvent {
     /// they read; its page loads it by id.
     #[serde(rename = "projectManager.changed")]
     ProjectManagerChanged { project_id: Uuid },
+    /// A finding was reported, or reported again, accepted, or dismissed. Its ids and state
+    /// alone: what it says quotes agents' work, so members load the project's findings by id.
+    #[serde(rename = "finding.changed")]
+    FindingChanged {
+        id: Uuid,
+        project_id: Uuid,
+        state: FindingState,
+    },
     /// A project's worker setup changed: the repositories it declares or its tools script. The
     /// project's id alone; its page loads the setup by id.
     #[serde(rename = "projectWorkerSetup.changed")]

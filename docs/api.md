@@ -233,6 +233,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the image is kept to restore    |
 | POST   | `/api/v1/projects/{id}/cover/restore` | `200` `{ project }`, showing the removed cover again |
 | GET    | `/api/v1/projects/{id}/pages`         | `200` `{ pages: ProjectPage[] }`, newest published first; members |
+| GET    | `/api/v1/projects/{id}/findings`      | `200` `{ findings: Finding[], total }`: its open findings, newest first, at most 200, and how many are open; members only |
+| POST   | `/api/v1/findings/{id}/accept`        | `200` `{ finding, itemId, batchId, issue, issueRefusal }`; `409` `finding_decided`; members only |
+| POST   | `/api/v1/findings/{id}/dismiss`       | `200` `{ finding }`; an optional `reason`; `409` `finding_decided`; members only |
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
@@ -581,6 +584,26 @@ Manager with it. Both record the person who decided, and answer `409` `work_batc
 proposed; no machine user can call either, since each takes a member's session. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with
 `code` `work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running
 next at once) `400`.
+
+### `/api/v1/findings`
+
+Work a worker or a Project Manager noticed that nobody asked for, waiting for a person (`docs/engine.md`, Findings). A
+finding quotes agents' work on the project, so every route answers admins and members, a guest `403 members_only`, and
+only a member decides, which no machine user is.
+
+`GET /projects/{id}/findings` answers `{ findings, total }`: the project's open findings, newest first, at most 200, and
+how many are open in all, which its Findings tab counts; `404` for a project that does not exist. Each finding is `{
+id, projectId, title, detail, repositoryUrl, location, cost, state, workBatchId, projectManagerTurnId, reports,
+lastReportedAt, decidedBy, decidedAt, dismissalReason, actionItemId, acceptedBatchId, createdBy, createdAt }`, `cost`
+being `small`, `medium`, or `large` and `state` `open`, `accepted`, or `dismissed`.
+
+`POST /findings/{id}/accept` takes no body. In one transaction it makes an open action item in the finding's project as
+the person, owes its issue in the project's tracker, filed as them, when the project has one, proposes a batch for the
+item, human-rooted and generation 0, and records the finding accepted. It answers the finding, the item's and the
+batch's ids, and `issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
+files nowhere. `POST /findings/{id}/dismiss` takes an optional `reason`, up to 2,000 characters, which agents that
+report the finding again are told, and answers the finding. Both answer `404` for an unknown finding and `409` `code`
+`finding_decided` once someone decided it.
 
 ### `/api/v1/storage-locations`
 

@@ -3,9 +3,11 @@
 //! `elysium_worker`: a worker's own tools, for the one batch it runs.
 //!
 //! A worker reads its batch with `worker_batch`, records each pull request it opens with
-//! `worker_pull_request`, and says how each turn ends with one of two tools: `worker_finish` once
-//! the batch is done or cannot be done, or `worker_wait` while it waits on a review, CI, or an
-//! answer, keeping its container. The API answers these calls and holds no claim on the batch's
+//! `worker_pull_request`, reports work it noticed beyond its batch with `worker_report_finding`
+//! rather than doing or filing it (`crate::findings`), and says how each turn ends with one of
+//! two tools: `worker_finish` once the batch is done or cannot be done, or `worker_wait` while it
+//! waits on a review, CI, or an answer, keeping its container. The API answers these calls and
+//! holds no claim on the batch's
 //! slot, so each only files a report on the batch (`crate::models::work_batch::worker`), or
 //! records a pull request (`crate::models::work_batch::pull_request`); the engine acts on them
 //! once the turn is over, and only the engine merges (`crate::worker_pool::merging`). Every call
@@ -20,8 +22,10 @@ use serde_json::{Value, json};
 use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
+use crate::findings::{self, FindingError};
 use crate::github::issues::IssueRef;
 use crate::github::pulls::PullRequest;
+use crate::models::finding::Reporter;
 use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
 use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, WorkBatch};
@@ -39,6 +43,9 @@ pub const SERVER: ToolServer = ToolServer {
         and any answers your Project Manager gave. worker_pull_request records a pull request you \
         opened, right after you open it: Elysium merges it in a repository that lets it, once \
         every check passed and no review is left open, and a person merges it everywhere else. \
+        worker_report_finding reports work you noticed that your batch does not ask for: a bug, \
+        a gap, a cleanup. A person decides whether it is done; never do it, file an issue for \
+        it, or open a pull request for it yourself. It ends nothing, so carry on with your batch. \
         End every turn with exactly one of the two reports. worker_finish says the \
         batch is done, or that it cannot be done and why: what you did, the pull requests you \
         opened, and anything left. worker_wait says you are waiting on a review of your pull \
@@ -49,7 +56,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 4] = [
+const TOOLS: [Tool; 5] = [
     Tool {
         name: "worker_batch",
         description: "Reads your work batch: its title, goal, repositories, the action items it \
@@ -67,6 +74,21 @@ const TOOLS: [Tool; 4] = [
             changes, or a person. Never merge a pull request yourself.",
         input_schema: pull_request_schema,
         run: |context, scope, arguments| run_pull_request(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "worker_report_finding",
+        description: "Reports work you noticed that your batch does not ask for, such as a bug \
+            beside your change, a missing test, or a cleanup: title says what in a line; detail \
+            says what you saw, why it matters, and what fixing it involves, so a worker who has \
+            seen nothing else could do it; repositoryUrl and location say where (a path without \
+            line numbers, a URL, or a place's name); cost is small (an hour or less), medium \
+            (about a batch), or large (more than one). It goes on the project's Findings list for \
+            a person to accept or dismiss, and answers if the same finding was reported before \
+            and what a person made of it. Never do the work, file an issue for it, or open a pull \
+            request for it yourself. It is not a report on your batch: end your turn with \
+            worker_finish or worker_wait as always.",
+        input_schema: findings::report_schema,
+        run: |context, scope, arguments| run_report_finding(context, scope, arguments).boxed(),
     },
     Tool {
         name: "worker_wait",
@@ -301,6 +323,44 @@ async fn run_pull_request(
         "mergedBy": merged_by,
         "next": next,
     }))
+}
+
+async fn run_report_finding(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    const OPERATION: &str = "worker.report_finding";
+
+    let worker = scope.worker()?;
+    let report: findings::Report = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let batch = work_batch::find(&mut connection, worker.batch_id)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+    if batch.state != BatchState::Running || batch.project_id != worker.project_id {
+        return Err(ToolError::Invalid(format!(
+            "batch {} is no longer running, so it reports nothing; end your turn",
+            worker.batch_id
+        )));
+    }
+    let reported = findings::report(
+        &mut connection,
+        &context.events,
+        batch.project_id,
+        Reporter::Worker { batch_id: batch.id },
+        report,
+    )
+    .await
+    .map_err(|error| match error {
+        FindingError::Invalid(reason) => ToolError::Invalid(reason),
+        error => internal(scope, OPERATION, &error),
+    })?;
+    Ok(findings::answer(&reported))
 }
 
 async fn run_wait(

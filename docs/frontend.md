@@ -1444,9 +1444,9 @@ to the models its agents run on (see Models), Workers, a link to how its workers
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Proposed, Work
-batches, and Promises (these five for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
-session on the Coding page). A guest's tabs leave those five out of `useTabParam` too, so `?tab=docs` opens the first tab
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Proposed,
+Findings, Work batches, and Promises (these six for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
+session on the Coding page). A guest's tabs leave those six out of `useTabParam` too, so `?tab=docs` opens the first tab
 for them. Switching tabs keeps unsaved edits.
 
 The Docs tab (`ProjectPages`) lists the knowledge base pages linked to the project in a `SmartTable`
@@ -1469,7 +1469,17 @@ that woke it, how many records, batches, and promises came with them, its reply,
 then). A running or failed turn starts open. Proposed (`WorkBatchesTable` with `list='proposed'`) lists every batch
 waiting for the person's approval, its count accented while above zero: the title, the priority, the origin and
 generation as the work queue shows them, and when it was submitted, each row offering Approve and Reject as the work
-queue's do. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
+queue's do. Findings (`ProjectFindings`, `ProjectFindingsTable`) lists the work its workers and Project Manager
+noticed that nobody asked for, waiting for the person's decision, its count accented while above zero: each finding's
+title, what was seen (clamped, a click on it opening its row in full), where (the place, and its repository linked in a new tab
+when a browser can open it, `repositoryHref`), its cost (Small, Medium, or Large, sorting in that order), how many
+times it was seen, and when it was first reported. A row's Accept makes its item, issue, and proposed batch, and its
+toast offers Review batch, or warns, staying until dismissed, when the project has no tracker to file in; its Dismiss,
+red, asks in the prompt gate for an optional reason the agents are told, saying in bold that it is never raised again,
+with Keep it beside it (`useFindingActions`). Someone deciding it first says so and reloads the list. The list and its
+count are read from SWR alone (`useProjectFindings`), since no other view shows them, by `ProjectLists` for the tab's
+count, for members alone; `finding.changed` revalidates them, and a decision also reloads the Project Manager, whose
+Proposed tab gains the batch. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
 scheduled one's time, the state, the origin, the generation, when it was submitted, and what its worker reported.
 Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with

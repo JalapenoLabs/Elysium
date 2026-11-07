@@ -60,6 +60,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
 | `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
 | `projectManager.changed` | `{ projectId }`      | A project's Project Manager was woken, a turn of its started or ended, a batch of its was submitted or moved on, or a promise of its was found, tied, drafted, or moved by its work or follow-up item; members load it by id, and an open follow-up item's promise again |
+| `finding.changed`    | `{ id, projectId, state }` | A finding was reported, reported again, accepted, or dismissed; its project's Findings tab, for members, loads its list again. It never wakes Elysia |
 | `projectWorkerSetup.changed` | `{ projectId }` | A project's worker setup (the repositories it declares, its tools script) was saved; its Workers page loads it again |
 | `environmentVariable.upserted` | `EnvironmentVariable` | An environment variable was added or changed      |
 | `environmentVariable.deleted`  | `{ id }`              | An environment variable was deleted               |

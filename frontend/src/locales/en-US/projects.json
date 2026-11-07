@@ -244,6 +244,42 @@
       "found": "Found by an agent"
     }
   },
+  "findings": {
+    "tab": "Findings",
+    "label": "What agents noticed on this project",
+    "empty": "Nothing waits for your decision.",
+    "loadError": "This project's findings can't be loaded right now.",
+    "columns": {
+      "title": "Finding",
+      "detail": "What was seen",
+      "place": "Where",
+      "cost": "Cost",
+      "reports": "Seen",
+      "reported": "Reported"
+    },
+    "costs": {
+      "small": "Small",
+      "medium": "Medium",
+      "large": "Large"
+    },
+    "actions": {
+      "accept": "Accept",
+      "dismiss": "Dismiss"
+    },
+    "accepted": "Accepted {{title}}",
+    "acceptedFiling": "Its issue files in {{provider}} {{destination}}, and its batch waits for your approval.",
+    "acceptedNowhereToFile": "Accepted {{title}} without an issue",
+    "nowhereToFile": "This project has no tracker Elysium can file in; set one on the Project Manager tab. Its batch waits for your approval.",
+    "reviewBatch": "Review batch",
+    "dismissed": "Dismissed {{title}}",
+    "decidedElsewhere": "Someone already decided this finding.",
+    "dismissPrompt": {
+      "title": "Dismiss {{title}}?",
+      "final": "It is never raised again.",
+      "reason": "Why (optional)",
+      "keep": "Keep it"
+    }
+  },
   "promises": {
     "tab": "Promises",
     "label": "The promises the Project Manager keeps",

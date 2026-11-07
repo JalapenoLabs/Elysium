@@ -61,17 +61,22 @@ more, until nobody remembers why. The brake is structural.
 - Built: every batch has a generation, how many batches led to it: one more than its deepest parent a worker worked
   on, where a batch led to another when the turn that planned it was woken by that batch or it names a record the
   batch made. The limit is a code constant, 3, and a batch past it is refused, telling its Project Manager to leave
-  the decision to the person. A person accepting a finding resets it to zero, the seam Findings use.
+  the decision to the person. A person accepting a finding resets it to zero (Findings, below).
 - Built: a Project Manager cannot submit a batch with no origin. The work queue and every batch's page show both.
   The exact rules are `docs/engine.md`, Origins and generations.
 - On the roadmap: each batch names the goal in the project brief it serves.
 
 ## Findings
 
-Agent-found work never queues itself, at any level. Workers and Project Managers report it as a finding: what they
-saw, where, and what it would cost. A project's Findings list holds them for a person to accept or dismiss. Accepting
-files an issue and makes a proposed batch, human-rooted from then on. Dismissing is remembered, so the same finding is
-not raised twice. Findings reach the person as a list they read when they choose, never one item each.
+Built. Agent-found work never queues itself, at any level. Workers and Project Managers report it as a finding with
+`worker_report_finding` and `manager_report_finding`: what they saw, where, and what it would cost. Their instructions
+say to report such work rather than do it, file it, or submit a batch for it. Each project's Findings tab lists the
+open ones with their count for a person to accept or dismiss. Accepting makes an action item as that person, files its
+issue in the project's tracker, and proposes a batch for it, human-rooted and generation 0 from then on. Dismissing is
+remembered, with the person's reason when they give one, so the same finding reported again stays dismissed and its
+reporter is told why. Findings reach the person as a list they read when they choose, never one item each, and they
+never wake Elysia: she reads each project's count in her overview and tells the person when it matters. The exact
+rules are `docs/engine.md`, Findings.
 
 ## The project brief
 
@@ -96,3 +101,6 @@ Coding sessions and Elysia are not held, since a person watches each session and
 
 Every batch shows its why: the meeting quote or issue that called for it, the item, the batch, and its pull request.
 Elysia's brief says what shipped, what waits on the person, and what was found. Activity holds everything else.
+
+Built: Elysia's overview counts each project's open findings, which is what her brief reports as found. The brief
+itself, what shipped and what waits, is on the roadmap.

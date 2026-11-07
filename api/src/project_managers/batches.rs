@@ -28,11 +28,13 @@ use uuid::Uuid;
 use super::timeline;
 use crate::database::schema::{action_item_projects, action_items, project_manager_wakes};
 use crate::models::project_manager::WakeKind;
-use crate::models::timeline_record;
+use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::approval::Edits;
 use crate::models::work_batch::lineage::{self, MAX_GENERATION, Provenance, Refusal};
-use crate::models::work_batch::{self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch};
+use crate::models::work_batch::{
+    self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch, Written,
+};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::validate_repository_url;
 use crate::worker_pool::actions;
@@ -255,16 +257,56 @@ pub async fn submit(
         lineage,
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    let (written, record) = connection
+    let stored = store(connection, new_batch, timeline::ACTOR).await?;
+    Ok(announce(connection, events, stored).await)
+}
+
+/// A batch [`store`] wrote, for [`announce`] once its transaction commits.
+#[derive(Debug)]
+pub struct Stored {
+    written: Written,
+    record: TimelineRecord,
+}
+
+impl Stored {
+    /// The batch as it was stored.
+    pub const fn batch(&self) -> &WorkBatch {
+        &self.written.batch
+    }
+}
+
+/// Stores `new_batch`, proposed, puts it on its project's timeline as submitted by
+/// `submitted_by`, and raises or updates the project's approval item, in one transaction, or in
+/// the caller's when it holds one. Its lineage is already decided: a Project Manager's from its
+/// provenance ([`submit`]), or a person's accepting a finding (`crate::findings`), whose name
+/// its record carries.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn store(
+    connection: &mut AsyncPgConnection,
+    new_batch: NewWorkBatch,
+    submitted_by: &str,
+) -> diesel::QueryResult<Stored> {
+    connection
         .transaction(async |connection| {
             let mut written = work_batch::submit(connection, new_batch).await?;
-            let record = timeline::record_batch(connection, &written.batch).await?;
+            let record = timeline::record_batch(connection, &written.batch, submitted_by).await?;
             work_batch::set_timeline_record(connection, written.batch.id, record.id).await?;
             written.batch.timeline_record_id = Some(record.id);
-            diesel::QueryResult::Ok((written, record))
+            Ok(Stored { written, record })
         })
-        .await?;
+        .await
+}
 
+/// Announces a batch [`store`] wrote, once the transaction that wrote it committed: its record,
+/// the batch, and its project's approval item. Answers the batch.
+pub async fn announce(
+    connection: &mut AsyncPgConnection,
+    events: &EventBus,
+    stored: Stored,
+) -> WorkBatch {
+    let Stored { written, record } = stored;
     events.publish(&ServerEvent::TimelineRecordCreated {
         id: record.id,
         source_kind: record.source_kind,
@@ -273,7 +315,7 @@ pub async fn submit(
         conversation_id: None,
     });
     // Proposed, it waits for a person rather than for a slot, so the pool is not told.
-    Ok(actions::publish(connection, events, written).await)
+    actions::publish(connection, events, written).await
 }
 
 /// Withdraws `project_id`'s batch `batch_id` while no worker has started on it, saying `reason`,

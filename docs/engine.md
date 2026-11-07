@@ -484,7 +484,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   `manager_record` read its project's timeline, every owner's records on it, `manager_pages` and `manager_page` list and
   read the pages linked to its project, a long one in parts, and refuse any other, `manager_batches` lists its batches,
   proposed ones included, `manager_submit_batch` proposes one, `manager_cancel_batch` withdraws one no worker has
-  started on,
+  started on, `manager_report_finding` reports work nobody asked for as a finding (Findings, below),
   `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
@@ -578,7 +578,8 @@ the Project Manager itself, so it learns its work was declined or withdrawn and 
 `workerPool` and `projectManagers` and publishes `workBatch.changed` and `projectManager.changed`.
 
 - **History.** Every change is written to the batch's history (`work_batch_events`) in the transaction that makes it,
-  with who made it: `submitted` by its Project Manager; `edited` (`{ before, after }`, each holding only the fields
+  with who made it: `submitted` by its Project Manager, or by the person who accepted the finding it was made from;
+  `edited` (`{ before, after }`, each holding only the fields
   that changed), `approved`, and `rejected` (`{ reason }`) by the person who decided; `held_for_approval` (`{ from }`)
   by the system user, for a batch that waited for a slot when proposals began and went back for approval;
   `pinned` and `unpinned` (run next, and back to its place),
@@ -656,7 +657,7 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   message its own turn took starts the chain again: wakes are debounced into one turn, so a batch's result arriving
   beside a person's request never holds the request to that batch's chain. Records it names still count.
 - **Resetting.** A person accepting a finding re-roots the work: its batch is human-rooted and generation 0
-  (`Lineage::accepted_finding`, which Findings use, `docs/autonomy.md`).
+  (`Lineage::accepted_finding`, made only by `findings::accept`; Findings, below).
 - **Never queued alone.** Every batch is proposed today. A trust dial that lets human-rooted work run past approval
   must still propose every found batch (`work_batch::submit`).
 - **Existing batches** have the origin their provenance proves, generation 0, and no parents: no chain was recorded for
@@ -665,6 +666,44 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   Manager read its result as it planned, unless it names that person's message. A follow-up the Project Manager submits
   in a later turn that nothing of the batch's woke, naming only a person's record, counts from 0, and so does one that
   names a person's unrelated message its turn took; the person still approves either.
+
+### Findings
+
+Built: agent-found work never queues itself (`api/src/findings.rs`, `api/src/models/finding.rs`). A worker or a Project
+Manager that notices work nobody asked for reports it as a finding, and a person decides; nothing an agent can call
+files its issue or submits its batch. See `docs/autonomy.md`, Findings.
+
+- **Reporting.** `worker_report_finding` (a worker, while its batch runs) and `manager_report_finding` (a Project
+  Manager, in its turn) take one schema: a `title`, a `detail` saying what was seen, why it matters, and what acting
+  on it involves, so a worker who has seen nothing else could do it, an optional `repositoryUrl` held to a coding
+  session's rules, a `location` (a path, a URL, or a place's name), and a `cost`, `small` (an hour or less), `medium`
+  (about a batch), or `large` (more than one). A report naming anything else is refused whole. Neither tool ends a
+  turn. The finding remembers who reported it first: the batch for a worker, as the coding agent, or the turn for a
+  Project Manager, as its machine user.
+- **The same finding.** A finding is its repository, place, and title, each normalized (letter case, spacing, a
+  title's punctuation, a repository's URL with or without its scheme or `.git`, an SSH remote read as its host and
+  path, a leading `./`, and a line, column, or `#L` range at a path's end), hashed into its `fingerprint`, unique per
+  project. A second report of the same finding, by any agent, after any restart, and two at once, lands on the first in
+  one statement: it counts the report and changes nothing a person decided. The answer tells the agent how it stands:
+  new, already waiting, accepted (naming its item and batch, to leave it to that batch), or dismissed (with the
+  person's reason, never to report it again). Two wordings of one problem are two findings; the person dismisses the
+  second.
+- **Accepting.** A person accepts one from the project's Findings tab, under the finding's lock, in one transaction:
+  an open action item in the project, created as them, whose notes hold the detail, where, and the cost; its issue owed
+  in the project's tracker (Its writes, above) and filed as them (`action_item_issue_filings.filed_by` `user:<id>`), so
+  its link and history are theirs; and a proposed batch for that item, its title the finding's, its goal the detail
+  and where, its repository the finding's, human-rooted and generation 0 (`Lineage::accepted_finding`), created by
+  the person, whose name its timeline record carries. Like every batch it waits for approval, and the project's
+  approval item counts it. A project with nowhere to file still gets the item and the batch, since the work is
+  wanted either way, and the answer says why no issue was owed, in the words `file-issue` is refused with.
+- **Dismissing.** Dismissing takes an optional reason and keeps the row, so the same finding reported again lands on it
+  and stays dismissed, and its reporter is told the reason. Rows are never deleted.
+- **Only a person.** Accepting and dismissing take a `MemberUser`, which no machine user is, so no tool reaches either,
+  and each refuses a finding already decided (`409 finding_decided`).
+- **Quietly.** Findings never raise an item each and never wake Elysia: `finding.changed` carries the finding's id,
+  project, and state, and her intake leaves it out. She reads how many wait on each project in `elysia_overview`
+  (`docs/elysia.md`, Tools) and tells the person when it matters.
+- **Who sees it.** A finding quotes agents' work on its project, so its routes answer the company's members alone.
 
 ## Workers and the pool
 
@@ -790,7 +829,8 @@ worker's own tools.
   (Models, below).
 - **Its tools.** `elysium_worker` (`api/src/tools/worker.rs`): `worker_batch` reads the batch, its pull requests, and
   the answers given since it last began to wait, `worker_pull_request` records a pull request it opened (Merging,
-  below), `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
+  below), `worker_report_finding` reports other work it noticed as a finding rather than doing it (Findings, above),
+  `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
   reports what it waits on (`review`, `ci`, or `question`), what for, and when to look again, 5 minutes to a day (by
   default 15 minutes for CI, an hour for a review, four hours for a question). The API answers them and holds no claim
   on the slot, so each only files its report on the batch (`worker_report`), the last of a turn winning; the engine
