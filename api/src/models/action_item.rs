@@ -14,7 +14,8 @@
 //!
 //! An item in any project has exactly one lead project, whose Project Manager alone may submit
 //! work for it (`crate::project_managers::batches`). Its first project leads it, and when the lead
-//! leaves, the project it joined earliest of those left leads instead, each move recorded as
+//! leaves, the surest of those left leads instead (a person's choice before a guess, the earliest
+//! joined among equals), each move recorded as
 //! `lead_project_changed`. A person changes the lead, and an attribution step guesses it, through
 //! `crate::models::action_item_attribution`, which also undoes a change to either.
 
@@ -240,7 +241,7 @@ pub struct ProjectAttribution {
     pub confidence: f32,
     /// The actor, as history names it: `user:<id>`, `elysia`, `project_manager:<id>`, ...
     pub attributed_by: String,
-    /// When it joined: the lead passes to the earliest of those left.
+    /// When it joined, which breaks a tie in confidence when the lead passes on.
     #[serde(skip)]
     pub created_at: DateTime<Utc>,
 }
@@ -1221,7 +1222,10 @@ pub async fn move_lead(
     })
 }
 
-/// The projects the item is in, each with how it got there, the earliest to join first.
+/// The projects the item is in, each with how it got there, in the order the lead passes to them:
+/// the surest first, so a person's choice comes before a guess and a likelier guess before a
+/// less likely one, and the earliest joined among equals. Every project an attribution joins does so
+/// in one transaction, at one `created_at`, so confidence is what orders its guesses.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -1232,6 +1236,7 @@ pub async fn project_attributions(
     action_item_projects::table
         .filter(action_item_projects::action_item_id.eq(action_item_id))
         .order((
+            action_item_projects::confidence.desc(),
             action_item_projects::created_at,
             action_item_projects::project_id,
         ))
@@ -1288,7 +1293,8 @@ pub async fn remove_all_from_project(
 
 /// Takes the locked `item` out of a project and records it as `actor`, if it was there, holding
 /// what the membership held so an undo can put it back. When the project led it, the project it
-/// joined earliest of those left leads it instead, or none when none is left. `undid` names the
+/// surest of those left leads it instead ([`project_attributions`]), or none when none is left.
+/// `undid` names the
 /// entry this undoes, for an undo.
 ///
 /// # Errors
@@ -1343,7 +1349,7 @@ pub async fn leave_project(
             history,
         });
     }
-    // The lead's membership is gone already, so the earliest left is its successor.
+    // The lead's membership is gone already, so the first left is its successor.
     let successor = project_attributions(connection, item.id)
         .await?
         .into_iter()

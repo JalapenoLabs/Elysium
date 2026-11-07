@@ -901,14 +901,14 @@ changes over the same items never deadlock. Events go out as for each item's own
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
 initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal. An item's
-first project leads it, and when its lead leaves, the project it joined earliest of those left leads instead
+first project leads it, and when its lead leaves, the surest of those left leads instead
 (`docs/action-items.md`, Projects and the lead). `PUT /lead-project` makes one of its projects its lead, and answers
 `400` for a project it is not in.
 
 `POST /history/{entryId}/undo` reverses one `project_added`, `project_removed`, or `lead_project_changed` entry as the
-person, recording an entry of its own that names the one it undid (`data.undid`). Only what still holds what the entry
-wrote is undone: an item in that project again, out of it since, or led elsewhere since answers `409` with why, and an
-entry of any other kind answers `400`.
+person, recording an entry of its own that names the one it undid (`data.undid`). Only the latest change to that
+project, or to the lead, is undone: an entry with a change made since answers `409` with why, and an entry of any other
+kind answers `400`.
 
 A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`, which
 equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body }`. Editing or deleting a comment

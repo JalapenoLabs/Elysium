@@ -12,6 +12,7 @@ import {
 } from '../../api/routes/actionItemRoutes'
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
 import { formatPercent } from '../../format/numbers'
+import { boundedConfidence } from '../Projects/timelinePresentation'
 import { initiativeStateLabelKeys } from '../Initiatives/initiativePresentation'
 import { priorityLabelKeys, stateLabelKeys } from './actionItemPresentation'
 import { providerLabelKeys } from './linkPresentation'
@@ -216,7 +217,7 @@ const describeByKind = {
     if (confidence === null || confidence >= 1) {
       return { summary: t('history.projectAdded', { name }), details: []}
     }
-    const percent = formatPercent(Math.max(confidence, 0))
+    const percent = formatPercent(boundedConfidence(confidence))
     return { summary: t('history.projectGuessed', { name, percent }), details: []}
   },
   project_removed: (entry, context, t) => ({

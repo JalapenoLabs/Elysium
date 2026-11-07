@@ -302,3 +302,98 @@ async fn every_correction_can_be_undone_while_it_still_holds() {
         Err(WorkError::Database(diesel::result::Error::NotFound))
     ));
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_lead_a_person_chose_keeps_its_project_through_elysias_next_reading() {
+    let (_url, mut connection) = migrated_database().await;
+    let website = project(&mut connection, "Website").await;
+    let launch = project(&mut connection, "Launch").await;
+    let item = arrived(&mut connection).await;
+    let now = Utc::now();
+    attribute(
+        &mut connection,
+        item,
+        &[guess(website, 0.9), guess(launch, 0.5)],
+        now,
+    )
+    .await
+    .expect("attributed");
+
+    // The person moves only the lead, onto her less likely guess.
+    set_lead(&mut connection, item, launch, TEST_PERSON, now)
+        .await
+        .expect("led");
+    // A reading that drops the launch leaves it on the item, still leading it.
+    attribute(&mut connection, item, &[guess(website, 0.9)], now)
+        .await
+        .expect("attributed");
+    let (projects, lead) = held(&mut connection, item).await;
+    assert_eq!(lead, Some(launch));
+    assert!(
+        projects
+            .iter()
+            .any(|(project_id, _, _)| *project_id == launch)
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_lead_passes_to_the_surest_project_left() {
+    let (_url, mut connection) = migrated_database().await;
+    let website = project(&mut connection, "Website").await;
+    let launch = project(&mut connection, "Launch").await;
+    let billing = project(&mut connection, "Billing").await;
+    let item = arrived(&mut connection).await;
+    let now = Utc::now();
+    // Joined in one transaction, so the three share one moment and only confidence orders them.
+    attribute(
+        &mut connection,
+        item,
+        &[
+            guess(billing, 0.35),
+            guess(website, 0.9),
+            guess(launch, 0.8),
+        ],
+        now,
+    )
+    .await
+    .expect("attributed");
+
+    let left = action_item::remove_project(&mut connection, item, website, TEST_PERSON, now)
+        .await
+        .expect("removed");
+    assert_eq!(left.record.lead_project_id, Some(launch));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_undo_never_overwrites_a_later_change_that_put_things_back() {
+    let (_url, mut connection) = migrated_database().await;
+    let website = project(&mut connection, "Website").await;
+    let item = arrived(&mut connection).await;
+    let now = Utc::now();
+    action_item::add_project(&mut connection, item, website, TEST_PERSON, now)
+        .await
+        .expect("added");
+    let first = latest_entry(&mut connection, item, "project_added").await;
+    action_item::remove_project(&mut connection, item, website, TEST_PERSON, now)
+        .await
+        .expect("removed");
+    action_item::add_project(&mut connection, item, website, TEST_PERSON, now)
+        .await
+        .expect("added again");
+
+    // The item is in the project as the first addition left it, but by a later change.
+    assert!(matches!(
+        undo(&mut connection, item, first.id, TEST_PERSON, now).await,
+        Err(WorkError::Conflict(_))
+    ));
+    assert_eq!(held(&mut connection, item).await.0.len(), 1);
+    // The latest addition is still undone.
+    let latest = latest_entry(&mut connection, item, "project_added").await;
+    undo(&mut connection, item, latest.id, TEST_PERSON, now)
+        .await
+        .expect("undone");
+    assert!(held(&mut connection, item).await.0.is_empty());
+}

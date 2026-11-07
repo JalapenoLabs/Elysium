@@ -1144,7 +1144,7 @@ finds a project's items. Both references delete their rows with the item or the 
 | `project_id`     | `UUID`        | References `projects`                                                     |
 | `confidence`     | `REAL`        | 0 to 1: how sure whoever put it there was; 1 for anyone but the attribution step |
 | `attributed_by`  | `TEXT`        | The actor, as history names it (`user:<id>`, `elysia`, `project_manager:<id>`), 1 to 100 characters |
-| `created_at`     | `TIMESTAMPTZ` | When it joined; the lead passes to the earliest of those left             |
+| `created_at`     | `TIMESTAMPTZ` | When it joined; breaks a tie in confidence when the lead passes on        |
 
 ### `initiatives`
 

@@ -393,7 +393,7 @@ repository is most likely that project's. The answer is `{ "projects": [{ projec
 segment's attributions are, surest first; an answer naming none reads as an item no project is about. The item joins
 each project as Elysia's, the surest first, so the surest leads it, and whatever anyone else decided about its projects
 or its lead stands (`docs/action-items.md`, Projects and the lead). What it gives is one topic, titled as the item, with
-the projects it guessed. A deleted or dismissed item skips the step, as does a workspace with no project.
+the projects it guessed. A deleted, dismissed, or resolved item skips the step, as does a workspace with no project.
 
 **What it logs.** Counts, line and message counts, and storage paths, never a title or a word that was said.
 

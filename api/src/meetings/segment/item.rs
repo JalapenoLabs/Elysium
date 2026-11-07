@@ -201,13 +201,17 @@ impl SegmentMeeting {
     }
 }
 
-/// Why `item` is not attributed, when it is not: one deleted or dismissed is nobody's work.
+/// Why `item` is not attributed, when it is not: one deleted or dismissed is nobody's work, and one
+/// resolved needs no Project Manager.
 fn nothing_to_attribute(item: &ActionItem) -> Option<&'static str> {
     if item.deleted_at.is_some() {
         return Some("The item was deleted, so nothing to attribute");
     }
     if item.state == ActionItemState::Dismissed {
         return Some("The item was dismissed, so nothing to attribute");
+    }
+    if item.state == ActionItemState::Resolved {
+        return Some("The item was resolved, so nothing to attribute");
     }
     None
 }

@@ -19,6 +19,7 @@ import { LuFolderKanban, LuStar, LuTarget } from 'react-icons/lu'
 import { formatPercent } from '../../format/numbers'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getInitiativeViewUrl, getProjectViewUrl } from '../../urls'
+import { boundedConfidence } from '../Projects/timelinePresentation'
 
 type Props = {
   item: ActionItem
@@ -55,7 +56,7 @@ export function ActionItemMemberships(props: Props) {
           : <LuFolderKanban className='size-4' aria-label={t('memberships.project')} />}
         <span>{projectNames[projectId]}</span>
         {isGuess && <span className='opacity-60'>{
-          t('memberships.byElysia', { percent: formatPercent(Math.min(Math.max(guess.confidence, 0), 1)) })
+          t('memberships.byElysia', { percent: formatPercent(boundedConfidence(guess.confidence)) })
         }</span>}
       </Link>
     })}

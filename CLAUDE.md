@@ -479,7 +479,7 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   gets this by declaring `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`,
   Assigned issues.
 - An item in any project has one lead project, and only that project's Project Manager may submit a batch for it
-  (`project_managers::batches`). Its first project leads it, the earliest joined of those left when the lead leaves,
+  (`project_managers::batches`). Its first project leads it, the surest of those left when the lead leaves,
   and a person moves it. An arrived issue is put on its projects by `segment_meeting`, the step meetings use, with
   Elysia's confidence, the surest leading; she never overrides anyone else's choice, every change is in the item's
   history and undoable, and attributing wakes no Project Manager (`api/src/models/action_item_attribution.rs`). See

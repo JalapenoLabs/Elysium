@@ -14,7 +14,8 @@
 //!
 //! Elysia never overrides anyone else. A project that anyone but her put the item in or took it
 //! out of, or that a changeset someone approved did, is theirs: her reading leaves it as it is,
-//! either way. A lead that anyone but her moved is theirs too, and she never moves it again. Her
+//! either way. A lead that anyone but her moved is theirs too: she never moves it again, nor takes
+//! the item off its project. Her
 //! own earlier reading she replaces, so an item read twice keeps no guess the second reading
 //! dropped.
 //!
@@ -34,7 +35,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::action_items::{Actor, WorkError};
-use crate::database::schema::action_item_events;
+use crate::database::schema::{action_item_events, action_item_projects};
 use crate::meetings::segmentation::SegmentProject;
 use crate::models::action_item::{self, ActionItem, CERTAIN, Joining};
 use crate::models::action_item_event::{HistoryEntry, HistoryKind, Recorded};
@@ -63,6 +64,9 @@ pub async fn attribute(
         .transaction(async move |connection| {
             let mut item = action_item::lock_live(connection, id).await?;
             let decided = decided_projects(connection, id).await?;
+            // A lead anyone else chose is theirs, and so is its project: leaving it would pass the
+            // lead on.
+            let lead_is_theirs = lead_decided(connection, id).await?;
             let mut history: Vec<HistoryEntry> = Vec::new();
 
             let held = action_item::project_attributions(connection, id).await?;
@@ -71,7 +75,9 @@ pub async fn attribute(
                 let in_reading = guesses
                     .iter()
                     .any(|guess| guess.project_id == membership.project_id);
-                if !hers || in_reading || decided.contains(&membership.project_id) {
+                let their_lead =
+                    lead_is_theirs && item.lead_project_id == Some(membership.project_id);
+                if !hers || in_reading || their_lead || decided.contains(&membership.project_id) {
                     continue;
                 }
                 let left = action_item::leave_project(
@@ -111,7 +117,7 @@ pub async fn attribute(
                 history.extend(joined.history);
             }
 
-            if !lead_decided(connection, id).await? {
+            if !lead_is_theirs {
                 let members: HashSet<Uuid> = action_item::project_attributions(connection, id)
                     .await?
                     .into_iter()
@@ -160,11 +166,7 @@ pub async fn set_lead(
     connection
         .transaction(async move |connection| {
             let item = action_item::lock_live(connection, id).await?;
-            let member = action_item::project_attributions(connection, id)
-                .await?
-                .iter()
-                .any(|membership| membership.project_id == project_id);
-            if !member {
+            if membership(connection, id, project_id).await?.is_none() {
                 return Err(WorkError::Invalid(
                     "the lead must be one of the item's projects; add it to the project first",
                 ));
@@ -179,8 +181,9 @@ pub async fn set_lead(
 
 /// Undoes history entry `entry_id` of item `id` as `actor`: a project it joined leaves it, a
 /// project it left joins it again as it was held, and a moved lead moves back. The undo is an entry
-/// of its own naming the one it reversed (`undid`), so it can be undone in turn. Only what still
-/// holds what the entry wrote is undone, so a later change is never overwritten.
+/// of its own naming the one it reversed (`undid`), so it can be undone in turn. Only the latest
+/// change to that project, or to the lead, is undone, so a later change is never overwritten, even
+/// one that put things back as the entry left them.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item or an entry that is not its,
@@ -207,15 +210,9 @@ pub async fn undo(
 
             if kind == HistoryKind::ProjectAdded.as_str() {
                 let project_id = project_of(&entry.data)?;
-                let current = membership(connection, id, project_id).await?;
-                let still_held = current.is_some_and(|membership| {
-                    holds(
-                        &entry.data,
-                        membership.confidence,
-                        &membership.attributed_by,
-                    )
-                });
-                if !still_held {
+                let latest = latest_change(connection, id, Some(project_id)).await?;
+                let still_there = membership(connection, id, project_id).await?.is_some();
+                if latest != Some(entry.id) || !still_there {
                     return Err(WorkError::Conflict(
                         "the item's place in that project changed since",
                     ));
@@ -228,8 +225,12 @@ pub async fn undo(
 
             if kind == HistoryKind::ProjectRemoved.as_str() {
                 let project_id = project_of(&entry.data)?;
-                if membership(connection, id, project_id).await?.is_some() {
-                    return Err(WorkError::Conflict("the item is in that project again"));
+                let latest = latest_change(connection, id, Some(project_id)).await?;
+                let still_out = membership(connection, id, project_id).await?.is_none();
+                if latest != Some(entry.id) || !still_out {
+                    return Err(WorkError::Conflict(
+                        "the item's place in that project changed since",
+                    ));
                 }
                 let exists = project::lock_shared(connection, project_id)
                     .await
@@ -256,7 +257,8 @@ pub async fn undo(
 
             if kind == HistoryKind::LeadProjectChanged.as_str() {
                 let (from, to) = lead_change(&entry.data)?;
-                if item.lead_project_id != to {
+                let latest = latest_change(connection, id, None).await?;
+                if latest != Some(entry.id) || item.lead_project_id != to {
                     return Err(WorkError::Conflict("the item's lead changed since"));
                 }
                 let Some(from) = from else {
@@ -341,10 +343,43 @@ async fn membership(
     id: Uuid,
     project_id: Uuid,
 ) -> QueryResult<Option<action_item::ProjectAttribution>> {
-    Ok(action_item::project_attributions(connection, id)
-        .await?
-        .into_iter()
-        .find(|membership| membership.project_id == project_id))
+    action_item_projects::table
+        .filter(action_item_projects::action_item_id.eq(id))
+        .filter(action_item_projects::project_id.eq(project_id))
+        .select(action_item::ProjectAttribution::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
+/// The latest entry that changed item `id`'s membership in `project`, or with `None` its lead.
+async fn latest_change(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    project: Option<Uuid>,
+) -> QueryResult<Option<Uuid>> {
+    let mut query = action_item_events::table
+        .filter(action_item_events::action_item_id.eq(id))
+        .into_boxed();
+    query = match project {
+        Some(project_id) => query
+            .filter(action_item_events::kind.eq_any([
+                HistoryKind::ProjectAdded.as_str(),
+                HistoryKind::ProjectRemoved.as_str(),
+            ]))
+            .filter(
+                action_item_events::data
+                    .retrieve_as_text("projectId")
+                    .eq(project_id.to_string()),
+            ),
+        None => query.filter(action_item_events::kind.eq(HistoryKind::LeadProjectChanged.as_str())),
+    };
+    query
+        .order(action_item_events::id.desc())
+        .select(action_item_events::id)
+        .first(connection)
+        .await
+        .optional()
 }
 
 /// The project a `project_added` or `project_removed` entry names.
@@ -353,18 +388,6 @@ fn project_of(data: &Value) -> Result<Uuid, WorkError> {
         .as_str()
         .and_then(|project_id| Uuid::parse_str(project_id).ok())
         .ok_or(WorkError::Invalid("the entry names no project"))
-}
-
-/// Whether a membership holding `confidence` and `attributed_by` is what a `project_added` entry
-/// wrote. An entry that did not say how it was held is matched by the membership alone.
-fn holds(data: &Value, confidence: f32, attributed_by: &str) -> bool {
-    let same_actor = data["attributedBy"]
-        .as_str()
-        .is_none_or(|written| written == attributed_by);
-    let same_confidence = data["confidence"]
-        .as_f64()
-        .is_none_or(|written| (written - f64::from(confidence)).abs() < 1e-6);
-    same_actor && same_confidence
 }
 
 /// The `{ from, to }` of a `lead_project_changed` entry.

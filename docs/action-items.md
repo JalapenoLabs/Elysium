@@ -132,8 +132,9 @@ project, and only that project's Project Manager works it: it alone may submit a
   (`action_item_projects.confidence` and `attributed_by`, the actor as history names it). Everyone's choice is certain;
   only the attribution step guesses.
 - **Which leads.** An item's first project leads it: the first one named when it is created, or the first one it
-  joins. When the lead leaves, the project it joined earliest of those left leads instead, or none once none is left.
-  Each move is recorded as `lead_project_changed`. A person makes any of its projects the lead on the item's page.
+  joins. When the lead leaves, the surest of those left leads instead, a person's choice before a guess and the
+  earliest joined among equals, or none once none is left. Each move is recorded as `lead_project_changed`. A person
+  makes any of its projects the lead on the item's page.
 - **Attribution.** An issue assigned to its person arrives in no project ([Assigned issues](#assigned-issues)), and a
   run of the `assigned_issue` workflow reads it with `segment_meeting`, the step that segments meetings and
   conversations: one turn reads the item's title, notes, and the issues it follows against every project, where each
@@ -141,12 +142,12 @@ project, and only that project's Project Manager works it: it alone may submit a
   (`docs/meetings.md`, Segmentation). A guess is kept only for a project that was offered, once, at a confidence of
   at least 0.3, as a segment's attributions are. The item joins each, surest first, so the surest leads it.
 - **Anyone else's word stands.** Elysia's reading leaves alone any project anyone else put the item in or took it out
-  of, a changeset someone approved included, and never moves a lead anyone else moved. Her own earlier reading she
-  replaces, so a reading run again keeps no guess it dropped.
+  of, a changeset someone approved included, and never moves a lead anyone else moved, nor takes the item off that
+  lead. Her own earlier reading she replaces, so a reading run again keeps no guess it dropped.
 - **Undo.** A person undoes any change to an item's projects or its lead from its history. The undo is an entry of its
   own naming the one it reversed (`undid`), so it can be undone in turn, and a project put back is held as it was,
-  Elysia's confidence included. Only what still holds what the entry wrote is undone; a change made since answers
-  `409` rather than being lost. An item still in a project always has a lead, so a lead that came with its first
+  Elysia's confidence included. Only the latest change to that project, or to the lead, is undone; one with a change
+  made since answers `409` rather than overwriting it. An item still in a project always has a lead, so a lead that came with its first
   project is changed by choosing another rather than undone.
 - **Nothing starts.** Attributing an item wakes no Project Manager and starts no worker. The wake for a record newly on
   a project (`docs/connectors.md`, The timeline) is a timeline record's, and an item is not one; assigning an item to

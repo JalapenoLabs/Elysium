@@ -28,6 +28,7 @@ import { ACTION_ITEM_PRIORITIES } from '../../api/routes/actionItemRoutes'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { describeOwner, priorityLabelKeys } from './actionItemPresentation'
 import { getLeadAfter } from './membershipChanges'
+import { boundedConfidence } from '../Projects/timelinePresentation'
 
 type Props = {
   item: ActionItem
@@ -61,7 +62,7 @@ export function ActionItemDetailsPanel(props: Props) {
     if (guess?.attributedBy !== 'elysia') {
       return project
     }
-    const percent = formatPercent(Math.min(Math.max(guess.confidence, 0), 1))
+    const percent = formatPercent(boundedConfidence(guess.confidence))
     return t('fields.projectGuessed', { project, percent })
   }
 

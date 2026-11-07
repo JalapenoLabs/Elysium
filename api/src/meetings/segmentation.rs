@@ -450,7 +450,8 @@ pub fn item_prompt(
     }
     push_projects(&mut prompt, projects);
 
-    // Within the projects' own budget, as the project list is.
+    // A budget of its own the size of the project list's, so the two together stay well under the
+    // argument limit.
     let mut work_lines = String::new();
     for project in work {
         let mut whereabouts: Vec<String> = Vec::new();
