@@ -24,6 +24,8 @@ export type WorkBatchPriority = typeof WORK_BATCH_PRIORITIES[number]
 
 // Mirrors `BatchState` in api/src/models/work_batch.rs.
 export const WORK_BATCH_STATES = [
+  // Its Project Manager proposed it; it waits for a person to approve it before it may queue.
+  'proposed',
   'queued',
   'paused',
   'assigned',
@@ -31,6 +33,8 @@ export const WORK_BATCH_STATES = [
   'succeeded',
   'failed',
   'cancelled',
+  // A person declined it while it was proposed, saying why.
+  'rejected',
 ] as const
 export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 
@@ -82,7 +86,7 @@ export type WorkBatch = {
   // When a scheduled batch is due.
   scheduledFor: string | null
   state: WorkBatchState
-  // What its worker reported, or why it was cancelled.
+  // What its worker reported, or why it was cancelled or rejected.
   result: string | null
   // The turn that submitted it.
   turnId: string | null
@@ -115,6 +119,8 @@ export type ProjectManager = {
   turns: ProjectManagerTurn[]
   // Its latest batches, newest first.
   batches: WorkBatch[]
+  // Every batch of its waiting for a person's approval, newest first, up to 200.
+  proposed: WorkBatch[]
   // Its latest promises, newest first.
   promises: PersonPromise[]
   // How its changes reach the work.

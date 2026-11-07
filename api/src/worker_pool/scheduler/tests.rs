@@ -1,22 +1,24 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! The scheduler's looks against Postgres: slots handed out in order and within the size, none
-//! while every Claude account is at its usage limit, slots taken back when the pool shrinks, and
-//! slots taken over by the next engine.
+//! while every Claude account is at its usage limit, none ever to a proposed batch, slots taken
+//! back when the pool shrinks, and slots taken over by the next engine.
 
 use chrono::TimeDelta;
-use diesel_async::AsyncPgConnection;
+use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use secrecy::SecretString;
 use serde_json::json;
 
 use super::*;
+use crate::database::schema::work_batches;
 use crate::models::claude_account::{
     self, Identity, NewCredential, SignedIn, Tokens, UsageWindow, UsageWindows,
 };
 use crate::models::project::{self, NewProject};
 use crate::models::user::{self, PROJECT_MANAGER_USER_ID, WorkspaceSettingsChanges};
 use crate::models::work_batch::{NewWorkBatch, Priority, WorkBatch};
-use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, approved_batch, cipher, migrated_database};
 
 async fn scheduler(url: &SecretString, cpu_count: i32) -> Scheduler {
     Scheduler {
@@ -44,25 +46,33 @@ async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     .id
 }
 
+/// A batch its Project Manager proposed, which no person has approved yet.
+async fn proposed(connection: &mut AsyncPgConnection, project_id: Uuid) -> WorkBatch {
+    work_batch::submit(connection, new_batch(project_id))
+        .await
+        .expect("submitted")
+        .batch
+}
+
+/// A batch a person approved, waiting for a slot.
 async fn submitted(connection: &mut AsyncPgConnection, project_id: Uuid) -> WorkBatch {
-    work_batch::submit(
-        connection,
-        NewWorkBatch {
-            id: Uuid::now_v7(),
-            project_id,
-            title: "Work".to_owned(),
-            goal: "Do the work.".to_owned(),
-            repositories: json!([]),
-            priority: Priority::Normal,
-            scheduled_for: None,
-            turn_id: None,
-            source_record_ids: json!([]),
-            action_item_ids: json!([]),
-            created_by: PROJECT_MANAGER_USER_ID,
-        },
-    )
-    .await
-    .expect("submitted")
+    approved_batch(connection, new_batch(project_id)).await
+}
+
+fn new_batch(project_id: Uuid) -> NewWorkBatch {
+    NewWorkBatch {
+        id: Uuid::now_v7(),
+        project_id,
+        title: "Work".to_owned(),
+        goal: "Do the work.".to_owned(),
+        repositories: json!([]),
+        priority: Priority::Normal,
+        scheduled_for: None,
+        turn_id: None,
+        source_record_ids: json!([]),
+        action_item_ids: json!([]),
+        created_by: PROJECT_MANAGER_USER_ID,
+    }
 }
 
 async fn size_pool(connection: &mut AsyncPgConnection, size: Option<i32>) {
@@ -220,5 +230,66 @@ async fn a_stopping_engine_leaves_its_slots_for_the_next_to_take_at_once() {
         in_slots(&mut connection).await,
         [batch.id],
         "the slot moved; no second was handed out"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_proposed_batch_never_gets_a_slot_through_restarts_and_lapsed_leases() {
+    let (url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    // Proposed first, with a pool of four slots and one other batch: nothing stands between it
+    // and a slot but the gate.
+    let waiting = proposed(&mut connection, launch).await;
+    let approved = submitted(&mut connection, launch).await;
+    size_pool(&mut connection, Some(4)).await;
+
+    let mut first = scheduler(&url, 8).await;
+    first.look().await.expect("looks");
+    first.look().await.expect("looks again");
+    assert_eq!(in_slots(&mut connection).await, [approved.id]);
+    assert!(!first.held.contains_key(&waiting.id));
+
+    // Handed its id directly, the pool still refuses it: only a queued batch is assigned.
+    let assigned = work_batch::assign(&mut connection, &[waiting.id], 4, Utc::now())
+        .await
+        .expect("looks");
+    assert!(assigned.is_empty());
+
+    // The engine stops, letting its leases lapse, and the next takes over every lapsed slot.
+    first.release().await;
+    let mut second = scheduler(&url, 8).await;
+    second.look().await.expect("looks");
+    assert_eq!(in_slots(&mut connection).await, [approved.id]);
+    assert!(!second.held.contains_key(&waiting.id));
+
+    // An engine that dies stops renewing; whatever takes its slots over once the lease lapses,
+    // well past it, adopts the approved batch alone.
+    let adopted = work_batch::adopt(&mut connection, Utc::now() + TimeDelta::hours(1))
+        .await
+        .expect("adopts");
+    let adopted: Vec<Uuid> = adopted.iter().map(|slot| slot.batch.id).collect();
+    assert_eq!(adopted, [approved.id]);
+    let mut third = scheduler(&url, 8).await;
+    third.look().await.expect("looks");
+
+    let still = work_batch::find(&mut connection, waiting.id)
+        .await
+        .expect("reads");
+    assert_eq!(still.state, BatchState::Proposed);
+    assert!(still.assigned_at.is_none());
+
+    // Not even a write that skips every function here can claim it: the table refuses a claim on
+    // anything but a batch in a slot.
+    let claimed = diesel::update(work_batches::table.find(waiting.id))
+        .set((
+            work_batches::claim_token.eq(Some(Uuid::now_v7())),
+            work_batches::lease_expires_at.eq(Some(Utc::now())),
+        ))
+        .execute(&mut connection)
+        .await;
+    assert!(
+        claimed.is_err(),
+        "work_batches_claimed_while_in_a_slot refuses it"
     );
 }

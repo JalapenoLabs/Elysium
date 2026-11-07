@@ -248,8 +248,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`: its repositories and tools script |
 | PUT    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`; replaces the whole setup   |
 | GET    | `/api/v1/promises?followUpItemId=`    | `200` `{ promises: Promise[] }`: the one promise an item follows up, or none; members only |
-| GET    | `/api/v1/work-queue`                  | `200` `{ workQueue }`: the pool, its slots, and every batch waiting, in order; members only |
-| GET    | `/api/v1/work-batches/{id}`           | `200` `{ batch, history }`; members only            |
+| GET    | `/api/v1/work-queue`                  | `200` `{ workQueue }`: the pool, its slots, every batch waiting, in order, and every batch proposed; members only |
+| GET    | `/api/v1/work-batches/{id}`           | `200` `{ batch, why, history }`; members only       |
+| POST   | `/api/v1/work-batches/{id}/approve`   | `200` as `GET`; optional `title`, `goal`, `repositories`, `priority` (with `scheduledFor`) changed first; `409` `work_batch_moved_on`; members only |
+| POST   | `/api/v1/work-batches/{id}/reject`    | `200` as `GET`; a required `reason`; `409` `work_batch_moved_on`; members only |
 | PATCH  | `/api/v1/work-batches/{id}`           | `200` as `GET`; `priority` (with `scheduledFor`), `paused`, `runNext`; `409` `work_batch_moved_on`; members only |
 | POST   | `/api/v1/work-batches/{id}/cancel`    | `200` as `GET`; an optional `reason`; `409` `work_batch_moved_on`; members only |
 | GET    | `/api/v1/work-batches/{id}/worker-log` | `200` `{ log }`: its worker's log; members only    |
@@ -505,11 +507,12 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 `GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
 (`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
-first, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
+first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
 timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, `message`, or
 `promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
-`scheduled`), `scheduledFor`, `state` (`queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`),
+`scheduled`), `scheduledFor`, `state` (`proposed`, `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`,
+`cancelled`, `rejected`),
 `result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`,
 `createdAt`, `startedAt`, and `finishedAt`, as `/api/v1/work-batches` answers it. A `Promise` has `id`, `projectId`,
 `state` (`waiting`, `due`, `drafted`, `kept`, `dismissed`), `recipient`, `summary` (what was promised), `madeIn` (`{
@@ -540,18 +543,22 @@ the project as it is when there is nothing to remove or restore, so an Undo afte
 The worker pool and the batches it runs (`docs/engine.md`, Workers and the pool). A batch quotes what was ingested, so
 every route answers admins and members, and a guest `403 members_only`.
 
-`GET /work-queue` answers `{ workQueue: { pool, inSlots, next, scheduled, paused } }`. `pool` is `{ size,
+`GET /work-queue` answers `{ workQueue: { pool, inSlots, next, scheduled, paused, proposed } }`. `pool` is `{ size,
 configuredSize, defaultSize, cpuCount, inUse, usageHeldUntil }`: `size` is what is in force, `configuredSize` an
 admin's choice (`null` follows the default), `defaultSize` and `cpuCount` what the engine last saw (`null` before it
 has looked, when `size` is `null` too unless an admin chose one), and `usageHeldUntil` set while every Claude account is
 at its usage limit. `inSlots` lists the batches holding slots, in the order they got them; `next` every batch the pool
 may hand a slot now, first first; `scheduled` the scheduled batches not yet due, soonest first; `paused` the paused
-ones. Each entry is `{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt }`,
-without its goal; at most the 1,000 oldest waiting batches are read.
+ones; and `proposed` those waiting for a person's approval, oldest first, which the pool hands nothing. Each entry is
+`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt }`, without its goal;
+at most the 1,000 oldest waiting batches are read, and apart from them at most the 1,000 oldest proposed.
 
-`GET /work-batches/{id}` answers `{ batch, history }`: the batch whole, as `GET /projects/{id}/project-manager` lists
-it, and its history oldest first, each entry `{ id, kind, data, createdBy, createdAt }` (`docs/engine.md`, Work
-batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
+`GET /work-batches/{id}` answers `{ batch, why, history }`: the batch whole, as `GET /projects/{id}/project-manager`
+lists it; `why`, `{ records, actionItems }`, the timeline records its Project Manager named as its cause, each `{ id,
+sourceKind, title, occurredAt, documentId }` with `documentId` the knowledge base's document a member opens it by
+(`null` before it is indexed), and the action items it works on, each `{ id, title, state }`, in the order it named
+them, leaving out any gone since; and its history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
+(`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
 log }`: what its worker said and which tools it called, one line each, scrubbed of its secrets, the newest 64 KiB,
 empty before it started. `GET /work-batches/{id}/pull-requests` answers `{ pullRequests }`: the pull requests its
@@ -562,7 +569,13 @@ its offset, in the future and within a year), `paused` (true holds back a batch 
 slot it held; false lets a paused one wait again), and `runNext` (true runs a due, queued batch before everything
 else; false puts it back in its place), applied in that order in one transaction, each recorded as the caller; a
 change that moves nothing records nothing. `POST /cancel` takes an optional `reason` (up to 20,000 characters), which
-its Project Manager is told. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with
+its Project Manager is told. A proposed batch takes neither a priority, a pause, nor run next: `POST /approve` queues
+it, first changing any of `title` (1 to 200 characters), `goal` (1 to 20,000), `repositories` (replacing them all, at
+most 16, each held to a coding session's rules and named once), and `priority` (with `scheduledFor` for a scheduled
+one), each trimmed as a submission is, recording an `edited` entry with only what changed and then `approved`; and
+`POST /reject` takes a required `reason` (1 to 20,000 characters), which ends it `rejected` and wakes its Project
+Manager with it. Both record the person who decided, and answer `409` `work_batch_moved_on` once it is no longer
+proposed; no machine user can call either, since each takes a member's session. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with
 `code` `work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running
 next at once) `400`.
 

@@ -43,6 +43,7 @@ import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
+import { WorkBatchEditPage } from './pages/WorkQueue/WorkBatchEditPage'
 import { WorkBatchPage } from './pages/WorkQueue/WorkBatchPage'
 import { WorkQueuePage } from './pages/WorkQueue/WorkQueuePage'
 import { SearchPage } from './pages/Search/SearchPage'
@@ -242,6 +243,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.workBatchView,
       element: <WorkBatchPage />,
+    },
+    {
+      path: UrlTree.workBatchEdit,
+      element: <WorkBatchEditPage />,
     },
     // Everything in the knowledge base sits beside its panel of pages, which stays put while the
     // page beside it scrolls.

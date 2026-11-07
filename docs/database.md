@@ -1602,7 +1602,10 @@ follow-up item while set.
 
 Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work batches and Workers and the pool.
 `work_batches_queue` on `(priority, scheduled_for, created_at)` while `queued` reads what waits, which the scheduler
-orders in code; `work_batches_in_slots` on `project_id` while claimed counts each project's slots.
+orders in code; `work_batches_in_slots` on `project_id` while claimed counts each project's slots; and
+`work_batches_proposed` on `(project_id, id)` while `proposed` reads what waits for a person and counts each project's.
+`work_batches_claimed_while_in_a_slot` holds a claim exactly on a batch `assigned` or `running`, so nothing writes a
+claim on a proposed one.
 
 | Column               | Type                  | Notes                                                             |
 |----------------------|-----------------------|-------------------------------------------------------------------|
@@ -1613,18 +1616,18 @@ orders in code; `work_batches_in_slots` on `project_id` while claimed counts eac
 | `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
 | `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
 | `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
-| `state`              | `work_batch_state`    | `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, or `cancelled` |
-| `result`             | `TEXT`                | What its worker reported, or why it was cancelled                 |
+| `state`              | `work_batch_state`    | `proposed` (the default), `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`, or `rejected` |
+| `result`             | `TEXT`                | What its worker reported, or why it was cancelled or rejected     |
 | `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
 | `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
 | `action_item_ids`    | `JSONB`               | The action items it works on, as an array of ids                  |
 | `timeline_record_id` | `UUID`                | Its record on the project's timeline; `SET NULL`                  |
 | `created_by`         | `UUID`                | References `users`: the Project Managers' machine user            |
 | `created_at`, `updated_at` | `TIMESTAMPTZ`   | Set on insert; `updated_at` maintained by trigger                 |
-| `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker started on it, so never for a waiting or cancelled batch |
-| `finished_at`        | `TIMESTAMPTZ`         | Set exactly once it ended or was cancelled                        |
+| `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker started on it, so never for a waiting, cancelled, or rejected batch |
+| `finished_at`        | `TIMESTAMPTZ`         | Set exactly once it ended, was cancelled, or was rejected         |
 | `pinned_at`          | `TIMESTAMPTZ`         | Set while someone asked for it to run next; only while `queued`   |
-| `assigned_at`        | `TIMESTAMPTZ`         | When the pool gave it a slot; set while `assigned` or `running`, kept once it ended, never while it waits |
+| `assigned_at`        | `TIMESTAMPTZ`         | When the pool gave it a slot; set while `assigned` or `running`, kept once it ended, never while it waits or once rejected |
 | `claim_token`        | `UUID`                | The engine holding its slot; set exactly while `assigned` or `running` |
 | `lease_expires_at`   | `TIMESTAMPTZ`         | Until when that engine holds the slot unless it renews; set exactly with `claim_token` |
 | `worker_session_id`  | `TEXT`                | The Claude Code session its worker's turns resume, once its first turn reported one |
@@ -1642,10 +1645,23 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 |-----------------|---------------|------------------------------------------------------------------------|
 | `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
 | `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
-| `kind`          | `TEXT`        | `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished` |
+| `kind`          | `TEXT`        | `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished` |
 | `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
+
+### `work_batch_approval_items`
+
+The one inbox item per project that asks a person to approve its proposed batches; see `docs/engine.md`, Proposed
+batches. A project has one row at most, naming the item it raised last; once its person resolves or dismisses that
+item, the next proposal raises a new one and the row names it instead.
+
+| Column           | Type          | Notes                                                                   |
+|------------------|---------------|-------------------------------------------------------------------------|
+| `project_id`     | `UUID`        | Primary key; references `projects`, cascading                           |
+| `action_item_id` | `UUID`        | References `action_items`, cascading: the item that counts its proposals |
+| `created_by`     | `UUID`        | References `users`: the Project Managers' machine user                  |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger             |
 
 ### `work_batch_pull_requests`
 

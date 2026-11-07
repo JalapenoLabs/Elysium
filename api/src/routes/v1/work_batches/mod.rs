@@ -1,19 +1,23 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/work-batches`: one work batch with its history, its worker's log, and the pull
-//! requests its worker recorded, and what people do to it while it waits: run it next, change its
-//! priority, pause or resume it, and cancel it. A batch's goal quotes what was ingested, so every
-//! route answers the company's members alone, as a project's Project Manager does. See
+//! `/api/v1/work-batches`: one work batch with why it exists, its history, its worker's log, and
+//! the pull requests its worker recorded, and what people do to it while it waits: approve it,
+//! edit and approve it, or reject it while it is proposed, then run it next, change its priority,
+//! pause or resume it, and cancel it. A batch's goal quotes what was ingested, so every route
+//! answers the company's members alone, as a project's Project Manager does; those same members
+//! are the only ones who decide on a proposal, since no machine user is one. See
 //! `docs/engine.md`, Workers and the pool.
 //!
 //! Each change goes through `crate::worker_pool::actions`, as Elysia's and a Project Manager's
 //! do, so it is recorded in the batch's history with who made it, announced, and signalled to
 //! the engine's pool.
 
+mod approve_work_batch;
 mod cancel_work_batch;
 mod get_pull_requests;
 mod get_work_batch;
 mod get_worker_log;
+mod reject_work_batch;
 #[cfg(test)]
 mod tests;
 mod update_work_batch;
@@ -26,6 +30,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::models::action_item::ActionItemState;
+use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::Wait;
 use crate::models::work_batch::{self, BatchEvent, BatchState, Priority, WorkBatch};
 use crate::state::AppState;
@@ -36,6 +42,8 @@ pub fn router() -> Router<AppState> {
             "/{id}",
             get(get_work_batch::handle).patch(update_work_batch::handle),
         )
+        .route("/{id}/approve", post(approve_work_batch::handle))
+        .route("/{id}/reject", post(reject_work_batch::handle))
         .route("/{id}/cancel", post(cancel_work_batch::handle))
         .route("/{id}/worker-log", get(get_worker_log::handle))
         .route("/{id}/pull-requests", get(get_pull_requests::handle))
@@ -108,8 +116,9 @@ impl From<WorkBatch> for BatchResponse {
 #[serde(rename_all = "camelCase")]
 pub struct BatchEventResponse {
     id: Uuid,
-    /// `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`,
-    /// `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished`.
+    /// `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`,
+    /// `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`,
+    /// `started`, `waiting`, `answered`, or `finished`.
     kind: String,
     data: Value,
     created_by: Uuid,
@@ -128,7 +137,62 @@ impl From<BatchEvent> for BatchEventResponse {
     }
 }
 
-/// Batch `batch` with its history, as every route here answers it.
+/// What called for a batch: the timeline records named as its cause, each with the knowledge
+/// base's document a member opens it by, and the action items it works on.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhyResponse {
+    records: Vec<CauseResponse>,
+    action_items: Vec<ItemResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CauseResponse {
+    id: Uuid,
+    source_kind: String,
+    title: String,
+    occurred_at: DateTime<Utc>,
+    /// Null until the knowledge base has indexed it.
+    document_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemResponse {
+    id: Uuid,
+    title: String,
+    state: ActionItemState,
+}
+
+impl From<Why> for WhyResponse {
+    fn from(why: Why) -> Self {
+        Self {
+            records: why
+                .causes
+                .into_iter()
+                .map(|cause| CauseResponse {
+                    id: cause.record_id,
+                    source_kind: cause.source_kind,
+                    title: cause.title,
+                    occurred_at: cause.occurred_at,
+                    document_id: cause.document_id,
+                })
+                .collect(),
+            action_items: why
+                .items
+                .into_iter()
+                .map(|item| ItemResponse {
+                    id: item.id,
+                    title: item.title,
+                    state: item.state,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Batch `batch` with why it exists and its history, as every route here answers it.
 async fn with_history(
     connection: &mut AsyncPgConnection,
     batch: WorkBatch,
@@ -138,5 +202,6 @@ async fn with_history(
         .into_iter()
         .map(BatchEventResponse::from)
         .collect();
-    Ok(json!({ "batch": BatchResponse::from(batch), "history": history }))
+    let why = WhyResponse::from(why::read(connection, &batch).await?);
+    Ok(json!({ "batch": BatchResponse::from(batch), "why": why, "history": history }))
 }

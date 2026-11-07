@@ -30,10 +30,15 @@ which. Assigning wakes the Project Manager to plan. It starts no worker.
 
 ## Proposed batches
 
-A Project Manager still plans, orders, and queues everything. Its batches start `proposed`, ahead of `queued`, and the
-scheduler never gives a proposed batch a slot. The person sees each with its goal, repositories, priority, and why,
-and approves it, edits those fields and approves it, or rejects it with a reason. A rejection's reason wakes the
-Project Manager and goes into the project brief, and it is recorded as feedback for self-improvement.
+Built. A Project Manager still plans, orders, and submits everything. Its batches start `proposed`, ahead of
+`queued`, and the scheduler never gives a proposed batch a slot. The person sees each with its goal, repositories,
+priority, and why, on the work queue's Proposed tab and the project's own, and approves it, edits those fields and
+approves it, or rejects it with a reason. Each project with proposals waiting has one inbox item counting them,
+resolved once none are left. A rejection's reason wakes the Project Manager, and it is recorded in the batch's history
+as the person's feedback for self-improvement. Only a person decides: Elysia and Project Managers list proposals and
+approve none. Until the dial below exists, every batch is proposed.
+
+On the roadmap: a rejection's reason also goes into the project brief (The project brief, below).
 
 ## The dial
 

@@ -1,6 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { WorkBatch, WorkBatchPriority, WorkBatchState } from './projectManagerRoutes'
+import type { ActionItemState } from './actionItemRoutes'
+import type {
+  WorkBatch,
+  WorkBatchPriority,
+  WorkBatchRepository,
+  WorkBatchState,
+} from './projectManagerRoutes'
 
 // Misc
 import { apiClient } from '../index'
@@ -47,11 +53,17 @@ export type WorkQueue = {
   // Scheduled batches not yet due, soonest first.
   scheduled: WorkQueueEntry[]
   paused: WorkQueueEntry[]
+  // Batches waiting for a person's approval, oldest first; the pool hands them nothing.
+  proposed: WorkQueueEntry[]
 }
 
 // Mirrors `EventKind` in api/src/models/work_batch.rs.
 export const WORK_BATCH_EVENT_KINDS = [
   'submitted',
+  'held_for_approval',
+  'edited',
+  'approved',
+  'rejected',
   'pinned',
   'unpinned',
   'reprioritized',
@@ -91,8 +103,33 @@ export function getWorkBatchKey(batchId: string) {
   return `v1/work-batches/${batchId}`
 }
 
+// A timeline record that called for a batch, opened through the knowledge base, where any member
+// reads what was ingested.
+export type WorkBatchCause = {
+  id: string
+  sourceKind: string
+  title: string
+  occurredAt: string
+  // Null until the knowledge base has indexed it.
+  documentId: string | null
+}
+
+// An action item a batch works on.
+export type WorkBatchItem = {
+  id: string
+  title: string
+  state: ActionItemState
+}
+
+// Mirrors `WhyResponse` in api/src/routes/v1/work_batches/mod.rs: what called for a batch.
+export type WorkBatchWhy = {
+  records: WorkBatchCause[]
+  actionItems: WorkBatchItem[]
+}
+
 export type WorkBatchWithHistory = {
   batch: WorkBatch
+  why: WorkBatchWhy
   history: WorkBatchHistoryEntry[]
 }
 
@@ -168,6 +205,31 @@ export type WorkBatchChanges = {
 export function updateWorkBatch(batchId: string, changes: WorkBatchChanges) {
   return apiClient
     .patch(getWorkBatchKey(batchId), { json: changes })
+    .json<WorkBatchWithHistory>()
+}
+
+// What a person changes as they approve a proposed batch; each field left out stays as its
+// Project Manager proposed it.
+export type WorkBatchEdits = {
+  title?: string
+  goal?: string
+  // Replaces every repository it named.
+  repositories?: WorkBatchRepository[]
+  priority?: WorkBatchPriority
+  // With its offset, beside `priority: 'scheduled'`.
+  scheduledFor?: string
+}
+
+export function approveWorkBatch(batchId: string, edits: WorkBatchEdits) {
+  return apiClient
+    .post(`${getWorkBatchKey(batchId)}/approve`, { json: edits })
+    .json<WorkBatchWithHistory>()
+}
+
+// Declines a proposed batch; its Project Manager is told the reason.
+export function rejectWorkBatch(batchId: string, reason: string) {
+  return apiClient
+    .post(`${getWorkBatchKey(batchId)}/reject`, { json: { reason }})
     .json<WorkBatchWithHistory>()
 }
 

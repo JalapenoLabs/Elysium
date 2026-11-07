@@ -8,7 +8,11 @@
 //! its provenance is on its project, and every action item it works on is led by its project.
 //! An item can sit on several projects, but only its lead project's Project Manager works it
 //! (`crate::models::action_item`, Projects and the lead). The rules are [`check`], a pure function
-//! tested on its own; [`submit`] adds the checks that read the database.
+//! tested on its own; [`submit`] adds the checks that read the database. A person's edits to a
+//! proposed batch are held to the same rules ([`check_edits`]).
+//!
+//! A submitted batch is proposed: it waits for a person to approve it before the pool may give
+//! it a slot (`crate::models::work_batch::approval`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,9 +26,10 @@ use uuid::Uuid;
 use super::timeline;
 use crate::database::schema::action_items;
 use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::work_batch::approval::Edits;
 use crate::models::work_batch::{self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch};
 use crate::models::{project, timeline_record};
-use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::validate_repository_url;
 use crate::worker_pool::actions;
 
@@ -76,26 +81,84 @@ pub enum BatchError {
 /// # Errors
 /// Names the first rule `submission` breaks.
 pub fn check(submission: &Submission, now: DateTime<Utc>) -> Result<(), String> {
-    let title = submission.title.trim();
+    check_title(&submission.title)?;
+    check_goal(&submission.goal)?;
+    check_repositories(&submission.repositories)?;
+    work_batch::check_schedule(submission.priority, submission.scheduled_for, now)?;
+
+    for (name, ids) in [
+        ("recordIds", &submission.record_ids),
+        ("actionItemIds", &submission.action_item_ids),
+    ] {
+        if ids.len() > PROVENANCE_MAX {
+            return Err(format!("{name} names at most {PROVENANCE_MAX} ids"));
+        }
+        if ids.iter().collect::<HashSet<_>>().len() != ids.len() {
+            return Err(format!("{name} names an id twice"));
+        }
+    }
+    Ok(())
+}
+
+/// `edits` a person makes to a proposed batch at `now`, tidied as a submission's fields are and
+/// held to the same rules: each field given is checked alone, since each replaces only itself.
+///
+/// # Errors
+/// Names the first rule an edit breaks.
+pub fn check_edits(edits: Edits, now: DateTime<Utc>) -> Result<Edits, String> {
+    let title = edits.title.map(|title| title.trim().to_owned());
+    if let Some(title) = &title {
+        check_title(title)?;
+    }
+    let goal = edits.goal.map(|goal| goal.trim().to_owned());
+    if let Some(goal) = &goal {
+        check_goal(goal)?;
+    }
+    let repositories = edits.repositories.map(tidy_repositories);
+    if let Some(repositories) = &repositories {
+        check_repositories(repositories)?;
+    }
+    if let Some((priority, scheduled_for)) = edits.priority {
+        work_batch::check_schedule(priority, scheduled_for, now)?;
+    }
+    Ok(Edits {
+        title,
+        goal,
+        repositories,
+        priority: edits.priority,
+    })
+}
+
+fn check_title(title: &str) -> Result<(), String> {
+    let title = title.trim();
     if title.is_empty() || title.chars().count() > TITLE_MAX_CHARACTERS {
         return Err(format!(
             "title must hold text, at most {TITLE_MAX_CHARACTERS} characters"
         ));
     }
-    let goal = submission.goal.trim();
+    Ok(())
+}
+
+fn check_goal(goal: &str) -> Result<(), String> {
+    let goal = goal.trim();
     if goal.is_empty() || goal.chars().count() > TEXT_MAX_CHARACTERS {
         return Err(format!(
             "goal must hold text, at most {TEXT_MAX_CHARACTERS} characters"
         ));
     }
+    Ok(())
+}
 
-    if submission.repositories.len() > REPOSITORIES_MAX {
+/// The rules a batch's repositories follow: a coding session's, each named once, at most
+/// [`REPOSITORIES_MAX`].
+fn check_repositories(repositories: &[Repository]) -> Result<(), String> {
+    if repositories.len() > REPOSITORIES_MAX {
         return Err(format!(
             "a batch needs at most {REPOSITORIES_MAX} repositories; split the work"
         ));
     }
     let mut urls = HashSet::new();
-    for repository in &submission.repositories {
+    for repository in repositories {
         if let Err(refusal) = validate_repository_url(&repository.url) {
             let reason = refusal
                 .message
@@ -116,25 +179,25 @@ pub fn check(submission: &Submission, now: DateTime<Utc>) -> Result<(), String> 
             ));
         }
     }
-
-    work_batch::check_schedule(submission.priority, submission.scheduled_for, now)?;
-
-    for (name, ids) in [
-        ("recordIds", &submission.record_ids),
-        ("actionItemIds", &submission.action_item_ids),
-    ] {
-        if ids.len() > PROVENANCE_MAX {
-            return Err(format!("{name} names at most {PROVENANCE_MAX} ids"));
-        }
-        if ids.iter().collect::<HashSet<_>>().len() != ids.len() {
-            return Err(format!("{name} names an id twice"));
-        }
-    }
     Ok(())
 }
 
+/// `repositories` as they are stored: each URL and base branch trimmed.
+fn tidy_repositories(repositories: Vec<Repository>) -> Vec<Repository> {
+    repositories
+        .into_iter()
+        .map(|repository| Repository {
+            url: repository.url.trim().to_owned(),
+            base_branch: repository
+                .base_branch
+                .map(|branch| branch.trim().to_owned()),
+        })
+        .collect()
+}
+
 /// Submits `submission` for `project_id` from its Project Manager's turn `turn_id`: stores it,
-/// puts it on the project's timeline, and announces both.
+/// proposed, puts it on the project's timeline, raises or updates the project's approval item,
+/// and announces all three.
 ///
 /// # Errors
 /// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it names a record
@@ -150,16 +213,7 @@ pub async fn submit(
     check(&submission, Utc::now()).map_err(BatchError::Refused)?;
     refuse_unknown_provenance(connection, project_id, &submission).await?;
 
-    let repositories: Vec<Repository> = submission
-        .repositories
-        .into_iter()
-        .map(|repository| Repository {
-            url: repository.url.trim().to_owned(),
-            base_branch: repository
-                .base_branch
-                .map(|branch| branch.trim().to_owned()),
-        })
-        .collect();
+    let repositories = tidy_repositories(submission.repositories);
     let new_batch = NewWorkBatch {
         id: Uuid::now_v7(),
         project_id,
@@ -173,13 +227,13 @@ pub async fn submit(
         action_item_ids: json!(submission.action_item_ids),
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    let (batch, record) = connection
+    let (written, record) = connection
         .transaction(async |connection| {
-            let mut batch = work_batch::submit(connection, new_batch).await?;
-            let record = timeline::record_batch(connection, &batch).await?;
-            work_batch::set_timeline_record(connection, batch.id, record.id).await?;
-            batch.timeline_record_id = Some(record.id);
-            diesel::QueryResult::Ok((batch, record))
+            let mut written = work_batch::submit(connection, new_batch).await?;
+            let record = timeline::record_batch(connection, &written.batch).await?;
+            work_batch::set_timeline_record(connection, written.batch.id, record.id).await?;
+            written.batch.timeline_record_id = Some(record.id);
+            diesel::QueryResult::Ok((written, record))
         })
         .await?;
 
@@ -190,9 +244,8 @@ pub async fn submit(
         action_item_id: None,
         conversation_id: None,
     });
-    actions::announce(events, &batch);
-    events.signal(&Signal::WorkerPool);
-    Ok(batch)
+    // Proposed, it waits for a person rather than for a slot, so the pool is not told.
+    Ok(actions::publish(connection, events, written).await)
 }
 
 /// Withdraws `project_id`'s batch `batch_id` while no worker has started on it, saying `reason`,
