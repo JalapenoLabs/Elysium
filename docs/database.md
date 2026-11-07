@@ -9,6 +9,9 @@ Queries are checked at compile time against `api/src/database/schema.rs`. A wron
 or a nullable column read as non-null is a build error, not a runtime surprise. `schema.rs` is generated from the
 migrations, so the compiler checks the code against the real schema.
 
+Diesel is built with its `64-column-tables` feature: `work_batches` holds more than 32 columns, Diesel's default
+limit for one table.
+
 ## Migrations
 
 Each migration is a directory under `api/migrations/` holding `up.sql` and `down.sql`. Create one with the pinned
@@ -1595,7 +1598,8 @@ Work a Project Manager submitted for the worker pool; see `docs/engine.md`, Work
 orders in code; `work_batches_in_slots` on `project_id` while claimed counts each project's slots; and
 `work_batches_proposed` on `(project_id, id)` while `proposed` reads what waits for a person and counts each project's.
 `work_batches_claimed_while_in_a_slot` holds a claim exactly on a batch `assigned` or `running`, so nothing writes a
-claim on a proposed one.
+claim on a proposed one. A batch stored before origins existed has the origin its provenance proves, by the rules the
+API applies (`docs/engine.md`, Origins and generations), generation 0, and no parents.
 
 | Column               | Type                  | Notes                                                             |
 |----------------------|-----------------------|-------------------------------------------------------------------|
@@ -1611,6 +1615,10 @@ claim on a proposed one.
 | `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
 | `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
 | `action_item_ids`    | `JSONB`               | The action items it works on, as an array of ids                  |
+| `source_message_ids` | `JSONB`               | The messages to its Project Manager that called for it, as an array of `project_manager_wakes` ids |
+| `origin`             | `work_batch_origin`   | `human_rooted` or `found`, worked out from its provenance as it is submitted; no default |
+| `generation`         | `INTEGER`             | How many batches led to it, at least 0; no default. The limit is a code constant (`work_batch::lineage::MAX_GENERATION`) |
+| `parent_batch_ids`   | `JSONB`               | The batches it was planned from, as an array of ids               |
 | `timeline_record_id` | `UUID`                | Its record on the project's timeline; `SET NULL`                  |
 | `created_by`         | `UUID`                | References `users`: the Project Managers' machine user            |
 | `created_at`, `updated_at` | `TIMESTAMPTZ`   | Set on insert; `updated_at` maintained by trigger                 |

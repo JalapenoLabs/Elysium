@@ -55,12 +55,16 @@ work queue itself: at every level it stays in Findings until a person accepts it
 The runaway train is work that files work: a worker notices something, files it, it is queued, and its worker notices
 more, until nobody remembers why. The brake is structural.
 
-- Every batch has an origin, worked out from its provenance. **Human-rooted** traces to a person, an assigned issue, a
-  meeting, or a coworker's request. **Found** is something an agent noticed.
-- Every batch has a generation: how many batches led to it. A person's accepting a finding resets it to zero. The
-  limit is a code constant, and a batch past it is refused.
-- A Project Manager cannot submit a batch with no origin, and each batch names the goal in the project brief it
-  serves.
+- Built: every batch has an origin, worked out from its provenance as it is submitted, never asserted.
+  **Human-rooted** traces to a person: their message to its Project Manager, an issue assigned to them, a meeting, or
+  a coworker's request. **Found** traces only to what an agent noticed.
+- Built: every batch has a generation, how many batches led to it: one more than its deepest parent a worker worked
+  on, where a batch led to another when the turn that planned it was woken by that batch or it names a record the
+  batch made. The limit is a code constant, 3, and a batch past it is refused, telling its Project Manager to leave
+  the decision to the person. A person accepting a finding resets it to zero, the seam Findings use.
+- Built: a Project Manager cannot submit a batch with no origin. The work queue and every batch's page show both.
+  The exact rules are `docs/engine.md`, Origins and generations.
+- On the roadmap: each batch names the goal in the project brief it serves.
 
 ## Findings
 

@@ -20,11 +20,14 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 // Misc
 import { DateText } from '../../format/DateText'
 import { formatDateTime, formatShortDateTime } from '../../format/dates'
+import { formatNumber } from '../../format/numbers'
 import { useNow } from '../../hooks/useNow'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getProjectViewUrl, getWorkBatchViewUrl } from '../../urls'
 import {
+  batchOriginChipColors,
+  batchOriginLabelKeys,
   batchPriorityChipColors,
   batchPriorityLabelKeys,
   batchStateChipColors,
@@ -46,16 +49,25 @@ type Props = {
   entries: WorkQueueEntry[]
 }
 
-const COLUMN_KEYS = [ 'position', 'title', 'project', 'priority', 'state', 'submitted' ] as const
+const COLUMN_KEYS = [
+  'position',
+  'title',
+  'project',
+  'priority',
+  'state',
+  'origin',
+  'generation',
+  'submitted',
+] as const
 type ColumnKey = typeof COLUMN_KEYS[number]
 
 // Only the queue itself has places: the other lists are not an order slots are handed out in.
 const columnKeysByList = {
-  proposed: [ 'title', 'project', 'priority', 'submitted' ],
+  proposed: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
   queued: COLUMN_KEYS,
-  running: [ 'title', 'project', 'priority', 'state', 'submitted' ],
-  scheduled: [ 'title', 'project', 'priority', 'submitted' ],
-  paused: [ 'title', 'project', 'priority', 'submitted' ],
+  running: [ 'title', 'project', 'priority', 'state', 'origin', 'generation', 'submitted' ],
+  scheduled: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
+  paused: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
 } as const satisfies Record<WorkQueueList, readonly ColumnKey[]>
 
 const columnLabelKeys = {
@@ -64,16 +76,20 @@ const columnLabelKeys = {
   project: 'table.columns.project',
   priority: 'table.columns.priority',
   state: 'table.columns.state',
+  origin: 'table.columns.origin',
+  generation: 'table.columns.generation',
   submitted: 'table.columns.submitted',
 } as const satisfies Record<ColumnKey, string>
 
-// Starting widths in pixels, summing to less than the content column at md.
+// Starting widths in pixels; the columns picker hides what a person does not need.
 const columnSizes = {
   position: 70,
-  title: 260,
+  title: 240,
   project: 150,
-  priority: 160,
-  state: 160,
+  priority: 140,
+  state: 150,
+  origin: 150,
+  generation: 110,
   submitted: 120,
 } as const satisfies Record<ColumnKey, number>
 
@@ -116,6 +132,7 @@ export function WorkQueueTable(props: Props) {
     const projectName = (entry: WorkQueueEntry) => projectNames[entry.projectId] ?? ''
     const priorityLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchPriorityLabelKeys[entry.priority])
     const stateLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchStateLabelKeys[entry.state])
+    const originLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchOriginLabelKeys[entry.origin])
     // A place in the queue is where it stands in the list the server ordered, counted once.
     const positions = new Map<string, number>()
     for (const [ index, entry ] of props.entries.entries()) {
@@ -129,19 +146,23 @@ export function WorkQueueTable(props: Props) {
       project: projectName,
       priority: priorityLabel,
       state: stateLabel,
+      origin: originLabel,
+      generation: (entry: WorkQueueEntry) => String(entry.generation),
       submitted: (entry: WorkQueueEntry) => formatDateTime(entry.createdAt),
     } satisfies Record<ColumnKey, (entry: WorkQueueEntry) => string>
 
-    // A place sorts as a number and a submission in time; the rest by their words.
+    // A place and a generation sort as numbers and a submission in time; the rest by their words.
     const sortValue = {
       ...searchValue,
       position,
+      generation: (entry: WorkQueueEntry) => entry.generation,
       submitted: (entry: WorkQueueEntry) => Date.parse(entry.createdAt),
     } satisfies Record<ColumnKey, (entry: WorkQueueEntry) => string | number>
 
     const exportValue = {
       ...searchValue,
       position,
+      generation: (entry: WorkQueueEntry) => entry.generation,
       submitted: (entry: WorkQueueEntry) => entry.createdAt,
     } satisfies Record<ColumnKey, (entry: WorkQueueEntry) => CsvValue>
 
@@ -173,6 +194,12 @@ export function WorkQueueTable(props: Props) {
       state: (entry: WorkQueueEntry) => <Chip size='sm' variant='soft' color={batchStateChipColors[entry.state]}>{
         stateLabel(entry)
       }</Chip>,
+      origin: (entry: WorkQueueEntry) => <Chip size='sm' variant='soft' color={batchOriginChipColors[entry.origin]}>{
+        originLabel(entry)
+      }</Chip>,
+      generation: (entry: WorkQueueEntry) => <span className='tabular-nums opacity-80'>{
+        formatNumber(entry.generation)
+      }</span>,
       submitted: (entry: WorkQueueEntry) => <DateText value={entry.createdAt} isFocusable={false} />,
     } satisfies Record<ColumnKey, (entry: WorkQueueEntry) => unknown>
 

@@ -42,6 +42,8 @@ async fn proposed(connection: &mut AsyncPgConnection, project_id: Uuid, title: &
             turn_id: None,
             source_record_ids: json!([]),
             action_item_ids: json!([]),
+            source_message_ids: json!([]),
+            lineage: crate::test_support::person_rooted(),
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )
@@ -421,6 +423,8 @@ async fn held_for_approval(connection: &mut AsyncPgConnection, project_id: Uuid)
                 turn_id: None,
                 source_record_ids: json!([]),
                 action_item_ids: json!([]),
+                source_message_ids: json!([]),
+                lineage: crate::test_support::person_rooted(),
                 created_by: PROJECT_MANAGER_USER_ID,
             },
             work_batches::state.eq(BatchState::Proposed),

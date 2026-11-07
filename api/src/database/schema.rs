@@ -186,6 +186,10 @@ pub mod sql_types {
     pub struct Vector;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "work_batch_origin"))]
+    pub struct WorkBatchOrigin;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "work_batch_priority"))]
     pub struct WorkBatchPriority;
 
@@ -1801,6 +1805,7 @@ diesel::table! {
     use super::sql_types::WorkBatchPriority;
     use super::sql_types::WorkBatchState;
     use super::sql_types::WorkBatchWait;
+    use super::sql_types::WorkBatchOrigin;
 
     work_batches (id) {
         id -> Uuid,
@@ -1832,6 +1837,10 @@ diesel::table! {
         worker_report -> Nullable<Jsonb>,
         worker_log -> Text,
         configuration -> Nullable<Jsonb>,
+        origin -> WorkBatchOrigin,
+        generation -> Int4,
+        parent_batch_ids -> Jsonb,
+        source_message_ids -> Jsonb,
     }
 }
 

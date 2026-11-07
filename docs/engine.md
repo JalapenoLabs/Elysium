@@ -473,8 +473,9 @@ trackers (Its writes, below), and its tabs on the project's page.
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
   where its issues file (or why nowhere), names the project's docs, the knowledge base pages linked to it, up to 50 of
-  them newest published first, and carries what woke it: each message, each record's kind, title,
-  summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that failed, and
+  them newest published first, and carries what woke it: each message with the id a batch names it by, each record's
+  kind, title, summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that
+  failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
   one. It ends with a `Summary:` line, which
@@ -554,9 +555,10 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
 A batch (`work_batches`) is one piece of work for one worker: a title, a goal written so a worker who has seen nothing
 else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
-provenance: the turn that submitted it, the timeline records that called for it, and the action items it works on,
-each checked to be on its project. Submitting stores it, proposed, puts it on the timeline, brings its project's
-approval item up to date, and announces all three in one place (`project_managers::batches`).
+provenance: the turn that submitted it, the timeline records and the messages to its Project Manager that called for
+it, and the action items it works on, each checked to be on its project. From its provenance come its origin and
+generation (Origins and generations, below). Submitting stores it, proposed, puts it on the timeline, brings its
+project's approval item up to date, and announces all three in one place (`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
@@ -619,6 +621,50 @@ submits everything; the gate is between its plan and the pool.
   chain, from meeting quote to pull request, is on the roadmap (`docs/autonomy.md`, Staying aware).
 - **Feedback.** A rejection's `rejected` entry, with its reason and the person, is the feedback it leaves for
   self-improvement until a store of feedback exists (`docs/self-improvement.md`).
+
+### Origins and generations
+
+Built: every batch's origin and generation, worked out as it is submitted and never taken from its Project Manager
+(`api/src/models/work_batch/lineage.rs`, held to them by `project_managers::batches::submit`). They are the structural
+brake on work that files work (`docs/autonomy.md`, Origins and generations). A submission naming `origin` or
+`generation` is refused whole.
+
+- **Origin.** A batch is `human_rooted` when anything it names traces to a person, and `found` when everything it
+  names is an agent's. A timeline record is a person's when a person owns it: everything ingested (mail, chat, a
+  meeting's segments, an issue a reader recorded, a draft the person sent) is its person's, and everything Elysium's
+  agents put on a timeline (a Project Manager's turns, batches, and writes, merged pull requests, turn summaries) is a
+  machine's. A message is a person's when a person wrote it from the Project Manager tab; Elysia's are hers. An action
+  item is a person's when a person created it, a provider's watcher brought it in (an issue assigned to the person, new
+  mail), a person approved the changeset that created it, or a person accepted it from the inbox. An item an agent
+  raised that nobody accepted (Elysia's from a conversation, a Project Manager's written directly) is an agent's
+  reading of something; the messages it came from root it, and the Project Manager names those.
+- **No origin.** A batch that names nothing (no record, item, or message) has no origin, and is refused telling its
+  Project Manager what to name.
+- **Led to.** Batch B led to batch C when C's Project Manager planned C from B: the turn that submitted C was woken by B
+  (its result, its worker's question, its rejection or cancellation) or by a record B made (its merged pull request), or
+  C names a record B made (its record on the timeline, its merged pull request) as its cause. A record names its batch
+  only when Elysium made it, so nothing ingested can claim one. C keeps the batches that led to it
+  (`work_batches.parent_batch_ids`), and its page links each.
+- **Generation.** The greatest, over the batches that led to C, of each one's generation plus one when a worker worked
+  on it. A batch no worker touched, one a person rejected or one withdrawn, adds nothing: what replaces it stands where
+  it stood, since nothing a worker did called for it, so a person steering by rejections never runs a chain out. A
+  batch nothing led to is generation 0, whatever its origin. Naming the meeting that asked for the first batch does not
+  hide what led to a follow-up: origin and generation are apart, so a follow-up can be human-rooted and generation 1.
+- **The limit.** `work_batch::lineage::MAX_GENERATION`, 3: a person's request, then at most three batches each planned
+  from what the one before's worker did. A batch past it is refused, telling the Project Manager which batch it follows
+  and to say in its reply what it would do next, so the person decides; nothing is stored. A batch answering a person's
+  message its own turn took starts the chain again: wakes are debounced into one turn, so a batch's result arriving
+  beside a person's request never holds the request to that batch's chain. Records it names still count.
+- **Resetting.** A person accepting a finding re-roots the work: its batch is human-rooted and generation 0
+  (`Lineage::accepted_finding`, which Findings use, `docs/autonomy.md`).
+- **Never queued alone.** Every batch is proposed today. A trust dial that lets human-rooted work run past approval
+  must still propose every found batch (`work_batch::submit`).
+- **Existing batches** have the origin their provenance proves, generation 0, and no parents: no chain was recorded for
+  them, so a chain counts from them.
+- **What a turn that both a person's message and a batch's result woke submits** counts that batch, since the Project
+  Manager read its result as it planned, unless it names that person's message. A follow-up the Project Manager submits
+  in a later turn that nothing of the batch's woke, naming only a person's record, counts from 0, and so does one that
+  names a person's unrelated message its turn took; the person still approves either.
 
 ## Workers and the pool
 

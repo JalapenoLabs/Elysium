@@ -142,6 +142,8 @@ async fn read_queue(
             "scheduledFor": batch.scheduled_for,
             "state": batch.state,
             "runNext": batch.pinned_at.is_some(),
+            "origin": batch.origin,
+            "generation": batch.generation,
             "submittedAt": batch.created_at,
         })
     };
@@ -321,6 +323,8 @@ mod tests {
                     turn_id: None,
                     source_record_ids: json!([]),
                     action_item_ids: json!([]),
+                    source_message_ids: json!([]),
+                    lineage: crate::test_support::person_rooted(),
                     created_by: PROJECT_MANAGER_USER_ID,
                 },
             )
@@ -341,6 +345,8 @@ mod tests {
                 turn_id: None,
                 source_record_ids: json!([]),
                 action_item_ids: json!([]),
+                source_message_ids: json!([]),
+                lineage: crate::test_support::person_rooted(),
                 created_by: PROJECT_MANAGER_USER_ID,
             },
         )

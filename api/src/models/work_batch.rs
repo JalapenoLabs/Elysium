@@ -5,7 +5,9 @@
 //!
 //! A batch is a goal a worker can work from alone, the repositories it needs, a priority (ASAP,
 //! normal, or a scheduled time), and its provenance: the Project Manager's turn that submitted
-//! it, the timeline records that called for it, and the action items it works on.
+//! it, the timeline records and messages that called for it, and the action items it works on.
+//! From its provenance comes its lineage ([`lineage`]): whether it traces to a person, and how
+//! many batches led to it.
 //!
 //! # Where a batch stands
 //!
@@ -48,6 +50,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use self::approval_item::Cause;
+use self::lineage::{Lineage, Origin};
 use crate::database::schema::{work_batch_events, work_batches};
 use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
@@ -173,6 +176,14 @@ pub struct WorkBatch {
     /// The configuration its worker ran on, as stored ([`Checkout`]); set as its container
     /// fetched it.
     pub configuration: Option<Value>,
+    /// Whether it traces to a person or only to what an agent noticed.
+    pub origin: Origin,
+    /// How many batches led to it ([`lineage`]).
+    pub generation: i32,
+    /// Ids of the batches it was planned from, as stored.
+    pub parent_batch_ids: Value,
+    /// Ids of the messages to its Project Manager that called for it, as stored.
+    pub source_message_ids: Value,
 }
 
 impl WorkBatch {
@@ -216,6 +227,16 @@ impl WorkBatch {
     /// The action items it works on.
     pub fn action_items(&self) -> Vec<Uuid> {
         serde_json::from_value(self.action_item_ids.clone()).unwrap_or_default()
+    }
+
+    /// The messages to its Project Manager that called for it.
+    pub fn source_messages(&self) -> Vec<Uuid> {
+        serde_json::from_value(self.source_message_ids.clone()).unwrap_or_default()
+    }
+
+    /// The batches it was planned from.
+    pub fn parents(&self) -> Vec<Uuid> {
+        serde_json::from_value(self.parent_batch_ids.clone()).unwrap_or_default()
     }
 
     /// Whether it may be given a slot at `now`: queued, and due when scheduled.
@@ -351,7 +372,8 @@ async fn record(
         .map(drop)
 }
 
-/// A batch to submit.
+/// A batch to submit. Its lineage is what [`lineage::decide`] made of its provenance, so a batch
+/// with no origin or past the generation limit cannot be built.
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = work_batches)]
 pub struct NewWorkBatch {
@@ -365,6 +387,9 @@ pub struct NewWorkBatch {
     pub turn_id: Option<Uuid>,
     pub source_record_ids: Value,
     pub action_item_ids: Value,
+    pub source_message_ids: Value,
+    #[diesel(embed)]
+    pub lineage: Lineage,
     pub created_by: Uuid,
 }
 
@@ -416,7 +441,9 @@ pub async fn submit(
         .transaction(async |connection| {
             let by = batch.created_by;
             // Named rather than left to the column's default: nothing a Project Manager submits
-            // may reach the queue without a person.
+            // may reach the queue without a person. A trust dial that lets human-rooted work run
+            // must still propose every found batch (`batch.lineage.origin()`): no setting lets
+            // work an agent noticed queue itself (`docs/autonomy.md`, The dial).
             let submitted = diesel::insert_into(work_batches::table)
                 .values((batch, work_batches::state.eq(BatchState::Proposed)))
                 .returning(WorkBatch::as_returning())
@@ -1252,6 +1279,7 @@ const fn state_words(state: BatchState) -> &'static str {
 
 pub mod approval;
 pub mod approval_item;
+pub mod lineage;
 pub mod pull_request;
 pub mod why;
 pub mod worker;
