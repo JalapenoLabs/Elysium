@@ -4,12 +4,13 @@
 //!
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
-//! names the docs linked to it, says how its changes reach the work and where its issues file
-//! ([`Writes`]), and carries everything that woke it: the messages, the records newly on its
-//! timeline, the batches that finished, and the promises found on its project or whose work
-//! finished. Every turn also carries each promise still owed a follow-up, woken for or not, so a
-//! turn that failed never strands one. It is a plain function of its inputs, so it is tested
-//! without a runner.
+//! carries the project's brief whole (its goals, decisions, and what is out of scope, which every
+//! batch serves), names the docs linked to it, says how its changes reach the work and where its
+//! issues file ([`Writes`]), and carries everything that woke it: the messages, someone else's
+//! edits to the brief, the records newly on its timeline, the batches that finished, and the
+//! promises found on its project or whose work finished. Every turn also carries each promise
+//! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a
+//! plain function of its inputs, so it is tested without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -33,6 +34,10 @@ pub const EXCERPT_MAX_CHARACTERS: usize = 800;
 /// How much of a project's description the prompt quotes, in characters.
 const DESCRIPTION_MAX_CHARACTERS: usize = 1_000;
 
+/// How much of the brief's body the prompt carries, in characters: a brief this long is several,
+/// and the rest is a `manager_page` call away.
+const BRIEF_MAX_CHARACTERS: usize = 20_000;
+
 /// How many of a project's docs the prompt names, newest published first. Each is only a title, so
 /// these fit however long they run; the rest are a `manager_pages` call away.
 const PAGES_MAX: usize = 50;
@@ -46,14 +51,37 @@ const CUT_NOTE: &str = "\n\n(The rest did not fit in this prompt; read it with m
 
 /// The project a turn works for.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectBrief {
+pub struct PromptProject {
     pub id: Uuid,
     pub name: String,
     pub description: String,
     /// The repositories it declares for its workers, which its batches name.
     pub repositories: Vec<String>,
-    /// The knowledge base pages linked to it, its docs, newest published first.
+    /// Its brief as it stands.
+    pub brief: PromptBrief,
+    /// The other knowledge base pages linked to it, its docs, newest published first.
     pub pages: Vec<PromptPage>,
+}
+
+/// A project's brief, which the turn reads whole and keeps current.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptBrief {
+    pub page_id: Uuid,
+    /// The version an edit of it names as its `baseVersion`.
+    pub version: i32,
+    /// Markdown.
+    pub body: String,
+    /// Its goals as their headings spell them (`crate::models::project_brief::goals`).
+    pub goals: Vec<String>,
+}
+
+/// Someone else's publish of the brief since the turn before.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptBriefEdit {
+    /// Who published it, by name.
+    pub author: String,
+    pub version: i32,
+    pub published_at: DateTime<Utc>,
 }
 
 /// A knowledge base page linked to its project.
@@ -153,9 +181,11 @@ pub struct Writes {
 /// Everything one turn is told.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnContext {
-    pub project: ProjectBrief,
+    pub project: PromptProject,
     pub writes: Writes,
     pub messages: Vec<PromptMessage>,
+    /// Someone else's publishes of the brief, oldest first.
+    pub brief_edits: Vec<PromptBriefEdit>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
     pub promises: Vec<PromptPromise>,
@@ -171,6 +201,7 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     let _ = writeln!(prompt, "It is {} (UTC).", now.to_rfc3339());
     render_project(&mut prompt, &context.project);
     render_writes(&mut prompt, &context.writes);
+    render_brief(&mut prompt, &context.project.brief);
     prompt.push_str("\nSince your last turn:\n");
 
     if !context.messages.is_empty() {
@@ -190,6 +221,14 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
         }
     }
 
+    if !context.brief_edits.is_empty() {
+        render_brief_edits(
+            &mut prompt,
+            &context.brief_edits,
+            context.project.brief.version,
+        );
+    }
+
     if !context.records.is_empty() {
         let _ = write!(
             prompt,
@@ -204,7 +243,7 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     if !context.batches.is_empty() {
         prompt.push_str("\n## Batches\n");
         for batch in &context.batches {
-            render_batch(&mut prompt, batch);
+            render_batch(&mut prompt, batch, context.project.brief.version);
         }
     }
 
@@ -237,7 +276,7 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
 }
 
 /// Which project it manages, and what the project is.
-fn render_project(prompt: &mut String, project: &ProjectBrief) {
+fn render_project(prompt: &mut String, project: &PromptProject) {
     let _ = writeln!(
         prompt,
         "You are the Project Manager of the project \"{}\" (project {}).",
@@ -289,6 +328,70 @@ fn render_pages(prompt: &mut String, pages: &[PromptPage]) {
     }
 }
 
+/// The project's brief whole, with its goals as a batch names them, on every turn: it is what every
+/// batch serves, and what a person corrects to change the project's direction.
+fn render_brief(prompt: &mut String, brief: &PromptBrief) {
+    let _ = write!(
+        prompt,
+        "\n## The project's brief (page {}, version {})\n\n",
+        brief.page_id, brief.version
+    );
+    if brief.goals.is_empty() {
+        prompt.push_str(
+            "It names no goals yet, so no batch can serve one: ask the person what the project is \
+             for before you submit any.\n",
+        );
+    } else {
+        let goals: Vec<String> = brief
+            .goals
+            .iter()
+            .map(|goal| format!("\"{goal}\""))
+            .collect();
+        let _ = writeln!(
+            prompt,
+            "Its goals, one of which every batch names as the goal it serves: {}.",
+            goals.join(", ")
+        );
+    }
+    let _ = writeln!(
+        prompt,
+        "Keep it current with page_save against version {}: record what is decided and what is \
+         out of scope as you learn it. When a save answers page_changed, someone edited it \
+         meanwhile: read it again and merge your change into what it says now, keeping theirs.",
+        brief.version
+    );
+    // Set apart, since the brief's own headings would otherwise read as this prompt's sections.
+    let body = brief.body.trim();
+    let shown: String = body.chars().take(BRIEF_MAX_CHARACTERS).collect();
+    let _ = writeln!(prompt, "\n<brief>\n{shown}\n</brief>");
+    if shown.len() < body.len() {
+        let _ = writeln!(
+            prompt,
+            "\n(The rest of the brief did not fit; read it with manager_page.)"
+        );
+    }
+}
+
+/// Who published the brief since the last turn. A person's edit is direction: it wins over the
+/// Project Manager's plan.
+fn render_brief_edits(prompt: &mut String, edits: &[PromptBriefEdit], current: i32) {
+    prompt.push_str("\n## The brief changed\n\n");
+    for edit in edits {
+        let _ = writeln!(
+            prompt,
+            "- {} published version {} at {}.",
+            edit.author,
+            edit.version,
+            edit.published_at.to_rfc3339()
+        );
+    }
+    let _ = writeln!(
+        prompt,
+        "Its version {current} is above. What they changed is their direction: follow it, \
+         cancel waiting batches it makes wrong, and never write back over it."
+    );
+}
+
 /// Whether its changes apply at once, and where its issues file.
 fn render_writes(prompt: &mut String, writes: &Writes) {
     if writes.direct {
@@ -313,8 +416,9 @@ fn render_writes(prompt: &mut String, writes: &Writes) {
 }
 
 /// One batch that woke the turn: where it stands, what its worker reported, the question it
-/// waits on, and the promises a failed one leaves.
-fn render_batch(prompt: &mut String, batch: &PromptBatch) {
+/// waits on, and the promises a failed one leaves. A rejection's reason is to go into the brief,
+/// version `brief_version`, so it outlives the session.
+fn render_batch(prompt: &mut String, batch: &PromptBatch, brief_version: i32) {
     let (state, result_label) = match batch.state {
         BatchState::Succeeded => ("succeeded", "Its worker reported"),
         BatchState::Failed => ("failed", "Its worker reported"),
@@ -339,6 +443,13 @@ fn render_batch(prompt: &mut String, batch: &PromptBatch) {
     );
     if let Some(result) = &batch.result {
         let _ = writeln!(prompt, "  {result_label}: {}", result.trim());
+    }
+    if batch.state == BatchState::Rejected {
+        let _ = writeln!(
+            prompt,
+            "  Record this under ## Decisions in the brief, with page_save against version \
+             {brief_version}: what was rejected, the person's reason in their words, and when."
+        );
     }
     if let Some(question) = &batch.question {
         let _ = writeln!(
@@ -502,11 +613,17 @@ mod tests {
 
     fn context() -> TurnContext {
         TurnContext {
-            project: ProjectBrief {
+            project: PromptProject {
                 id: Uuid::nil(),
                 name: "Launch".to_owned(),
                 description: "The spring launch.".to_owned(),
                 repositories: vec!["https://github.com/JalapenoLabs/Launch.git".to_owned()],
+                brief: PromptBrief {
+                    page_id: Uuid::nil(),
+                    version: 3,
+                    body: "## Goals\n\n### Annual pricing\n\nAda asked for it.".to_owned(),
+                    goals: vec!["Annual pricing".to_owned()],
+                },
                 pages: Vec::new(),
             },
             writes: Writes {
@@ -514,6 +631,7 @@ mod tests {
                 tracker: Ok("Jira project ELY, where this project's issues already are".to_owned()),
             },
             messages: Vec::new(),
+            brief_edits: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
             promises: Vec::new(),
@@ -567,6 +685,72 @@ mod tests {
         assert!(prompt.contains(&format!("- Doc {} ", PAGES_MAX - 1)));
         assert!(!prompt.contains(&format!("- Doc {PAGES_MAX} ")));
         assert!(prompt.contains("- and 3 more, which manager_pages lists"));
+    }
+
+    #[test]
+    fn every_turn_reads_the_brief_whole_with_the_goals_a_batch_names() {
+        let prompt = render(&context(), now());
+        assert!(prompt.contains(
+            "## The project's brief (page 00000000-0000-0000-0000-000000000000, version 3)"
+        ));
+        assert!(
+            prompt.contains(
+                "one of which every batch names as the goal it serves: \"Annual pricing\"."
+            )
+        );
+        assert!(
+            prompt
+                .contains("<brief>\n## Goals\n\n### Annual pricing\n\nAda asked for it.\n</brief>")
+        );
+        assert!(prompt.contains("page_save against version 3"));
+        assert!(prompt.contains("read it again and merge"));
+        assert!(
+            prompt.find("## The project's brief") < prompt.find("Since your last turn"),
+            "the brief comes before what woke the turn, so a long prompt is never cut through it"
+        );
+
+        let mut empty = context();
+        empty.project.brief.goals.clear();
+        assert!(render(&empty, now()).contains("It names no goals yet"));
+
+        let mut long = context();
+        long.project.brief.body = "word ".repeat(BRIEF_MAX_CHARACTERS);
+        let prompt = render(&long, now());
+        assert!(prompt.contains("The rest of the brief did not fit; read it with manager_page."));
+    }
+
+    #[test]
+    fn someone_elses_edit_of_the_brief_is_direction_to_follow() {
+        let mut woken = context();
+        woken.brief_edits.push(PromptBriefEdit {
+            author: "Alex".to_owned(),
+            version: 3,
+            published_at: now(),
+        });
+        let prompt = render(&woken, now());
+        assert!(prompt.contains("## The brief changed"));
+        assert!(prompt.contains("- Alex published version 3 at 2026-11-04T15:00:00+00:00."));
+        assert!(prompt.contains("follow it"));
+        assert!(!render(&context(), now()).contains("## The brief changed"));
+    }
+
+    #[test]
+    fn a_rejections_reason_reaches_the_prompt_and_goes_into_the_brief() {
+        let mut woken = context();
+        woken.batches.push(PromptBatch {
+            id: Uuid::nil(),
+            title: "Dark mode".to_owned(),
+            state: BatchState::Rejected,
+            result: Some("Not this quarter; pricing comes first.".to_owned()),
+            waiting_promises: Vec::new(),
+            question: None,
+        });
+        let prompt = render(&woken, now());
+        assert!(prompt.contains("was rejected by a person"));
+        assert!(prompt.contains("Why: Not this quarter; pricing comes first."));
+        assert!(prompt.contains(
+            "Record this under ## Decisions in the brief, with page_save against version 3"
+        ));
     }
 
     #[test]

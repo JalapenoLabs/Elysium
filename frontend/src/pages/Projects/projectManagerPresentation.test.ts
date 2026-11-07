@@ -22,6 +22,9 @@ function wake(id: string, kind: ProjectManagerWakeKind, body: string | null = nu
     promiseId: kind === 'promise'
       ? `promise-${id}`
       : null,
+    pageVersion: kind === 'brief'
+      ? 2
+      : null,
     body,
     createdBy: 'someone',
     createdAt: '2026-11-04T15:00:00Z',
@@ -29,7 +32,7 @@ function wake(id: string, kind: ProjectManagerWakeKind, body: string | null = nu
 }
 
 describe('groupWakes', () => {
-  it('keeps every message in order and counts the records, batches, and promises', () => {
+  it('keeps every message in order and counts the records, batches, promises, and brief edits', () => {
     const grouped = groupWakes([
       wake('1', 'record'),
       wake('2', 'message', 'Ship it this week.'),
@@ -37,16 +40,19 @@ describe('groupWakes', () => {
       wake('4', 'batch'),
       wake('5', 'message', 'And tell Ada.'),
       wake('6', 'promise'),
+      wake('7', 'brief'),
+      wake('8', 'brief'),
     ])
 
     expect(grouped.messages.map((message) => message.body)).toEqual([ 'Ship it this week.', 'And tell Ada.' ])
     expect(grouped.records).toBe(2)
     expect(grouped.batches).toBe(1)
     expect(grouped.promises).toBe(1)
+    expect(grouped.briefEdits).toBe(2)
   })
 
   it('reads a turn that nothing woke as empty', () => {
-    expect(groupWakes([])).toEqual({ messages: [], records: 0, batches: 0, promises: 0 })
+    expect(groupWakes([])).toEqual({ messages: [], records: 0, batches: 0, promises: 0, briefEdits: 0 })
   })
 })
 
@@ -56,6 +62,7 @@ describe('promiseWork', () => {
     projectId: 'project-1',
     title: 'Fix the login bug',
     goal: 'Fix it, as Ada asked.',
+    serves: 'Sign-in',
     repositories: [],
     priority: 'asap',
     scheduledFor: null,

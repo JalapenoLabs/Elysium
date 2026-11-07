@@ -170,6 +170,9 @@ pub struct WorkBatch {
     pub waiting_on: Option<worker::Wait>,
     pub waiting_detail: Option<String>,
     pub waiting_until: Option<DateTime<Utc>>,
+    /// The goal in its project's brief it serves, as the brief spelled it when it was submitted;
+    /// `None` for a batch from before briefs.
+    pub serves: Option<String>,
     /// The configuration its worker ran on, as stored ([`Checkout`]); set as its container
     /// fetched it.
     pub configuration: Option<Value>,
@@ -359,6 +362,8 @@ pub struct NewWorkBatch {
     pub project_id: Uuid,
     pub title: String,
     pub goal: String,
+    /// The goal in its project's brief it serves (`crate::project_managers::batches`).
+    pub serves: Option<String>,
     pub repositories: Value,
     pub priority: Priority,
     pub scheduled_for: Option<DateTime<Utc>>,

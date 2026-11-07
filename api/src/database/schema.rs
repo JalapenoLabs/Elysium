@@ -1288,6 +1288,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        brief_project_id -> Nullable<Uuid>,
     }
 }
 
@@ -1374,6 +1375,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         promise_id -> Nullable<Uuid>,
+        page_version -> Nullable<Int4>,
     }
 }
 
@@ -1832,6 +1834,7 @@ diesel::table! {
         worker_report -> Nullable<Jsonb>,
         worker_log -> Text,
         configuration -> Nullable<Jsonb>,
+        serves -> Nullable<Text>,
     }
 }
 
@@ -2020,6 +2023,7 @@ diesel::joinable!(page_projects -> users (created_by));
 diesel::joinable!(page_versions -> pages (page_id));
 diesel::joinable!(page_versions -> users (created_by));
 diesel::joinable!(pages -> learning_categories (category));
+diesel::joinable!(pages -> projects (brief_project_id));
 diesel::joinable!(pages -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));

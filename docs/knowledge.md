@@ -965,7 +965,8 @@ deletion that left it in its parent's place, or the restore that took it back.
   `page_changed`, which says to read the page again and save against what that answers, and never carries the version
   itself, so an agent cannot retry without reading what it would overwrite. Without them it creates, and takes
   `parentId`, `null` for the top of the tree: required, as a move's is, so nothing lands there by accident, and open to
-  agents, since a fresh tree holds only the Learnings and Company pages. Anything else is refused by name.
+  agents, since a fresh tree holds only the Learnings, Company, and Project briefs pages. Anything else is refused by
+  name.
 - **Learnings are `learning_save`'s.** `page_save` refuses a learning, and a new page directly under Learnings, with
   `409 page_is_a_learning`. In the browser a person edits one as any page, but an agent's edit would rewrite a rule
   under the evidence for the rule it replaced, and a page it created under Learnings would be an ordinary page, never
@@ -979,8 +980,9 @@ deletion that left it in its parent's place, or the restore that took it back.
   forgets to name its agent is refused all the same. A client that cannot be recorded as an agent is refused any change
   to a page first, since it would read as the person alone. No route sets it: the Company page and the doc's sections
   are the only ones that have it.
-- **Fixed pages.** The Learnings page, the Company page, and the doc's seven sections are ones Elysium relies on, each at
-  an id fixed in code, and they keep their place: nobody moves, deletes, or renames one, people included, with
+- **Fixed pages.** The Learnings page, the Company page, the doc's seven sections, and the Project briefs page are ones
+  Elysium relies on, each at an id fixed in code, and so is each project's brief while its project exists (Projects,
+  below). They keep their place: nobody moves, deletes, or renames one, people included, with
   `409 page_fixed`. What a fixed page says is written like any page's, under its rule above. Other pages may sit
   beside and under them.
 - Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
@@ -1080,6 +1082,15 @@ a project to any number of pages (`crate::models::page_project`, `page_projects`
   projects, as it does a timeline record's.
 - **Project Managers read them.** Every turn's prompt names its project's docs, and `manager_pages` and `manager_page`
   list and read them (`docs/engine.md`, Project Managers). Linking a page wakes nobody.
+- **Every project has a brief.** Creating a project creates a page under Project briefs, titled for it ("Launch
+  brief"), holding three sections (Goals, Decisions, Out of scope), linked to it, and named as its brief
+  (`pages.brief_project_id`, `crate::models::project_brief`); renaming the project renames it. It is the system
+  user's, since Elysium made it, and it is versioned, indexed, and edited like any page, except that one still holding
+  only that skeleton has no document, since it would answer every search for a goal. It is fixed, since its Project
+  Manager reads it every turn and every batch's goal is checked against it: nobody moves, deletes, or renames it, and
+  its link to its project is not taken off (`409 page_brief_linked`). Deleting the project leaves it an ordinary page,
+  as every linked page stays. A publish of it by anyone but its own Project Manager or the system user wakes that
+  Project Manager in the same transaction. See `docs/autonomy.md`, The project brief.
 
 ### In the index
 
@@ -1186,8 +1197,10 @@ and a target under the page itself refuses it. Where dragging cannot reach, such
 it goes and after which sibling. A move can be undone from its toast, and shows in the page's history. Deleting happens
 at once, with Undo in its toast, except that a page with pages under it first asks what happens to them: left as they
 are they move up into its place, and a switch deletes them too. Whoever was reading what went is taken to its parent,
-and Undo brings them back; once its toast has gone, a deleted page's own address offers Restore. The nine fixed pages
-take children, but nobody can drag, move, or delete one; a lock on the row and the row's menu say why.
+and Undo brings them back; once its toast has gone, a deleted page's own address offers Restore. The fixed pages,
+the ten Elysium seeds and every project's brief, take children, but nobody can drag, move, or delete one; a lock on the
+row and the row's menu say why. A brief names its project with no X to take it off, and the project's Docs tab offers
+no Unlink for it.
 
 A page's text is Markdown, read to React elements, with GitHub's tables, task lists, and footnotes, and code highlighted
 for a block that names a common language. Agents write pages, so nothing in one is trusted: raw HTML shows as text and

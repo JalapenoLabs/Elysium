@@ -57,6 +57,9 @@ pub struct BatchResponse {
     project_id: Uuid,
     title: String,
     goal: String,
+    /// The goal in its project's brief it serves, as the brief spelled it; `null` for a batch from
+    /// before briefs.
+    serves: Option<String>,
     /// `[{ url, baseBranch? }]`.
     repositories: Value,
     priority: Priority,
@@ -93,6 +96,7 @@ impl From<WorkBatch> for BatchResponse {
             project_id: batch.project_id,
             title: batch.title,
             goal: batch.goal,
+            serves: batch.serves,
             repositories: batch.repositories,
             priority: batch.priority,
             scheduled_for: batch.scheduled_for,

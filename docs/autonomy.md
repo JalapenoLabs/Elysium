@@ -31,11 +31,10 @@ Built. A Project Manager still plans, orders, and submits everything. Its batche
 `queued`, and the scheduler never gives a proposed batch a slot. The person sees each with its goal, repositories,
 priority, and why, on the work queue's Proposed tab and the project's own, and approves it, edits those fields and
 approves it, or rejects it with a reason. Each project with proposals waiting has one inbox item counting them,
-resolved once none are left. A rejection's reason wakes the Project Manager, and it is recorded in the batch's history
-as the person's feedback for self-improvement. Only a person decides: Elysia and Project Managers list proposals and
-approve none. Until the dial below exists, every batch is proposed.
-
-On the roadmap: a rejection's reason also goes into the project brief (The project brief, below).
+resolved once none are left. A rejection's reason wakes the Project Manager, which records it in the project brief
+(below), and it is recorded in the batch's history as the person's feedback for self-improvement. Only a person
+decides: Elysia and Project Managers list proposals and approve none. Until the dial below exists, every batch is
+proposed.
 
 ## The dial
 
@@ -59,8 +58,9 @@ more, until nobody remembers why. The brake is structural.
   meeting, or a coworker's request. **Found** is something an agent noticed.
 - Every batch has a generation: how many batches led to it. A person's accepting a finding resets it to zero. The
   limit is a code constant, and a batch past it is refused.
-- A Project Manager cannot submit a batch with no origin, and each batch names the goal in the project brief it
-  serves.
+- A Project Manager cannot submit a batch with no origin.
+- Built: each batch names the goal in the project brief it serves, and one that serves none is refused (The project
+  brief, below).
 
 ## Findings
 
@@ -71,10 +71,20 @@ not raised twice. Findings reach the person as a list they read when they choose
 
 ## The project brief
 
-Each project has a brief: a page in the knowledge base linked to the project, holding its goals, its decisions, and
-what is out of scope. The Project Manager reads it every turn and keeps it current, so what it knows does not live
-only in its session, and a person can read one page, correct it, and see every later batch follow. Its folder in the
-workspace stays for its working notes.
+Built. Each project has a brief: a page in the knowledge base linked to the project, holding its goals, its decisions,
+and what is out of scope, versioned like any page. Creating a project creates it, under the Project briefs page, and
+it holds its place while the project exists. The Project Manager reads it every turn and keeps it current, so what it
+knows does not live only in its session, and a person can read one page, correct it, and see every later batch follow.
+See `docs/engine.md`, The project brief, and `docs/knowledge.md`, Pages, Projects.
+
+- **Goals are what batches serve.** Each goal is a heading of its own under Goals. Every batch names the one it serves,
+  and a batch that names none is refused with the goals there are, so work outside the brief becomes a question for the
+  person, never a batch. Goals come from people: the Project Manager adds one only when a person asked for it.
+- **Rejections are kept.** A batch a person rejects goes under Decisions, with their reason in their words.
+- **A person's edits win.** The Project Manager saves against the version it read, so a save after someone else's
+  edit is refused and it merges into what the brief says now. Anyone's edit but its own wakes it, and its next turn
+  follows it.
+- Its folder in the workspace stays for its working notes, and its instructions say to use both.
 
 ## What agents know
 

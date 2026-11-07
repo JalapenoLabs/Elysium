@@ -26,6 +26,10 @@
 //! [`publish_content`] and [`undo_version`], so they keep their own rules over the versions, history,
 //! and index every page has. The pages they rely on are fixed: nobody moves, deletes, or renames one.
 //!
+//! A project's brief is a page too (`crate::models::project_brief`), fixed while its project exists,
+//! and publishing it as anyone but its own Project Manager or the system user wakes that Project
+//! Manager in the same transaction ([`Recorded::woke`]).
+//!
 //! Labels are no part of a version: `crate::models::page_label` writes them, as history alone.
 
 use chrono::{DateTime, Utc};
@@ -39,12 +43,12 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::{Uuid, uuid};
 
-use crate::database::schema::{page_events, page_versions, pages};
+use crate::database::schema::{page_events, page_versions, pages, projects};
 use crate::knowledge::passages;
 use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
-use crate::models::{learning_category, user};
+use crate::models::{learning_category, project_brief, project_manager, user};
 use crate::search::{self, SearchTerms};
 
 /// The page every learning is created under, seeded by its migration at this id.
@@ -53,6 +57,9 @@ pub const LEARNINGS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000001"
 /// The page the company doc's sections sit under, seeded by its migration at this id. Each section's
 /// own page is [`Section::page_id`].
 pub const COMPANY_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000002");
+
+/// The page every project's brief sits under, seeded by its migration at this id.
+pub const PROJECT_BRIEFS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000003");
 
 /// What the search's source filter calls each kind of page's document. A learning's and a section's
 /// keep the names they had before they were pages, which clients filter by.
@@ -179,6 +186,8 @@ pub struct Page {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The project whose brief it is, while that project exists.
+    pub brief_project_id: Option<Uuid>,
 }
 
 impl Page {
@@ -200,12 +209,22 @@ impl Page {
     pub fn section(&self) -> Option<Section> {
         Section::of_page(self.id)
     }
+
+    /// Whether Elysium relies on this page, so nobody moves, deletes, or renames it, people
+    /// included: one it seeds ([`is_seeded`]), or a project's brief, which its Project Manager and
+    /// every batch's goal check find by its project while that project exists.
+    pub fn is_fixed(&self) -> bool {
+        is_seeded(self.id) || self.brief_project_id.is_some()
+    }
 }
 
-/// Whether page `id` is one Elysium relies on: the Learnings and Company pages and the doc's sections.
-/// Nobody moves, deletes, or renames one, people included.
-pub fn is_fixed(id: Uuid) -> bool {
-    id == LEARNINGS_PAGE_ID || id == COMPANY_PAGE_ID || Section::of_page(id).is_some()
+/// Whether page `id` is one Elysium seeds at an id fixed in code: the Learnings, Company, and Project
+/// briefs pages and the doc's sections.
+pub fn is_seeded(id: Uuid) -> bool {
+    id == LEARNINGS_PAGE_ID
+        || id == COMPANY_PAGE_ID
+        || id == PROJECT_BRIEFS_PAGE_ID
+        || Section::of_page(id).is_some()
 }
 
 /// A page as the tree lists it, without what it says.
@@ -219,6 +238,15 @@ pub struct PageSummary {
     pub current_version: i32,
     pub deleted_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// The project whose brief it is, while that project exists.
+    pub brief_project_id: Option<Uuid>,
+}
+
+impl PageSummary {
+    /// Whether Elysium relies on this page ([`Page::is_fixed`]).
+    pub fn is_fixed(&self) -> bool {
+        is_seeded(self.id) || self.brief_project_id.is_some()
+    }
 }
 
 /// A version without what it says: who published it, and when.
@@ -419,6 +447,9 @@ pub struct Recorded {
     pub learnings: Vec<Uuid>,
     /// What the write recorded of the page itself, oldest first; empty when it changed nothing.
     pub history: Vec<HistoryEntry>,
+    /// The project whose Project Manager the write woke: someone else published its brief. The
+    /// caller signals the dispatcher once the write commits.
+    pub woke: Option<Uuid>,
 }
 
 impl Recorded {
@@ -427,6 +458,7 @@ impl Recorded {
             changed: vec![page.id],
             learnings: page.is_learning().then_some(page.id).into_iter().collect(),
             history: vec![entry],
+            woke: None,
             page,
         }
     }
@@ -437,6 +469,7 @@ impl Recorded {
             changed: Vec::new(),
             learnings: Vec::new(),
             history: Vec::new(),
+            woke: None,
         }
     }
 
@@ -451,6 +484,7 @@ impl Recorded {
                 .map(|page| page.id)
                 .collect(),
             history: entry.into_iter().collect(),
+            woke: None,
         }
     }
 
@@ -510,9 +544,12 @@ pub enum PageError {
     /// The parent a move names is the page itself or one of its descendants.
     #[error("a page cannot move under itself")]
     UnderItself,
-    /// The write would move, delete, or rename a page Elysium relies on ([`is_fixed`]).
+    /// The write would move, delete, or rename a page Elysium relies on ([`Page::is_fixed`]).
     #[error("this page holds its place: it cannot be moved, deleted, or renamed")]
     Fixed,
+    /// The write would take a project's brief off that project.
+    #[error("a project's brief stays linked to its project")]
+    BriefStaysLinked,
     /// Another learning, deleted ones included, has the title.
     #[error("another learning already has this title")]
     TitleTaken,
@@ -632,7 +669,7 @@ pub async fn publish(
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
-            let page = lock(connection, id).await?;
+            let page = lock_to_publish(connection, id).await?;
             require_writable(connection, &page, author).await?;
             if edit.learning.is_some() && !page.is_learning() {
                 return Err(PageError::NotALearning);
@@ -644,7 +681,7 @@ pub async fn publish(
             if base_version != page.current_version {
                 return Err(PageError::Changed);
             }
-            if is_fixed(id) && content.title != page.title {
+            if page.is_fixed() && content.title != page.title {
                 return Err(PageError::Fixed);
             }
             publish_content(connection, &page, content, Provenance::default(), author).await
@@ -721,7 +758,15 @@ pub async fn publish_content(
     )
     .await?;
     reindex(connection, &published).await?;
-    Ok(Recorded::of(published, entry))
+
+    let mut recorded = Recorded::of(published, entry);
+    if let Some(project_id) = page.brief_project_id
+        && project_brief::wakes_its_manager(author, project_id)
+    {
+        project_manager::wake_for_brief(connection, project_id, version, author.user_id).await?;
+        recorded.woke = Some(project_id);
+    }
+    Ok(recorded)
 }
 
 /// Publishes version `version` of page `id` as its next version, naming the one it copied, so
@@ -745,7 +790,7 @@ pub async fn restore_version(
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
-            let page = lock(connection, id).await?;
+            let page = lock_to_publish(connection, id).await?;
             require_writable(connection, &page, author).await?;
             let mut content = find_version(connection, id, version).await?.into_content();
             if let Some(category) = &content.category
@@ -817,7 +862,7 @@ pub async fn move_page(
             hold_tree(connection).await?;
             let page = lock(connection, id).await?;
             require_writable(connection, &page, author).await?;
-            if is_fixed(id) {
+            if page.is_fixed() {
                 return Err(PageError::Fixed);
             }
             if let Some(parent_id) = placement.parent_id {
@@ -929,7 +974,7 @@ async fn take_down(
     for page in &going {
         refuse_agents(connection, page, author).await?;
     }
-    if going.iter().any(|page| is_fixed(page.id)) {
+    if going.iter().any(Page::is_fixed) {
         return Err(PageError::Fixed);
     }
     let changed: Vec<Uuid> = going.iter().map(|page| page.id).collect();
@@ -988,7 +1033,7 @@ async fn lift_children(
     let mut reads_after = sibling_before(connection, page).await?;
     for child in children {
         refuse_agents(connection, &child, author).await?;
-        if is_fixed(child.id) {
+        if child.is_fixed() {
             return Err(PageError::Fixed);
         }
 
@@ -1332,6 +1377,31 @@ pub async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<P
         .select(Page::as_select())
         .first(connection)
         .await
+}
+
+/// Locks page `id` for a publish, holding its project first when it is a project's brief.
+///
+/// Publishing a brief writes its Project Manager's wake, which references the project and so holds
+/// its row, while renaming a project holds the project's row and then locks its brief. Holding the
+/// project before the page, the order every write that reaches both takes (`page_project`), keeps
+/// the two from waiting on each other. A project deleted in between holds nothing, and its brief
+/// is then an ordinary page.
+async fn lock_to_publish(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
+    let brief_of: Option<Uuid> = pages::table
+        .find(id)
+        .select(pages::brief_project_id)
+        .first(connection)
+        .await?;
+    if let Some(project_id) = brief_of {
+        projects::table
+            .find(project_id)
+            .for_key_share()
+            .select(projects::id)
+            .first::<Uuid>(connection)
+            .await
+            .optional()?;
+    }
+    lock(connection, id).await
 }
 
 /// Refuses `parent_id` unless it is a live page. The caller holds the tree, so it stays one.
@@ -1680,12 +1750,17 @@ fn indexed_title(page: &Page) -> String {
 /// What `page` is indexed from: its title and body, then its evidence on a page that has any, in the
 /// order a learning's document holds them.
 ///
-/// A fixed page is its body alone. Its title is a heading the doc's own structure already gives, and
-/// the text its passages were embedded from is what keeps their embeddings when a section is
-/// indexed again; an empty one says nothing, and has no document.
+/// A page Elysium seeds is its body alone. Its title is a heading the doc's own structure already
+/// gives, and the text its passages were embedded from is what keeps their embeddings when a section
+/// is indexed again; an empty one says nothing, and has no document. A project's brief is indexed as
+/// any page is, title first, since its title says whose brief a search found, once it says more than
+/// the skeleton every new brief holds, which would answer every search for a goal with every brief.
 fn indexed_text(page: &Page) -> String {
-    if is_fixed(page.id) {
+    if is_seeded(page.id) {
         return page.body.clone();
+    }
+    if page.brief_project_id.is_some() && page.body == project_brief::TEMPLATE {
+        return String::new();
     }
     let mut text = format!("{}\n\n{}", page.title, page.body);
     if let Some(evidence) = &page.evidence {
@@ -1723,6 +1798,7 @@ mod tests {
             created_by: Uuid::now_v7(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            brief_project_id: None,
         }
     }
 
@@ -1805,12 +1881,34 @@ mod tests {
 
     #[test]
     fn the_pages_elysium_relies_on_are_fixed_and_no_others() {
-        assert!(is_fixed(LEARNINGS_PAGE_ID));
-        assert!(is_fixed(COMPANY_PAGE_ID));
+        assert!(is_seeded(LEARNINGS_PAGE_ID));
+        assert!(is_seeded(COMPANY_PAGE_ID));
+        assert!(is_seeded(PROJECT_BRIEFS_PAGE_ID));
         for section in Section::ALL {
-            assert!(is_fixed(section.page_id()), "{section:?}");
+            assert!(is_seeded(section.page_id()), "{section:?}");
         }
-        assert!(!is_fixed(Uuid::now_v7()));
+        assert!(!is_seeded(Uuid::now_v7()));
+
+        let ordinary = page();
+        assert!(!ordinary.is_fixed());
+        let brief = Page {
+            brief_project_id: Some(Uuid::now_v7()),
+            ..page()
+        };
+        assert!(brief.is_fixed(), "a project's brief holds its place");
+        assert_eq!(
+            indexed_text(&brief),
+            "Runbook\n\nRestart it.",
+            "a brief is indexed as any page is, by its title too"
+        );
+        let skeleton = Page {
+            body: project_brief::TEMPLATE.to_owned(),
+            ..brief
+        };
+        assert!(
+            passages::split(&indexed_text(&skeleton)).is_empty(),
+            "a brief that says only what every new brief says has nothing to find"
+        );
     }
 
     #[test]

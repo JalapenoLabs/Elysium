@@ -431,7 +431,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
   its own runner conversation, working in `project-managers/<project id>` in the workspace, so its files persist. The
   session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
-- **What wakes it.** Five things, each written as a wake (`project_manager_wakes`) in the same transaction as what
+- **What wakes it.** Six things, each written as a wake (`project_manager_wakes`) in the same transaction as what
   caused it, so no crash or lost signal loses one:
   - **a record newly on its project**: segmenting a meeting or a conversation attributing a topic or a message to it,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
@@ -449,7 +449,12 @@ trackers (Its writes, below), and its tabs on the project's page.
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
   - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);
   - **a promise**: one segmenting found on its project, or one whose work just finished (Follow-ups, below); a promise
-    waits once however often it is woken for meanwhile.
+    waits once however often it is woken for meanwhile;
+  - **its brief**: a publish of the project's brief, its edit or a restore of a version, by anyone but the Project
+    Manager itself and the system user, which renames the brief with its project (`page::publish_content`,
+    `project_brief::wakes_its_manager`). A person's edit is the direction it follows, and an agent acting for a person,
+    Elysia, or another project's Project Manager is someone else too. Each publish is a wake of its own, naming its
+    version, so the turn names everyone who edited it.
 
   Linking a page to its project wakes nothing, since nothing has to happen because of a link and a wake spends a turn:
   every turn's prompt names the project's docs, so the next turn finds it, and a person who wants it read says so.
@@ -472,8 +477,10 @@ trackers (Its writes, below), and its tabs on the project's page.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
-  where its issues file (or why nowhere), names the project's docs, the knowledge base pages linked to it, up to 50 of
-  them newest published first, and carries what woke it: each message, each record's kind, title,
+  where its issues file (or why nowhere), carries the project's brief whole (The project brief, below), names the
+  project's other docs, the knowledge base pages linked to it, up to 50 of
+  them newest published first, and carries what woke it: each message, who published the brief and as which version,
+  each record's kind, title,
   summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
@@ -503,6 +510,29 @@ trackers (Its writes, below), and its tabs on the project's page.
   knowledge base does.
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
+
+### The project brief
+
+Built: every project's brief (`api/src/models/project_brief.rs`), a knowledge base page linked to its project
+(`docs/knowledge.md`, Pages, Projects), is what the project is for, and its Project Manager keeps it.
+
+- **Read every turn.** The prompt carries it whole, cut at 20,000 characters with the rest a `manager_page` away, ahead
+  of what woke the turn so a long prompt is never cut through it, with its version and its goals as a batch names them.
+  It is left out of the docs listed after it.
+- **Kept current.** The Project Manager writes it with `page_save` from `elysium_knowledge`, as its machine user naming
+  its project, against the version its prompt gave. Its instructions say to record what is decided and what is out of
+  scope as it learns it, and every batch a person rejects under Decisions with their reason in their words; the
+  prompt says so beside each rejection, naming the version to save against.
+- **A person's edits win.** A save against a version that is no longer current answers `page_changed`, and the
+  instructions say to read the brief again and merge into what it says now rather than write back over it. Someone
+  else's publish wakes the Project Manager (What wakes it, above), and its next turn is told who published which
+  version and to follow it.
+- **Goals are headings.** A goal is a `###` heading under `## Goals`, read from the Markdown line by line as a heading
+  is, skipping fenced code (`project_brief::goals`, a pure function), so whether a batch serves one is checked without a
+  model. Goals come from people: the instructions say to add one only when a person asked for it, quoting them, and
+  never to add or widen one so work passes the check.
+- **Its folder.** Its workspace folder, `project-managers/<project id>`, stays for its working notes, which nobody else
+  reads; the brief is what people read and correct. The instructions say to use both.
 
 ### Its writes
 
@@ -552,11 +582,15 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
 ### Work batches
 
 A batch (`work_batches`) is one piece of work for one worker: a title, a goal written so a worker who has seen nothing
-else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
+else can finish it, the goal in its project's brief it serves (`serves`), the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
 provenance: the turn that submitted it, the timeline records that called for it, and the action items it works on,
-each checked to be on its project. Submitting stores it, proposed, puts it on the timeline, brings its project's
-approval item up to date, and announces all three in one place (`project_managers::batches`).
+each checked to be on its project. `serves` names a goal of the brief by its heading, whatever its spacing and case, and
+is stored as the brief spells it; a batch that names none of the brief's goals is refused, listing the goals there are
+and saying that work outside the brief is the person's to decide, so its Project Manager asks them rather than submits
+it. A goal renamed in the brief later leaves the batches that served it as they were submitted. Submitting stores it,
+proposed, puts it on the timeline, brings its project's approval item up to date, and announces all three in one place
+(`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
@@ -601,7 +635,8 @@ submits everything; the gate is between its plan and the pool.
   and priority (with a scheduled one's time) in the same transaction, each held to the rules a submission is
   (`project_managers::batches::check_edits`), and records only what changed. Reject needs a reason, which becomes its
   result and wakes its Project Manager, whose next turn reads it under the batch and is told to follow it rather than
-  submit the same work again. Its Project Manager or Elysia may still withdraw a proposal (`cancelled`).
+  submit the same work again, and to record it in the project's brief (The project brief, above). Its Project Manager
+or Elysia may still withdraw a proposal (`cancelled`).
 - **Only a person.** `worker_pool::actions::approve` and `reject` take a `MemberUser`, which a seeded machine never is
   (`auth::MemberUser::check` refuses the `agent` and `system` roles), so no tool reaches them: Elysia's
   `elysia_work_queue` and a Project Manager's `manager_batches` list proposals, and no agent's tool approves or rejects

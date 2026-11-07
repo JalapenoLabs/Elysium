@@ -29,8 +29,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::prompt::{
-    self, ProjectBrief, PromptBatch, PromptMessage, PromptPage, PromptPromise, PromptRecord,
-    PromptWork, TurnContext, Writes,
+    self, PromptBatch, PromptBrief, PromptBriefEdit, PromptMessage, PromptPage, PromptProject,
+    PromptPromise, PromptRecord, PromptWork, TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
@@ -48,7 +48,7 @@ use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::work_batch::worker::Wait;
 use crate::models::{
-    action_item, page_project, project, timeline_record, work_batch, worker_setup,
+    action_item, page_project, project, project_brief, timeline_record, work_batch, worker_setup,
 };
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -327,6 +327,7 @@ async fn load_context(
     let names = user::names(connection).await?;
 
     let mut messages = Vec::new();
+    let mut brief_edits = Vec::new();
     let mut record_ids = Vec::new();
     let mut batch_ids = Vec::new();
     let mut promise_ids = Vec::new();
@@ -344,6 +345,16 @@ async fn load_context(
             WakeKind::Record => record_ids.extend(wake.timeline_record_id),
             WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
             WakeKind::Promise => promise_ids.extend(wake.promise_id),
+            WakeKind::Brief => brief_edits.extend(wake.page_version.map(|version| {
+                PromptBriefEdit {
+                    author: names
+                        .get(&wake.created_by)
+                        .cloned()
+                        .unwrap_or_else(|| "Someone".to_owned()),
+                    version,
+                    published_at: wake.created_at,
+                }
+            })),
         }
     }
 
@@ -408,8 +419,9 @@ async fn load_context(
             direct: project.manager_writes_directly,
             tracker: tracker_brief(connection, turn.project_id).await?,
         },
-        project: project_brief(connection, project).await?,
+        project: prompt_project(connection, project).await?,
         messages,
+        brief_edits,
         records,
         batches,
         promises,
@@ -418,31 +430,41 @@ async fn load_context(
     })
 }
 
-/// `project` as a turn is told it: what it is, the repositories it declares, and its docs.
-async fn project_brief(
+/// `project` as a turn is told it: what it is, the repositories it declares, its brief, and its
+/// other docs.
+async fn prompt_project(
     connection: &mut AsyncPgConnection,
     project: Project,
-) -> anyhow::Result<ProjectBrief> {
+) -> anyhow::Result<PromptProject> {
     let repositories = worker_setup::find(connection, project.id)
         .await?
         .repositories
         .into_iter()
         .map(|repository| repository.url)
         .collect();
+    let brief = project_brief::find(connection, project.id).await?;
+    // The brief is carried whole, so it is not listed again among the docs.
     let pages = page_project::pages_of(connection, project.id)
         .await?
         .into_iter()
+        .filter(|linked| linked.page.id != brief.id)
         .map(|linked| PromptPage {
             id: linked.page.id,
             title: linked.page.title,
             published_at: linked.published_at,
         })
         .collect();
-    Ok(ProjectBrief {
+    Ok(PromptProject {
         id: project.id,
         name: project.name,
         description: project.description,
         repositories,
+        brief: PromptBrief {
+            page_id: brief.id,
+            version: brief.current_version,
+            goals: project_brief::goals(&brief.body),
+            body: brief.body,
+        },
         pages,
     })
 }

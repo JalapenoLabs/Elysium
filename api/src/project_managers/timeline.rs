@@ -59,8 +59,8 @@ pub async fn record_turn(
     store(connection, project_id, record).await
 }
 
-/// Batch `batch` as it was submitted, as a record: its title, priority, and goal. Call it in the
-/// transaction that submits the batch.
+/// Batch `batch` as it was submitted, as a record: its title, priority, the goal in the brief it
+/// serves, and its goal. Call it in the transaction that submits the batch.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -90,6 +90,7 @@ pub async fn record_batch(
             "turnId": batch.turn_id,
             "priority": priority,
             "scheduledFor": batch.scheduled_for,
+            "serves": batch.serves,
         }),
         created_by: PROJECT_MANAGER_USER_ID,
     };
