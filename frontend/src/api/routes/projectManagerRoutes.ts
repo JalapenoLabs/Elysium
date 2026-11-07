@@ -15,7 +15,7 @@ export const PROJECT_MANAGER_TURN_STATUSES = [ 'running', 'succeeded', 'failed' 
 export type ProjectManagerTurnStatus = typeof PROJECT_MANAGER_TURN_STATUSES[number]
 
 // Mirrors `WakeKind` in api/src/models/project_manager.rs.
-export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise' ] as const
+export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise', 'brief' ] as const
 export type ProjectManagerWakeKind = typeof PROJECT_MANAGER_WAKE_KINDS[number]
 
 // Mirrors `Priority` in api/src/models/work_batch.rs.
@@ -43,13 +43,15 @@ export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 export const WORK_BATCH_WAITS = [ 'review', 'ci', 'question' ] as const
 export type WorkBatchWait = typeof WORK_BATCH_WAITS[number]
 
-// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
+// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id, or
+// someone else's publish of the project's brief, by its version.
 export type ProjectManagerWake = {
   id: string
   kind: ProjectManagerWakeKind
   timelineRecordId: string | null
   workBatchId: string | null
   promiseId: string | null
+  pageVersion: number | null
   body: string | null
   // Who caused it: the person or Elysia who wrote, or whoever attributed the record.
   createdBy: string
@@ -81,6 +83,9 @@ export type WorkBatch = {
   projectId: string
   title: string
   goal: string
+  // The goal in its project's brief it serves, as the brief spells it; null for a batch from
+  // before briefs.
+  serves: string | null
   repositories: WorkBatchRepository[]
   priority: WorkBatchPriority
   // When a scheduled batch is due.

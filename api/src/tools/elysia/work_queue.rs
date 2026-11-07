@@ -321,6 +321,7 @@ mod tests {
                     turn_id: None,
                     source_record_ids: json!([]),
                     action_item_ids: json!([]),
+                    serves: None,
                     created_by: PROJECT_MANAGER_USER_ID,
                 },
             )
@@ -341,6 +342,7 @@ mod tests {
                 turn_id: None,
                 source_record_ids: json!([]),
                 action_item_ids: json!([]),
+                serves: None,
                 created_by: PROJECT_MANAGER_USER_ID,
             },
         )

@@ -40,6 +40,7 @@ async fn running(connection: &mut AsyncPgConnection, name: &str) -> (Uuid, Slot)
             turn_id: None,
             source_record_ids: json!([]),
             action_item_ids: json!([]),
+            serves: None,
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )
