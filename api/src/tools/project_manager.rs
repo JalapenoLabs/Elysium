@@ -111,10 +111,14 @@ const TOOLS: [Tool; 12] = [
         name: "manager_submit_batch",
         description: "Proposes a work batch for a worker: a title, a goal complete enough to \
             work from alone, the repositories it needs, and a priority, asap, normal, or \
-            scheduled with scheduledFor (an ISO 8601 time with its offset). recordIds and \
-            actionItemIds name what called for it, which the person reads as they decide. It is \
-            put on the project's timeline and waits, proposed, until a person approves it; no \
-            worker starts it before then. Answers the stored batch.",
+            scheduled with scheduledFor (an ISO 8601 time with its offset). recordIds, \
+            actionItemIds, and messageIds name what called for it, which the person reads as they \
+            decide; a batch naming none is refused. Its origin (human_rooted when anything named \
+            traces to a person, found when all of it is an agent's) and its generation (how many \
+            batches led to it) are worked out from them and from what woke this turn, and one past \
+            the generation limit is refused, saying why. It is put on the project's timeline and waits, proposed, \
+            until a person approves it; no worker starts it before then. Answers the stored \
+            batch.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
     },
@@ -412,6 +416,8 @@ fn submit_schema() -> Value {
             },
             "recordIds": ids("The timeline records that called for it."),
             "actionItemIds": ids("The action items it works on."),
+            "messageIds": ids("The messages sent to you that called for it, by the ids your \
+                prompt gives them."),
         },
         "required": ["title", "goal", "priority"],
         "additionalProperties": false,
@@ -942,6 +948,10 @@ fn batch_view(batch: &WorkBatch) -> Value {
         "result": batch.result,
         "recordIds": batch.source_record_ids,
         "actionItemIds": batch.action_item_ids,
+        "messageIds": batch.source_message_ids,
+        "origin": batch.origin,
+        "generation": batch.generation,
+        "parentBatchIds": batch.parent_batch_ids,
         "submittedAt": batch.created_at,
         "startedAt": batch.started_at,
         "finishedAt": batch.finished_at,

@@ -26,7 +26,8 @@ use crate::models::page_project;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager::{self, TurnStatus, WakeKind};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, TimelineRecord};
-use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
+use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
+use crate::models::work_batch::lineage::{MAX_GENERATION, Origin};
 use crate::models::work_batch::{self, BatchState, Priority};
 use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
@@ -523,6 +524,7 @@ fn submission(record_ids: Vec<Uuid>) -> Submission {
         scheduled_for: None,
         record_ids,
         action_item_ids: Vec::new(),
+        message_ids: Vec::new(),
     }
 }
 
@@ -572,6 +574,8 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     assert_eq!(batch.state, BatchState::Proposed);
     assert_eq!(batch.turn_id, Some(turn.id));
     assert_eq!(batch.source_records(), vec![record]);
+    assert_eq!(batch.origin, Origin::HumanRooted);
+    assert_eq!(batch.generation, 0);
     let on_timeline = timeline_record::attributed_among(
         &mut connection,
         launch,
@@ -635,9 +639,10 @@ async fn a_scheduled_batch_is_stored_with_its_time_and_a_proposed_one_can_be_wit
     let (_url, mut connection) = migrated_database().await;
     let events = EventBus::in_process();
     let launch = project_named(&mut connection, "Launch").await;
-    project_manager::wake_with_message(&mut connection, launch, "Plan.", TEST_PERSON_ID)
-        .await
-        .expect("woken");
+    let asked =
+        project_manager::wake_with_message(&mut connection, launch, "Plan.", TEST_PERSON_ID)
+            .await
+            .expect("woken");
     let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
         .await
         .expect("starts")
@@ -645,6 +650,7 @@ async fn a_scheduled_batch_is_stored_with_its_time_and_a_proposed_one_can_be_wit
 
     let due = Utc::now() + TimeDelta::days(1);
     let mut scheduled = submission(Vec::new());
+    scheduled.message_ids = vec![asked.id];
     scheduled.priority = Priority::Scheduled;
     scheduled.scheduled_for = Some(due);
     let batch = batches::submit(&mut connection, &events, launch, turn.id, scheduled)
@@ -661,4 +667,365 @@ async fn a_scheduled_batch_is_stored_with_its_time_and_a_proposed_one_can_be_wit
         .expect("withdrawn");
     assert_eq!(cancelled.state, BatchState::Cancelled);
     assert_eq!(cancelled.result.as_deref(), Some("Launch moved"));
+}
+
+/// A person approves batch `batch_id`, the pool hands it a slot, and a worker starts it and
+/// finishes it reporting `result`, which wakes its Project Manager with what the worker did.
+async fn worked_and_finished(connection: &mut AsyncPgConnection, batch_id: Uuid, result: &str) {
+    work_batch::approval::approve(
+        connection,
+        batch_id,
+        work_batch::approval::Edits::default(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("approved");
+    let slot = work_batch::assign(connection, &[batch_id], 1, Utc::now())
+        .await
+        .expect("assigns")
+        .into_iter()
+        .next()
+        .expect("a slot");
+    work_batch::start(connection, &slot)
+        .await
+        .expect("starts")
+        .expect("it was assigned");
+    work_batch::finish(connection, &slot, true, result, CODING_AGENT_USER_ID)
+        .await
+        .expect("finishes")
+        .expect("it was running");
+}
+
+/// Ends turn `turn_id` and starts `project_id`'s next, which takes whatever woke it since.
+async fn next_turn(connection: &mut AsyncPgConnection, project_id: Uuid, turn_id: Uuid) -> Uuid {
+    let done = project_manager::Finished::Succeeded {
+        summary: None,
+        reply: None,
+        timeline_record_id: None,
+    };
+    project_manager::finish_turn(connection, turn_id, done, "")
+        .await
+        .expect("finished");
+    project_manager::start_turn(connection, project_id, 40)
+        .await
+        .expect("starts")
+        .expect("something woke it")
+        .0
+        .id
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_workers_follow_up_is_found_work_that_cannot_queue_itself() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+
+    // The meeting asked for it: a person's request, and nothing led to it.
+    let asked = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn.id,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+    assert_eq!(asked.origin, Origin::HumanRooted);
+    assert_eq!(asked.generation, 0);
+    assert!(asked.parents().is_empty());
+
+    // Its worker turns up more work as it finishes, which wakes the Project Manager.
+    worked_and_finished(
+        &mut connection,
+        asked.id,
+        "Annual pricing is live. The invoices page still shows monthly prices; it should follow.",
+    )
+    .await;
+    let after_the_result = next_turn(&mut connection, launch, turn.id).await;
+
+    // What the worker turned up, naming only the batch it came from, is found work, one
+    // generation on. It is proposed, and the pool never hands it a slot.
+    let mut follow_up = submission(vec![asked.timeline_record_id.expect("on the timeline")]);
+    follow_up.title = "Annual prices on the invoices page".to_owned();
+    let found = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        after_the_result,
+        follow_up,
+    )
+    .await
+    .expect("submitted");
+    assert_eq!(found.origin, Origin::Found);
+    assert_eq!(found.generation, 1);
+    assert_eq!(found.parents(), vec![asked.id]);
+    assert_eq!(found.state, BatchState::Proposed);
+    let handed = work_batch::assign(&mut connection, &[found.id], 4, Utc::now())
+        .await
+        .expect("looks");
+    assert!(handed.is_empty(), "a follow-up never queues itself");
+    let queue = crate::worker_pool::queue::read(&mut connection, Utc::now())
+        .await
+        .expect("reads");
+    assert!(queue.proposed.iter().any(|batch| batch.id == found.id));
+    assert!(!queue.next.iter().any(|batch| batch.id == found.id));
+
+    // Naming the meeting that asked for the first batch does not hide what led to this one.
+    let named_the_meeting = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        after_the_result,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+    assert_eq!(named_the_meeting.origin, Origin::HumanRooted);
+    assert_eq!(named_the_meeting.generation, 1);
+    assert_eq!(named_the_meeting.parents(), vec![asked.id]);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_chain_of_follow_ups_stops_at_the_generation_limit() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let mut turn_id = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn")
+        .0
+        .id;
+    let mut batch = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn_id,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+
+    // Each batch planned from what the one before's worker did is one generation deeper.
+    for generation in 1..=MAX_GENERATION {
+        worked_and_finished(&mut connection, batch.id, "Done, and more turned up.").await;
+        turn_id = next_turn(&mut connection, launch, turn_id).await;
+        batch = batches::submit(
+            &mut connection,
+            &events,
+            launch,
+            turn_id,
+            submission(vec![record]),
+        )
+        .await
+        .expect("within the limit");
+        assert_eq!(batch.generation, generation);
+        assert_eq!(batch.origin, Origin::HumanRooted);
+    }
+
+    // One more is refused, saying why and what to do, and nothing is stored.
+    worked_and_finished(&mut connection, batch.id, "Done, and more turned up.").await;
+    turn_id = next_turn(&mut connection, launch, turn_id).await;
+    let stored = work_batch::list_for_project(&mut connection, launch, &[], 50)
+        .await
+        .expect("lists")
+        .len();
+    let refused = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn_id,
+        submission(vec![record]),
+    )
+    .await
+    .expect_err("past the limit");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager is told, not {refused:?}");
+    };
+    assert!(
+        reason.contains(&format!("generation {}", MAX_GENERATION + 1)),
+        "{reason}"
+    );
+    assert!(reason.contains(&batch.id.to_string()), "{reason}");
+    assert!(reason.contains("so the person decides"), "{reason}");
+    let still_stored = work_batch::list_for_project(&mut connection, launch, &[], 50)
+        .await
+        .expect("lists")
+        .len();
+    assert_eq!(still_stored, stored);
+
+    // A person asking for it themselves starts the chain again: nothing a worker did woke the turn.
+    let asked = project_manager::wake_with_message(
+        &mut connection,
+        launch,
+        "Keep going on pricing.",
+        TEST_PERSON_ID,
+    )
+    .await
+    .expect("woken");
+    turn_id = next_turn(&mut connection, launch, turn_id).await;
+    let mut by_request = submission(Vec::new());
+    by_request.message_ids = vec![asked.id];
+    let restarted = batches::submit(&mut connection, &events, launch, turn_id, by_request)
+        .await
+        .expect("submitted");
+    assert_eq!(restarted.origin, Origin::HumanRooted);
+    assert_eq!(restarted.generation, 0);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_project_manager_cannot_claim_a_human_origin_it_cannot_trace() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let website = project_named(&mut connection, "Website").await;
+    let relayed = project_manager::wake_with_message(
+        &mut connection,
+        launch,
+        "Leadership would like the invoices redone.",
+        ELYSIA_USER_ID,
+    )
+    .await
+    .expect("woken");
+    let elsewhere = project_manager::wake_with_message(
+        &mut connection,
+        website,
+        "Redo the footer.",
+        TEST_PERSON_ID,
+    )
+    .await
+    .expect("woken");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let refusal = |error: BatchError| match error {
+        BatchError::Refused(reason) => reason,
+        BatchError::Database(error) => panic!("a refusal, not {error}"),
+    };
+
+    // Naming nothing is no origin at all.
+    let nothing = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn.id,
+        submission(Vec::new()),
+    )
+    .await
+    .expect_err("names nothing");
+    assert!(refusal(nothing).contains("name what called for this batch"));
+
+    // A person's message to another project's Project Manager is not this one's to name.
+    let mut borrowed = submission(Vec::new());
+    borrowed.message_ids = vec![elsewhere.id];
+    let borrowed = batches::submit(&mut connection, &events, launch, turn.id, borrowed)
+        .await
+        .expect_err("another project's message");
+    assert!(refusal(borrowed).contains("not one sent to this project's Project Manager"));
+
+    // Elysia's word is an agent's: work only she asked for is found.
+    let mut hearsay = submission(Vec::new());
+    hearsay.message_ids = vec![relayed.id];
+    let hearsay = batches::submit(&mut connection, &events, launch, turn.id, hearsay)
+        .await
+        .expect("submitted");
+    assert_eq!(hearsay.origin, Origin::Found);
+
+    // So is the Project Manager's own record, and an item it wrote that no person accepted.
+    let own_record = submission(vec![hearsay.timeline_record_id.expect("on the timeline")]);
+    let own_record = batches::submit(&mut connection, &events, launch, turn.id, own_record)
+        .await
+        .expect("submitted");
+    assert_eq!(own_record.origin, Origin::Found);
+    let written = crate::models::action_item::create(
+        &mut connection,
+        crate::models::action_item::NewActionItem {
+            title: "Redo the invoices".to_owned(),
+            notes: String::new(),
+            state: crate::models::action_item::ActionItemState::Inbox,
+            priority: crate::models::action_item::ActionItemPriority::Normal,
+            due_at: None,
+            owner: crate::models::action_item::Owner::User,
+            project_ids: vec![launch],
+            initiative_ids: Vec::new(),
+        },
+        crate::action_items::Actor::ProjectManager(launch),
+        Utc::now(),
+    )
+    .await
+    .expect("written")
+    .record
+    .id;
+    let mut own_item = submission(Vec::new());
+    own_item.action_item_ids = vec![written];
+    let own_item = batches::submit(&mut connection, &events, launch, turn.id, own_item)
+        .await
+        .expect("submitted");
+    assert_eq!(own_item.origin, Origin::Found);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_rejected_batch_is_replaced_where_it_stood() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let first = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn.id,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+
+    // A person's rejection wakes the Project Manager, which plans the work again: no worker did
+    // anything, so the replacement stands where the first stood.
+    work_batch::approval::reject(
+        &mut connection,
+        first.id,
+        "Only the yearly plan, not every plan.",
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("rejected");
+    let after_the_rejection = next_turn(&mut connection, launch, turn.id).await;
+    let replacement = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        after_the_rejection,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+    assert_eq!(replacement.generation, 0);
+    assert_eq!(replacement.parents(), vec![first.id]);
 }

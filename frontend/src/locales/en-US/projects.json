@@ -235,6 +235,10 @@
       "failed": "Failed",
       "cancelled": "Cancelled",
       "rejected": "Rejected"
+    },
+    "origins": {
+      "human_rooted": "From a person",
+      "found": "Found by an agent"
     }
   },
   "promises": {

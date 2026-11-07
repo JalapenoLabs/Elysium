@@ -3,6 +3,7 @@
 import type { ActionItemState } from './actionItemRoutes'
 import type {
   WorkBatch,
+  WorkBatchOrigin,
   WorkBatchPriority,
   WorkBatchRepository,
   WorkBatchState,
@@ -41,6 +42,9 @@ export type WorkQueueEntry = {
   assignedAt: string | null
   createdAt: string
   startedAt: string | null
+  origin: WorkBatchOrigin
+  // How many batches led to it: 0 for work a person called for.
+  generation: number
 }
 
 // Mirrors `QueueResponse` in api/src/routes/v1/work_queue.rs.
@@ -114,6 +118,15 @@ export type WorkBatchCause = {
   documentId: string | null
 }
 
+// A message a person or Elysia sent the batch's Project Manager that called for it.
+export type WorkBatchMessage = {
+  id: string
+  authorId: string
+  author: string
+  body: string
+  sentAt: string
+}
+
 // An action item a batch works on.
 export type WorkBatchItem = {
   id: string
@@ -121,10 +134,21 @@ export type WorkBatchItem = {
   state: ActionItemState
 }
 
-// Mirrors `WhyResponse` in api/src/routes/v1/work_batches/mod.rs: what called for a batch.
+// A batch the batch was planned from.
+export type WorkBatchParent = {
+  id: string
+  title: string
+  state: WorkBatchState
+  generation: number
+}
+
+// Mirrors `WhyResponse` in api/src/routes/v1/work_batches/mod.rs: what called for a batch, and the
+// batches it was planned from.
 export type WorkBatchWhy = {
   records: WorkBatchCause[]
+  messages: WorkBatchMessage[]
   actionItems: WorkBatchItem[]
+  parents: WorkBatchParent[]
 }
 
 export type WorkBatchWithHistory = {
