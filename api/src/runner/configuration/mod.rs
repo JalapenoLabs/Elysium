@@ -174,6 +174,16 @@ impl ConfigurationSource {
         let github_credential_id = settings.agent_configuration_github_credential_id;
         let repository = async {
             let url = Url::parse(&stored)?;
+            // The settings refuse a query or a fragment now, but a URL saved before they did may
+            // carry one, and with it a token, which would follow the URL into every checkout,
+            // batch, and error. It is refused here without being repeated.
+            if url.query().is_some() || url.fragment().is_some() {
+                anyhow::bail!(
+                    "the configuration repository's URL carries a query or a fragment, which may \
+                     hold a secret; save it again without one under Settings, LLMs, Agent \
+                     configuration"
+                );
+            }
             let token = match github_credential_id {
                 // The settings refuse a token for any other host; this keeps it from ever leaving.
                 Some(id) if url.host_str() == Some(TOKEN_HOST) => {

@@ -400,3 +400,33 @@ async fn an_attempt_recorded_while_an_admin_replaces_the_repository_waits_and_re
         "an attempt at the replaced repository records nothing"
     );
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_repository_saved_with_a_query_is_refused_without_repeating_it() {
+    use std::sync::Arc;
+
+    use crate::runner::configuration::ConfigurationSource;
+
+    let (url, mut connection) = migrated_database().await;
+    // Saved before the settings refused a query, as no route accepts it now.
+    set_repository(
+        &mut connection,
+        Some("https://github.com/acme/agents.git?token=secret-value"),
+    )
+    .await;
+    let source = ConfigurationSource::Database {
+        database: crate::connections::connect_postgres(&url, 2)
+            .await
+            .expect("Postgres accepts connections"),
+        cipher: Arc::new(crate::test_support::cipher()),
+    };
+    // Named in full: diesel's `RunQueryDsl::load` is in scope too.
+    let loaded = ConfigurationSource::load(&source)
+        .await
+        .expect("the settings read")
+        .expect("a repository");
+    let refusal = loaded.repository.expect_err("refused");
+    assert!(refusal.contains("query or a fragment"), "{refusal}");
+    assert!(!refusal.contains("secret-value"), "{refusal}");
+}
