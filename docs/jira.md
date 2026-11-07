@@ -95,7 +95,10 @@ The Jira routes are not exposed to coding agents today. A session's agent gets t
 `elysium_work` tools (`api/src/tools/`), neither of which takes JQL or names a Jira issue, so the only caller writing
 JQL is the user's own browser. Action item links and the watcher (`docs/action-items.md`) go through the same checks:
 an issue by key through `allowed_issue`, and every search through the same bounding, including the watcher's reads of
-linked issues and of an epic's or a saved filter's children.
+linked issues, of an epic's or a saved filter's children, and of the issues assigned to the credential's account
+(`assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`, at most ten pages of a hundred), which
+come in as inbox items (`docs/action-items.md`, Assigned issues). So the allowlist is all a Jira connector's content is:
+only issues in allowed projects come in.
 
 ## No freeform entry
 

@@ -12,6 +12,7 @@ pub mod action_item_link_write;
 pub mod agent;
 pub mod agent_configuration;
 pub mod agent_guidance;
+pub mod assigned_issue;
 pub mod attribution;
 pub mod authenticator_nickname;
 pub mod authenticator_replacement;

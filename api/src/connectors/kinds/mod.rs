@@ -23,7 +23,9 @@
 //! names, description, and check sentences to its `connectors` translations, and its logo to its
 //! `connectorLogos`. What it
 //! [`Provides`] is how the loops that read a kind of thing find it, such as
-//! `crate::meetings` finding every kind that provides meetings. A kind whose account is a new
+//! `crate::meetings` finding every kind that provides meetings, and the link watcher bringing in
+//! what is assigned to the person of every kind that provides issues, through the provider
+//! [`link_provider`] names for it. A kind whose account is a new
 //! provider adds an [`AccountKind`] and, when its sign-in is one API key, keeps that key in
 //! `token_accounts`.
 
@@ -46,7 +48,8 @@ use super::checks::{self, CheckRun, CheckSpec, Checks, Outcome};
 use super::{AccountKind, ConnectorError, ConnectorKind, Outgoing, Scope, Sent};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::connector::Connector;
+use crate::models::action_item_link::{LinkCredential, LinkProvider};
+use crate::models::connector::{AccountRef, Connector};
 use crate::models::connector_check::{self, CheckResult};
 use crate::models::draft::ReplyPlace;
 use crate::models::timeline_record::TimelineRecord;
@@ -191,6 +194,35 @@ pub fn providing(what: Provides) -> Vec<ConnectorKind> {
         .filter(|definition| definition.provides.contains(&what))
         .map(|definition| definition.kind)
         .collect()
+}
+
+/// The link provider a kind's issues are read through, for every kind that provides issues and
+/// no other. Declaring [`Provides::Issues`] is all a kind does to have the link watcher bring in
+/// what is assigned to its person (`crate::action_items::assigned`); a test fails when a kind
+/// providing issues has no provider here.
+pub const fn link_provider(kind: ConnectorKind) -> Option<LinkProvider> {
+    match kind {
+        ConnectorKind::Jira => Some(LinkProvider::Jira),
+        ConnectorKind::Github => Some(LinkProvider::Github),
+        ConnectorKind::Youtrack => Some(LinkProvider::Youtrack),
+        ConnectorKind::Confluence
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Teams
+        | ConnectorKind::Slack
+        | ConnectorKind::Fireflies => None,
+    }
+}
+
+/// The credential an issue connector's account is to its link provider, through which what is
+/// assigned to its person is read. `None` for a connector of a kind that provides no issues.
+pub fn issue_credential(connector: &Connector) -> Option<LinkCredential> {
+    let provider = link_provider(ConnectorKind::parse(&connector.kind)?)?;
+    let id = match connector.account()? {
+        AccountRef::Atlassian(id) | AccountRef::Github(id) | AccountRef::Token(id) => id,
+        AccountRef::Browser(_id) => return None,
+    };
+    Some(LinkCredential { provider, id })
 }
 
 /// The kind a stored connector names.
@@ -509,10 +541,10 @@ pub async fn options(
         ConnectorKind::Teams => teams::options(state, current, account).await,
         ConnectorKind::Slack => slack::options(state, current, account).await,
         ConnectorKind::Youtrack => youtrack::options(state, current, account).await,
-        ConnectorKind::Github
-        | ConnectorKind::Outlook
-        | ConnectorKind::Gmail
-        | ConnectorKind::Fireflies => Ok(Value::Object(serde_json::Map::new())),
+        ConnectorKind::Github => github::options(state, account).await,
+        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Fireflies => {
+            Ok(Value::Object(serde_json::Map::new()))
+        }
     }
 }
 
@@ -533,7 +565,8 @@ pub async fn update_content(
         ConnectorKind::Teams => teams::update_content(state, connector, content).await,
         ConnectorKind::Slack => slack::update_content(state, connector, content).await,
         ConnectorKind::Youtrack => youtrack::update_content(state, connector, content).await,
-        kind @ (ConnectorKind::Github | ConnectorKind::Outlook | ConnectorKind::Gmail) => {
+        ConnectorKind::Github => github::update_content(state, connector, content).await,
+        kind @ (ConnectorKind::Outlook | ConnectorKind::Gmail) => {
             Err(ApiError::BadRequest(format!(
                 "{} reads everything its account reaches; there is nothing to choose",
                 kind.as_str()
@@ -544,7 +577,8 @@ pub async fn update_content(
 
 /// Starts a sync of `connector` now. The engine reads every kind: Jira and GitHub in the link
 /// watcher's next pass, which is woken at once, and every other kind as its own read, which the
-/// connector shows as syncing until it ends.
+/// connector shows as syncing until it ends. YouTrack is both: its reader reads it, and the woken
+/// watcher brings in what is assigned to its person.
 ///
 /// # Errors
 /// [`ApiError::Conflict`] when it is paused or already syncing.
@@ -557,12 +591,10 @@ pub async fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiErro
     if connector.syncing_since.is_some() {
         return Err(ApiError::Conflict("the connector is already syncing"));
     }
-    match kind_of(connector)? {
-        ConnectorKind::Jira | ConnectorKind::Github => {
-            // The link watcher reads every Atlassian and GitHub account in one pass; waking it
-            // reads this one at once.
-            state.links.wake_watcher();
-        }
+    let kind = kind_of(connector)?;
+    match kind {
+        // The link watcher alone reads them, every account in one pass, woken below.
+        ConnectorKind::Jira | ConnectorKind::Github => {}
         ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
@@ -574,6 +606,11 @@ pub async fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiErro
                 return Err(ApiError::Conflict("the connector is already syncing"));
             }
         }
+    }
+    // An issue connector's links, and what is assigned to its person, are read on the link
+    // watcher's pass, so reading one now wakes it, YouTrack's beside its own reader.
+    if link_provider(kind).is_some() {
+        state.links.wake_watcher();
     }
     Ok(())
 }
@@ -662,6 +699,26 @@ mod tests {
             );
         }
         assert_eq!(providing(Provides::Meetings), [ConnectorKind::Fireflies]);
+    }
+
+    #[test]
+    fn exactly_the_kinds_that_provide_issues_are_read_through_a_link_provider() {
+        for kind in ConnectorKind::ALL {
+            assert_eq!(
+                definition(kind).provides.contains(&Provides::Issues),
+                link_provider(kind).is_some(),
+                "{}",
+                kind.as_str()
+            );
+        }
+        assert_eq!(
+            providing(Provides::Issues),
+            [
+                ConnectorKind::Jira,
+                ConnectorKind::Github,
+                ConnectorKind::Youtrack
+            ]
+        );
     }
 
     #[test]

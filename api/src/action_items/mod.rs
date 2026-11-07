@@ -14,11 +14,14 @@
 //! - [`links`]: the external things items and initiatives point at, behind one provider
 //!   trait, with the rules for what a provider's change does to an item.
 //! - [`watcher`]: the poller that keeps links current and lands the writes Elysium owes.
+//! - [`assigned`]: the issues assigned to an issue connector's person, which the watcher
+//!   brings in as inbox items.
 //! - [`changesets`]: the changes anyone but the user proposes, how they depend on each
 //!   other, and how the user's decisions on them cascade.
 //!
 //! The queries live in `crate::models::action_item` and its siblings, and call into these.
 
+pub mod assigned;
 pub mod changesets;
 pub mod links;
 pub mod next;

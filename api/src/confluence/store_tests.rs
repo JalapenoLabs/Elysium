@@ -223,7 +223,10 @@ async fn pausing_confluence_never_pauses_the_link_watcher() {
         connector::paused_link_accounts(&mut connection)
             .await
             .expect("listed"),
-        [account_id]
+        [LinkCredential {
+            provider: LinkProvider::Jira,
+            id: account_id
+        }]
     );
 }
 

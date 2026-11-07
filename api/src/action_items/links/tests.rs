@@ -20,7 +20,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use chrono::TimeDelta;
 use diesel_async::AsyncPgConnection;
 use secrecy::SecretString;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::*;
 use crate::action_items::watcher::WatchContext;
@@ -286,6 +286,9 @@ async fn answer_jira(
             let parent = value_after(&jql, "parent = ");
             let filtered_keys = value_after(&jql, "filter = ")
                 .and_then(|id| state.filters.get(&id).map(|(_name, keys)| keys.clone()));
+            // `currentUser()` is the account the credential's token belongs to.
+            let mine_only = jql.contains("assignee = currentUser()");
+            let open_only = jql.contains("statusCategory != Done");
             let issues: Vec<Value> = state
                 .issues
                 .iter()
@@ -304,6 +307,19 @@ async fn answer_jira(
                     filtered_keys
                         .as_ref()
                         .is_none_or(|keys| keys.contains(&issue.key))
+                })
+                .filter(|issue| {
+                    !mine_only
+                        || issue
+                            .assignee
+                            .as_ref()
+                            .is_some_and(|(account_id, _name)| account_id == JIRA_ACCOUNT_ID)
+                })
+                .filter(|issue| {
+                    let is_done = statuses_of(&issue.project)
+                        .iter()
+                        .any(|(id, _name, category)| *id == issue.status_id && *category == "done");
+                    !open_only || !is_done
                 })
                 .map(jira_issue_json)
                 .collect();
@@ -502,6 +518,7 @@ impl LinkFixture {
             &NewGithubCredential {
                 created_by: TEST_PERSON_ID,
                 name: "Personal".to_owned(),
+                connector_content: serde_json::json!({ "repositories": "*" }),
                 verified: github_credential::VerifiedToken {
                     kind: GithubTokenKind::Classic,
                     token: SecretString::from(fake::TOKEN),

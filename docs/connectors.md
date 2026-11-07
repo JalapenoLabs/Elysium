@@ -76,9 +76,14 @@ table of its own:
   `{"waitForApproval": bool}`, whether each meeting's run waits for its person to approve the corrected transcript
   (`docs/meetings.md`, Correction). Every kind that provides meetings declares that toggle; a test fails on one that
   does not.
+- GitHub's content is the repositories whose assigned issues come in (`docs/github.md`, Assigned issues),
+  `{"repositories": "*"}` or `{"repositories": ["owner/name", ...]}`, matched against what the token lists when it is
+  saved and stored as GitHub spells each name. A token added under Settings, GitHub reads every repository. It bounds
+  what comes in, not what can be linked.
 - YouTrack's content is the projects it reads, `{"projects": "*"}` or `{"projects": [<project id>, ...]}`. A pick may
   name a project by its id or short name; what is stored is YouTrack's id, matched against what the token reaches
-  when it is saved, so a project the token cannot see is refused then rather than ignored later.
+  when it is saved, so a project the token cannot see is refused then rather than ignored later. It bounds both what
+  its reader records and which assigned issues come in.
 - Teams' and Slack's content is the conversations they read, `"*"` when they are made, since nothing can be listed
   until their person signs in, and narrowed on the connector's page afterwards.
 
@@ -87,8 +92,9 @@ paused. Jira and GitHub are read by the link watcher, which records its progress
 so their last sync and last error come from there.
 
 Confluence's account is an Atlassian one too, so anything about the link watcher's reading is matched by kind as well
-as account (`ConnectorKind::LINKS`, Jira and GitHub): which accounts the paused connectors stop the watcher on, whose
-watcher pass and errors a connector shows, and whose linked issues it counts.
+as account: which accounts the paused connectors stop the watcher on, by the kinds that provide issues (Jira, GitHub,
+and YouTrack, whose links and assigned issues the watcher reads); and whose watcher pass and errors a connector shows,
+and whose linked issues it counts, by `ConnectorKind::LINKS` (Jira and GitHub, whose reading state is the watcher's).
 
 ### Who sees what
 
@@ -105,13 +111,13 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 |--------------|------------------------|------------|---------------|------------------------------|-----------------------------|---------|
 | `jira`       | `kinds/jira.rs`        | `issues`   | `atlassian`   | `projects`, `boards`         | The link watcher            | Never   |
 | `confluence` | `kinds/confluence.rs`  | `pages`    | `atlassian`   | `spaces`                     | `crate::confluence::reader` | Never   |
-| `github`     | `kinds/github.rs`      | `issues`   | `github`      | None: what the token reaches | The link watcher            | Never   |
+| `github`     | `kinds/github.rs`      | `issues`   | `github`      | `repositories`               | The link watcher            | Never   |
 | `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
 | `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
 | `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`, `waitForApproval` | `crate::meetings`           | Never   |
-| `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader`   | Never   |
+| `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader` and the link watcher | Never   |
 
 A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
 kind's start page, its content fields (a `selection` picked from what the account reaches, a `storage_location`, or a
@@ -123,7 +129,9 @@ its `connectors` translations.
 What a kind provides (`Provides`: `issues`, `pages`, `mail`, `messages`, `meetings`) is how a loop that reads one kind
 of thing finds every kind that reads it, without naming them: `crate::meetings` reads every kind
 `kinds::providing(Provides::Meetings)` answers, each through its source (`crate::meetings::sources`), and the web app's
-Meetings page lists every connector whose kind provides meetings.
+Meetings page lists every connector whose kind provides meetings. The link watcher brings in what is assigned to the
+person of every active connector whose kind provides issues, through the link provider `kinds::link_provider` names
+for it (`docs/action-items.md`, Assigned issues).
 
 A kind fills these verbs:
 
@@ -157,7 +165,9 @@ that counts something different takes an id of its own: Confluence's `sample_pag
 sign-in is one API key, its key lives in `token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition,
 provides nothing, an account kind has none, a browser kind names no start page, or a check depends on one that does not
 run before it. A kind that provides meetings also adds its source to `crate::meetings::sources` (`docs/meetings.md`), and
-a test there fails when it has none.
+a test there fails when it has none. A kind that provides issues names its link provider in `kinds::link_provider`, and a
+test fails when a kind providing issues has none, or one providing none has one; its provider's `assigned` read is then
+all it takes for what is assigned to its person to come in.
 
 ## Checks
 
@@ -195,8 +205,8 @@ provider and no further). A run lives in memory (`CheckRuns`) for half an hour a
 
 `api/src/connectors/activity.rs` is where every loop that reads a connector reports its syncs. A sync that recorded
 something, or failed, is stored as a run (`connector_runs`): records stored for a mailbox, meetings listed or
-processed, changes the watcher read. A sync that found nothing new is not stored, since a mailbox is read every minute.
-Each connector keeps its newest 50 runs.
+processed, changes the watcher read and assigned issues it brought in. A sync that found nothing new is not stored,
+since a mailbox is read every minute. Each connector keeps its newest 50 runs.
 
 A connector's status is, in order:
 
@@ -207,15 +217,17 @@ A connector's status is, in order:
 | `error`   | Its last read failed, or its account is asking to be signed in again  |
 | `active`  | Otherwise                                                             |
 
-`syncing` is a mark on the connector's row (`syncing_since`), so the API shows what the engine is doing. A paused Jira
-or GitHub connector's account is skipped by the link watcher's reads; writes the user already approved still land. A
-paused mailbox or meeting source is not read.
+`syncing` is a mark on the connector's row (`syncing_since`), so the API shows what the engine is doing. A paused issue
+connector's account (Jira, GitHub, or YouTrack) is skipped by the link watcher's reads, so neither its links nor what is
+assigned to its person are read; writes the user already approved still land. A paused mailbox or meeting source is not
+read.
 
 `POST /connectors/{id}/sync` reads a connector now, which is also how a failed sync is retried. Every reader runs in the
 engine (`docs/engine.md`), so the API marks the connector syncing and signals the engine, which reads it with its kind's
 reader and clears the mark: a mailbox is read once, a meeting source lists and processes, and a Confluence space or
 YouTrack site is read. Jira and GitHub wake the link watcher instead, which reads every Atlassian and GitHub account in
-one pass. A sync asked for while the engine is down runs when it starts, as does one an engine that stopped left
+one pass and brings in what is assigned to each issue connector's person; a YouTrack sync wakes it too, beside its
+reader's read. A sync asked for while the engine is down runs when it starts, as does one an engine that stopped left
 marked.
 
 ## In the web app
@@ -458,7 +470,9 @@ classic token.
 ### YouTrack
 
 `api/src/youtrack/reader.rs` reads every active YouTrack connector every two minutes (`READ_INTERVAL`), until
-shutdown. A read signs in as the token's user, lists the chosen projects' issues most recently updated first
+shutdown. The issues assigned to its person come in through the link watcher, as every issue connector's do
+(`docs/action-items.md`, Assigned issues), each as an item linked to its issue; the reader puts what happens on the
+site on the timeline. A read signs in as the token's user, lists the chosen projects' issues most recently updated first
 (`project: JL, WAY sort by: updated desc`, up to four pages of 50), stops at the cursor, and reads the comments on each
 changed issue.
 
@@ -468,21 +482,21 @@ changed issue.
   is for.
 
 A YouTrack account also links issues to action items (`api/src/action_items/links/youtrack.rs`, `docs/action-items.md`),
-reached through `crate::youtrack` alone: the watcher reads linked issues by key, `issue id: JL-1, JL-2`, and its writes
-open issues, comment, and move an issue's state (`POST /api/issues`, `/api/issues/<id>/comments`, and
-`/api/issues/<id>` with the state field), as the token's user. A Project Manager files issues in a YouTrack project
-through a person's account when its project names that tracker (`docs/engine.md`, Its writes). The watcher's reads of
-linked issues are not reported as the account's connector's runs, which are what it ingested. The `issue id:` search,
-creating issues, and moving a state through the state field's `$type` (`StateProjectCustomField`,
-`StateIssueCustomField`) follow JetBrains' REST documentation and are tested against a fake site
-(`api/src/youtrack/tests.rs`); they have not yet been run against a live YouTrack Cloud site.
+reached through `crate::youtrack` alone: the watcher reads linked issues by key, `issue id: JL-1, JL-2`, the issues
+assigned to the token's user in the chosen projects, `project: JL for: me #Unresolved` (at most ten pages of a
+hundred), and its writes open issues, comment, and move an issue's state (`POST /api/issues`,
+`/api/issues/<id>/comments`, and `/api/issues/<id>` with the state field), as the token's user. A Project Manager files
+issues in a YouTrack project through a person's account when its project names that tracker (`docs/engine.md`, Its
+writes). A watcher pass over the account that read a change, brought an issue in, or failed is reported as a run of
+its connector, beside the reader's. The `issue id:` and `for: me` searches, creating issues, and moving a state through
+the state field's `$type` (`StateProjectCustomField`, `StateIssueCustomField`) follow JetBrains' REST documentation and
+are tested against a fake site (`api/src/youtrack/tests.rs`); they have not yet been run against a live YouTrack Cloud
+site.
 
-A record that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction:
-
-| Record    | Wants attention when                                                                       |
-|-----------|--------------------------------------------------------------------------------------------|
-| An issue  | It is assigned to the token's user, and someone else reported it                          |
-| A comment | Someone else wrote it, on an issue the user is assigned or reported, or it mentions `@<login>` |
+A comment that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction: one
+someone else wrote, on an issue the user is assigned or reported, or that mentions `@<login>`. Its record names the
+item, which is how Elysia hears of it. An issue's record raises nothing, since an issue assigned to the user already
+comes in as an item linked to it.
 
 The cursor is the newest update read, in YouTrack's own clock (`{"baselined": true, "since": <ms>}`). The first read
 records nothing and only sets it, so connecting a site does not fill the timeline and the inbox with its history. A
@@ -617,7 +631,6 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
   opened in that browser is not read. Not yet confirmed either way.
 - YouTrack issues in the link picker, and YouTrack containers for initiatives.
 - YouTrack Server, on a customer's own host, beside YouTrack Cloud.
-- GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Drafting replies for review with what a conversation's agent raises (`docs/engine.md`, Conversations).
 - Sending checked against a signed-in Slack and Teams: Slack's `chat.postMessage` with the web client's session, and

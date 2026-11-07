@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Links through a GitHub personal access token: issues and pull requests on items, and
-//! milestones or labels on one repository as initiatives' containers.
+//! Links through a GitHub personal access token: issues and pull requests on items, milestones
+//! or labels on one repository as initiatives' containers, and the open issues assigned to the
+//! token's account in the connector's chosen repositories, which come in as items.
 //!
 //! GitHub reports an issue's state and, once closed, why: `completed` or `not_planned`. A
 //! pull request is an issue that carries whether it merged. [`remote`] turns those into one
@@ -18,12 +19,15 @@ use chrono::{DateTime, TimeDelta, Utc};
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
 use secrecy::SecretString;
+use serde_json::Value;
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{
-    Children, Destination, IssueToFile, LinkError, Provider, Remote, RemoteContainer, WriteOutcome,
+    AssignedIssues, Children, Destination, IssueToFile, LinkError, Provider, Remote,
+    RemoteContainer, WriteOutcome,
 };
+use crate::connectors::kinds::github::Content;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::github::issues::{Issue, IssueQuery, IssueRef, PullRequest};
@@ -32,6 +36,7 @@ use crate::models::action_item::Owner;
 use crate::models::action_item_link::{ActionItemLink, LinkKind, LinkState};
 use crate::models::github_credential;
 use crate::models::initiative_link::{ContainerKind, InitiativeLink};
+use crate::routes::v1::jira_credentials::Selection;
 
 /// How many pages of a repository's recent changes one pass reads, so 300 issues and pull
 /// requests. A repository busier than that since the cursor is read link by link instead.
@@ -40,6 +45,11 @@ const CHANGE_PAGE_LIMIT: usize = 3;
 /// How many pages of a container's children the watcher reads, so 1,000 children at most.
 /// A container past it is marked truncated and its children are never taken out.
 const CHILD_PAGE_LIMIT: usize = 10;
+
+/// How many pages of assigned issues one listing takes, so 1,000 at most, the same bound as a
+/// container's children: the account's listing, or each chosen repository's. Past it, the least
+/// recently updated wait until they change.
+const ASSIGNED_PAGE_LIMIT: usize = 10;
 
 /// Minutes taken off every "updated since" listing, so an issue updated in the moment the
 /// cursor was taken, or while GitHub's clock and Elysium's disagree a little, is read again
@@ -340,6 +350,72 @@ impl GithubProvider {
         })
     }
 
+    /// The open issues assigned to the token's account in the repositories `content` chose,
+    /// most recently updated first, bounded in what is asked of GitHub as Jira's and YouTrack's
+    /// reads are bounded in their queries.
+    ///
+    /// A connector reading every repository takes one listing of everything assigned to the
+    /// account, which costs the same however many repositories it spans. One that chose
+    /// repositories lists each of them by assignee instead, a request per repository, so what
+    /// is assigned elsewhere never spends the read's cap before a chosen repository is reached.
+    ///
+    /// # Errors
+    /// A chosen repository the token cannot read fails the read, naming it, as a Jira or
+    /// YouTrack query naming a project it cannot read does, so the connector shows which pick
+    /// to change rather than reading less than it says.
+    async fn assigned(
+        &self,
+        credential_id: Uuid,
+        content: &Value,
+    ) -> Result<AssignedIssues, LinkError> {
+        let content: Content = serde_json::from_value(content.clone()).map_err(|error| {
+            LinkError::Internal(anyhow::anyhow!(
+                "a GitHub connector's content is not a selection of repositories: {error}"
+            ))
+        })?;
+        let opened = self.open(credential_id).await?;
+        let (listed, truncated) = match &content.repositories {
+            Selection::All => {
+                let listing = self
+                    .github
+                    .list_assigned_issues(&opened.token, ASSIGNED_PAGE_LIMIT)
+                    .await?;
+                (listing.items, listing.truncated)
+            }
+            Selection::Only(names) => {
+                let query = IssueQuery {
+                    open_only: true,
+                    assignee: Some(opened.login.as_str()),
+                    ..IssueQuery::default()
+                };
+                let mut listed = Vec::new();
+                let mut truncated = false;
+                for name in names {
+                    let repository = parse_repository(name)?;
+                    let listing = self
+                        .github
+                        .list_issues(&opened.token, &repository, &query, ASSIGNED_PAGE_LIMIT)
+                        .await
+                        .map_err(|error| {
+                            LinkError::Upstream(format!("cannot read {name}'s issues: {error}"))
+                        })?;
+                    listed.extend(listing.items);
+                    truncated |= listing.truncated;
+                }
+                // Each repository lists its own newest first; the read answers newest first
+                // across all of them.
+                listed.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+                (listed, truncated)
+            }
+        };
+        let items = listed
+            .into_iter()
+            .filter(|issue| issue.pull_request.is_none())
+            .map(|issue| remote(&opened, issue))
+            .collect();
+        Ok(AssignedIssues { items, truncated })
+    }
+
     async fn close(&self, link: &ActionItemLink) -> Result<WriteOutcome, LinkError> {
         if link.kind != LinkKind::Issue {
             return Err(LinkError::Invalid(
@@ -505,8 +581,9 @@ fn parse_label(reference: &str) -> Result<(Repository, String), LinkError> {
     Ok((repository, name.to_owned()))
 }
 
-/// An issue or pull request as a link reads it. The assignee is the user when it is the
-/// token's own account.
+/// An issue or pull request as a link reads it. It is the user's when the token's own account
+/// is any of its assignees, since GitHub lets several people share one; otherwise it is its first
+/// assignee's.
 fn remote(opened: &OpenToken, issue: Issue) -> Remote {
     let state = state_of(&issue);
     let status = match state {
@@ -514,12 +591,18 @@ fn remote(opened: &OpenToken, issue: Issue) -> Remote {
         LinkState::Merged => "merged",
         LinkState::Done | LinkState::NotPlanned | LinkState::ClosedUnmerged => "closed",
     };
-    let owner = match &issue.assignee {
-        Some(login) if login.eq_ignore_ascii_case(&opened.login) => Owner::User,
-        Some(login) => Owner::Other {
-            name: login.clone(),
-        },
-        None => Owner::Nobody,
+    let is_mine = issue
+        .assignees
+        .iter()
+        .chain(&issue.assignee)
+        .any(|login| login.eq_ignore_ascii_case(&opened.login));
+    let owner = if is_mine {
+        Owner::User
+    } else {
+        issue
+            .assignee
+            .clone()
+            .map_or(Owner::Nobody, |name| Owner::Other { name })
     };
     Remote {
         external_id: issue.reference(),
@@ -590,6 +673,14 @@ impl Provider for GithubProvider {
         Self::children(self, container).boxed()
     }
 
+    fn assigned<'call>(
+        &'call self,
+        credential_id: Uuid,
+        content: &'call Value,
+    ) -> BoxFuture<'call, Result<AssignedIssues, LinkError>> {
+        Self::assigned(self, credential_id, content).boxed()
+    }
+
     fn close<'call>(
         &'call self,
         link: &'call ActionItemLink,
@@ -640,6 +731,7 @@ mod tests {
             is_open,
             state_reason: reason.map(str::to_owned),
             assignee: None,
+            assignees: Vec::new(),
             pull_request: pull_request.map(|merged| PullRequest { merged }),
             updated_at: None,
         }

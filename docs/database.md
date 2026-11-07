@@ -247,7 +247,7 @@ shared its browser before every connector owned its own: it has none while it wa
 | `token_account_id`          | `UUID`        | References `token_accounts`, cascading: Fireflies' or YouTrack's key |
 | `jira_credential_id`        | `UUID`        | References `jira_credentials`, cascading: Jira's or Confluence's Atlassian account |
 | `github_credential_id`      | `UUID`        | References `github_credentials`, cascading: GitHub's account    |
-| `content`                   | `JSONB`       | What it reads, in its kind's terms, for a kind without a table of its own |
+| `content`                   | `JSONB`       | What it reads, in its kind's terms, for a kind without a table of its own, such as GitHub's `{"repositories": "*"}` |
 | `storage_location_id`       | `UUID`        | References `storage_locations`: where it keeps files, such as meeting recordings |
 | `sign_in_state`             | `TEXT`        | `signed_in`, `signed_out`, or `unknown`, as last read           |
 | `cursor`                    | `JSONB`       | Where the last read left off, in the kind's terms               |
@@ -1297,6 +1297,21 @@ How far the watcher has read each credential: everything updated before `watched
 per credential, `jira_credential_id`, `github_credential_id`, or `token_account_id` (each unique, deleted with its
 credential), with
 `last_error` holding why the latest pass over it failed.
+
+### `assigned_issues`
+
+Every issue an issue connector brought in because it is assigned to its person, and the item it raised or found
+already linked; see `docs/action-items.md`, Assigned issues. One row per connector and issue is what keeps an issue from
+raising a second item, whatever happened to the first since.
+
+| Column           | Type          | Notes                                                        |
+|------------------|---------------|--------------------------------------------------------------|
+| `id`             | `UUID`        | UUIDv7, primary key                                          |
+| `connector_id`   | `UUID`        | References `connectors`, cascading: what a removed connector brought in is forgotten |
+| `external_id`    | `TEXT`        | The issue as its provider names it for good, as `action_item_links.external_id`; unique with `connector_id` |
+| `action_item_id` | `UUID`        | References `action_items`, cascading; indexed                |
+| `created_by`     | `UUID`        | References `users`: the system user, as the watcher          |
+| `created_at`     | `TIMESTAMPTZ` | Written by the API, in the transaction that made the item    |
 
 ### `jira_done_transitions`
 
