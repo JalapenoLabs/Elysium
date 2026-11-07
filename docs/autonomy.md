@@ -94,5 +94,13 @@ Coding sessions and Elysia are not held, since a person watches each session and
 
 ## Staying aware
 
-Every batch shows its why: the meeting quote or issue that called for it, the item, the batch, and its pull request.
-Elysia's brief says what shipped, what waits on the person, and what was found. Activity holds everything else.
+Built: every batch shows its why as one chain, read top to bottom, each link opening where it lives: the messages to
+its Project Manager, the records it names (a meeting segment with its quote, a mail, a chat message), the issues
+linked to its items, the items, the batch, and its pull requests.
+Its page shows the whole chain and the batches it was planned from; the work queue shows where each batch's chain
+starts. Every pull request a worker records carries the same chain at the end of its description, so a reviewer on
+GitHub sees why it exists without opening Elysium. The rules are `docs/engine.md`, Why a batch exists.
+
+On the roadmap: a batch made by accepting a finding leads its chain with that finding and who accepted it, once
+Findings store which batch accepting made (the chain and both its views already draw a finding). Elysia's brief says
+what shipped, what waits on the person, and what was found. Activity holds everything else.

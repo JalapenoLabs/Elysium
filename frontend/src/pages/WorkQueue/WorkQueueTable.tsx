@@ -16,6 +16,7 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 // User interface
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
+import { ChainLinkTitle } from './ChainLinkTitle'
 
 // Misc
 import { DateText } from '../../format/DateText'
@@ -25,6 +26,8 @@ import { useNow } from '../../hooks/useNow'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getProjectViewUrl, getWorkBatchViewUrl } from '../../urls'
+import { sourceLabelKey } from '../Projects/timelinePresentation'
+import { chainLinkLabelKeys, chainLinkText } from './chainPresentation'
 import {
   batchOriginChipColors,
   batchOriginLabelKeys,
@@ -52,6 +55,7 @@ type Props = {
 const COLUMN_KEYS = [
   'position',
   'title',
+  'cause',
   'project',
   'priority',
   'state',
@@ -63,16 +67,17 @@ type ColumnKey = typeof COLUMN_KEYS[number]
 
 // Only the queue itself has places: the other lists are not an order slots are handed out in.
 const columnKeysByList = {
-  proposed: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
+  proposed: [ 'title', 'cause', 'project', 'priority', 'origin', 'generation', 'submitted' ],
   queued: COLUMN_KEYS,
-  running: [ 'title', 'project', 'priority', 'state', 'origin', 'generation', 'submitted' ],
-  scheduled: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
-  paused: [ 'title', 'project', 'priority', 'origin', 'generation', 'submitted' ],
+  running: [ 'title', 'cause', 'project', 'priority', 'state', 'origin', 'generation', 'submitted' ],
+  scheduled: [ 'title', 'cause', 'project', 'priority', 'origin', 'generation', 'submitted' ],
+  paused: [ 'title', 'cause', 'project', 'priority', 'origin', 'generation', 'submitted' ],
 } as const satisfies Record<WorkQueueList, readonly ColumnKey[]>
 
 const columnLabelKeys = {
   position: 'table.columns.position',
   title: 'table.columns.title',
+  cause: 'table.columns.cause',
   project: 'table.columns.project',
   priority: 'table.columns.priority',
   state: 'table.columns.state',
@@ -85,6 +90,7 @@ const columnLabelKeys = {
 const columnSizes = {
   position: 70,
   title: 240,
+  cause: 240,
   project: 150,
   priority: 140,
   state: 150,
@@ -115,13 +121,15 @@ const ROW_ACTIONS = [
   'cancel',
 ] as const satisfies readonly WorkBatchAction[]
 
-// One of the work queue's lists: what each batch is, whose it is, when it should run, and where
-// it stands, each title opening the batch's own page. A row's actions are those its batch allows
-// now, from running it next to cancelling it.
+// One of the work queue's lists: what each batch is, what asked for it, whose it is, when it
+// should run, and where it stands, each title opening the batch's own page. A row's actions are
+// those its batch allows now, from running it next to cancelling it.
 export function WorkQueueTable(props: Props) {
   const { t } = useTranslation('workQueue')
   // A batch's priority and state read as its project's Work batches tab names them.
   const projectsTranslation = useTranslation('projects')
+  // A record's kind reads as the timeline names where it came from.
+  const timelineTranslation = useTranslation('timeline')
   const labels = useSmartTableLabels()
   const act = useWorkBatchActions()
   const now = useNow()
@@ -133,6 +141,21 @@ export function WorkQueueTable(props: Props) {
     const priorityLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchPriorityLabelKeys[entry.priority])
     const stateLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchStateLabelKeys[entry.state])
     const originLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchOriginLabelKeys[entry.origin])
+    const causeKind = (entry: WorkQueueEntry) => {
+      if (!entry.cause) {
+        return ''
+      }
+      if (entry.cause.kind === 'record') {
+        return timelineTranslation.t(sourceLabelKey(entry.cause.sourceKind))
+      }
+      return t(chainLinkLabelKeys[entry.cause.kind])
+    }
+    const causeText = (entry: WorkQueueEntry) => {
+      if (!entry.cause) {
+        return ''
+      }
+      return chainLinkText(entry.cause)
+    }
     // A place in the queue is where it stands in the list the server ordered, counted once.
     const positions = new Map<string, number>()
     for (const [ index, entry ] of props.entries.entries()) {
@@ -143,6 +166,7 @@ export function WorkQueueTable(props: Props) {
     const searchValue = {
       position: (entry: WorkQueueEntry) => String(position(entry)),
       title: (entry: WorkQueueEntry) => entry.title,
+      cause: causeText,
       project: projectName,
       priority: priorityLabel,
       state: stateLabel,
@@ -176,6 +200,14 @@ export function WorkQueueTable(props: Props) {
         }</Link>
         {entry.pinnedAt && <Chip size='sm' variant='soft' color='accent'>{t('table.runsNext')}</Chip>}
       </div>,
+      // What the batch's chain starts from, opening where it lives, with what kind of thing it is
+      // beneath.
+      cause: (entry: WorkQueueEntry) => entry.cause
+        ? <div className='flex min-w-0 flex-col items-start gap-1 text-sm'>
+          <ChainLinkTitle link={entry.cause} projectId={entry.projectId} />
+          <span className='text-xs opacity-70'>{causeKind(entry)}</span>
+        </div>
+        : <span className='text-sm opacity-70'>{t('table.noCause')}</span>,
       project: (entry: WorkQueueEntry) => <Link
         href={getProjectViewUrl(entry.projectId)}
         className='text-sm text-inherit no-underline'
@@ -217,7 +249,7 @@ export function WorkQueueTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, projectsTranslation.t, props.list, props.entries, projectNames ])
+  }, [ t, projectsTranslation.t, timelineTranslation.t, props.list, props.entries, projectNames ])
 
   const rowActions = useMemo((): DataTableAction<WorkQueueEntry>[] => ROW_ACTIONS.map((action) => {
     const Icon = actionIcons[action]

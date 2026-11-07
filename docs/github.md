@@ -248,10 +248,11 @@ Merging), through the project's token, the one its workers get. The calls are in
 | `POST /graphql`                                     | One pull request, read whole for a merge decision     |
 | `GET /repos/{owner}/{repo}/rules/branches/{branch}` | The rules its base branch's rulesets enforce          |
 | `PUT /repos/{owner}/{repo}/pulls/{number}/merge`    | The merge, with `merge_method` and the head `sha` read |
+| `PATCH /repos/{owner}/{repo}/pulls/{number}`        | Its description, carrying why its batch exists        |
 
 - **One read.** Review threads, and whether each is resolved, exist only in GraphQL, so one query reads everything a
-  decision needs: the token's account (`viewer`), the repository's allowed merge methods, and the pull request's
-  state, author, fork, draft, `mergeable`, `mergeStateStatus`, `reviewDecision`, latest reviews, the first hundred
+  decision needs: the token's account (`viewer`), the repository's allowed merge methods and whether it is private,
+  and the pull request's description, state, author, fork, draft, `mergeable`, `mergeStateStatus`, `reviewDecision`, latest reviews, the first hundred
   review threads with their count, the classic protection a non-admin sees on its base branch (`refUpdateRule`), and
   its head commit's first hundred checks, check runs and commit statuses both. The field names were checked against a
   live answer, and need no preview header. A pull request or repository the token cannot see answers a `NOT_FOUND`
@@ -263,9 +264,13 @@ Merging), through the project's token, the one its workers get. The calls are in
 - **The merge** names the head commit the read saw, so GitHub answers `409` rather than merge a later push. It enforces
   the branch's protection on the call itself (`405` for a pull request its rules keep from merging), and Elysium asks
   it to bypass nothing. Any answer but `200` with `merged: true` leaves the pull request open with GitHub's message.
+- **The description.** Every pull request a worker records, whoever merges it, has why its batch exists put at the end
+  of its description (`docs/engine.md`, Why a batch exists). Only the body is sent, so its title, base, and head stay
+  as they are; any answer but `200` is told to the worker, who records it again to retry.
 - **Permissions.** Per GitHub's documentation, not yet observed with a fine-grained token: reading needs Pull requests
   read and Commit statuses read on a fine-grained token (Checks read too for check runs), or `repo` on a classic one;
-  merging needs Contents and Pull requests write, or `repo`. A token without them leaves the pull request open saying
+  merging needs Contents and Pull requests write, or `repo`; writing a description needs Pull requests write, which a
+  token its workers open pull requests with already has. A token without them leaves the pull request open saying
   what GitHub answered, so a missing permission is never silent.
 
 ## Problem reports

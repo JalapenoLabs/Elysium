@@ -18,7 +18,10 @@ reads.
 ## Your pull requests
 
 - Record every pull request you open with `worker_pull_request`, right after you open it. It
-  answers who merges it.
+  answers who merges it, and Elysium adds why your batch exists to the end of its description,
+  between `<!-- elysium:why -->` and `<!-- /elysium:why -->`. Write your own description above it,
+  and keep that section when you edit the description; if an edit removes it, record the pull
+  request again to put it back.
 - Whoever merges it, address every review comment: fix what it asks or answer why not, and
   resolve the thread once it is addressed. Keep CI green.
 - Where Elysium merges, it looks at your pull request each time a wait of yours ends, and merges

@@ -30,9 +30,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::models::action_item::ActionItemState;
 use crate::models::work_batch::lineage::Origin;
-use crate::models::work_batch::why::{self, Why};
+use crate::models::work_batch::why;
 use crate::models::work_batch::worker::Wait;
 use crate::models::work_batch::{self, BatchEvent, BatchState, Priority, WorkBatch};
 use crate::state::AppState;
@@ -154,104 +153,6 @@ impl From<BatchEvent> for BatchEventResponse {
     }
 }
 
-/// What called for a batch: the timeline records named as its cause, each with the knowledge
-/// base's document a member opens it by, the messages to its Project Manager that did, the action
-/// items it works on, and the batches it was planned from.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WhyResponse {
-    records: Vec<CauseResponse>,
-    messages: Vec<MessageResponse>,
-    action_items: Vec<ItemResponse>,
-    parents: Vec<ParentResponse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageResponse {
-    id: Uuid,
-    author_id: Uuid,
-    author: String,
-    body: String,
-    sent_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParentResponse {
-    id: Uuid,
-    title: String,
-    state: BatchState,
-    generation: i32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CauseResponse {
-    id: Uuid,
-    source_kind: String,
-    title: String,
-    occurred_at: DateTime<Utc>,
-    /// Null until the knowledge base has indexed it.
-    document_id: Option<Uuid>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ItemResponse {
-    id: Uuid,
-    title: String,
-    state: ActionItemState,
-}
-
-impl From<Why> for WhyResponse {
-    fn from(why: Why) -> Self {
-        Self {
-            records: why
-                .causes
-                .into_iter()
-                .map(|cause| CauseResponse {
-                    id: cause.record_id,
-                    source_kind: cause.source_kind,
-                    title: cause.title,
-                    occurred_at: cause.occurred_at,
-                    document_id: cause.document_id,
-                })
-                .collect(),
-            messages: why
-                .messages
-                .into_iter()
-                .map(|message| MessageResponse {
-                    id: message.id,
-                    author_id: message.author_id,
-                    author: message.author,
-                    body: message.body,
-                    sent_at: message.sent_at,
-                })
-                .collect(),
-            action_items: why
-                .items
-                .into_iter()
-                .map(|item| ItemResponse {
-                    id: item.id,
-                    title: item.title,
-                    state: item.state,
-                })
-                .collect(),
-            parents: why
-                .parents
-                .into_iter()
-                .map(|parent| ParentResponse {
-                    id: parent.id,
-                    title: parent.title,
-                    state: parent.state,
-                    generation: parent.generation,
-                })
-                .collect(),
-        }
-    }
-}
-
 /// Batch `batch` with why it exists and its history, as every route here answers it.
 async fn with_history(
     connection: &mut AsyncPgConnection,
@@ -262,6 +163,6 @@ async fn with_history(
         .into_iter()
         .map(BatchEventResponse::from)
         .collect();
-    let why = WhyResponse::from(why::read(connection, &batch).await?);
+    let why = why::read(connection, &batch).await?;
     Ok(json!({ "batch": BatchResponse::from(batch), "why": why, "history": history }))
 }
