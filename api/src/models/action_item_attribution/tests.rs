@@ -3,7 +3,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::models::action_item::{ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::action_item::{ActionItemPriority, NewActionItem, Owner};
 use crate::models::action_item_event::list_for_item;
 use crate::models::action_item_link::LinkProvider;
 use crate::models::project::NewProject;
@@ -217,7 +217,10 @@ async fn the_lead_is_one_of_the_items_projects() {
         .expect("removed");
     assert_eq!(left.record.lead_project_id, None);
     let moved = latest_entry(&mut connection, item, "lead_project_changed").await;
-    assert_eq!(moved.data, json!({ "from": launch, "to": null }));
+    assert_eq!(
+        moved.data,
+        json!({ "from": launch, "to": null, "passedOn": true })
+    );
 }
 
 #[tokio::test]
@@ -396,4 +399,63 @@ async fn an_undo_never_overwrites_a_later_change_that_put_things_back() {
         .await
         .expect("undone");
     assert!(held(&mut connection, item).await.0.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_lead_that_passed_on_is_nobodys_choice_and_her_next_reading_moves_it() {
+    let (_url, mut connection) = migrated_database().await;
+    let website = project(&mut connection, "Website").await;
+    let launch = project(&mut connection, "Launch").await;
+    let billing = project(&mut connection, "Billing").await;
+    let item = arrived(&mut connection).await;
+    let now = Utc::now();
+    attribute(
+        &mut connection,
+        item,
+        &[guess(website, 0.9), guess(launch, 0.5)],
+        now,
+    )
+    .await
+    .expect("attributed");
+
+    // Taking it off the website passes the lead to the launch, which the person never chose.
+    action_item::remove_project(&mut connection, item, website, TEST_PERSON, now)
+        .await
+        .expect("removed");
+    let passed = latest_entry(&mut connection, item, "lead_project_changed").await;
+    assert_eq!(passed.data["passedOn"], json!(true));
+
+    // So a fuller reading that drops the launch for the billing moves the lead with it.
+    attribute(&mut connection, item, &[guess(billing, 0.95)], now)
+        .await
+        .expect("attributed");
+    assert_eq!(
+        held(&mut connection, item).await,
+        (vec![(billing, 0.95, "elysia".to_owned())], Some(billing))
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_item_finished_while_she_read_it_is_not_attributed() {
+    let (_url, mut connection) = migrated_database().await;
+    let website = project(&mut connection, "Website").await;
+    let item = arrived(&mut connection).await;
+    let now = Utc::now();
+    action_item::transition(
+        &mut connection,
+        item,
+        crate::action_items::Transition::Resolve,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("resolved");
+
+    assert!(matches!(
+        attribute(&mut connection, item, &[guess(website, 0.9)], now).await,
+        Err(WorkError::Conflict(_))
+    ));
+    assert_eq!(held(&mut connection, item).await, (Vec::new(), None));
 }

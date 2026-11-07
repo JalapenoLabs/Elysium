@@ -1165,7 +1165,7 @@ pub async fn join_project(
         &item,
         Some(joining.project_id),
         joining.actor,
-        None,
+        LeadMove::PassedOn,
         now,
     )
     .await?;
@@ -1176,9 +1176,22 @@ pub async fn join_project(
     })
 }
 
-/// Makes `to` the lead of the locked `item`, and records the move as `actor`. `to` is one of its
-/// projects, or `None` for an item left in none; `undid` names the entry this undoes, for an
-/// undo. Moving it where it already is changes nothing.
+/// Why an item's lead moved, as its `lead_project_changed` entry records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeadMove {
+    /// Someone chose the lead.
+    Chosen,
+    /// Someone undid the entry with this id.
+    Undo(Uuid),
+    /// The item's projects changed and the lead followed (its first project, or the successor of
+    /// one that left), which nobody chose: `data.passedOn` says so, and an attribution step may
+    /// still move it.
+    PassedOn,
+}
+
+/// Makes `to` the lead of the locked `item`, and records the move as `actor`, saying why
+/// (`because`). `to` is one of its projects, or `None` for an item left in none. Moving it where
+/// it already is changes nothing.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -1187,7 +1200,7 @@ pub async fn move_lead(
     item: &ActionItem,
     to: Option<Uuid>,
     actor: Actor,
-    undid: Option<Uuid>,
+    because: LeadMove,
     now: DateTime<Utc>,
 ) -> QueryResult<Recorded<ActionItem>> {
     if item.lead_project_id == to {
@@ -1202,8 +1215,10 @@ pub async fn move_lead(
         .get_result(connection)
         .await?;
     let mut data = replaced(item.lead_project_id, to);
-    if let Some(undid) = undid {
-        data["undid"] = json!(undid);
+    match because {
+        LeadMove::Chosen => {}
+        LeadMove::Undo(undid) => data["undid"] = json!(undid),
+        LeadMove::PassedOn => data["passedOn"] = json!(true),
     }
     let entry = action_item_event::record(
         connection,
@@ -1355,7 +1370,7 @@ pub async fn leave_project(
         .into_iter()
         .next()
         .map(|attribution| attribution.project_id);
-    let led = move_lead(connection, &item, successor, actor, None, now).await?;
+    let led = move_lead(connection, &item, successor, actor, LeadMove::PassedOn, now).await?;
     history.extend(led.history);
     Ok(Recorded {
         record: led.record,

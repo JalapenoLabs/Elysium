@@ -133,22 +133,24 @@ project, and only that project's Project Manager works it: it alone may submit a
   only the attribution step guesses.
 - **Which leads.** An item's first project leads it: the first one named when it is created, or the first one it
   joins. When the lead leaves, the surest of those left leads instead, a person's choice before a guess and the
-  earliest joined among equals, or none once none is left. Each move is recorded as `lead_project_changed`. A person
-  makes any of its projects the lead on the item's page.
+  earliest joined among equals, or none once none is left. Each move is recorded as `lead_project_changed`, and one
+  that followed a change of projects says so (`passedOn`), since nobody chose it. A person makes any of its projects
+  the lead on the item's page.
 - **Attribution.** An issue assigned to its person arrives in no project ([Assigned issues](#assigned-issues)), and a
   run of the `assigned_issue` workflow reads it with `segment_meeting`, the step that segments meetings and
   conversations: one turn reads the item's title, notes, and the issues it follows against every project, where each
   files its issues, and the repositories its workers clone, and answers the item's projects with Elysia's confidence
   (`docs/meetings.md`, Segmentation). A guess is kept only for a project that was offered, once, at a confidence of
-  at least 0.3, as a segment's attributions are. The item joins each, surest first, so the surest leads it.
+  at least 0.3, as a segment's attributions are. The item joins each, surest first, and unless someone chose its lead,
+  the surest of its projects leads it: a person's choice before her guesses, and her surest guess among those.
 - **Anyone else's word stands.** Elysia's reading leaves alone any project anyone else put the item in or took it out
-  of, a changeset someone approved included, and never moves a lead anyone else moved, nor takes the item off that
-  lead. Her own earlier reading she replaces, so a reading run again keeps no guess it dropped.
+  of, a changeset someone approved included, and never moves a lead anyone else chose, nor takes the item off that
+  lead; a lead that only passed on is nobody's choice. Her own earlier reading she replaces, so a reading run again keeps no guess it dropped.
 - **Undo.** A person undoes any change to an item's projects or its lead from its history. The undo is an entry of its
   own naming the one it reversed (`undid`), so it can be undone in turn, and a project put back is held as it was,
   Elysia's confidence included. Only the latest change to that project, or to the lead, is undone; one with a change
-  made since answers `409` rather than overwriting it. An item still in a project always has a lead, so a lead that came with its first
-  project is changed by choosing another rather than undone.
+  made since answers `409` rather than overwriting it. An item still in a project always has a lead, so a lead that
+  came with its first project is changed by choosing another rather than undone.
 - **Nothing starts.** Attributing an item wakes no Project Manager and starts no worker. The wake for a record newly on
   a project (`docs/connectors.md`, The timeline) is a timeline record's, and an item is not one; assigning an item to
   its lead project's Project Manager is what will start planning (`docs/autonomy.md`, Assigning work).
@@ -173,7 +175,7 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `comment_edited`     | `{ commentId, from, to }`                       |
 | `comment_deleted`    | `{ commentId, body }`, so it can be put back    |
 | `project_added`, `project_removed` | `{ projectId, confidence, attributedBy }`, as it was held |
-| `lead_project_changed` | `{ from, to }`, each a project id or null                 |
+| `lead_project_changed` | `{ from, to }`, each a project id or null, and `passedOn` when it followed a change of projects |
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
 

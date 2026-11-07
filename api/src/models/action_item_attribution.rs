@@ -37,7 +37,7 @@ use uuid::Uuid;
 use crate::action_items::{Actor, WorkError};
 use crate::database::schema::{action_item_events, action_item_projects};
 use crate::meetings::segmentation::SegmentProject;
-use crate::models::action_item::{self, ActionItem, CERTAIN, Joining};
+use crate::models::action_item::{self, ActionItem, ActionItemState, CERTAIN, Joining, LeadMove};
 use crate::models::action_item_event::{HistoryEntry, HistoryKind, Recorded};
 use crate::models::project;
 
@@ -48,7 +48,7 @@ use crate::models::project;
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`] for a
-/// deleted one, and any other database error.
+/// deleted, resolved, or dismissed one, and any other database error.
 pub async fn attribute(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -63,6 +63,15 @@ pub async fn attribute(
     connection
         .transaction(async move |connection| {
             let mut item = action_item::lock_live(connection, id).await?;
+            // Read again under the lock: the item may have been finished while she read it.
+            if matches!(
+                item.state,
+                ActionItemState::Resolved | ActionItemState::Dismissed
+            ) {
+                return Err(WorkError::Conflict(
+                    "the item was resolved or dismissed, so it is not attributed",
+                ));
+            }
             let decided = decided_projects(connection, id).await?;
             // A lead anyone else chose is theirs, and so is its project: leaving it would pass the
             // lead on.
@@ -117,22 +126,21 @@ pub async fn attribute(
                 history.extend(joined.history);
             }
 
+            // Nobody chose the lead, so it is the surest of the item's projects: a person's choice
+            // before her guesses, and her surest guess among those.
             if !lead_is_theirs {
-                let members: HashSet<Uuid> = action_item::project_attributions(connection, id)
+                let surest = action_item::project_attributions(connection, id)
                     .await?
                     .into_iter()
-                    .map(|membership| membership.project_id)
-                    .collect();
-                let surest = ordered
-                    .iter()
-                    .find(|guess| members.contains(&guess.project_id));
-                if let Some(surest) = surest {
+                    .next()
+                    .map(|membership| membership.project_id);
+                if surest.is_some() {
                     let led = action_item::move_lead(
                         connection,
                         &item,
-                        Some(surest.project_id),
+                        surest,
                         Actor::Elysia,
-                        None,
+                        LeadMove::Chosen,
                         now,
                     )
                     .await?;
@@ -171,10 +179,15 @@ pub async fn set_lead(
                     "the lead must be one of the item's projects; add it to the project first",
                 ));
             }
-            Ok(
-                action_item::move_lead(connection, &item, Some(project_id), actor, None, now)
-                    .await?,
+            Ok(action_item::move_lead(
+                connection,
+                &item,
+                Some(project_id),
+                actor,
+                LeadMove::Chosen,
+                now,
             )
+            .await?)
         })
         .await
 }
@@ -276,7 +289,7 @@ pub async fn undo(
                     &item,
                     Some(from),
                     actor,
-                    undid,
+                    LeadMove::Undo(entry.id),
                     now,
                 )
                 .await?);
@@ -321,12 +334,16 @@ async fn decided_projects(
         .collect())
 }
 
-/// Whether anyone but Elysia moved item `id`'s lead, or a changeset someone approved did.
+/// Whether anyone but Elysia chose item `id`'s lead, or a changeset someone approved did. A lead
+/// that passed on as the item's projects changed was nobody's choice.
 async fn lead_decided(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<bool> {
     diesel::select(diesel::dsl::exists(
         action_item_events::table
             .filter(action_item_events::action_item_id.eq(id))
             .filter(action_item_events::kind.eq(HistoryKind::LeadProjectChanged.as_str()))
+            .filter(diesel::dsl::not(
+                action_item_events::data.has_key("passedOn"),
+            ))
             .filter(
                 action_item_events::actor
                     .ne(Actor::Elysia.to_string())

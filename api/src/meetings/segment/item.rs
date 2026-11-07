@@ -80,7 +80,7 @@ impl SegmentMeeting {
         })?;
         if !self.write_reading(id, &guesses, context).await? {
             return Ok(Done::Skipped {
-                reason: "The item was deleted while it was read".to_owned(),
+                reason: "The item was deleted, resolved, or dismissed while it was read".to_owned(),
             });
         }
 
@@ -107,7 +107,7 @@ impl SegmentMeeting {
     }
 
     /// Writes Elysia's reading of item `id` and announces the item. Answers `false` when the item
-    /// was deleted while she read it, which writes nothing.
+    /// was deleted, resolved, or dismissed while she read it, which writes nothing.
     async fn write_reading(
         &self,
         id: Uuid,
