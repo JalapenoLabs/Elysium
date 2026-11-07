@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::models::action_item::ActionItemState;
+use crate::models::work_batch::lineage::Origin;
 use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::Wait;
 use crate::models::work_batch::{self, BatchEvent, BatchState, Priority, WorkBatch};
@@ -70,6 +71,14 @@ pub struct BatchResponse {
     turn_id: Option<Uuid>,
     source_record_ids: Value,
     action_item_ids: Value,
+    /// The messages to its Project Manager that called for it.
+    source_message_ids: Value,
+    /// `human_rooted` or `found`.
+    origin: Origin,
+    /// How many batches led to it.
+    generation: i32,
+    /// The batches it was planned from.
+    parent_batch_ids: Value,
     timeline_record_id: Option<Uuid>,
     /// While someone asked for it to run next.
     pinned_at: Option<DateTime<Utc>>,
@@ -105,6 +114,10 @@ impl From<WorkBatch> for BatchResponse {
             turn_id: batch.turn_id,
             source_record_ids: batch.source_record_ids,
             action_item_ids: batch.action_item_ids,
+            source_message_ids: batch.source_message_ids,
+            origin: batch.origin,
+            generation: batch.generation,
+            parent_batch_ids: batch.parent_batch_ids,
             timeline_record_id: batch.timeline_record_id,
             pinned_at: batch.pinned_at,
             assigned_at: batch.assigned_at,
@@ -146,12 +159,34 @@ impl From<BatchEvent> for BatchEventResponse {
 }
 
 /// What called for a batch: the timeline records named as its cause, each with the knowledge
-/// base's document a member opens it by, and the action items it works on.
+/// base's document a member opens it by, the messages to its Project Manager that did, the action
+/// items it works on, and the batches it was planned from.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WhyResponse {
     records: Vec<CauseResponse>,
+    messages: Vec<MessageResponse>,
     action_items: Vec<ItemResponse>,
+    parents: Vec<ParentResponse>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageResponse {
+    id: Uuid,
+    author_id: Uuid,
+    author: String,
+    body: String,
+    sent_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParentResponse {
+    id: Uuid,
+    title: String,
+    state: BatchState,
+    generation: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -187,6 +222,17 @@ impl From<Why> for WhyResponse {
                     document_id: cause.document_id,
                 })
                 .collect(),
+            messages: why
+                .messages
+                .into_iter()
+                .map(|message| MessageResponse {
+                    id: message.id,
+                    author_id: message.author_id,
+                    author: message.author,
+                    body: message.body,
+                    sent_at: message.sent_at,
+                })
+                .collect(),
             action_items: why
                 .items
                 .into_iter()
@@ -194,6 +240,16 @@ impl From<Why> for WhyResponse {
                     id: item.id,
                     title: item.title,
                     state: item.state,
+                })
+                .collect(),
+            parents: why
+                .parents
+                .into_iter()
+                .map(|parent| ParentResponse {
+                    id: parent.id,
+                    title: parent.title,
+                    state: parent.state,
+                    generation: parent.generation,
                 })
                 .collect(),
         }

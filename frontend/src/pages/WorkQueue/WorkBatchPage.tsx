@@ -31,10 +31,13 @@ import { WorkerLog } from './WorkerLog'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
+import { formatNumber } from '../../format/numbers'
 import { useNow } from '../../hooks/useNow'
 import { useProjectsLoader, useWorkBatchLoader, useWorkQueueLoader } from '../../hooks/useServerData'
-import { getProjectViewUrl, getWorkBatchEditUrl, UrlTree } from '../../urls'
+import { getProjectViewUrl, getWorkBatchEditUrl, getWorkBatchViewUrl, UrlTree } from '../../urls'
 import {
+  batchOriginChipColors,
+  batchOriginLabelKeys,
   batchPriorityChipColors,
   batchPriorityLabelKeys,
   batchStateChipColors,
@@ -51,12 +54,12 @@ import {
   waitUntilKeys,
 } from './workQueuePresentation'
 
-// `/work-queue/:batchId`: one batch whole, what its worker waits on, or why a queued one waits
-// for the configuration repository, its goal, the repositories it needs, why it exists, how it
-// ended, the configuration its worker runs on, the pull requests its worker opened, its history,
-// and its worker's log, with what may still be done to it in its Actions. A proposed batch leads
-// with Approve, and offers Edit, which approves it once changed, and Reject. A guest is sent to
-// the start.
+// `/work-queue/:batchId`: one batch whole, whether it traces to a person, how many batches led to
+// it and which, what its worker waits on, or why a queued one waits for the configuration
+// repository, its goal, the repositories it needs, why it exists, how it ended, the configuration
+// its worker runs on, the pull requests its worker opened, its history, and its worker's log, with
+// what may still be done to it in its Actions. A proposed batch leads with Approve, and offers
+// Edit, which approves it once changed, and Reject. A guest is sent to the start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -201,6 +204,26 @@ function WorkBatchDetails(props: DetailsProps) {
         }</Chip>
         {batch.scheduledFor && <span className='opacity-80'>{formatDateTime(batch.scheduledFor)}</span>}
       </dd>
+      <dt className='opacity-70'>{t('batch.origin')}</dt>
+      <dd>
+        <Chip size='sm' variant='soft' color={batchOriginChipColors[batch.origin]}>{
+          projectsTranslation.t(batchOriginLabelKeys[batch.origin])
+        }</Chip>
+      </dd>
+      <dt className='opacity-70'>{t('batch.generation')}</dt>
+      <dd className='tabular-nums'>{formatNumber(batch.generation)}</dd>
+      {props.why.parents.length > 0 && <>
+        <dt className='opacity-70'>{t('batch.plannedFrom')}</dt>
+        <dd className='flex flex-col gap-1'>{
+          props.why.parents.map((parent) => <Link
+            key={parent.id}
+            href={getWorkBatchViewUrl(parent.id)}
+            className='text-link'
+          >{
+              parent.title
+            }</Link>)
+        }</dd>
+      </>}
       <dt className='opacity-70'>{t('batch.submitted')}</dt>
       <dd>{formatDateTime(batch.createdAt)}</dd>
       {batch.startedAt && <>

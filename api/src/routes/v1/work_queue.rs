@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::agent_configuration::Hold;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::work_batch::lineage::Origin;
 use crate::models::work_batch::{BatchState, Priority, WorkBatch};
 use crate::state::AppState;
 use crate::worker_pool::queue::{self, Pool, Queue};
@@ -117,6 +118,10 @@ pub struct EntryResponse {
     assigned_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     started_at: Option<DateTime<Utc>>,
+    /// `human_rooted` or `found`.
+    origin: Origin,
+    /// How many batches led to it.
+    generation: i32,
 }
 
 impl From<WorkBatch> for EntryResponse {
@@ -132,6 +137,8 @@ impl From<WorkBatch> for EntryResponse {
             assigned_at: batch.assigned_at,
             created_at: batch.created_at,
             started_at: batch.started_at,
+            origin: batch.origin,
+            generation: batch.generation,
         }
     }
 }

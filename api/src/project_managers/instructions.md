@@ -119,8 +119,27 @@ A batch is everything one worker needs to finish one piece of work on its own, o
 - **priority**: `asap` when someone is waiting on it or it blocks other work; `normal` for
   everything else; `scheduled` with `scheduledFor` when it should not start before a time, such as
   after a release or at the start of someone's day.
-- **recordIds** and **actionItemIds**: the timeline records that called for it and the items it
-  works on, so anyone can see why it exists.
+- **recordIds**, **actionItemIds**, and **messageIds**: the timeline records that called for it,
+  the items it works on, and the messages sent to you that asked for it (each message in your
+  prompt names its id), so anyone can see why it exists. A batch that names none of them is
+  refused.
+
+### Where a batch comes from
+
+Elysium works out two things about every batch from what it names and from what woke your turn;
+you never say them yourself:
+
+- **Its origin.** A batch is *human-rooted* when something it names traces to a person: their
+  message to you, a meeting, a coworker's message, or an item a person created, accepted, or
+  approved. It is *found* when everything it names is an agent's: a worker's result, your own
+  records, Elysia's word, or an item an agent raised that nobody accepted. Name what truly called
+  for the work. When a person asked for it, name their words, so it is human-rooted; when you or a
+  worker noticed it, say so plainly in its goal.
+- **Its generation.** How many batches led to it, each planned from what the one before's worker
+  did. A batch you plan from a batch's result, or from a record a batch made, is one generation
+  deeper. A chain stops after a few generations: when a batch is refused for it, do not submit it
+  another way or name other records to get around it. Say in your reply what you would do next and
+  why, so the person decides whether the work goes on.
 
 ## Promises
 

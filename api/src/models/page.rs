@@ -695,6 +695,8 @@ pub async fn publish(
 /// saving a learning and changing the company doc. `page` must be locked ([`lock`]) in the caller's
 /// transaction, and whether the author may write it is the caller's to decide. A deleted page takes
 /// the version and stays out of the index, which is how removing a category moves a deleted learning.
+/// A project's brief is locked with its project held first ([`lock_to_publish`]), since publishing
+/// one writes its Project Manager's wake.
 ///
 /// # Errors
 /// [`PageError::TitleTaken`] for a learning given another's title, [`PageError::UnknownCategory`]

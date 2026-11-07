@@ -1,6 +1,6 @@
 {
   "title": "Work queue",
-  "help": "Project Managers' batches wait here. Each is proposed first, and no worker starts it until a person approves it. Approved, it waits for a worker: each free worker takes the first queued batch, one asked to run next, then scheduled work that is due, then ASAP, then normal, oldest first, with projects taking turns.",
+  "help": "Project Managers' batches wait here. Each is proposed first, and no worker starts it until a person approves it. Approved, it waits for a worker: each free worker takes the first queued batch, one asked to run next, then scheduled work that is due, then ASAP, then normal, oldest first, with projects taking turns. Each batch says whether it traces to a person or only to something an agent found, and its generation: how many batches led to it, each planned from what the one before's worker did. A chain stops after a few generations, so work never keeps filing work.",
   "loadError": "The work queue could not be loaded.",
   "pool": {
     "busy_one": "{{inUse, compact}} of {{count, compact}} worker busy",
@@ -27,6 +27,8 @@
       "project": "Project",
       "priority": "Priority",
       "state": "State",
+      "origin": "Origin",
+      "generation": "Generation",
       "submitted": "Submitted"
     },
     "empty": {
@@ -81,6 +83,9 @@
     "priority": "Priority",
     "state": "State",
     "submitted": "Submitted",
+    "origin": "Origin",
+    "generation": "Generation",
+    "plannedFrom": "Planned from",
     "started": "Started",
     "finished": "Finished",
     "goal": "Goal",
@@ -94,6 +99,7 @@
       "title": "Why",
       "none": "Its Project Manager named nothing that called for it.",
       "recordFrom": "{{source}}, {{time}}",
+      "messageFrom": "Message from {{author}}, {{time}}",
       "actionItem": "Action item"
     },
     "history": "History",

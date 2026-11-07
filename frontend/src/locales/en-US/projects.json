@@ -220,6 +220,8 @@
       "title": "Batch",
       "priority": "Priority",
       "state": "State",
+      "origin": "Origin",
+      "generation": "Generation",
       "submitted": "Submitted",
       "result": "Result"
     },
@@ -238,6 +240,10 @@
       "failed": "Failed",
       "cancelled": "Cancelled",
       "rejected": "Rejected"
+    },
+    "origins": {
+      "human_rooted": "From a person",
+      "found": "Found by an agent"
     }
   },
   "promises": {

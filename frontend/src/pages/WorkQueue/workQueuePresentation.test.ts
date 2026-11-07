@@ -22,6 +22,8 @@ function entry(overrides: Partial<WorkQueueEntry> = {}): WorkQueueEntry {
     assignedAt: null,
     createdAt: '2026-11-04T10:00:00Z',
     startedAt: null,
+    origin: 'human_rooted',
+    generation: 0,
     ...overrides,
   }
 }

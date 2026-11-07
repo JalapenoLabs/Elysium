@@ -95,6 +95,8 @@ pub struct PromptPage {
 /// A message a person or Elysia sent it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptMessage {
+    /// Its wake's id, which a batch it calls for names (`messageIds`).
+    pub id: Uuid,
     /// Who wrote it, by name.
     pub author: String,
     pub from_elysia: bool,
@@ -214,8 +216,9 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
             };
             let _ = write!(
                 prompt,
-                "\nFrom {who}, at {}:\n{}\n",
+                "\nFrom {who}, at {} (message {}):\n{}\n",
                 message.sent_at.to_rfc3339(),
+                message.id,
                 message.body.trim()
             );
         }
@@ -770,6 +773,7 @@ mod tests {
     fn it_names_its_project_and_everything_that_woke_it() {
         let mut woken = context();
         woken.messages.push(PromptMessage {
+            id: Uuid::nil(),
             author: "Alex".to_owned(),
             from_elysia: false,
             body: "Ship the pricing change this week.".to_owned(),
@@ -793,6 +797,7 @@ mod tests {
         ));
         assert!(prompt.contains("Its description: The spring launch."));
         assert!(prompt.contains("From Alex, a person"));
+        assert!(prompt.contains(&format!("(message {})", Uuid::nil())));
         assert!(prompt.contains("Ship the pricing change this week."));
         assert!(prompt.contains("New on the project's timeline (1)"));
         assert!(prompt.contains("[meeting] \"Pricing page\""));
@@ -885,6 +890,7 @@ mod tests {
     fn elysia_and_people_are_told_apart() {
         let mut woken = context();
         woken.messages.push(PromptMessage {
+            id: Uuid::nil(),
             author: "Elysia".to_owned(),
             from_elysia: true,
             body: "Leadership moved the launch to Friday.".to_owned(),
@@ -920,6 +926,7 @@ mod tests {
         let mut woken = context();
         for _ in 0..10 {
             woken.messages.push(PromptMessage {
+                id: Uuid::nil(),
                 author: "Alex".to_owned(),
                 from_elysia: false,
                 body: "é".repeat(19_000),

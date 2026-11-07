@@ -44,6 +44,11 @@ export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 export const WORK_BATCH_WAITS = [ 'review', 'ci', 'question' ] as const
 export type WorkBatchWait = typeof WORK_BATCH_WAITS[number]
 
+// Mirrors `Origin` in api/src/models/work_batch/lineage.rs: whether a batch traces to a person or
+// only to what an agent noticed.
+export const WORK_BATCH_ORIGINS = [ 'human_rooted', 'found' ] as const
+export type WorkBatchOrigin = typeof WORK_BATCH_ORIGINS[number]
+
 // One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id, or
 // someone else's publish of the project's brief, by its version.
 export type ProjectManagerWake = {
@@ -98,6 +103,13 @@ export type WorkBatch = {
   turnId: string | null
   sourceRecordIds: string[]
   actionItemIds: string[]
+  // The messages to its Project Manager that called for it.
+  sourceMessageIds: string[]
+  origin: WorkBatchOrigin
+  // How many batches led to it: 0 for work a person called for.
+  generation: number
+  // The batches it was planned from.
+  parentBatchIds: string[]
   timelineRecordId: string | null
   // While someone asked for it to run next.
   pinnedAt: string | null

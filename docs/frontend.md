@@ -1377,8 +1377,9 @@ start.
   while above zero), Queued (in the order slots are handed out, each row with its place), Running (the batches holding
   slots, one waiting for its worker reading so), Scheduled (not yet due), and Paused. Each is a `WorkQueueTable`:
   the title, linking to the batch's page, with Runs next on a batch asked to; its project, linking to the project; its
-  priority with a scheduled one's time; its state; and when it was submitted. Admins get Pool size in the header,
-  linking to Settings, Worker pool.
+  priority with a scheduled one's time; its state; its origin, From a person or Found by an agent, the second in
+  warning so found work stands out; its generation, how many batches led to it; and when it was submitted. Admins get
+  Pool size in the header, linking to Settings, Worker pool.
 - **Actions.** A row's actions are those its batch allows now (`availableActions` in `workQueuePresentation.ts`, a pure
   function tested beside): Approve and Reject on a proposal, and nothing else; Run next or Back to its place, Run as soon as possible or Run at normal priority, Pause or
   Resume, and Cancel batch, last and red. A batch scheduled for later cannot run next, but can run as soon as possible.
@@ -1387,9 +1388,11 @@ start.
   optional reason its Project Manager is told, saying in bold that it can't be restarted, with Keep it beside it.
   Rejecting asks the same way, for a reason it requires, saying in bold that a rejected batch can't be approved later.
   Reject and Cancel are red.
-- **A batch.** `WorkBatchPage` shows its state, project, priority, when it was submitted, started, and finished, what
-  its worker reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`:
-  the records that called for it, each opening its knowledge base document, and the action items it works on), its
+- **A batch.** `WorkBatchPage` shows its state, project, priority, origin, generation, the batches it was planned from
+  (each linking to its page, once any led to it), when it was submitted, started, and finished, what its worker
+  reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`: the
+  messages sent to its Project Manager that called for it, each with who wrote it and when, the records that did,
+  each opening its knowledge base document, and the action items it works on), its
   history (`WorkBatchHistory`), each line naming who did it, an edit naming the fields it changed, and its worker's
   log; its header's Actions are the row's. A proposal leads with Approve as its primary action, with Edit and Reject
   in its Actions. A project's Work batches and Proposed tabs link each title here.
@@ -1464,10 +1467,10 @@ the draft kept for the tab); and its latest turns, newest first, each a row like
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
 then). A running or failed turn starts open. Proposed (`WorkBatchesTable` with `list='proposed'`) lists every batch
-waiting for the person's approval, its count accented while above zero: the title, the priority, and when it was
-submitted, each row offering Approve and Reject as the work queue's do. Work batches (`WorkBatchesTable`) is a
-`SmartTable` of its latest batches: the title, the priority with a scheduled one's time, the state, when it was
-submitted, and what its worker reported.
+waiting for the person's approval, its count accented while above zero: the title, the priority, the origin and
+generation as the work queue shows them, and when it was submitted, each row offering Approve and Reject as the work
+queue's do. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
+scheduled one's time, the state, the origin, the generation, when it was submitted, and what its worker reported.
 Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
 a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`

@@ -370,6 +370,14 @@ pub async fn studio_item(
     .expect("item")
 }
 
+/// The lineage of a batch a person asked for directly and nothing led to: human-rooted, generation
+/// 0. Tests about anything but lineage build their batches with it.
+pub fn person_rooted() -> crate::models::work_batch::lineage::Lineage {
+    use crate::models::work_batch::lineage::{Root, decide};
+
+    decide(&[Root::Person], &[]).expect("a person's request is a root")
+}
+
 /// Submits `batch`, then approves it as [`TEST_PERSON_ID`], so it waits for a slot: a batch a
 /// person has already said yes to, for tests about the queue, the pool, and its workers.
 pub async fn approved_batch(

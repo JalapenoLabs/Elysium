@@ -41,6 +41,8 @@ async fn running(connection: &mut AsyncPgConnection, name: &str) -> (Uuid, Slot)
             source_record_ids: json!([]),
             action_item_ids: json!([]),
             serves: None,
+            source_message_ids: json!([]),
+            lineage: crate::test_support::person_rooted(),
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )

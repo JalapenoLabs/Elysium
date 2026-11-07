@@ -4,15 +4,19 @@
 //! and the one place it is stored, put on the timeline, and announced.
 //!
 //! Nothing a submission names is taken on trust: its repositories follow the rules a coding
-//! session's do, a scheduled time is in the future and within a year, and every record and
-//! action item it names as its provenance is on its project. The rules are [`check`], a pure
-//! function tested on its own; [`submit`] adds the checks that read the database. A person's
+//! session's do, a scheduled time is in the future and within a year, and every record, action
+//! item, and message it names as its provenance is on its project. The rules are [`check`], a
+//! pure function tested on its own; [`submit`] adds the checks that read the database. A person's
 //! edits to a proposed batch are held to the same rules ([`check_edits`]).
 //!
 //! Every batch serves a goal in its project's brief (`crate::models::project_brief`), named by
 //! the goal's heading, and is refused when the brief has no such goal: work outside the brief is
 //! the person's to decide, so the refusal says to ask them rather than to submit it some other
 //! way. The batch stores the goal as the brief spells it ([`goal_served`]).
+//!
+//! Its origin and generation are worked out from that provenance and the turn that submits it,
+//! never asserted (`crate::models::work_batch::lineage`): a batch that names nothing, or that
+//! would be past the generation limit, is refused with what to do instead.
 //!
 //! A submitted batch is proposed: it waits for a person to approve it before the pool may give
 //! it a slot (`crate::models::work_batch::approval`).
@@ -27,9 +31,11 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::timeline;
-use crate::database::schema::{action_item_projects, action_items};
+use crate::database::schema::{action_item_projects, action_items, project_manager_wakes};
+use crate::models::project_manager::WakeKind;
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::approval::Edits;
+use crate::models::work_batch::lineage::{self, MAX_GENERATION, Provenance, Refusal};
 use crate::models::work_batch::{self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch};
 use crate::models::{project_brief, timeline_record};
 use crate::realtime::{EventBus, ServerEvent};
@@ -45,8 +51,8 @@ const TEXT_MAX_CHARACTERS: usize = 20_000;
 /// The most repositories one batch needs, as a coding session clones at most.
 const REPOSITORIES_MAX: usize = 16;
 
-/// The most records and action items one batch names as its provenance. A batch is one piece of
-/// work; more than this is several.
+/// The most records, action items, or messages one batch names as its provenance. A batch is one
+/// piece of work; more than this is several.
 const PROVENANCE_MAX: usize = 50;
 
 /// The longest goal a batch names as the one it serves, matching `work_batches.serves`: a heading,
@@ -73,6 +79,9 @@ pub struct Submission {
     /// The action items it works on.
     #[serde(default)]
     pub action_item_ids: Vec<Uuid>,
+    /// The messages a person or Elysia sent its Project Manager that called for it.
+    #[serde(default)]
+    pub message_ids: Vec<Uuid>,
 }
 
 /// Why a batch was refused, in words the Project Manager can act on.
@@ -105,6 +114,7 @@ pub fn check(submission: &Submission, now: DateTime<Utc>) -> Result<(), String> 
     for (name, ids) in [
         ("recordIds", &submission.record_ids),
         ("actionItemIds", &submission.action_item_ids),
+        ("messageIds", &submission.message_ids),
     ] {
         if ids.len() > PROVENANCE_MAX {
             return Err(format!("{name} names at most {PROVENANCE_MAX} ids"));
@@ -211,14 +221,14 @@ fn tidy_repositories(repositories: Vec<Repository>) -> Vec<Repository> {
         .collect()
 }
 
-/// Submits `submission` for `project_id` from its Project Manager's turn `turn_id`: stores it,
-/// proposed, puts it on the project's timeline, raises or updates the project's approval item,
-/// and announces all three.
+/// Submits `submission` for `project_id` from its Project Manager's turn `turn_id`: works out its
+/// origin and generation, stores it, proposed, puts it on the project's timeline, raises or updates
+/// the project's approval item, and announces all three.
 ///
 /// # Errors
 /// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it serves no goal in
-/// the project's brief, or it names a record or action item that is not on the project; any
-/// database error.
+/// the project's brief, it names a record, action item, or message that is not on the project, it
+/// names nothing that called for it, or it would be past the generation limit; any database error.
 pub async fn submit(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -229,6 +239,24 @@ pub async fn submit(
     check(&submission, Utc::now()).map_err(BatchError::Refused)?;
     let serves = goal_served(connection, project_id, &submission.serves).await?;
     refuse_unknown_provenance(connection, project_id, &submission).await?;
+    let provenance = Provenance {
+        records: &submission.record_ids,
+        action_items: &submission.action_item_ids,
+        messages: &submission.message_ids,
+    };
+    let roots = lineage::roots(connection, project_id, provenance).await?;
+    let parents = lineage::parents(connection, project_id, Some(turn_id), provenance).await?;
+    let lineage = lineage::decide(&roots, &parents).map_err(|refusal| {
+        tracing::event!(
+            name: "project_manager.batch.refused",
+            tracing::Level::INFO,
+            project.id = %project_id,
+            project_manager.turn.id = %turn_id,
+            refusal = %refusal,
+            "a Project Manager's batch was refused for its lineage",
+        );
+        BatchError::Refused(refusal_words(&refusal))
+    })?;
 
     let repositories = tidy_repositories(submission.repositories);
     let new_batch = NewWorkBatch {
@@ -243,6 +271,8 @@ pub async fn submit(
         turn_id: Some(turn_id),
         source_record_ids: json!(submission.record_ids),
         action_item_ids: json!(submission.action_item_ids),
+        source_message_ids: json!(submission.message_ids),
+        lineage,
         created_by: PROJECT_MANAGER_USER_ID,
     };
     let (written, record) = connection
@@ -341,8 +371,33 @@ fn refusal_for(serves: &str, goals: &[String], brief_id: Uuid, version: i32) -> 
     )
 }
 
-/// Refuses a submission naming a record not attributed to its project, or an action item that is
-/// deleted or not on it.
+/// What a Project Manager is told when its batch's lineage is refused: why, and what to do
+/// instead.
+fn refusal_words(refusal: &Refusal) -> String {
+    match refusal {
+        Refusal::NoOrigin => "name what called for this batch: recordIds for the records on this \
+            project's timeline, actionItemIds for the items it works on, or messageIds for the \
+            messages sent to you. A batch that names nothing has no origin, and is refused"
+            .to_owned(),
+        Refusal::PastLimit {
+            generation,
+            parents,
+        } => {
+            let parents: Vec<String> = parents.iter().map(Uuid::to_string).collect();
+            format!(
+                "this batch would be generation {generation}: it follows batch {} in a chain of \
+                 work each batch's worker turned up, and a chain stops at generation \
+                 {MAX_GENERATION} so that work does not keep filing work. Do not submit it, and do \
+                 not name other records to get around the limit. Say in your reply what you would \
+                 do next and why, so the person decides whether it goes on",
+                parents.join(", ")
+            )
+        }
+    }
+}
+
+/// Refuses a submission naming a record not attributed to its project, an action item that is
+/// deleted or not on it, or a message that was not sent to its Project Manager.
 async fn refuse_unknown_provenance(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -384,6 +439,23 @@ async fn refuse_unknown_provenance(
             )));
         }
     }
+    if !submission.message_ids.is_empty() {
+        let found: HashSet<Uuid> = project_manager_wakes::table
+            .filter(project_manager_wakes::project_id.eq(project_id))
+            .filter(project_manager_wakes::kind.eq(WakeKind::Message))
+            .filter(project_manager_wakes::id.eq_any(&submission.message_ids))
+            .select(project_manager_wakes::id)
+            .load::<Uuid>(connection)
+            .await?
+            .into_iter()
+            .collect();
+        if let Some(missing) = submission.message_ids.iter().find(|id| !found.contains(id)) {
+            return Err(BatchError::Refused(format!(
+                "message {missing} is not one sent to this project's Project Manager; each message \
+                 in your prompt names its id"
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -406,6 +478,7 @@ mod tests {
             scheduled_for: None,
             record_ids: vec![Uuid::now_v7()],
             action_item_ids: Vec::new(),
+            message_ids: Vec::new(),
         }
     }
 
@@ -543,5 +616,27 @@ mod tests {
             "title": "x", "goal": "y", "serves": "z", "priority": "asap", "worker": "me",
         }))
         .expect_err("nothing else");
+    }
+
+    #[test]
+    fn a_project_manager_cannot_assert_an_origin_or_a_generation() {
+        // Both are worked out from what a batch names; a submission saying either is refused
+        // whole rather than read.
+        for (field, value) in [("origin", json!("human_rooted")), ("generation", json!(0))] {
+            let mut asserting = json!({
+                "title": "x", "goal": "y", "priority": "asap",
+                "recordIds": [Uuid::now_v7()],
+            });
+            asserting[field] = value;
+            serde_json::from_value::<Submission>(asserting).expect_err(field);
+        }
+    }
+
+    #[test]
+    fn messages_are_named_once_each() {
+        let mut twice = submission();
+        let id = Uuid::now_v7();
+        twice.message_ids = vec![id, id];
+        assert!(check(&twice, Utc::now()).is_err_and(|reason| reason.contains("messageIds")));
     }
 }
