@@ -19,7 +19,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 use crate::database::schema::projects;
-use crate::models::page::PageError;
+use crate::models::page::{self, PageError};
 use crate::models::project_brief;
 use crate::search::{self, SearchTerms};
 
@@ -432,19 +432,30 @@ pub async fn restore_cover(connection: &mut AsyncPgConnection, id: Uuid) -> Quer
         .await
 }
 
-/// Deletes one project.
+/// Deletes one project. Its brief stays, an ordinary page from then on, indexed as one.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id, and a foreign
 /// key violation while any coding session still belongs to it.
 pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
-    let deleted = diesel::delete(projects::table.find(id))
-        .execute(connection)
-        .await?;
-    if deleted == 0 {
-        return Err(diesel::result::Error::NotFound);
-    }
-    Ok(())
+    connection
+        .transaction(async |connection| {
+            let brief = project_brief::find(connection, id).await.optional()?;
+            let deleted = diesel::delete(projects::table.find(id))
+                .execute(connection)
+                .await?;
+            if deleted == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
+            // Deleting the project cleared the page's `brief_project_id`, so a brief that held only
+            // the skeleton, which no index holds, now reads as any page does.
+            if let Some(brief) = brief {
+                let page = page::find(connection, brief.id).await?;
+                page::reindex(connection, &page).await?;
+            }
+            Ok(())
+        })
+        .await
 }
 
 #[cfg(test)]

@@ -77,10 +77,14 @@ pub async fn create(
         .transaction(async move |connection| {
             let created =
                 page::create(connection, Some(PROJECT_BRIEFS_PAGE_ID), edit, author).await?;
-            diesel::update(pages::table.find(created.page.id))
+            let brief: Page = diesel::update(pages::table.find(created.page.id))
                 .set(pages::brief_project_id.eq(project.id))
-                .execute(connection)
+                .returning(Page::as_returning())
+                .get_result(connection)
                 .await?;
+            // Creating it indexed it as an ordinary page; as a brief holding only the skeleton it
+            // has nothing to find.
+            page::reindex(connection, &brief).await?;
             let linked =
                 page_project::link(connection, created.page.id, project.id, author).await?;
             Ok(linked.page)
@@ -339,12 +343,21 @@ mod tests {
         assert!(!wakes_its_manager(system, project_id));
     }
 
-    #[tokio::test]
-    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn every_project_gets_a_brief_that_holds_its_place_while_the_project_exists() {
-        let (_url, mut connection) = migrated_database().await;
-        let launch = project::create(
-            &mut connection,
+    /// Whether page `page_id` has a document in the knowledge index.
+    async fn indexed(connection: &mut AsyncPgConnection, page_id: Uuid) -> bool {
+        use crate::database::schema::knowledge_documents;
+
+        diesel::select(diesel::dsl::exists(
+            knowledge_documents::table.filter(knowledge_documents::page_id.eq(page_id)),
+        ))
+        .get_result(connection)
+        .await
+        .expect("reads")
+    }
+
+    async fn launch(connection: &mut AsyncPgConnection) -> Project {
+        project::create(
+            connection,
             &NewProject {
                 name: "Launch".to_owned(),
                 description: String::new(),
@@ -352,7 +365,22 @@ mod tests {
             },
         )
         .await
-        .expect("a project");
+        .expect("a project")
+    }
+
+    fn person() -> Author<'static> {
+        Author {
+            user_id: TEST_PERSON_ID,
+            agent: None,
+            at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn every_project_gets_a_brief_that_holds_its_place_while_the_project_exists() {
+        let (_url, mut connection) = migrated_database().await;
+        let launch = launch(&mut connection).await;
 
         let brief = find(&mut connection, launch.id).await.expect("a brief");
         assert_eq!(brief.title, "Launch brief");
@@ -360,6 +388,10 @@ mod tests {
         assert_eq!(brief.parent_id, Some(PROJECT_BRIEFS_PAGE_ID));
         assert_eq!(brief.created_by, SYSTEM_USER_ID);
         assert!(brief.is_fixed());
+        assert!(
+            !indexed(&mut connection, brief.id).await,
+            "a brief holding only the skeleton has nothing to find"
+        );
         assert_eq!(
             page_project::projects_of(&mut connection, brief.id)
                 .await
@@ -368,11 +400,7 @@ mod tests {
             "it is linked to its project"
         );
 
-        let person = Author {
-            user_id: TEST_PERSON_ID,
-            agent: None,
-            at: Utc::now(),
-        };
+        let person = person();
         let unlinked = page_project::unlink(&mut connection, brief.id, launch.id, person)
             .await
             .expect_err("it stays linked");
@@ -410,6 +438,14 @@ mod tests {
         .await
         .expect_err("it keeps its name");
         assert!(matches!(renamed, PageError::Fixed), "{renamed:?}");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_brief_is_renamed_with_its_project_and_left_an_ordinary_page_when_it_goes() {
+        let (_url, mut connection) = migrated_database().await;
+        let launch = launch(&mut connection).await;
+        let person = person();
 
         // Renaming the project renames its brief, as the system user, which wakes nothing.
         let renamed = project::update(
@@ -443,5 +479,9 @@ mod tests {
         assert_eq!(left.brief_project_id, None);
         assert!(!left.is_fixed());
         assert!(left.deleted_at.is_none());
+        assert!(
+            indexed(&mut connection, brief.id).await,
+            "an ordinary page now, it is indexed as one"
+        );
     }
 }

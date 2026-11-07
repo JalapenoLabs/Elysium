@@ -43,7 +43,7 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::{Uuid, uuid};
 
-use crate::database::schema::{page_events, page_versions, pages};
+use crate::database::schema::{page_events, page_versions, pages, projects};
 use crate::knowledge::passages;
 use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{CONTENT_MAX_CHARACTERS, Section};
@@ -669,7 +669,7 @@ pub async fn publish(
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
-            let page = lock(connection, id).await?;
+            let page = lock_to_publish(connection, id).await?;
             require_writable(connection, &page, author).await?;
             if edit.learning.is_some() && !page.is_learning() {
                 return Err(PageError::NotALearning);
@@ -790,7 +790,7 @@ pub async fn restore_version(
 ) -> Result<Recorded, PageError> {
     connection
         .transaction(async move |connection| {
-            let page = lock(connection, id).await?;
+            let page = lock_to_publish(connection, id).await?;
             require_writable(connection, &page, author).await?;
             let mut content = find_version(connection, id, version).await?.into_content();
             if let Some(category) = &content.category
@@ -1377,6 +1377,31 @@ pub async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<P
         .select(Page::as_select())
         .first(connection)
         .await
+}
+
+/// Locks page `id` for a publish, holding its project first when it is a project's brief.
+///
+/// Publishing a brief writes its Project Manager's wake, which references the project and so holds
+/// its row, while renaming a project holds the project's row and then locks its brief. Holding the
+/// project before the page, the order every write that reaches both takes (`page_project`), keeps
+/// the two from waiting on each other. A project deleted in between holds nothing, and its brief
+/// is then an ordinary page.
+async fn lock_to_publish(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
+    let brief_of: Option<Uuid> = pages::table
+        .find(id)
+        .select(pages::brief_project_id)
+        .first(connection)
+        .await?;
+    if let Some(project_id) = brief_of {
+        projects::table
+            .find(project_id)
+            .for_key_share()
+            .select(projects::id)
+            .first::<Uuid>(connection)
+            .await
+            .optional()?;
+    }
+    lock(connection, id).await
 }
 
 /// Refuses `parent_id` unless it is a live page. The caller holds the tree, so it stays one.
