@@ -596,6 +596,7 @@ export function makeWorkBatch(overrides: Partial<WorkBatch> & Pick<WorkBatch, 'i
     waitingOn: null,
     waitingDetail: null,
     waitingUntil: null,
+    configuration: null,
     ...overrides,
   }
 }
@@ -607,6 +608,7 @@ export function makeProjectManager(
     status: 'idle',
     waiting: 0,
     usagePausedUntil: null,
+    configurationHold: null,
     turns: [],
     batches: [],
     proposed: [],

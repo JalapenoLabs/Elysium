@@ -7,17 +7,24 @@
 //! `elysium-agents` network, from `RUNNER_TEST_WORKSPACE_IMAGE`. Without a credential the CLI
 //! reports that it is not logged in, which proves the exec, the turn script, the stream
 //! parsing, and the outcome end to end without spending any quota.
+//!
+//! The worker's test fetches a real configuration repository into a worker's own container,
+//! `CONFIGURATION_TEST_REPOSITORY`, with `CONFIGURATION_TEST_TOKEN` when it is private, and starts
+//! Claude Code on what was adapted.
 
 use bollard::{API_DEFAULT_VERSION, Docker};
+use secrecy::SecretString;
 use tokio_util::sync::CancellationToken;
+use url::Url;
 use uuid::Uuid;
 
-use super::configuration::ConfigurationSource;
-use super::workspace::WorkspaceContainer;
+use super::configuration::{ConfigurationRepository, ConfigurationSource, Fetched};
+use super::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer};
 use super::{
     ConversationId, CredentialSource, Executor, Runner, RunnerEvent, TurnMode, TurnRequest,
     TurnStatus, WorkspacePath,
 };
+use crate::worker_pool::worker::container::Containers;
 
 #[tokio::test]
 #[ignore = "needs RUNNER_TEST_DOCKER_URL and RUNNER_TEST_WORKSPACE_IMAGE; creates real containers"]
@@ -75,4 +82,93 @@ async fn a_turn_without_a_credential_reports_that_it_is_not_logged_in() {
         "the CLI ran and said why"
     );
     assert!(outcome.harness_session_id.is_some());
+}
+
+/// Starts Claude Code without a credential in the worker's container and prints the outcome of
+/// every hook its session ran, one `name outcome` line each: the CLI reads the settings and runs
+/// the session's hooks before it finds it is not signed in.
+const HOOKS_SCRIPT: &str = r#"
+mkdir -p /workspace/live-test && cd /workspace/live-test || exit 70
+claude -p "Say hi" --output-format stream-json --verbose 2>/dev/null \
+  | jq -r 'select(.subtype == "hook_response") | "\(.hook_name) \(.outcome)"'
+"#;
+
+#[tokio::test]
+#[ignore = "needs RUNNER_TEST_DOCKER_URL, RUNNER_TEST_WORKSPACE_IMAGE, and CONFIGURATION_TEST_REPOSITORY"]
+async fn a_worker_fetches_its_configuration_and_adapts_it_to_run_there() {
+    let (Ok(url), Ok(image), Ok(repository)) = (
+        std::env::var("RUNNER_TEST_DOCKER_URL"),
+        std::env::var("RUNNER_TEST_WORKSPACE_IMAGE"),
+        std::env::var("CONFIGURATION_TEST_REPOSITORY"),
+    ) else {
+        eprintln!(
+            "skipped: set RUNNER_TEST_DOCKER_URL, RUNNER_TEST_WORKSPACE_IMAGE, and \
+             CONFIGURATION_TEST_REPOSITORY to run the live configuration test"
+        );
+        return;
+    };
+    let docker = Docker::connect_with_http(&url, 600, API_DEFAULT_VERSION).expect("a client");
+    let containers = Containers::new(
+        docker,
+        image,
+        &SecretString::from("a deployment for the live configuration test"),
+    );
+    let batch_id = Uuid::now_v7();
+    containers
+        .ensure_network(batch_id, &[])
+        .await
+        .expect("the worker's network");
+    let workspace = containers.workspace(batch_id, 1_000_000_000);
+    let runner = Runner::with_parts(
+        Executor::Workspace(workspace.clone()),
+        CredentialSource::Fixed(Vec::new()),
+        ConfigurationSource::Fixed(ConfigurationRepository {
+            url: Url::parse(&repository).expect("a repository URL"),
+            token: std::env::var("CONFIGURATION_TEST_TOKEN")
+                .ok()
+                .map(SecretString::from),
+        }),
+        crate::activity::Activities::new(),
+        CancellationToken::new(),
+    );
+
+    let fetched = runner
+        .fetch_configuration()
+        .await
+        .expect("the settings read");
+    let held = runner.configuration_commit().await.expect("read");
+    let hooks = workspace
+        .run_script(AGENT_USER, HOOKS_SCRIPT, &[], Vec::new(), SCRIPT_TIMEOUT)
+        .await
+        .expect("the CLI starts");
+    runner.shutdown().await;
+    containers.remove(batch_id).await.expect("removed");
+
+    let Fetched::Attempted {
+        outcome: Ok(checkout),
+        ..
+    } = fetched
+    else {
+        panic!("the repository was not fetched: {fetched:?}");
+    };
+    eprintln!(
+        "fetched {} at {} ({}); left out {}:",
+        checkout.repository,
+        checkout.commit,
+        checkout.subject,
+        checkout.skipped.len()
+    );
+    for skipped in &checkout.skipped {
+        eprintln!("  {skipped:?}");
+    }
+    eprintln!("hooks that ran:\n{}", hooks.output.trim());
+    assert_eq!(
+        held.as_deref(),
+        Some(checkout.commit.as_str()),
+        "the worker's volume holds the commit it recorded"
+    );
+    assert!(
+        hooks.output.lines().all(|line| line.ends_with(" success")),
+        "every hook left in runs in the worker"
+    );
 }

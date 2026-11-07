@@ -11,7 +11,8 @@ use serde::Serialize;
 pub enum Status {
     /// A turn is running.
     Running,
-    /// Something waits for it, and a usage limit holds it until a time.
+    /// Something waits for it, and a usage limit holds it until a time, or the configuration
+    /// repository holds it until it is fetched.
     Held,
     /// Its last turn failed.
     Errored,
@@ -28,15 +29,18 @@ pub struct StatusInputs {
     /// How many wakes wait for its next turn.
     pub waiting: i64,
     pub usage_paused_until: Option<DateTime<Utc>>,
+    /// Whether no Project Manager may start without the configuration repository.
+    pub configuration_held: bool,
     pub last_turn_failed: bool,
     pub now: DateTime<Utc>,
 }
 
 /// Its status: running first, then a hold on work that waits, then a failure, then waiting work.
 pub fn derive(inputs: &StatusInputs) -> Status {
-    let is_held = inputs
-        .usage_paused_until
-        .is_some_and(|until| until > inputs.now);
+    let is_held = inputs.configuration_held
+        || inputs
+            .usage_paused_until
+            .is_some_and(|until| until > inputs.now);
     if inputs.is_running {
         return Status::Running;
     }
@@ -63,6 +67,7 @@ mod tests {
             is_running: false,
             waiting: 0,
             usage_paused_until: None,
+            configuration_held: false,
             last_turn_failed: false,
             now: Utc::now(),
         }
@@ -75,6 +80,7 @@ mod tests {
             is_running: true,
             waiting: 3,
             usage_paused_until: Some(now + TimeDelta::hours(1)),
+            configuration_held: false,
             last_turn_failed: true,
             now,
         };
@@ -95,6 +101,19 @@ mod tests {
         };
         assert_eq!(derive(&waiting), Status::Waiting);
         assert_eq!(derive(&inputs()), Status::Idle);
+    }
+
+    #[test]
+    fn waiting_work_the_configuration_holds_back_is_held() {
+        let held = StatusInputs {
+            waiting: 1,
+            configuration_held: true,
+            last_turn_failed: true,
+            ..inputs()
+        };
+        assert_eq!(derive(&held), Status::Held);
+        let nothing_waits = StatusInputs { waiting: 0, ..held };
+        assert_eq!(derive(&nothing_waits), Status::Errored);
     }
 
     #[test]

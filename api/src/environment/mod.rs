@@ -139,7 +139,7 @@ pub fn key_refusal(key: &str) -> Option<KeyRefusal> {
 /// A letter or underscore, then letters, digits, or underscores, up to
 /// [`KEY_MAX_CHARACTERS`]: the names every shell accepts. Mirrored by the
 /// `environment_variables_key_shape` constraint.
-fn is_well_formed(key: &str) -> bool {
+pub fn is_well_formed(key: &str) -> bool {
     let mut characters = key.chars();
     let Some(first) = characters.next() else {
         return false;

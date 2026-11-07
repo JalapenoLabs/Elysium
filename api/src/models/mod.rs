@@ -11,6 +11,7 @@ pub mod action_item_issue_filing;
 pub mod action_item_link;
 pub mod action_item_link_write;
 pub mod agent;
+pub mod agent_configuration;
 pub mod agent_guidance;
 pub mod assigned_issue;
 pub mod attribution;

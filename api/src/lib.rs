@@ -14,6 +14,7 @@
 
 mod action_items;
 mod activity;
+mod agent_configuration;
 mod agent_guidance;
 mod agent_models;
 mod auth;

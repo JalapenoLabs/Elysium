@@ -20,6 +20,7 @@ use diesel_async::AsyncPgConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::agent_configuration::Hold;
 use crate::errors::ApiError;
 use crate::models::action_item_link::LinkProvider;
 use crate::models::project_manager::{Turn, TurnStatus, Wake, WakeKind};
@@ -85,6 +86,9 @@ pub struct ProjectManagerResponse {
     waiting: i64,
     /// When a usage limit lets it start again, while one holds it.
     usage_paused_until: Option<DateTime<Utc>>,
+    /// While no Project Manager may start without the configuration repository, why: `{ reason:
+    /// 'unset' | 'fetching' | 'failed', error?, failedAt? }`.
+    configuration_hold: Option<Hold>,
     /// Its latest turns, newest first.
     turns: Vec<TurnResponse>,
     /// Its latest batches, newest first.
@@ -154,6 +158,7 @@ impl From<Snapshot> for ProjectManagerResponse {
                 .state
                 .and_then(|state| state.usage_paused_until)
                 .filter(|until| *until > now),
+            configuration_hold: snapshot.configuration_hold,
             turns: snapshot
                 .turns
                 .into_iter()
