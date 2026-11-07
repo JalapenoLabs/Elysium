@@ -1,7 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `elysia_work_queue`, `elysia_change_batch`, and `elysia_cancel_batch`: Elysia reads the worker
-//! pool's queue and changes what waits in it, as a person does on the work queue's page.
+//! pool's queue and changes what waits in it, as a person does on the work queue's page. She lists
+//! the batches proposed for a person's approval too, but never decides on one: approving and
+//! rejecting take a person's session (`crate::worker_pool::actions`), which no tool holds.
 //!
 //! What she changes she changes directly, as `docs/engine.md` gives her (Elysia: "she can see and
 //! change anything in it"): every change goes through `crate::worker_pool::actions`, so it is
@@ -153,8 +155,11 @@ async fn read_queue(
         "next": waiting.next.iter().map(view).collect::<Vec<_>>(),
         "scheduledLater": waiting.scheduled.iter().map(view).collect::<Vec<_>>(),
         "paused": waiting.paused.iter().map(view).collect::<Vec<_>>(),
+        "proposed": waiting.proposed.iter().map(view).collect::<Vec<_>>(),
         "note": "next is the order the pool hands out free slots in. A batch in a slot whose \
-            state is assigned waits for its worker and may still be paused or cancelled.",
+            state is assigned waits for its worker and may still be paused or cancelled. A \
+            proposed batch waits for a person to approve, edit, or reject it on the work queue; \
+            only a person does, so tell them when one needs deciding.",
     }))
 }
 
@@ -260,7 +265,7 @@ mod tests {
     use crate::models::project::NewProject;
     use crate::models::user::PROJECT_MANAGER_USER_ID;
     use crate::models::work_batch::{self, NewWorkBatch};
-    use crate::test_support::{TEST_PERSON_ID, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
     #[test]
     fn a_change_reads_as_the_tool_sends_it() {
@@ -303,7 +308,7 @@ mod tests {
         .id;
         let mut ids = Vec::new();
         for priority in [Priority::Normal, Priority::Asap] {
-            let batch = work_batch::submit(
+            let batch = approved_batch(
                 &mut connection,
                 NewWorkBatch {
                     id: Uuid::now_v7(),
@@ -319,10 +324,29 @@ mod tests {
                     created_by: PROJECT_MANAGER_USER_ID,
                 },
             )
-            .await
-            .expect("submitted");
+            .await;
             ids.push(batch.id);
         }
+        // A proposal waits for a person: she sees it, apart from what the pool hands slots to.
+        let waiting = work_batch::submit(
+            &mut connection,
+            NewWorkBatch {
+                id: Uuid::now_v7(),
+                project_id: launch,
+                title: "Proposed work".to_owned(),
+                goal: "Do the work.".to_owned(),
+                repositories: json!([]),
+                priority: Priority::Asap,
+                scheduled_for: None,
+                turn_id: None,
+                source_record_ids: json!([]),
+                action_item_ids: json!([]),
+                created_by: PROJECT_MANAGER_USER_ID,
+            },
+        )
+        .await
+        .expect("submitted")
+        .batch;
 
         let answer = read_queue(&mut connection, Utc::now())
             .await
@@ -331,5 +355,8 @@ mod tests {
         assert_eq!(answer["next"][1]["batchId"], json!(ids[0]));
         assert_eq!(answer["next"][0]["project"], "Launch");
         assert_eq!(answer["inSlots"], json!([]));
+        assert_eq!(answer["proposed"][0]["batchId"], json!(waiting.id));
+        assert_eq!(answer["proposed"][0]["state"], "proposed");
+        assert_eq!(answer["next"].as_array().map(Vec::len), Some(2));
     }
 }

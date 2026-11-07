@@ -15,9 +15,9 @@ use crate::github::fake::{self, FakeGithub};
 use crate::models::project::{self, NewProject};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::pull_request::{NewPullRequest, RecordError};
-use crate::models::work_batch::{self, NewWorkBatch, Priority, assign, start, submit};
+use crate::models::work_batch::{self, NewWorkBatch, Priority, assign, start};
 use crate::models::worker_setup::Declaration;
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, approved_batch, migrated_database};
 
 const REPOSITORY: &str = "JalapenoLabs/web";
 
@@ -144,7 +144,7 @@ async fn running_batch(connection: &mut AsyncPgConnection, name: &str) -> WorkBa
     .await
     .expect("a project")
     .id;
-    let batch = submit(
+    let batch = approved_batch(
         connection,
         NewWorkBatch {
             id: Uuid::now_v7(),
@@ -160,8 +160,7 @@ async fn running_batch(connection: &mut AsyncPgConnection, name: &str) -> WorkBa
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )
-    .await
-    .expect("submitted");
+    .await;
     // A pool as large as a test ever fills, so a second batch gets a slot too.
     let slot = assign(connection, &[batch.id], 4, Utc::now())
         .await

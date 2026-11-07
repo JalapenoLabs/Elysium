@@ -14,9 +14,9 @@ Whisper, corrects its transcript against everything Elysium knows, waiting for i
 segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), the request workflow,
 which gathers every direct message and mention per conversation and starts work once it goes quiet (Conversations,
 below), the company doc's scheduled review (The company doc, below), every project's Project Manager, which
-submits work batches for the worker pool and writes its project's action items and their issues in Jira, YouTrack,
-and GitHub (Project Managers, below), and the pool's scheduler, which hands its slots to
-those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
+proposes work batches for the worker pool and writes its project's action items and their issues in Jira, YouTrack,
+and GitHub (Project Managers, below), each batch waiting for a person to approve it (Proposed batches, below), and
+the pool's scheduler, which hands its slots to the approved batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
 below), a worker for each slot, running its batch in a container of its own until it is done (Workers, below), its
 pull requests merged by Elysium in the repositories that let it, failing closed (Merging, below), and the
 promises people make in conversations, which their projects' Project Managers keep with a follow-up the
@@ -61,7 +61,7 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
 | Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
 | Writes to a project's Project Manager     | `project_manager_wakes`                  | Starts its turn, runs it, records it         |
-| Runs a waiting batch next, reprioritizes, pauses, resumes, or cancels it; sizes the pool | `work_batches`, `workspace_settings.worker_pool_size` | Hands out the slots that are free, takes back any the pool lost |
+| Approves or rejects a proposed batch; runs a waiting batch next, reprioritizes, pauses, resumes, or cancels it; sizes the pool | `work_batches`, `workspace_settings.worker_pool_size` | Hands out the slots that are free to queued batches, takes back any the pool lost, and wakes a rejected batch's Project Manager |
 | Shows the work queue                      | `worker_pool`                            | Records the CPU cores it sees and any usage hold |
 | Answers a worker's report, through its tools | `work_batches.worker_report`          | Takes it as the worker's turn ends, and finishes the batch or waits |
 | Records a worker's pull request, through its tools | `work_batch_pull_requests`        | Looks at it as each wait ends and before the batch finishes: merges it where Elysium may, records a merge |
@@ -478,7 +478,8 @@ trackers (Its writes, below), and its tabs on the project's page.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
   `manager_record` read its project's timeline, every owner's records on it, `manager_pages` and `manager_page` list and
   read the pages linked to its project, a long one in parts, and refuse any other, `manager_batches` lists its batches,
-  `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on,
+  proposed ones included, `manager_submit_batch` proposes one, `manager_cancel_batch` withdraws one no worker has
+  started on,
   `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
@@ -550,32 +551,70 @@ A batch (`work_batches`) is one piece of work for one worker: a title, a goal wr
 else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
 provenance: the turn that submitted it, the timeline records that called for it, and the action items it works on,
-each checked to be on its project. Submitting stores it, puts it on the timeline, and announces both in one place
-(`project_managers::batches`).
+each checked to be on its project. Submitting stores it, proposed, puts it on the timeline, brings its project's
+approval item up to date, and announces all three in one place (`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
 | State       | Means                                                             | Moves on by                        |
 |-------------|-------------------------------------------------------------------|------------------------------------|
+| `proposed`  | Its Project Manager submitted it; it waits for a person           | A person's approval, to `queued`; a person's rejection; a cancel |
 | `queued`    | Waits for a slot                                                  | The scheduler's `assign`; a pause; a cancel |
 | `paused`    | Held back by a person, Elysia, or its Project Manager             | A resume, back to `queued`; a cancel |
 | `assigned`  | Holds a slot; no worker has started on it                         | A worker's `start`; a pause or cancel, which gives the slot back; `unassign` when the pool shrank |
 | `running`   | A worker has it                                                   | Its worker's `finish`              |
 | `succeeded`, `failed` | Its worker ended it, saying what it did                 | Nothing                            |
 | `cancelled` | Withdrawn before a worker started, with why                       | Nothing                            |
+| `rejected`  | A person declined it while it was proposed, with why              | Nothing                            |
 
-`work_batch::finish` wakes its Project Manager in the same transaction, as does a cancel by anyone but the Project
-Manager itself, so it learns its work was withdrawn and why; the caller then signals `workerPool` and `projectManagers`
-and publishes `workBatch.changed` and `projectManager.changed`.
+`work_batch::finish` wakes its Project Manager in the same transaction, as do a rejection and a cancel by anyone but
+the Project Manager itself, so it learns its work was declined or withdrawn and why; the caller then signals
+`workerPool` and `projectManagers` and publishes `workBatch.changed` and `projectManager.changed`.
 
 - **History.** Every change is written to the batch's history (`work_batch_events`) in the transaction that makes it,
-  with who made it: `submitted` by its Project Manager; `pinned` and `unpinned` (run next, and back to its place),
+  with who made it: `submitted` by its Project Manager; `edited` (`{ before, after }`, each holding only the fields
+  that changed), `approved`, and `rejected` (`{ reason }`) by the person who decided; `held_for_approval` (`{ from }`)
+  by the system user, for a batch that waited for a slot when proposals began and went back for approval;
+  `pinned` and `unpinned` (run next, and back to its place),
   `reprioritized` (`{ before, after }`, each `{ priority, scheduledFor }`), `paused` (`{ from }`), `resumed`, and
   `cancelled` (`{ reason }`) by a person, Elysia, or its Project Manager; `assigned` and `unassigned` by the pool, as the
   system user; `started`, `waiting` (`{ on, detail, until }`), and `finished` (`{ succeeded }`) by its worker, as the
   coding agent; and `answered` (`{ answer }`) by its Project Manager. A change that moves nothing writes nothing.
 - **One way in.** The work queue's routes, Elysia's tools, and a Project Manager's tools all change a batch through
   `worker_pool::actions`, so each change is checked, recorded, announced, and signalled alike.
+
+### Proposed batches
+
+Built: every batch starts proposed, and a person approves it before any worker sees it
+(`api/src/models/work_batch/approval.rs`, `approval_item.rs`, and `why.rs`). A Project Manager still plans, orders, and
+submits everything; the gate is between its plan and the pool.
+
+- **The pool hands a proposal nothing.** `work_batch::assign` takes only `queued` batches, the queue's order reads only
+  them, and `work_batches_claimed_while_in_a_slot` refuses a claim on anything but a batch in a slot, so a proposed batch
+  is never claimed by a look, a restart, or a takeover of lapsed leases (`worker_pool::scheduler` tests prove all three).
+  A proposal is not paused, resumed, run next, or reprioritized: resuming it would queue what nobody approved.
+- **A person decides.** Approve moves it to `queued`. Edit then approve changes any of its title, goal, repositories,
+  and priority (with a scheduled one's time) in the same transaction, each held to the rules a submission is
+  (`project_managers::batches::check_edits`), and records only what changed. Reject needs a reason, which becomes its
+  result and wakes its Project Manager, whose next turn reads it under the batch and is told to follow it rather than
+  submit the same work again. Its Project Manager or Elysia may still withdraw a proposal (`cancelled`).
+- **Only a person.** `worker_pool::actions::approve` and `reject` take a `MemberUser`, which a seeded machine never is
+  (`auth::MemberUser::check` refuses the `agent` and `system` roles), so no tool reaches them: Elysia's
+  `elysia_work_queue` and a Project Manager's `manager_batches` list proposals, and no agent's tool approves or rejects
+  one (`tools` tests check every server's).
+- **One item per project.** Every write that moves a batch into or out of `proposed` refreshes its project's approval
+  item in the same transaction (`work_batch::approval_item::refresh`, under a per-project advisory lock): one inbox item,
+  in the project, raised by its Project Manager, titled with how many wait ("Approve 3 work batches for Launch"), kept up
+  to date, and resolved by whoever decided the last. It names the project and the count alone, never a batch's title,
+  which is for members. A person who resolves or dismisses it by hand is done with it: deciding the batches that remain
+  changes nothing, and the next proposal raises a new one (`work_batch_approval_items` holds which item a project has).
+  As the pool's scheduler starts, it raises the item of any project whose proposals never had one, such as batches
+  held for approval without a submission (`approval_item::reconcile`), so no proposal waits unseen.
+- **Why it exists.** A batch's page reads the timeline records its Project Manager named as its cause, by title and
+  kind with the knowledge base's document for each, and the action items it works on (`work_batch::why`). The full
+  chain, from meeting quote to pull request, is on the roadmap (`docs/autonomy.md`, Staying aware).
+- **Feedback.** A rejection's `rejected` entry, with its reason and the person, is the feedback it leaves for
+  self-improvement until a store of feedback exists (`docs/self-improvement.md`).
 
 ## Workers and the pool
 
@@ -584,10 +623,10 @@ and publishes `workBatch.changed` and `projectManager.changed`.
   in the shared workspace.
 - The pool is global, not per project. Its size is an admin setting whose default is one worker per CPU core minus two
   for the API, the engine, and Postgres, at least one, with no maximum.
-- Project Managers never start containers. The engine's scheduler hands out free slots: due scheduled work first, then
-  ASAP, then normal, oldest first within each, round robin across projects. It hands out none while every Claude
-  account is at its usage limit, and resumes at the earliest reset. The person and Elysia can reorder, pause, or
-  cancel anything queued.
+- Project Managers never start containers. The engine's scheduler hands out free slots to approved batches: due
+  scheduled work first, then ASAP, then normal, oldest first within each, round robin across projects. It hands out
+  none while every Claude account is at its usage limit, and resumes at the earliest reset. The person and Elysia can
+  reorder, pause, or cancel anything queued; only a person approves a proposed batch.
 
 Built: the scheduler, its order, its leases, the usage gate, the admin's size, and the work queue people and Elysia
 change it from (`api/src/worker_pool/`), and the workers, one per slot, each in a container of its own
@@ -645,7 +684,9 @@ free slot to the next batch in order.
 
 `GET /api/v1/work-queue` (`worker_pool::queue`) answers the pool (its size, the size an admin chose, the default, the
 CPU cores, the slots in use, and a usage hold's end), the batches in its slots, every batch it may hand a slot now in
-order, those scheduled for later, and those paused. People change a batch with `PATCH /api/v1/work-batches/{id}` and
+order, those scheduled for later, those paused, and those proposed, oldest first, read apart so however many wait for
+a person they never crowd approved work out of what the scheduler reads. People decide on a proposal with
+`POST /api/v1/work-batches/{id}/approve` and `/reject`, and change a batch with `PATCH /api/v1/work-batches/{id}` and
 `POST /api/v1/work-batches/{id}/cancel`; admins size the pool from Settings, Worker pool. The page is `/work-queue`
 (`docs/frontend.md`, Work queue). A batch's goal and title quote what was ingested, so the queue and its batches
 answer the company's members alone.
@@ -948,6 +989,7 @@ On the roadmap:
 
 - Elysia does not orchestrate the engine. Asked, she can see and change anything in it: inspect runs, pause, cancel,
   or reorder work, and talk to a project's Project Manager. Built: talking to one (`elysia_message_project_manager`),
-  and the work queue: reading it (`elysia_work_queue`), running a batch next, reprioritizing, pausing, or resuming it
-  (`elysia_change_batch`), and cancelling one (`elysia_cancel_batch`), each recorded in the batch's history as hers.
+  and the work queue: reading it, proposals included (`elysia_work_queue`), running a batch next, reprioritizing,
+  pausing, or resuming it (`elysia_change_batch`), and cancelling one (`elysia_cancel_batch`), each recorded in the
+  batch's history as hers. She never approves or rejects a proposal; only a person does.
 - Questions for the person, from any step, become action items.

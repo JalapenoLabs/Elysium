@@ -209,8 +209,10 @@
   },
   "batches": {
     "tab": "Work batches",
+    "proposedTab": "Proposed",
     "label": "The Project Manager's work batches",
     "empty": "No work batches yet.",
+    "proposedEmpty": "Nothing waits for your approval.",
     "columns": {
       "title": "Batch",
       "priority": "Priority",
@@ -224,13 +226,15 @@
       "scheduled": "Scheduled"
     },
     "states": {
+      "proposed": "Proposed",
       "queued": "Queued",
       "paused": "Paused",
       "assigned": "Waiting for a worker",
       "running": "Running",
       "succeeded": "Succeeded",
       "failed": "Failed",
-      "cancelled": "Cancelled"
+      "cancelled": "Cancelled",
+      "rejected": "Rejected"
     }
   },
   "promises": {

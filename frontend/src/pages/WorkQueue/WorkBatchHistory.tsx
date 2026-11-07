@@ -8,18 +8,20 @@ import { useTranslation } from 'react-i18next'
 
 // Misc
 import { formatShortDateTime } from '../../format/dates'
+import { listFormat } from '../../format/intl'
 import { useUserNames } from '../../hooks/useUserNames'
 import { batchPriorityLabelKeys } from '../Projects/projectManagerPresentation'
-import { describeHistoryEntry } from './workQueuePresentation'
+import { describeHistoryEntry, editedFieldLabelKeys } from './workQueuePresentation'
 
 type Props = {
   history: WorkBatchHistoryEntry[]
 }
 
-// Everything that happened to a batch, oldest first: who submitted it, every change a person,
-// Elysia, or its Project Manager made while it waited, and each move the pool and its worker
-// made, with the words that came with it beneath its line: why it was cancelled, what its worker
-// waits for, or the answer its Project Manager gave.
+// Everything that happened to a batch, oldest first: who submitted it, who approved it and what
+// they changed first, or who rejected it, every change a person, Elysia, or its Project Manager
+// made while it waited, and each move the pool and its worker made, with the words that came with
+// it beneath its line: why it was cancelled or rejected, what its worker waits for, or the answer
+// its Project Manager gave.
 export function WorkBatchHistory(props: Props) {
   const { t } = useTranslation([ 'workQueue', 'common' ])
   const projectsTranslation = useTranslation('projects')
@@ -50,6 +52,9 @@ export function WorkBatchHistory(props: Props) {
           time: described.until
             ? formatShortDateTime(described.until)
             : '',
+          fields: listFormat({ type: 'conjunction' }).format(
+            described.edited.map((field) => t(editedFieldLabelKeys[field])),
+          ),
         })
       }
       if (entry.kind === 'finished' && described.succeeded === false) {

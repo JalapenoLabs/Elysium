@@ -1367,21 +1367,32 @@ start.
 
 - **The queue.** `WorkQueuePage` opens with how many workers are busy of how many, and, while every Claude account is
   at its usage limit, a standing warning saying when workers start again (`WorkerPoolSummary`). Its tabs, each with
-  its count, are Queued (in the order slots are handed out, each row with its place), Running (the batches holding
+  its count, are Proposed (what waits for the person's approval, first because it is theirs to do, its count accented
+  while above zero), Queued (in the order slots are handed out, each row with its place), Running (the batches holding
   slots, one waiting for its worker reading so), Scheduled (not yet due), and Paused. Each is a `WorkQueueTable`:
   the title, linking to the batch's page, with Runs next on a batch asked to; its project, linking to the project; its
   priority with a scheduled one's time; its state; and when it was submitted. Admins get Pool size in the header,
   linking to Settings, Worker pool.
 - **Actions.** A row's actions are those its batch allows now (`availableActions` in `workQueuePresentation.ts`, a pure
-  function tested beside): Run next or Back to its place, Run as soon as possible or Run at normal priority, Pause or
+  function tested beside): Approve and Reject on a proposal, and nothing else; Run next or Back to its place, Run as soon as possible or Run at normal priority, Pause or
   Resume, and Cancel batch, last and red. A batch scheduled for later cannot run next, but can run as soon as possible.
   `useWorkBatchActions` sends each, lands the batch it answers in Redux, reloads the queue, and confirms with a toast;
   a `409`, from a batch that moved on, says so and reloads both. Cancelling asks first in the prompt gate, for an
   optional reason its Project Manager is told, saying in bold that it can't be restarted, with Keep it beside it.
+  Rejecting asks the same way, for a reason it requires, saying in bold that a rejected batch can't be approved later.
+  Reject and Cancel are red.
 - **A batch.** `WorkBatchPage` shows its state, project, priority, when it was submitted, started, and finished, what
-  its worker reported or why it was cancelled, its goal, its repositories, its history (`WorkBatchHistory`), each
-  line naming who did it, and its worker's log; its header's Actions are the row's. A project's Work batches tab links
-  each title here.
+  its worker reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`:
+  the records that called for it, each opening its knowledge base document, and the action items it works on), its
+  history (`WorkBatchHistory`), each line naming who did it, an edit naming the fields it changed, and its worker's
+  log; its header's Actions are the row's. A proposal leads with Approve as its primary action, with Edit and Reject
+  in its Actions. A project's Work batches and Proposed tabs link each title here.
+- **Edit and approve.** `/work-queue/:batchId/edit` (`WorkBatchEditPage`, `WorkBatchEditForm`) holds a proposal's
+  title, focused as it opens, goal, priority with a scheduled one's time to the minute in the viewer's zone
+  (`BatchScheduleField`), and repositories, each a URL and base branch (`BatchRepositoryRow`), removed with its icon
+  button, with Add repository below. The page's Save is named Approve and may be pressed unchanged; it sends only what
+  changed (`toWorkBatchEdits` in `workBatchEditSchema.ts`, which mirrors the API's rules and is tested beside), then
+  goes back to the batch in its place in the history. A batch no longer proposed goes straight to its own page.
 - **Waiting.** While a running batch's worker keeps its container waiting, the page says on what (a review, CI, or an
   answer), the worker's own words for it, and when it looks again in the viewer's zone (`currentWait`). Its history
   reads each wait with its time and words, and each answer its Project Manager gave beneath the line that names it.
@@ -1394,7 +1405,8 @@ start.
   start while the batch runs, and read only while open, into `workQueue`'s logs, apart from the batch its every load
   replaces.
 - **Live.** `workBatch.changed` reloads the queue, the batch, and its worker's log, and `workerPool.changed` the queue,
-  each only while a page holds it: the queue's order is the server's to derive, so it is never patched in place.
+  each only while a page holds it: the queue's order is the server's to derive, so it is never patched in place. A
+  decision also reloads the project's Project Manager, whose Proposed tab lists it.
 - **The pool's size.** `src/pages/Settings/WorkerPool/` is admins' alone: a Use the default switch, saying the default
   and the CPU cores it comes from, over the number of workers, at least one, kept by the page's Save.
 
@@ -1423,9 +1435,9 @@ to the models its agents run on (see Models), Workers, a link to how its workers
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Work batches, and
-Promises (these four for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
-session on the Coding page). A guest's tabs leave those four out of `useTabParam` too, so `?tab=docs` opens the first tab
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Proposed, Work
+batches, and Promises (these five for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
+session on the Coding page). A guest's tabs leave those five out of `useTabParam` too, so `?tab=docs` opens the first tab
 for them. Switching tabs keeps unsaved edits.
 
 The Docs tab (`ProjectPages`) lists the knowledge base pages linked to the project in a `SmartTable`
@@ -1445,8 +1457,11 @@ or the person's own YouTrack account, GitHub using the project's token, and a pl
 the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
-then). A running or failed turn starts open. Work batches (`WorkBatchesTable`) is a `SmartTable` of its batches: the
-title, the priority with a scheduled one's time, the state, when it was submitted, and what its worker reported.
+then). A running or failed turn starts open. Proposed (`WorkBatchesTable` with `list='proposed'`) lists every batch
+waiting for the person's approval, its count accented while above zero: the title, the priority, and when it was
+submitted, each row offering Approve and Reject as the work queue's do. Work batches (`WorkBatchesTable`) is a
+`SmartTable` of its latest batches: the title, the priority with a scheduled one's time, the state, when it was
+submitted, and what its worker reported.
 Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
 a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { WorkBatchAction } from './workQueuePresentation'
+import type { WorkBatchWithHistory } from '../../api/routes/workQueueRoutes'
+import type { WorkBatchAction, WorkBatchDecision } from './workQueuePresentation'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -12,9 +13,12 @@ import { useAppDispatch } from '../../store/hooks'
 import { workBatchLoaded } from '../../store/workQueueSlice'
 
 // Misc
+import { getProjectManagerKey } from '../../api/routes/projectManagerRoutes'
 import {
+  approveWorkBatch,
   cancelWorkBatch,
   getWorkBatchKey,
+  rejectWorkBatch,
   updateWorkBatch,
   WORK_QUEUE_KEY,
 } from '../../api/routes/workQueueRoutes'
@@ -27,17 +31,26 @@ const REASON_MAX_CHARACTERS = 20_000
 
 type ActedOn = {
   id: string
+  projectId: string
   title: string
 }
 
-// What people do to a waiting batch from the queue or its page. Each lands the batch the API
-// answers in Redux and reloads the queue, whose order is the server's, so this tab updates before
-// the event arrives; and each reports its own failure. Cancelling asks first, for a reason its
-// Project Manager is told, since it can't be taken back.
+// What people do to a waiting batch from the queue, a project's page, or the batch's own page.
+// Each lands the batch the API answers in Redux and reloads the queue and the project's lists,
+// whose order is the server's, so this tab updates before the event arrives; and each reports its
+// own failure. Rejecting and cancelling ask first, for a reason its Project Manager is told,
+// since neither can be taken back; rejecting needs one, since it is the person's direction.
 export function useWorkBatchActions() {
   const { t } = useTranslation([ 'workQueue', 'common' ])
   const dispatch = useAppDispatch()
   const prompt = usePrompt()
+
+  function landed(batch: ActedOn, response: WorkBatchWithHistory, action: WorkBatchAction) {
+    dispatch(workBatchLoaded(response))
+    void mutate(WORK_QUEUE_KEY)
+    void mutate(getProjectManagerKey(batch.projectId))
+    toast.success(t(actionDoneKeys[action], { title: batch.title }))
+  }
 
   function report(error: unknown, batch: ActedOn, action: WorkBatchAction) {
     // The batch moved on in the engine or another tab since this page drew it: show it as it is.
@@ -51,41 +64,49 @@ export function useWorkBatchActions() {
     toast.danger(t('common:errors.unexpected'))
   }
 
-  async function change(batch: ActedOn, action: Exclude<WorkBatchAction, 'cancel'>) {
+  async function change(batch: ActedOn, action: Exclude<WorkBatchAction, WorkBatchDecision>) {
     try {
-      const response = await updateWorkBatch(batch.id, changesByAction[action])
-      dispatch(workBatchLoaded(response))
-      void mutate(WORK_QUEUE_KEY)
-      toast.success(t(actionDoneKeys[action], { title: batch.title }))
+      landed(batch, await updateWorkBatch(batch.id, changesByAction[action]), action)
     }
     catch (error) {
       report(error, batch, action)
     }
   }
 
-  function cancel(batch: ActedOn) {
+  async function approve(batch: ActedOn) {
+    try {
+      landed(batch, await approveWorkBatch(batch.id, {}), 'approve')
+    }
+    catch (error) {
+      report(error, batch, 'approve')
+    }
+  }
+
+  // Asks for a reason, then sends `decide` with it: what rejecting and cancelling share.
+  function askWhy(
+    batch: ActedOn,
+    action: 'reject' | 'cancel',
+    decide: (reason: string) => Promise<WorkBatchWithHistory>,
+  ) {
     prompt({
-      title: t('actions.cancelPrompt.title', { title: batch.title }),
+      title: t(`actions.${action}Prompt.title`, { title: batch.title }),
       message: <p>
-        <span>{t('actions.cancelPrompt.message')} </span>
-        <strong>{t('actions.cancelPrompt.irreversible')}</strong>
+        <span>{t(`actions.${action}Prompt.message`)} </span>
+        <strong>{t(`actions.${action}Prompt.irreversible`)}</strong>
       </p>,
-      label: t('actions.cancelPrompt.reason'),
-      isOptional: true,
+      label: t(`actions.${action}Prompt.reason`),
+      isOptional: action === 'cancel',
       isMultiline: true,
       maxLength: REASON_MAX_CHARACTERS,
-      submitText: t('actions.cancel'),
-      cancelText: t('actions.cancelPrompt.keep'),
+      submitText: t(`actions.${action}`),
+      cancelText: t(`actions.${action}Prompt.keep`),
       onSubmit: async (reason) => {
         try {
-          const response = await cancelWorkBatch(batch.id, reason || null)
-          dispatch(workBatchLoaded(response))
-          void mutate(WORK_QUEUE_KEY)
-          toast.success(t(actionDoneKeys.cancel, { title: batch.title }))
+          landed(batch, await decide(reason), action)
         }
         catch (error) {
-          report(error, batch, 'cancel')
-          // A batch that moved on cannot be cancelled by trying again, so the dialog closes.
+          report(error, batch, action)
+          // A batch that moved on cannot be decided by trying again, so the dialog closes.
           if (!(error instanceof HTTPError && error.response.status === 409)) {
             throw error
           }
@@ -95,8 +116,16 @@ export function useWorkBatchActions() {
   }
 
   return async function act(batch: ActedOn, action: WorkBatchAction) {
+    if (action === 'approve') {
+      await approve(batch)
+      return
+    }
+    if (action === 'reject') {
+      askWhy(batch, action, (reason) => rejectWorkBatch(batch.id, reason))
+      return
+    }
     if (action === 'cancel') {
-      cancel(batch)
+      askWhy(batch, action, (reason) => cancelWorkBatch(batch.id, reason || null))
       return
     }
     await change(batch, action)

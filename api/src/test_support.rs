@@ -338,3 +338,26 @@ pub async fn studio_item(
     .await
     .expect("item")
 }
+
+/// Submits `batch`, then approves it as [`TEST_PERSON_ID`], so it waits for a slot: a batch a
+/// person has already said yes to, for tests about the queue, the pool, and its workers.
+pub async fn approved_batch(
+    connection: &mut AsyncPgConnection,
+    batch: crate::models::work_batch::NewWorkBatch,
+) -> crate::models::work_batch::WorkBatch {
+    use crate::models::work_batch::{self, approval};
+
+    let submitted = work_batch::submit(connection, batch)
+        .await
+        .expect("submitted");
+    approval::approve(
+        connection,
+        submitted.batch.id,
+        approval::Edits::default(),
+        TEST_PERSON_ID,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("approved")
+    .batch
+}

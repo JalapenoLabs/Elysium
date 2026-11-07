@@ -106,7 +106,7 @@ pub async fn tie(
 }
 
 /// Whether batch `batch_id` of `project_id` already succeeded. Refuses one of another project, and
-/// one that failed or was cancelled, which will never keep a promise.
+/// one that failed, was cancelled, or was rejected, which will never keep a promise.
 async fn batch_finished(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -123,14 +123,18 @@ async fn batch_finished(
             ))
         })?;
     match batch.state {
-        BatchState::Queued | BatchState::Paused | BatchState::Assigned | BatchState::Running => {
-            Ok(false)
-        }
+        BatchState::Proposed
+        | BatchState::Queued
+        | BatchState::Paused
+        | BatchState::Assigned
+        | BatchState::Running => Ok(false),
         BatchState::Succeeded => Ok(true),
-        BatchState::Failed | BatchState::Cancelled => Err(PromiseError::Refused(format!(
-            "batch {batch_id} did not succeed and never will; tie the promise to the work that \
+        BatchState::Failed | BatchState::Cancelled | BatchState::Rejected => {
+            Err(PromiseError::Refused(format!(
+                "batch {batch_id} did not succeed and never will; tie the promise to the work that \
              replaces it"
-        ))),
+            )))
+        }
     }
 }
 

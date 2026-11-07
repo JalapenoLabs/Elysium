@@ -105,6 +105,7 @@ describe('ProjectManagerPanel', () => {
       usagePausedUntil: null,
       turns: [ planned, failed ],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     })
@@ -134,6 +135,7 @@ describe('ProjectManagerPanel', () => {
       usagePausedUntil: null,
       turns: [],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     })
@@ -148,6 +150,7 @@ describe('ProjectManagerPanel', () => {
       usagePausedUntil: null,
       turns: [],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     }

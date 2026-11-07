@@ -31,10 +31,15 @@ import {
   batchStateLabelKeys,
 } from '../Projects/projectManagerPresentation'
 import { useWorkBatchActions } from './useWorkBatchActions'
-import { actionIcons, actionLabelKeys, availableActions } from './workQueuePresentation'
+import {
+  actionIcons,
+  actionLabelKeys,
+  availableActions,
+  DANGEROUS_ACTIONS,
+} from './workQueuePresentation'
 
 // The queue's lists, one per tab.
-export type WorkQueueList = 'queued' | 'running' | 'scheduled' | 'paused'
+export type WorkQueueList = 'proposed' | 'queued' | 'running' | 'scheduled' | 'paused'
 
 type Props = {
   list: WorkQueueList
@@ -46,6 +51,7 @@ type ColumnKey = typeof COLUMN_KEYS[number]
 
 // Only the queue itself has places: the other lists are not an order slots are handed out in.
 const columnKeysByList = {
+  proposed: [ 'title', 'project', 'priority', 'submitted' ],
   queued: COLUMN_KEYS,
   running: [ 'title', 'project', 'priority', 'state', 'submitted' ],
   scheduled: [ 'title', 'project', 'priority', 'submitted' ],
@@ -72,6 +78,7 @@ const columnSizes = {
 } as const satisfies Record<ColumnKey, number>
 
 const emptyKeys = {
+  proposed: 'table.empty.proposed',
   queued: 'table.empty.queued',
   running: 'table.empty.running',
   scheduled: 'table.empty.scheduled',
@@ -79,8 +86,10 @@ const emptyKeys = {
 } as const satisfies Record<WorkQueueList, string>
 
 // Every action a row may offer, in the order rows show them; each row shows those its batch
-// allows. Cancelling is last and red, since it can't be undone.
+// allows. Rejecting and cancelling are last and red, since neither can be undone.
 const ROW_ACTIONS = [
+  'approve',
+  'reject',
   'runNext',
   'returnToPlace',
   'resume',
@@ -189,7 +198,7 @@ export function WorkQueueTable(props: Props) {
       id: action,
       label: t(actionLabelKeys[action]),
       icon: <Icon className='size-4' aria-hidden />,
-      isDanger: action === 'cancel',
+      isDanger: DANGEROUS_ACTIONS.includes(action),
       isVisible: (row) => availableActions(row.original, now).includes(action),
       onPress: (row) => act(row.original, action),
     }

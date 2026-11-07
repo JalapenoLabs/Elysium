@@ -449,6 +449,24 @@ mod tests {
         }
     }
 
+    /// Only a person decides on a proposed work batch. The boundary is the type:
+    /// `crate::worker_pool::actions::approve` and `reject` take a `MemberUser`, which no machine
+    /// user is. This is a tripwire beside it, by name, so a tool meant to decide is noticed in
+    /// review; it cannot prove a tool by another name does not.
+    #[test]
+    fn no_agent_tool_decides_on_a_proposed_batch() {
+        for server in SERVERS {
+            for tool in server.tools {
+                assert!(
+                    !tool.name.contains("approve") && !tool.name.contains("reject"),
+                    "{} on {} may not decide on a proposal",
+                    tool.name,
+                    server.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_declared_tool_is_dispatched() {
         for server in SERVERS {

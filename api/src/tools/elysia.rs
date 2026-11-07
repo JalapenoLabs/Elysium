@@ -55,7 +55,9 @@ pub const SERVER: ToolServer = ToolServer {
         priority, tell it with elysia_message_project_manager. Their batches wait in one queue \
         for the workspace's workers, which elysia_work_queue shows in order; when a person asks, \
         or what you learned calls for it, run a batch next, change its priority, or pause it with \
-        elysia_change_batch, and withdraw one with elysia_cancel_batch.",
+        elysia_change_batch, and withdraw one with elysia_cancel_batch. A batch starts proposed \
+        and waits for a person to approve it; elysia_work_queue lists those too, but only a \
+        person approves or rejects one.",
     ),
     tools: &TOOLS,
 };
@@ -124,7 +126,8 @@ const TOOLS: [Tool; 10] = [
         description: "Shows the worker pool and its queue: how many workers run at once and how \
             many are busy, whether a usage limit holds it, the batches in its slots, and every \
             batch waiting, in the order the pool hands out slots, then those scheduled for \
-            later and those paused. Each names its project.",
+            later, those paused, and those proposed, which wait for a person's approval. Each \
+            names its project.",
         input_schema: work_queue::queue_schema,
         run: |context, scope, arguments| work_queue::run_queue(context, scope, arguments).boxed(),
     },
