@@ -33,11 +33,14 @@
 //! item was dismissed, deleted, or unlinked. One already linked by hand through the same account
 //! raises nothing; it is recorded as brought in, naming its item.
 //!
-//! # Nothing starts
+//! # Attributed, and nothing more
 //!
-//! An issue arriving makes an item and its link, and nothing else. The item belongs to no
-//! project, so no Project Manager hears of it, and Elysia's intake leaves the items and links a
-//! watcher makes alone (`crate::elysia::intake`). It waits in the inbox for a person.
+//! An issue arriving makes an item and its link, in no project, and starts one run of the
+//! assigned issue workflow ([`workflow`]) in the same transaction: the segmenting step reads which
+//! projects the item belongs to, and it joins them with Elysia's confidence, led by the one she
+//! is surest of (`crate::models::action_item_attribution`). Nothing else starts. Attributing an
+//! item wakes no Project Manager, and Elysia's intake leaves the items and links a watcher makes
+//! alone (`crate::elysia::intake`). It waits in the inbox for a person.
 //!
 //! What a connector records on the timeline is apart from this. YouTrack's reader records every
 //! new issue in its chosen projects, assigned or not, and that record reaches Elysia as every
@@ -58,7 +61,12 @@ use crate::models::action_item::{ActionItemState, NewActionItem, Owner};
 use crate::models::action_item_link::{self, LinkCredential, LinkKind, LinkState, Linked, NewLink};
 use crate::models::assigned_issue::{self, NewAssignedIssue};
 use crate::models::connector::Connector;
+use crate::models::workflow_run::{self, Settled};
+use crate::realtime::Signal;
 use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
+use crate::workflows;
+
+pub mod workflow;
 
 /// Brings in what is assigned to `connector`'s person, read through `credential`, its account.
 /// Answers how many items it raised.
@@ -154,8 +162,8 @@ struct Arrival<'read> {
 }
 
 /// Brings one issue in, in one transaction: its item and link, unless the connector's account
-/// already links it, and the row that says the connector brought it in. Answers whether it raised
-/// an item.
+/// already links it, the run that attributes a new item to its projects, and the row that says the
+/// connector brought it in. Answers whether it raised an item.
 async fn arrive(
     context: &WatchContext,
     connection: &mut AsyncPgConnection,
@@ -197,11 +205,8 @@ async fn arrive(
             let (action_item_id, raised) = if let Some(link) = existing {
                 (link.action_item_id, None)
             } else {
-                let linked = action_item_link::create_linked_item(
-                    connection, new_item, new_link, actor, now,
-                )
-                .await?;
-                (linked.item.record.id, Some(linked))
+                let raised = raise(connection, new_item, new_link, actor, now).await?;
+                (raised.linked.item.record.id, Some(raised))
             };
             let recorded = assigned_issue::record(
                 connection,
@@ -221,7 +226,7 @@ async fn arrive(
                     "the connector brought that issue in already",
                 ));
             }
-            Ok::<Option<Linked>, WorkError>(raised)
+            Ok::<Option<Raised>, WorkError>(raised)
         })
         .await;
 
@@ -239,7 +244,7 @@ async fn arrive(
         }
         Err(other) => return Err(other.into()),
     };
-    let Some(linked) = raised else {
+    let Some(raised) = raised else {
         event!(
             name: "links.assigned.linked_already",
             Level::DEBUG,
@@ -250,12 +255,14 @@ async fn arrive(
         return Ok(false);
     };
 
-    // The item is in once its transaction commits. Announcing it reads it back to publish, and
-    // a read that fails then is said for what it is, never as the issue not coming in: the
-    // next pass finds it brought in and leaves it be.
-    let action_item_id = linked.item.record.id;
+    // The item and its run are in once their transaction commits. Announcing the item reads it
+    // back to publish, and a read that fails then is said for what it is, never as the issue not
+    // coming in: the next pass finds it brought in and leaves it be.
+    workflows::announce(&context.events, &raised.attribution);
+    context.events.signal(&Signal::Workflows);
+    let action_item_id = raised.linked.item.record.id;
     let announced = async {
-        publish_item_write(&context.events, connection, linked.item, &[], now).await?;
+        publish_item_write(&context.events, connection, raised.linked.item, &[], now).await?;
         publish_item_links(&context.events, connection, action_item_id).await
     };
     if let Err(error) = announced.await {
@@ -269,6 +276,31 @@ async fn arrive(
         );
     }
     Ok(true)
+}
+
+/// An arrived issue's new item, with its link, and the run that attributes it to its projects.
+struct Raised {
+    linked: Linked,
+    attribution: Settled,
+}
+
+/// Makes an arrived issue's item, linked to it, and starts the run that attributes the item to
+/// its projects. Call it inside the transaction that brings the issue in.
+async fn raise(
+    connection: &mut AsyncPgConnection,
+    new_item: NewActionItem,
+    new_link: NewLink,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Raised, WorkError> {
+    let linked =
+        action_item_link::create_linked_item(connection, new_item, new_link, actor, now).await?;
+    let run = workflow::run_for(linked.item.record.id);
+    let started = workflow_run::start(connection, run, now).await?;
+    Ok(Raised {
+        linked,
+        attribution: started.settled,
+    })
 }
 
 /// Whether a refused arrival means the issue is in already, through a pass that wrote it while

@@ -127,11 +127,13 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   that brings into the index what was stored before it was indexed on write (timeline records, and turn summaries not
   yet on the timeline) is a loop for the same reason (`docs/knowledge.md`, The backfill).
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and three production
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and four production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
 `correct_transcript`, and `segment_meeting`; `request` (`api/src/conversations/workflow.rs`), which starts at
-segmenting, `segment_meeting` then `handle_request`; and `company_doc_review` (`api/src/company_doc/workflow.rs`), one
-step, `review_company_doc`.
+segmenting, `segment_meeting` then `handle_request`; `assigned_issue` (`api/src/action_items/assigned/workflow.rs`),
+one step, `segment_meeting`, which attributes an issue that arrived assigned to its person to its projects (source
+`action_item`, `docs/action-items.md`, Projects and the lead); and `company_doc_review`
+(`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
 own.
@@ -275,8 +277,9 @@ the Runs page.
   agent work and every other record, so a project reads top to bottom across meetings. The person corrects what a
   topic is about from its meeting's page or a project's timeline, every change recorded in history and undoable, and
   Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, and the
-  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. See
-  `docs/meetings.md`, Segmentation.
+  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. It
+  takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
+  (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation.
 
 ## Conversations
 
@@ -554,9 +557,12 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
 A batch (`work_batches`) is one piece of work for one worker: a title, a goal written so a worker who has seen nothing
 else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
-provenance: the turn that submitted it, the timeline records that called for it, and the action items it works on,
-each checked to be on its project. Submitting stores it, proposed, puts it on the timeline, brings its project's
-approval item up to date, and announces all three in one place (`project_managers::batches`).
+provenance: the turn that submitted it, the timeline records that called for it, each checked to be on its project, and
+the action items it works on, each checked to be led by its project. An item can sit on several projects, but only its
+lead project's Project Manager works it (`docs/action-items.md`, Projects and the lead), so a batch naming an item
+another project leads is refused, telling the Project Manager which project leads it and that a person can move the
+lead. Submitting stores it, proposed, puts it on the timeline, brings its project's approval item up to date, and
+announces all three in one place (`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
@@ -874,7 +880,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   | `worker`          | Coding sessions, Studio sessions, the pool's workers (`batch_worker`) | Yes |
   | `project_manager` | Every project's Project Manager (`project_manager`) | Yes                 |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
-  | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
+  | `segmenting`      | Segmenting meetings and conversations, and attributing arrived items (`segment_meeting`) | No |
   | `triage`          | Handling a conversation's messages (`handle_request`), and answers asked of the knowledge base (`knowledge_ask`) | No |
   | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
   | `summaries`       | Turn summaries                                     | Yes                  |

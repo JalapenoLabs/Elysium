@@ -41,9 +41,15 @@ pub enum HistoryKind {
     CommentEdited,
     /// `data` is `{ commentId, body }`, so the comment can be put back.
     CommentDeleted,
-    /// `data` is `{ projectId }`.
+    /// An item joined a project. `data` is `{ projectId, confidence, attributedBy }`: how sure
+    /// whoever put it there was, 1 for anyone but an attribution step, and who that was.
     ProjectAdded,
+    /// `data` is shaped like [`HistoryKind::ProjectAdded`]'s, holding what the membership held,
+    /// so an undo puts it back as it was.
     ProjectRemoved,
+    /// Another of the item's projects became its lead. `data` is `{ from, to }`, each a project
+    /// id or null.
+    LeadProjectChanged,
     /// An item joined an initiative; the entry's subject is both. `data` is empty, or
     /// `{ linkId }` naming the container that brought it in.
     InitiativeJoined,
@@ -90,6 +96,7 @@ impl HistoryKind {
             Self::CommentDeleted => "comment_deleted",
             Self::ProjectAdded => "project_added",
             Self::ProjectRemoved => "project_removed",
+            Self::LeadProjectChanged => "lead_project_changed",
             Self::InitiativeJoined => "initiative_joined",
             Self::InitiativeLeft => "initiative_left",
             Self::LinkAdded => "link_added",
