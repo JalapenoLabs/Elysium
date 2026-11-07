@@ -17,8 +17,9 @@ type Props = {
   id: string
   label: string
   description?: string
-  // What following the level above means here, such as "Workspace default (Work)".
-  inheritLabel: string
+  // What following the level above means here, such as "Workspace default (Work)". Without
+  // it there is no level above to follow, and the choices are no token or one by name.
+  inheritLabel?: string
   // `inherit`, `none`, or a token id.
   value: string
   credentials: GithubCredential[]
@@ -26,8 +27,8 @@ type Props = {
   onChange: (value: string) => void
 }
 
-// Picks the GitHub token a project or a session works with: follow the level above, no
-// token at all, or one token by name.
+// Picks the GitHub token a project, a session, or the configuration repository works with:
+// follow the level above, where there is one, no token at all, or one token by name.
 export function GithubTokenSelect(props: Props) {
   const { t } = useTranslation('github')
 
@@ -52,10 +53,10 @@ export function GithubTokenSelect(props: Props) {
     </Select.Trigger>
     <Select.Popover>
       <ListBox>
-        <ListBox.Item id={INHERIT_GITHUB_TOKEN} textValue={props.inheritLabel}>
+        {props.inheritLabel && <ListBox.Item id={INHERIT_GITHUB_TOKEN} textValue={props.inheritLabel}>
           {props.inheritLabel}
           <ListBox.ItemIndicator />
-        </ListBox.Item>
+        </ListBox.Item>}
         <ListBox.Item id={NO_GITHUB_TOKEN} textValue={t('choice.none')}>
           {t('choice.none')}
           <ListBox.ItemIndicator />

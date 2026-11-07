@@ -161,7 +161,8 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   open tab lives in the address through `useTabParam` (`src/hooks/useTabParam.ts`): `?tab=`, plain for the first tab,
   replacing the history entry, so a tab survives a reload and a link can open one (`getTabUrl`). A form never shares
   a page with a list: one that belongs beside a list is a page of its own, reached from the list page's actions and
-  going back to it once saved (Workspace access, Agent configuration, Backup destination).
+  going back to it once saved (Workspace access, Backup destination). Agent configuration stays open once saved, since
+  saving fetches the repository and the page shows how it went.
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
   alone in its top bar, with the same props, and passes `className` for its spacing. It has no Save, so nothing on it
   is a field: a Studio item is renamed from its Actions menu, in a dialog with its own button.
@@ -303,7 +304,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/llms/new/:provider` | `AddLlmPage`            | One per provider, see below                              |
 | `/settings/llms/add-<provider>` | redirect               | To `/settings/llms/new/<provider>`                       |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
-| `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from; admins |
+| `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from, its token, and its last fetch; admins |
 | `/settings/models`            | `ModelSettingsPage`      | The model and effort each kind, step, and agent runs on, as tabs in `?tab=`; admins |
 | `/settings/worker-pool`       | `WorkerPoolPage`         | How many workers run at once, or the default; admins     |
 | `/settings/email`             | `ManageEmailPage`        | Mailboxes and domains as tabs in `?tab=`                 |
@@ -654,9 +655,14 @@ Manage LLMs is split into these files:
   the viewer's zone. One year from now picks the date 365 days after today.
 
 Admins reach Agent configuration (`/settings/llms/agent-configuration`, `AgentConfigurationPage`) from the list's
-actions: the https repository every agent's Claude Code configuration is checked out from, in
-`AgentConfigurationSettings`, saved to the workspace settings by the page's Save (see `docs/coding.md`). The list's
-Add LLM menu sits in its header.
+actions: the https repository every worker's and Project Manager's Claude Code configuration is checked out from and
+the GitHub token that reads it (`GithubTokenSelect` without a level to follow), in `AgentConfigurationSettings`, saved
+to the workspace settings by the page's Save (see `docs/coding.md`, `~/.claude`). `AgentConfigurationStatus` beneath
+shows the last fetch as `workspaceSettings.updated` brings it: why agents wait, if they do
+(`ConfigurationHoldAlert`), the commit with its subject and when, linked on github.com, what the checkout left out
+(`ConfigurationSkippedList`), and Fetch now. The same alert shows on the work queue, a queued batch's page, and a
+Project Manager with waiting work; a batch's page shows the commit its worker runs on (`WorkBatchConfiguration`).
+The list's Add LLM menu sits in its header.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
 bucket with directory, projects, limit, and a Default chip on Studio's default). The name links to the edit page, and

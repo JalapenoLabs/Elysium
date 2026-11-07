@@ -114,6 +114,11 @@
       "mergedBy": "Merged by {{login}}",
       "closed": "Closed without merging"
     },
+    "configuration": {
+      "title": "Configuration",
+      "fetched": "Fetched from {{repository}} {{time}}",
+      "skipped": "Left out"
+    },
     "log": "Worker log",
     "logEmpty": "Its worker has not said anything yet.",
     "logError": "The worker log could not be loaded."
@@ -157,6 +162,7 @@
       "assigned": "It got a worker's slot",
       "unassigned": "It went back to the queue when the pool shrank",
       "started": "A worker started on it",
+      "requeued": "Its worker gave its slot back, and it waits in the queue again",
       "waiting": "Its worker waits",
       "answered": "{{name}} answered its worker's question",
       "finished": "Its worker finished it"

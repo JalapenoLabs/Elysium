@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ConfigurationHold } from './agentConfigurationRoutes'
 import type { ActionItemState } from './actionItemRoutes'
 import type {
   WorkBatch,
@@ -25,6 +26,8 @@ export type WorkerPool = {
   inUse: number
   // While every Claude account is at its usage limit, when the first resets.
   usageHeldUntil: string | null
+  // While no worker may start without the configuration repository, why.
+  configurationHold: ConfigurationHold | null
 }
 
 // A batch as the queue lists it, without its goal, which its own page reads.
@@ -73,6 +76,7 @@ export const WORK_BATCH_EVENT_KINDS = [
   'assigned',
   'unassigned',
   'started',
+  'requeued',
   'waiting',
   'answered',
   'finished',

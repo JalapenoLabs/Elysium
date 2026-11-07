@@ -417,6 +417,63 @@ async fn a_shrunken_pool_takes_back_a_slot_no_worker_started_on() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_batch_no_turn_worked_on_goes_back_to_the_queue_and_one_begun_does_not() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let fresh = submitted(&mut connection, launch, Priority::Normal, None).await;
+    let begun = submitted(&mut connection, launch, Priority::Normal, None).await;
+    let slots = assign(&mut connection, &[fresh.id, begun.id], 2, Utc::now())
+        .await
+        .expect("assigns");
+    for slot in &slots {
+        start(&mut connection, slot)
+            .await
+            .expect("runs")
+            .expect("started");
+    }
+    let begun_slot = slots
+        .iter()
+        .find(|slot| slot.batch.id == begun.id)
+        .expect("a slot");
+    worker::set_session(&mut connection, begun_slot, "session-1")
+        .await
+        .expect("kept");
+    let reason = "The configuration repository could not be fetched: not found";
+
+    let fresh_slot = slots
+        .iter()
+        .find(|slot| slot.batch.id == fresh.id)
+        .expect("a slot");
+    let queued = requeue(&mut connection, fresh_slot, reason, CODING_AGENT_USER_ID)
+        .await
+        .expect("runs")
+        .expect("back in the queue");
+    assert_eq!(queued.state, BatchState::Queued);
+    assert!(queued.started_at.is_none() && queued.assigned_at.is_none());
+    assert!(queued.configuration.is_none());
+    let history = history(&mut connection, fresh.id).await.expect("history");
+    let last = history.last().expect("an entry");
+    assert_eq!(last.kind, "requeued");
+    assert_eq!(last.data, json!({ "reason": reason }));
+    assert!(
+        requeue(&mut connection, fresh_slot, reason, CODING_AGENT_USER_ID)
+            .await
+            .expect("runs")
+            .is_none(),
+        "its slot is gone"
+    );
+
+    assert!(
+        requeue(&mut connection, begun_slot, reason, CODING_AGENT_USER_ID)
+            .await
+            .expect("runs")
+            .is_none(),
+        "a batch whose work lives in its container keeps it"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn cancelling_tells_the_project_manager_unless_it_withdrew_the_batch_itself() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;

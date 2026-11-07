@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { AgentConfiguration } from './agentConfigurationRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -97,6 +99,10 @@ export type WorkspaceSettings = {
   requireMfa: boolean
   // The https git repository agents' Claude Code configuration is checked out from, if any.
   agentConfigurationRepository: string | null
+  // The GitHub token that reads it; null reads it as anyone may.
+  agentConfigurationGithubCredentialId: string | null
+  // How its last fetch went, and whether workers and Project Managers wait on it.
+  agentConfiguration: AgentConfiguration
   // How many workers run at once; null follows the default the engine derives from its CPU
   // cores, which the work queue reports.
   workerPoolSize: number | null
@@ -119,6 +125,8 @@ type UpdateWorkspaceSettingsRequest = {
   requireMfa?: boolean
   // Null clears it.
   agentConfigurationRepository?: string | null
+  // Null reads the repository without a token; only for a github.com repository.
+  agentConfigurationGithubCredentialId?: string | null
   // Null follows the default.
   workerPoolSize?: number | null
 }

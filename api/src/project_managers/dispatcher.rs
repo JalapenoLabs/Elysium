@@ -14,6 +14,9 @@
 //! its wakes back; so does one the engine stopped in the middle of, failed at the next start
 //! ([`run`]), so no wake is lost to a restart. A turn that failed of itself keeps its wakes, since
 //! another try at once would most likely fail the same way; its failure shows beside them.
+//!
+//! No turn starts without the configuration repository (`crate::agent_configuration`): while it
+//! holds Project Managers back, their wakes wait and one inbox item says why.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -33,6 +36,7 @@ use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
 use super::timeline;
 use super::trackers::{self, TrackerSource};
+use crate::agent_configuration;
 use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::elysia::prompt::read_back;
@@ -178,6 +182,30 @@ pub(super) async fn dispatch(
         .into_iter()
         .collect();
     let plan = queue::plan(&waiting, &busy, &held, now);
+    if plan.due.is_empty() {
+        return Ok(plan.next_due_at);
+    }
+    // No Project Manager runs without the configuration repository: its wakes wait, and the
+    // configuration keeper signals once it is fetched.
+    if let Some(hold) = agent_configuration::current_hold(&mut connection).await? {
+        if let Err(error) =
+            agent_configuration::raise_hold(&mut connection, &context.events, &hold).await
+        {
+            event!(
+                name: "project_managers.configuration_hold.raise_failure",
+                Level::WARN,
+                error.message = %format!("{error:#}"),
+                "could not raise the inbox item for turns the configuration holds back",
+            );
+        }
+        event!(
+            name: "project_managers.configuration_held",
+            Level::DEBUG,
+            hold = ?hold,
+            "no Project Manager starts without the configuration repository",
+        );
+        return Ok(plan.next_due_at);
+    }
 
     for project_id in plan.due {
         if running.len() >= MAX_CONCURRENT_TURNS || shutdown.is_cancelled() {

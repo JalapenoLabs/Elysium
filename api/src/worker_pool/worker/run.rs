@@ -6,16 +6,22 @@
 //!    pause or cancel it once a container exists for it. One already `running` was taken over
 //!    from an engine that stopped, and its container is found again.
 //! 2. **Container.** Its network, then its container and volume, through a runner of its own
-//!    (`Runner::prepare`), which also fetches `~/.claude` from the configuration repository into
-//!    the worker's volume and stops any turn an earlier engine left running in it.
-//! 3. **Setup**, once per container (`super::setup`).
-//! 4. **Turns.** Each turn resumes the worker's Claude Code session, with `/goal` and what this
+//!    (`Runner::prepare`), which also stops any turn an earlier engine left running in it.
+//! 3. **Configuration.** `~/.claude` from the configuration repository, fetched into the
+//!    worker's volume with the repository's own token and adapted to the container, recorded on
+//!    the batch with what was left out (`crate::runner::configuration`). A worker never runs
+//!    without it: one that cannot fetch it gives its slot back before its first turn and the
+//!    batch waits in the queue, its failure recorded so the pool holds every batch back
+//!    (`crate::agent_configuration`). A container that already holds the checkout the batch
+//!    recorded keeps it, so every turn of a batch runs on one commit.
+//! 4. **Setup**, once per container (`super::setup`).
+//! 5. **Turns.** Each turn resumes the worker's Claude Code session, with `/goal` and what this
 //!    turn is about (`super::brief`), its tools under a grant for the turn alone, a Blender and
 //!    a desktop of its own, and the project's GitHub token. Its events are scrubbed of the
 //!    worker's secrets before anything of them is logged. Then the report the worker filed
 //!    decides what follows: finished ends the batch and removes the container; waiting keeps the
 //!    container and waits for its time, or an answer, then starts the next turn.
-//! 5. **Its pull requests.** As each wait ends, and before the batch finishes, the engine looks at
+//! 6. **Its pull requests.** As each wait ends, and before the batch finishes, the engine looks at
 //!    the pull requests the worker recorded (`crate::worker_pool::merging`): it merges those
 //!    Elysium may, records what merged, and the next turn's brief says where each stands.
 //!
@@ -35,15 +41,18 @@ use tracing::{Level, event};
 use super::Worker;
 use super::brief::{self, Batch, PullRequestStanding, Situation};
 use super::setup::{self, Plan, Progress};
+use crate::agent_configuration;
 use crate::agent_models::{self, Agent};
+use crate::models::agent_configuration as agent_configuration_status;
 use crate::models::user::CODING_AGENT_USER_ID;
 use crate::models::work_batch::pull_request;
 use crate::models::work_batch::worker::{self as batch_worker, Report};
-use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, Slot};
+use crate::models::work_batch::{self, BatchState, EventKind, RESULT_MAX_CHARACTERS, Slot};
 use crate::models::{environment_variable, github_credential, project, worker_setup};
 use crate::project_managers::runner::TurnLog;
 use crate::realtime::Signal;
 use crate::routes::v1::coding_sessions::github_token;
+use crate::runner::configuration::{Checkout, Fetched, Source};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{
     ConversationId, EnvironmentEntry, HarnessSessionId, McpServer, Runner, RunnerEvent, TurnMode,
@@ -67,6 +76,13 @@ const PREPARE_ATTEMPTS: u32 = 3;
 /// How long between those tries.
 const PREPARE_BACKOFF: Duration = Duration::from_secs(30);
 
+/// How many times one batch's workers may fail to fetch the configuration repository before it
+/// fails. Each failure holds the pool until the engine fetches the repository again; a batch
+/// whose workers fail where the engine succeeds (a container too slow for a large repository, a
+/// network that cannot reach it) would otherwise cycle through the queue for good, raising a new
+/// inbox item each time.
+const MAX_CONFIGURATION_REQUEUES: usize = 3;
+
 /// How often a running turn's log is stored, so the batch's page follows the worker.
 const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -87,7 +103,19 @@ enum Ended {
     Stopped,
     /// The slot's claim was gone when it next wrote.
     Lost,
+    /// It gave its slot back before its first turn, and its batch waits in the queue again.
+    Requeued,
 }
+
+/// Whether a worker has the configuration repository to run on.
+enum Configured {
+    Ready,
+    /// It has none, for this reason: its batch cannot run here now.
+    Unavailable(String),
+}
+
+/// Why a worker cannot run when no configuration repository is set.
+const UNSET_REASON: &str = "No configuration repository is set, and no worker runs without one.";
 
 /// Runs `worker` until its batch ends or it is stopped. A failure is logged; the worker's slot
 /// is still held, so the scheduler's next look starts it again.
@@ -106,6 +134,12 @@ pub(super) async fn run(worker: Worker) {
             Level::INFO,
             work_batch.id = %batch_id,
             "a worker's slot was taken over or given back; it stopped",
+        ),
+        Ok(Ended::Requeued) => event!(
+            name: "worker_pool.worker.requeued",
+            Level::INFO,
+            work_batch.id = %batch_id,
+            "a worker had no configuration to run on; its batch waits in the queue again",
         ),
         Err(error) => event!(
             name: "worker_pool.worker.failure",
@@ -154,6 +188,10 @@ impl Worker {
                 .await;
         }
         self.ready.store(true, std::sync::atomic::Ordering::Release);
+
+        if let Configured::Unavailable(reason) = self.configure(&mut context).await? {
+            return self.give_back(&mut context, &reason).await;
+        }
 
         if !setup::is_finished(&context.workspace).await? {
             let mut progress = Progress::new();
@@ -358,6 +396,171 @@ impl Worker {
                 () = tokio::time::sleep(PREPARE_BACKOFF) => {}
             }
         }
+    }
+
+    /// Puts the worker on the configuration repository. A container that holds the checkout the
+    /// batch recorded keeps it; otherwise the repository is fetched with its own token, tried
+    /// [`PREPARE_ATTEMPTS`] times, and the checkout recorded on the batch with what was left
+    /// out of it. A fetch that fails every time is recorded as the configuration's failure, so
+    /// the pool holds every batch back until the engine fetches it again.
+    async fn configure(&self, context: &mut Job) -> anyhow::Result<Configured> {
+        if let Some(recorded) = context.slot.batch.configuration() {
+            let held = context.runner.configuration_commit().await?;
+            if held.as_deref() == Some(recorded.commit.as_str()) {
+                return Ok(Configured::Ready);
+            }
+        }
+        let mut attempt = 1;
+        loop {
+            match context.runner.fetch_configuration().await? {
+                Fetched::Unset => return Ok(Configured::Unavailable(UNSET_REASON.to_owned())),
+                Fetched::Attempted {
+                    outcome: Ok(checkout),
+                    ..
+                } => {
+                    self.record_configuration(context, checkout).await?;
+                    return Ok(Configured::Ready);
+                }
+                Fetched::Attempted {
+                    source,
+                    outcome: Err(error),
+                } if attempt >= PREPARE_ATTEMPTS => {
+                    self.report_configuration_failure(&source, &error).await;
+                    return Ok(Configured::Unavailable(format!(
+                        "The configuration repository could not be fetched: {error}"
+                    )));
+                }
+                Fetched::Attempted {
+                    outcome: Err(error),
+                    ..
+                } => event!(
+                    name: "worker_pool.worker.configuration_retry",
+                    Level::WARN,
+                    work_batch.id = %self.batch_id,
+                    error.message = %error,
+                    "a worker could not fetch the configuration repository; trying again shortly",
+                ),
+            }
+            attempt += 1;
+            tokio::select! {
+                () = self.stop.cancelled() => anyhow::bail!("the worker was stopped"),
+                () = tokio::time::sleep(PREPARE_BACKOFF) => {}
+            }
+        }
+    }
+
+    /// Records `checkout` on the batch, and in its log with everything it left out.
+    async fn record_configuration(
+        &self,
+        context: &mut Job,
+        checkout: Checkout,
+    ) -> anyhow::Result<()> {
+        let mut connection = self.deps.database.get().await?;
+        batch_worker::set_configuration(&mut connection, &context.slot, &checkout).await?;
+        drop(connection);
+        let short: String = checkout.commit.chars().take(12).collect();
+        context.log.record(&RunnerEvent::AgentMessage {
+            text: format!(
+                "Running on the configuration repository {} at {short}: {}",
+                checkout.repository, checkout.subject
+            ),
+        });
+        for skipped in &checkout.skipped {
+            let detail = skipped
+                .detail
+                .as_deref()
+                .map_or_else(String::new, |detail| format!(" ({detail})"));
+            context.log.record(&RunnerEvent::AgentMessage {
+                text: format!(
+                    "Left out of the configuration: {:?} {}, {:?}{detail}",
+                    skipped.kind, skipped.name, skipped.reason
+                ),
+            });
+        }
+        self.store_log(context).await;
+        context.slot.batch.configuration =
+            Some(serde_json::to_value(&checkout).expect("a checkout serializes"));
+        announce(&self.deps.events, &context.slot.batch);
+        Ok(())
+    }
+
+    /// Records that the configuration repository could not be fetched here, which holds the pool
+    /// back for every batch, and announces it. A failure to record is logged: the batch still
+    /// goes back to the queue, and the engine's next fetch says the same.
+    async fn report_configuration_failure(&self, source: &Source, error: &str) {
+        let recorded = async {
+            let mut connection = self.deps.database.get().await?;
+            agent_configuration_status::record_failed(&mut connection, source, error, Utc::now())
+                .await?;
+            agent_configuration::announce(&mut connection, &self.deps.events).await
+        };
+        if let Err(recording) = recorded.await {
+            event!(
+                name: "worker_pool.worker.configuration_report_failure",
+                Level::WARN,
+                work_batch.id = %self.batch_id,
+                error.message = %format!("{recording:#}"),
+                "could not record that a worker could not fetch the configuration repository",
+            );
+        }
+    }
+
+    /// Gives the slot back for `reason`, the batch waiting in the queue again, and removes the
+    /// container. A batch a turn already worked on cannot wait in the queue, since its work lives
+    /// in this container, and one whose workers failed [`MAX_CONFIGURATION_REQUEUES`] times will
+    /// not on the next try, so each fails instead, saying why.
+    async fn give_back(&self, context: &mut Job, reason: &str) -> anyhow::Result<Ended> {
+        if context.slot.batch.worker_session_id.is_some() {
+            let result = format!(
+                "{reason} The batch had already begun, so it could not wait in the queue for it."
+            );
+            return self.finish(context, false, &result).await;
+        }
+        let requeued_before = {
+            let mut connection = self.deps.database.get().await?;
+            work_batch::history(&mut connection, self.batch_id)
+                .await?
+                .iter()
+                .filter(|entry| entry.kind == EventKind::Requeued.as_str())
+                .count()
+        };
+        if requeued_before + 1 >= MAX_CONFIGURATION_REQUEUES {
+            let result = format!(
+                "{reason} Its workers could not fetch the configuration repository \
+                 {MAX_CONFIGURATION_REQUEUES} times, so the batch ends here rather than waiting \
+                 in the queue again."
+            );
+            return self.finish(context, false, &result).await;
+        }
+        context.log.record(&RunnerEvent::AgentMessage {
+            text: format!("{reason} The batch waits in the queue again."),
+        });
+        self.store_log(context).await;
+        let requeued = {
+            let mut connection = self.deps.database.get().await?;
+            work_batch::requeue(&mut connection, &context.slot, reason, CODING_AGENT_USER_ID)
+                .await?
+        };
+        let Some(requeued) = requeued else {
+            return Ok(Ended::Lost);
+        };
+        announce(&self.deps.events, &requeued);
+        self.deps.events.signal(&Signal::WorkerPool);
+
+        self.ready
+            .store(false, std::sync::atomic::Ordering::Release);
+        context.runner.shutdown().await;
+        if let Err(error) = self.deps.containers.remove(self.batch_id).await {
+            // The scheduler's looks remove it later, since no worker runs its batch any more.
+            event!(
+                name: "worker_pool.worker.remove_failure",
+                Level::WARN,
+                work_batch.id = %self.batch_id,
+                error.message = %format!("{error:#}"),
+                "could not remove a requeued worker's container; it is removed on a later look",
+            );
+        }
+        Ok(Ended::Requeued)
     }
 
     /// Runs one turn in `situation` to its end, logging it as it goes, and keeps the session it
