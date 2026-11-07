@@ -89,10 +89,10 @@ mod tests {
         let read: TranscriptToSegment =
             serde_json::from_value(json!({ "meetingId": meeting, "recording": null }))
                 .expect("a meeting");
-        assert!(matches!(
-            read,
-            TranscriptToSegment::Meeting(CorrectedMeeting { meeting_id, .. }) if meeting_id == meeting
-        ));
+        let TranscriptToSegment::Meeting(CorrectedMeeting { meeting_id, .. }) = read else {
+            panic!("a meeting reads as one");
+        };
+        assert_eq!(meeting_id, meeting);
 
         let record = Uuid::now_v7();
         let read: TranscriptToSegment =

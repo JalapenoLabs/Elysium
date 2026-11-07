@@ -127,8 +127,8 @@ The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
   connector raises for something it read is written with that read's timeline record, whose `timelineRecord.created`
   names it (`actionItemId`), so she hears of what Confluence or YouTrack raised through the record, and the record of
   a Slack, Teams, or mail message is its conversation run's to handle. An item the link watcher makes, with its link, is
-  an issue arriving, assigned or a container's child, and nothing starts because an issue arrived
-  (`docs/action-items.md`, Assigned issues);
+  an issue arriving, assigned or a container's child, and an issue arriving starts nothing of hers: an assigned one's
+  attribution run is all it starts (`docs/action-items.md`, Assigned issues);
 - a person creating an item or commenting on one;
 - a decision on a changeset she proposed;
 - `timelineRecord.created`: mail, chat, meetings, Confluence, and YouTrack, once connectors ingest them, naming the

@@ -4,7 +4,8 @@
     "workflows": {
       "meeting": "Meeting",
       "company_doc_review": "Company doc review",
-      "request": "Request"
+      "request": "Request",
+      "assigned_issue": "Assigned issue"
     },
     "steps": {
       "fetch_meeting": "Fetch transcript and recording",
@@ -17,7 +18,8 @@
     "sources": {
       "meeting": "Meeting",
       "company_doc": "Company doc",
-      "conversation": "Conversation"
+      "conversation": "Conversation",
+      "action_item": "Action item"
     }
   },
   "runStates": {

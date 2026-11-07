@@ -171,7 +171,7 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `commented`          | `{ commentId, body }`                           |
 | `comment_edited`     | `{ commentId, from, to }`                       |
 | `comment_deleted`    | `{ commentId, body }`, so it can be put back    |
-| `project_added`, `project_removed` | `{ projectId, confidence, attributedBy }`: how the membership is held, or was before it went |
+| `project_added`, `project_removed` | `{ projectId, confidence, attributedBy }`, as it was held |
 | `lead_project_changed` | `{ from, to }`, each a project id or null                 |
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
@@ -660,3 +660,5 @@ transaction).
 - Notification emails from Jira and GitHub folded into the linked issue's item.
 - The linked issues' descriptions in the first turn of a session started from an item.
 - Editing or deleting a comment carried to the comment already posted to the provider.
+- Attributing several arrived issues in one turn. Each assigned issue is one run and one segmenting turn today, so a
+  first connect that brings in hundreds spends a turn on each.
