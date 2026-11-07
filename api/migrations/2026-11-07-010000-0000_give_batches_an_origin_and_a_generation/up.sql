@@ -27,7 +27,9 @@ ALTER TABLE work_batches
 
 -- Existing batches are given the origin their provenance proves, by the rules the API applies to
 -- every new one (`work_batch::lineage`): a record a person owns, or an action item a person or a
--- provider's watcher created, a person approved creating, or a person accepted from the inbox.
+-- provider's watcher created, a person approved creating, or a person accepted from the inbox
+-- (`ItemEvent::roots_in_a_person`; `user%` matches its `user` and `user:<id>`, since no other
+-- actor starts with `user`).
 -- Their generation stays 0 and their parents empty: they were planned before chains were
 -- recorded, so a chain counts from them.
 UPDATE work_batches AS batch

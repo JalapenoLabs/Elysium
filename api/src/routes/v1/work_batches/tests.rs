@@ -255,7 +255,10 @@ async fn a_member_approves_a_proposal_as_it_is_or_edited() {
         "tidied as a submission is"
     );
     assert_eq!(approved["batch"]["priority"], "asap");
-    assert_eq!(approved["why"], json!({ "records": [], "actionItems": [] }));
+    assert_eq!(
+        approved["why"],
+        json!({ "records": [], "messages": [], "actionItems": [], "parents": [] })
+    );
     let kinds: Vec<&str> = approved["history"]
         .as_array()
         .expect("history")
