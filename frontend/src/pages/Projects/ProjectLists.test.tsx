@@ -68,7 +68,13 @@ function renderLists(role: UserRole, path: string) {
   store.dispatch(projectsLoaded([ makeProject({ id: 'launch', name: 'Launch' }) ]))
   store.dispatch(projectManagerLoaded(makeProjectManager({
     projectId: 'launch',
-    proposed: [ makeWorkBatch({ id: 'pricing', projectId: 'launch', title: 'Annual pricing page' }) ],
+    proposed: [ makeWorkBatch({
+      id: 'pricing',
+      projectId: 'launch',
+      title: 'Annual pricing page',
+      origin: 'found',
+      generation: 1,
+    }) ],
   })))
   const router = createMemoryRouter([{
     path: '*',
@@ -100,6 +106,8 @@ describe('ProjectLists', () => {
 
     expect(screen.getByRole('tab', { name: /Proposed/, selected: true }).textContent).toContain('1')
     expect(screen.getByRole('link', { name: 'Annual pricing page' })).toBeTruthy()
+    // A person deciding here sees whether anyone asked for it, as on the work queue.
+    expect(screen.getByText('Found by an agent')).toBeTruthy()
   })
 
   it('shows no count until the docs are known', () => {

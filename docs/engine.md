@@ -648,8 +648,9 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   hide what led to a follow-up: origin and generation are apart, so a follow-up can be human-rooted and generation 1.
 - **The limit.** `work_batch::lineage::MAX_GENERATION`, 3: a person's request, then at most three batches each planned
   from what the one before's worker did. A batch past it is refused, telling the Project Manager which batch it follows
-  and to say in its reply what it would do next, so the person decides; nothing is stored. A turn that a person's
-  message alone woke starts the chain again.
+  and to say in its reply what it would do next, so the person decides; nothing is stored. A batch answering a person's
+  message its own turn took starts the chain again: wakes are debounced into one turn, so a batch's result arriving
+  beside a person's request never holds the request to that batch's chain. Records it names still count.
 - **Resetting.** A person accepting a finding re-roots the work: its batch is human-rooted and generation 0
   (`Lineage::accepted_finding`, which Findings use, `docs/autonomy.md`).
 - **Never queued alone.** Every batch is proposed today. A trust dial that lets human-rooted work run past approval
@@ -657,8 +658,9 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
 - **Existing batches** have the origin their provenance proves, generation 0, and no parents: no chain was recorded for
   them, so a chain counts from them.
 - **What a turn that both a person's message and a batch's result woke submits** counts that batch, since the Project
-  Manager read its result as it planned. A follow-up the Project Manager submits in a later turn that nothing of the
-  batch's woke, naming only a person's record, counts from 0; the person still approves it.
+  Manager read its result as it planned, unless it names that person's message. A follow-up the Project Manager submits
+  in a later turn that nothing of the batch's woke, naming only a person's record, counts from 0, and so does one that
+  names a person's unrelated message its turn took; the person still approves either.
 
 ## Workers and the pool
 

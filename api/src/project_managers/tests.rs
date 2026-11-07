@@ -840,6 +840,15 @@ async fn a_chain_of_follow_ups_stops_at_the_generation_limit() {
 
     // One more is refused, saying why and what to do, and nothing is stored.
     worked_and_finished(&mut connection, batch.id, "Done, and more turned up.").await;
+    // A person writes in the same moment, so one debounced turn takes both.
+    let asked = project_manager::wake_with_message(
+        &mut connection,
+        launch,
+        "Keep going on pricing.",
+        TEST_PERSON_ID,
+    )
+    .await
+    .expect("woken");
     turn_id = next_turn(&mut connection, launch, turn_id).await;
     let stored = work_batch::list_for_project(&mut connection, launch, &[], 50)
         .await
@@ -869,16 +878,8 @@ async fn a_chain_of_follow_ups_stops_at_the_generation_limit() {
         .len();
     assert_eq!(still_stored, stored);
 
-    // A person asking for it themselves starts the chain again: nothing a worker did woke the turn.
-    let asked = project_manager::wake_with_message(
-        &mut connection,
-        launch,
-        "Keep going on pricing.",
-        TEST_PERSON_ID,
-    )
-    .await
-    .expect("woken");
-    turn_id = next_turn(&mut connection, launch, turn_id).await;
+    // Answering the person's own words starts the chain again, though the batch's result woke the
+    // same turn: what they asked for is not the batch's follow-up.
     let mut by_request = submission(Vec::new());
     by_request.message_ids = vec![asked.id];
     let restarted = batches::submit(&mut connection, &events, launch, turn_id, by_request)
@@ -886,6 +887,7 @@ async fn a_chain_of_follow_ups_stops_at_the_generation_limit() {
         .expect("submitted");
     assert_eq!(restarted.origin, Origin::HumanRooted);
     assert_eq!(restarted.generation, 0);
+    assert!(restarted.parents().is_empty());
 }
 
 #[tokio::test]

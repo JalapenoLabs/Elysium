@@ -514,8 +514,8 @@ timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` 
 `result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `sourceMessageIds` (the messages to its Project Manager that
 called for it), `origin` (`human_rooted` or `found`), `generation` (how many batches led to it), `parentBatchIds` (the
 batches it was planned from), `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`, `createdAt`, `startedAt`, and
-`finishedAt`, as `/api/v1/work-batches` answers it (`docs/engine.md`, Origins and generations). A `Promise` has `id`, `projectId`,
-`state` (`waiting`, `due`, `drafted`, `kept`, `dismissed`), `recipient`, `summary` (what was promised), `madeIn` (`{
+`finishedAt`, as `/api/v1/work-batches` answers it (`docs/engine.md`, Origins and generations). A `Promise` has
+`id`, `projectId`, `state` (`waiting`, `due`, `drafted`, `kept`, `dismissed`), `recipient`, `summary` (what was promised), `madeIn` (`{
 recordId, sourceKind, title, url, occurredAt, personId }`, the message it was made in and whose timeline it is on, or
 null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
 `draftId` (its follow-up's draft, which only its person may read), and `createdAt`; `/api/v1/promises` answers the same

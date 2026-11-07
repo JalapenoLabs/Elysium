@@ -217,6 +217,8 @@
       "title": "Batch",
       "priority": "Priority",
       "state": "State",
+      "origin": "Origin",
+      "generation": "Generation",
       "submitted": "Submitted",
       "result": "Result"
     },

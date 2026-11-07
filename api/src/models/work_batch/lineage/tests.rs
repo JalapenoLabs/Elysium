@@ -315,6 +315,15 @@ async fn what_a_batch_names_traces_to_a_person_or_to_an_agent() {
     );
 }
 
+/// A provenance naming `records` alone.
+fn named(records: &[Uuid]) -> Provenance<'_> {
+    Provenance {
+        records,
+        action_items: &[],
+        messages: &[],
+    }
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn records_name_their_batch_only_when_elysium_made_them() {
@@ -355,7 +364,7 @@ async fn records_name_their_batch_only_when_elysium_made_them() {
         json!({ "batchId": batch.id }),
     )
     .await;
-    let found = parents(&mut connection, launch, None, &[made, claimed])
+    let found = parents(&mut connection, launch, None, named(&[made, claimed]))
         .await
         .expect("reads");
     assert_eq!(
@@ -369,7 +378,7 @@ async fn records_name_their_batch_only_when_elysium_made_them() {
 
     // A batch of another project leads to nothing here.
     assert!(
-        parents(&mut connection, website, None, &[made])
+        parents(&mut connection, website, None, named(&[made]))
             .await
             .expect("reads")
             .is_empty()

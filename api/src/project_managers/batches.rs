@@ -226,13 +226,7 @@ pub async fn submit(
         messages: &submission.message_ids,
     };
     let roots = lineage::roots(connection, project_id, provenance).await?;
-    let parents = lineage::parents(
-        connection,
-        project_id,
-        Some(turn_id),
-        &submission.record_ids,
-    )
-    .await?;
+    let parents = lineage::parents(connection, project_id, Some(turn_id), provenance).await?;
     let lineage = lineage::decide(&roots, &parents).map_err(|refusal| {
         tracing::event!(
             name: "project_manager.batch.refused",

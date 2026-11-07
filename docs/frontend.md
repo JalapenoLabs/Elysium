@@ -1461,10 +1461,10 @@ the draft kept for the tab); and its latest turns, newest first, each a row like
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
 then). A running or failed turn starts open. Proposed (`WorkBatchesTable` with `list='proposed'`) lists every batch
-waiting for the person's approval, its count accented while above zero: the title, the priority, and when it was
-submitted, each row offering Approve and Reject as the work queue's do. Work batches (`WorkBatchesTable`) is a
-`SmartTable` of its latest batches: the title, the priority with a scheduled one's time, the state, when it was
-submitted, and what its worker reported.
+waiting for the person's approval, its count accented while above zero: the title, the priority, the origin and
+generation as the work queue shows them, and when it was submitted, each row offering Approve and Reject as the work
+queue's do. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
+scheduled one's time, the state, the origin, the generation, when it was submitted, and what its worker reported.
 Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
 a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`

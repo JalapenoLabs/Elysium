@@ -27,7 +27,9 @@
 //! Batch B **led to** batch C when C's Project Manager planned C from B ([`parents`]): the turn
 //! that submitted C was woken by B (its result, its worker's question, its rejection or
 //! cancellation) or by a record B made (its merged pull request), or C names a record B made as its
-//! cause. C's generation is the greatest, over the batches that led to it, of each one's generation
+//! cause. The turn's wakes lead to nothing when C answers a person's message that turn took, since
+//! wakes are debounced together and a person's new words are not a batch's follow-up. C's
+//! generation is the greatest, over the batches that led to it, of each one's generation
 //! plus one when a worker worked on it ([`decide`]). A batch no worker touched (one a person
 //! rejected, or one withdrawn) adds nothing: what replaces it stands where it stood, since nothing a
 //! worker did called for it. A batch nothing led to is generation 0, and one past
@@ -286,6 +288,25 @@ async fn item_events(
         .await
 }
 
+/// Whether any of `message_ids` is a person's message that turn `turn_id` took.
+async fn asked_this_turn(
+    connection: &mut AsyncPgConnection,
+    turn_id: Uuid,
+    message_ids: &[Uuid],
+) -> QueryResult<bool> {
+    if message_ids.is_empty() {
+        return Ok(false);
+    }
+    let authors: Vec<Uuid> = project_manager_wakes::table
+        .filter(project_manager_wakes::id.eq_any(message_ids))
+        .filter(project_manager_wakes::turn_id.eq(turn_id))
+        .filter(project_manager_wakes::kind.eq(WakeKind::Message))
+        .select(project_manager_wakes::created_by)
+        .load(connection)
+        .await?;
+    Ok(!people_among(connection, &authors).await?.is_empty())
+}
+
 /// The people among `user_ids`: those holding a person's role, not a machine's.
 async fn people_among(
     connection: &mut AsyncPgConnection,
@@ -303,10 +324,15 @@ async fn people_among(
     Ok(people.into_iter().collect())
 }
 
-/// The batches of `project_id` that led to one submitted from turn `turn_id` naming `record_ids`:
+/// The batches of `project_id` that led to one submitted from turn `turn_id` naming `provenance`:
 /// those that woke the turn, by their own wake or a record they made, and those that made a record
 /// it names. A record a batch made is one of Elysium's own (a Project Manager's record of the
 /// batch, its merged pull request's), naming the batch in its metadata.
+///
+/// A batch that names a person's message this very turn took answers that message, which is new
+/// words from a person, so what else woke the turn led to nothing: wakes are debounced into one
+/// turn, and a batch's result arriving beside a person's request must not hold the request to the
+/// batch's chain. A Project Manager cannot make such a message; records it names still count.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -314,11 +340,15 @@ pub async fn parents(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
     turn_id: Option<Uuid>,
-    record_ids: &[Uuid],
+    provenance: Provenance<'_>,
 ) -> QueryResult<Vec<Parent>> {
     let mut batch_ids: Vec<Uuid> = Vec::new();
-    let mut records: Vec<Uuid> = record_ids.to_vec();
-    if let Some(turn_id) = turn_id {
+    let mut records: Vec<Uuid> = provenance.records.to_vec();
+    let answered = match turn_id {
+        Some(turn_id) => asked_this_turn(connection, turn_id, provenance.messages).await?,
+        None => false,
+    };
+    if let Some(turn_id) = turn_id.filter(|_turn| !answered) {
         let woken_by: Vec<(Option<Uuid>, Option<Uuid>)> = project_manager_wakes::table
             .filter(project_manager_wakes::turn_id.eq(turn_id))
             .filter(project_manager_wakes::project_id.eq(project_id))
