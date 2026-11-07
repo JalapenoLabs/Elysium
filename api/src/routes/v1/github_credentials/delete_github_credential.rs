@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::models::github_credential;
-use crate::realtime::ServerEvent;
+use crate::realtime::{ServerEvent, Signal};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -31,6 +31,8 @@ pub async fn handle(
     state
         .events
         .publish(&ServerEvent::GithubCredentialDeleted { id });
+    // It may have read the configuration repository, which the engine then tries without it.
+    state.events.signal(&Signal::AgentConfiguration);
 
     Ok(StatusCode::NO_CONTENT)
 }

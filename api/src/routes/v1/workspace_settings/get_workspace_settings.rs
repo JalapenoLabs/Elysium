@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::WorkspaceSettingsResponse;
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
-use crate::models::user;
+use crate::models::{agent_configuration, user};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -23,7 +23,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let settings = user::workspace_settings(&mut connection).await?;
+    let status = agent_configuration::find(&mut connection).await?;
     Ok(Json(
-        json!({ "settings": WorkspaceSettingsResponse::from(settings) }),
+        json!({ "settings": WorkspaceSettingsResponse::new(settings, &status) }),
     ))
 }

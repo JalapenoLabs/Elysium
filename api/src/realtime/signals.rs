@@ -47,7 +47,8 @@ pub enum Signal {
     WorkerPool,
     /// A Claude account was signed in, or a turn finished: the account keeper reads usage now.
     ClaudeAccounts,
-    /// The workspace settings changed, so the runner fetches `~/.claude` again.
+    /// The configuration repository or a GitHub token changed, or an admin asked: the engine
+    /// fetches `~/.claude` again (`crate::agent_configuration::keeper`).
     AgentConfiguration,
     /// A session's turn was queued or asked to stop.
     SessionTurns,

@@ -51,6 +51,7 @@ use tracing::{Level, event};
 
 use crate::action_items::watcher::{WatchContext, Watcher};
 use crate::activity::Activities;
+use crate::agent_configuration;
 use crate::backups::{self, Backups, BackupsDeps};
 use crate::browser::devtools::Devtools;
 use crate::claude_accounts::oauth::Anthropic;
@@ -77,7 +78,6 @@ use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
 use crate::meetings::{Meetings, MeetingsDeps};
 use crate::passwords::remote;
 use crate::project_managers::{self, runner::ManagerRunner};
-use crate::realtime::Signal;
 use crate::runner::Runner;
 use crate::services::{self, Foundation};
 use crate::sessions::queue::{TurnQueue, TurnQueueDeps};
@@ -160,8 +160,13 @@ pub async fn run() -> Result<()> {
     loops.push(("sessions.queue", turn_queue.start(shutdown.clone())));
     loops.push(("runner.prepare", prepare_workspace(runner.clone())));
     loops.push((
-        "runner.configuration",
-        refresh_configuration_when_changed(&foundation, runner.clone()),
+        "agent_configuration.keeper",
+        tokio::spawn(agent_configuration::keeper::run(
+            runner.clone(),
+            database.clone(),
+            events.clone(),
+            shutdown.clone(),
+        )),
     ));
     let claude_accounts = ClaudeAccounts::new(ClaudeAccountsDeps {
         database: database.clone(),
@@ -462,8 +467,8 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
-/// Pulls the workspace image, brings the workspace up, and fetches `~/.claude` ahead of the
-/// first turn, which would otherwise wait for all of it.
+/// Pulls the workspace image and brings the workspace up ahead of the first turn, which would
+/// otherwise wait for it. The configuration keeper fetches `~/.claude` into it.
 fn prepare_workspace(runner: Runner) -> JoinHandle<()> {
     tokio::spawn(async move {
         if let Err(error) = runner.prepare().await {
@@ -473,31 +478,6 @@ fn prepare_workspace(runner: Runner) -> JoinHandle<()> {
                 error.message = %format!("{error:#}"),
                 "the agent workspace could not be prepared; turns retry when they start",
             );
-        }
-    })
-}
-
-/// Fetches `~/.claude` again whenever an admin changes the configuration repository, until
-/// shutdown.
-fn refresh_configuration_when_changed(foundation: &Foundation, runner: Runner) -> JoinHandle<()> {
-    let mut wake = foundation
-        .events
-        .wake_on(|signal| *signal == Signal::AgentConfiguration);
-    let shutdown = foundation.shutdown.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = wake.woken() => {}
-            }
-            if let Err(error) = runner.refresh_configuration().await {
-                event!(
-                    name: "runner.configuration.refresh_failed",
-                    Level::ERROR,
-                    error.message = %format!("{error:#}"),
-                    "the new configuration repository could not be fetched",
-                );
-            }
         }
     })
 }

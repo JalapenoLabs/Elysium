@@ -56,6 +56,7 @@ use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::{project_manager, promise};
+use crate::runner::configuration::Checkout;
 
 /// How many batches one page of a project's batches holds at most.
 pub const MAX_BATCH_PAGE: i64 = 200;
@@ -172,6 +173,9 @@ pub struct WorkBatch {
     pub waiting_on: Option<worker::Wait>,
     pub waiting_detail: Option<String>,
     pub waiting_until: Option<DateTime<Utc>>,
+    /// The configuration its worker ran on, as stored ([`Checkout`]); set as its container
+    /// fetched it.
+    pub configuration: Option<Value>,
     /// Whether it traces to a person or only to what an agent noticed.
     pub origin: Origin,
     /// How many batches led to it ([`lineage`]).
@@ -183,6 +187,23 @@ pub struct WorkBatch {
 }
 
 impl WorkBatch {
+    /// The configuration its worker ran on. A row this build cannot read reads as none, logged,
+    /// so its worker fetches the repository again.
+    pub fn configuration(&self) -> Option<Checkout> {
+        let stored = self.configuration.clone()?;
+        serde_json::from_value(stored)
+            .inspect_err(|error| {
+                tracing::event!(
+                    name: "work_batch.configuration.unreadable",
+                    tracing::Level::WARN,
+                    work_batch.id = %self.id,
+                    error.message = %error,
+                    "a batch's stored configuration does not read; reading none",
+                );
+            })
+            .ok()
+    }
+
     /// The repositories it needs. A row this build cannot read lists none, logged, rather than
     /// hiding the batch.
     pub fn repositories(&self) -> Vec<Repository> {
@@ -271,6 +292,9 @@ pub enum EventKind {
     Unassigned,
     /// A worker started on it. No data.
     Started,
+    /// Its worker gave its slot back before its first turn, and it waits in the queue again:
+    /// `{ reason }`.
+    Requeued,
     /// Its worker waits, keeping its container: `{ on, detail, until }`.
     Waiting,
     /// Its Project Manager answered the question its worker waits on: `{ answer }`.
@@ -297,6 +321,7 @@ impl EventKind {
             Self::Assigned => "assigned",
             Self::Unassigned => "unassigned",
             Self::Started => "started",
+            Self::Requeued => "requeued",
             Self::Waiting => "waiting",
             Self::Answered => "answered",
             Self::Finished => "finished",
@@ -1111,6 +1136,61 @@ pub async fn start(
             )
             .await?;
             Ok(Some(started))
+        })
+        .await
+}
+
+/// Gives `slot` back from its running batch, which no turn has worked on yet, returning the
+/// batch to the queue in its place, as `by`, recording `reason`: its worker could not get what
+/// every turn needs, such as the configuration repository. `None` when the slot was lost, the
+/// batch is not running, or a turn has worked on it, whose work lives in its worker's container.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn requeue(
+    connection: &mut AsyncPgConnection,
+    slot: &Slot,
+    reason: &str,
+    by: Uuid,
+) -> QueryResult<Option<WorkBatch>> {
+    let reason: String = reason.trim().chars().take(RESULT_MAX_CHARACTERS).collect();
+    connection
+        .transaction(async |connection| {
+            let Some(queued) = diesel::update(
+                work_batches::table
+                    .find(slot.batch.id)
+                    .filter(work_batches::claim_token.eq(slot.token))
+                    .filter(work_batches::state.eq(BatchState::Running))
+                    .filter(work_batches::worker_session_id.is_null()),
+            )
+            .set((
+                work_batches::state.eq(BatchState::Queued),
+                work_batches::started_at.eq(None::<DateTime<Utc>>),
+                work_batches::assigned_at.eq(None::<DateTime<Utc>>),
+                work_batches::claim_token.eq(None::<Uuid>),
+                work_batches::lease_expires_at.eq(None::<DateTime<Utc>>),
+                work_batches::waiting_on.eq(None::<worker::Wait>),
+                work_batches::waiting_detail.eq(None::<String>),
+                work_batches::waiting_until.eq(None::<DateTime<Utc>>),
+                work_batches::worker_report.eq(None::<Value>),
+                work_batches::configuration.eq(None::<Value>),
+            ))
+            .returning(WorkBatch::as_returning())
+            .get_result(connection)
+            .await
+            .optional()?
+            else {
+                return Ok(None);
+            };
+            record(
+                connection,
+                queued.id,
+                EventKind::Requeued,
+                json!({ "reason": reason }),
+                by,
+            )
+            .await?;
+            Ok(Some(queued))
         })
         .await
 }

@@ -9,6 +9,9 @@ Queries are checked at compile time against `api/src/database/schema.rs`. A wron
 or a nullable column read as non-null is a build error, not a runtime surprise. `schema.rs` is generated from the
 migrations, so the compiler checks the code against the real schema.
 
+Diesel is built with its `64-column-tables` feature: `work_batches` holds more than 32 columns, Diesel's default
+limit for one table.
+
 ## Migrations
 
 Each migration is a directory under `api/migrations/` holding `up.sql` and `down.sql`. Create one with the pinned
@@ -1417,6 +1420,7 @@ One row, always present (`singleton` is its key and must be true).
 | `signup_open` | `BOOLEAN`     | Defaults to true; the first person may sign up regardless    |
 | `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
+| `agent_configuration_github_credential_id` | `UUID` | Nullable; the GitHub token that reads it, `NULL` to read it without one. References `github_credentials`, `SET NULL`; only for a github.com repository |
 | `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
 | `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
 | `worker_pool_size` | `INTEGER` | Nullable; how many workers run at once, at least one with no maximum, `NULL` for the default (one per CPU core the engine sees minus two, at least one) |
@@ -1630,6 +1634,7 @@ API applies (`docs/engine.md`, Origins and generations), generation 0, and no pa
 | `waiting_until`      | `TIMESTAMPTZ`         | When its worker looks again, or the moment a question was answered; set exactly with `waiting_on` |
 | `worker_report`      | `JSONB`               | How its worker said its last turn ended, filed by the worker's tools until the engine takes it: `{ kind: "finished", succeeded, result }` or `{ kind: "waiting", on, detail, until }` |
 | `worker_log`         | `TEXT`                | What its worker said and which tools it called, one line each, scrubbed, the newest 64 KiB; empty by default |
+| `configuration`      | `JSONB`               | The configuration its worker runs on, recorded as its container fetched it: `{ repository, commit, subject, fetchedAt, skipped }`; cleared when it goes back to the queue |
 
 ### `work_batch_events`
 
@@ -1639,7 +1644,7 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 |-----------------|---------------|------------------------------------------------------------------------|
 | `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
 | `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
-| `kind`          | `TEXT`        | `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished` |
+| `kind`          | `TEXT`        | `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `requeued`, `waiting`, `answered`, or `finished` |
 | `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
@@ -1696,6 +1701,26 @@ written by the engine as it looks; absent until an engine first has.
 | `usage_held_until` | `TIMESTAMPTZ` | Set while every Claude credential that could serve is at its usage limit: no slot is handed out before it |
 | `created_by`       | `UUID`        | References `users`: the system user                                   |
 | `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+
+### `agent_configuration_status`
+
+How the last fetch of the configuration repository went, which decides whether workers and Project Managers may start
+(`crate::agent_configuration`, `docs/coding.md`, `~/.claude`). One row (`singleton` is its key and must be true), written
+by the migration and then by the engine as it fetches, and by a worker whose own fetch failed.
+
+| Column                 | Type          | Notes                                                                 |
+|------------------------|---------------|-----------------------------------------------------------------------|
+| `repository`           | `TEXT`        | The repository the last attempt read; `NULL` before any. A status about another repository or token than the settings name says nothing of the current one |
+| `github_credential_id` | `UUID`        | The token it was read with, as recorded, not a reference              |
+| `commit_sha`           | `TEXT`        | The 40-character commit the last good fetch of that repository and token checked out |
+| `commit_subject`       | `TEXT`        | Its subject; set exactly with `commit_sha`                            |
+| `fetched_at`           | `TIMESTAMPTZ` | When; set exactly with `commit_sha`                                   |
+| `skipped`              | `JSONB`       | An array of what that checkout left out: `[{ kind, name, reason, detail? }]` |
+| `error`                | `TEXT`        | At most 4,000 characters: why the last attempt failed, while it had   |
+| `failed_at`            | `TIMESTAMPTZ` | When; set exactly with `error`                                        |
+| `inbox_item_id`        | `UUID`        | References `action_items`, `SET NULL`: the one item raised while held-back work waits |
+| `created_by`           | `UUID`        | References `users`: the system user                                   |
+| `updated_at`           | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
 ### `database_backups`
 

@@ -14,6 +14,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::agent_configuration::Hold;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::work_batch::lineage::Origin;
@@ -70,7 +71,7 @@ impl From<Queue> for QueueResponse {
 }
 
 /// The pool as clients see it.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolResponse {
     /// How many workers run at once; `null` until the engine has looked, when no admin chose.
@@ -83,6 +84,9 @@ pub struct PoolResponse {
     in_use: usize,
     /// While every Claude account is at its usage limit, when the first resets.
     usage_held_until: Option<DateTime<Utc>>,
+    /// While no worker may start without the configuration repository, why: `{ reason:
+    /// 'unset' | 'fetching' | 'failed', error?, failedAt? }`.
+    configuration_hold: Option<Hold>,
 }
 
 impl From<Pool> for PoolResponse {
@@ -94,6 +98,7 @@ impl From<Pool> for PoolResponse {
             cpu_count: pool.cpu_count,
             in_use: pool.in_use,
             usage_held_until: pool.usage_held_until,
+            configuration_hold: pool.configuration_hold,
         }
     }
 }

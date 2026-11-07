@@ -34,6 +34,11 @@ const corpus: [string, string][] = [
   ...repositoryDocuments,
 ]
 
+// The largest documents (docs/database.md and docs/frontend.md, each over 150 KB) take a few
+// seconds to read and write whole, longer on a busy CI runner than vitest's default 5 seconds,
+// and they grow with the docs. The test is about what a document says, not how fast.
+const WHOLE_DOCUMENT_TIMEOUT_MS = 30_000
+
 // The server's own normalizing, which is all it does to a body.
 function normalize(markdown: string) {
   return markdown.replaceAll('\r\n', '\n').trimEnd()
@@ -158,7 +163,7 @@ describe('a whole document written anew', () => {
     const written = writeMarkdown(readMarkdown('', schema), document)
 
     expect(meaningOf(written)).toBe(meaningOf(body))
-  })
+  }, WHOLE_DOCUMENT_TIMEOUT_MS)
 })
 
 describe('an edit', () => {
