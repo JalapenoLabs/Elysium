@@ -19,16 +19,26 @@ type Props = {
 
 // Why a batch exists, as its Project Manager named it: the records that called for it, each
 // opening in the knowledge base, where any member reads what was ingested, with where it came from
-// and when; and the action items it works on, each opening its item.
+// and when; the messages sent to its Project Manager that did, with who wrote each and when; and
+// the action items it works on, each opening its item.
 export function WorkBatchWhy(props: Props) {
   const { t } = useTranslation([ 'workQueue', 'timeline' ])
-  const { records, actionItems } = props.why
+  const { records, messages, actionItems } = props.why
 
-  if (!records.length && !actionItems.length) {
+  if (!records.length && !messages.length && !actionItems.length) {
     return <p className='text-sm opacity-70'>{t('batch.why.none')}</p>
   }
 
   return <ul className='flex flex-col gap-2 text-sm'>
+    {messages.map((message) => <li key={message.id} className='flex flex-col'>
+      <span className='line-clamp-3 whitespace-pre-wrap'>{message.body}</span>
+      <span className='text-xs opacity-70'>{
+        t('batch.why.messageFrom', {
+          author: message.author,
+          time: formatDateTime(message.sentAt),
+        })
+      }</span>
+    </li>)}
     {records.map((record) => <li key={record.id} className='flex flex-col'>
       {record.documentId
         ? <Link href={getKnowledgeDocumentUrl(record.documentId)} className='text-link'>{record.title}</Link>

@@ -333,6 +333,7 @@ async fn load_context(
     for wake in wakes {
         match wake.kind {
             WakeKind::Message => messages.push(PromptMessage {
+                id: wake.id,
                 author: names
                     .get(&wake.created_by)
                     .cloned()

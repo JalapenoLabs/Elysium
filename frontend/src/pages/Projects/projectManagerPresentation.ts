@@ -7,6 +7,7 @@ import type {
   ProjectManagerTurnStatus,
   ProjectManagerWake,
   WorkBatch,
+  WorkBatchOrigin,
   WorkBatchPriority,
   WorkBatchState,
 } from '../../api/routes/projectManagerRoutes'
@@ -75,6 +76,17 @@ export const batchStateChipColors = {
   cancelled: 'default',
   rejected: 'default',
 } as const satisfies Record<WorkBatchState, ChipColor>
+
+export const batchOriginLabelKeys = {
+  human_rooted: 'batches.origins.human_rooted',
+  found: 'batches.origins.found',
+} as const satisfies Record<WorkBatchOrigin, ParseKeys<'projects'>>
+
+// Found work stands out: nobody asked for it, so a person weighs whether it is wanted.
+export const batchOriginChipColors = {
+  human_rooted: 'default',
+  found: 'warning',
+} as const satisfies Record<WorkBatchOrigin, ChipColor>
 
 export const promiseStateLabelKeys = {
   waiting: 'promises.states.waiting',

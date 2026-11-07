@@ -14,11 +14,14 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 // Misc
 import { DateText } from '../../format/DateText'
 import { formatShortDateTime } from '../../format/dates'
+import { formatNumber } from '../../format/numbers'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getWorkBatchViewUrl } from '../../urls'
 import { useWorkBatchActions } from '../WorkQueue/useWorkBatchActions'
 import { actionIcons, actionLabelKeys, DANGEROUS_ACTIONS } from '../WorkQueue/workQueuePresentation'
 import {
+  batchOriginChipColors,
+  batchOriginLabelKeys,
   batchPriorityChipColors,
   batchPriorityLabelKeys,
   batchStateChipColors,
@@ -34,13 +37,13 @@ type Props = {
   batches: WorkBatch[]
 }
 
-const BATCH_COLUMN_KEYS = [ 'title', 'priority', 'state', 'submitted', 'result' ] as const
+const BATCH_COLUMN_KEYS = [ 'title', 'priority', 'state', 'origin', 'generation', 'submitted', 'result' ] as const
 type BatchColumnKey = typeof BATCH_COLUMN_KEYS[number]
 
 // A proposal has no result yet, and every one is proposed, so those columns say nothing.
 const columnKeysByList = {
   latest: BATCH_COLUMN_KEYS,
-  proposed: [ 'title', 'priority', 'submitted' ],
+  proposed: [ 'title', 'priority', 'origin', 'generation', 'submitted' ],
 } as const satisfies Record<WorkBatchesList, readonly BatchColumnKey[]>
 
 // The latest list keeps the key it always had, so saved column layouts stay.
@@ -65,6 +68,8 @@ const columnLabelKeys = {
   title: 'batches.columns.title',
   priority: 'batches.columns.priority',
   state: 'batches.columns.state',
+  origin: 'batches.columns.origin',
+  generation: 'batches.columns.generation',
   submitted: 'batches.columns.submitted',
   result: 'batches.columns.result',
 } as const satisfies Record<BatchColumnKey, string>
@@ -74,6 +79,8 @@ const columnSizes = {
   title: 260,
   priority: 150,
   state: 120,
+  origin: 150,
+  generation: 110,
   submitted: 130,
   result: 260,
 } as const satisfies Record<BatchColumnKey, number>
@@ -93,6 +100,9 @@ export function WorkBatchesTable(props: Props) {
     }
     function stateLabel(batch: WorkBatch) {
       return t(batchStateLabelKeys[batch.state])
+    }
+    function originLabel(batch: WorkBatch) {
+      return t(batchOriginLabelKeys[batch.origin])
     }
 
     const renderCell = {
@@ -114,24 +124,38 @@ export function WorkBatchesTable(props: Props) {
       state: (batch: WorkBatch) => <Chip size='sm' variant='soft' color={batchStateChipColors[batch.state]}>{
         stateLabel(batch)
       }</Chip>,
+      origin: (batch: WorkBatch) => <Chip size='sm' variant='soft' color={batchOriginChipColors[batch.origin]}>{
+        originLabel(batch)
+      }</Chip>,
+      generation: (batch: WorkBatch) => <span className='tabular-nums opacity-80'>{
+        formatNumber(batch.generation)
+      }</span>,
       submitted: (batch: WorkBatch) => <DateText value={batch.createdAt} isFocusable={false} />,
       result: (batch: WorkBatch) => <span className='text-sm opacity-80'>{batch.result ?? ''}</span>,
     } satisfies Record<BatchColumnKey, (batch: WorkBatch) => unknown>
 
-    // Each sorts by its value, which is also what the export holds: the instant it was submitted.
-    const sortValue = {
+    // Each column's value, which is also what the export holds: the instant it was submitted.
+    const searchValue = {
       title: (batch: WorkBatch) => batch.title,
       priority: priorityLabel,
       state: stateLabel,
+      origin: originLabel,
+      generation: (batch: WorkBatch) => String(batch.generation),
       submitted: (batch: WorkBatch) => batch.createdAt,
       result: (batch: WorkBatch) => batch.result ?? '',
     } satisfies Record<BatchColumnKey, (batch: WorkBatch) => string>
+
+    // A generation sorts as a number; the rest by their values.
+    const sortValue = {
+      ...searchValue,
+      generation: (batch: WorkBatch) => batch.generation,
+    } satisfies Record<BatchColumnKey, (batch: WorkBatch) => string | number>
 
     return createManagedColumns<WorkBatch, BatchColumnKey>({
       columnKeys: columnKeysByList[props.list],
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
       getSearchKey: () => null,
-      getSearchValue: (columnKey) => sortValue[columnKey],
+      getSearchValue: (columnKey) => searchValue[columnKey],
       createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
         id: columnId,
         header: columnLabel,

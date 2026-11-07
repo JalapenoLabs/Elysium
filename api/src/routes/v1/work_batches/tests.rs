@@ -65,6 +65,8 @@ fn new_batch(project_id: Uuid, title: &str) -> NewWorkBatch {
         turn_id: None,
         source_record_ids: json!([]),
         action_item_ids: json!([]),
+        source_message_ids: json!([]),
+        lineage: crate::test_support::person_rooted(),
         created_by: PROJECT_MANAGER_USER_ID,
     }
 }
@@ -253,7 +255,10 @@ async fn a_member_approves_a_proposal_as_it_is_or_edited() {
         "tidied as a submission is"
     );
     assert_eq!(approved["batch"]["priority"], "asap");
-    assert_eq!(approved["why"], json!({ "records": [], "actionItems": [] }));
+    assert_eq!(
+        approved["why"],
+        json!({ "records": [], "messages": [], "actionItems": [], "parents": [] })
+    );
     let kinds: Vec<&str> = approved["history"]
         .as_array()
         .expect("history")
