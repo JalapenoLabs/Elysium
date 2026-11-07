@@ -18,7 +18,9 @@ use crate::models::claude_account::{
 use crate::models::project::{self, NewProject};
 use crate::models::user::{self, PROJECT_MANAGER_USER_ID, WorkspaceSettingsChanges};
 use crate::models::work_batch::{NewWorkBatch, Priority, WorkBatch};
-use crate::test_support::{TEST_PERSON_ID, approved_batch, cipher, migrated_database};
+use crate::test_support::{
+    TEST_PERSON_ID, approved_batch, cipher, fetched_agent_configuration, migrated_database,
+};
 
 async fn scheduler(url: &SecretString, cpu_count: i32) -> Scheduler {
     Scheduler {
@@ -145,6 +147,7 @@ async fn claude_account_at(connection: &mut AsyncPgConnection, name: &str, utili
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn free_slots_go_round_robin_and_the_pool_follows_its_size() {
     let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let busy = project_named(&mut connection, "Busy").await;
     let quiet = project_named(&mut connection, "Quiet").await;
     let busy_first = submitted(&mut connection, busy).await;
@@ -182,8 +185,52 @@ async fn free_slots_go_round_robin_and_the_pool_follows_its_size() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn no_slot_is_handed_out_without_the_configuration_repository_and_one_item_says_why() {
+    let (url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let first = submitted(&mut connection, launch).await;
+    let second = submitted(&mut connection, launch).await;
+    let mut pool = scheduler(&url, 8).await;
+
+    pool.look().await.expect("looks");
+    pool.look().await.expect("looks again");
+    assert!(
+        in_slots(&mut connection).await.is_empty(),
+        "no batch holds a slot it could not use"
+    );
+    let raised = crate::models::agent_configuration::find(&mut connection)
+        .await
+        .expect("reads")
+        .inbox_item_id
+        .expect("an item says why");
+    // Approving each batch raises items of its own; only the hold's are counted.
+    let items: i64 = crate::database::schema::action_items::table
+        .filter(
+            crate::database::schema::action_items::title
+                .eq("Choose a configuration repository for agents"),
+        )
+        .count()
+        .get_result(&mut connection)
+        .await
+        .expect("counted");
+    assert_eq!(items, 1, "one item for both batches and every look");
+
+    fetched_agent_configuration(&mut connection).await;
+    pool.look().await.expect("looks");
+    let mut held = in_slots(&mut connection).await;
+    held.sort_unstable();
+    assert_eq!(held, [first.id, second.id]);
+    let item = crate::models::action_item::find(&mut connection, raised)
+        .await
+        .expect("the item");
+    assert_eq!(item.title, "Choose a configuration repository for agents");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn no_slot_is_handed_out_while_every_claude_account_is_spent() {
     let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let launch = project_named(&mut connection, "Launch").await;
     let batch = submitted(&mut connection, launch).await;
     claude_account_at(&mut connection, "spent", 100.0).await;
@@ -215,6 +262,7 @@ async fn no_slot_is_handed_out_while_every_claude_account_is_spent() {
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_stopping_engine_leaves_its_slots_for_the_next_to_take_at_once() {
     let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let launch = project_named(&mut connection, "Launch").await;
     let batch = submitted(&mut connection, launch).await;
     let mut stopping = scheduler(&url, 4).await;
@@ -237,6 +285,7 @@ async fn a_stopping_engine_leaves_its_slots_for_the_next_to_take_at_once() {
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_proposed_batch_never_gets_a_slot_through_restarts_and_lapsed_leases() {
     let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let launch = project_named(&mut connection, "Launch").await;
     // Proposed first, with a pool of four slots and one other batch: nothing stands between it
     // and a slot but the gate.

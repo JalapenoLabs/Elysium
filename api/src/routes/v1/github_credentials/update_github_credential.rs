@@ -19,7 +19,7 @@ use crate::errors::ApiError;
 use crate::models::github_credential::{
     self, GithubCredentialChanges, GithubTokenKind, VerifiedToken,
 };
-use crate::realtime::ServerEvent;
+use crate::realtime::{ServerEvent, Signal};
 use crate::state::AppState;
 
 /// Absent fields stay as they are. A token is never edited in place: a new one is checked
@@ -88,6 +88,7 @@ pub async fn handle(
         ));
     }
 
+    let replaces_token = changes.verified.is_some();
     let mut credential = stored;
     if !changes.is_empty() {
         credential =
@@ -110,6 +111,10 @@ pub async fn handle(
         state.events.publish(&ServerEvent::GithubCredentialUpserted(
             GithubCredentialResponse::new(changed),
         ));
+    }
+    if replaces_token {
+        // It may read the configuration repository, which the engine fetches with it again.
+        state.events.signal(&Signal::AgentConfiguration);
     }
 
     Ok(Json(

@@ -16,12 +16,14 @@ import { shallowEqual } from 'react-redux'
 import { selectIsCompanyMember } from '../../store/authSlice'
 import { useAppSelector } from '../../store/hooks'
 import { selectProjectNamesById } from '../../store/projectsSlice'
-import { selectWorkBatch } from '../../store/workQueueSlice'
+import { selectWorkBatch, selectWorkQueue } from '../../store/workQueueSlice'
 
 // User interface
 import { Button, Chip, Link, Spinner } from '@heroui/react'
 import { LuPencil } from 'react-icons/lu'
+import { ConfigurationHoldAlert } from '../../components/ConfigurationHoldAlert'
 import { Page } from '../../layout/page/Page'
+import { WorkBatchConfiguration } from './WorkBatchConfiguration'
 import { WorkBatchHistory } from './WorkBatchHistory'
 import { WorkBatchPullRequests } from './WorkBatchPullRequests'
 import { WorkBatchWhy } from './WorkBatchWhy'
@@ -30,7 +32,7 @@ import { WorkerLog } from './WorkerLog'
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { useNow } from '../../hooks/useNow'
-import { useProjectsLoader, useWorkBatchLoader } from '../../hooks/useServerData'
+import { useProjectsLoader, useWorkBatchLoader, useWorkQueueLoader } from '../../hooks/useServerData'
 import { getProjectViewUrl, getWorkBatchEditUrl, UrlTree } from '../../urls'
 import {
   batchPriorityChipColors,
@@ -49,11 +51,12 @@ import {
   waitUntilKeys,
 } from './workQueuePresentation'
 
-// `/work-queue/:batchId`: one batch whole, what its worker waits on, its goal, the repositories it
-// needs, why it exists, how it ended, the pull requests its worker opened, its history, and its
-// worker's log, with what may still be done to it in its Actions. A proposed batch leads with
-// Approve, and offers Edit, which approves it once changed, and Reject. A guest is sent to the
-// start.
+// `/work-queue/:batchId`: one batch whole, what its worker waits on, or why a queued one waits
+// for the configuration repository, its goal, the repositories it needs, why it exists, how it
+// ended, the configuration its worker runs on, the pull requests its worker opened, its history,
+// and its worker's log, with what may still be done to it in its Actions. A proposed batch leads
+// with Approve, and offers Edit, which approves it once changed, and Reject. A guest is sent to
+// the start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -123,6 +126,13 @@ function WorkBatchDetails(props: DetailsProps) {
   const batch = props.batch
   const wait = currentWait(batch)
   const isProposed = batch.state === 'proposed'
+  // A queued batch waits on the pool, which says why it hands no slot out.
+  const isQueued = batch.state === 'queued'
+  useWorkQueueLoader(isQueued)
+  const queue = useAppSelector(selectWorkQueue)
+  const configurationHold = isQueued
+    ? queue?.pool.configurationHold
+    : null
 
   // A proposal's Approve stands on its own as the page's lead; Edit, a page of its own that
   // approves it once changed, sits with Reject in the Actions.
@@ -199,6 +209,8 @@ function WorkBatchDetails(props: DetailsProps) {
       </>}
     </dl>
 
+    {configurationHold && <ConfigurationHoldAlert hold={configurationHold} />}
+
     {wait && <section className='relaxed max-w-3xl'>
       <h2 className='compact text-lg font-semibold'>{t(waitHeadingKeys[wait.on])}</h2>
       {wait.detail && <p className='compact whitespace-pre-wrap text-sm'>{wait.detail}</p>}
@@ -235,6 +247,8 @@ function WorkBatchDetails(props: DetailsProps) {
       <h2 className='compact text-lg font-semibold'>{t('batch.why.title')}</h2>
       <WorkBatchWhy why={props.why} />
     </section>
+
+    {batch.configuration && <WorkBatchConfiguration configuration={batch.configuration} />}
 
     {batch.startedAt && <WorkBatchPullRequests batchId={batch.id} />}
 

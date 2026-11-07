@@ -44,20 +44,62 @@ startup, keeping its volume.
 
 ### `~/.claude`
 
-Admins name a configuration repository under the workspace settings (`agentConfigurationRepository`, an https URL
-without credentials). The runner fetches its default branch into `/workspace/.claude` before the first turn and again
-whenever the setting changes, checking it out over the directory: tracked files are replaced and untracked ones,
-including Claude's transcripts, are kept, so `--resume` survives a fetch. A github.com repository is read with the
-workspace's default GitHub token, passed to git as an `http.extraHeader` in the environment and never written to
-disk. A fetch that fails fails the turns that need it, with git's message.
+`~/.claude` comes from the configuration repository: the learnings, docs, manuals, skills, and instructions that do
+more for an agent's work than anything else Elysium gives it. Admins name it under Settings, LLMs, Agent configuration
+(`agentConfigurationRepository`, an https URL without credentials, a query, or a fragment), with the GitHub token that reads it
+(`agentConfigurationGithubCredentialId`), chosen beside it from the GitHub tokens under Connectors. The token is the
+repository's own, never the workspace's default: the repository may be private to an account a company's default
+token cannot reach, as a fine-grained token cannot reach another account's repository even as a collaborator. A
+fine-grained token with read-only Contents on that one repository is enough. It is sent only to github.com, and a
+repository with no token is read as anyone may read it.
+
+`Runner::fetch_configuration` fetches the default branch into `/workspace/.claude` (`api/src/runner/configuration/`),
+checking it out over the directory: tracked files are replaced and untracked ones, including Claude's transcripts, are
+kept, so `--resume` survives a fetch. The token reaches git as an `http.extraHeader` in the exec's environment and is
+never written to disk or put in the remote's URL.
+
+**Adapted to the container.** A configuration repository is usually someone's own `~/.claude`, written for their
+machine. After every fetch, `configuration::adapt` asks the container itself what exists (one exec as `agent`, so a
+command is judged by the `PATH` its hooks would run with) and leaves out of the checkout's working tree what cannot
+run there, so nothing in it breaks a turn. The next fetch's `checkout -f` restores the repository's own files, and
+they are adapted again.
+
+| In                               | Left out when                                                                 |
+|----------------------------------|-------------------------------------------------------------------------------|
+| `settings.json` `hooks`          | its command is not installed, a path it names does not exist, or an HTTP hook is on loopback |
+| `settings.json` `enabledPlugins` | the plugin is not installed in the checkout: plugins come from a marketplace, which the repository does not carry |
+| `settings.json` `env`            | Elysium sets the key for every turn (`crate::environment`), or the value is a loopback address |
+| `settings.json` `apiKeyHelper`   | always: Elysium chooses every turn's credential and fails over between them   |
+| `.claude.json` `mcpServers`      | its command is not installed, a path it names does not exist, or it listens on loopback |
+
+`statusLine` stays: turns run headless, which never draws one. Each thing left out is a `Skipped` (`kind`, `name`,
+`reason`, and the command, path, or address that decided it), shown under Settings and on every batch. None of it
+holds a secret a repository might: a hook is named by its event and executable or its address's origin, never its
+arguments, and an environment variable by its key, never its value.
+
+**Who fetches.** The engine's keeper (`crate::agent_configuration::keeper`) fetches into the shared workspace as the
+engine starts, whenever it hears `agentConfiguration` (an admin saved the repository or its token, asked with Fetch
+now, or edited or removed a GitHub token), and every five minutes while workers are held back for any reason but an
+unset repository. Each fetch's outcome is recorded in `agent_configuration_status`: the commit, its subject, when, and
+what was left out, or why it failed, a token that cannot be opened included. Only an attempt at the repository and
+token the settings name now is recorded, so a slow worker's fetch of a repository since replaced changes nothing. The settings page shows it as it arrives, so saving is the check. Every worker
+fetches again into its own container before its first turn (`docs/engine.md`, Workers).
+
+**Never without it.** No worker or Project Manager turn starts while no repository is set, while a new one is being
+fetched, or while the last fetch failed (`crate::agent_configuration::hold`): the pool hands out no slot, and the
+Project Managers' wakes wait, each saying why on the work queue, the batch, and the project. One inbox item says so
+for all of them while work waits, kept to the current reason while it is open, and resolves itself once a fetch
+succeeds. Coding sessions, Studio items, and Elysia
+are not held: a person starts every session and watches it, and Elysia is who tells the person that work is held, so
+holding her would silence the message. They run on whatever checkout the shared workspace has.
 
 ### A turn
 
 1. **Queue.** Turns of one conversation (`ConversationId`, chosen by the caller) run one after another; different
    conversations run side by side, at most `MAX_CONCURRENT_TURNS` (8) at once.
-2. **Prepare.** The first turn after the engine starts (the engine also starts this at boot) ensures the container,
-   kills turns a previous run left behind, and fetches `~/.claude`. Changing the configuration repository signals the
-   engine to fetch it again.
+2. **Prepare.** The first turn after the engine starts (the engine also starts this at boot) ensures the container
+   and kills turns a previous run left behind. It never fetches `~/.claude`, which whoever owns the runner does: the
+   configuration keeper for the shared workspace, and each worker for its own container.
 3. **Attempt.** One `claude` process on one credential, with `--model` and `--effort` when the request names them.
    Every agent's turn names both, as resolved for it (`docs/engine.md`, Models), so they override whatever the
    agents' configuration repository's settings name. Secrets travel only in the exec's environment: the

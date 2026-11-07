@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { LinkProvider } from './actionItemRoutes'
+import type { BatchConfiguration, ConfigurationHold } from './agentConfigurationRoutes'
 import type { PersonPromise } from './promiseRoutes'
 
 // Misc
@@ -105,6 +106,8 @@ export type WorkBatch = {
   waitingOn: WorkBatchWait | null
   waitingDetail: string | null
   waitingUntil: string | null
+  // The configuration its worker runs on, once its container fetched it.
+  configuration: BatchConfiguration | null
 }
 
 // A project's Project Manager, as its page shows it.
@@ -115,6 +118,8 @@ export type ProjectManager = {
   waiting: number
   // While a usage limit holds it, when it lifts.
   usagePausedUntil: string | null
+  // While no Project Manager may start without the configuration repository, why.
+  configurationHold: ConfigurationHold | null
   // Its latest turns, newest first.
   turns: ProjectManagerTurn[]
   // Its latest batches, newest first.

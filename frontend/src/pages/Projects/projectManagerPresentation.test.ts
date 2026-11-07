@@ -73,6 +73,7 @@ describe('promiseWork', () => {
     waitingOn: null,
     waitingDetail: null,
     waitingUntil: null,
+    configuration: null,
   }
 
   it('names the batch a promise waits on by its title', () => {

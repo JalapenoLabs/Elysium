@@ -29,7 +29,7 @@ use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, Tim
 use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::models::work_batch::{self, BatchState, Priority};
 use crate::realtime::EventBus;
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, fetched_agent_configuration, migrated_database};
 use crate::tools::grants::Grants;
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -95,7 +95,8 @@ async fn go_quiet(connection: &mut AsyncPgConnection) {
 async fn scripted(
     outcomes: Vec<ElysiaOutcome>,
 ) -> (DispatchContext, Arc<Mutex<Script>>, AsyncPgConnection) {
-    let (url, connection) = migrated_database().await;
+    let (url, mut connection) = migrated_database().await;
+    fetched_agent_configuration(&mut connection).await;
     let database = crate::connections::connect_postgres(&url, 4)
         .await
         .expect("Postgres accepts connections");
@@ -177,6 +178,55 @@ async fn a_record_newly_on_a_project_wakes_its_project_manager_once() {
     assert_eq!(
         waiting_kinds(&mut connection, website).await,
         [WakeKind::Record]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn no_turn_starts_without_the_configuration_repository_and_its_wakes_wait() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Planned.\nSummary: Planned annual pricing.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    // The repository is named but its last fetch failed.
+    let source = crate::runner::configuration::Source {
+        repository: "https://github.com/acme/agents".to_owned(),
+        github_credential_id: None,
+    };
+    crate::models::agent_configuration::record_failed(
+        &mut connection,
+        &source,
+        "remote: Repository not found.",
+        Utc::now(),
+    )
+    .await
+    .expect("recorded");
+    let launch = project_named(&mut connection, "Launch").await;
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    go_quiet(&mut connection).await;
+
+    dispatch_once(&context).await;
+    assert!(asked(&script).is_empty(), "no turn starts");
+    assert_eq!(
+        waiting_kinds(&mut connection, launch).await,
+        [WakeKind::Record],
+        "what woke it waits for the repository"
+    );
+    let status = crate::models::agent_configuration::find(&mut connection)
+        .await
+        .expect("status");
+    assert!(status.inbox_item_id.is_some(), "one item says why");
+
+    fetched_agent_configuration(&mut connection).await;
+    dispatch_once(&context).await;
+    assert_eq!(
+        asked(&script).len(),
+        1,
+        "it starts once the repository is fetched"
     );
 }
 
