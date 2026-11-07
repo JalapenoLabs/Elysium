@@ -2,7 +2,7 @@
 
 import type { UseFormReturn } from 'react-hook-form'
 import type { ActionItem, UpdateActionItemRequest } from '../../api/routes/actionItemRoutes'
-import type { ActionItemFormInput, ActionItemFormValues } from './actionItemFormSchema'
+import type { ActionItemEditInput, ActionItemEditValues } from './actionItemFormSchema'
 
 // Core
 import { useEffect, useMemo } from 'react'
@@ -24,17 +24,18 @@ import {
   joinInitiative,
   leaveInitiative,
   removeActionItemProject,
+  setActionItemLeadProject,
   updateActionItem,
 } from '../../api/routes/actionItemRoutes'
 import { saveForm } from '../../layout/page/pageSave'
 import { toChangedDayInstant, toLocalDay } from './actionItemDates'
-import { createActionItemFormSchema } from './actionItemFormSchema'
+import { createActionItemEditSchema } from './actionItemFormSchema'
 import { getMembershipChanges } from './membershipChanges'
 import { toast } from '../../toast/toast'
 
-export type ActionItemEditForm = UseFormReturn<ActionItemFormInput, unknown, ActionItemFormValues>
+export type ActionItemEditForm = UseFormReturn<ActionItemEditInput, unknown, ActionItemEditValues>
 
-function toFormValues(item: ActionItem, timeZone: string): ActionItemFormInput {
+function toFormValues(item: ActionItem, timeZone: string): ActionItemEditInput {
   return {
     title: item.title,
     notes: item.notes,
@@ -43,20 +44,21 @@ function toFormValues(item: ActionItem, timeZone: string): ActionItemFormInput {
       ? toLocalDay(item.dueAt, timeZone)
       : null,
     projectIds: item.projectIds,
+    leadProjectId: item.leadProjectId,
     initiativeIds: item.initiativeIds,
   }
 }
 
-// The item page's form: its title, notes, priority, due date, projects, and initiatives,
-// kept by the page's Save. Fields the person has not touched follow the item as the event
+// The item page's form: its title, notes, priority, due date, projects and the one that leads
+// it, and initiatives, kept by the page's Save. Fields the person has not touched follow the item as the event
 // stream changes it. A save sends only what differs from the item as it stands, so a save
 // that failed part way is finished by the next one rather than repeated.
 export function useActionItemEditor(item: ActionItem) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   const timeZone = getLocalTimeZone()
-  const resolver = useMemo(() => zodResolver(createActionItemFormSchema(t)), [ t ])
-  const form: ActionItemEditForm = useForm<ActionItemFormInput, unknown, ActionItemFormValues>({
+  const resolver = useMemo(() => zodResolver(createActionItemEditSchema(t)), [ t ])
+  const form: ActionItemEditForm = useForm<ActionItemEditInput, unknown, ActionItemEditValues>({
     resolver,
     defaultValues: toFormValues(item, timeZone),
   })
@@ -92,6 +94,12 @@ export function useActionItemEditor(item: ActionItem) {
       }
       for (const projectId of projects.added) {
         saved = (await addActionItemProject(item.id, projectId)).item
+        dispatch(actionItemUpserted(saved))
+      }
+      // Between the two, so a new lead is already a project and the old one is not yet gone,
+      // which would pass the lead on by itself.
+      if (values.leadProjectId && values.leadProjectId !== saved.leadProjectId) {
+        saved = (await setActionItemLeadProject(item.id, values.leadProjectId)).item
         dispatch(actionItemUpserted(saved))
       }
       for (const projectId of projects.removed) {

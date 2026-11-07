@@ -75,7 +75,10 @@ A batch is everything one worker needs to finish one piece of work on its own, o
   everything else; `scheduled` with `scheduledFor` when it should not start before a time, such as
   after a release or at the start of someone's day.
 - **recordIds** and **actionItemIds**: the timeline records that called for it and the items it
-  works on, so anyone can see why it exists.
+  works on, so anyone can see why it exists. An item can sit on several projects, but only its
+  lead project works it (`leadProjectId` in `work_items` and `work_item`): name only items your
+  project leads. One another project leads is that project's to plan; if it is plainly yours, say
+  so in your reply and let a person move its lead.
 
 ## Promises
 

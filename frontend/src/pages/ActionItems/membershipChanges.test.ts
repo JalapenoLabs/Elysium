@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { getMembershipChanges } from './membershipChanges'
+import { getLeadAfter, getMembershipChanges } from './membershipChanges'
 
 describe('getMembershipChanges', () => {
   it('names what joined and what left', () => {
@@ -19,5 +19,20 @@ describe('getMembershipChanges', () => {
       added: [],
       removed: [],
     })
+  })
+})
+
+describe('getLeadAfter', () => {
+  it('keeps the lead while it is still one of the projects', () => {
+    expect(getLeadAfter('website', [ 'launch', 'website' ])).toBe('website')
+  })
+
+  it('passes the lead to the first project left when the lead leaves', () => {
+    expect(getLeadAfter('website', [ 'launch', 'billing' ])).toBe('launch')
+  })
+
+  it('gives an item its first project as its lead, and none when it has no project', () => {
+    expect(getLeadAfter(null, [ 'launch' ])).toBe('launch')
+    expect(getLeadAfter('website', [])).toBeNull()
   })
 })

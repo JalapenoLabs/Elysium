@@ -299,7 +299,7 @@ the copy maps onto Whisper's word timings by time alone: a step cuts a segment's
 
 `segment_meeting` (`api/src/meetings/segment.rs`; the prompts and the checks on the answers are `segmentation.rs`) is
 the workflow's last step, and the first of the request workflow (`docs/engine.md`, Conversations). It is named for the
-meetings it segments, and its model setting is filed under that name; it takes either of two things to segment
+meetings it segments, and its model setting is filed under that name; it takes one of three things to read
 (`TranscriptToSegment`, untagged, so each reads as its own JSON):
 
 - **A meeting** past its correction (`CorrectedMeeting`), or what the transcription or the fetch gave when a person
@@ -308,6 +308,8 @@ meetings it segments, and its model setting is filed under that name; it takes e
   which `crate::conversations` gathers from a direct message, a thread, or a mail thread, and starts a request run
   with once the conversation goes quiet: the messages the run takes and up to 20 before them. `title` is what the
   conversation is called where it was had, such as `#launch in Mooreslab`.
+- **An action item** (`ItemToAttribute`: `{ actionItemId }`) that arrived in no project, such as an issue assigned to
+  its person, which the `assigned_issue` workflow hands it (`docs/action-items.md`, Projects and the lead).
 
 What it gives (`Segmented`) is every topic in order, each with its title, summary, span, the projects Elysia attributed
 it to with her confidence, and its records: a meeting segment's own, or a conversation topic's messages. For a
@@ -382,6 +384,16 @@ show every message on a project's timeline twice. A conversation is also read ag
 splits its topics, so a topic has no identity a record, and a person's correction of it, could keep. A topic's title
 and summary are in the run's output (`Segmented`), which the handling agent reads on its run's first turn and the
 steps after segmenting read from.
+
+**An action item has no topics.** One turn on the same model (`segment/item.rs`) reads its title, the start of its
+notes, and the issues it follows (each one's provider, key, title, link, and where it was filed) against every project
+and where each project's work is: the tracker it files issues in, named or followed from its items' issues
+(`docs/engine.md`, Its writes), and the repositories its workers clone, since an issue in a project's tracker or
+repository is most likely that project's. The answer is `{ "projects": [{ projectId, confidence }] }`, kept as a
+segment's attributions are, surest first; an answer naming none reads as an item no project is about. The item joins
+each project as Elysia's, the surest first, so the surest leads it, and whatever anyone else decided about its projects
+or its lead stands (`docs/action-items.md`, Projects and the lead). What it gives is one topic, titled as the item, with
+the projects it guessed. A deleted or dismissed item skips the step, as does a workspace with no project.
 
 **What it logs.** Counts, line and message counts, and storage paths, never a title or a word that was said.
 

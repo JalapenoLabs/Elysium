@@ -10,3 +10,12 @@ export function getMembershipChanges(current: string[], next: string[]) {
     removed: current.filter((id) => !nextIds.has(id)),
   } as const
 }
+
+// The lead once a picker's selection becomes `projectIds`: the lead stays while it is still one of
+// them, and otherwise the first of them leads, or none when none is left.
+export function getLeadAfter(leadProjectId: string | null, projectIds: string[]) {
+  if (leadProjectId && projectIds.includes(leadProjectId)) {
+    return leadProjectId
+  }
+  return projectIds[0] ?? null
+}

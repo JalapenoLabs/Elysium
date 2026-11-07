@@ -11,6 +11,8 @@
 //! topics are runs of messages rather than stretches of time. A conversation's answer also names
 //! the promises its person made in it ("I'll let you know here when it's live"), each by the
 //! message it was made in, for its Project Manager to follow up (`docs/engine.md`, Follow-ups).
+//! An action item that arrived in no project is read the same way, without segments: its answer
+//! names the projects it belongs to, surest first ([`parse_item_answer`]), the surest to lead it.
 //! Nothing either answer says is taken on trust: only segments that lie inside the meeting or the
 //! conversation, in order and without overlapping, are kept, only attributions to projects that
 //! were offered, and only promises made in a message that was shown, so a model's mistake can
@@ -363,6 +365,117 @@ fn fit_to_budget(
     shortened
 }
 
+/// How much of an action item's notes its prompt shows. An item's notes are the person's or a
+/// provider's, and its title and issue carry most of what places it.
+const ITEM_NOTES_CHARACTERS: usize = 2_000;
+
+/// The most issues an item's prompt names. An item follows one or two; more are pull requests.
+const ITEM_ISSUES_MAX: usize = 10;
+
+/// An action item's attribution turn's instructions: the projects it belongs to, surest first.
+pub const ITEM_SYSTEM_PROMPT: &str = "\
+You say which of the listed projects an action item belongs to: the work it asks for, and the \
+issue it follows when it has one. Answer with one JSON object and nothing else: \
+{\"projects\": [{\"projectId\": string, \"confidence\": number}]}. \
+Name only projects from the list, by their id, with a confidence from 0 to 1, surest first. The \
+surest leads the item, so name first the project whose people would do the work. An issue in the \
+place a project files its issues, or in one of its repositories, is very likely that project's. \
+Leave projects empty when no listed project is about it.";
+
+/// An action item as its attribution prompt describes it.
+#[derive(Debug, Clone, Copy)]
+pub struct ItemContext<'item> {
+    pub title: &'item str,
+    pub notes: &'item str,
+    /// The issues and pull requests it follows, its primary first.
+    pub issues: &'item [ItemIssue],
+}
+
+/// An issue an item follows, as the prompt names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemIssue {
+    /// The provider's own name, such as `Jira`.
+    pub provider: String,
+    /// `ELY-12`, or `owner/name#12`.
+    pub key: String,
+    pub title: String,
+    pub url: String,
+    /// Where it was filed: a Jira project key, a GitHub repository, a YouTrack project.
+    pub place: Option<String>,
+}
+
+/// Where a project's work is, which places an issue best: where it files its issues, such as
+/// `Jira ELY`, and the repositories its workers clone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectWork {
+    pub project_id: Uuid,
+    pub issues_in: Option<String>,
+    pub repositories: Vec<String>,
+}
+
+/// An action item's attribution turn's prompt: the item, the issues it follows, every project,
+/// and where each project's work is.
+pub fn item_prompt(
+    item: ItemContext<'_>,
+    projects: &[ProjectChoice],
+    work: &[ProjectWork],
+) -> String {
+    let mut prompt = String::new();
+    let _ = writeln!(
+        prompt,
+        "Action item: {}",
+        one_line(item.title, TITLE_CHARACTERS)
+    );
+    let notes = truncated(item.notes.trim(), ITEM_NOTES_CHARACTERS);
+    if !notes.is_empty() {
+        let _ = writeln!(prompt, "Notes:\n{notes}");
+    }
+    if !item.issues.is_empty() {
+        prompt.push_str("\nIt follows:\n");
+    }
+    for issue in item.issues.iter().take(ITEM_ISSUES_MAX) {
+        let title = one_line(&issue.title, TITLE_CHARACTERS);
+        let _ = match &issue.place {
+            Some(place) => writeln!(
+                prompt,
+                "- {} {} in {place}: {title} ({})",
+                issue.provider, issue.key, issue.url
+            ),
+            None => writeln!(
+                prompt,
+                "- {} {}: {title} ({})",
+                issue.provider, issue.key, issue.url
+            ),
+        };
+    }
+    push_projects(&mut prompt, projects);
+
+    // Within the projects' own budget, as the project list is.
+    let mut work_lines = String::new();
+    for project in work {
+        let mut whereabouts: Vec<String> = Vec::new();
+        if let Some(issues_in) = &project.issues_in {
+            whereabouts.push(format!("files issues in {issues_in}"));
+        }
+        if !project.repositories.is_empty() {
+            whereabouts.push(format!("repositories {}", project.repositories.join(", ")));
+        }
+        if whereabouts.is_empty() {
+            continue;
+        }
+        let line = format!("- {}: {}\n", project.project_id, whereabouts.join("; "));
+        if work_lines.len() + line.len() > PROJECTS_BUDGET_BYTES {
+            break;
+        }
+        work_lines.push_str(&line);
+    }
+    if !work_lines.is_empty() {
+        prompt.push_str("\nWhere each project's work is:\n");
+        prompt.push_str(&work_lines);
+    }
+    prompt
+}
+
 /// Why an answer could not be used at all.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AnswerError {
@@ -389,6 +502,14 @@ struct AnswerSegment {
     title: String,
     #[serde(default)]
     summary: String,
+    #[serde(default)]
+    projects: Vec<AnswerProject>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ItemAnswer {
+    /// Optional, so an answer that names no project reads as an item no project is about.
     #[serde(default)]
     projects: Vec<AnswerProject>,
 }
@@ -586,6 +707,25 @@ pub fn parse_answer(
         return Err(AnswerError::Empty);
     }
     Ok(segments)
+}
+
+/// The projects in an action item's answer that hold up, surest first, as [`kept_projects`] keeps
+/// a segment's: offered, each once, sure enough. An answer naming none reads, as an item no project
+/// is about.
+///
+/// # Errors
+/// [`AnswerError`] when the answer holds no JSON object or is not the asked-for shape.
+pub fn parse_item_answer(
+    answer: &str,
+    offered: &[ProjectChoice],
+) -> Result<Vec<SegmentProject>, AnswerError> {
+    let json = json_object(answer).ok_or(AnswerError::NoJson)?;
+    let parsed: ItemAnswer =
+        serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
+    let mut projects = kept_projects(parsed.projects, offered);
+    // Stable, so the answer's own order breaks a tie.
+    projects.sort_by(|left, right| right.confidence.total_cmp(&left.confidence));
+    Ok(projects)
 }
 
 /// The attributions in `answered` that hold up: to projects in `offered`, each once, with a
@@ -1087,6 +1227,105 @@ mod tests {
             assert!(promise.summary.chars().count() <= SUMMARY_MAX_CHARACTERS);
             assert!(promise.summary.ends_with('…'));
         }
+    }
+
+    #[test]
+    fn an_items_prompt_names_its_issues_and_where_each_projects_work_is() {
+        let website = project("Website");
+        let launch = project("Launch");
+        let issues = [ItemIssue {
+            provider: "Jira".to_owned(),
+            key: "ELY-12".to_owned(),
+            title: "Fix the login".to_owned(),
+            url: "https://acme.atlassian.net/browse/ELY-12".to_owned(),
+            place: Some("ELY".to_owned()),
+        }];
+        let work = [
+            ProjectWork {
+                project_id: website.id,
+                issues_in: Some("Jira ELY".to_owned()),
+                repositories: vec!["https://github.com/acme/site".to_owned()],
+            },
+            // A project with nowhere named is listed among the projects alone.
+            ProjectWork {
+                project_id: launch.id,
+                issues_in: None,
+                repositories: Vec::new(),
+            },
+        ];
+        let prompt = item_prompt(
+            ItemContext {
+                title: "Fix the login",
+                notes: "Safari logs people out.",
+                issues: &issues,
+            },
+            &[website.clone(), launch.clone()],
+            &work,
+        );
+
+        assert!(
+            prompt.starts_with("Action item: Fix the login\nNotes:\nSafari logs people out.\n")
+        );
+        assert!(prompt.contains(
+            "- Jira ELY-12 in ELY: Fix the login (https://acme.atlassian.net/browse/ELY-12)"
+        ));
+        assert!(prompt.contains(&format!("- {}: Website (Website description)", website.id)));
+        assert!(prompt.contains(&format!(
+            "- {}: files issues in Jira ELY; repositories https://github.com/acme/site",
+            website.id
+        )));
+        let described = prompt
+            .split("Where each project's work is:")
+            .nth(1)
+            .expect("a section");
+        assert!(!described.contains(&launch.id.to_string()));
+    }
+
+    #[test]
+    fn an_items_answer_keeps_offered_projects_surest_first() {
+        let website = project("Website");
+        let launch = project("Launch");
+        let offered = [website.clone(), launch.clone()];
+        let answer = format!(
+            "Here you go: {{\"projects\": [\
+             {{\"projectId\": \"{website}\", \"confidence\": 0.5}}, \
+             {{\"projectId\": \"{launch}\", \"confidence\": 1.4}}, \
+             {{\"projectId\": \"{launch}\", \"confidence\": 0.2}}, \
+             {{\"projectId\": \"{unknown}\", \"confidence\": 0.9}}]}}",
+            website = website.id,
+            launch = launch.id,
+            unknown = Uuid::now_v7(),
+        );
+        let projects = parse_item_answer(&answer, &offered).expect("reads");
+        // Clamped to 1, the repeat and the unoffered project dropped, the surest first.
+        assert_eq!(
+            projects,
+            vec![
+                SegmentProject {
+                    project_id: launch.id,
+                    confidence: 1.0,
+                },
+                SegmentProject {
+                    project_id: website.id,
+                    confidence: 0.5,
+                },
+            ]
+        );
+
+        // An item no project is about reads, with or without the field.
+        assert_eq!(
+            parse_item_answer("{\"projects\": []}", &offered),
+            Ok(Vec::new())
+        );
+        assert_eq!(parse_item_answer("{}", &offered), Ok(Vec::new()));
+        assert_eq!(
+            parse_item_answer("no idea", &offered),
+            Err(AnswerError::NoJson)
+        );
+        assert!(matches!(
+            parse_item_answer("{\"projects\": \"website\"}", &offered),
+            Err(AnswerError::Shape(_))
+        ));
     }
 
     #[test]

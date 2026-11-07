@@ -53,6 +53,7 @@ mod tests {
             .with_timezone(&Utc);
         ActionItem {
             created_by: TEST_PERSON_ID,
+            lead_project_id: None,
             id: Uuid::now_v7(),
             title: title.to_owned(),
             notes: String::new(),

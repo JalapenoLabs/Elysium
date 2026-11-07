@@ -19,6 +19,8 @@ use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
+use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::action_item_attribution;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::page::{self, PageEdit};
@@ -29,7 +31,7 @@ use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, Tim
 use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::models::work_batch::{self, BatchState, Priority};
 use crate::realtime::EventBus;
-use crate::test_support::{TEST_PERSON_ID, migrated_database};
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 use crate::tools::grants::Grants;
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -524,6 +526,74 @@ fn submission(record_ids: Vec<Uuid>) -> Submission {
         record_ids,
         action_item_ids: Vec::new(),
     }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn only_the_lead_projects_project_manager_submits_a_batch_for_an_item() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let website = project_named(&mut connection, "Website").await;
+    let mut both = vec![launch, website];
+    both.sort_unstable();
+    let now = Utc::now();
+    let item = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Fix the login".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: both.clone(),
+            initiative_ids: Vec::new(),
+        },
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("created")
+    .record;
+    // In both, led by the first.
+    let (lead, other) = (both[0], both[1]);
+    assert_eq!(item.lead_project_id, Some(lead));
+    // Something on the other project wakes its Project Manager, whose turn submits.
+    let record = segment(&mut connection, "the login").await;
+    attribution::attribute(&mut connection, record, other, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, other, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let for_item = Submission {
+        action_item_ids: vec![item.id],
+        ..submission(Vec::new())
+    };
+
+    // The other project's Project Manager is told whose the item is and how that changes.
+    let refused = batches::submit(&mut connection, &events, other, turn.id, for_item.clone())
+        .await
+        .expect_err("another project leads it");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    let lead_name = project::find(&mut connection, lead)
+        .await
+        .expect("a project")
+        .name;
+    assert!(reason.contains(&format!("led by the project {lead_name}")));
+
+    // Once a person makes its project the lead, its batch is taken.
+    action_item_attribution::set_lead(&mut connection, item.id, other, TEST_PERSON, now)
+        .await
+        .expect("led");
+    let batch = batches::submit(&mut connection, &events, other, turn.id, for_item)
+        .await
+        .expect("submitted");
+    assert_eq!(batch.action_items(), vec![item.id]);
 }
 
 #[tokio::test]

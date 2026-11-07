@@ -11,6 +11,7 @@ import {
   LINK_PROVIDERS,
 } from '../../api/routes/actionItemRoutes'
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
+import { formatPercent } from '../../format/numbers'
 import { initiativeStateLabelKeys } from '../Initiatives/initiativePresentation'
 import { priorityLabelKeys, stateLabelKeys } from './actionItemPresentation'
 import { providerLabelKeys } from './linkPresentation'
@@ -48,6 +49,17 @@ function readString(data: unknown, key: string) {
   }
   const value = data[key]
   if (typeof value === 'string') {
+    return value
+  }
+  return null
+}
+
+function readNumber(data: unknown, key: string) {
+  if (!isRecord(data)) {
+    return null
+  }
+  const value = data[key]
+  if (typeof value === 'number') {
     return value
   }
   return null
@@ -193,16 +205,20 @@ const describeByKind = {
     summary: t('history.commentDeleted'),
     details: [ readString(entry.data, 'body') ?? '' ].filter(Boolean),
   }),
-  project_added: (entry, context, t) => ({
-    summary: t('history.projectAdded', {
-      name: lookupName(
-        context.projectNames,
-        readString(entry.data, 'projectId'),
-        t('history.values.deletedProject'),
-      ),
-    }),
-    details: [],
-  }),
+  project_added: (entry, context, t) => {
+    const name = lookupName(
+      context.projectNames,
+      readString(entry.data, 'projectId'),
+      t('history.values.deletedProject'),
+    )
+    // Only the attribution step guesses; everyone else's choice is certain and says nothing more.
+    const confidence = readNumber(entry.data, 'confidence')
+    if (confidence === null || confidence >= 1) {
+      return { summary: t('history.projectAdded', { name }), details: []}
+    }
+    const percent = formatPercent(Math.max(confidence, 0))
+    return { summary: t('history.projectGuessed', { name, percent }), details: []}
+  },
   project_removed: (entry, context, t) => ({
     summary: t('history.projectRemoved', {
       name: lookupName(
@@ -213,6 +229,18 @@ const describeByKind = {
     }),
     details: [],
   }),
+  lead_project_changed: (entry, context, t) => {
+    const projectId = readString(entry.data, 'to')
+    if (!projectId) {
+      return { summary: t('history.leadProjectCleared'), details: []}
+    }
+    return {
+      summary: t('history.leadProjectChanged', {
+        name: lookupName(context.projectNames, projectId, t('history.values.deletedProject')),
+      }),
+      details: [],
+    }
+  },
   initiative_joined: (entry, context, t) => ({
     summary: context.subject === 'item'
       ? t('history.joinedInitiative', {
