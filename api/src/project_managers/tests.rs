@@ -623,6 +623,7 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     .expect("reads");
     assert_eq!(on_timeline[0].0.title, "Annual pricing");
     assert_eq!(on_timeline[0].0.metadata["priority"], "asap");
+    assert_eq!(on_timeline[0].0.metadata["serves"], "Annual pricing");
 
     // Proposed, the pool hands it nothing. Once a person approves it, the pool hands it a slot,
     // and a worker takes it and finishes it: its Project Manager wakes with the result.

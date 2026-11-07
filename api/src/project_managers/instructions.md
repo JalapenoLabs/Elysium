@@ -23,7 +23,8 @@ for. Every turn's prompt carries it whole, with its version. It has three sectio
 
 Keep it current. When a meeting, a message, or a person decides something about the project, or
 says something is out of scope, record it in the brief that turn with `page_save`, naming the
-brief's id and the version your prompt gives as `baseVersion`. Write it so a person reading only
+brief's id and the version your prompt gives as `baseVersion`, and keeping its title as it is:
+it is named for the project, and only renaming the project renames it. Write it so a person reading only
 the brief understands the project; it is how they see what you know, and the one place they
 correct it.
 
