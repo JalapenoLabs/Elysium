@@ -174,9 +174,9 @@ pub fn decide(roots: &[Root], parents: &[Parent]) -> Result<Lineage, Refusal> {
 /// Project Manager (`project_manager_wakes` of kind message).
 #[derive(Debug, Clone, Copy)]
 pub struct Provenance<'a> {
-    pub record_ids: &'a [Uuid],
-    pub action_item_ids: &'a [Uuid],
-    pub message_ids: &'a [Uuid],
+    pub records: &'a [Uuid],
+    pub action_items: &'a [Uuid],
+    pub messages: &'a [Uuid],
 }
 
 /// Whether each thing `provenance` names traces to a person, one [`Root`] each. Something that
@@ -191,18 +191,18 @@ pub async fn roots(
     provenance: Provenance<'_>,
 ) -> QueryResult<Vec<Root>> {
     let record_owners: Vec<Uuid> = timeline_records::table
-        .filter(timeline_records::id.eq_any(provenance.record_ids))
+        .filter(timeline_records::id.eq_any(provenance.records))
         .select(timeline_records::created_by)
         .load(connection)
         .await?;
     let message_authors: Vec<Uuid> = project_manager_wakes::table
-        .filter(project_manager_wakes::id.eq_any(provenance.message_ids))
+        .filter(project_manager_wakes::id.eq_any(provenance.messages))
         .filter(project_manager_wakes::project_id.eq(project_id))
         .filter(project_manager_wakes::kind.eq(WakeKind::Message))
         .select(project_manager_wakes::created_by)
         .load(connection)
         .await?;
-    let item_events = item_events(connection, provenance.action_item_ids).await?;
+    let item_events = item_events(connection, provenance.action_items).await?;
 
     // Who wrote, owns, or decided each thing named, read at once to learn which are people.
     let mut users_named: Vec<Uuid> = Vec::new();

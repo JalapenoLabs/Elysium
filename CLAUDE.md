@@ -519,6 +519,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   every turn (`claude -p --resume`) and kept indefinitely, relying on Claude Code's compaction. It plans the project's
   work and submits it as work batches (`work_batches`: a goal, repositories, ASAP, normal, or a scheduled time, and its
   provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+- Every batch's origin (human-rooted or found) and generation (how many batches led to it) are worked out from its
+  provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
+  limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
+  generations.
 - It is woken by a record newly attributed to its project, a batch's result, a promise, a person, and Elysia, each
   written as a wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time
   (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.

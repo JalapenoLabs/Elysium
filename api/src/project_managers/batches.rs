@@ -221,9 +221,9 @@ pub async fn submit(
     check(&submission, Utc::now()).map_err(BatchError::Refused)?;
     refuse_unknown_provenance(connection, project_id, &submission).await?;
     let provenance = Provenance {
-        record_ids: &submission.record_ids,
-        action_item_ids: &submission.action_item_ids,
-        message_ids: &submission.message_ids,
+        records: &submission.record_ids,
+        action_items: &submission.action_item_ids,
+        messages: &submission.message_ids,
     };
     let roots = lineage::roots(connection, project_id, provenance).await?;
     let parents = lineage::parents(

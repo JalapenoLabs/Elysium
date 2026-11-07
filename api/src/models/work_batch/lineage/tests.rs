@@ -220,9 +220,9 @@ async fn roots_of(
     message_ids: &[Uuid],
 ) -> Vec<Root> {
     let provenance = Provenance {
-        record_ids,
-        action_item_ids,
-        message_ids,
+        records: record_ids,
+        action_items: action_item_ids,
+        messages: message_ids,
     };
     roots(connection, project_id, provenance)
         .await

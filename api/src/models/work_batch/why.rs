@@ -78,9 +78,7 @@ pub struct Why {
 /// Propagates any database error.
 pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> QueryResult<Why> {
     let record_ids = batch.source_records();
-    let message_ids = batch.source_messages();
     let item_ids = batch.action_items();
-    let parent_ids = batch.parents();
 
     let mut causes: HashMap<Uuid, Cause> = timeline_records::table
         .left_join(knowledge_documents::table)
@@ -108,6 +106,33 @@ pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> Quer
             },
         )
         .collect();
+    let mut items: HashMap<Uuid, Item> = action_items::table
+        .filter(action_items::id.eq_any(&item_ids))
+        .filter(action_items::deleted_at.is_null())
+        .select((action_items::id, action_items::title, action_items::state))
+        .load::<(Uuid, String, ActionItemState)>(connection)
+        .await?
+        .into_iter()
+        .map(|(id, title, state)| (id, Item { id, title, state }))
+        .collect();
+
+    Ok(Why {
+        causes: record_ids
+            .iter()
+            .filter_map(|id| causes.remove(id))
+            .collect(),
+        messages: messages(connection, batch).await?,
+        items: item_ids.iter().filter_map(|id| items.remove(id)).collect(),
+        parents: parents(connection, batch).await?,
+    })
+}
+
+/// The messages to `batch`'s Project Manager that called for it, in the order it named them.
+async fn messages(
+    connection: &mut AsyncPgConnection,
+    batch: &WorkBatch,
+) -> QueryResult<Vec<Message>> {
+    let message_ids = batch.source_messages();
     let mut messages: HashMap<Uuid, Message> = project_manager_wakes::table
         .inner_join(users::table)
         .filter(project_manager_wakes::id.eq_any(&message_ids))
@@ -133,15 +158,18 @@ pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> Quer
             (id, message)
         })
         .collect();
-    let mut items: HashMap<Uuid, Item> = action_items::table
-        .filter(action_items::id.eq_any(&item_ids))
-        .filter(action_items::deleted_at.is_null())
-        .select((action_items::id, action_items::title, action_items::state))
-        .load::<(Uuid, String, ActionItemState)>(connection)
-        .await?
-        .into_iter()
-        .map(|(id, title, state)| (id, Item { id, title, state }))
-        .collect();
+    Ok(message_ids
+        .iter()
+        .filter_map(|id| messages.remove(id))
+        .collect())
+}
+
+/// The batches `batch` was planned from, in the order it keeps them.
+async fn parents(
+    connection: &mut AsyncPgConnection,
+    batch: &WorkBatch,
+) -> QueryResult<Vec<Parent>> {
+    let parent_ids = batch.parents();
     let mut parents: HashMap<Uuid, Parent> = work_batches::table
         .filter(work_batches::id.eq_any(&parent_ids))
         .select((
@@ -163,20 +191,8 @@ pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> Quer
             (id, parent)
         })
         .collect();
-
-    Ok(Why {
-        causes: record_ids
-            .iter()
-            .filter_map(|id| causes.remove(id))
-            .collect(),
-        messages: message_ids
-            .iter()
-            .filter_map(|id| messages.remove(id))
-            .collect(),
-        items: item_ids.iter().filter_map(|id| items.remove(id)).collect(),
-        parents: parent_ids
-            .iter()
-            .filter_map(|id| parents.remove(id))
-            .collect(),
-    })
+    Ok(parent_ids
+        .iter()
+        .filter_map(|id| parents.remove(id))
+        .collect())
 }

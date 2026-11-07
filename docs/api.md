@@ -511,8 +511,10 @@ timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` 
 `promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
 `scheduled`), `scheduledFor`, `state` (`proposed`, `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`,
 `cancelled`, `rejected`),
-`result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`,
-`createdAt`, `startedAt`, and `finishedAt`, as `/api/v1/work-batches` answers it. A `Promise` has `id`, `projectId`,
+`result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `sourceMessageIds` (the messages to its Project Manager that
+called for it), `origin` (`human_rooted` or `found`), `generation` (how many batches led to it), `parentBatchIds` (the
+batches it was planned from), `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`, `createdAt`, `startedAt`, and
+`finishedAt`, as `/api/v1/work-batches` answers it (`docs/engine.md`, Origins and generations). A `Promise` has `id`, `projectId`,
 `state` (`waiting`, `due`, `drafted`, `kept`, `dismissed`), `recipient`, `summary` (what was promised), `madeIn` (`{
 recordId, sourceKind, title, url, occurredAt, personId }`, the message it was made in and whose timeline it is on, or
 null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
@@ -548,14 +550,17 @@ has looked, when `size` is `null` too unless an admin chose one), and `usageHeld
 at its usage limit. `inSlots` lists the batches holding slots, in the order they got them; `next` every batch the pool
 may hand a slot now, first first; `scheduled` the scheduled batches not yet due, soonest first; `paused` the paused
 ones; and `proposed` those waiting for a person's approval, oldest first, which the pool hands nothing. Each entry is
-`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt }`, without its goal;
+`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt, origin, generation
+}`, without its goal;
 at most the 1,000 oldest waiting batches are read, and apart from them at most the 1,000 oldest proposed.
 
 `GET /work-batches/{id}` answers `{ batch, why, history }`: the batch whole, as `GET /projects/{id}/project-manager`
-lists it; `why`, `{ records, actionItems }`, the timeline records its Project Manager named as its cause, each `{ id,
-sourceKind, title, occurredAt, documentId }` with `documentId` the knowledge base's document a member opens it by
-(`null` before it is indexed), and the action items it works on, each `{ id, title, state }`, in the order it named
-them, leaving out any gone since; and its history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
+lists it; `why`, `{ records, messages, actionItems, parents }`, the timeline records its Project Manager named as its
+cause, each `{ id, sourceKind, title, occurredAt, documentId }` with `documentId` the knowledge base's document a member
+opens it by (`null` before it is indexed), the messages sent to its Project Manager that called for it, each `{ id,
+authorId, author, body, sentAt }`, the action items it works on, each `{ id, title, state }`, in the order it named
+them, leaving out any gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
+history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
 (`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
 log }`: what its worker said and which tools it called, one line each, scrubbed of its secrets, the newest 64 KiB,
