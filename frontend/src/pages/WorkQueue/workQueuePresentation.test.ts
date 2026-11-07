@@ -55,9 +55,15 @@ describe('availableActions', () => {
   })
 
   it('offers nothing once a worker started on it or it ended', () => {
-    for (const state of [ 'running', 'succeeded', 'failed', 'cancelled' ] as const) {
+    for (const state of [ 'running', 'succeeded', 'failed', 'cancelled', 'rejected' ] as const) {
       expect(availableActions(entry({ state }), NOW)).toEqual([])
     }
+  })
+
+  it('offers a proposal only a decision, never a place in the queue', () => {
+    expect(availableActions(entry({ state: 'proposed' }), NOW)).toEqual([ 'approve', 'reject' ])
+    const scheduled = entry({ state: 'proposed', priority: 'scheduled', scheduledFor: '2026-11-05T09:00:00Z' })
+    expect(availableActions(scheduled, NOW)).toEqual([ 'approve', 'reject' ])
   })
 })
 
@@ -95,6 +101,42 @@ describe('describeHistoryEntry', () => {
       createdAt: '2026-11-04T11:00:00Z',
     })
     expect(finished.succeeded).toBe(false)
+  })
+
+  it('names the fields a person changed before approving, priority and its time as one', () => {
+    const edited = describeHistoryEntry({
+      id: 'event-5',
+      kind: 'edited',
+      data: {
+        before: { title: 'Pricing', priority: 'normal', scheduledFor: null },
+        after: { title: 'Annual pricing', priority: 'scheduled', scheduledFor: '2026-11-05T09:00:00Z' },
+      },
+      createdBy: 'person-1',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(edited.labelKey).toBe('history.kinds.edited')
+    expect(edited.edited).toEqual([ 'title', 'priority' ])
+
+    const unreadable = describeHistoryEntry({
+      id: 'event-6',
+      kind: 'edited',
+      data: {},
+      createdBy: 'person-1',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(unreadable.edited).toEqual([])
+  })
+
+  it('carries why a person rejected a proposal', () => {
+    const rejected = describeHistoryEntry({
+      id: 'event-7',
+      kind: 'rejected',
+      data: { reason: 'Not this quarter.' },
+      createdBy: 'person-1',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(rejected.labelKey).toBe('history.kinds.rejected')
+    expect(rejected.note).toBe('Not this quarter.')
   })
 
   it('keeps an entry of a kind this build does not know, without words for it', () => {

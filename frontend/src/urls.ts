@@ -41,6 +41,8 @@ export const UrlTree = {
   // The worker pool's queue, and each batch's own page.
   workQueue: '/work-queue',
   workBatchView: '/work-queue/:batchId',
+  // Where a person edits a proposed batch, and approves it as they save.
+  workBatchEdit: '/work-queue/:batchId/edit',
   // The knowledge base: it opens on its pages, and beside them are its search, asking it, its
   // learnings, and every document a citation opens.
   knowledge: '/knowledge',
@@ -244,6 +246,10 @@ export function getRunViewUrl(runId: string) {
 
 export function getWorkBatchViewUrl(batchId: string) {
   return UrlTree.workBatchView.replace(':batchId', batchId)
+}
+
+export function getWorkBatchEditUrl(batchId: string) {
+  return UrlTree.workBatchEdit.replace(':batchId', batchId)
 }
 
 export function getMeetingUrl(meetingId: string) {

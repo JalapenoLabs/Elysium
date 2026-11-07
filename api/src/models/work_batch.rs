@@ -9,12 +9,14 @@
 //!
 //! # Where a batch stands
 //!
-//! A batch waits `queued` until the pool gives it a slot (`assigned`, [`assign`]), and a worker
-//! starts on it (`running`, [`start`]) and ends it `succeeded` or `failed` ([`finish`]), which
-//! wakes its project's Project Manager in the same transaction, and on success makes the promises
-//! waiting on it due. While it waits for a worker to
-//! start it, a person, Elysia, or its Project Manager may hold it back (`paused`) or withdraw it
-//! (`cancelled`, [`cancel`]).
+//! A batch starts `proposed` and waits for a person to approve it, edit and approve it, or
+//! reject it with a reason ([`approval`]); the pool never gives a proposed batch a slot, since
+//! [`assign`] takes only what is queued. Approved, it waits `queued` until the pool gives it a slot
+//! (`assigned`, [`assign`]), and a worker starts on it (`running`, [`start`]) and ends it
+//! `succeeded` or `failed` ([`finish`]), which wakes its project's Project Manager in the same
+//! transaction, and on success makes the promises waiting on it due. While it waits for a worker
+//! to start it, a person, Elysia, or its Project Manager may hold a queued batch back (`paused`) or
+//! withdraw any waiting batch (`cancelled`, [`cancel`]).
 //!
 //! # Slots and their leases
 //!
@@ -34,8 +36,9 @@
 //! # History
 //!
 //! Every change to a batch is written to its history (`work_batch_events`) in the transaction
-//! that makes it, with who made it: its submission, every change a person, Elysia, or its Project
-//! Manager made while it waited, and each move the pool and its worker made ([`EventKind`]).
+//! that makes it, with who made it: its submission, a person's decision on it, every change a
+//! person, Elysia, or its Project Manager made while it waited, and each move the pool and its
+//! worker made ([`EventKind`]).
 
 use chrono::{DateTime, TimeDelta, Utc};
 use diesel::prelude::*;
@@ -44,7 +47,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use self::approval_item::Cause;
 use crate::database::schema::{work_batch_events, work_batches};
+use crate::models::action_item::ActionItem;
+use crate::models::action_item_event::Recorded;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::{project_manager, promise};
 use crate::runner::configuration::Checkout;
@@ -88,6 +94,8 @@ pub enum Priority {
 #[ExistingTypePath = "crate::database::schema::sql_types::WorkBatchState"]
 #[serde(rename_all = "snake_case")]
 pub enum BatchState {
+    /// Submitted by its Project Manager; waits for a person to approve it before it may queue.
+    Proposed,
     /// Waiting for a slot in the worker pool.
     Queued,
     /// Held back by a person, Elysia, or its Project Manager; it waits until resumed.
@@ -100,12 +108,17 @@ pub enum BatchState {
     Failed,
     /// Withdrawn before a worker started on it.
     Cancelled,
+    /// A person declined it while it was proposed, saying why; it never queued.
+    Rejected,
 }
 
 impl BatchState {
-    /// Whether a batch in this state waits for a worker, so it may still be paused or cancelled.
+    /// Whether a batch in this state waits for a worker, so it may still be withdrawn.
     pub const fn is_waiting(self) -> bool {
-        matches!(self, Self::Queued | Self::Paused | Self::Assigned)
+        matches!(
+            self,
+            Self::Proposed | Self::Queued | Self::Paused | Self::Assigned
+        )
     }
 }
 
@@ -227,8 +240,19 @@ pub struct Slot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
-    /// Its Project Manager submitted it. No data.
+    /// Its Project Manager submitted it, proposed. No data.
     Submitted,
+    /// It was waiting for a slot when proposals began, and went back for a person's approval:
+    /// `{ from }`, the state it left. Only the migration that began them writes it.
+    HeldForApproval,
+    /// A person changed it before approving it: `{ before, after }`, each holding only the fields
+    /// that changed (`title`, `goal`, `repositories`, and `priority` with `scheduledFor`).
+    Edited,
+    /// A person approved it, so it waits for a slot. No data.
+    Approved,
+    /// A person declined it: `{ reason }`, which its Project Manager is told. This is the feedback
+    /// a rejection leaves until a store of feedback exists (`docs/self-improvement.md`).
+    Rejected,
     /// Someone asked for it to run next. No data.
     Pinned,
     /// It went back to its place in the queue. No data.
@@ -263,6 +287,10 @@ impl EventKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Submitted => "submitted",
+            Self::HeldForApproval => "held_for_approval",
+            Self::Edited => "edited",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
             Self::Pinned => "pinned",
             Self::Unpinned => "unpinned",
             Self::Reprioritized => "reprioritized",
@@ -367,19 +395,30 @@ pub fn check_schedule(
     }
 }
 
-/// Stores a new batch, queued, and begins its history.
+/// A batch as a write left it, with its project's approval item when the write changed that too,
+/// for the caller to announce once the write commits.
+#[derive(Debug)]
+pub struct Written {
+    pub batch: WorkBatch,
+    pub approval_item: Option<Recorded<ActionItem>>,
+}
+
+/// Stores a new batch, proposed, begins its history, and raises or updates its project's approval
+/// item, in one transaction.
 ///
 /// # Errors
 /// Propagates any database error, including a field outside its column's checks.
 pub async fn submit(
     connection: &mut AsyncPgConnection,
     batch: NewWorkBatch,
-) -> QueryResult<WorkBatch> {
+) -> QueryResult<Written> {
     connection
         .transaction(async |connection| {
             let by = batch.created_by;
+            // Named rather than left to the column's default: nothing a Project Manager submits
+            // may reach the queue without a person.
             let submitted = diesel::insert_into(work_batches::table)
-                .values(batch)
+                .values((batch, work_batches::state.eq(BatchState::Proposed)))
                 .returning(WorkBatch::as_returning())
                 .get_result(connection)
                 .await?;
@@ -391,7 +430,19 @@ pub async fn submit(
                 by,
             )
             .await?;
-            Ok(submitted)
+            let actor = approval_item::actor_for(by, submitted.project_id);
+            let approval_item = approval_item::refresh(
+                connection,
+                submitted.project_id,
+                Cause::Proposed,
+                actor,
+                Utc::now(),
+            )
+            .await?;
+            Ok(Written {
+                batch: submitted,
+                approval_item,
+            })
         })
         .await
 }
@@ -610,7 +661,8 @@ async fn reprioritize(
 ) -> Result<bool, ChangeError> {
     if !matches!(batch.state, BatchState::Queued | BatchState::Paused) {
         return Err(ChangeError::Refused(format!(
-            "batch {} is {}; only a queued or paused batch changes priority",
+            "batch {} is {}; only a queued or paused batch changes priority, and a proposed \
+             one's is changed as a person approves it",
             batch.id,
             state_words(batch.state)
         )));
@@ -662,6 +714,16 @@ async fn set_paused(
             json!({ "from": from }),
         ),
         (false, BatchState::Paused) => (BatchState::Queued, EventKind::Resumed, json!({})),
+        // Neither holding a proposal back nor letting it go on is anyone's but the person who
+        // approves it: resuming would queue what nobody approved.
+        (_, BatchState::Proposed) => {
+            return Err(ChangeError::Refused(format!(
+                "batch {} is {}; a person approves or rejects it before it can be paused or \
+                 resumed",
+                batch.id,
+                state_words(from)
+            )));
+        }
         (true, _) => {
             return Err(ChangeError::Refused(format!(
                 "batch {} is {}; only a batch no worker has started on can be paused",
@@ -735,7 +797,8 @@ async fn set_run_next(
 /// Withdraws batch `id`, saying `reason`, as `by`, while no worker has started on it, giving
 /// back the slot it may hold. With `project_id`, only a batch of that project, as its Project
 /// Manager may withdraw its own. Anyone but its Project Manager wakes it with the cancellation in
-/// the same transaction, so it learns its work was withdrawn and why.
+/// the same transaction, so it learns its work was withdrawn and why. A proposed batch withdrawn
+/// leaves its project's approval item one fewer to count.
 ///
 /// # Errors
 /// [`ChangeError::NotFound`] for an unknown batch or one of another project;
@@ -747,7 +810,7 @@ pub async fn cancel(
     project_id: Option<Uuid>,
     reason: &str,
     by: Uuid,
-) -> Result<WorkBatch, ChangeError> {
+) -> Result<Written, ChangeError> {
     connection
         .transaction(async |connection| {
             let batch = lock(connection, id).await?;
@@ -783,7 +846,23 @@ pub async fn cancel(
             if by != PROJECT_MANAGER_USER_ID {
                 project_manager::wake_for_batch(connection, cancelled.project_id, id, by).await?;
             }
-            Ok(cancelled)
+            let approval_item = if batch.state == BatchState::Proposed {
+                let actor = approval_item::actor_for(by, cancelled.project_id);
+                approval_item::refresh(
+                    connection,
+                    cancelled.project_id,
+                    Cause::Settled,
+                    actor,
+                    Utc::now(),
+                )
+                .await?
+            } else {
+                None
+            };
+            Ok(Written {
+                batch: cancelled,
+                approval_item,
+            })
         })
         .await
 }
@@ -1159,6 +1238,7 @@ pub async fn finish(
 /// A state as a refusal says it.
 const fn state_words(state: BatchState) -> &'static str {
     match state {
+        BatchState::Proposed => "proposed, waiting for a person's approval",
         BatchState::Queued => "queued",
         BatchState::Paused => "paused",
         BatchState::Assigned => "waiting for its worker",
@@ -1166,10 +1246,14 @@ const fn state_words(state: BatchState) -> &'static str {
         BatchState::Succeeded => "finished",
         BatchState::Failed => "finished, failed",
         BatchState::Cancelled => "cancelled",
+        BatchState::Rejected => "rejected",
     }
 }
 
+pub mod approval;
+pub mod approval_item;
 pub mod pull_request;
+pub mod why;
 pub mod worker;
 
 #[cfg(test)]

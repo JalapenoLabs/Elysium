@@ -106,6 +106,7 @@ describe('ProjectManagerPanel', () => {
       configurationHold: null,
       turns: [ planned, failed ],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     })
@@ -136,6 +137,7 @@ describe('ProjectManagerPanel', () => {
       configurationHold: null,
       turns: [],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     })
@@ -151,6 +153,7 @@ describe('ProjectManagerPanel', () => {
       configurationHold: null,
       turns: [],
       batches: [],
+      proposed: [],
       promises: [],
       writes: PROPOSING,
     }

@@ -4,13 +4,17 @@ Elysium grows without being updated. It learns how its people like things done a
 time, and when a provider changes underneath a connector, it repairs the connector itself. Behavior lives in
 documents Elysium rewrites, and the fragile part of every connector is code Elysium can fix in place.
 
-This doc is the design. None of it is built; the roadmap is the issues in the Self-improvement milestone.
+This doc is the design. None of it is built; the roadmap is the issues in the Self-improvement milestone. One kind
+of correction is already kept where its feedback will be read: a person rejecting a proposed work batch, whose
+`rejected` entry in the batch's history (`work_batch_events`) holds their reason, names them, and names the batch and
+the Project Manager's turn that proposed it (`docs/engine.md`, Proposed batches).
 
 ## Learning from feedback
 
 - People correct Elysium all the time without saying so: editing a drafted message before sending it, rejecting a
-  changeset or one of its operations, fixing a project attribution, approving or rejecting a transcript correction,
-  telling Elysia "don't do that". Each is recorded as feedback with what it was about.
+  changeset or one of its operations, rejecting a proposed work batch, fixing a project attribution, approving or
+  rejecting a transcript correction, telling Elysia "don't do that". Each is recorded as feedback with what it was
+  about.
 - Agents' standing instructions (Elysia's, the Project Managers', triage's, correction's, segmenting's) are versioned
   documents in the database, seeded from the repository, with history and undo.
 - A scheduled engine workflow distills feedback into changes: to the person's memory and to shared learnings directly,

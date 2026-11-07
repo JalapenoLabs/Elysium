@@ -46,12 +46,14 @@ pub const SERVER: ToolServer = ToolServer {
         and batches. manager_record reads one record in full. manager_pages lists the knowledge \
         base pages linked to the project, its docs, and manager_page reads one. manager_batches \
         lists the batches you submitted and where each stands; check it before submitting, so \
-        no work is submitted twice. manager_submit_batch hands a piece of work to a worker: write its goal \
-        so a worker who has seen nothing else can finish it, and name the records and action \
-        items it came from. Batches wait in one queue for the whole workspace, which a person or \
-        Elysia may reorder or pause. manager_cancel_batch withdraws a batch no worker has started \
-        on yet. A running batch's worker may wait on a question only you or the person can \
-        answer; manager_answer_batch answers it. manager_promises lists what the person promised to tell people once the \
+        no work is submitted twice. manager_submit_batch proposes a piece of work for a worker: \
+        write its goal so a worker who has seen nothing else can finish it, and name the records \
+        and action items it came from. Every batch waits for a person to approve it, edit and \
+        approve it, or reject it with a reason, which wakes you; only then does it wait in the \
+        one queue for the whole workspace, which a person or Elysia may reorder or pause. \
+        manager_cancel_batch withdraws a batch no worker has started on yet. A running batch's \
+        worker may wait on a question only you or the person can answer; manager_answer_batch \
+        answers it. manager_promises lists what the person promised to tell people once the \
         project's work is done; manager_tie_promise ties a promise to the batch or action item \
         that keeps it, and manager_draft_follow_up drafts its follow-up, in the person's voice, \
         once that work is done. A follow-up is never sent until the person sends it. \
@@ -97,27 +99,29 @@ const TOOLS: [Tool; 12] = [
     Tool {
         name: "manager_batches",
         description: "Lists this project's work batches, newest first: each one's id, title, \
-            priority, when it is scheduled, where it stands (queued for a slot, paused by a person \
-            or Elysia, assigned a slot and waiting for its worker, running, succeeded, failed, or \
-            cancelled), and what its worker reported or why it was cancelled. By default every \
-            state; pass states for some.",
+            priority, when it is scheduled, where it stands (proposed and waiting for a person's \
+            approval, queued for a slot, paused by a person or Elysia, assigned a slot and waiting \
+            for its worker, running, succeeded, failed, cancelled, or rejected by a person), and \
+            what its worker reported or why it was cancelled or rejected. By default every state; \
+            pass states for some.",
         input_schema: batches_schema,
         run: |context, scope, arguments| run_batches(context, scope, arguments).boxed(),
     },
     Tool {
         name: "manager_submit_batch",
-        description: "Submits a work batch for a worker: a title, a goal complete enough to \
+        description: "Proposes a work batch for a worker: a title, a goal complete enough to \
             work from alone, the repositories it needs, and a priority, asap, normal, or \
             scheduled with scheduledFor (an ISO 8601 time with its offset). recordIds and \
-            actionItemIds name what called for it. It is put on the project's timeline. \
-            Answers the stored batch.",
+            actionItemIds name what called for it, which the person reads as they decide. It is \
+            put on the project's timeline and waits, proposed, until a person approves it; no \
+            worker starts it before then. Answers the stored batch.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
     },
     Tool {
         name: "manager_cancel_batch",
         description: "Withdraws one of this project's batches that no worker has started on \
-            yet (queued, paused, or assigned), saying why.",
+            yet (proposed, queued, paused, or assigned), saying why.",
         input_schema: cancel_schema,
         run: |context, scope, arguments| run_cancel(context, scope, arguments).boxed(),
     },
@@ -329,8 +333,8 @@ fn batches_schema() -> Value {
                 "items": {
                     "type": "string",
                     "enum": [
-                        "queued", "paused", "assigned", "running", "succeeded", "failed",
-                        "cancelled",
+                        "proposed", "queued", "paused", "assigned", "running", "succeeded",
+                        "failed", "cancelled", "rejected",
                     ],
                 },
                 "minItems": 1,
@@ -728,7 +732,11 @@ async fn run_submit(
     )
     .await
     .map_err(|error| refused_or_internal(scope, "manager.submit_batch", error))?;
-    Ok(json!({ "batch": batch_view(&batch) }))
+    Ok(json!({
+        "batch": batch_view(&batch),
+        "note": "Proposed: it waits for a person to approve it before any worker starts on it. \
+            A rejection wakes you with their reason.",
+    }))
 }
 
 async fn run_cancel(

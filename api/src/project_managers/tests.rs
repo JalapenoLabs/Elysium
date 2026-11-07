@@ -619,7 +619,7 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     )
     .await
     .expect("submitted");
-    assert_eq!(batch.state, BatchState::Queued);
+    assert_eq!(batch.state, BatchState::Proposed);
     assert_eq!(batch.turn_id, Some(turn.id));
     assert_eq!(batch.source_records(), vec![record]);
     let on_timeline = timeline_record::attributed_among(
@@ -632,8 +632,24 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     assert_eq!(on_timeline[0].0.title, "Annual pricing");
     assert_eq!(on_timeline[0].0.metadata["priority"], "asap");
 
-    // The pool hands it a slot, and a worker takes it and finishes it: its Project Manager
-    // wakes with the result.
+    // Proposed, the pool hands it nothing. Once a person approves it, the pool hands it a slot,
+    // and a worker takes it and finishes it: its Project Manager wakes with the result.
+    let nothing = work_batch::assign(&mut connection, &[batch.id], 1, Utc::now())
+        .await
+        .expect("looks");
+    assert!(
+        nothing.is_empty(),
+        "a proposed batch is never handed a slot"
+    );
+    work_batch::approval::approve(
+        &mut connection,
+        batch.id,
+        work_batch::approval::Edits::default(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("approved");
     let slots = work_batch::assign(&mut connection, &[batch.id], 1, Utc::now())
         .await
         .expect("assigns");
@@ -665,7 +681,7 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn a_scheduled_batch_is_stored_with_its_time_and_a_queued_one_can_be_withdrawn() {
+async fn a_scheduled_batch_is_stored_with_its_time_and_a_proposed_one_can_be_withdrawn() {
     let (_url, mut connection) = migrated_database().await;
     let events = EventBus::in_process();
     let launch = project_named(&mut connection, "Launch").await;

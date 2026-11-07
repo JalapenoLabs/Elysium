@@ -93,6 +93,8 @@ pub struct ProjectManagerResponse {
     turns: Vec<TurnResponse>,
     /// Its latest batches, newest first.
     batches: Vec<BatchResponse>,
+    /// Every batch of its waiting for a person's approval, newest first, up to 200.
+    proposed: Vec<BatchResponse>,
     /// Its latest promises, newest first.
     promises: Vec<PromiseResponse>,
     writes: WritesResponse,
@@ -164,6 +166,11 @@ impl From<Snapshot> for ProjectManagerResponse {
                 .collect(),
             batches: snapshot
                 .batches
+                .into_iter()
+                .map(BatchResponse::from)
+                .collect(),
+            proposed: snapshot
+                .proposed
                 .into_iter()
                 .map(BatchResponse::from)
                 .collect(),

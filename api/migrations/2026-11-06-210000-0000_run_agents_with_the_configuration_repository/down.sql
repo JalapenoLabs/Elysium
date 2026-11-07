@@ -1,8 +1,9 @@
 DELETE FROM work_batch_events WHERE kind = 'requeued';
 ALTER TABLE work_batch_events DROP CONSTRAINT work_batch_events_kind_known;
 ALTER TABLE work_batch_events ADD CONSTRAINT work_batch_events_kind_known CHECK (kind IN (
-    'submitted', 'pinned', 'unpinned', 'reprioritized', 'paused', 'resumed', 'cancelled',
-    'assigned', 'unassigned', 'started', 'waiting', 'answered', 'finished'
+    'submitted', 'held_for_approval', 'edited', 'approved', 'rejected', 'pinned', 'unpinned',
+    'reprioritized', 'paused', 'resumed', 'cancelled', 'assigned', 'unassigned', 'started',
+    'waiting', 'answered', 'finished'
 ));
 
 ALTER TABLE work_batches

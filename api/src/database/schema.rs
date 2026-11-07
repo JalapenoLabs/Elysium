@@ -1749,6 +1749,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    work_batch_approval_items (project_id) {
+        project_id -> Uuid,
+        action_item_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     work_batch_events (id) {
         id -> Uuid,
         work_batch_id -> Uuid,
@@ -2061,6 +2073,9 @@ diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
+diesel::joinable!(work_batch_approval_items -> action_items (action_item_id));
+diesel::joinable!(work_batch_approval_items -> projects (project_id));
+diesel::joinable!(work_batch_approval_items -> users (created_by));
 diesel::joinable!(work_batch_events -> users (created_by));
 diesel::joinable!(work_batch_events -> work_batches (work_batch_id));
 diesel::joinable!(work_batch_pull_requests -> timeline_records (timeline_record_id));
@@ -2171,6 +2186,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     update_checks,
     user_events,
     users,
+    work_batch_approval_items,
     work_batch_events,
     work_batch_pull_requests,
     work_batches,

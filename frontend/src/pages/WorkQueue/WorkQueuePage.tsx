@@ -26,9 +26,11 @@ import { useWorkQueueLoader } from '../../hooks/useServerData'
 import { useTabParam } from '../../hooks/useTabParam'
 import { UrlTree } from '../../urls'
 
-const TABS = [ 'queued', 'running', 'scheduled', 'paused' ] as const satisfies readonly WorkQueueList[]
+// Proposed first: it is what waits on the person, and nothing in it runs until they decide.
+const TABS = [ 'proposed', 'queued', 'running', 'scheduled', 'paused' ] as const satisfies readonly WorkQueueList[]
 
 const tabLabelKeys = {
+  proposed: 'tabs.proposed',
   queued: 'tabs.queued',
   running: 'tabs.running',
   scheduled: 'tabs.scheduled',
@@ -37,6 +39,7 @@ const tabLabelKeys = {
 
 // Which part of the queue each tab lists.
 const entriesByList = {
+  proposed: (queue: WorkQueue) => queue.proposed,
   queued: (queue: WorkQueue) => queue.next,
   running: (queue: WorkQueue) => queue.inSlots,
   scheduled: (queue: WorkQueue) => queue.scheduled,
@@ -44,7 +47,8 @@ const entriesByList = {
 } as const satisfies Record<WorkQueueList, (queue: WorkQueue) => WorkQueue['next']>
 
 // `/work-queue`: the worker pool and every Project Manager's batch waiting for it or in it, the
-// queue in the order slots are handed out. A batch's title quotes what was ingested, so a guest,
+// queue in the order slots are handed out, and every batch proposed, waiting for a person to
+// approve it. A batch's title quotes what was ingested, so a guest,
 // whose sidebar has no link here, is sent back to the start.
 export function WorkQueuePage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
@@ -84,6 +88,7 @@ function WorkQueueView() {
           id: tab,
           label: t(tabLabelKeys[tab]),
           count: entriesByList[tab](queue).length,
+          isWaiting: tab === 'proposed',
         }))}
       >{
           TABS.map((tab) => <Tabs.Panel key={tab} id={tab}>

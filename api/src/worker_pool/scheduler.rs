@@ -21,6 +21,8 @@
 //! After each look the workers (`super::worker`) look too: a worker for every slot held, none
 //! for a slot lost, each at the pool's CPU share.
 //!
+//! As it starts, it raises the approval item of any project whose proposals never had one.
+//!
 //! At shutdown it lets the leases it holds lapse, so the next engine takes them over as it
 //! starts, and stops its workers, leaving their containers for that engine.
 
@@ -36,9 +38,10 @@ use super::queue;
 use super::worker::Workers;
 use crate::agent_configuration;
 use crate::database::Pool;
-use crate::models::work_batch::{self, BatchState, Slot};
+use crate::models::work_batch::{self, BatchState, Slot, approval_item};
 use crate::models::worker_pool;
 use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::routes::v1::action_items::publish_item_write;
 use crate::runner::credentials;
 use crate::worker_pool::actions::announce;
 
@@ -74,6 +77,7 @@ pub(super) async fn run(
         held: HashMap::new(),
         size: None,
     };
+    scheduler.tell_of_proposals().await;
     loop {
         let next_look = match scheduler.look().await {
             Ok(due) => due
@@ -248,6 +252,41 @@ impl Scheduler {
             announce(&self.events, &queued);
         }
         Ok(())
+    }
+
+    /// Raises the approval item of every project whose proposals never had one
+    /// (`work_batch::approval_item::reconcile`), so no proposal waits unseen, and announces each.
+    /// Once at start: after that, every write that proposes a batch keeps its project's item. One
+    /// that fails is logged, and the next start tries again; the gate holds either way.
+    async fn tell_of_proposals(&self) {
+        let reconciled = async {
+            let mut connection = self.database.get().await?;
+            let now = Utc::now();
+            let raised = approval_item::reconcile(&mut connection, now).await?;
+            for item in raised {
+                let item_id = item.record.id;
+                if let Err(error) =
+                    publish_item_write(&self.events, &mut connection, item, &[], now).await
+                {
+                    event!(
+                        name: "worker_pool.approval_item.unpublished",
+                        Level::WARN,
+                        action_item.id = %item_id,
+                        error.message = %error,
+                        "a project's approval item was raised but could not be announced",
+                    );
+                }
+            }
+            anyhow::Ok(())
+        };
+        if let Err(error) = reconciled.await {
+            event!(
+                name: "worker_pool.approval_items.reconcile_failure",
+                Level::WARN,
+                error.message = %format!("{error:#}"),
+                "could not raise the approval items proposals were missing; the next start tries again",
+            );
+        }
     }
 
     /// Lets every lease it holds lapse, for the next engine to take over at once.

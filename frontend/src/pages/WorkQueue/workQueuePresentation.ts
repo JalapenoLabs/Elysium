@@ -20,6 +20,8 @@ import type {
 import {
   LuArrowDownToLine,
   LuArrowUpToLine,
+  LuBan,
+  LuCircleCheck,
   LuCirclePause,
   LuCirclePlay,
   LuCircleX,
@@ -34,8 +36,11 @@ import { WORK_BATCH_EVENT_KINDS } from '../../api/routes/workQueueRoutes'
 // What people may do to a batch while it waits, and the words for a batch's history. Pure, and
 // tested beside.
 
-// Everything the queue offers to do to a batch.
+// Everything the queue offers to do to a batch. Approving and rejecting are for a proposed batch
+// alone, and only a person does either.
 export type WorkBatchAction =
+  | 'approve'
+  | 'reject'
   | 'runNext'
   | 'returnToPlace'
   | 'makeAsap'
@@ -44,7 +49,10 @@ export type WorkBatchAction =
   | 'resume'
   | 'cancel'
 
-// The change each action asks the API for; cancelling has a route of its own.
+// The actions that each have a route of their own rather than being a change to the batch.
+export type WorkBatchDecision = 'approve' | 'reject' | 'cancel'
+
+// The change each action asks the API for.
 export const changesByAction = {
   runNext: { runNext: true },
   returnToPlace: { runNext: false },
@@ -52,9 +60,11 @@ export const changesByAction = {
   makeNormal: { priority: 'normal' },
   pause: { paused: true },
   resume: { paused: false },
-} as const satisfies Record<Exclude<WorkBatchAction, 'cancel'>, WorkBatchChanges>
+} as const satisfies Record<Exclude<WorkBatchAction, WorkBatchDecision>, WorkBatchChanges>
 
 export const actionLabelKeys = {
+  approve: 'actions.approve',
+  reject: 'actions.reject',
   runNext: 'actions.runNext',
   returnToPlace: 'actions.returnToPlace',
   makeAsap: 'actions.makeAsap',
@@ -65,6 +75,8 @@ export const actionLabelKeys = {
 } as const satisfies Record<WorkBatchAction, ParseKeys<'workQueue'>>
 
 export const actionIcons = {
+  approve: LuCircleCheck,
+  reject: LuBan,
   runNext: LuArrowUpToLine,
   returnToPlace: LuArrowDownToLine,
   makeAsap: LuZap,
@@ -75,6 +87,8 @@ export const actionIcons = {
 } as const satisfies Record<WorkBatchAction, IconType>
 
 export const actionDoneKeys = {
+  approve: 'actions.done.approve',
+  reject: 'actions.done.reject',
   runNext: 'actions.done.runNext',
   returnToPlace: 'actions.done.returnToPlace',
   makeAsap: 'actions.done.makeAsap',
@@ -84,9 +98,14 @@ export const actionDoneKeys = {
   cancel: 'actions.done.cancel',
 } as const satisfies Record<WorkBatchAction, ParseKeys<'workQueue'>>
 
-// What may be done to a batch in each state, before its priority and place narrow it. A batch a
-// worker started on, or that ended, is no longer anyone's to change.
+// The actions that end what they act on for good, which show in red, last, below the rest.
+export const DANGEROUS_ACTIONS: readonly WorkBatchAction[] = [ 'reject', 'cancel' ]
+
+// What may be done to a batch in each state, before its priority and place narrow it. A proposal
+// is only approved or rejected; a batch a worker started on, or that ended, is no longer anyone's
+// to change.
 const actionsByState = {
+  proposed: [ 'approve', 'reject' ],
   queued: [ 'runNext', 'makeAsap', 'pause', 'cancel' ],
   paused: [ 'resume', 'cancel' ],
   assigned: [ 'pause', 'cancel' ],
@@ -94,6 +113,7 @@ const actionsByState = {
   succeeded: [],
   failed: [],
   cancelled: [],
+  rejected: [],
 } as const satisfies Record<WorkBatchState, readonly WorkBatchAction[]>
 
 // The actions `entry` offers at `now`, in the order its row and page show them. A batch asked to
@@ -130,6 +150,10 @@ export function availableActions(
 
 export const historyKindLabelKeys = {
   submitted: 'history.kinds.submitted',
+  held_for_approval: 'history.kinds.held_for_approval',
+  edited: 'history.kinds.edited',
+  approved: 'history.kinds.approved',
+  rejected: 'history.kinds.rejected',
   pinned: 'history.kinds.pinned',
   unpinned: 'history.kinds.unpinned',
   reprioritized: 'history.kinds.reprioritized',
@@ -179,10 +203,22 @@ export function currentWait(batch: Pick<WorkBatch, 'state' | 'waitingOn' | 'wait
   } as const
 }
 
+// The fields a person may change as they approve a proposal, as an edited entry names them; a
+// priority and its scheduled time change together, so they read as one.
+export const EDITED_FIELDS = [ 'title', 'goal', 'repositories', 'priority' ] as const
+export type EditedField = typeof EDITED_FIELDS[number]
+
+export const editedFieldLabelKeys = {
+  title: 'history.edited.title',
+  goal: 'history.edited.goal',
+  repositories: 'history.edited.repositories',
+  priority: 'history.edited.priority',
+} as const satisfies Record<EditedField, ParseKeys<'workQueue'>>
+
 // One history entry as a line reads it: what happened, and what it carries beside it, such as
-// the priority it moved from and to, why it was cancelled, what its worker waits for, or the
-// answer it was given. A kind this build does not know reads as its name, logged, rather than
-// hiding the entry.
+// the priority it moved from and to, the fields a person changed, why it was cancelled or
+// rejected, what its worker waits for, or the answer it was given. A kind this build does not
+// know reads as its name, logged, rather than hiding the entry.
 export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
   const kind = WORK_BATCH_EVENT_KINDS.find((known) => known === entry.kind)
   if (!kind) {
@@ -208,7 +244,11 @@ export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
   const succeeded = typeof entry.data.succeeded === 'boolean'
     ? entry.data.succeeded
     : null
-  // The words beneath the line: why it was cancelled, what its worker waits for, or the answer.
+  const edited = kind === 'edited'
+    ? readEditedFields(entry.data.after)
+    : []
+  // The words beneath the line: why it was cancelled or rejected, what its worker waits for, or
+  // the answer.
   let note: string | null = null
   for (const field of [ 'reason', 'detail', 'answer' ] as const) {
     const value = entry.data[field]
@@ -223,8 +263,26 @@ export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
     after,
     note,
     succeeded,
+    edited,
     until: wait?.until ?? null,
   } as const
+}
+
+// The fields an edited entry's `after` holds, in the order a batch lists them. A field this build
+// does not know is left out, logged, rather than named wrong.
+function readEditedFields(after: unknown) {
+  if (!after || typeof after !== 'object') {
+    console.debug('describeHistoryEntry met an edited entry without its fields', { after })
+    return []
+  }
+  const named = Object.keys(after)
+  const fields: EditedField[] = []
+  for (const field of EDITED_FIELDS) {
+    if (named.includes(field)) {
+      fields.push(field)
+    }
+  }
+  return fields
 }
 
 // Where a pull request a batch's worker recorded stands, in words and a chip's color: who merged

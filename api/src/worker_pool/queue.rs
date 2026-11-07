@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The work queue as people and Elysia read it: the pool, the batches holding its slots, and
-//! every batch waiting, in the order the pool will hand them slots.
+//! The work queue as people and Elysia read it: the pool, the batches holding its slots, every
+//! batch waiting, in the order the pool will hand them slots, and every batch proposed, which
+//! waits for a person's approval before it is any part of that order.
 
 use std::collections::HashMap;
 
@@ -15,8 +16,10 @@ use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::models::worker_pool;
 use crate::models::{agent_configuration, user};
 
-/// The most waiting batches read, oldest first. A queue longer than this is far more work than
-/// the pool gets through in a day; the newest wait unread until the oldest move on.
+/// The most waiting batches read, oldest first, and apart from them the most proposed ones. A
+/// queue longer than this is far more work than the pool gets through in a day; the newest wait
+/// unread until the oldest move on. Proposals are read on their own, so however many wait for a
+/// person, they never crowd approved work out of what the scheduler reads.
 pub const MAX_WAITING: i64 = 1_000;
 
 /// The pool as the queue shows it.
@@ -51,6 +54,8 @@ pub struct Queue {
     pub scheduled: Vec<WorkBatch>,
     /// Paused batches, oldest first.
     pub paused: Vec<WorkBatch>,
+    /// Batches waiting for a person's approval, oldest first. The pool hands them nothing.
+    pub proposed: Vec<WorkBatch>,
 }
 
 /// Reads the work queue at `now`.
@@ -71,6 +76,7 @@ pub async fn read(
         MAX_WAITING,
     )
     .await?;
+    let proposed = work_batch::in_states(connection, &[BatchState::Proposed], MAX_WAITING).await?;
 
     let cpu_count = seen.map(|pool| pool.cpu_count);
     let cores = cpu_count.and_then(|count| usize::try_from(count).ok());
@@ -124,5 +130,6 @@ pub async fn read(
         next,
         scheduled,
         paused,
+        proposed,
     })
 }

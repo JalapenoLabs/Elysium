@@ -1,6 +1,6 @@
 {
   "title": "Work queue",
-  "help": "Project Managers' batches wait here for a worker. Each free worker takes the first queued batch: one asked to run next, then scheduled work that is due, then ASAP, then normal, oldest first, with projects taking turns.",
+  "help": "Project Managers' batches wait here. Each is proposed first, and no worker starts it until a person approves it. Approved, it waits for a worker: each free worker takes the first queued batch, one asked to run next, then scheduled work that is due, then ASAP, then normal, oldest first, with projects taking turns.",
   "loadError": "The work queue could not be loaded.",
   "pool": {
     "busy_one": "{{inUse, compact}} of {{count, compact}} worker busy",
@@ -12,6 +12,7 @@
   },
   "tabs": {
     "label": "Work queue",
+    "proposed": "Proposed",
     "queued": "Queued",
     "running": "Running",
     "scheduled": "Scheduled",
@@ -29,6 +30,7 @@
       "submitted": "Submitted"
     },
     "empty": {
+      "proposed": "Nothing waits for your approval.",
       "queued": "Nothing waits for a worker.",
       "running": "No worker is busy.",
       "scheduled": "Nothing is scheduled for later.",
@@ -36,6 +38,9 @@
     }
   },
   "actions": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "edit": "Edit",
     "runNext": "Run next",
     "returnToPlace": "Back to its place",
     "makeAsap": "Run as soon as possible",
@@ -44,6 +49,8 @@
     "resume": "Resume",
     "cancel": "Cancel batch",
     "done": {
+      "approve": "{{title}} is approved",
+      "reject": "{{title}} is rejected",
       "runNext": "{{title}} runs next",
       "returnToPlace": "{{title}} is back in its place",
       "makeAsap": "{{title}} runs as soon as possible",
@@ -53,6 +60,13 @@
       "cancel": "{{title}} is cancelled"
     },
     "conflict": "This batch moved on, so it no longer allows that. It shows as it is now.",
+    "rejectPrompt": {
+      "title": "Reject {{title}}?",
+      "message": "Its Project Manager is told your reason, and plans again from it.",
+      "irreversible": "A rejected batch can't be approved later.",
+      "reason": "Why",
+      "keep": "Keep it"
+    },
     "cancelPrompt": {
       "title": "Cancel {{title}}?",
       "message": "Its Project Manager is told, with your reason.",
@@ -74,6 +88,13 @@
     "fromBranch": "from {{branch}}",
     "result": "What its worker reported",
     "cancelledBecause": "Why it was cancelled",
+    "rejectedBecause": "Why it was rejected",
+    "why": {
+      "title": "Why",
+      "none": "Its Project Manager named nothing that called for it.",
+      "recordFrom": "{{source}}, {{time}}",
+      "actionItem": "Action item"
+    },
     "history": "History",
     "loadError": "This batch could not be loaded.",
     "waiting": {
@@ -101,9 +122,36 @@
     "logEmpty": "Its worker has not said anything yet.",
     "logError": "The worker log could not be loaded."
   },
+  "edit": {
+    "pageTitle": "Edit and approve",
+    "batch": "Batch",
+    "title": "Title",
+    "goal": "Goal",
+    "priority": "Priority",
+    "scheduledFor": "Due",
+    "scheduledForPicker": "When it is due",
+    "repositoryUrl": "Repository URL",
+    "baseBranch": "Base branch",
+    "newRepository": "Repository {{position, compact}}",
+    "removeRepository": "Remove {{repository}}",
+    "addRepository": "Add repository",
+    "errors": {
+      "titleRequired": "Give it a title.",
+      "titleTooLong": "A title holds at most {{max, compact}} characters.",
+      "goalRequired": "Say what done looks like.",
+      "goalTooLong": "A goal holds at most {{max, compact}} characters.",
+      "scheduleRequired": "Pick when it is due.",
+      "schedulePast": "Pick a time that is still ahead.",
+      "scheduleTooFar": "Pick a time within a year."
+    }
+  },
   "history": {
     "kinds": {
       "submitted": "{{name}} submitted it",
+      "held_for_approval": "It went back for a person's approval",
+      "edited": "{{name}} changed its {{fields}}",
+      "approved": "{{name}} approved it",
+      "rejected": "{{name}} rejected it",
       "pinned": "{{name}} asked for it to run next",
       "unpinned": "{{name}} put it back in its place",
       "reprioritized": "{{name}} changed its priority from {{before}} to {{after}}",
@@ -117,6 +165,12 @@
       "waiting": "Its worker waits",
       "answered": "{{name}} answered its worker's question",
       "finished": "Its worker finished it"
+    },
+    "edited": {
+      "title": "title",
+      "goal": "goal",
+      "repositories": "repositories",
+      "priority": "priority"
     },
     "waiting": {
       "review": "Its worker waits on a review, and looks again {{time}}",

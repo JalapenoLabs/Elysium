@@ -51,6 +51,7 @@ export const batchPriorityChipColors = {
 } as const satisfies Record<WorkBatchPriority, ChipColor>
 
 export const batchStateLabelKeys = {
+  proposed: 'batches.states.proposed',
   queued: 'batches.states.queued',
   paused: 'batches.states.paused',
   assigned: 'batches.states.assigned',
@@ -58,9 +59,13 @@ export const batchStateLabelKeys = {
   succeeded: 'batches.states.succeeded',
   failed: 'batches.states.failed',
   cancelled: 'batches.states.cancelled',
+  rejected: 'batches.states.rejected',
 } as const satisfies Record<WorkBatchState, ParseKeys<'projects'>>
 
+// A proposal waits on the person, so it stands out as a paused batch does; a rejection was their
+// decision, not a failure.
 export const batchStateChipColors = {
+  proposed: 'warning',
   queued: 'default',
   paused: 'warning',
   assigned: 'accent',
@@ -68,6 +73,7 @@ export const batchStateChipColors = {
   succeeded: 'success',
   failed: 'danger',
   cancelled: 'default',
+  rejected: 'default',
 } as const satisfies Record<WorkBatchState, ChipColor>
 
 export const promiseStateLabelKeys = {

@@ -18,6 +18,7 @@ import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes
 import type { KnowledgePage, KnowledgePageSummary, PageHistoryEntry, PageVersion } from './api/routes/pageRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Meeting } from './api/routes/meetingRoutes'
+import type { ProjectManager, WorkBatch } from './api/routes/projectManagerRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { PersonPromise } from './api/routes/promiseRoutes'
 import type { RunStep, WorkflowRun } from './api/routes/runRoutes'
@@ -567,6 +568,50 @@ export function makeRunStep(overrides: Partial<RunStep> & Pick<RunStep, 'id' | '
     availableAt: null,
     startedAt: null,
     finishedAt: null,
+    ...overrides,
+  }
+}
+
+export function makeWorkBatch(overrides: Partial<WorkBatch> & Pick<WorkBatch, 'id'>): WorkBatch {
+  return {
+    projectId: 'project-1',
+    title: 'Pricing page',
+    goal: 'Show annual pricing on the pricing page.',
+    repositories: [{ url: 'https://github.com/JalapenoLabs/Elysium.git' }],
+    priority: 'normal',
+    scheduledFor: null,
+    state: 'proposed',
+    result: null,
+    turnId: null,
+    sourceRecordIds: [],
+    actionItemIds: [],
+    timelineRecordId: null,
+    pinnedAt: null,
+    assignedAt: null,
+    createdAt: CREATED_AT,
+    startedAt: null,
+    finishedAt: null,
+    waitingOn: null,
+    waitingDetail: null,
+    waitingUntil: null,
+    configuration: null,
+    ...overrides,
+  }
+}
+
+export function makeProjectManager(
+  overrides: Partial<ProjectManager> & Pick<ProjectManager, 'projectId'>,
+): ProjectManager {
+  return {
+    status: 'idle',
+    waiting: 0,
+    usagePausedUntil: null,
+    configurationHold: null,
+    turns: [],
+    batches: [],
+    proposed: [],
+    promises: [],
+    writes: { direct: false, tracker: null, trackerRefusal: null },
     ...overrides,
   }
 }

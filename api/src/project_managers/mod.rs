@@ -56,7 +56,7 @@ use crate::models::draft;
 use crate::models::project_manager::{self, ProjectManager, Turn, TurnStatus, Wake};
 use crate::models::promise::{self, Promise};
 use crate::models::timeline_record::{self, TimelineRecord};
-use crate::models::work_batch::{self, WorkBatch};
+use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::models::{github_credential, jira_credential, project, token_account};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -123,6 +123,9 @@ pub struct Snapshot {
     pub turns: Vec<(Turn, Vec<Wake>)>,
     /// Its latest batches, newest first.
     pub batches: Vec<WorkBatch>,
+    /// Every batch of its waiting for a person's approval, newest first, read apart from its
+    /// latest so a busy project never hides one: at most a page of them.
+    pub proposed: Vec<WorkBatch>,
     /// Its latest promises, newest first, each with the message it was made in while that is
     /// still there, and its follow-up's draft once drafted.
     pub promises: Vec<(Promise, Option<TimelineRecord>, Option<Uuid>)>,
@@ -160,6 +163,13 @@ pub async fn snapshot(
     let turns = project_manager::list_turns(connection, project_id, TURNS_SHOWN).await?;
     let turn_ids: Vec<Uuid> = turns.iter().map(|turn| turn.id).collect();
     let batches = work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
+    let proposed = work_batch::list_for_project(
+        connection,
+        project_id,
+        &[BatchState::Proposed],
+        work_batch::MAX_BATCH_PAGE,
+    )
+    .await?;
     let made = promise::list_for_project(connection, project_id, &[], PROMISES_SHOWN).await?;
     let record_ids: Vec<Uuid> = made.iter().map(|made| made.timeline_record_id).collect();
     let mut records: HashMap<Uuid, TimelineRecord> =
@@ -231,6 +241,7 @@ pub async fn snapshot(
         configuration_hold,
         turns,
         batches,
+        proposed,
         promises,
         writes: WritesSnapshot { direct, tracker },
     })
