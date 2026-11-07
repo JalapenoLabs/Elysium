@@ -325,39 +325,13 @@ async fn load_context(
 ) -> anyhow::Result<TurnContext> {
     let project = project::find(connection, turn.project_id).await?;
     let names = user::names(connection).await?;
-
-    let mut messages = Vec::new();
-    let mut brief_edits = Vec::new();
-    let mut record_ids = Vec::new();
-    let mut batch_ids = Vec::new();
-    let mut promise_ids = Vec::new();
-    for wake in wakes {
-        match wake.kind {
-            WakeKind::Message => messages.push(PromptMessage {
-                id: wake.id,
-                author: names
-                    .get(&wake.created_by)
-                    .cloned()
-                    .unwrap_or_else(|| "Someone".to_owned()),
-                from_elysia: wake.created_by == ELYSIA_USER_ID,
-                body: wake.body.clone().unwrap_or_default(),
-                sent_at: wake.created_at,
-            }),
-            WakeKind::Record => record_ids.extend(wake.timeline_record_id),
-            WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
-            WakeKind::Promise => promise_ids.extend(wake.promise_id),
-            WakeKind::Brief => brief_edits.extend(wake.page_version.map(|version| {
-                PromptBriefEdit {
-                    author: names
-                        .get(&wake.created_by)
-                        .cloned()
-                        .unwrap_or_else(|| "Someone".to_owned()),
-                    version,
-                    published_at: wake.created_at,
-                }
-            })),
-        }
-    }
+    let SortedWakes {
+        messages,
+        brief_edits,
+        record_ids,
+        batch_ids,
+        promise_ids,
+    } = sort_wakes(wakes, &names);
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let mut records: Vec<PromptRecord> =
@@ -429,6 +403,56 @@ async fn load_context(
         retried,
         still_waiting: project_manager::waiting_count(connection, turn.project_id).await?,
     })
+}
+
+/// A turn's wakes, sorted by kind: the messages and brief edits it is told whole, and the ids of
+/// the records, batches, and promises it reads as it starts.
+struct SortedWakes {
+    messages: Vec<PromptMessage>,
+    brief_edits: Vec<PromptBriefEdit>,
+    record_ids: Vec<Uuid>,
+    batch_ids: Vec<Uuid>,
+    promise_ids: Vec<Uuid>,
+}
+
+/// Sorts `wakes` by kind in one pass, naming each message's and brief edit's author from `names`.
+fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
+    let mut sorted = SortedWakes {
+        messages: Vec::new(),
+        brief_edits: Vec::new(),
+        record_ids: Vec::new(),
+        batch_ids: Vec::new(),
+        promise_ids: Vec::new(),
+    };
+    for wake in wakes {
+        let author = || {
+            names
+                .get(&wake.created_by)
+                .cloned()
+                .unwrap_or_else(|| "Someone".to_owned())
+        };
+        match wake.kind {
+            WakeKind::Message => sorted.messages.push(PromptMessage {
+                id: wake.id,
+                author: author(),
+                from_elysia: wake.created_by == ELYSIA_USER_ID,
+                body: wake.body.clone().unwrap_or_default(),
+                sent_at: wake.created_at,
+            }),
+            WakeKind::Record => sorted.record_ids.extend(wake.timeline_record_id),
+            WakeKind::Batch => sorted.batch_ids.extend(wake.work_batch_id),
+            WakeKind::Promise => sorted.promise_ids.extend(wake.promise_id),
+            WakeKind::Brief => {
+                let edit = wake.page_version.map(|version| PromptBriefEdit {
+                    author: author(),
+                    version,
+                    published_at: wake.created_at,
+                });
+                sorted.brief_edits.extend(edit);
+            }
+        }
+    }
+    sorted
 }
 
 /// `project` as a turn is told it: what it is, the repositories it declares, its brief, and its
