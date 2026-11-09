@@ -308,6 +308,8 @@ diesel::table! {
         action_item_id -> Uuid,
         project_id -> Uuid,
         created_at -> Timestamptz,
+        confidence -> Float4,
+        attributed_by -> Text,
     }
 }
 
@@ -334,6 +336,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Uuid,
+        lead_project_id -> Nullable<Uuid>,
     }
 }
 
@@ -1923,7 +1926,6 @@ diesel::joinable!(action_item_links -> action_items (action_item_id));
 diesel::joinable!(action_item_links -> github_credentials (github_credential_id));
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_links -> token_accounts (token_account_id));
-diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(agent_configuration_status -> action_items (inbox_item_id));

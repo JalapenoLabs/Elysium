@@ -6,24 +6,29 @@ import type { ActionItemEditForm } from './useActionItemEditor'
 // Core
 import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { shallowEqual } from 'react-redux'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
 import { selectLiveInitiatives } from '../../store/initiativesSlice'
-import { selectAllProjects } from '../../store/projectsSlice'
+import { selectAllProjects, selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
 import { UserName } from '../../components/UserName'
 import { Button, Card } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
+import { HelpPopover } from '../../components/HelpPopover'
 import { OptionSelect } from '../../components/OptionSelect'
 import { MultiPicker } from '../../components/MultiPicker'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
+import { formatPercent } from '../../format/numbers'
 import { ACTION_ITEM_PRIORITIES } from '../../api/routes/actionItemRoutes'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { describeOwner, priorityLabelKeys } from './actionItemPresentation'
+import { getLeadAfter } from './membershipChanges'
+import { boundedConfidence } from '../Projects/timelinePresentation'
 
 type Props = {
   item: ActionItem
@@ -38,16 +43,28 @@ export function ActionItemDetailsPanel(props: Props) {
   useProjectsLoader()
   useInitiativesLoader()
   const projects = useAppSelector(selectAllProjects)
+  const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const initiatives = useAppSelector(selectLiveInitiatives)
   const item = props.item
   const form = props.form
   const isReadOnly = Boolean(item.deletedAt)
   const owner = describeOwner(item)
   // Watched by name: the whole-form watch types a class instance as a partial copy.
-  const [ priority, dueDate, projectIds, initiativeIds ] = useWatch({
+  const [ priority, dueDate, projectIds, leadProjectId, initiativeIds ] = useWatch({
     control: form.control,
-    name: [ 'priority', 'dueDate', 'projectIds', 'initiativeIds' ],
+    name: [ 'priority', 'dueDate', 'projectIds', 'leadProjectId', 'initiativeIds' ],
   })
+
+  // A project Elysia guessed reads with how sure she was, so the person sees what to check.
+  function leadOptionLabel(projectId: string) {
+    const project = projectNames[projectId] ?? projectId
+    const guess = item.projectAttributions.find((attribution) => attribution.projectId === projectId)
+    if (guess?.attributedBy !== 'elysia') {
+      return project
+    }
+    const percent = formatPercent(boundedConfidence(guess.confidence))
+    return t('fields.projectGuessed', { project, percent })
+  }
 
   return <Card>
     <Card.Content className='flex flex-col gap-4'>
@@ -94,8 +111,29 @@ export function ActionItemDetailsPanel(props: Props) {
         isDisabled={isReadOnly}
         options={projects.map((project) => ({ id: project.id, label: project.name }))}
         value={projectIds}
-        onChange={(value) => form.setValue('projectIds', value, { shouldDirty: true })}
+        onChange={(value) => {
+          form.setValue('projectIds', value, { shouldDirty: true })
+          // A saved lead picked again, after being taken off, still leads.
+          const lead = getLeadAfter(leadProjectId ?? item.leadProjectId, value)
+          form.setValue('leadProjectId', lead, { shouldDirty: true })
+        }}
       />
+
+      {projectIds.length > 0 && <div className='level items-end gap-1'>
+        <OptionSelect
+          id='action-item-lead-project'
+          className='grow'
+          label={t('fields.leadProject')}
+          isDisabled={isReadOnly}
+          options={projectIds.map((projectId) => ({ id: projectId, label: leadOptionLabel(projectId) }))}
+          value={leadProjectId ?? ''}
+          placeholder={t('fields.leadProjectPassesOn')}
+          onChange={(value) => form.setValue('leadProjectId', value, { shouldDirty: true })}
+        />
+        <HelpPopover label={t('fields.leadProjectHelpLabel')}>
+          <span>{t('fields.leadProjectHelp')}</span>
+        </HelpPopover>
+      </div>}
 
       <MultiPicker
         id='action-item-initiatives'

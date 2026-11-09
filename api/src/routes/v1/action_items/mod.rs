@@ -29,8 +29,10 @@ mod read_links;
 mod remove_link;
 mod remove_project;
 mod restore_action_item;
+mod set_lead_project;
 mod snooze_action_item;
 mod transition_action_item;
+mod undo_history_entry;
 mod update_action_item;
 mod update_comment;
 mod wait_on;
@@ -55,7 +57,8 @@ use crate::action_items::{Transition, WorkError};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{
-    self, ActionItem, ActionItemPriority, ActionItemState, Memberships, Owner, ProjectFilter,
+    self, ActionItem, ActionItemPriority, ActionItemState, Memberships, Owner, ProjectAttribution,
+    ProjectFilter,
 };
 use crate::models::action_item_comment::Comment;
 use crate::models::action_item_event::{HistoryEntry, Recorded};
@@ -96,6 +99,11 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/snooze", post(snooze_action_item::handle))
         .route("/{id}/wait", post(wait_on::handle))
         .route("/{id}/history", get(list_history::handle))
+        .route(
+            "/{id}/history/{entry_id}/undo",
+            post(undo_history_entry::handle),
+        )
+        .route("/{id}/lead-project", put(set_lead_project::handle))
         .route(
             "/{id}/comments",
             get(list_comments::handle).post(create_comment::handle),
@@ -160,6 +168,10 @@ pub struct ActionItemResponse {
     dismissed_at: Option<DateTime<Utc>>,
     deleted_at: Option<DateTime<Utc>>,
     project_ids: Vec<Uuid>,
+    /// Each of its projects, with how sure whoever put it there was, and who that was.
+    project_attributions: Vec<ProjectAttribution>,
+    /// The one of its projects that leads it, whose Project Manager alone works it.
+    lead_project_id: Option<Uuid>,
     /// The initiatives it is in now, leaving out deleted ones.
     initiative_ids: Vec<Uuid>,
     created_at: DateTime<Utc>,
@@ -210,6 +222,8 @@ impl ActionItemResponse {
             issue_filing: issue_filing.map(IssueFilingResponse::from),
             owner: item.owner(),
             project_ids: memberships.project_ids(item.id),
+            project_attributions: memberships.project_attributions(item.id),
+            lead_project_id: item.lead_project_id,
             initiative_ids: memberships.initiative_ids(item.id),
             id: item.id,
             title: item.title,

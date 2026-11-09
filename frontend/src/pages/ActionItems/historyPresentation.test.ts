@@ -65,6 +65,31 @@ describe('describeHistoryEntry', () => {
     expect(describeHistoryEntry(gone, context, t).summary).toBe('removed it from a deleted project')
   })
 
+  it<Context>('says how sure a guess was, and nothing more for a certain choice', ({ t, context }) => {
+    const guessed = makeHistoryEntry({
+      id: 'e1',
+      kind: 'project_added',
+      actor: 'elysia',
+      data: { projectId: 'p1', confidence: 0.8, attributedBy: 'elysia' },
+    })
+    const chosen = makeHistoryEntry({
+      id: 'e2',
+      kind: 'project_added',
+      data: { projectId: 'p1', confidence: 1, attributedBy: 'user:u1' },
+    })
+
+    expect(describeHistoryEntry(guessed, context, t).summary).toBe('put it on Elysium, 80% sure')
+    expect(describeHistoryEntry(chosen, context, t).summary).toBe('added it to Elysium')
+  })
+
+  it<Context>('names the new lead project, or says the item has none', ({ t, context }) => {
+    const led = makeHistoryEntry({ id: 'e1', kind: 'lead_project_changed', data: { from: null, to: 'p1' }})
+    const cleared = makeHistoryEntry({ id: 'e2', kind: 'lead_project_changed', data: { from: 'p1', to: null }})
+
+    expect(describeHistoryEntry(led, context, t).summary).toBe('made Elysium its lead project')
+    expect(describeHistoryEntry(cleared, context, t).summary).toBe('left it with no lead project')
+  })
+
   it<Context>('names the other side of a membership change for each history', ({ t, context }) => {
     const entry = makeHistoryEntry({
       id: 'e1',

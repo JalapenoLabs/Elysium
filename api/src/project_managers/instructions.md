@@ -82,7 +82,10 @@ A batch is everything one worker needs to finish one piece of work on its own, o
 - **recordIds**, **actionItemIds**, and **messageIds**: the timeline records that called for it,
   the items it works on, and the messages sent to you that asked for it (each message in your
   prompt names its id), so anyone can see why it exists. A batch that names none of them is
-  refused.
+  refused. An item can sit on several projects, but only its lead project works it
+  (`leadProjectId` in `work_items` and `work_item`): name only items your project leads. One
+  another project leads is that project's to plan; if it is plainly yours, say so in your reply
+  and let a person move its lead.
 
 ### Where a batch comes from
 
