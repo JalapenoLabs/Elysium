@@ -10,10 +10,12 @@
 //! answer, so OAuth reaches no one admins have not let in. See `docs/mcp.md`.
 //!
 //! [`hydra`] is the admin API client, and [`tokens`] caches what it says about access tokens and
-//! revokes grants. The scopes Elysium grants are below; the MCP server checks them on every call
-//! (`crate::mcp`).
+//! revokes grants. [`registration`] relays clients' own registrations to Hydra's public API,
+//! leaving out the empty fields Hydra's answers carry. The scopes Elysium grants are below; the MCP
+//! server checks them on every call (`crate::mcp`).
 
 pub mod hydra;
+pub mod registration;
 pub mod tokens;
 
 use url::Url;

@@ -1,10 +1,15 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! HTTP routes. Every public path is mounted under `/api`, matching nginx's proxy prefix.
-//! Health and build routes sit at the top level; resources are versioned under `/api/v1`.
-//! `/internal` answers Kratos and the deployment's updater alone, on the compose network.
+//! HTTP routes. The API's own routes are under `/api`, matching nginx's proxy prefix: health and
+//! build routes at its top level, resources versioned under `/api/v1`. The paths something else
+//! sets live at the root: the MCP server's metadata under `/.well-known/` (RFC 9728) and client
+//! registration at `/oauth2/register`, both where OAuth clients look for them, and `/internal`,
+//! which answers Kratos and the deployment's updater alone, on the compose network. Each of those
+//! is listed in `middleware::security_headers::API_PATHS`, so it gets the API's policy rather than
+//! the web app's.
 
 mod internal;
+mod oauth2;
 mod ok;
 mod ping;
 pub mod v1;
@@ -42,6 +47,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
             "/.well-known/oauth-protected-resource/api/mcp",
             get(mcp::protected_resource_metadata),
         )
+        // Where Hydra's metadata sends clients to register, relayed to Hydra. See `oauth2`.
+        .merge(oauth2::router(state.auth.registration.clone()))
         .nest("/api", api)
         .nest("/internal", internal::router(state))
 }
