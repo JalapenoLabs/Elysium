@@ -1132,14 +1132,25 @@ What the user owes attention to; see `docs/action-items.md`.
 | `deleted_at`    | `TIMESTAMPTZ`            | Soft delete; NULL while the item is live                     |
 | `created_at`    | `TIMESTAMPTZ`            | Written by the API, the moment of the create                 |
 | `updated_at`    | `TIMESTAMPTZ`            | Maintained by trigger                                        |
+| `lead_project_id` | `UUID`                 | The one of its projects that leads it; set exactly while it is in any |
 
 The partial index `action_items_live_state_idx` on `state` where `deleted_at` is NULL serves Next and the state
-filters.
+filters. `action_items_lead_project_is_a_membership` makes `(id, lead_project_id)` reference `action_item_projects`,
+checked at commit so an item is created with its lead before its memberships, and set to NULL should a membership go
+without the code moving the lead first, which it always does, recording the move.
 
 ### `action_item_projects`
 
 The projects an item belongs to. The primary key is `(action_item_id, project_id)`, and an index on `project_id`
 finds a project's items. Both references delete their rows with the item or the project.
+
+| Column           | Type          | Notes                                                                     |
+|------------------|---------------|---------------------------------------------------------------------------|
+| `action_item_id` | `UUID`        | References `action_items`                                                 |
+| `project_id`     | `UUID`        | References `projects`                                                     |
+| `confidence`     | `REAL`        | 0 to 1: how sure whoever put it there was; 1 for anyone but the attribution step |
+| `attributed_by`  | `TEXT`        | The actor, as history names it (`user:<id>`, `elysia`, `project_manager:<id>`), 1 to 100 characters |
+| `created_at`     | `TIMESTAMPTZ` | When it joined; breaks a tie in confidence when the lead passes on        |
 
 ### `initiatives`
 

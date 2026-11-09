@@ -39,6 +39,10 @@ export type ActionItem = {
   // Set while the item is softly deleted; it can be restored.
   deletedAt: string | null
   projectIds: string[]
+  // Each of its projects, with how sure whoever put it there was, and who that was.
+  projectAttributions: ProjectAttribution[]
+  // The one of its projects whose Project Manager alone works it; set while it is in any.
+  leadProjectId: string | null
   // The initiatives it is in now, leaving out deleted ones.
   initiativeIds: string[]
   createdAt: string
@@ -47,6 +51,15 @@ export type ActionItem = {
   updatedAt: string
   // The issue Elysium owes the item and has not filed yet, while it owes one.
   issueFiling: IssueFiling | null
+}
+
+// Mirrors `ProjectAttribution` in api/src/models/action_item.rs: one project an item is in.
+export type ProjectAttribution = {
+  projectId: string
+  // 1 for anyone but the attribution step, which guesses an arrived issue's projects.
+  confidence: number
+  // The actor, as history names it: `user:<id>`, `elysia`, `project_manager:<id>`, ...
+  attributedBy: string
 }
 
 // Mirrors `IssueFilingResponse` in api/src/routes/v1/action_items/mod.rs: an issue a
@@ -89,6 +102,7 @@ export const HISTORY_KINDS = [
   'comment_deleted',
   'project_added',
   'project_removed',
+  'lead_project_changed',
   'initiative_joined',
   'initiative_left',
   'link_added',
@@ -102,6 +116,13 @@ export const HISTORY_KINDS = [
   'container_unlinked',
 ] as const
 export type HistoryKind = typeof HISTORY_KINDS[number]
+
+// The changes a person undoes from an item's history: what it is attributed to.
+export const UNDOABLE_HISTORY_KINDS = [
+  'project_added',
+  'project_removed',
+  'lead_project_changed',
+] as const satisfies readonly HistoryKind[]
 
 // Mirrors `HistoryEntryResponse` in api/src/routes/v1/action_items/mod.rs. An entry about an
 // item joining or leaving an initiative names both, and shows in both histories.
@@ -311,6 +332,20 @@ export function addActionItemProject(itemId: string, projectId: string) {
 export function removeActionItemProject(itemId: string, projectId: string) {
   return apiClient
     .delete(`v1/action-items/${itemId}/projects/${projectId}`)
+    .json<ActionItemResponse>()
+}
+
+// The lead must be one of the item's projects; making the lead the lead again answers it unchanged.
+export function setActionItemLeadProject(itemId: string, projectId: string) {
+  return apiClient
+    .put(`v1/action-items/${itemId}/lead-project`, { json: { projectId }})
+    .json<ActionItemResponse>()
+}
+
+// Undoes a change to an item's projects or its lead. One changed since answers 409.
+export function undoActionItemChange(itemId: string, entryId: string) {
+  return apiClient
+    .post(`v1/action-items/${itemId}/history/${entryId}/undo`)
     .json<ActionItemResponse>()
 }
 

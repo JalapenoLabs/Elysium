@@ -39,6 +39,7 @@ use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
 use crate::models::secret_copy;
 use crate::oauth::hydra::Hydra;
+use crate::oauth::registration::Registration;
 use crate::passwords::{self, Passwords, PasswordsDeps};
 use crate::realtime::EventBus;
 use crate::runner::workspace::WorkspaceContainer;
@@ -230,7 +231,8 @@ pub fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
             config.kratos_public_url.clone(),
             config.kratos_admin_url.clone(),
         ),
-        hydra: Hydra::new(http, config.hydra_admin_url.clone()),
+        hydra: Hydra::new(http.clone(), config.hydra_admin_url.clone()),
+        registration: Registration::new(http, &config.hydra_public_url),
         hook_key: hook_key::derive(&config.encryption_key),
         public_url: config.public_url.clone(),
     }

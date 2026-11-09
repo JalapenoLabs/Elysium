@@ -174,6 +174,7 @@ pub async fn app_state_with_storage(
         kratos_public_url: nowhere.clone(),
         kratos_admin_url: nowhere.clone(),
         hydra_admin_url: nowhere.clone(),
+        hydra_public_url: nowhere.clone(),
         database_max_connections: 4,
         cors_allowed_origins: Vec::new(),
         request_timeout: std::time::Duration::from_secs(5),

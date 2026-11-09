@@ -146,6 +146,9 @@ Everything else follows these rules:
   `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
   `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
 - Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
+- nginx sends client registration (`/oauth2/register`) to the API, which relays it to Hydra's public API, never the
+  admin API, and leaves out the `""` and `null` fields Hydra's answer carries, which strict clients such as Claude Code
+  refuse (`api/src/oauth/registration.rs`). See `docs/mcp.md`, Client registration.
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
@@ -477,9 +480,16 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Every connector whose kind provides issues (Jira, GitHub, YouTrack) brings in what is assigned to its person on each
   watcher pass, bounded by its content (the Jira allowlist, chosen repositories, chosen projects): every open assigned
   issue, the first read included, raises one inbox item as `watcher:<service>`, linked to it as its primary, in no
-  project, and starts nothing. `assigned_issues` keeps one row per connector and issue, so none raises a second. Being
-  unassigned leaves the item and records `unassigned` on it. A new issue kind gets this by declaring
-  `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`, Assigned issues.
+  project, and starts only its `assigned_issue` run, which attributes it. `assigned_issues` keeps one row per connector
+  and issue, so none raises a second. Being unassigned leaves the item and records `unassigned` on it. A new issue kind
+  gets this by declaring `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`,
+  Assigned issues.
+- An item in any project has one lead project, and only that project's Project Manager may submit a batch for it
+  (`project_managers::batches`). Its first project leads it, the surest of those left when the lead leaves,
+  and a person moves it. An arrived issue is put on its projects by `segment_meeting`, the step meetings use, with
+  Elysia's confidence, the surest leading; she never overrides anyone else's choice, every change is in the item's
+  history and undoable, and attributing wakes no Project Manager (`api/src/models/action_item_attribution.rs`). See
+  `docs/action-items.md`, Projects and the lead.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
 - Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own

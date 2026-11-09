@@ -34,3 +34,14 @@ export function createActionItemFormSchema(t: TFunction<'actionItems'>) {
 
 export type ActionItemFormInput = z.input<ReturnType<typeof createActionItemFormSchema>>
 export type ActionItemFormValues = z.output<ReturnType<typeof createActionItemFormSchema>>
+
+// An existing item's form also chooses which of its projects leads it. A new item is led by its
+// first project, so the create form has no lead.
+export function createActionItemEditSchema(t: TFunction<'actionItems'>) {
+  return createActionItemFormSchema(t).extend({
+    leadProjectId: z.string().nullable(),
+  })
+}
+
+export type ActionItemEditInput = z.input<ReturnType<typeof createActionItemEditSchema>>
+export type ActionItemEditValues = z.output<ReturnType<typeof createActionItemEditSchema>>

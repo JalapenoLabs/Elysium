@@ -19,6 +19,8 @@ use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
+use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::action_item_attribution;
 use crate::models::agent::{Agent, Author};
 use crate::models::attribution::{self, Attributor};
 use crate::models::page::{self, PageEdit, PageError};
@@ -31,7 +33,9 @@ use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_
 use crate::models::work_batch::lineage::{MAX_GENERATION, Origin};
 use crate::models::work_batch::{self, BatchState, Priority};
 use crate::realtime::EventBus;
-use crate::test_support::{TEST_PERSON_ID, fetched_agent_configuration, migrated_database};
+use crate::test_support::{
+    TEST_PERSON, TEST_PERSON_ID, fetched_agent_configuration, migrated_database,
+};
 use crate::tools::grants::Grants;
 
 /// A project whose brief names the goal "Annual pricing", written by its own Project Manager, which
@@ -613,6 +617,93 @@ fn submission(record_ids: Vec<Uuid>) -> Submission {
         action_item_ids: Vec::new(),
         message_ids: Vec::new(),
     }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn only_the_lead_projects_project_manager_submits_a_batch_for_an_item() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let website = project_named(&mut connection, "Website").await;
+    let mut both = vec![launch, website];
+    both.sort_unstable();
+    let now = Utc::now();
+    let item = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Fix the login".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: both.clone(),
+            initiative_ids: Vec::new(),
+        },
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("created")
+    .record;
+    // In both, led by the first.
+    let (lead, other) = (both[0], both[1]);
+    assert_eq!(item.lead_project_id, Some(lead));
+    // Something on the other project wakes its Project Manager, whose turn submits.
+    let record = segment(&mut connection, "the login").await;
+    attribution::attribute(&mut connection, record, other, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, other, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let for_item = Submission {
+        action_item_ids: vec![item.id],
+        ..submission(Vec::new())
+    };
+
+    // The other project's Project Manager is told whose the item is and how that changes.
+    let refused = batches::submit(&mut connection, &events, other, turn.id, for_item.clone())
+        .await
+        .expect_err("another project leads it");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    let lead_name = project::find(&mut connection, lead)
+        .await
+        .expect("a project")
+        .name;
+    assert!(reason.contains(&format!("led by the project {lead_name}")));
+
+    // Once a person makes its project the lead, its batch is taken.
+    action_item_attribution::set_lead(&mut connection, item.id, other, TEST_PERSON, now)
+        .await
+        .expect("led");
+
+    // An item it leads never vouches for the rest: a message sent to another project's Project
+    // Manager is still refused beside it.
+    let elsewhere =
+        project_manager::wake_with_message(&mut connection, lead, "Fix it.", TEST_PERSON_ID)
+            .await
+            .expect("woken");
+    let borrowing = Submission {
+        message_ids: vec![elsewhere.id],
+        ..for_item.clone()
+    };
+    let refused = batches::submit(&mut connection, &events, other, turn.id, borrowing)
+        .await
+        .expect_err("another project's message");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    assert!(reason.contains("not one sent to this project's Project Manager"));
+
+    let batch = batches::submit(&mut connection, &events, other, turn.id, for_item)
+        .await
+        .expect("submitted");
+    assert_eq!(batch.action_items(), vec![item.id]);
 }
 
 #[tokio::test]

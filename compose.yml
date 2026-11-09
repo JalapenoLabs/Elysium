@@ -55,6 +55,9 @@ x-server-environment: &server-environment
   KRATOS_ADMIN_URL: http://kratos:4434
   # Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
   HYDRA_ADMIN_URL: http://hydra:4445
+  # Hydra's public API, where the API relays MCP clients' own registrations. Never the admin
+  # API, which takes fields a client registering itself must not set. See docs/mcp.md.
+  HYDRA_PUBLIC_URL: http://hydra:4444
   RUST_LOG: ${RUST_LOG:-info,tower_http=info}
   LOG_FORMAT: compact
   # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.
