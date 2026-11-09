@@ -67,6 +67,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/action-items/{id}/snooze`    | `200` `{ item }`                                    |
 | POST   | `/api/v1/action-items/{id}/wait`      | `200` `{ item }`                                    |
 | GET    | `/api/v1/action-items/{id}/history`   | `200` `{ history: HistoryEntry[] }`, oldest first   |
+| POST   | `/api/v1/action-items/{id}/history/{entryId}/undo` | `200` `{ item }`; reverses a change to its projects or lead, `409` when it changed since |
+| PUT    | `/api/v1/action-items/{id}/lead-project` | `200` `{ item }`; `{ projectId }`, one of its projects |
 | GET    | `/api/v1/action-items/{id}/comments`  | `200` `{ comments: Comment[] }`, oldest first       |
 | POST   | `/api/v1/action-items/{id}/comments`  | `201` `{ comment }`                                 |
 | PATCH  | `/api/v1/action-items/{id}/comments/{commentId}` | `200` `{ comment }`                      |
@@ -300,6 +302,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/oauth/clients/{clientId}`    | `204`; admins, for everyone                          |
 | POST   | `/api/mcp`                            | MCP over Streamable HTTP, with a bearer token; see `docs/mcp.md` |
 | GET    | `/.well-known/oauth-protected-resource` | `200` the MCP server's protected resource metadata; also under `/api/mcp` |
+| POST   | `/oauth2/register`                    | Hydra's answer without its empty fields: an MCP client registers itself; see `docs/mcp.md` |
+| GET, PUT, DELETE | `/oauth2/register/{clientId}` | Hydra's answer without its empty fields: a client manages its registration with its token |
 
 Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
 
@@ -905,7 +909,10 @@ action records who took it in the run's history and signals the engine. See `doc
 
 An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`, `dismissed`), `priority` (`urgent`,
 `high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
-`projectIds`, `initiativeIds` (the initiatives it is in now, leaving out deleted ones), `createdAt`, `updatedAt`, and
+`projectIds`, `projectAttributions` (each of its projects as `{ projectId, confidence, attributedBy }`: how sure whoever
+put it there was, 1 for anyone but the attribution step, and the actor), `leadProjectId` (the one of its projects that
+leads it, set exactly while it is in any), `initiativeIds` (the initiatives it is in now, leaving out deleted ones),
+`createdAt`, `updatedAt`, and
 `issueFiling`, the issue it is owed and not yet filed, `{ id, provider, destination, attempts, lastError,
 lastAttemptAt, createdAt }`, or null. `owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody"
 }`. See `docs/action-items.md`.
@@ -936,7 +943,15 @@ changes over the same items never deadlock. Events go out as for each item's own
 
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
-initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal.
+initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal. An item's
+first project leads it, and when its lead leaves, the surest of those left leads instead
+(`docs/action-items.md`, Projects and the lead). `PUT /lead-project` makes one of its projects its lead, and answers
+`400` for a project it is not in.
+
+`POST /history/{entryId}/undo` reverses one `project_added`, `project_removed`, or `lead_project_changed` entry as the
+person, recording an entry of its own that names the one it undid (`data.undid`). Only the latest change to that
+project, or to the lead, is undone: an entry with a change made since answers `409` with why, and an entry of any other
+kind answers `400`.
 
 A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`, which
 equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body }`. Editing or deleting a comment
@@ -1184,6 +1199,7 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 | `KRATOS_PUBLIC_URL`        | required         | Kratos's public API, where sessions are checked |
 | `KRATOS_ADMIN_URL`         | required         | Kratos's admin API, where identities are managed |
 | `HYDRA_ADMIN_URL`          | required         | Hydra's admin API: OAuth consent and token introspection |
+| `HYDRA_PUBLIC_URL`         | required         | Hydra's public API, where MCP clients' registrations are relayed |
 | `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
 | `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
 | `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |

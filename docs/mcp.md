@@ -23,7 +23,8 @@ The client then does everything itself:
 2. The metadata (`/.well-known/oauth-protected-resource/api/mcp`, also served at the root path) names Hydra, on
    Elysium's own origin, as the authorization server. The client reads Hydra's metadata from
    `/.well-known/oauth-authorization-server` or `/.well-known/openid-configuration`.
-3. It registers itself at `/oauth2/register` and opens the browser on `/oauth2/auth`, with PKCE.
+3. It registers itself at `/oauth2/register`, which the API relays to Hydra (see Client registration), and opens the
+   browser on `/oauth2/auth`, with PKCE.
 4. Hydra sends the person to `/oauth/login`. If they're signed in to Elysium, that passes straight through; otherwise
    they sign in as usual, passkeys and authenticator codes included.
 5. Hydra sends them to `/oauth/consent`, which shows the client and what it asks for. Approving binds the grant to
@@ -38,7 +39,28 @@ route, needs an active, approved person (`docs/auth.md`). A pending or disabled 
 token for someone disabled since is refused.
 
 Client registration is open: anyone may register a client, as MCP clients register themselves. A client reaches
-nothing until an approved person consents to it. nginx throttles registration to 12 a minute per client address.
+nothing until an approved person consents to it. nginx throttles registration, with managing a registration, to 12 a
+minute per client address.
+
+## Client registration
+
+Clients register at `/oauth2/register` (RFC 7591), and may read, update, or delete their registration at
+`/oauth2/register/{client_id}` with the registration access token they were given (RFC 7592): the paths Hydra's
+metadata advertises. nginx sends both, and anything else under `/oauth2/register`, to the API
+(`api/src/routes/oauth2/`), which relays each request to the same path on Hydra's public API (`HYDRA_PUBLIC_URL`) with
+its method, its body, and its `Content-Type`, `Accept`, and `Authorization` headers, and nothing else. Hydra's own
+rules for self-registered clients decide what is stored. The relay never uses the admin API, which accepts fields such
+as `skip_consent` that a client registering itself must never set. A path under `/oauth2/register` that matches
+neither answers a JSON `404` and reaches nothing.
+
+Hydra fills every optional field the client did not send with `""` or `null`, and a strict client refuses that answer:
+the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to be an array whenever they are
+present. So the relay leaves out the top-level fields of a JSON answer whose value is `""` or `null`, which RFC 7591
+reads as not set (`api/src/oauth/registration.rs`). The status, the `Content-Type`, `Cache-Control`, `Pragma`, and
+`WWW-Authenticate` headers, and every other field, empty arrays and objects included, reach the client as Hydra sent
+them. An answer that names no cache policy, as Hydra's do not, is marked `Cache-Control: no-store`, since it carries
+the registration access token. Hydra tracks the empty fields as `ory/hydra#4044`; an answer without any passes
+through unchanged.
 
 ## Scopes
 
@@ -214,8 +236,10 @@ Hydra's schema.
 - **Development mode.** Hydra refuses an http issuer, so over `http://localhost` it runs in development mode, which
   relaxes only its https requirements. In production over https, it still accepts the http loopback redirect URIs CLI
   clients use.
-- **Routing.** nginx sends `/oauth2/` and Hydra's discovery documents to Hydra's public API, and the protected resource
-  metadata to the API. The admin API (port 4445) is for the API alone.
+- **Routing.** nginx sends `/oauth2/` and Hydra's discovery documents to Hydra's public API, except client
+  registration (see Client registration), which goes to the API. It sends the protected resource metadata, and every
+  path under it, to the API as well, where a path that matches neither of its two routes answers a JSON `404`. The
+  admin API (port 4445) is for the API alone.
 - **PKCE.** Every client must use PKCE (`oauth2.pkce.enforced`), confidential or not.
 - **Issuer.** The issuer is Elysium's origin, with no path. Hydra does not add `iss` to the authorization response
   (RFC 9207), which the MCP spec allows; its metadata does not claim it, so clients accept the response without it.

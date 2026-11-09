@@ -13,17 +13,20 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
 import { Link } from '@heroui/react'
-import { LuFolderKanban, LuTarget } from 'react-icons/lu'
+import { LuFolderKanban, LuStar, LuTarget } from 'react-icons/lu'
 
 // Misc
+import { formatPercent } from '../../format/numbers'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getInitiativeViewUrl, getProjectViewUrl } from '../../urls'
+import { boundedConfidence } from '../Projects/timelinePresentation'
 
 type Props = {
   item: ActionItem
 }
 
-// The projects and initiatives an item belongs to, each a link to its page.
+// The projects and initiatives an item belongs to, each a link to its page. Its lead project is
+// marked, and a project Elysia guessed says how sure she was.
 export function ActionItemMemberships(props: Props) {
   const { t } = useTranslation('actionItems')
   useProjectsLoader()
@@ -39,14 +42,24 @@ export function ActionItemMemberships(props: Props) {
   }
 
   return <div className='flex flex-wrap gap-x-4 gap-y-1 text-sm'>
-    {projectIds.map((projectId) => <Link
-      key={projectId}
-      href={getProjectViewUrl(projectId)}
-      className='inline-flex items-center gap-1 text-link no-underline hover:underline'
-    >
-      <LuFolderKanban className='size-4' aria-label={t('memberships.project')} />
-      <span>{projectNames[projectId]}</span>
-    </Link>)}
+    {projectIds.map((projectId) => {
+      const isLead = projectId === props.item.leadProjectId
+      const guess = props.item.projectAttributions.find((attribution) => attribution.projectId === projectId)
+      const isGuess = guess?.attributedBy === 'elysia'
+      return <Link
+        key={projectId}
+        href={getProjectViewUrl(projectId)}
+        className='inline-flex items-center gap-1 text-link no-underline hover:underline'
+      >
+        {isLead
+          ? <LuStar className='size-4' aria-label={t('memberships.leadProject')} />
+          : <LuFolderKanban className='size-4' aria-label={t('memberships.project')} />}
+        <span>{projectNames[projectId]}</span>
+        {isGuess && <span className='opacity-60'>{
+          t('memberships.byElysia', { percent: formatPercent(boundedConfidence(guess.confidence)) })
+        }</span>}
+      </Link>
+    })}
     {initiativeIds.map((initiativeId) => <Link
       key={initiativeId}
       href={getInitiativeViewUrl(initiativeId)}

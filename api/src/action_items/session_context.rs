@@ -237,6 +237,7 @@ mod tests {
     fn item() -> ActionItem {
         ActionItem {
             created_by: TEST_PERSON_ID,
+            lead_project_id: None,
             id: Uuid::nil(),
             title: "Fix the login bug".to_owned(),
             notes: "Users on Safari are logged out after a refresh.".to_owned(),

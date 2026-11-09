@@ -804,7 +804,13 @@ async fn item_detail(
     detail["dismissedAt"] = json!(item.dismissed_at);
     detail["projects"] = item_projects
         .iter()
-        .map(|project| json!({ "id": project.id, "name": project.name }))
+        .map(|project| {
+            json!({
+                "id": project.id,
+                "name": project.name,
+                "lead": item.lead_project_id == Some(project.id),
+            })
+        })
         .collect();
     detail["initiatives"] = json!(initiatives);
     let names = user::names(connection).await?;
@@ -1016,6 +1022,8 @@ fn item_summary(item: &ActionItem, memberships: &Memberships) -> Value {
         "snoozedUntil": item.snoozed_until,
         "waitingOn": item.waiting_on,
         "owner": item.owner(),
+        // Only the lead project's Project Manager may submit a batch for it.
+        "leadProjectId": item.lead_project_id,
         "initiativeIds": memberships.initiative_ids(item.id),
         "createdAt": item.created_at,
         "updatedAt": item.updated_at,

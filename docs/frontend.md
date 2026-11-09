@@ -1161,9 +1161,17 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
   Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
   from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` holds priority, due date,
-  projects, and initiatives, kept by the same Save; projects and initiatives go through their per-id routes, one
-  request per one joined or left (`membershipChanges.ts`). A due date is sent only when its day changed
-  (`toChangedDayInstant`). A deleted item is read-only under a banner with Restore.
+  projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
+  routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
+  each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them
+  and otherwise leaves none chosen, reading "Chosen when you save" (`getLeadAfter`). Save adds projects, then sets the
+  lead only when the person picked one, then removes projects, so a new lead is already a project and the old one is not
+  passed on by its removal. A lead nobody picked is passed on by the server (`docs/action-items.md`, Projects and the
+  lead), never sent as the person's choice, which Elysia's reading would never move. A due date is sent only
+  when its day changed (`toChangedDayInstant`). The history (`ActionItemHistory`) offers Undo on each change to the
+  item's projects or its lead (`useUndoActionItemChange`). A deleted item is read-only under a banner with Restore.
+- **Projects on a card** (`ActionItemMemberships`, in Next and the inbox) mark the lead project with a star and say how
+  sure Elysia was of a project she guessed.
 - **Links** (`ActionItemLinks`, under the item's notes) lists the item's links from the `actionItemLinks` slice, the
   primary first, each with its provider, kind, key (opening it in the provider), and state. What the provider says now
   (title, status, assignee, priority, due date) comes from `useActionItemLinkRemotes`, which reads every link live

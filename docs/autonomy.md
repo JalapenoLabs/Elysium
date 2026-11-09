@@ -13,12 +13,15 @@ This doc is the design. What is built says so; the rest is the roadmap, the issu
   assigned when a connector is added comes in too. The provider stays the source of truth for the issue's fields;
   closing it resolves the item, and being unassigned leaves the item and says so. See `docs/action-items.md`,
   Assigned issues.
-- Built: nothing starts because an issue arrived. An issue reaching Elysium only makes an item and its link, in no
-  project, and neither wakes a Project Manager or Elysia. A YouTrack issue's own timeline record, which the reader makes
-  for every new issue in its projects, reaches Elysia as every ingested record does.
-- An attribution step, the one meetings and conversations use, proposes the item's projects with a confidence, and a
-  person can correct them. An item can sit on several projects, but it has one lead project, and only that project's
-  Project Manager works it, one batch at a time.
+- Built: an attribution step, `segment_meeting`, the one meetings and conversations use, puts each arrived item on its
+  projects with Elysia's confidence, led by the one she is surest of. An item can sit on several projects, but it has
+  one lead project, and only that project's Project Manager may submit a batch for it. A person corrects the projects
+  and the lead on the item's page, each change in its history and undoable, and Elysia never overrides anyone else's
+  choice. See `docs/action-items.md`, Projects and the lead.
+- Built: nothing starts because an issue arrived. An issue reaching Elysium makes an item, its link, and its
+  attribution, and none of them wakes a Project Manager or Elysia. A YouTrack issue's own timeline record, which the
+  reader makes for every new issue in its projects, reaches Elysia as every ingested record does.
+- The lead project's Project Manager works an item one batch at a time.
 
 ## Assigning work
 

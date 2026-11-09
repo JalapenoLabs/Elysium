@@ -32,6 +32,7 @@ use diesel_async::AsyncPgConnection;
 
 pub use self::step::{Done, Step, StepContext, StepFailure, StepLog, Steps};
 pub use self::workflow::{Outline, Start, Workflow, declare};
+use crate::action_items::assigned;
 use crate::models::workflow_run::{self, NewRun, Settled, Started};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::{company_doc, conversations, meetings};
@@ -45,6 +46,7 @@ pub fn declared() -> Vec<Outline> {
         meetings::workflow::workflow().outline(),
         company_doc::workflow::workflow().outline(),
         conversations::workflow::workflow().outline(),
+        assigned::workflow::workflow().outline(),
     ]
 }
 

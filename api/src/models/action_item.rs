@@ -9,6 +9,15 @@
 //!
 //! Deleting is soft: `deleted_at` hides an item from every list and from Next, and every
 //! write but [`restore`] refuses a deleted item.
+//!
+//! # Projects and the lead
+//!
+//! An item in any project has exactly one lead project, whose Project Manager alone may submit
+//! work for it (`crate::project_managers::batches`). Its first project leads it, and when the lead
+//! leaves, the surest of those left leads instead (a person's choice before a guess, the earliest
+//! joined among equals), each move recorded as
+//! `lead_project_changed`. A person changes the lead, and an attribution step guesses it, through
+//! `crate::models::action_item_attribution`, which also undoes a change to either.
 
 use std::collections::HashMap;
 
@@ -128,6 +137,8 @@ pub struct ActionItem {
     pub updated_at: DateTime<Utc>,
     /// The person or machine that created it: the actor of its `created` history entry.
     pub created_by: Uuid,
+    /// The one of its projects that leads it; set exactly while it is in any (module docs).
+    pub lead_project_id: Option<Uuid>,
 }
 
 impl ActionItem {
@@ -218,15 +229,45 @@ pub enum ProjectFilter {
     Project(Uuid),
 }
 
+/// One project an item is in: how sure whoever put it there was, and who that was.
+#[derive(Debug, Clone, PartialEq, Serialize, Queryable, Selectable)]
+#[diesel(table_name = action_item_projects, check_for_backend(diesel::pg::Pg))]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectAttribution {
+    #[serde(skip)]
+    pub action_item_id: Uuid,
+    pub project_id: Uuid,
+    /// [`CERTAIN`] for anyone but an attribution step, which guesses.
+    pub confidence: f32,
+    /// The actor, as history names it: `user:<id>`, `elysia`, `project_manager:<id>`, ...
+    pub attributed_by: String,
+    /// When it joined, which breaks a tie in confidence when the lead passes on.
+    #[serde(skip)]
+    pub created_at: DateTime<Utc>,
+}
+
 /// The projects and initiatives a set of items belong to.
 #[derive(Debug, Default)]
 pub struct Memberships {
-    projects: HashMap<Uuid, Vec<Uuid>>,
+    projects: HashMap<Uuid, Vec<ProjectAttribution>>,
     initiatives: HashMap<Uuid, Vec<Uuid>>,
 }
 
 impl Memberships {
     pub fn project_ids(&self, action_item_id: Uuid) -> Vec<Uuid> {
+        self.projects
+            .get(&action_item_id)
+            .map(|projects| {
+                projects
+                    .iter()
+                    .map(|attribution| attribution.project_id)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The item's projects with how each got there, in project id order.
+    pub fn project_attributions(&self, action_item_id: Uuid) -> Vec<ProjectAttribution> {
         self.projects
             .get(&action_item_id)
             .cloned()
@@ -254,6 +295,7 @@ struct ActionItemRow {
     owner_name: Option<String>,
     created_at: DateTime<Utc>,
     created_by: Uuid,
+    lead_project_id: Option<Uuid>,
 }
 
 #[derive(Default, AsChangeset)]
@@ -278,6 +320,8 @@ struct ActionItemChangeset {
 struct ProjectLinkRow {
     action_item_id: Uuid,
     project_id: Uuid,
+    confidence: f32,
+    attributed_by: String,
 }
 
 #[derive(Insertable)]
@@ -468,16 +512,13 @@ pub async fn memberships(
     connection: &mut AsyncPgConnection,
     action_item_ids: &[Uuid],
 ) -> QueryResult<Memberships> {
-    let project_links: Vec<(Uuid, Uuid)> = action_item_projects::table
+    let project_links: Vec<ProjectAttribution> = action_item_projects::table
         .filter(action_item_projects::action_item_id.eq_any(action_item_ids))
         .order((
             action_item_projects::action_item_id,
             action_item_projects::project_id,
         ))
-        .select((
-            action_item_projects::action_item_id,
-            action_item_projects::project_id,
-        ))
+        .select(ProjectAttribution::as_select())
         .load(connection)
         .await?;
     let initiative_links: Vec<(Uuid, Uuid)> = initiative_items::table
@@ -491,12 +532,12 @@ pub async fn memberships(
         .await?;
 
     let mut memberships = Memberships::default();
-    for (action_item_id, project_id) in project_links {
+    for attribution in project_links {
         memberships
             .projects
-            .entry(action_item_id)
+            .entry(attribution.action_item_id)
             .or_default()
-            .push(project_id);
+            .push(attribution);
     }
     for (action_item_id, initiative_id) in initiative_links {
         memberships
@@ -629,7 +670,8 @@ async fn join(
     .await
 }
 
-/// Creates an item with a new `UUIDv7` id, in its projects and initiatives.
+/// Creates an item with a new `UUIDv7` id, in its projects and initiatives, each project put
+/// there by `actor` for certain. The first project leads it.
 ///
 /// Project and initiative ids must be sorted and unique.
 ///
@@ -644,6 +686,7 @@ pub async fn create(
     now: DateTime<Utc>,
 ) -> Result<Recorded<ActionItem>, WorkError> {
     let id = Uuid::now_v7();
+    let lead_project_id = new_item.project_ids.as_slice().first().copied();
     let created = json!({
         "title": new_item.title,
         "notes": new_item.notes,
@@ -652,6 +695,7 @@ pub async fn create(
         "dueAt": new_item.due_at,
         "owner": new_item.owner,
         "projectIds": new_item.project_ids,
+        "leadProjectId": lead_project_id,
     });
     let (owner_kind, owner_name) = new_item.owner.into_columns();
     let row = ActionItemRow {
@@ -665,6 +709,9 @@ pub async fn create(
         owner_name,
         created_at: now,
         created_by: actor.user_id(),
+        // Its memberships follow in the same transaction, and the lead's foreign key is checked
+        // at commit.
+        lead_project_id,
     };
     let project_links: Vec<ProjectLinkRow> = new_item
         .project_ids
@@ -672,6 +719,8 @@ pub async fn create(
         .map(|&project_id| ProjectLinkRow {
             action_item_id: id,
             project_id,
+            confidence: CERTAIN,
+            attributed_by: actor.to_string(),
         })
         .collect();
     let initiative_ids = new_item.initiative_ids;
@@ -1011,7 +1060,8 @@ pub async fn restore(
         .await
 }
 
-/// Adds a live item to a project. Adding it again changes nothing.
+/// Adds a live item to a project, for certain, as `actor`. Adding it again changes nothing. An
+/// item in no project until now is led by it.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item or project,
@@ -1027,36 +1077,186 @@ pub async fn add_project(
         .transaction(async move |connection| {
             let item = lock_live(connection, id).await?;
             project::lock_shared(connection, project_id).await?;
-            let inserted = diesel::insert_into(action_item_projects::table)
-                .values(ProjectLinkRow {
-                    action_item_id: id,
-                    project_id,
-                })
-                .on_conflict_do_nothing()
-                .execute(connection)
-                .await?;
-            if inserted == 0 {
-                return Ok(Recorded {
-                    record: item,
-                    history: Vec::new(),
-                });
-            }
-            let entry = action_item_event::record(
-                connection,
-                Change {
-                    subject: Subject::Item(id),
-                    kind: HistoryKind::ProjectAdded,
-                    actor,
-                    data: json!({ "projectId": project_id }),
-                    at: now,
-                },
-            )
-            .await?;
-            Ok(Recorded {
-                record: item,
-                history: vec![entry],
-            })
+            let joining = Joining {
+                project_id,
+                confidence: CERTAIN,
+                attributed_by: actor.to_string(),
+                actor,
+                undid: None,
+            };
+            Ok(join_project(connection, item, joining, now).await?)
         })
+        .await
+}
+
+/// How sure anyone but an attribution step is of the projects they put an item in.
+pub const CERTAIN: f32 = 1.0;
+
+/// An item joining a project: how sure whoever put it there was and who that was, who records
+/// it, and the history entry this undoes, when it is an undo, which puts back a membership as it
+/// was held.
+#[derive(Debug, Clone)]
+pub struct Joining {
+    pub project_id: Uuid,
+    pub confidence: f32,
+    /// The actor the membership names, as history names it: `actor`'s own but for an undo.
+    pub attributed_by: String,
+    pub actor: Actor,
+    pub undid: Option<Uuid>,
+}
+
+/// Puts the locked, live `item` in a project and records it, if it was not there, making the
+/// project its lead when it had none. Call it inside the transaction that locked the item, after
+/// share-locking the project.
+///
+/// # Errors
+/// Propagates any database error, including a foreign key violation for an unknown project.
+pub async fn join_project(
+    connection: &mut AsyncPgConnection,
+    item: ActionItem,
+    joining: Joining,
+    now: DateTime<Utc>,
+) -> QueryResult<Recorded<ActionItem>> {
+    let inserted = diesel::insert_into(action_item_projects::table)
+        .values(ProjectLinkRow {
+            action_item_id: item.id,
+            project_id: joining.project_id,
+            confidence: joining.confidence,
+            attributed_by: joining.attributed_by.clone(),
+        })
+        .on_conflict_do_nothing()
+        .execute(connection)
+        .await?;
+    if inserted == 0 {
+        return Ok(Recorded {
+            record: item,
+            history: Vec::new(),
+        });
+    }
+    let mut data = json!({
+        "projectId": joining.project_id,
+        "confidence": joining.confidence,
+        "attributedBy": joining.attributed_by,
+    });
+    if let Some(undid) = joining.undid {
+        data["undid"] = json!(undid);
+    }
+    let mut history = vec![
+        action_item_event::record(
+            connection,
+            Change {
+                subject: Subject::Item(item.id),
+                kind: HistoryKind::ProjectAdded,
+                actor: joining.actor,
+                data,
+                at: now,
+            },
+        )
+        .await?,
+    ];
+    if item.lead_project_id.is_some() {
+        return Ok(Recorded {
+            record: item,
+            history,
+        });
+    }
+    let led = move_lead(
+        connection,
+        &item,
+        Some(joining.project_id),
+        joining.actor,
+        LeadMove::PassedOn,
+        now,
+    )
+    .await?;
+    history.extend(led.history);
+    Ok(Recorded {
+        record: led.record,
+        history,
+    })
+}
+
+/// Why an item's lead moved, as its `lead_project_changed` entry records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeadMove {
+    /// Someone chose the lead.
+    Chosen,
+    /// Someone undid the entry with this id.
+    Undo(Uuid),
+    /// The item's projects changed and the lead followed (its first project, or the successor of
+    /// one that left), which nobody chose: `data.passedOn` says so, and an attribution step may
+    /// still move it.
+    PassedOn,
+}
+
+/// Makes `to` the lead of the locked `item`, and records the move as `actor`, saying why
+/// (`because`). `to` is one of its projects, or `None` for an item left in none. Moving it where
+/// it already is changes nothing.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn move_lead(
+    connection: &mut AsyncPgConnection,
+    item: &ActionItem,
+    to: Option<Uuid>,
+    actor: Actor,
+    because: LeadMove,
+    now: DateTime<Utc>,
+) -> QueryResult<Recorded<ActionItem>> {
+    if item.lead_project_id == to {
+        return Ok(Recorded {
+            record: item.clone(),
+            history: Vec::new(),
+        });
+    }
+    let record = diesel::update(action_items::table.find(item.id))
+        .set(action_items::lead_project_id.eq(to))
+        .returning(ActionItem::as_returning())
+        .get_result(connection)
+        .await?;
+    let mut data = replaced(item.lead_project_id, to);
+    match because {
+        LeadMove::Chosen => {}
+        LeadMove::Undo(undid) => data["undid"] = json!(undid),
+        LeadMove::PassedOn => data["passedOn"] = json!(true),
+    }
+    let entry = action_item_event::record(
+        connection,
+        Change {
+            subject: Subject::Item(item.id),
+            kind: HistoryKind::LeadProjectChanged,
+            actor,
+            data,
+            at: now,
+        },
+    )
+    .await?;
+    Ok(Recorded {
+        record,
+        history: vec![entry],
+    })
+}
+
+/// The projects the item is in, each with how it got there, in the order the lead passes to them:
+/// the surest first, so a person's choice comes before a guess and a likelier guess before a
+/// less likely one, and the earliest joined among equals. Every project an attribution joins does so
+/// in one transaction, at one `created_at`, so confidence is what orders its guesses.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn project_attributions(
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+) -> QueryResult<Vec<ProjectAttribution>> {
+    action_item_projects::table
+        .filter(action_item_projects::action_item_id.eq(action_item_id))
+        .order((
+            action_item_projects::confidence.desc(),
+            action_item_projects::created_at,
+            action_item_projects::project_id,
+        ))
+        .select(ProjectAttribution::as_select())
+        .load(connection)
         .await
 }
 
@@ -1075,7 +1275,7 @@ pub async fn remove_project(
     connection
         .transaction(async move |connection| {
             let item = lock_live(connection, id).await?;
-            Ok(unlink_project(connection, item, project_id, actor, now).await?)
+            Ok(leave_project(connection, item, project_id, actor, None, now).await?)
         })
         .await
 }
@@ -1101,46 +1301,80 @@ pub async fn remove_all_from_project(
     let mut removed = Vec::new();
     for item_id in item_ids {
         let item = lock(connection, item_id).await?;
-        removed.push(unlink_project(connection, item, project_id, actor, now).await?);
+        removed.push(leave_project(connection, item, project_id, actor, None, now).await?);
     }
     Ok(removed)
 }
 
-/// Deletes the item's link to the project and records it, if there was one.
-async fn unlink_project(
+/// Takes the locked `item` out of a project and records it as `actor`, if it was there, holding
+/// what the membership held so an undo can put it back. When the project led it, the project it
+/// surest of those left leads it instead ([`project_attributions`]), or none when none is left.
+/// `undid` names the
+/// entry this undoes, for an undo.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn leave_project(
     connection: &mut AsyncPgConnection,
     item: ActionItem,
     project_id: Uuid,
     actor: Actor,
+    undid: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> QueryResult<Recorded<ActionItem>> {
-    let removed = diesel::delete(
+    let removed: Option<ProjectAttribution> = diesel::delete(
         action_item_projects::table
             .filter(action_item_projects::action_item_id.eq(item.id))
             .filter(action_item_projects::project_id.eq(project_id)),
     )
-    .execute(connection)
-    .await?;
-    if removed == 0 {
+    .returning(ProjectAttribution::as_returning())
+    .get_result(connection)
+    .await
+    .optional()?;
+    let Some(removed) = removed else {
         return Ok(Recorded {
             record: item,
             history: Vec::new(),
         });
+    };
+    let mut data = json!({
+        "projectId": project_id,
+        "confidence": removed.confidence,
+        "attributedBy": removed.attributed_by,
+    });
+    if let Some(undid) = undid {
+        data["undid"] = json!(undid);
     }
-    let entry = action_item_event::record(
-        connection,
-        Change {
-            subject: Subject::Item(item.id),
-            kind: HistoryKind::ProjectRemoved,
-            actor,
-            data: json!({ "projectId": project_id }),
-            at: now,
-        },
-    )
-    .await?;
+    let mut history = vec![
+        action_item_event::record(
+            connection,
+            Change {
+                subject: Subject::Item(item.id),
+                kind: HistoryKind::ProjectRemoved,
+                actor,
+                data,
+                at: now,
+            },
+        )
+        .await?,
+    ];
+    if item.lead_project_id != Some(project_id) {
+        return Ok(Recorded {
+            record: item,
+            history,
+        });
+    }
+    // The lead's membership is gone already, so the first left is its successor.
+    let successor = project_attributions(connection, item.id)
+        .await?
+        .into_iter()
+        .next()
+        .map(|attribution| attribution.project_id);
+    let led = move_lead(connection, &item, successor, actor, LeadMove::PassedOn, now).await?;
+    history.extend(led.history);
     Ok(Recorded {
-        record: item,
-        history: vec![entry],
+        record: led.record,
+        history,
     })
 }
 
@@ -1876,7 +2110,9 @@ mod tests {
         let added = add_project(&mut connection, id, project.id, TEST_PERSON, minute(1))
             .await
             .expect("add");
-        assert_eq!(added.history.len(), 1);
+        // Joining, and led by it, as its first project.
+        assert_eq!(added.history.len(), 2);
+        assert_eq!(added.record.lead_project_id, Some(project.id));
         let again = add_project(&mut connection, id, project.id, TEST_PERSON, minute(1))
             .await
             .expect("add again");
@@ -1932,7 +2168,8 @@ mod tests {
         let removed = remove_project(&mut connection, id, project.id, TEST_PERSON, minute(6))
             .await
             .expect("remove");
-        assert_eq!(removed.history.len(), 1);
+        // Leaving, and left with no lead, as its only project.
+        assert_eq!(removed.history.len(), 2);
         let removed_again = remove_project(&mut connection, id, project.id, TEST_PERSON, minute(6))
             .await
             .expect("remove again");
@@ -2094,7 +2331,18 @@ mod tests {
         assert_eq!(initiatives.len(), 1);
         for id in [live.id, trashed.id] {
             let kinds = history_kinds(&mut connection, id).await;
-            assert_eq!(kinds.last().map(String::as_str), Some("project_removed"));
+            // The project led it, and it is in no other, so it is left with no lead.
+            assert!(kinds.ends_with(&[
+                "project_removed".to_owned(),
+                "lead_project_changed".to_owned()
+            ]));
+            assert_eq!(
+                find(&mut connection, id)
+                    .await
+                    .expect("an item")
+                    .lead_project_id,
+                None
+            );
         }
         let initiative_kinds: Vec<String> =
             crate::models::action_item_event::list_for_initiative(&mut connection, launch.id)

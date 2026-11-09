@@ -54,7 +54,9 @@
   "memberships": {
     "none": "Not in any project or initiative.",
     "project": "Project",
-    "initiative": "Initiative"
+    "leadProject": "Lead project",
+    "initiative": "Initiative",
+    "byElysia": "Elysia, {{percent}} sure"
   },
   "next": {
     "loadError": "Action items could not be loaded.",
@@ -134,6 +136,11 @@
     "commentDeleted": "deleted a comment",
     "projectAdded": "added it to {{name}}",
     "projectRemoved": "removed it from {{name}}",
+    "projectGuessed": "put it on {{name}}, {{percent}} sure",
+    "leadProjectChanged": "made {{name}} its lead project",
+    "leadProjectCleared": "left it with no lead project",
+    "undo": "Undo",
+    "undone": "Change undone",
     "joinedInitiative": "added it to the initiative {{name}}",
     "leftInitiative": "took it out of the initiative {{name}}",
     "itemJoined": "added {{title}}",
@@ -311,6 +318,11 @@
     "projects": "Projects",
     "searchProjects": "Search projects",
     "noProjectsFound": "No projects found.",
+    "leadProject": "Lead project",
+    "leadProjectPassesOn": "Chosen when you save",
+    "leadProjectHelpLabel": "About the lead project",
+    "leadProjectHelp": "An item can be in several projects, but only its lead project's Project Manager works it.",
+    "projectGuessed": "{{project}}, Elysia {{percent}} sure",
     "initiatives": "Initiatives",
     "searchInitiatives": "Search initiatives",
     "noInitiativesFound": "No initiatives found.",

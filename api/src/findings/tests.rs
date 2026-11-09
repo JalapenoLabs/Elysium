@@ -254,6 +254,11 @@ async fn accepting_files_its_issue_and_proposes_a_batch_rooted_in_the_person() {
         "a person accepting it accepts the item"
     );
     assert_eq!(item.created_by, TEST_PERSON_ID);
+    assert_eq!(
+        item.lead_project_id,
+        Some(project_id),
+        "its project leads it, so its Project Manager works it"
+    );
     assert!(
         item.notes
             .contains("api/src/retry.rs in https://github.com/acme/api")
