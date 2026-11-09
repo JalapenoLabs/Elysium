@@ -85,13 +85,14 @@ describe('useFindingActions accept', () => {
     expect(options.action?.label).toBe('Review batch')
   })
 
-  it('warns, and keeps the warning, when the project has nowhere to file', async () => {
+  it('warns with why no issue was filed, which differs between no tracker and no token', async () => {
+    const refusal = 'this project files on GitHub, but its sessions get no GitHub token'
     routes.acceptFinding.mockResolvedValue({
       finding: { ...FINDING, state: 'accepted' },
       itemId: 'item',
       batchId: 'batch',
       issue: null,
-      issueRefusal: 'this project names no tracker',
+      issueRefusal: refusal,
     })
     const actions = renderActions()
 
@@ -99,6 +100,30 @@ describe('useFindingActions accept', () => {
 
     expect(toasts.success).not.toHaveBeenCalled()
     expect(toasts.warning).toHaveBeenCalledWith('Accepted Retry forever without an issue', expect.anything())
+    const options: ToastOptions = toasts.warning.mock.lastCall?.[1]
+    expect(options.description).toBe(`No issue was filed: ${refusal}. Its batch waits for your approval.`)
+  })
+
+  it('sends one request however often it is pressed while the first is in flight', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    routes.acceptFinding.mockReturnValue(new Promise((resolve) => {
+      answer = resolve
+    }))
+    const actions = renderActions()
+
+    const first = actions.accept(FINDING)
+    await act(() => actions.accept(FINDING))
+    answer({
+      finding: { ...FINDING, state: 'accepted' },
+      itemId: 'item',
+      batchId: 'batch',
+      issue: { provider: 'jira', destination: 'ELY' },
+      issueRefusal: null,
+    })
+    await act(() => first)
+
+    expect(routes.acceptFinding).toHaveBeenCalledTimes(1)
+    expect(toasts.danger).not.toHaveBeenCalled()
   })
 
   it('says someone else decided it first', async () => {

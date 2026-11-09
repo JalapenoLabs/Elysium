@@ -1474,7 +1474,8 @@ noticed that nobody asked for, waiting for the person's decision, its count acce
 title, what was seen (clamped, a click on it opening its row in full), where (the place, and its repository linked in a new tab
 when a browser can open it, `repositoryHref`), its cost (Small, Medium, or Large, sorting in that order), how many
 times it was seen, and when it was first reported. A row's Accept makes its item, issue, and proposed batch, and its
-toast offers Review batch, or warns, staying until dismissed, when the project has no tracker to file in; its Dismiss,
+toast offers Review batch, or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
+(no tracker, or a GitHub tracker with no token); a second press while it is in flight sends nothing. Its Dismiss,
 red, asks in the prompt gate for an optional reason the agents are told, saying in bold that it is never raised again,
 with Keep it beside it (`useFindingActions`). Someone deciding it first says so and reloads the list. The list and its
 count are read from SWR alone (`useProjectFindings`), since no other view shows them, by `ProjectLists` for the tab's

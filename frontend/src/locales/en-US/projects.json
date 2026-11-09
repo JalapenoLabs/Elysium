@@ -269,7 +269,7 @@
     "accepted": "Accepted {{title}}",
     "acceptedFiling": "Its issue files in {{provider}} {{destination}}, and its batch waits for your approval.",
     "acceptedNowhereToFile": "Accepted {{title}} without an issue",
-    "nowhereToFile": "This project has no tracker Elysium can file in; set one on the Project Manager tab. Its batch waits for your approval.",
+    "nowhereToFile": "No issue was filed: {{reason}}. Its batch waits for your approval.",
     "reviewBatch": "Review batch",
     "dismissed": "Dismissed {{title}}",
     "decidedElsewhere": "Someone already decided this finding.",

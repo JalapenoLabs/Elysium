@@ -213,9 +213,11 @@ fn normalized_repository(url: &str) -> String {
         .to_owned()
 }
 
-/// A place in one spelling: lowercase, its whitespace collapsed, with no leading `./`, and with
-/// no line, column, or range at its end (`:12`, `:12:5`, `#L12`, `#L12-L20`), since lines move as
-/// the code around them changes while the finding stays where it was.
+/// A place in one spelling: lowercase, its whitespace collapsed, with no leading `./`, and, for a
+/// path, with no line, column, or range at its end (`:12`, `:12:5`, `#L12`, `#L12-L20`), since
+/// lines move as the code around them changes while the finding stays where it was. A place with
+/// spaces in it is a place's name rather than a path or a URL, so its ending is kept whole: the
+/// `:30` of `Standup 2026-11-07 10:30` is part of what it names.
 fn normalized_location(location: &str) -> String {
     let collapsed = location
         .split_whitespace()
@@ -223,6 +225,9 @@ fn normalized_location(location: &str) -> String {
         .join(" ")
         .to_lowercase();
     let mut place = collapsed.strip_prefix("./").unwrap_or(&collapsed);
+    if place.contains(' ') {
+        return place.to_owned();
+    }
     if let Some((path, anchor)) = place.rsplit_once("#l")
         && is_line_range(anchor)
     {

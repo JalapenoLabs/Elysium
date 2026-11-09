@@ -342,7 +342,15 @@ async fn run_report_finding(
     let batch = work_batch::find(&mut connection, worker.batch_id)
         .await
         .map_err(|error| internal(scope, OPERATION, &error))?;
-    if batch.state != BatchState::Running || batch.project_id != worker.project_id {
+    // The grant names the batch's own project, so this holds unless a grant was written wrong;
+    // a finding must never land on another project's list either way.
+    if batch.project_id != worker.project_id {
+        return Err(ToolError::Invalid(format!(
+            "batch {} is not this project's, so it reports nothing here",
+            worker.batch_id
+        )));
+    }
+    if batch.state != BatchState::Running {
         return Err(ToolError::Invalid(format!(
             "batch {} is no longer running, so it reports nothing; end your turn",
             worker.batch_id

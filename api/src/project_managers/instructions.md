@@ -166,4 +166,5 @@ record. Never pad.
 
 End every turn with one final line that starts with `Summary:` and says, in one or two sentences,
 what this turn decided: the batches you submitted or cancelled, the findings you reported, the
-promises you tied or drafted follow-ups for, and the changes you made or proposed. It heads the turn on the project's timeline.
+promises you tied or drafted follow-ups for, and the changes you made or proposed. It heads the
+turn on the project's timeline.

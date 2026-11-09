@@ -110,6 +110,11 @@ fn a_fingerprint_is_what_its_column_admits() {
 fn a_place_keeps_what_is_not_a_line_number() {
     assert_eq!(normalized_location("Settings page"), "settings page");
     assert_eq!(
+        normalized_location("Standup 2026-11-07 10:30"),
+        "standup 2026-11-07 10:30",
+        "a place's name keeps a time at its end"
+    );
+    assert_eq!(
         normalized_location("docs/api.md#Errors"),
         "docs/api.md#errors"
     );
