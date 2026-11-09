@@ -27,12 +27,13 @@ describe('getLeadAfter', () => {
     expect(getLeadAfter('website', [ 'launch', 'website' ])).toBe('website')
   })
 
-  it('passes the lead to the first project left when the lead leaves', () => {
-    expect(getLeadAfter('website', [ 'launch', 'billing' ])).toBe('launch')
+  // Picking a project here would save it as the person's choice, pinning a lead nobody chose.
+  it('chooses no lead when the lead leaves, so saving passes it on', () => {
+    expect(getLeadAfter('website', [ 'launch', 'billing' ])).toBeNull()
   })
 
-  it('gives an item its first project as its lead, and none when it has no project', () => {
-    expect(getLeadAfter(null, [ 'launch' ])).toBe('launch')
+  it('chooses no lead for an item without one, so its first project leads it once saved', () => {
+    expect(getLeadAfter(null, [ 'launch' ])).toBeNull()
     expect(getLeadAfter('website', [])).toBeNull()
   })
 })

@@ -96,8 +96,9 @@ export function useActionItemEditor(item: ActionItem) {
         saved = (await addActionItemProject(item.id, projectId)).item
         dispatch(actionItemUpserted(saved))
       }
-      // Between the two, so a new lead is already a project and the old one is not yet gone,
-      // which would pass the lead on by itself.
+      // Only a lead the person picked is sent, since the server records it as their choice; one
+      // they did not pick is passed on by the removals. Between the two, so a new lead is already a
+      // project and the old one is not yet gone, which would pass the lead on by itself.
       if (values.leadProjectId && values.leadProjectId !== saved.leadProjectId) {
         saved = (await setActionItemLeadProject(item.id, values.leadProjectId)).item
         dispatch(actionItemUpserted(saved))

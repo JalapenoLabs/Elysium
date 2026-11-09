@@ -113,7 +113,9 @@ export function ActionItemDetailsPanel(props: Props) {
         value={projectIds}
         onChange={(value) => {
           form.setValue('projectIds', value, { shouldDirty: true })
-          form.setValue('leadProjectId', getLeadAfter(leadProjectId, value), { shouldDirty: true })
+          // A saved lead picked again, after being taken off, still leads.
+          const lead = getLeadAfter(leadProjectId ?? item.leadProjectId, value)
+          form.setValue('leadProjectId', lead, { shouldDirty: true })
         }}
       />
 
@@ -125,6 +127,7 @@ export function ActionItemDetailsPanel(props: Props) {
           isDisabled={isReadOnly}
           options={projectIds.map((projectId) => ({ id: projectId, label: leadOptionLabel(projectId) }))}
           value={leadProjectId ?? ''}
+          placeholder={t('fields.leadProjectPassesOn')}
           onChange={(value) => form.setValue('leadProjectId', value, { shouldDirty: true })}
         />
         <HelpPopover label={t('fields.leadProjectHelpLabel')}>

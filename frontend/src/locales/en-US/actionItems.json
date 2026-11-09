@@ -319,6 +319,7 @@
     "searchProjects": "Search projects",
     "noProjectsFound": "No projects found.",
     "leadProject": "Lead project",
+    "leadProjectPassesOn": "Chosen when you save",
     "leadProjectHelpLabel": "About the lead project",
     "leadProjectHelp": "An item can be in several projects, but only its lead project's Project Manager works it.",
     "projectGuessed": "{{project}}, Elysia {{percent}} sure",
