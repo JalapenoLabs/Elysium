@@ -413,6 +413,24 @@ async fn reading_and_updating_a_registration_reach_hydra_with_their_method() {
 }
 
 #[tokio::test]
+async fn a_path_below_registration_that_matches_nothing_is_a_json_404() {
+    let (routes, hydra) = relay_to_fake().await;
+
+    for path in ["/oauth2/register/", "/oauth2/register/a-client/secret"] {
+        let request = Request::get(path)
+            .body(Body::empty())
+            .expect("a request builds");
+        let (status, _headers, body) = send(&routes, request).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        let error: Value = serde_json::from_slice(&body)
+            .unwrap_or_else(|_| panic!("{path} answered with something other than JSON"));
+        assert_eq!(error["message"], "resource not found", "{path}");
+    }
+    assert!(hydra.seen().is_empty(), "nothing reached Hydra");
+}
+
+#[tokio::test]
 async fn hydra_out_of_reach_answers_bad_gateway() {
     // Port 9 (discard) has nothing listening on loopback.
     let nowhere = Url::parse("http://127.0.0.1:9/").expect("a static URL parses");

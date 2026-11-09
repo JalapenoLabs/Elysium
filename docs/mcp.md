@@ -50,7 +50,8 @@ metadata advertises. nginx sends both, and anything else under `/oauth2/register
 (`api/src/routes/oauth2/`), which relays each request to the same path on Hydra's public API (`HYDRA_PUBLIC_URL`) with
 its method, its body, and its `Content-Type`, `Accept`, and `Authorization` headers, and nothing else. Hydra's own
 rules for self-registered clients decide what is stored. The relay never uses the admin API, which accepts fields such
-as `skip_consent` that a client registering itself must never set.
+as `skip_consent` that a client registering itself must never set. A path under `/oauth2/register` that matches
+neither answers a JSON `404` and reaches nothing.
 
 Hydra fills every optional field the client did not send with `""` or `null`, and a strict client refuses that answer:
 the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to be an array whenever they are
@@ -235,8 +236,10 @@ Hydra's schema.
 - **Development mode.** Hydra refuses an http issuer, so over `http://localhost` it runs in development mode, which
   relaxes only its https requirements. In production over https, it still accepts the http loopback redirect URIs CLI
   clients use.
-- **Routing.** nginx sends `/oauth2/` and Hydra's discovery documents to Hydra's public API, and the protected resource
-  metadata to the API. The admin API (port 4445) is for the API alone.
+- **Routing.** nginx sends `/oauth2/` and Hydra's discovery documents to Hydra's public API, except client
+  registration (see Client registration), which goes to the API. It sends the protected resource metadata, and every
+  path under it, to the API as well, where a path that matches neither of its two routes answers a JSON `404`. The
+  admin API (port 4445) is for the API alone.
 - **PKCE.** Every client must use PKCE (`oauth2.pkce.enforced`), confidential or not.
 - **Issuer.** The issuer is Elysium's origin, with no path. Hydra does not add `iss` to the authorization response
   (RFC 9207), which the MCP spec allows; its metadata does not claim it, so clients accept the response without it.
