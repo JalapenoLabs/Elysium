@@ -18,10 +18,12 @@
 //! refuses it: the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to
 //! be an array whenever they are present. So the top-level fields of a JSON answer whose value is
 //! `""` or `null` are left out, which RFC 7591 reads as not set. Everything else (the status, the
-//! headers a client reads, empty arrays and objects) is relayed as Hydra sent it. Hydra tracks the
-//! empty fields as `ory/hydra#4044`; an answer with none passes through unchanged.
+//! headers a client reads, empty arrays and objects) is relayed as Hydra sent it, and an answer
+//! that names no cache policy is marked `no-store`, since it carries the registration access
+//! token. Hydra tracks the empty fields as `ory/hydra#4044`; an answer with none passes through
+//! unchanged.
 
-use axum::http::{HeaderMap, HeaderName, Method, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, header};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use serde_json::Value;
@@ -38,8 +40,7 @@ const REGISTRATION_PATH: &str = "oauth2/register";
 const RELAYED_REQUEST_HEADERS: [HeaderName; 3] =
     [header::CONTENT_TYPE, header::ACCEPT, header::AUTHORIZATION];
 
-/// The answer headers a client reads: what the body is, that it must not be cached (it carries
-/// the registration access token, and a secret for a confidential client), and why a management
+/// The answer headers a client reads: what the body is, how it may be cached, and why a management
 /// call was refused. Headers about Hydra's connection or the body's length are never relayed,
 /// since the body the client gets is not the one Hydra sent.
 const RELAYED_RESPONSE_HEADERS: [HeaderName; 4] = [
@@ -48,6 +49,11 @@ const RELAYED_RESPONSE_HEADERS: [HeaderName; 4] = [
     header::PRAGMA,
     header::WWW_AUTHENTICATE,
 ];
+
+/// How an answer may be cached when Hydra does not say: never. A registration answer carries the
+/// registration access token, and a secret for a confidential client, and Hydra's answers name no
+/// cache policy of their own.
+const NO_STORE: HeaderValue = HeaderValue::from_static("no-store");
 
 /// Hydra's public registration endpoint, as the API reaches it on the compose network. Cloning
 /// is cheap: it shares the HTTP client's pool.
@@ -113,11 +119,16 @@ impl Registration {
                 relayed_headers.append(&name, value.clone());
             }
         }
+        relayed_headers
+            .entry(header::CACHE_CONTROL)
+            .or_insert(NO_STORE);
         let body = answer
             .bytes()
             .await
             .map_err(|error| HydraError::Refused(format!("unreadable answer: {error}")))?;
 
+        // The headers replace what the body would set on its own, so Hydra's `Content-Type` is the
+        // one the client gets, never the `application/octet-stream` of a bare byte body.
         Ok((status, relayed_headers, without_empty_fields(body)).into_response())
     }
 }

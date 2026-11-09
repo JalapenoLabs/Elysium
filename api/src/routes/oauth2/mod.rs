@@ -19,16 +19,16 @@ use axum::routing::{get, post};
 
 use crate::oauth::registration::Registration;
 
-/// The registration routes, with the relay as their state rather than the application's, so the
-/// relay is all they can reach.
+/// The registration routes at their full paths, merged into the root router as they are, with the
+/// relay as their state rather than the application's, so the relay is all they can reach.
 pub fn router<State>(registration: Registration) -> Router<State>
 where
     State: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/register", post(register::handle))
+        .route("/oauth2/register", post(register::handle))
         .route(
-            "/register/{client_id}",
+            "/oauth2/register/{client_id}",
             get(manage_registration::handle)
                 .put(manage_registration::handle)
                 .delete(manage_registration::handle),

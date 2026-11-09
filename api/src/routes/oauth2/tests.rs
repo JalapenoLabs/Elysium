@@ -15,7 +15,7 @@ use axum::body::{Body, to_bytes};
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, post};
+use axum::routing::{get, post};
 use bytes::Bytes;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
@@ -100,13 +100,16 @@ impl FakeHydra {
     fn router(&self) -> Router {
         Router::new()
             .route("/oauth2/register", post(hydra_register))
-            .route("/oauth2/register/{client_id}", delete(hydra_delete))
+            .route(
+                "/oauth2/register/{client_id}",
+                get(hydra_manage).put(hydra_manage).delete(hydra_manage),
+            )
             .with_state(self.clone())
     }
 }
 
 /// Registers like Hydra: refuses a client without redirect URIs, and otherwise answers `201`
-/// with the stored client, empty fields and all.
+/// with the stored client, empty fields and all, and no cache policy.
 async fn hydra_register(
     State(hydra): State<FakeHydra>,
     headers: HeaderMap,
@@ -132,32 +135,29 @@ async fn hydra_register(
     }
 
     let public = Url::parse("https://work.example.com/").expect("a static URL parses");
-    let no_store = [
-        (header::CACHE_CONTROL, "no-store"),
-        (header::PRAGMA, "no-cache"),
-    ];
-    (
-        StatusCode::CREATED,
-        no_store,
-        axum::Json(hydra_answer(&public)),
-    )
-        .into_response()
+    (StatusCode::CREATED, axum::Json(hydra_answer(&public))).into_response()
 }
 
-/// Deletes a registration like Hydra: only with its registration access token.
-async fn hydra_delete(
+/// The cache policy the fake names when a registration is read or updated, so the relay is seen
+/// to keep a policy Hydra does name.
+const MANAGED_CACHE_POLICY: &str = "private, max-age=0";
+
+/// Reads, updates, or deletes a registration like Hydra: only with its registration access token.
+async fn hydra_manage(
     State(hydra): State<FakeHydra>,
+    method: Method,
     Path(client_id): Path<String>,
     headers: HeaderMap,
+    body: Bytes,
 ) -> Response {
     let authorized = headers
         .get(header::AUTHORIZATION)
         .is_some_and(|value| value == format!("Bearer {REGISTRATION_TOKEN}").as_str());
     hydra.seen().push(Seen {
-        method: Method::DELETE,
+        method: method.clone(),
         client_id: Some(client_id),
         headers,
-        body: Bytes::new(),
+        body,
     });
 
     if !authorized {
@@ -168,7 +168,18 @@ async fn hydra_delete(
         let challenge = [(header::WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"")];
         return (StatusCode::UNAUTHORIZED, challenge, axum::Json(refusal)).into_response();
     }
-    StatusCode::NO_CONTENT.into_response()
+    if method == Method::DELETE {
+        return StatusCode::NO_CONTENT.into_response();
+    }
+
+    let public = Url::parse("https://work.example.com/").expect("a static URL parses");
+    let cache_policy = [(header::CACHE_CONTROL, MANAGED_CACHE_POLICY)];
+    (
+        StatusCode::OK,
+        cache_policy,
+        axum::Json(hydra_answer(&public)),
+    )
+        .into_response()
 }
 
 /// Serves `router` on a loopback port, and answers its address.
@@ -211,7 +222,7 @@ async fn send(routes: &Router, request: Request<Body>) -> (StatusCode, HeaderMap
 fn register_request(body: &Value) -> Request<Body> {
     Request::builder()
         .method(Method::POST)
-        .uri("/register")
+        .uri("/oauth2/register")
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::ACCEPT, "application/json")
         // Something a browser would send, which Hydra has no business reading.
@@ -276,8 +287,11 @@ async fn a_registration_answer_leaves_out_every_field_hydra_left_empty() {
         );
     }
     assert_eq!(headers[header::CONTENT_TYPE], "application/json");
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
-    assert_eq!(headers[header::PRAGMA], "no-cache");
+    assert_eq!(
+        headers[header::CACHE_CONTROL],
+        "no-store",
+        "Hydra names no cache policy, and the answer carries a token"
+    );
 
     let seen = hydra.seen();
     assert_eq!(seen.len(), 1, "one request reached Hydra");
@@ -321,7 +335,7 @@ async fn deleting_a_registration_carries_its_token_and_its_id_as_one_segment() {
     let delete_request = |authorization: Option<&str>| {
         let mut request = Request::builder()
             .method(Method::DELETE)
-            .uri("/register/a-client%2F..%2F..%2Fadmin%2Fclients");
+            .uri("/oauth2/register/a-client%2F..%2F..%2Fadmin%2Fclients");
         if let Some(authorization) = authorization {
             request = request.header(header::AUTHORIZATION, authorization);
         }
@@ -352,6 +366,50 @@ async fn deleting_a_registration_carries_its_token_and_its_id_as_one_segment() {
         "the id reaches Hydra as one segment of its registration path"
     );
     assert_eq!(deleted.headers[header::AUTHORIZATION], bearer.as_str());
+}
+
+#[tokio::test]
+async fn reading_and_updating_a_registration_reach_hydra_with_their_method() {
+    let (routes, hydra) = relay_to_fake().await;
+    let bearer = format!("Bearer {REGISTRATION_TOKEN}");
+    let update =
+        Bytes::from(serde_json::to_vec(&claude_code_registration()).expect("JSON serializes"));
+
+    for (method, body) in [(Method::GET, Bytes::new()), (Method::PUT, update.clone())] {
+        let request = Request::builder()
+            .method(method.clone())
+            .uri("/oauth2/register/a-client")
+            .header(header::AUTHORIZATION, &bearer)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body))
+            .expect("a request builds");
+
+        let (status, headers, answer) = send(&routes, request).await;
+
+        assert_eq!(status, StatusCode::OK, "{method}");
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            MANAGED_CACHE_POLICY,
+            "{method}: a cache policy Hydra names is kept"
+        );
+        let answer: Value = serde_json::from_slice(&answer).expect("the answer is JSON");
+        assert!(
+            !answer
+                .as_object()
+                .expect("an object")
+                .contains_key("client_uri"),
+            "{method}: a management answer is filtered like a registration"
+        );
+    }
+
+    let seen = hydra.seen();
+    let methods: Vec<&Method> = seen.iter().map(|request| &request.method).collect();
+    assert_eq!(methods, [&Method::GET, &Method::PUT]);
+    assert_eq!(seen[1].body, update, "an update reaches Hydra as sent");
+    assert!(
+        seen.iter()
+            .all(|request| request.client_id.as_deref() == Some("a-client"))
+    );
 }
 
 #[tokio::test]

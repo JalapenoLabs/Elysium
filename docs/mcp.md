@@ -46,18 +46,20 @@ minute per client address.
 
 Clients register at `/oauth2/register` (RFC 7591), and may read, update, or delete their registration at
 `/oauth2/register/{client_id}` with the registration access token they were given (RFC 7592): the paths Hydra's
-metadata advertises. nginx sends both to the API (`api/src/routes/oauth2/`), which relays each request to the same path
-on Hydra's public API (`HYDRA_PUBLIC_URL`) with its method, its body, and its `Content-Type`, `Accept`, and
-`Authorization` headers, and nothing else. Hydra's own rules for self-registered clients decide what is stored. The
-relay never uses the admin API, which accepts fields such as `skip_consent` that a client registering itself must never
-set.
+metadata advertises. nginx sends both, and anything else under `/oauth2/register`, to the API
+(`api/src/routes/oauth2/`), which relays each request to the same path on Hydra's public API (`HYDRA_PUBLIC_URL`) with
+its method, its body, and its `Content-Type`, `Accept`, and `Authorization` headers, and nothing else. Hydra's own
+rules for self-registered clients decide what is stored. The relay never uses the admin API, which accepts fields such
+as `skip_consent` that a client registering itself must never set.
 
 Hydra fills every optional field the client did not send with `""` or `null`, and a strict client refuses that answer:
 the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to be an array whenever they are
 present. So the relay leaves out the top-level fields of a JSON answer whose value is `""` or `null`, which RFC 7591
 reads as not set (`api/src/oauth/registration.rs`). The status, the `Content-Type`, `Cache-Control`, `Pragma`, and
 `WWW-Authenticate` headers, and every other field, empty arrays and objects included, reach the client as Hydra sent
-them. Hydra tracks the empty fields as `ory/hydra#4044`; an answer without any passes through unchanged.
+them. An answer that names no cache policy, as Hydra's do not, is marked `Cache-Control: no-store`, since it carries
+the registration access token. Hydra tracks the empty fields as `ory/hydra#4044`; an answer without any passes
+through unchanged.
 
 ## Scopes
 

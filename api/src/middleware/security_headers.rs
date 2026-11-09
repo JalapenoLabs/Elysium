@@ -15,9 +15,9 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 /// The paths the API answers itself rather than the web app, each with everything below it:
-/// `/api`, the paths OAuth fixes for MCP clients at the root (the MCP server's metadata and
-/// client registration, whose answers echo what a client registered), and `/internal`, for
-/// Kratos and the updater. A root-level route added to `crate::routes` belongs here too.
+/// `/api`, the root paths where OAuth clients look (the MCP server's metadata, and client
+/// registration, whose answers echo what a client registered), and `/internal`, for Kratos and
+/// the updater. A root-level route added to `crate::routes` belongs here too.
 const API_PATHS: [&str; 4] = [
     "/api",
     "/.well-known/oauth-protected-resource",
