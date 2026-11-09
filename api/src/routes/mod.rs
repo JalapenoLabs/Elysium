@@ -16,7 +16,7 @@ pub mod v1;
 mod version;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{any, get};
 
 use crate::errors::ApiError;
 use crate::mcp;
@@ -37,16 +37,18 @@ pub fn router(state: &AppState) -> Router<AppState> {
         // rather than the web app the outer router falls back to.
         .fallback(not_found);
 
+    // The MCP server's metadata, at the root and under its path, as RFC 9728 places it. nginx sends
+    // every path under the prefix here, so it has its own fallback, as `/api` has: a near miss such
+    // as a trailing slash is a JSON 404, never the web app a discovery client cannot parse.
+    let protected_resource = Router::new()
+        .route("/", get(mcp::protected_resource_metadata))
+        .route("/api/mcp", get(mcp::protected_resource_metadata))
+        .fallback(not_found);
+
     Router::new()
-        // The MCP server's metadata, at the root and under its path, as RFC 9728 places it.
-        .route(
-            "/.well-known/oauth-protected-resource",
-            get(mcp::protected_resource_metadata),
-        )
-        .route(
-            "/.well-known/oauth-protected-resource/api/mcp",
-            get(mcp::protected_resource_metadata),
-        )
+        .nest("/.well-known/oauth-protected-resource", protected_resource)
+        // A bare trailing slash is outside the nest, which routes it nowhere, so it is refused here.
+        .route("/.well-known/oauth-protected-resource/", any(not_found))
         // Where Hydra's metadata sends clients to register, relayed to Hydra. See `oauth2`.
         .merge(oauth2::router(state.auth.registration.clone()))
         .nest("/api", api)
@@ -246,6 +248,17 @@ mod tests {
                 .expect("an issuer");
             assert!(resource.starts_with(issuer), "{issuer} serves {resource}");
             assert_eq!(body["scopes_supported"][0], "workspace:read");
+        }
+
+        // nginx sends every path under the prefix to the API, so a near miss is a JSON 404.
+        for path in [
+            "/.well-known/oauth-protected-resource/",
+            "/.well-known/oauth-protected-resource/api/mcp/",
+            "/.well-known/oauth-protected-resource/elsewhere",
+        ] {
+            let (status, body) = send(&state, Method::GET, path, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(body["message"], "resource not found", "{path}");
         }
     }
 }
