@@ -275,7 +275,8 @@ mod fallback_tests {
 
     // The web app is merged in as the outermost fallback. A nested router without a
     // fallback of its own inherits it, which would answer a mistyped API path with the
-    // app's HTML and a 200. This builds the same shape `routes::router()` has.
+    // app's HTML and a 200. This builds the shape `routes::router()` gives them: nested routers
+    // with fallbacks of their own, beside the web app.
     #[tokio::test]
     async fn an_unknown_api_path_is_a_404_even_beside_the_web_app() {
         let directory = tempfile::tempdir().expect("a temporary directory");
