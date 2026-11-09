@@ -132,8 +132,10 @@ arrive immediately and idle streams stay open, and cover uploads have a larger b
 
 In both, `/oauth2/` and Hydra's discovery documents (`/.well-known/openid-configuration`,
 `/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`) go to Hydra's public API (`hydra:4444`) unchanged,
-with client registration throttled per client address. `/.well-known/oauth-protected-resource` goes to the API, which
-describes its MCP server there (`docs/mcp.md`).
+except client registration: `/oauth2/register` and `/oauth2/register/{client_id}` go to the API, throttled per client
+address, which relays them to Hydra's public API without the empty fields of its answers (`docs/mcp.md`, Client
+registration). `/.well-known/oauth-protected-resource` goes to the API, which describes its MCP server there
+(`docs/mcp.md`).
 
 nginx runs its own main configuration, `nginx/nginx.conf`: the image's default plus a `stream` block, since raw TCP
 can only be proxied from the main context, and the zones that throttle Kratos submissions and OAuth client registration. `nginx/default.conf` holds

@@ -182,7 +182,8 @@ Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; t
 - **MCP clients.** External MCP clients reach `/api/mcp` with OAuth access tokens Hydra issues, only after an
   approved person consents. Tokens are opaque, bound to `/api/mcp` alone, and checked against Hydra and the person's
   account on every call; a revoked one is refused on its next call. Client registration is open and throttled per
-  address. See `docs/mcp.md`.
+  address, and the API relays it to Hydra's public API alone, so Hydra's rules for self-registered clients apply and
+  nothing a client sends reaches the admin API. See `docs/mcp.md`, Client registration.
 
 `docs/auth.md` has the whole design.
 

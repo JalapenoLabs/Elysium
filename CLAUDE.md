@@ -146,6 +146,9 @@ Everything else follows these rules:
   `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
   `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
 - Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
+- nginx sends client registration (`/oauth2/register`) to the API, which relays it to Hydra's public API, never the
+  admin API, and leaves out the `""` and `null` fields Hydra's answer carries, which strict clients such as Claude Code
+  refuse (`api/src/oauth/registration.rs`). See `docs/mcp.md`, Client registration.
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is

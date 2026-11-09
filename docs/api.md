@@ -297,6 +297,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/oauth/clients/{clientId}`    | `204`; admins, for everyone                          |
 | POST   | `/api/mcp`                            | MCP over Streamable HTTP, with a bearer token; see `docs/mcp.md` |
 | GET    | `/.well-known/oauth-protected-resource` | `200` the MCP server's protected resource metadata; also under `/api/mcp` |
+| POST   | `/oauth2/register`                    | Hydra's answer without its empty fields: an MCP client registers itself; see `docs/mcp.md` |
+| GET, PUT, DELETE | `/oauth2/register/{clientId}` | Hydra's answer without its empty fields: a client manages its registration with its token |
 
 Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
 
@@ -1161,6 +1163,7 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 | `KRATOS_PUBLIC_URL`        | required         | Kratos's public API, where sessions are checked |
 | `KRATOS_ADMIN_URL`         | required         | Kratos's admin API, where identities are managed |
 | `HYDRA_ADMIN_URL`          | required         | Hydra's admin API: OAuth consent and token introspection |
+| `HYDRA_PUBLIC_URL`         | required         | Hydra's public API, where MCP clients' registrations are relayed |
 | `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
 | `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
 | `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |

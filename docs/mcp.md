@@ -23,7 +23,8 @@ The client then does everything itself:
 2. The metadata (`/.well-known/oauth-protected-resource/api/mcp`, also served at the root path) names Hydra, on
    Elysium's own origin, as the authorization server. The client reads Hydra's metadata from
    `/.well-known/oauth-authorization-server` or `/.well-known/openid-configuration`.
-3. It registers itself at `/oauth2/register` and opens the browser on `/oauth2/auth`, with PKCE.
+3. It registers itself at `/oauth2/register`, which the API relays to Hydra (see Client registration), and opens the
+   browser on `/oauth2/auth`, with PKCE.
 4. Hydra sends the person to `/oauth/login`. If they're signed in to Elysium, that passes straight through; otherwise
    they sign in as usual, passkeys and authenticator codes included.
 5. Hydra sends them to `/oauth/consent`, which shows the client and what it asks for. Approving binds the grant to
@@ -38,7 +39,25 @@ route, needs an active, approved person (`docs/auth.md`). A pending or disabled 
 token for someone disabled since is refused.
 
 Client registration is open: anyone may register a client, as MCP clients register themselves. A client reaches
-nothing until an approved person consents to it. nginx throttles registration to 12 a minute per client address.
+nothing until an approved person consents to it. nginx throttles registration, with managing a registration, to 12 a
+minute per client address.
+
+## Client registration
+
+Clients register at `/oauth2/register` (RFC 7591), and may read, update, or delete their registration at
+`/oauth2/register/{client_id}` with the registration access token they were given (RFC 7592): the paths Hydra's
+metadata advertises. nginx sends both to the API (`api/src/routes/oauth2/`), which relays each request to the same path
+on Hydra's public API (`HYDRA_PUBLIC_URL`) with its method, its body, and its `Content-Type`, `Accept`, and
+`Authorization` headers, and nothing else. Hydra's own rules for self-registered clients decide what is stored. The
+relay never uses the admin API, which accepts fields such as `skip_consent` that a client registering itself must never
+set.
+
+Hydra fills every optional field the client did not send with `""` or `null`, and a strict client refuses that answer:
+the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to be an array whenever they are
+present. So the relay leaves out the top-level fields of a JSON answer whose value is `""` or `null`, which RFC 7591
+reads as not set (`api/src/oauth/registration.rs`). The status, the `Content-Type`, `Cache-Control`, `Pragma`, and
+`WWW-Authenticate` headers, and every other field, empty arrays and objects included, reach the client as Hydra sent
+them. Hydra tracks the empty fields as `ory/hydra#4044`; an answer without any passes through unchanged.
 
 ## Scopes
 
