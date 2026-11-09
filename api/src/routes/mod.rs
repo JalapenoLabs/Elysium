@@ -257,6 +257,7 @@ mod fallback_tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::oauth::registration::Registration;
     use crate::web_app;
 
     // The web app is merged in as the outermost fallback. A nested router without a
@@ -269,11 +270,19 @@ mod fallback_tests {
         let api = Router::new()
             .route("/ok", get(|| async { "ok" }))
             .fallback(not_found);
+        let nowhere = url::Url::parse("http://127.0.0.1:9/").expect("a static URL parses");
+        let registration = Registration::new(reqwest::Client::new(), &nowhere);
         let app = Router::new()
+            .merge(oauth2::router(registration))
             .nest("/api", api)
             .merge(web_app::router(directory.path()).expect("a valid build"));
 
-        for path in ["/api/v1/no-such-thing", "/api/nope"] {
+        for path in [
+            "/api/v1/no-such-thing",
+            "/api/nope",
+            "/oauth2/register/",
+            "/oauth2/register/a-client/secret",
+        ] {
             let request = Request::get(path).body(Body::empty()).expect("request");
             let response = app.clone().oneshot(request).await.expect("infallible");
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");

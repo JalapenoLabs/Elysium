@@ -15,23 +15,31 @@ mod register;
 mod tests;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 
+use super::not_found;
 use crate::oauth::registration::Registration;
 
-/// The registration routes at their full paths, merged into the root router as they are, with the
-/// relay as their state rather than the application's, so the relay is all they can reach.
+/// The registration routes under `/oauth2/register`, merged into the root router as they are, with
+/// the relay as their state rather than the application's, so the relay is all they can reach.
 pub fn router<State>(registration: Registration) -> Router<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    Router::new()
-        .route("/oauth2/register", post(register::handle))
+    let registration_routes = Router::new()
+        .route("/", post(register::handle))
         .route(
-            "/oauth2/register/{client_id}",
+            "/{client_id}",
             get(manage_registration::handle)
                 .put(manage_registration::handle)
                 .delete(manage_registration::handle),
         )
-        .with_state(registration)
+        // Its own fallback, as `/api` has: nginx sends every path under `/oauth2/register` here, and
+        // one that matches nothing is a JSON 404 rather than the web app the root falls back to.
+        .fallback(not_found)
+        .with_state(registration);
+    Router::new()
+        .nest("/oauth2/register", registration_routes)
+        // A bare trailing slash is outside the nest, which routes it nowhere, so it is refused here.
+        .route("/oauth2/register/", any(not_found))
 }

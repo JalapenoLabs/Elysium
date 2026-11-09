@@ -49,8 +49,9 @@ Clients register at `/oauth2/register` (RFC 7591), and may read, update, or dele
 metadata advertises. nginx sends both, and anything else under `/oauth2/register`, to the API
 (`api/src/routes/oauth2/`), which relays each request to the same path on Hydra's public API (`HYDRA_PUBLIC_URL`) with
 its method, its body, and its `Content-Type`, `Accept`, and `Authorization` headers, and nothing else. Hydra's own
-rules for self-registered clients decide what is stored. The relay never uses the admin API, which accepts fields such
-as `skip_consent` that a client registering itself must never set.
+rules for self-registered clients decide what is stored. A path under `/oauth2/register` that is neither answers a JSON
+`404` and reaches nothing. The relay never uses the admin API, which accepts fields such as `skip_consent` that a
+client registering itself must never set.
 
 Hydra fills every optional field the client did not send with `""` or `null`, and a strict client refuses that answer:
 the MCP SDK inside Claude Code requires `client_uri` to be a URL and `contacts` to be an array whenever they are
