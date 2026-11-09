@@ -3,10 +3,10 @@
 //! Hardening response headers, equivalent to Express's `helmet` defaults.
 //!
 //! Every response carries the same headers except the Content Security Policy, which
-//! depends on what is answering. `/api` returns JSON, plain text, and the files Studio's
-//! agents wrote, so its policy forbids everything and sandboxes the document: a browser that
-//! renders an API response directly, such as an agent's SVG opened in a tab, must not execute
-//! or embed anything from it. Every other path is the web app, whose
+//! depends on what is answering. The API's own paths ([`API_PATHS`]) return JSON, plain text,
+//! and the files Studio's agents wrote, so their policy forbids everything and sandboxes the
+//! document: a browser that renders an API response directly, such as an agent's SVG opened in
+//! a tab, must not execute or embed anything from it. Every other path is the web app, whose
 //! policy allows exactly what the app loads, all from its own origin.
 
 use axum::extract::Request;
@@ -14,10 +14,21 @@ use axum::http::{HeaderName, HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::Response;
 
-/// The policy for `/api`: nothing may load, run, or embed the response, and a document it
-/// renders as gets a unique origin with scripts, forms, and popups off. Downloads stay allowed:
-/// a bare `sandbox` sets the sandboxed-downloads flag, and Studio's file downloads are `/api`
-/// responses the browser follows as a navigation.
+/// The paths the API answers itself rather than the web app, each with everything below it:
+/// `/api`, the paths OAuth fixes for MCP clients at the root (the MCP server's metadata and
+/// client registration, whose answers echo what a client registered), and `/internal`, for
+/// Kratos and the updater. A root-level route added to `crate::routes` belongs here too.
+const API_PATHS: [&str; 4] = [
+    "/api",
+    "/.well-known/oauth-protected-resource",
+    "/oauth2/register",
+    "/internal",
+];
+
+/// The policy for the API's own paths: nothing may load, run, or embed the response, and a
+/// document it renders as gets a unique origin with scripts, forms, and popups off. Downloads stay
+/// allowed: a bare `sandbox` sets the sandboxed-downloads flag, and Studio's file downloads are
+/// `/api` responses the browser follows as a navigation.
 const API_CONTENT_SECURITY_POLICY: HeaderValue =
     HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'; sandbox allow-downloads");
 
@@ -94,7 +105,11 @@ const SECURITY_HEADERS: [(HeaderName, HeaderValue); 11] = [
 /// Policy onto the response.
 pub async fn apply(request: Request, next: Next) -> Response {
     let path = request.uri().path();
-    let content_security_policy = if path == "/api" || path.starts_with("/api/") {
+    let is_api = API_PATHS.iter().any(|api_path| {
+        path.strip_prefix(api_path)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    });
+    let content_security_policy = if is_api {
         API_CONTENT_SECURITY_POLICY
     } else {
         WEB_APP_CONTENT_SECURITY_POLICY
@@ -136,19 +151,34 @@ mod tests {
 
     #[tokio::test]
     async fn the_api_forbids_everything() {
-        assert_eq!(
-            content_security_policy("/api").await,
-            API_CONTENT_SECURITY_POLICY
-        );
-        assert_eq!(
-            content_security_policy("/api/v1/projects").await,
-            API_CONTENT_SECURITY_POLICY
-        );
+        for path in [
+            "/api",
+            "/api/v1/projects",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/api/mcp",
+            "/oauth2/register",
+            "/oauth2/register/a-client",
+            "/internal/kratos/registration",
+        ] {
+            assert_eq!(
+                content_security_policy(path).await,
+                API_CONTENT_SECURITY_POLICY,
+                "{path}",
+            );
+        }
     }
 
     #[tokio::test]
     async fn the_web_app_gets_its_own_policy() {
-        for path in ["/", "/projects", "/assets/index-3f2a.js", "/apiary"] {
+        for path in [
+            "/",
+            "/projects",
+            "/assets/index-3f2a.js",
+            "/apiary",
+            "/oauth/consent",
+            "/oauth2/registered",
+            "/internals",
+        ] {
             assert_eq!(
                 content_security_policy(path).await,
                 WEB_APP_CONTENT_SECURITY_POLICY,

@@ -4,7 +4,8 @@
 //! Health and build routes sit at the top level; resources are versioned under `/api/v1`.
 //! `/internal` answers Kratos and the deployment's updater alone, on the compose network. The
 //! paths OAuth fixes for MCP clients sit at the root: the MCP server's metadata under
-//! `/.well-known/`, and client registration at `/oauth2/register`.
+//! `/.well-known/`, and client registration at `/oauth2/register`. Every root path outside the web
+//! app is listed in `middleware::security_headers::API_PATHS`, so it gets the API's policy.
 
 mod internal;
 mod oauth2;
