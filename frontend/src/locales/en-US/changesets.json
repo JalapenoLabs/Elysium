@@ -31,7 +31,8 @@
     "add-to-initiative": "Add to initiative",
     "remove-from-initiative": "Remove from initiative",
     "create-initiative": "New initiative",
-    "file-issue": "File an issue"
+    "file-issue": "File an issue",
+    "assign-item": "Assign to Project Manager"
   },
   "tabs": {
     "label": "Changesets by review",
@@ -68,6 +69,8 @@
     "removeFromInitiative": "Remove {{item}} from {{initiative}}",
     "createInitiative": "Create the initiative {{name}}",
     "fileIssue": "File an issue for {{item}} in {{provider}} {{destination}}",
+    "assignItem": "Assign {{item}} to its lead project's Project Manager",
+    "assignItemTo": "Assign {{item}} to {{project}}'s Project Manager",
     "proposedRecord": "{{name}} (from change {{position}})",
     "proposedUnnamed": "what change {{position}} creates",
     "missingItem": "an item that is gone",
@@ -111,6 +114,7 @@
     "kept_one": "Kept your later change to {{fields}}.",
     "kept_other": "Kept your later changes to {{fields}}.",
     "movedSince": "You moved the item since, so it stays where you put it.",
+    "stillPlanned": "Its Project Manager already took it up; what it planned stays for you to decide.",
     "stillPosted": "Already posted to {{provider}} {{key}}; it stays there.",
     "stillFiled": "Already filed as {{provider}} {{key}}; it stays there, and the item no longer follows it.",
     "stillClosed_one": "Already closed in {{provider}}: {{keys}}. It stays closed.",
