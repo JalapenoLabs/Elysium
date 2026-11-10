@@ -487,9 +487,10 @@ A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpd
 picks its sessions' GitHub token. `access` is `default` (the workspace default), `none`, or `specific` with the token's
 `credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
 `autonomy` is its trust dial (`docs/autonomy.md`, The dial): `approve_every_batch`, the default, `approve_found_work`,
-or `full_autonomy`. `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
-accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected. A `github` whose
-`credentialId` is missing for `specific`, present for another access, or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
+or `full_autonomy`. `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000,
+default empty). `PATCH` accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected.
+A `github` whose `credentialId` is missing for `specific`, present for another access, or names no token answers
+`400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,

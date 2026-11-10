@@ -89,10 +89,7 @@ export function ProjectAutonomyField(props: Props) {
         </Radio.Content>
       </Radio>)
     }</RadioGroup>
-    <p className='text-xs opacity-60'>{
-      props.isEditable
-        ? provenance
-        : t('autonomy.membersOnly')
-    }</p>
+    <p className='text-xs opacity-60'>{provenance}</p>
+    {!props.isEditable && <p className='text-xs opacity-60'>{t('autonomy.membersOnly')}</p>}
   </section>
 }

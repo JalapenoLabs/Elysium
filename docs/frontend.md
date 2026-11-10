@@ -1451,9 +1451,9 @@ three cards in a `RadioGroup`, side by side and stacked on phones, each a level'
 at it, with a `help` saying found work waits in Findings at every level and a change applies to what comes next.
 Beneath it, who set the saved level and when, read from SWR alone (`getProjectAutonomyKey`) and revalidated by
 `project.upserted`, or that every project starts at Approve every batch. It is a field of the page's form like the
-others; a guest sees it disabled, saying only members change it. Save sends the changed fields first, then the level
-to its own route when it changed, then uploads the cover; a level or a cover that fails stays chosen, so the next Save
-sends it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
+others; a guest sees it, and who set it, disabled, saying only members change it. Save sends the changed fields
+first, then the level to its own route when it changed, then uploads the cover; a level or a cover that fails stays
+chosen, so the next Save sends it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
 to the models its agents run on (see Models), Workers, a link to how its workers' containers are readied (below),
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
@@ -1473,10 +1473,10 @@ names no project.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
 waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): whether they apply at
-once or wait for approval, as the project's Autonomy above says, with a `help` on why, and the tracker its issues file in, named or followed from where the project's
-issues already are, or why there is none, with Change tracker opening `TrackerModal` (a provider, the Jira credential
-or the person's own YouTrack account, GitHub using the project's token, and a place from
-`/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
+once or wait for approval, as the project's Autonomy above says, with a `help` on why, and the tracker its issues
+file in, named or followed from where the project's issues already are, or why there is none, with Change tracker
+opening `TrackerModal` (a provider, the Jira credential or the person's own YouTrack account, GitHub using the
+project's token, and a place from `/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
 the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only

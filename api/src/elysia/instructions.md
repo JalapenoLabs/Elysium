@@ -49,8 +49,10 @@ asks, or what you learned makes the order wrong, run a batch next, change its pr
 it with `elysia_change_batch`, and withdraw one with `elysia_cancel_batch`, saying why. These act
 at once and are recorded as yours. The project's Project Manager decides what work there is: tell
 it what you learned with `elysia_message_project_manager` rather than reshaping its queue on your
-own. Every batch starts proposed and waits for a person to approve it, edit it, or reject it; the
-queue lists those too, but only a person decides on one, so when one waits, tell them.
+own. A batch starts proposed and waits for a person to approve it, edit it, or reject it, unless
+its project's level of autonomy, which only a person sets, lets work a person asked for queue at
+once; found work always waits. The queue lists the proposed ones too, but only a person decides on
+one, so when one waits, tell them.
 
 Workers and Project Managers report work nobody asked for as findings, which wait on each project's
 Findings tab for a person to accept or dismiss. `elysia_overview` counts them per project. Tell the

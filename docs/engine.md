@@ -712,8 +712,9 @@ files its issue or submits its batch. See `docs/autonomy.md`, Findings.
   its repository the finding's, human-rooted and generation 0 (`Lineage::accepted_finding`), created by the person,
   whose name its timeline record carries. Like any human-rooted batch it follows the project's level: at Approve every
   batch it waits for approval and the project's approval item counts it; at the two levels above it queues at once,
-  the Accept being the person's word that the work is wanted. The answer names the batch's state. A project with nowhere to file still gets the item and the batch, since the work is
-  wanted either way, and the answer says why no issue was owed, in the words `file-issue` is refused with.
+  the Accept being the person's word that the work is wanted. The answer names the batch's state. A project with
+  nowhere to file still gets the item and the batch, since the work is wanted either way, and the answer says why no
+  issue was owed, in the words `file-issue` is refused with.
 - **Dismissing.** Dismissing takes an optional reason and keeps the row, so the same finding reported again lands on it
   and stays dismissed, and its reporter is told the reason. Rows are never deleted.
 - **Only a person.** Accepting and dismissing take a `MemberUser`, which no machine user is, so no tool reaches either,

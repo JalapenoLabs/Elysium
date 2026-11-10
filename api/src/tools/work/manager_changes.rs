@@ -11,10 +11,10 @@
 //! - **Proposing**, at Approve every batch, the default, and Approve found work only: the
 //!   changeset waits for a person's approval, and nothing is written in Elysium or any tracker
 //!   until then.
-//! - **Writing directly**, at Full autonomy: the changeset is approved and applied at once, by the Project
-//!   Managers' machine, so an item it creates starts in the inbox for the person to accept.
-//!   Comments, status changes, and new issues reach the trackers through the watcher's outbox,
-//!   like the person's own.
+//! - **Writing directly**, at Full autonomy: the changeset is approved and applied at once, by
+//!   the Project Managers' machine, so an item it creates starts in the inbox for the person to
+//!   accept. Comments, status changes, and new issues reach the trackers through the watcher's
+//!   outbox, like the person's own.
 //!
 //! What it can change, in Elysium's terms: create, update, resolve, dismiss, and comment on
 //! items, move them between initiatives, create initiatives, and file an item's own issue

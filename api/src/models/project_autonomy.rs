@@ -72,6 +72,16 @@ impl Autonomy {
         }
     }
 
+    /// The level's name as people read it, for what an agent is told. The web app names it from its
+    /// translations.
+    pub const fn words(self) -> &'static str {
+        match self {
+            Self::ApproveEveryBatch => "Approve every batch",
+            Self::ApproveFoundWork => "Approve found work only",
+            Self::FullAutonomy => "Full autonomy",
+        }
+    }
+
     /// Whether the Project Manager's changes to items and trackers apply as it makes them, rather
     /// than waiting as a changeset for a person's approval.
     pub const fn writes_directly(self) -> bool {

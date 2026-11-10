@@ -90,7 +90,7 @@ describe('ProjectAutonomyField', () => {
     expect(getAutonomy).toHaveBeenCalledWith('launch')
   })
 
-  it('lets a guest read the level but not turn it', () => {
+  it('lets a guest read the level and who set it, but not turn it', async () => {
     answer({ autonomy: 'full_autonomy', setBy: 'ada', setAt: '2026-11-09T15:04:00Z' })
     const onChange = renderField('full_autonomy', false)
 
@@ -100,5 +100,6 @@ describe('ProjectAutonomyField', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Approve every batch/ }))
     expect(onChange).not.toHaveBeenCalled()
     expect(screen.getByText('Only the company\'s members change this')).toBeTruthy()
+    expect(await screen.findByText(/^Set by Ada Lovelace on /)).toBeTruthy()
   })
 })

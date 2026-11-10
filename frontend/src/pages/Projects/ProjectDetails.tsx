@@ -33,9 +33,9 @@ type Props = {
 
 // One project, edited in place and kept by the page's Save. The name is the page's title and
 // is renamed where it is shown; the cover runs across the page below it, then what the
-// project is about, its GitHub token, and its level of autonomy, and the Actions menu holds what cannot be done in
-// place: removing the cover and deleting the project. Its lists follow, one per tab: action
-// items, initiatives, the timeline, and coding sessions.
+// project is about, its GitHub token, and its level of autonomy, and the Actions menu holds
+// what cannot be done in place: removing the cover and deleting the project. Its lists follow,
+// one per tab: action items, initiatives, the timeline, and coding sessions.
 export function ProjectDetails(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const project = props.project

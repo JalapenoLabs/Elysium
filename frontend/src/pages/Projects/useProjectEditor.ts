@@ -41,9 +41,9 @@ function toFormValues(project: Project): ProjectEditValues {
 }
 
 // The project page's form: its name, description, how its cover fits, its GitHub token, its level
-// of autonomy, and a new cover picked to replace the old, all kept by the page's Save. Fields the person has
-// not touched follow the project as the event stream changes it. The cover is a file rather
-// than a value, so it is held beside the form and uploaded after the fields are saved; one
+// of autonomy, and a new cover picked to replace the old, all kept by the page's Save. Fields the
+// person has not touched follow the project as the event stream changes it. The cover is a file
+// rather than a value, so it is held beside the form and uploaded after the fields are saved; one
 // that fails stays picked, so the next Save uploads it alone.
 export function useProjectEditor(project: Project) {
   const { t } = useTranslation([ 'projects', 'common' ])

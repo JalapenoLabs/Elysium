@@ -5,11 +5,11 @@
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
 //! names the docs linked to it, says which of its batches and changes wait for a person, as its
-//! project's level of autonomy decides, and where its issues file ([`Writes`]), and carries everything that woke it: the messages, the records newly on its
-//! timeline, the batches that finished, and the promises found on its project or whose work
-//! finished. Every turn also carries each promise still owed a follow-up, woken for or not, so a
-//! turn that failed never strands one. It is a plain function of its inputs, so it is tested
-//! without a runner.
+//! project's level of autonomy decides, and where its issues file ([`Writes`]), and carries
+//! everything that woke it: the messages, the records newly on its timeline, the batches that
+//! finished, and the promises found on its project or whose work finished. Every turn also carries
+//! each promise still owed a follow-up, woken for or not, so a turn that failed never strands one.
+//! It is a plain function of its inputs, so it is tested without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -298,14 +298,10 @@ fn render_pages(prompt: &mut String, pages: &[PromptPage]) {
 /// issues file.
 fn render_writes(prompt: &mut String, writes: &Writes) {
     let autonomy = writes.autonomy;
-    let level = match autonomy {
-        Autonomy::ApproveEveryBatch => "Approve every batch",
-        Autonomy::ApproveFoundWork => "Approve found work only",
-        Autonomy::FullAutonomy => "Full autonomy",
-    };
     let _ = writeln!(
         prompt,
-        "This project's level of autonomy is {level}, which only a person changes."
+        "This project's level of autonomy is {}, which only a person changes.",
+        autonomy.words()
     );
     if autonomy.queues(Origin::HumanRooted) {
         prompt.push_str(

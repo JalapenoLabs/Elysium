@@ -3,10 +3,10 @@
 //! `/api/v1/projects/{id}/autonomy`: the project's trust dial, what of its Project Manager's work
 //! waits for a person (`crate::models::project_autonomy`, `docs/autonomy.md`, The dial).
 //!
-//! `GET` answers its level with who set it and when (`setBy` and `setAt`, both `null` while it is at
-//! the default it started with). `PUT { autonomy }` sets it, recorded with the person who did, and
-//! takes a member: no machine user is one, so neither Elysia nor a Project Manager turns it, and a
-//! guest cannot. It applies to what the Project Manager submits and changes from then on. The
+//! `GET` answers its level with who set it and when (`setBy` and `setAt`, both `null` while it is
+//! at the default it started with). `PUT { autonomy }` sets it, recorded with the person who did,
+//! and takes a member: no machine user is one, so neither Elysia nor a Project Manager turns it,
+//! and a guest cannot. It applies to what the Project Manager submits and changes from then on. The
 //! change is announced as `project.upserted`, whose project carries the level, and
 //! `projectManager.changed`, since the Project Manager's tab says how its changes reach the work.
 
