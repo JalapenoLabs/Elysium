@@ -1225,6 +1225,8 @@ page's history restores it afterwards.
 
 ### Roadmap
 
+- **Meetings.** Meetings become pages of their own kind, public by default with private ones found only by their
+  readers, under three new fixed pages: Meetings, Projects, and Transcription. The design is `docs/meeting-review.md`.
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call

@@ -13,12 +13,15 @@ This doc is the design. What is built says so; the rest is the roadmap, the issu
   assigned when a connector is added comes in too. The provider stays the source of truth for the issue's fields;
   closing it resolves the item, and being unassigned leaves the item and says so. See `docs/action-items.md`,
   Assigned issues.
-- Built: nothing starts because an issue arrived. An issue reaching Elysium only makes an item and its link, in no
-  project, and neither wakes a Project Manager or Elysia. A YouTrack issue's own timeline record, which the reader makes
-  for every new issue in its projects, reaches Elysia as every ingested record does.
-- An attribution step, the one meetings and conversations use, proposes the item's projects with a confidence, and a
-  person can correct them. An item can sit on several projects, but it has one lead project, and only that project's
-  Project Manager works it, one batch at a time.
+- Built: an attribution step, `segment_meeting`, the one meetings and conversations use, puts each arrived item on its
+  projects with Elysia's confidence, led by the one she is surest of. An item can sit on several projects, but it has
+  one lead project, and only that project's Project Manager may submit a batch for it. A person corrects the projects
+  and the lead on the item's page, each change in its history and undoable, and Elysia never overrides anyone else's
+  choice. See `docs/action-items.md`, Projects and the lead.
+- Built: nothing starts because an issue arrived. An issue reaching Elysium makes an item, its link, and its
+  attribution, and none of them wakes a Project Manager or Elysia. A YouTrack issue's own timeline record, which the
+  reader makes for every new issue in its projects, reaches Elysia as every ingested record does.
+- The lead project's Project Manager works an item one batch at a time.
 
 ## Assigning work
 
@@ -61,17 +64,22 @@ more, until nobody remembers why. The brake is structural.
 - Built: every batch has a generation, how many batches led to it: one more than its deepest parent a worker worked
   on, where a batch led to another when the turn that planned it was woken by that batch or it names a record the
   batch made. The limit is a code constant, 3, and a batch past it is refused, telling its Project Manager to leave
-  the decision to the person. A person accepting a finding resets it to zero, the seam Findings use.
+  the decision to the person. A person accepting a finding resets it to zero (Findings, below).
 - Built: a Project Manager cannot submit a batch with no origin. The work queue and every batch's page show both.
   The exact rules are `docs/engine.md`, Origins and generations.
 - On the roadmap: each batch names the goal in the project brief it serves.
 
 ## Findings
 
-Agent-found work never queues itself, at any level. Workers and Project Managers report it as a finding: what they
-saw, where, and what it would cost. A project's Findings list holds them for a person to accept or dismiss. Accepting
-files an issue and makes a proposed batch, human-rooted from then on. Dismissing is remembered, so the same finding is
-not raised twice. Findings reach the person as a list they read when they choose, never one item each.
+Built. Agent-found work never queues itself, at any level. Workers and Project Managers report it as a finding with
+`worker_report_finding` and `manager_report_finding`: what they saw, where, and what it would cost. Their instructions
+say to report such work rather than do it, file it, or submit a batch for it. Each project's Findings tab lists the
+open ones with their count for a person to accept or dismiss. Accepting makes an action item as that person, files its
+issue in the project's tracker, and proposes a batch for it, human-rooted and generation 0 from then on. Dismissing is
+remembered, with the person's reason when they give one, so the same finding reported again stays dismissed and its
+reporter is told why. Findings reach the person as a list they read when they choose, never one item each, and they
+never wake Elysia: she reads each project's count in her overview and tells the person when it matters. The exact
+rules are `docs/engine.md`, Findings.
 
 ## The project brief
 
@@ -94,13 +102,13 @@ Coding sessions and Elysia are not held, since a person watches each session and
 
 ## Staying aware
 
-Built: every batch shows its why as one chain, read top to bottom, each link opening where it lives: the messages to
-its Project Manager, the records it names (a meeting segment with its quote, a mail, a chat message), the issues
-linked to its items, the items, the batch, and its pull requests.
-Its page shows the whole chain and the batches it was planned from; the work queue shows where each batch's chain
-starts. Every pull request a worker records carries the same chain at the end of its description, so a reviewer on
-GitHub sees why it exists without opening Elysium. The rules are `docs/engine.md`, Why a batch exists.
+Built: every batch shows its why as one chain, read top to bottom, each link opening where it lives: the finding a
+person accepted, with who accepted it, when accepting one made the batch; the messages to its Project Manager; the
+records it names (a meeting segment with its quote, a mail, a chat message); the issues linked to its items; the
+items; the batch; and its pull requests. Its page shows the whole chain and the batches it was planned from; the work
+queue shows where each batch's chain starts. Every pull request a worker records carries the same chain at the end of
+its description, so a reviewer on GitHub sees why it exists without opening Elysium. The rules are `docs/engine.md`,
+Why a batch exists.
 
-On the roadmap: a batch made by accepting a finding leads its chain with that finding and who accepted it, once
-Findings store which batch accepting made (the chain and both its views already draw a finding). Elysia's brief says
-what shipped, what waits on the person, and what was found. Activity holds everything else.
+Built: Elysia's overview counts each project's open findings, which is what her brief reports as found. The brief
+itself, what shipped and what waits on the person, is on the roadmap. Activity holds everything else.

@@ -38,11 +38,12 @@ use uuid::Uuid;
 use super::pull_request::PullRequestState;
 use super::{BatchState, WorkBatch};
 use crate::database::schema::{
-    action_item_links, action_items, knowledge_documents, project_manager_wakes, timeline_records,
-    users, work_batch_pull_requests, work_batches,
+    action_item_links, action_items, findings, knowledge_documents, project_manager_wakes,
+    timeline_records, users, work_batch_pull_requests, work_batches,
 };
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::{LinkKind, LinkProvider};
+use crate::models::finding::FindingState;
 
 /// The most of a record's text a chain quotes. Enough for a few lines of a meeting's transcript
 /// or the opening of a mail, which is what tells a person why; the whole of it is a click away,
@@ -227,15 +228,15 @@ pub async fn read_many(
     let messages = messages(connection, &named.messages).await?;
     let parents = parents(connection, &named.parents).await?;
     let pull_requests = pull_requests(connection, &named.batches).await?;
+    let findings = findings(connection, &named.batches).await?;
 
     let mut whys = HashMap::with_capacity(batches.len());
     for batch in batches {
         let item_ids = batch.action_items();
         let mut chain: Vec<Link> = Vec::new();
-        // The seam for findings (#213): accepting a finding makes its batch, and the finding,
-        // with who accepted it, leads that batch's chain, read here once findings are stored.
-        let finding: Option<Finding> = None;
-        chain.extend(finding.map(Link::Finding));
+        if let Some(finding) = findings.get(&batch.id) {
+            chain.push(Link::Finding(finding.clone()));
+        }
 
         let mut listed: HashSet<Uuid> = HashSet::new();
         for message_id in batch.source_messages() {
@@ -542,6 +543,46 @@ async fn parents(
             };
             (id, parent)
         })
+        .collect())
+}
+
+/// The finding whose acceptance made each of `batch_ids`, by the batch, with who accepted it.
+async fn findings(
+    connection: &mut AsyncPgConnection,
+    batch_ids: &[Uuid],
+) -> QueryResult<HashMap<Uuid, Finding>> {
+    let rows: Vec<(Uuid, Uuid, String, Uuid, String, DateTime<Utc>)> = findings::table
+        // `findings` names two people, its reporter's machine user and its decider, so the join
+        // says which.
+        .inner_join(users::table.on(findings::decided_by.eq(users::id.nullable())))
+        .filter(findings::accepted_batch_id.eq_any(batch_ids))
+        .filter(findings::state.eq(FindingState::Accepted))
+        .select((
+            // Never null here: the filter above matched it.
+            findings::accepted_batch_id.assume_not_null(),
+            findings::id,
+            findings::title,
+            users::id,
+            users::name,
+            // Never null for a decided finding (`findings_decided_once_not_open`).
+            findings::decided_at.assume_not_null(),
+        ))
+        .load(connection)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(batch_id, id, title, accepted_by_id, accepted_by, accepted_at)| {
+                let finding = Finding {
+                    id,
+                    title,
+                    accepted_by_id,
+                    accepted_by,
+                    accepted_at,
+                };
+                (batch_id, finding)
+            },
+        )
         .collect())
 }
 

@@ -72,6 +72,7 @@ import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/route
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
+import { projectFindingsKey } from '../api/routes/findingRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
 import {
   getWorkBatchKey,
@@ -347,6 +348,15 @@ const handlers: Handlers = {
       return
     }
     void mutate(WORK_QUEUE_KEY)
+  },
+  // A finding was reported, accepted, or dismissed: the project's Findings tab, the one view
+  // that lists them, loads its list and count again while it holds them. A finding quotes
+  // agents' work, so members alone ever load one.
+  'finding.changed': (event) => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    void mutate(projectFindingsKey(event.data.projectId))
   },
   // Only the project's Workers page shows its setup, so its key refetches while that page holds it.
   'projectWorkerSetup.changed': (event) => {

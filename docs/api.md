@@ -67,6 +67,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/action-items/{id}/snooze`    | `200` `{ item }`                                    |
 | POST   | `/api/v1/action-items/{id}/wait`      | `200` `{ item }`                                    |
 | GET    | `/api/v1/action-items/{id}/history`   | `200` `{ history: HistoryEntry[] }`, oldest first   |
+| POST   | `/api/v1/action-items/{id}/history/{entryId}/undo` | `200` `{ item }`; reverses a change to its projects or lead, `409` when it changed since |
+| PUT    | `/api/v1/action-items/{id}/lead-project` | `200` `{ item }`; `{ projectId }`, one of its projects |
 | GET    | `/api/v1/action-items/{id}/comments`  | `200` `{ comments: Comment[] }`, oldest first       |
 | POST   | `/api/v1/action-items/{id}/comments`  | `201` `{ comment }`                                 |
 | PATCH  | `/api/v1/action-items/{id}/comments/{commentId}` | `200` `{ comment }`                      |
@@ -233,6 +235,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the image is kept to restore    |
 | POST   | `/api/v1/projects/{id}/cover/restore` | `200` `{ project }`, showing the removed cover again |
 | GET    | `/api/v1/projects/{id}/pages`         | `200` `{ pages: ProjectPage[] }`, newest published first; members |
+| GET    | `/api/v1/projects/{id}/findings`      | `200` `{ findings: Finding[], total }`: its open findings, newest first, at most 200, and how many are open; members only |
+| POST   | `/api/v1/findings/{id}/accept`        | `200` `{ finding, itemId, batchId, issue, issueRefusal }`; `409` `finding_decided`; members only |
+| POST   | `/api/v1/findings/{id}/dismiss`       | `200` `{ finding }`; an optional `reason`; `409` `finding_decided`; members only |
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
@@ -297,6 +302,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/oauth/clients/{clientId}`    | `204`; admins, for everyone                          |
 | POST   | `/api/mcp`                            | MCP over Streamable HTTP, with a bearer token; see `docs/mcp.md` |
 | GET    | `/.well-known/oauth-protected-resource` | `200` the MCP server's protected resource metadata; also under `/api/mcp` |
+| POST   | `/oauth2/register`                    | Hydra's answer without its empty fields: an MCP client registers itself; see `docs/mcp.md` |
+| GET, PUT, DELETE | `/oauth2/register/{clientId}` | Hydra's answer without its empty fields: a client manages its registration with its token |
 
 Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
 
@@ -584,6 +591,26 @@ Manager with it. Both record the person who decided, and answer `409` `work_batc
 proposed; no machine user can call either, since each takes a member's session. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with
 `code` `work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running
 next at once) `400`.
+
+### `/api/v1/findings`
+
+Work a worker or a Project Manager noticed that nobody asked for, waiting for a person (`docs/engine.md`, Findings). A
+finding quotes agents' work on the project, so every route answers admins and members, a guest `403 members_only`, and
+only a member decides, which no machine user is.
+
+`GET /projects/{id}/findings` answers `{ findings, total }`: the project's open findings, newest first, at most 200, and
+how many are open in all, which its Findings tab counts; `404` for a project that does not exist. Each finding is `{
+id, projectId, title, detail, repositoryUrl, location, cost, state, workBatchId, projectManagerTurnId, reports,
+lastReportedAt, decidedBy, decidedAt, dismissalReason, actionItemId, acceptedBatchId, createdBy, createdAt }`, `cost`
+being `small`, `medium`, or `large` and `state` `open`, `accepted`, or `dismissed`.
+
+`POST /findings/{id}/accept` takes no body. In one transaction it makes an open action item in the finding's project as
+the person, owes its issue in the project's tracker, filed as them, when the project has one, proposes a batch for the
+item, human-rooted and generation 0, and records the finding accepted. It answers the finding, the item's and the
+batch's ids, and `issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
+files nowhere. `POST /findings/{id}/dismiss` takes an optional `reason`, up to 2,000 characters, which agents that
+report the finding again are told, and answers the finding. Both answer `404` for an unknown finding and `409` `code`
+`finding_decided` once someone decided it.
 
 ### `/api/v1/storage-locations`
 
@@ -885,7 +912,10 @@ action records who took it in the run's history and signals the engine. See `doc
 
 An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`, `dismissed`), `priority` (`urgent`,
 `high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
-`projectIds`, `initiativeIds` (the initiatives it is in now, leaving out deleted ones), `createdAt`, `updatedAt`, and
+`projectIds`, `projectAttributions` (each of its projects as `{ projectId, confidence, attributedBy }`: how sure whoever
+put it there was, 1 for anyone but the attribution step, and the actor), `leadProjectId` (the one of its projects that
+leads it, set exactly while it is in any), `initiativeIds` (the initiatives it is in now, leaving out deleted ones),
+`createdAt`, `updatedAt`, and
 `issueFiling`, the issue it is owed and not yet filed, `{ id, provider, destination, attempts, lastError,
 lastAttemptAt, createdAt }`, or null. `owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody"
 }`. See `docs/action-items.md`.
@@ -916,7 +946,15 @@ changes over the same items never deadlock. Events go out as for each item's own
 
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
-initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal.
+initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal. An item's
+first project leads it, and when its lead leaves, the surest of those left leads instead
+(`docs/action-items.md`, Projects and the lead). `PUT /lead-project` makes one of its projects its lead, and answers
+`400` for a project it is not in.
+
+`POST /history/{entryId}/undo` reverses one `project_added`, `project_removed`, or `lead_project_changed` entry as the
+person, recording an entry of its own that names the one it undid (`data.undid`). Only the latest change to that
+project, or to the lead, is undone: an entry with a change made since answers `409` with why, and an entry of any other
+kind answers `400`.
 
 A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`, which
 equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body }`. Editing or deleting a comment
@@ -1164,6 +1202,7 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 | `KRATOS_PUBLIC_URL`        | required         | Kratos's public API, where sessions are checked |
 | `KRATOS_ADMIN_URL`         | required         | Kratos's admin API, where identities are managed |
 | `HYDRA_ADMIN_URL`          | required         | Hydra's admin API: OAuth consent and token introspection |
+| `HYDRA_PUBLIC_URL`         | required         | Hydra's public API, where MCP clients' registrations are relayed |
 | `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
 | `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
 | `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |

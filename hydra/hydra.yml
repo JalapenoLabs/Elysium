@@ -5,8 +5,9 @@
 # The database connection comes from the DSN environment variable.
 #
 # Browsers and MCP clients reach the public API on Elysium's origin, through nginx: /oauth2/
-# and Hydra's /.well-known/ documents. The admin API stays on the compose network, for the API
-# alone. Hydra has no sign-in of its own: it sends people to Elysium's /oauth/login and
+# and Hydra's /.well-known/ documents, except client registration, which the API relays to the
+# public API (api/src/oauth/registration.rs). The admin API stays on the compose network, for
+# the API alone. Hydra has no sign-in of its own: it sends people to Elysium's /oauth/login and
 # /oauth/consent pages, which prove who they are through Kratos.
 
 serve:

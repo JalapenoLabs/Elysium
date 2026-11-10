@@ -14,11 +14,14 @@ import { selectInitiativeNamesById } from '../../store/initiativesSlice'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
-import { Link, Spinner } from '@heroui/react'
+import { Button, Link, Spinner, Tooltip } from '@heroui/react'
+import { LuUndo2 } from 'react-icons/lu'
 
 // Misc
+import { UNDOABLE_HISTORY_KINDS } from '../../api/routes/actionItemRoutes'
 import { formatDateTime } from '../../format/dates'
 import { useActorNames } from '../../hooks/useActorNames'
+import { usePendingAction } from '../../hooks/usePendingAction'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getChangesetViewUrl } from '../../urls'
 import { describeActor } from './actionItemPresentation'
@@ -28,12 +31,16 @@ type Props = {
   entries: HistoryEntry[]
   subject: HistoryContext['subject']
   status: 'loading' | 'loaded' | 'failed'
+  // Undoes a change to what an item is attributed to; without it, nothing offers Undo.
+  onUndo?: (entry: HistoryEntry) => Promise<void>
 }
 
 // An item's or initiative's history, newest first: who did what, and when, with each field
-// an edit changed. An entry a changeset's applying or undoing recorded links to its review.
+// an edit changed. An entry a changeset's applying or undoing recorded links to its review, and
+// a change to an item's projects or its lead has Undo.
 export function HistoryTimeline(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'initiatives' ])
+  const pending = usePendingAction<string>()
   useProjectsLoader()
   useInitiativesLoader()
   const actorNames = useActorNames()
@@ -62,11 +69,33 @@ export function HistoryTimeline(props: Props) {
     props.entries.toReversed().map((entry) => {
       const actor = describeActor(entry.actor, actorNames)
       const description = describeHistoryEntry(entry, context, t)
+      const onUndo = props.onUndo
+      const isUndoable = UNDOABLE_HISTORY_KINDS.some((kind) => kind === entry.kind)
       return <li key={entry.id} className='text-sm'>
-        <p>
-          <span className='font-semibold'>{t(actor.key, actor.values)}</span>
-          <span className='ml-1'>{description.summary}</span>
-        </p>
+        <div className='level items-start gap-2'>
+          <p>
+            <span className='font-semibold'>{t(actor.key, actor.values)}</span>
+            <span className='ml-1'>{description.summary}</span>
+          </p>
+          {onUndo && isUndoable && <Tooltip delay={300}>
+            <Button
+              isIconOnly
+              size='sm'
+              variant='ghost'
+              // Overlaps the row's spacing, so an entry with Undo is as tall as one without.
+              className='-my-1.5 shrink-0'
+              aria-label={t('history.undo')}
+              isPending={pending.pendingKey === entry.id}
+              isDisabled={pending.isOtherPending(entry.id)}
+              onPress={() => void pending.run(entry.id, () => onUndo(entry))}
+            >
+              <LuUndo2 className='size-3.5' aria-hidden />
+            </Button>
+            <Tooltip.Content>
+              <span>{t('history.undo')}</span>
+            </Tooltip.Content>
+          </Tooltip>}
+        </div>
         {description.details.map((detail, index) => <p
           key={index}
           className='mt-1 line-clamp-3 text-xs whitespace-pre-line opacity-70'

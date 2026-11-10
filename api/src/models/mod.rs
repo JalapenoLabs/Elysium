@@ -3,6 +3,7 @@
 //! Database records and the queries that read and write them.
 
 pub mod action_item;
+pub mod action_item_attribution;
 pub mod action_item_bulk;
 pub mod action_item_comment;
 pub mod action_item_event;
@@ -30,6 +31,7 @@ pub mod deployment_update;
 pub mod draft;
 pub mod elysia;
 pub mod environment_variable;
+pub mod finding;
 pub mod github_credential;
 pub mod initiative;
 pub mod initiative_bulk;

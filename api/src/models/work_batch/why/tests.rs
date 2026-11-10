@@ -2,20 +2,25 @@
 
 //! A batch's chain read from its provenance against Postgres: what asked for it, in order, the
 //! issue and the mail behind the item it works on, the item, the batch, and its pull request;
-//! many batches read at once; and what is gone left out.
+//! found work led by the finding a person accepted; many batches read at once; and what is gone
+//! left out.
 //!
 //! `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs them.
 
 use serde_json::json;
 
 use super::*;
+use crate::auth::MemberUser;
+use crate::findings;
 use crate::models::action_item::{self, ActionItemPriority, NewActionItem, Owner};
+use crate::models::finding::{Cost, Reporter};
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager;
 use crate::models::timeline_record::{self, NewTimelineRecord};
-use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::user::{self, PROJECT_MANAGER_USER_ID};
 use crate::models::work_batch::pull_request::{self, NewPullRequest};
 use crate::models::work_batch::{self, NewWorkBatch, Priority};
+use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database, person_rooted};
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -290,4 +295,59 @@ async fn many_chains_read_at_once_and_what_is_gone_is_left_out() {
         matches!(whys[&second.id].head(), Some(Link::Item(item)) if item.id == pricing),
         "with nothing that asked, a chain starts from its item"
     );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn found_work_leads_with_its_finding_and_who_accepted_it() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let events = EventBus::in_process();
+    let reporting = submitted(&mut connection, new_batch(launch, "Annual pricing")).await;
+    let reported = findings::report(
+        &mut connection,
+        &events,
+        launch,
+        Reporter::Worker {
+            batch_id: reporting.id,
+        },
+        findings::Report {
+            title: "Retry forever".to_owned(),
+            detail: "The retry loop never gives up when the provider answers 429.".to_owned(),
+            repository_url: None,
+            location: "api/src/retry.rs".to_owned(),
+            cost: Cost::Small,
+        },
+    )
+    .await
+    .expect("reported");
+    let person = MemberUser::check(
+        user::find(&mut connection, TEST_PERSON_ID)
+            .await
+            .expect("the test person"),
+    )
+    .expect("a member");
+    let accepted = findings::accept(&mut connection, reported.finding.id, &person, Utc::now())
+        .await
+        .expect("accepted");
+    let found = accepted.batch.batch();
+
+    let why = read(&mut connection, found).await.expect("read");
+    assert_eq!(kinds(&why), ["finding", "item", "batch"]);
+    let Link::Finding(finding) = &why.chain[0] else {
+        panic!("the chain leads with its finding: {:?}", why.chain);
+    };
+    assert_eq!(finding.id, reported.finding.id);
+    assert_eq!(finding.title, "Retry forever");
+    assert_eq!(finding.accepted_by_id, TEST_PERSON_ID);
+    assert_eq!(finding.accepted_by, "Tester");
+    assert_eq!(
+        Some(finding.accepted_at),
+        accepted.finding.decided_at,
+        "accepted when the person decided"
+    );
+
+    // The batch that reported it is not the one accepting it made, so it names no finding.
+    let reporter_why = read(&mut connection, &reporting).await.expect("read");
+    assert_eq!(kinds(&reporter_why), ["batch"]);
 }

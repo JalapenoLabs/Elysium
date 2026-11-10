@@ -11,7 +11,8 @@
 //! What she ignores: her own changes (actor `elysia`), what coding agents do (they report
 //! through their own sessions), an item a watcher raises (she hears of one a connector raised
 //! through the timeline record it was raised with, and one the link watcher made is an issue
-//! arriving, which starts nothing), and anything a person did that is not new work or a note.
+//! arriving, which starts nothing of hers), and anything a person did that is not new work or a
+//! note.
 //! A `resync`, meaning changes may have been lost on the way, always reaches her.
 
 use std::time::Duration;
@@ -102,7 +103,8 @@ fn history_is_relevant(data: &Value) -> bool {
         // record, whose `timelineRecord.created` names it (`actionItemId`) and reaches her
         // unless the record's conversation handles it (`crate::connectors::ingest`). One the
         // link watcher makes, with its link, is an issue arriving, assigned or a container's
-        // child, and nothing starts because an issue arrived (`crate::action_items::assigned`).
+        // child, and an issue arriving starts only its attribution
+        // (`crate::action_items::assigned`).
         // What happens to an item afterwards, such as its issue closing, is news.
         return !matches!(kind, "created" | "link_added");
     }
@@ -280,6 +282,21 @@ mod tests {
             &json!({ "id": "x", "conversationId": null }),
         );
         assert!(classify(&ungathered).is_some());
+    }
+
+    /// Findings reach her as a count in her overview, never one turn each: they wait for a
+    /// person, and she only tells the person how many (`docs/autonomy.md`, Findings).
+    #[test]
+    fn a_finding_never_wakes_her() {
+        let reported = bus(
+            "finding.changed",
+            &json!({
+                "id": "0199a3c4-0000-7000-8000-00000000f00d",
+                "projectId": "0199a3c4-0000-7000-8000-00000000beef",
+                "state": "open",
+            }),
+        );
+        assert!(classify(&reported).is_none());
     }
 
     #[test]

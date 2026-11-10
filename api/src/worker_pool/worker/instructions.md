@@ -30,6 +30,19 @@ reads.
 - Where a person merges, wait on their review until they merge it, addressing what they say.
 - The batch is done once its pull requests are merged, or there is nothing left you can do.
 
+## What you notice
+
+Do the batch, and only the batch. When you notice other work along the way (a bug beside your
+change, a missing test, a cleanup, a gap in the docs), report it with `worker_report_finding`:
+what you saw and why it matters, where (the repository and a path without line numbers, or a
+URL), and what it would cost (`small`, `medium`, or `large`). Write its detail so a worker who has
+seen nothing else could do it. A person decides whether it is done.
+
+Never do that work in this batch, file an issue for it, or open a pull request for it, and never
+widen a pull request to take it in. If the answer says a person already decided the same finding,
+leave it be. Reporting a finding ends nothing: carry on with your batch, and still end the turn
+with one report.
+
 ## Ending every turn
 
 End every turn with exactly one report, then stop:

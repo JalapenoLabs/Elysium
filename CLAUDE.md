@@ -12,6 +12,7 @@ Rooms, where people's Claude Code sessions work together, are designed in `docs/
 Activity, the full investigable log of every agent session, is designed in `docs/activity.md`.
 Self-improvement (learning from feedback, self-healing connectors) is designed in `docs/self-improvement.md`.
 Autonomy (issue intake, proposed batches, the trust dial, findings) is designed in `docs/autonomy.md`.
+Meeting review (captures, the final transcript, excerpts, black-outs, uploads) is designed in `docs/meeting-review.md`.
 
 - Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
   latest release, and never contributes to it.
@@ -146,6 +147,9 @@ Everything else follows these rules:
   `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
   `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
 - Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
+- nginx sends client registration (`/oauth2/register`) to the API, which relays it to Hydra's public API, never the
+  admin API, and leaves out the `""` and `null` fields Hydra's answer carries, which strict clients such as Claude Code
+  refuse (`api/src/oauth/registration.rs`). See `docs/mcp.md`, Client registration.
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
@@ -477,9 +481,16 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Every connector whose kind provides issues (Jira, GitHub, YouTrack) brings in what is assigned to its person on each
   watcher pass, bounded by its content (the Jira allowlist, chosen repositories, chosen projects): every open assigned
   issue, the first read included, raises one inbox item as `watcher:<service>`, linked to it as its primary, in no
-  project, and starts nothing. `assigned_issues` keeps one row per connector and issue, so none raises a second. Being
-  unassigned leaves the item and records `unassigned` on it. A new issue kind gets this by declaring
-  `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`, Assigned issues.
+  project, and starts only its `assigned_issue` run, which attributes it. `assigned_issues` keeps one row per connector
+  and issue, so none raises a second. Being unassigned leaves the item and records `unassigned` on it. A new issue kind
+  gets this by declaring `Provides::Issues` and its link provider (`kinds::link_provider`). See `docs/action-items.md`,
+  Assigned issues.
+- An item in any project has one lead project, and only that project's Project Manager may submit a batch for it
+  (`project_managers::batches`). Its first project leads it, the surest of those left when the lead leaves,
+  and a person moves it. An arrived issue is put on its projects by `segment_meeting`, the step meetings use, with
+  Elysia's confidence, the surest leading; she never overrides anyone else's choice, every change is in the item's
+  history and undoable, and attributing wakes no Project Manager (`api/src/models/action_item_attribution.rs`). See
+  `docs/action-items.md`, Projects and the lead.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
 - Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own
@@ -546,6 +557,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   segmenting finds: it ties each to a batch or an action item, and once that work succeeds or resolves it drafts the
   follow-up in the person's voice, a draft of theirs beside an inbox item they send, edit, or dismiss. Nothing is sent
   without their Send, which keeps the promise and resolves the item. See `docs/engine.md`, Follow-ups.
+
+- Agent-found work never queues itself. Workers and Project Managers report work nobody asked for as a finding
+  (`worker_report_finding`, `manager_report_finding`, `api/src/findings.rs`): what was seen, where, and what it would
+  cost, one per project however often it is reported. A person accepts it from the project's Findings tab, which makes
+  an item as them, owes its issue in the project's tracker, and proposes a batch, human-rooted and generation 0, or
+  dismisses it for good, with a reason its reporters are told. Findings raise no item each and never wake Elysia; she
+  reads each project's count in `elysia_overview`. See `docs/engine.md`, Findings.
 
 ## The worker pool
 

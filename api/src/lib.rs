@@ -37,6 +37,7 @@ mod embeddings;
 mod engine;
 mod environment;
 mod errors;
+mod findings;
 mod git_info;
 mod github;
 mod images;

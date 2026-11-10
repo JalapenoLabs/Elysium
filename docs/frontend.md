@@ -1161,9 +1161,17 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
   Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
   from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` holds priority, due date,
-  projects, and initiatives, kept by the same Save; projects and initiatives go through their per-id routes, one
-  request per one joined or left (`membershipChanges.ts`). A due date is sent only when its day changed
-  (`toChangedDayInstant`). A deleted item is read-only under a banner with Restore.
+  projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
+  routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
+  each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them
+  and otherwise leaves none chosen, reading "Chosen when you save" (`getLeadAfter`). Save adds projects, then sets the
+  lead only when the person picked one, then removes projects, so a new lead is already a project and the old one is not
+  passed on by its removal. A lead nobody picked is passed on by the server (`docs/action-items.md`, Projects and the
+  lead), never sent as the person's choice, which Elysia's reading would never move. A due date is sent only
+  when its day changed (`toChangedDayInstant`). The history (`ActionItemHistory`) offers Undo on each change to the
+  item's projects or its lead (`useUndoActionItemChange`). A deleted item is read-only under a banner with Restore.
+- **Projects on a card** (`ActionItemMemberships`, in Next and the inbox) mark the lead project with a star and say how
+  sure Elysia was of a project she guessed.
 - **Links** (`ActionItemLinks`, under the item's notes) lists the item's links from the `actionItemLinks` slice, the
   primary first, each with its provider, kind, key (opening it in the provider), and state. What the provider says now
   (title, status, assignee, priority, due date) comes from `useActionItemLinkRemotes`, which reads every link live
@@ -1448,9 +1456,9 @@ to the models its agents run on (see Models), Workers, a link to how its workers
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Proposed, Work
-batches, and Promises (these five for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
-session on the Coding page). A guest's tabs leave those five out of `useTabParam` too, so `?tab=docs` opens the first tab
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Docs, Project Manager, Proposed,
+Findings, Work batches, and Promises (these six for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the
+session on the Coding page). A guest's tabs leave those six out of `useTabParam` too, so `?tab=docs` opens the first tab
 for them. Switching tabs keeps unsaved edits.
 
 The Docs tab (`ProjectPages`) lists the knowledge base pages linked to the project in a `SmartTable`
@@ -1473,7 +1481,18 @@ that woke it, how many records, batches, and promises came with them, its reply,
 then). A running or failed turn starts open. Proposed (`WorkBatchesTable` with `list='proposed'`) lists every batch
 waiting for the person's approval, its count accented while above zero: the title, the priority, the origin and
 generation as the work queue shows them, and when it was submitted, each row offering Approve and Reject as the work
-queue's do. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
+queue's do. Findings (`ProjectFindings`, `ProjectFindingsTable`) lists the work its workers and Project Manager
+noticed that nobody asked for, waiting for the person's decision, its count accented while above zero: each finding's
+title, what was seen (clamped, a click on it opening its row in full), where (the place, and its repository linked in a new tab
+when a browser can open it, `repositoryHref`), its cost (Small, Medium, or Large, sorting in that order), how many
+times it was seen, and when it was first reported. A row's Accept makes its item, issue, and proposed batch, and its
+toast offers Review batch, or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
+(no tracker, or a GitHub tracker with no token); a second press while it is in flight sends nothing. Its Dismiss,
+red, asks in the prompt gate for an optional reason the agents are told, saying in bold that it is never raised again,
+with Keep it beside it (`useFindingActions`). Someone deciding it first says so and reloads the list. The list and its
+count are read from SWR alone (`useProjectFindings`), since no other view shows them, by `ProjectLists` for the tab's
+count, for members alone; `finding.changed` revalidates them, and a decision also reloads the Project Manager, whose
+Proposed tab gains the batch. Work batches (`WorkBatchesTable`) is a `SmartTable` of its latest batches: the title, the priority with a
 scheduled one's time, the state, the origin, the generation, when it was submitted, and what its worker reported.
 Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with

@@ -4,10 +4,12 @@
 //! and the one place it is stored, put on the timeline, and announced.
 //!
 //! Nothing a submission names is taken on trust: its repositories follow the rules a coding
-//! session's do, a scheduled time is in the future and within a year, and every record, action
-//! item, and message it names as its provenance is on its project. The rules are [`check`], a
-//! pure function tested on its own; [`submit`] adds the checks that read the database. A person's
-//! edits to a proposed batch are held to the same rules ([`check_edits`]).
+//! session's do, a scheduled time is in the future and within a year, every record and message it
+//! names as its provenance is on its project, and every action item it works on is led by its
+//! project. An item can sit on several projects, but only its lead project's Project Manager works
+//! it (`crate::models::action_item`, Projects and the lead). The rules are [`check`], a pure
+//! function tested on its own; [`submit`] adds the checks that read the database. A person's edits
+//! to a proposed batch are held to the same rules ([`check_edits`]).
 //!
 //! Its origin and generation are worked out from that provenance and the turn that submits it,
 //! never asserted (`crate::models::work_batch::lineage`): a batch that names nothing, or that
@@ -16,7 +18,7 @@
 //! A submitted batch is proposed: it waits for a person to approve it before the pool may give
 //! it a slot (`crate::models::work_batch::approval`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -26,13 +28,16 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::timeline;
-use crate::database::schema::{action_item_projects, action_items, project_manager_wakes};
+use crate::database::schema::{action_items, project_manager_wakes};
+use crate::models::project;
 use crate::models::project_manager::WakeKind;
-use crate::models::timeline_record;
+use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::approval::Edits;
 use crate::models::work_batch::lineage::{self, MAX_GENERATION, Provenance, Refusal};
-use crate::models::work_batch::{self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch};
+use crate::models::work_batch::{
+    self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch, Written,
+};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::validate_repository_url;
 use crate::worker_pool::actions;
@@ -208,9 +213,9 @@ fn tidy_repositories(repositories: Vec<Repository>) -> Vec<Repository> {
 /// the project's approval item, and announces all three.
 ///
 /// # Errors
-/// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it names a record,
-/// action item, or message that is not on the project, it names nothing that called for it, or it
-/// would be past the generation limit; any database error.
+/// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it names a record or
+/// message that is not on the project, it works on an action item the project does not lead, it
+/// names nothing that called for it, or it would be past the generation limit; any database error.
 pub async fn submit(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -255,16 +260,56 @@ pub async fn submit(
         lineage,
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    let (written, record) = connection
+    let stored = store(connection, new_batch, timeline::ACTOR).await?;
+    Ok(announce(connection, events, stored).await)
+}
+
+/// A batch [`store`] wrote, for [`announce`] once its transaction commits.
+#[derive(Debug)]
+pub struct Stored {
+    written: Written,
+    record: TimelineRecord,
+}
+
+impl Stored {
+    /// The batch as it was stored.
+    pub const fn batch(&self) -> &WorkBatch {
+        &self.written.batch
+    }
+}
+
+/// Stores `new_batch`, proposed, puts it on its project's timeline as submitted by
+/// `submitted_by`, and raises or updates the project's approval item, in one transaction, or in
+/// the caller's when it holds one. Its lineage is already decided: a Project Manager's from its
+/// provenance ([`submit`]), or a person's accepting a finding (`crate::findings`), whose name
+/// its record carries.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn store(
+    connection: &mut AsyncPgConnection,
+    new_batch: NewWorkBatch,
+    submitted_by: &str,
+) -> diesel::QueryResult<Stored> {
+    connection
         .transaction(async |connection| {
             let mut written = work_batch::submit(connection, new_batch).await?;
-            let record = timeline::record_batch(connection, &written.batch).await?;
+            let record = timeline::record_batch(connection, &written.batch, submitted_by).await?;
             work_batch::set_timeline_record(connection, written.batch.id, record.id).await?;
             written.batch.timeline_record_id = Some(record.id);
-            diesel::QueryResult::Ok((written, record))
+            Ok(Stored { written, record })
         })
-        .await?;
+        .await
+}
 
+/// Announces a batch [`store`] wrote, once the transaction that wrote it committed: its record,
+/// the batch, and its project's approval item. Answers the batch.
+pub async fn announce(
+    connection: &mut AsyncPgConnection,
+    events: &EventBus,
+    stored: Stored,
+) -> WorkBatch {
+    let Stored { written, record } = stored;
     events.publish(&ServerEvent::TimelineRecordCreated {
         id: record.id,
         source_kind: record.source_kind,
@@ -273,7 +318,7 @@ pub async fn submit(
         conversation_id: None,
     });
     // Proposed, it waits for a person rather than for a slot, so the pool is not told.
-    Ok(actions::publish(connection, events, written).await)
+    actions::publish(connection, events, written).await
 }
 
 /// Withdraws `project_id`'s batch `batch_id` while no worker has started on it, saying `reason`,
@@ -335,7 +380,7 @@ fn refusal_words(refusal: &Refusal) -> String {
 }
 
 /// Refuses a submission naming a record not attributed to its project, an action item that is
-/// deleted or not on it, or a message that was not sent to its Project Manager.
+/// deleted or that another project leads, or a message that was not sent to its Project Manager.
 async fn refuse_unknown_provenance(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -356,25 +401,27 @@ async fn refuse_unknown_provenance(
         }
     }
     if !submission.action_item_ids.is_empty() {
-        let found: HashSet<Uuid> = action_item_projects::table
-            .inner_join(action_items::table)
-            .filter(action_item_projects::project_id.eq(project_id))
-            .filter(action_item_projects::action_item_id.eq_any(&submission.action_item_ids))
+        let leads: HashMap<Uuid, Option<Uuid>> = action_items::table
+            .filter(action_items::id.eq_any(&submission.action_item_ids))
             .filter(action_items::deleted_at.is_null())
-            .select(action_item_projects::action_item_id)
-            .load::<Uuid>(connection)
+            .select((action_items::id, action_items::lead_project_id))
+            .load::<(Uuid, Option<Uuid>)>(connection)
             .await?
             .into_iter()
             .collect();
-        if let Some(missing) = submission
-            .action_item_ids
-            .iter()
-            .find(|id| !found.contains(id))
-        {
-            return Err(BatchError::Refused(format!(
-                "action item {missing} is not in this project or was deleted; call work_items for \
-                 the ones that are"
-            )));
+        for item_id in &submission.action_item_ids {
+            let lead = leads.get(item_id).copied().flatten();
+            if lead == Some(project_id) {
+                continue;
+            }
+            let Some(lead) = lead else {
+                return Err(BatchError::Refused(format!(
+                    "action item {item_id} is not in this project or was deleted; call \
+                     work_items for the ones that are"
+                )));
+            };
+            let leader = project::find(connection, lead).await?;
+            return Err(BatchError::Refused(lead_refusal(*item_id, &leader.name)));
         }
     }
     if !submission.message_ids.is_empty() {
@@ -395,6 +442,16 @@ async fn refuse_unknown_provenance(
         }
     }
     Ok(())
+}
+
+/// Why a batch for an item another project leads is refused: only the lead's Project Manager works
+/// an item, so the work is left to it, or a person moves the lead.
+fn lead_refusal(item_id: Uuid, lead_name: &str) -> String {
+    format!(
+        "action item {item_id} is led by the project {lead_name}, and only its Project Manager may \
+         submit a batch for it; leave the item to that project, or ask a person to make this \
+         project its lead on the item's page"
+    )
 }
 
 #[cfg(test)]
@@ -486,6 +543,16 @@ mod tests {
         let id = Uuid::now_v7();
         twice.action_item_ids = vec![id, id];
         assert!(check(&twice, Utc::now()).is_err_and(|reason| reason.contains("actionItemIds")));
+    }
+
+    #[test]
+    fn a_batch_for_an_item_led_elsewhere_says_whose_it_is_and_what_to_do() {
+        let item = Uuid::now_v7();
+        let refusal = lead_refusal(item, "Website");
+        assert!(refusal.contains(&item.to_string()));
+        assert!(refusal.contains("led by the project Website"));
+        assert!(refusal.contains("only its Project Manager may submit a batch"));
+        assert!(refusal.contains("make this project its lead"));
     }
 
     #[test]

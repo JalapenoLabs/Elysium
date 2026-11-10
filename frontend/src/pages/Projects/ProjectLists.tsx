@@ -17,6 +17,7 @@ import { selectProjectManager } from '../../store/projectManagersSlice'
 import { Spinner, Tabs } from '@heroui/react'
 import { PageTabs } from '../../components/PageTabs'
 import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
+import { ProjectFindings } from './ProjectFindings'
 import { ProjectInitiatives } from './ProjectInitiatives'
 import { ProjectItems } from './ProjectItems'
 import { ProjectManagerPanel } from './ProjectManagerPanel'
@@ -36,6 +37,7 @@ import {
 import { useTabParam } from '../../hooks/useTabParam'
 import { PROJECT_DOCS_TAB } from '../../urls'
 import { DEFAULT_STATES } from '../ActionItems/actionItemFilters'
+import { useProjectFindings } from './useProjectFindings'
 import { useProjectPages } from './useProjectPages'
 
 const MEMBER_TABS = [
@@ -45,6 +47,7 @@ const MEMBER_TABS = [
   PROJECT_DOCS_TAB,
   'manager',
   'proposed',
+  'findings',
   'batches',
   'promises',
   'sessions',
@@ -58,9 +61,10 @@ type Props = {
 
 // A project's lists below what it is about, one per tab, each named with its total: the items
 // still owed, its initiatives, its timeline, the knowledge base pages linked to it, its Project
-// Manager's turns, the work batches waiting for a person's approval, its latest work batches, and
-// the promises it keeps, and its coding sessions. A guest reads no knowledge base, and the Project
-// Manager's tabs quote what was ingested, so only the company's members see those five. The open
+// Manager's turns, the work batches waiting for a person's approval, the work its agents noticed
+// that waits for a person's decision, its latest work batches, the promises it keeps, and its
+// coding sessions. A guest reads no knowledge base, and the Project Manager's tabs and findings
+// quote what was ingested and agents' work, so only the company's members see those six. The open
 // tab lives in the address, and switching never asks about the page's unsaved changes, which stay
 // as they are.
 export function ProjectLists(props: Props) {
@@ -78,6 +82,7 @@ export function ProjectLists(props: Props) {
   const initiatives = useAppSelector((state) => selectProjectInitiatives(state, props.projectId))
   const sessions = useAppSelector((state) => selectCodingSessionsByProjectId(state, props.projectId))
   const docs = useProjectPages(props.projectId, isMember)
+  const findings = useProjectFindings(props.projectId, isMember)
   const managerStatus = useProjectManagerLoader(props.projectId, isMember)
   const manager = useAppSelector((state) => selectProjectManager(state, props.projectId))
 
@@ -117,6 +122,12 @@ export function ProjectLists(props: Props) {
             id: 'proposed',
             label: t('batches.proposedTab'),
             count: manager?.proposed.length ?? null,
+            isWaiting: true,
+          },
+          {
+            id: 'findings',
+            label: t('findings.tab'),
+            count: findings.total ?? null,
             isWaiting: true,
           },
           { id: 'batches', label: t('batches.tab'), count: manager?.batches.length ?? null },
@@ -163,6 +174,9 @@ export function ProjectLists(props: Props) {
           <Spinner />
         </div>
     }</Tabs.Panel>}
+    {isMember && <Tabs.Panel id='findings'>
+      <ProjectFindings status={findings.status} findings={findings.findings ?? []} />
+    </Tabs.Panel>}
     {isMember && <Tabs.Panel id='batches'>{
       manager
         ? <WorkBatchesTable list='latest' batches={manager.batches} />

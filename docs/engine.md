@@ -127,11 +127,13 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   that brings into the index what was stored before it was indexed on write (timeline records, and turn summaries not
   yet on the timeline) is a loop for the same reason (`docs/knowledge.md`, The backfill).
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and three production
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and four production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
 `correct_transcript`, and `segment_meeting`; `request` (`api/src/conversations/workflow.rs`), which starts at
-segmenting, `segment_meeting` then `handle_request`; and `company_doc_review` (`api/src/company_doc/workflow.rs`), one
-step, `review_company_doc`.
+segmenting, `segment_meeting` then `handle_request`; `assigned_issue` (`api/src/action_items/assigned/workflow.rs`),
+one step, `segment_meeting`, which attributes an issue that arrived assigned to its person to its projects (source
+`action_item`, `docs/action-items.md`, Projects and the lead); and `company_doc_review`
+(`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
 own.
@@ -275,8 +277,9 @@ the Runs page.
   agent work and every other record, so a project reads top to bottom across meetings. The person corrects what a
   topic is about from its meeting's page or a project's timeline, every change recorded in history and undoable, and
   Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, and the
-  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. See
-  `docs/meetings.md`, Segmentation.
+  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. It
+  takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
+  (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation.
 
 ## Conversations
 
@@ -484,7 +487,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   `manager_record` read its project's timeline, every owner's records on it, `manager_pages` and `manager_page` list and
   read the pages linked to its project, a long one in parts, and refuse any other, `manager_batches` lists its batches,
   proposed ones included, `manager_submit_batch` proposes one, `manager_cancel_batch` withdraws one no worker has
-  started on,
+  started on, `manager_report_finding` reports work nobody asked for as a finding (Findings, below),
   `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
@@ -556,9 +559,12 @@ A batch (`work_batches`) is one piece of work for one worker: a title, a goal wr
 else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
 provenance: the turn that submitted it, the timeline records and the messages to its Project Manager that called for
-it, and the action items it works on, each checked to be on its project. From its provenance come its origin and
-generation (Origins and generations, below). Submitting stores it, proposed, puts it on the timeline, brings its
-project's approval item up to date, and announces all three in one place (`project_managers::batches`).
+it, each checked to be on its project, and the action items it works on, each checked to be led by its project. An item
+can sit on several projects, but only its lead project's Project Manager works it (`docs/action-items.md`, Projects and
+the lead), so a batch naming an item another project leads is refused, telling the Project Manager which project leads
+it and that a person can move the lead. From its provenance come its origin and generation (Origins and generations,
+below). Submitting stores it, proposed, puts it on the timeline, brings its project's approval item up to date, and
+announces all three in one place (`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
@@ -578,7 +584,8 @@ the Project Manager itself, so it learns its work was declined or withdrawn and 
 `workerPool` and `projectManagers` and publishes `workBatch.changed` and `projectManager.changed`.
 
 - **History.** Every change is written to the batch's history (`work_batch_events`) in the transaction that makes it,
-  with who made it: `submitted` by its Project Manager; `edited` (`{ before, after }`, each holding only the fields
+  with who made it: `submitted` by its Project Manager, or by the person who accepted the finding it was made from;
+  `edited` (`{ before, after }`, each holding only the fields
   that changed), `approved`, and `rejected` (`{ reason }`) by the person who decided; `held_for_approval` (`{ from }`)
   by the system user, for a batch that waited for a slot when proposals began and went back for approval;
   `pinned` and `unpinned` (run next, and back to its place),
@@ -655,7 +662,7 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   message its own turn took starts the chain again: wakes are debounced into one turn, so a batch's result arriving
   beside a person's request never holds the request to that batch's chain. Records it names still count.
 - **Resetting.** A person accepting a finding re-roots the work: its batch is human-rooted and generation 0
-  (`Lineage::accepted_finding`, which Findings use, `docs/autonomy.md`).
+  (`Lineage::accepted_finding`, made only by `findings::accept`; Findings, below).
 - **Never queued alone.** Every batch is proposed today. A trust dial that lets human-rooted work run past approval
   must still propose every found batch (`work_batch::submit`).
 - **Existing batches** have the origin their provenance proves, generation 0, and no parents: no chain was recorded for
@@ -673,14 +680,14 @@ page, at the head of its row in the work queue, and in the description of every 
 
 - **Read, never copied.** The chain is read from the batch's provenance as it is shown, the same provenance that gives
   its origin and generation, so it is never out of date. In order: the finding a person accepted, when accepting one
-  made the batch (a seam until Findings record the batch they make); the messages to its Project Manager it names, only
+  made the batch, with who accepted it and when (Findings, below); the messages to its Project Manager it names, only
   those sent on its own project; the timeline records it names, a meeting segment with its meeting's title and the
   first 600 characters of what was said; for each item it works on, the issues linked to it, primary first, then the
   records that raised it not named already; the items; the batch; and its pull requests in the order its worker
   recorded them. Anything named that is gone since (a record removed with its connector, a deleted item) is left out.
 - **Where each opens.** A record opens its knowledge base document, which any member reads (`docs/knowledge.md`, Who
-  sees what); one not indexed yet is named without a link. A message opens its Project Manager's tab, an item and a
-  batch their pages, an issue its tracker, and a pull request GitHub.
+  sees what); one not indexed yet is named without a link. A finding opens its project's Findings tab, a message its
+  Project Manager's tab, an item and a batch their pages, an issue its tracker, and a pull request GitHub.
 - **One read for a list.** `why::read_many` reads any number of batches' chains in one query per kind of link, so the
   work queue shows each row's head (the first thing that asked for it, or failing that its first item) without a query
   per row.
@@ -697,6 +704,44 @@ page, at the head of its row in the work queue, and in the description of every 
   decision reads nothing new. Every quoted text is a link's text with Markdown's punctuation escaped, so nothing quoted
   becomes Markdown, HTML, a mention, an issue reference, or a closing keyword. The chain is at most 8,000 characters,
   ending with how many links did not fit, and a description it would carry past GitHub's 65,536 is left as it is.
+
+### Findings
+
+Built: agent-found work never queues itself (`api/src/findings.rs`, `api/src/models/finding.rs`). A worker or a Project
+Manager that notices work nobody asked for reports it as a finding, and a person decides; nothing an agent can call
+files its issue or submits its batch. See `docs/autonomy.md`, Findings.
+
+- **Reporting.** `worker_report_finding` (a worker, while its batch runs) and `manager_report_finding` (a Project
+  Manager, in its turn) take one schema: a `title`, a `detail` saying what was seen, why it matters, and what acting
+  on it involves, so a worker who has seen nothing else could do it, an optional `repositoryUrl` held to a coding
+  session's rules, a `location` (a path, a URL, or a place's name), and a `cost`, `small` (an hour or less), `medium`
+  (about a batch), or `large` (more than one). A report naming anything else is refused whole. Neither tool ends a
+  turn. The finding remembers who reported it first: the batch for a worker, as the coding agent, or the turn for a
+  Project Manager, as its machine user.
+- **The same finding.** A finding is its repository, place, and title, each normalized (letter case, spacing, a
+  title's punctuation, a repository's URL with or without its scheme or `.git`, an SSH remote read as its host and
+  path, a leading `./`, and a line, column, or `#L` range at a path's end), hashed into its `fingerprint`, unique per
+  project. A second report of the same finding, by any agent, after any restart, and two at once, lands on the first in
+  one statement: it counts the report and changes nothing a person decided. The answer tells the agent how it stands:
+  new, already waiting, accepted (naming its item and batch, to leave it to that batch), or dismissed (with the
+  person's reason, never to report it again). Two wordings of one problem are two findings; the person dismisses the
+  second.
+- **Accepting.** A person accepts one from the project's Findings tab, under the finding's lock, in one transaction:
+  an open action item in the project, created as them, whose notes hold the detail, where, and the cost; its issue owed
+  in the project's tracker (Its writes, above) and filed as them (`action_item_issue_filings.filed_by` `user:<id>`), so
+  its link and history are theirs; and a proposed batch for that item, its title the finding's, its goal the detail
+  and where, its repository the finding's, human-rooted and generation 0 (`Lineage::accepted_finding`), created by
+  the person, whose name its timeline record carries. Like every batch it waits for approval, and the project's
+  approval item counts it. A project with nowhere to file still gets the item and the batch, since the work is
+  wanted either way, and the answer says why no issue was owed, in the words `file-issue` is refused with.
+- **Dismissing.** Dismissing takes an optional reason and keeps the row, so the same finding reported again lands on it
+  and stays dismissed, and its reporter is told the reason. Rows are never deleted.
+- **Only a person.** Accepting and dismissing take a `MemberUser`, which no machine user is, so no tool reaches either,
+  and each refuses a finding already decided (`409 finding_decided`).
+- **Quietly.** Findings never raise an item each and never wake Elysia: `finding.changed` carries the finding's id,
+  project, and state, and her intake leaves it out. She reads how many wait on each project in `elysia_overview`
+  (`docs/elysia.md`, Tools) and tells the person when it matters.
+- **Who sees it.** A finding quotes agents' work on its project, so its routes answer the company's members alone.
 
 ## Workers and the pool
 
@@ -822,7 +867,8 @@ worker's own tools.
   (Models, below).
 - **Its tools.** `elysium_worker` (`api/src/tools/worker.rs`): `worker_batch` reads the batch, its pull requests, and
   the answers given since it last began to wait, `worker_pull_request` records a pull request it opened (Merging,
-  below), `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
+  below), `worker_report_finding` reports other work it noticed as a finding rather than doing it (Findings, above),
+  `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
   reports what it waits on (`review`, `ci`, or `question`), what for, and when to look again, 5 minutes to a day (by
   default 15 minutes for CI, an hour for a review, four hours for a question). The API answers them and holds no claim
   on the slot, so each only files its report on the batch (`worker_report`), the last of a turn winning; the engine
@@ -953,7 +999,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   | `worker`          | Coding sessions, Studio sessions, the pool's workers (`batch_worker`) | Yes |
   | `project_manager` | Every project's Project Manager (`project_manager`) | Yes                 |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
-  | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
+  | `segmenting`      | Segmenting meetings and conversations, and attributing arrived items (`segment_meeting`) | No |
   | `triage`          | Handling a conversation's messages (`handle_request`), and answers asked of the knowledge base (`knowledge_ask`) | No |
   | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
   | `summaries`       | Turn summaries                                     | Yes                  |

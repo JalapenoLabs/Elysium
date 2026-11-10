@@ -27,8 +27,9 @@ reaches the system it came from. The user approves; Elysium and Elysia, Elysium'
 | Link        | Until unlinked       | None     | The external thing an item or initiative points at: a Jira issue, a PR    |
 | Changeset   | Until applied        | None     | A staged batch of proposed changes, waiting for the user's approval       |
 
-An action item is linked to any number of projects and any number of initiatives. An initiative is linked to any
-number of projects. Items and initiatives with no project are allowed; they show under "No project".
+An action item is linked to any number of projects and any number of initiatives, and one of its projects leads it
+([Projects and the lead](#projects-and-the-lead)). An initiative is linked to any number of projects. Items and
+initiatives with no project are allowed; they show under "No project".
 
 ## An action item is a commitment, not a copy
 
@@ -121,6 +122,42 @@ Ownership predates accounts and is still recorded as text:
 
 The roadmap is for `owner` and `waitingOn` to reference users, and for Next to be each person's own.
 
+## Projects and the lead
+
+An item can sit on several projects, since work often touches several, but an item in any project has exactly one lead
+project, and only that project's Project Manager works it: it alone may submit a batch for the item
+(`docs/engine.md`, Work batches).
+
+- **How each got there.** Each membership records how sure whoever put the item there was and who that was
+  (`action_item_projects.confidence` and `attributed_by`, the actor as history names it). Everyone's choice is certain;
+  only the attribution step guesses.
+- **Which leads.** An item's first project leads it: the first one named when it is created, or the first one it
+  joins. When the lead leaves, the surest of those left leads instead, a person's choice before a guess and the
+  earliest joined among equals, or none once none is left. Each move is recorded as `lead_project_changed`, and one
+  that followed a change of projects says so (`passedOn`), since nobody chose it. A person makes any of its projects
+  the lead on the item's page.
+- **Attribution.** An issue assigned to its person arrives in no project ([Assigned issues](#assigned-issues)), and a
+  run of the `assigned_issue` workflow reads it with `segment_meeting`, the step that segments meetings and
+  conversations: one turn reads the item's title, notes, and the issues it follows against every project, where each
+  files its issues, and the repositories its workers clone, and answers the item's projects with Elysia's confidence
+  (`docs/meetings.md`, Segmentation). A guess is kept only for a project that was offered, once, at a confidence of
+  at least 0.3, as a segment's attributions are. The item joins each, surest first, and unless someone chose its lead,
+  the surest of its projects leads it: a person's choice before her guesses, and her surest guess among those.
+- **Anyone else's word stands.** Elysia's reading leaves alone any project anyone else put the item in or took it out
+  of, a changeset someone approved included, and never moves a lead anyone else chose, nor takes the item off that
+  lead; a lead that only passed on is nobody's choice. Her own earlier reading she replaces, so a reading run again keeps no guess it dropped.
+- **Undo.** A person undoes any change to an item's projects or its lead from its history. The undo is an entry of its
+  own naming the one it reversed (`undid`), so it can be undone in turn, and a project put back is held as it was,
+  Elysia's confidence included. Only the latest change to that project, or to the lead, is undone; one with a change
+  made since answers `409` rather than overwriting it. An item still in a project always has a lead, so a lead that
+  came with its first project is changed by choosing another rather than undone.
+- **Nothing starts.** Attributing an item wakes no Project Manager and starts no worker. The wake for a record newly on
+  a project (`docs/connectors.md`, The timeline) is a timeline record's, and an item is not one; assigning an item to
+  its lead project's Project Manager is what will start planning (`docs/autonomy.md`, Assigning work).
+
+The rules are `api/src/models/action_item_attribution.rs`, with the memberships and the lead in
+`api/src/models/action_item.rs`.
+
 ## History
 
 Every write records a history entry in the same transaction as the change, so history and state never disagree. An
@@ -137,11 +174,13 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `commented`          | `{ commentId, body }`                           |
 | `comment_edited`     | `{ commentId, from, to }`                       |
 | `comment_deleted`    | `{ commentId, body }`, so it can be put back    |
-| `project_added`, `project_removed` | `{ projectId }`                   |
+| `project_added`, `project_removed` | `{ projectId, confidence, attributedBy }`, as it was held |
+| `lead_project_changed` | `{ from, to }`, each a project id or null, and `passedOn` when it followed a change of projects |
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
 
-Kinds and actors are stored as text rather than enums, so later stages add kinds without an enum migration. Only a
+An entry that undoes another, from the item's history, also names it (`undid`). Kinds and actors are stored as text
+rather than enums, so later stages add kinds without an enum migration. Only a
 comment's author edits or deletes it: the user cannot rewrite what Elysia or an agent said. The one exception is undoing
 the changeset that wrote it, which the user approved.
 
@@ -295,8 +334,9 @@ the two never loses one:
   one.
 - Writing a comment on an item, by the user or an agent, owes it to the item's primary link. An item with no primary
   link owes nothing, including one whose own issue is still being filed.
-- Applying a changeset's `file-issue` owes the item its own issue (`action_item_issue_filings`): the watcher opens it in
-  the tracker the operation names, with the item's title and notes, and links it as the item's primary, keeping the
+- Applying a changeset's `file-issue`, or a person accepting a finding (`docs/engine.md`, Findings), owes the item its
+  own issue (`action_item_issue_filings`): the watcher opens it in the tracker the operation or the project names, as
+  whoever owed it, with the item's title and notes, and links it as the item's primary, keeping the
   item's owner, since nobody is assigned a new issue yet; the owner follows the issue's assignee from the first change
   the watcher reads. An item is filed
   once at a time, and one already following an issue is refused. A filing records each attempt as it begins, and an
@@ -384,7 +424,8 @@ person, as one capability of `Provides::Issues`: a kind that declares it, and na
   is checked again on the way back, so one the provider lists loosely, not open or not the person's, brings nothing in.
 - **What it makes.** Each issue the connector has not brought in before raises one inbox item, owned by the user,
   titled as the issue, starting from its priority and due date, in no project, with the issue linked as its primary
-  through the connector's account. It is recorded as the watcher of its service (`watcher:jira`), as ingest raises
+  through the connector's account, and starts a run of the `assigned_issue` workflow that attributes it to its
+  projects ([Projects and the lead](#projects-and-the-lead)). It is recorded as the watcher of its service (`watcher:jira`), as ingest raises
   items: like the link watcher, it records what already happened in a provider. From then on the link is followed like
   any other: the issue closing resolves the item, and its being unassigned is recorded on it (Links and the watcher).
 - **Everything comes in.** The first read brings in everything already assigned, unlike a mailbox's, which records its
@@ -404,9 +445,10 @@ person, as one capability of `Provides::Issues`: a kind that declares it, and na
   oldest first, each in its own transaction, so the inbox lists them in the order they were last worked on. One that
   cannot be stored is passed over, so it never holds back the rest, and the pass fails naming it, so its connector
   shows why until it comes in.
-- **Nothing starts.** An issue arriving makes an item and its link, and nothing else. The item is in no project, so no
-  Project Manager hears of it, and Elysia's intake leaves the items and links a watcher makes alone
-  (`docs/elysia.md`, Triggers). It waits in the inbox for a person. What a connector records on the timeline is apart
+- **Attributed, and nothing more.** An issue arriving makes an item, its link, and its attribution run, in one
+  transaction, and nothing else. Attributing it puts it on its projects and wakes no Project Manager, and Elysia's
+  intake leaves the items and links a watcher makes alone (`docs/elysia.md`, Triggers). It waits in the inbox for a
+  person. What a connector records on the timeline is apart
   from this: YouTrack's reader records every new issue in its chosen projects, assigned or not, and that record reaches
   Elysia as every ingested record does, as news of the project rather than of the assignment.
 - **Reported as runs.** What a pass brought in counts toward its connector's run with the changes it read, and a read
@@ -554,8 +596,8 @@ Every call is scoped to the session's project and re-checked against the databas
 | Tool               | Arguments                                                  | Answers                                                     |
 |--------------------|------------------------------------------------------------|-------------------------------------------------------------|
 | `work_project`     | none                                                       | The project, its active initiatives, its items in the inbox or open, and `sessionItemId` |
-| `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes    |
-| `work_item`        | `itemId`                                                   | The item with its notes, comments, latest 50 history entries, projects, and initiatives |
+| `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes, each with its `leadProjectId` |
+| `work_item`        | `itemId`                                                   | The item with its notes, comments, latest 50 history entries, projects (the lead marked), and initiatives |
 | `work_initiatives` | optional `states`                                          | `{ initiatives }` with progress, by name                    |
 | `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |
 | `work_comment`     | `itemId`, `body`                                           | `{ comment }`                                               |
@@ -622,3 +664,5 @@ transaction).
 - Notification emails from Jira and GitHub folded into the linked issue's item.
 - The linked issues' descriptions in the first turn of a session started from an item.
 - Editing or deleting a comment carried to the comment already posted to the provider.
+- Attributing several arrived issues in one turn. Each assigned issue is one run and one segmenting turn today, so a
+  first connect that brings in hundreds spends a turn on each.

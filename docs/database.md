@@ -1129,14 +1129,25 @@ What the user owes attention to; see `docs/action-items.md`.
 | `deleted_at`    | `TIMESTAMPTZ`            | Soft delete; NULL while the item is live                     |
 | `created_at`    | `TIMESTAMPTZ`            | Written by the API, the moment of the create                 |
 | `updated_at`    | `TIMESTAMPTZ`            | Maintained by trigger                                        |
+| `lead_project_id` | `UUID`                 | The one of its projects that leads it; set exactly while it is in any |
 
 The partial index `action_items_live_state_idx` on `state` where `deleted_at` is NULL serves Next and the state
-filters.
+filters. `action_items_lead_project_is_a_membership` makes `(id, lead_project_id)` reference `action_item_projects`,
+checked at commit so an item is created with its lead before its memberships, and set to NULL should a membership go
+without the code moving the lead first, which it always does, recording the move.
 
 ### `action_item_projects`
 
 The projects an item belongs to. The primary key is `(action_item_id, project_id)`, and an index on `project_id`
 finds a project's items. Both references delete their rows with the item or the project.
+
+| Column           | Type          | Notes                                                                     |
+|------------------|---------------|---------------------------------------------------------------------------|
+| `action_item_id` | `UUID`        | References `action_items`                                                 |
+| `project_id`     | `UUID`        | References `projects`                                                     |
+| `confidence`     | `REAL`        | 0 to 1: how sure whoever put it there was; 1 for anyone but the attribution step |
+| `attributed_by`  | `TEXT`        | The actor, as history names it (`user:<id>`, `elysia`, `project_manager:<id>`), 1 to 100 characters |
+| `created_at`     | `TIMESTAMPTZ` | When it joined; breaks a tie in confidence when the lead passes on        |
 
 ### `initiatives`
 
@@ -1253,7 +1264,7 @@ Provider writes an item owes and that have not landed: a close when it resolves,
 ### `action_item_issue_filings`
 
 Issues an item is owed and that the watcher has not filed yet: an item a changeset's `file-issue` asked to have its own
-issue; see `docs/action-items.md`.
+issue, or a person's accepting a finding did; see `docs/action-items.md` and `docs/engine.md`, Findings.
 
 | Column                   | Type            | Notes                                                        |
 |--------------------------|-----------------|--------------------------------------------------------------|
@@ -1262,7 +1273,7 @@ issue; see `docs/action-items.md`.
 | `provider`               | `link_provider` | Where it files                                               |
 | `jira_credential_id`, `github_credential_id`, `token_account_id` | `UUID` | Exactly the provider's one set; deleted with the credential |
 | `destination`            | `TEXT`          | A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name |
-| `filed_by`               | `TEXT`          | The proposer, in its stored form; the link it lands as is theirs |
+| `filed_by`               | `TEXT`          | Who owes it: the proposer in its stored form, or `user:<id>` for a person who accepted a finding; the link it lands as is theirs |
 | `changeset_operation_id` | `UUID`          | The operation that owed it, `ON DELETE SET NULL`             |
 | `timeline_record_id`     | `UUID`          | The write's timeline record, which links to the issue once filed; `ON DELETE SET NULL` |
 | `attempts`               | `INTEGER`       | How many attempts began                                      |
@@ -1620,7 +1631,7 @@ API applies (`docs/engine.md`, Origins and generations), generation 0, and no pa
 | `generation`         | `INTEGER`             | How many batches led to it, at least 0; no default. The limit is a code constant (`work_batch::lineage::MAX_GENERATION`) |
 | `parent_batch_ids`   | `JSONB`               | The batches it was planned from, as an array of ids               |
 | `timeline_record_id` | `UUID`                | Its record on the project's timeline; `SET NULL`                  |
-| `created_by`         | `UUID`                | References `users`: the Project Managers' machine user            |
+| `created_by`         | `UUID`                | References `users`: the Project Managers' machine user, or the person who accepted the finding it was made from |
 | `created_at`, `updated_at` | `TIMESTAMPTZ`   | Set on insert; `updated_at` maintained by trigger                 |
 | `started_at`         | `TIMESTAMPTZ`         | Set exactly once a worker started on it, so never for a waiting, cancelled, or rejected batch |
 | `finished_at`        | `TIMESTAMPTZ`         | Set exactly once it ended, was cancelled, or was rejected         |
@@ -1648,6 +1659,35 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 | `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
+
+### `findings`
+
+Work a worker or a Project Manager noticed that nobody asked for, waiting for a person to accept or dismiss; see
+`docs/engine.md`, Findings. `findings_once` on `(project_id, fingerprint)` makes a second report of the same finding land
+on the first, and `findings_open` on `(project_id, id)` while `open` reads a project's list and every project's count.
+Rows are never deleted, so a dismissed finding stays dismissed.
+
+| Column                    | Type            | Notes                                                              |
+|---------------------------|-----------------|--------------------------------------------------------------------|
+| `id`                      | `UUID`          | UUIDv7, primary key, so ids order findings as first reported       |
+| `project_id`              | `UUID`          | References `projects`, cascading                                   |
+| `fingerprint`             | `TEXT`          | 64 hex digits: the SHA-256 of its repository, place, and title, each normalized by the API |
+| `title`                   | `TEXT`          | 1 to 200 characters                                                |
+| `detail`                  | `TEXT`          | What was seen, why it matters, and what acting on it involves; 1 to 10,000 characters |
+| `repository_url`          | `TEXT`          | The repository it was seen in, held to a coding session's rules; up to 2,048 characters |
+| `location`                | `TEXT`          | Where: a path, a URL, or a place's name; 1 to 500 characters       |
+| `cost`                    | `finding_cost`  | `small` (an hour or less), `medium` (about a batch), or `large` (more than one) |
+| `state`                   | `finding_state` | `open` (the default), `accepted`, or `dismissed`                   |
+| `work_batch_id`           | `UUID`          | The batch whose worker reported it first; `SET NULL`               |
+| `project_manager_turn_id` | `UUID`          | The Project Manager's turn that reported it first; `SET NULL`. At most one of the two |
+| `reports`                 | `INTEGER`       | How many times it was reported, the first included; at least 1     |
+| `last_reported_at`        | `TIMESTAMPTZ`   | When it was last reported                                          |
+| `decided_by`, `decided_at` | `UUID`, `TIMESTAMPTZ` | The person who accepted or dismissed it, and when; set exactly once it is not `open` |
+| `dismissal_reason`        | `TEXT`          | Why it was dismissed, when the person said; 1 to 2,000 characters, only when `dismissed` |
+| `action_item_id`          | `UUID`          | The item accepting it made; `SET NULL`, only when `accepted`       |
+| `accepted_batch_id`       | `UUID`          | The batch accepting it proposed; `SET NULL`, only when `accepted`  |
+| `created_by`              | `UUID`          | References `users`: the coding agent for a worker, the Project Managers' machine user for a Project Manager |
+| `created_at`              | `TIMESTAMPTZ`   | When it was first reported                                         |
 
 ### `work_batch_approval_items`
 

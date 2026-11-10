@@ -51,6 +51,7 @@ use uuid::Uuid;
 
 use self::approval_item::Cause;
 use self::lineage::{Lineage, Origin};
+use crate::action_items::Actor;
 use crate::database::schema::{work_batch_events, work_batches};
 use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
@@ -457,12 +458,14 @@ pub async fn submit(
                 by,
             )
             .await?;
-            let actor = approval_item::actor_for(by, submitted.project_id);
+            // The project's approval item is raised and kept by its Project Manager whoever
+            // submitted the batch. A person accepting a finding submits one too, and an item a
+            // person raised would read as theirs, accepted, rather than as one asking them.
             let approval_item = approval_item::refresh(
                 connection,
                 submitted.project_id,
                 Cause::Proposed,
-                actor,
+                Actor::ProjectManager(submitted.project_id),
                 Utc::now(),
             )
             .await?;

@@ -8,6 +8,7 @@ import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
+import type { FindingState } from '../api/routes/findingRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { KnowledgeAskState } from '../api/routes/knowledgeRoutes'
@@ -125,6 +126,9 @@ export type ServerEvent =
   | { type: 'projectManager.changed', data: { projectId: string } }
   | { type: 'workBatch.changed', data: { id: string, projectId: string, state: WorkBatchState } }
   | { type: 'workerPool.changed' }
+  // A finding was reported, reported again, accepted, or dismissed. Its ids and state alone,
+  // since what it says quotes agents' work; its project's Findings tab loads it.
+  | { type: 'finding.changed', data: { id: string, projectId: string, state: FindingState } }
   // A project's worker setup was replaced: its tools script or the repositories it declares.
   // The project's id alone; its Workers page loads the setup again.
   | { type: 'projectWorkerSetup.changed', data: { projectId: string } }

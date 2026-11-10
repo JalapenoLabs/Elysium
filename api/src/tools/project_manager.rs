@@ -3,8 +3,10 @@
 //! `elysium_project_manager`: a Project Manager's own tools, for its one project.
 //!
 //! It reads its project's timeline, every owner's records on it, its batches, and the knowledge
-//! base pages linked to the project, and it submits and withdraws batches for the worker pool. It
-//! also keeps its project's promises: it lists them, ties each to the work that keeps it, and
+//! base pages linked to the project, and it submits and withdraws batches for the worker pool.
+//! Work nobody asked for that it notices it reports as a finding (`crate::findings`), for a
+//! person to accept or dismiss, rather than submitting or filing it. It also keeps its project's
+//! promises: it lists them, ties each to the work that keeps it, and
 //! drafts a follow-up once that work is done, through
 //! `crate::project_managers::promises`. And it changes its project's action items and files their
 //! issues in the project's tracker (`manager_make_changes`, in
@@ -25,7 +27,9 @@ use uuid::Uuid;
 use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
+use crate::findings::{self, FindingError, Report};
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
+use crate::models::finding::Reporter;
 use crate::models::page_project;
 use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
@@ -51,7 +55,10 @@ pub const SERVER: ToolServer = ToolServer {
         and action items it came from. Every batch waits for a person to approve it, edit and \
         approve it, or reject it with a reason, which wakes you; only then does it wait in the \
         one queue for the whole workspace, which a person or Elysia may reorder or pause. \
-        manager_cancel_batch withdraws a batch no worker has started on yet. A running batch's \
+        manager_cancel_batch withdraws a batch no worker has started on yet. Work nobody asked \
+        for that you notice is a finding, not a batch: manager_report_finding puts it on the \
+        project's Findings list for a person to accept or dismiss, and you never submit a batch, \
+        create an item, or file an issue for it. A running batch's \
         worker may wait on a question only you or the person can answer; manager_answer_batch \
         answers it. manager_promises lists what the person promised to tell people once the \
         project's work is done; manager_tie_promise ties a promise to the batch or action item \
@@ -65,7 +72,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 12] = [
+const TOOLS: [Tool; 13] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -121,6 +128,20 @@ const TOOLS: [Tool; 12] = [
             batch.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_report_finding",
+        description: "Reports work you noticed that nobody asked for and the project may need, \
+            such as a gap a meeting or a worker's result shows: title says what in a line; detail \
+            says what you saw, why it matters, and what acting on it involves, so a worker who \
+            has seen nothing else could do it; repositoryUrl and location say where (a path \
+            without line numbers, a URL, a page, or a place's name); cost is small (an hour or \
+            less), medium (about a batch), or large (more than one). It goes on the project's \
+            Findings list for a person to accept, which files its issue and proposes its batch, \
+            or dismiss, and answers if the same finding was reported before and what a person \
+            made of it. Never submit a batch, create an item, or file an issue for it yourself.",
+        input_schema: findings::report_schema,
+        run: |context, scope, arguments| run_report_finding(context, scope, arguments).boxed(),
     },
     Tool {
         name: "manager_cancel_batch",
@@ -743,6 +764,35 @@ async fn run_submit(
         "note": "Proposed: it waits for a person to approve it before any worker starts on it. \
             A rejection wakes you with their reason.",
     }))
+}
+
+async fn run_report_finding(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let report: Report = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let reported = findings::report(
+        &mut connection,
+        &context.events,
+        manager.project_id,
+        Reporter::ProjectManager {
+            turn_id: manager.turn_id,
+        },
+        report,
+    )
+    .await
+    .map_err(|error| match error {
+        FindingError::Invalid(reason) => ToolError::Invalid(reason),
+        error => internal(scope, "manager.report_finding", &error),
+    })?;
+    Ok(findings::answer(&reported))
 }
 
 async fn run_cancel(

@@ -203,7 +203,7 @@ fn a_record_not_indexed_yet_opens_on_the_batchs_page() {
 
 #[test]
 fn an_accepted_finding_says_who_accepted_it() {
-    // A stand-in until findings are stored (#213): the chain renders one however it is read.
+    // Found work leads its chain with the finding a person accepted, and its description says who.
     let why = Why {
         chain: vec![
             Link::Finding(Finding {

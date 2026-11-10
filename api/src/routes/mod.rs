@@ -1,17 +1,22 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! HTTP routes. Every public path is mounted under `/api`, matching nginx's proxy prefix.
-//! Health and build routes sit at the top level; resources are versioned under `/api/v1`.
-//! `/internal` answers Kratos and the deployment's updater alone, on the compose network.
+//! HTTP routes. The API's own routes are under `/api`, matching nginx's proxy prefix: health and
+//! build routes at its top level, resources versioned under `/api/v1`. The paths something else
+//! sets live at the root: the MCP server's metadata under `/.well-known/` (RFC 9728) and client
+//! registration at `/oauth2/register`, both where OAuth clients look for them, and `/internal`,
+//! which answers Kratos and the deployment's updater alone, on the compose network. Each of those
+//! is listed in `middleware::security_headers::API_PATHS`, so it gets the API's policy rather than
+//! the web app's.
 
 mod internal;
+mod oauth2;
 mod ok;
 mod ping;
 pub mod v1;
 mod version;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{any, get};
 
 use crate::errors::ApiError;
 use crate::mcp;
@@ -32,16 +37,20 @@ pub fn router(state: &AppState) -> Router<AppState> {
         // rather than the web app the outer router falls back to.
         .fallback(not_found);
 
+    // The MCP server's metadata, at the root and under its path, as RFC 9728 places it. nginx sends
+    // every path under the prefix here, so it has its own fallback, as `/api` has: a near miss such
+    // as a trailing slash is a JSON 404, never the web app a discovery client cannot parse.
+    let protected_resource = Router::new()
+        .route("/", get(mcp::protected_resource_metadata))
+        .route("/api/mcp", get(mcp::protected_resource_metadata))
+        .fallback(not_found);
+
     Router::new()
-        // The MCP server's metadata, at the root and under its path, as RFC 9728 places it.
-        .route(
-            "/.well-known/oauth-protected-resource",
-            get(mcp::protected_resource_metadata),
-        )
-        .route(
-            "/.well-known/oauth-protected-resource/api/mcp",
-            get(mcp::protected_resource_metadata),
-        )
+        .nest("/.well-known/oauth-protected-resource", protected_resource)
+        // A bare trailing slash is outside the nest, which routes it nowhere, so it is refused here.
+        .route("/.well-known/oauth-protected-resource/", any(not_found))
+        // Where Hydra's metadata sends clients to register, relayed to Hydra. See `oauth2`.
+        .merge(oauth2::router(state.auth.registration.clone()))
         .nest("/api", api)
         .nest("/internal", internal::router(state))
 }
@@ -241,6 +250,17 @@ mod tests {
             assert!(resource.starts_with(issuer), "{issuer} serves {resource}");
             assert_eq!(body["scopes_supported"][0], "workspace:read");
         }
+
+        // nginx sends every path under the prefix to the API, so a near miss is a JSON 404.
+        for path in [
+            "/.well-known/oauth-protected-resource/",
+            "/.well-known/oauth-protected-resource/api/mcp/",
+            "/.well-known/oauth-protected-resource/elsewhere",
+        ] {
+            let (status, body) = send(&state, Method::GET, path, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(body["message"], "resource not found", "{path}");
+        }
     }
 }
 
@@ -251,11 +271,13 @@ mod fallback_tests {
     use tower::ServiceExt;
 
     use super::*;
+    use crate::oauth::registration::Registration;
     use crate::web_app;
 
     // The web app is merged in as the outermost fallback. A nested router without a
     // fallback of its own inherits it, which would answer a mistyped API path with the
-    // app's HTML and a 200. This builds the same shape `routes::router()` has.
+    // app's HTML and a 200. This builds the shape `routes::router()` gives them: nested routers
+    // with fallbacks of their own, beside the web app.
     #[tokio::test]
     async fn an_unknown_api_path_is_a_404_even_beside_the_web_app() {
         let directory = tempfile::tempdir().expect("a temporary directory");
@@ -263,11 +285,19 @@ mod fallback_tests {
         let api = Router::new()
             .route("/ok", get(|| async { "ok" }))
             .fallback(not_found);
+        let nowhere = url::Url::parse("http://127.0.0.1:9/").expect("a static URL parses");
+        let registration = Registration::new(reqwest::Client::new(), &nowhere);
         let app = Router::new()
+            .merge(oauth2::router(registration))
             .nest("/api", api)
             .merge(web_app::router(directory.path()).expect("a valid build"));
 
-        for path in ["/api/v1/no-such-thing", "/api/nope"] {
+        for path in [
+            "/api/v1/no-such-thing",
+            "/api/nope",
+            "/oauth2/register/",
+            "/oauth2/register/a-client/secret",
+        ] {
             let request = Request::get(path).body(Body::empty()).expect("request");
             let response = app.clone().oneshot(request).await.expect("infallible");
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");

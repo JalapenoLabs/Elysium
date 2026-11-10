@@ -20,6 +20,9 @@
 //!   its project for that project's Project Manager to follow up (`crate::models::promise`),
 //!   when the message it was made in can be answered through its connector. The request
 //!   workflow starts at this step with a conversation.
+//! - **An action item** that arrived in no project, such as an issue assigned to its person. It
+//!   has no topics: one turn reads which projects it belongs to, and it joins them with Elysia's
+//!   confidence, led by the surest ([`item`]). The assigned issue workflow is this step alone.
 //!
 //! What it gives ([`Segmented`]) names every topic's span, projects, and records, for the steps
 //! after it, which read what landed on which project.
@@ -87,17 +90,29 @@ const SEGMENTATION_DIRECTORY: &str = ".elysium/segmentation";
 /// The longest `actor` a record takes: the segment's speakers.
 const ACTOR_MAX_CHARACTERS: usize = 512;
 
-/// What [`SegmentMeeting`] takes: a meeting past its correction, or a conversation intake
-/// gathered.
+mod item;
+
+/// What [`SegmentMeeting`] takes: a meeting past its correction, a conversation intake gathered,
+/// or an action item to attribute.
 ///
 /// Untagged, so each reads as its own JSON: a meeting is exactly what the correction gives
 /// ([`CorrectedMeeting`]), and so is what the transcription gives when a person skips the
-/// correction, while a conversation is the only shape with `recordIds`.
+/// correction, while a conversation is the only shape with `recordIds`, and an item the only one
+/// with `actionItemId`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TranscriptToSegment {
     Meeting(CorrectedMeeting),
     Conversation(ConversationToSegment),
+    ActionItem(ItemToAttribute),
+}
+
+/// An action item to attribute to its projects, such as an issue that arrived assigned to its
+/// person, in no project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ItemToAttribute {
+    pub action_item_id: Uuid,
 }
 
 /// A conversation to segment: messages already on its person's timeline, which intake gathered
@@ -112,7 +127,8 @@ pub struct ConversationToSegment {
     pub record_ids: Vec<Uuid>,
 }
 
-/// What [`SegmentMeeting`] gives: every topic it found, in order.
+/// What [`SegmentMeeting`] gives: every topic it found, in order. An action item reads as one
+/// topic, titled as the item, holding the projects Elysia guessed for it, surest first.
 ///
 /// A conversation not segmented, because a person skipped the step or no message of it was
 /// left, reads as this with no topics and its `recordIds`, so the step after segmenting still
@@ -889,6 +905,7 @@ impl Step for SegmentMeeting {
             TranscriptToSegment::Conversation(conversation) => {
                 self.segment_conversation(conversation, &context).await
             }
+            TranscriptToSegment::ActionItem(item) => self.attribute_item(item, &context).await,
         }
     }
 }

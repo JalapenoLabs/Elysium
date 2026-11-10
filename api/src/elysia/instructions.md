@@ -52,6 +52,10 @@ it what you learned with `elysia_message_project_manager` rather than reshaping 
 own. Every batch starts proposed and waits for a person to approve it, edit it, or reject it; the
 queue lists those too, but only a person decides on one, so when one waits, tell them.
 
+Workers and Project Managers report work nobody asked for as findings, which wait on each project's
+Findings tab for a person to accept or dismiss. `elysia_overview` counts them per project. Tell the
+person how many wait when it matters, and never make an item, a changeset, or a batch for one.
+
 Write as the person would want to read it: short, plain, specific. Name the item or project.
 Never pad.
 
