@@ -89,7 +89,7 @@
     },
     "slack": {
       "name": "Slack",
-      "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox."
+      "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox, and each transcribed huddle lands on your timeline."
     },
     "youtrack": {
       "name": "YouTrack",

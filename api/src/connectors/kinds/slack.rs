@@ -6,8 +6,11 @@
 //! The account is the connector's own browser, as for Outlook and Gmail, started with it at
 //! Slack's web client (`super::browser`): nothing is installed into a Slack workspace. Its
 //! person signs in on the stream the connector's page shows. Its content picks the workspaces,
-//! conversations, and direct messages it reads.
+//! conversations, and direct messages it reads, and whether their huddles' transcripts are read
+//! as meetings (`crate::connectors::slack::meetings`), which they are unless its person turns it
+//! off.
 
+use chrono::Utc;
 use serde_json::{Value, json};
 
 use super::browser::{browser_of, owned_browser, starts_with_its_browser};
@@ -15,12 +18,14 @@ use super::{AccountChoice, ContentField, ContentFieldType, Definition, Provides,
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
+use crate::connectors::slack::meetings::{SlackMeetings, SlackSignIn};
 use crate::connectors::slack::{self, Content, Counts, START_URL, Slack, Tab, Team, count_teams};
 use crate::connectors::{
     AccountKind, ConnectorError, ConnectorKind, Outgoing, Scope, Sent, SignInState,
 };
 use crate::errors::ApiError;
-use crate::models::browser_session::BrowserSession;
+use crate::meetings::WAIT_FOR_APPROVAL_FIELD;
+use crate::meetings::source::{ListedMeeting, MeetingSource, SourceError};
 use crate::models::connector::{self, Connector};
 use crate::models::draft::ReplyPlace;
 use crate::models::timeline_record::TimelineRecord;
@@ -48,19 +53,54 @@ const CHECKS: &[CheckSpec] = &[
         required: false,
         depends_on: &["workspace_reachable"],
     },
+    // Huddles are optional: a plan without huddle transcripts still reads every message.
+    CheckSpec {
+        id: "list_meetings",
+        required: false,
+        depends_on: &["workspace_reachable"],
+    },
+    CheckSpec {
+        id: "sample_transcript",
+        required: false,
+        depends_on: &["list_meetings"],
+    },
 ];
+
+/// The content field that turns reading huddles as meetings on or off.
+const READ_MEETINGS_FIELD: &str = "readMeetings";
+
+/// How far back the huddle check looks, as far as a new connector's first listing reaches.
+const SAMPLE_DAYS: i64 = 14;
+/// How many huddles the huddle check lists.
+const SAMPLE_SIZE: u32 = 5;
 
 pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Slack,
     scope: Scope::Personal,
     account: AccountKind::Browser,
-    provides: &[Provides::Messages],
+    provides: &[Provides::Messages, Provides::Meetings],
     start_url: Some(START_URL),
-    content: &[ContentField {
-        id: "conversations",
-        field: ContentFieldType::Selection,
-        required: true,
-    }],
+    content: &[
+        ContentField {
+            id: "conversations",
+            field: ContentFieldType::Selection,
+            required: true,
+        },
+        ContentField {
+            id: READ_MEETINGS_FIELD,
+            field: ContentFieldType::Toggle {
+                on_by_default: true,
+            },
+            required: false,
+        },
+        ContentField {
+            id: WAIT_FOR_APPROVAL_FIELD,
+            field: ContentFieldType::Toggle {
+                on_by_default: false,
+            },
+            required: false,
+        },
+    ],
     checks: CHECKS,
     replies: Replies::Connector {
         places: &[ReplyPlace::Thread, ReplyPlace::Conversation],
@@ -109,23 +149,33 @@ pub async fn prepare_checks(state: &AppState, source: Source<'_>) -> Result<Slac
     };
     let content = slack::parse_content(&stored.content)
         .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    let browser = browser_of(state, stored).await?;
     Ok(SlackChecks {
         reader: Slack::new(state.connectors.ingest.devtools().clone()),
+        huddles: state.meeting_sources.slack().clone(),
         browsers: state.browsers.clone(),
-        browser: browser_of(state, stored).await?,
+        sign_in: SlackSignIn {
+            browser,
+            content: content.clone(),
+        },
         content,
         counted: None,
+        meetings: Vec::new(),
     })
 }
 
 /// Slack's checks against one browser.
 pub struct SlackChecks {
     reader: Slack,
+    huddles: SlackMeetings,
     browsers: Browsers,
-    browser: BrowserSession,
+    /// The connector's browser and content, which its huddles are read with.
+    sign_in: SlackSignIn,
     content: Content,
     /// The workspaces Slack answered, read once and shared by every check that needs them.
     counted: Option<Result<Vec<(Team, Counts)>, Outcome>>,
+    /// The huddles the listing check found, the newest of which the transcript check reads.
+    meetings: Vec<ListedMeeting>,
 }
 
 impl std::fmt::Debug for SlackChecks {
@@ -136,7 +186,7 @@ impl std::fmt::Debug for SlackChecks {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("SlackChecks")
-            .field("browser", &self.browser.id)
+            .field("browser", &self.sign_in.browser.id)
             .finish_non_exhaustive()
     }
 }
@@ -145,7 +195,7 @@ impl Checks for SlackChecks {
     async fn check(&mut self, id: &'static str) -> Outcome {
         match id {
             "browser_running" => {
-                let status = self.browsers.status(self.browser.id).await;
+                let status = self.browsers.status(self.sign_in.browser.id).await;
                 if status.state == BrowserState::Running {
                     return Outcome::passed();
                 }
@@ -172,6 +222,8 @@ impl Checks for SlackChecks {
                 Err(outcome) => outcome,
             },
             "sample_conversation" => self.sample().await,
+            "list_meetings" => self.list_meetings().await,
+            "sample_transcript" => self.sample_transcript().await,
             unknown => Outcome::failed(format!("Slack has no check {unknown}")),
         }
     }
@@ -181,7 +233,7 @@ impl SlackChecks {
     /// The workspaces the browser is signed in to, with their counts, read once.
     async fn counted(&mut self) -> Result<Vec<(Team, Counts)>, Outcome> {
         if self.counted.is_none() {
-            let counted = match self.reader.ask(&self.browser, true, &[]).await {
+            let counted = match self.reader.ask(&self.sign_in.browser, true, &[]).await {
                 Ok(Tab::Open { teams, .. }) => match count_teams(&teams) {
                     Ok(counted) if counted.is_empty() => Err(Outcome::failed_because("signed_out")),
                     Ok(counted) => Ok(counted),
@@ -228,7 +280,7 @@ impl SlackChecks {
             return Outcome::skipped("no_conversations");
         };
         let call = slack::sample_call(&team.id, &conversation.id);
-        match self.reader.ask(&self.browser, false, &[call]).await {
+        match self.reader.ask(&self.sign_in.browser, false, &[call]).await {
             Ok(Tab::Open { results, .. }) => {
                 let Some(result) = results.first() else {
                     return Outcome::failed("Slack did not answer the sample");
@@ -245,6 +297,44 @@ impl SlackChecks {
                 Outcome::counted(count)
             }
             Ok(Tab::Missing(_sign_in)) => Outcome::failed_because("slack_not_open"),
+            Err(error) => Outcome::failed(error.to_string()),
+        }
+    }
+
+    /// Lists the huddles of the last two weeks that it reads as meetings.
+    async fn list_meetings(&mut self) -> Outcome {
+        if !self.content.read_meetings {
+            return Outcome::skipped("meetings_off");
+        }
+        let since = Utc::now() - chrono::Duration::days(SAMPLE_DAYS);
+        match self
+            .huddles
+            .list(&self.sign_in, Some(since), SAMPLE_SIZE)
+            .await
+        {
+            Ok(meetings) => {
+                self.meetings = meetings;
+                Outcome::counted(self.meetings.len())
+            }
+            Err(error) => Outcome::failed(error.to_string()),
+        }
+    }
+
+    /// Reads the newest listed huddle's transcript.
+    async fn sample_transcript(&mut self) -> Outcome {
+        let Some(meeting) = self.meetings.first() else {
+            return Outcome::skipped("no_meetings");
+        };
+        match self
+            .huddles
+            .fetch(&self.sign_in, &meeting.external_id)
+            .await
+        {
+            Ok(fetched) => Outcome {
+                message: Some(meeting.title.clone()),
+                ..Outcome::counted(fetched.transcript.len())
+            },
+            Err(SourceError::NotFound) => Outcome::skipped("meeting_unavailable"),
             Err(error) => Outcome::failed(error.to_string()),
         }
     }
@@ -386,9 +476,18 @@ mod tests {
         assert!(matches!(
             content_of(json!({ "conversations": "*" })),
             Ok(Content {
-                conversations: Selection::All
+                conversations: Selection::All,
+                read_meetings: true,
+                ..
             })
         ));
+        let quiet = content_of(json!({
+            "conversations": "*",
+            READ_MEETINGS_FIELD: false,
+            WAIT_FOR_APPROVAL_FIELD: true,
+        }))
+        .expect("accepted");
+        assert!(!quiet.read_meetings);
         content_of(json!({ "conversations": ["T01", "T01/dms"] })).expect("accepted");
         content_of(json!({ "conversations": [] })).expect_err("refused");
         content_of(json!({ "conversations": ["T01/x y"] })).expect_err("refused");

@@ -5,15 +5,16 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources: Fireflies.ai, read with the person's own API key, and Microsoft Teams, read through
-the browser the person's Teams connector signed in to. The code is `api/src/meetings/`.
+Meetings come from meeting sources: Fireflies.ai, read with the person's own API key, and Microsoft Teams and Slack's
+huddles, each read through the browser the person's connector signed in to. The code is `api/src/meetings/`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
 used, since the model behind it is unknown. Fireflies' queries name each field they read, and a test fails if one asks
 for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`); Teams' page script reads the recording and its
 transcript alone, never the meeting recap or notes Microsoft's AI writes, and a test fails if it names them
-(`api/src/connectors/teams/meetings.rs`).
+(`api/src/connectors/teams/meetings.rs`); Slack's huddles are read from their transcript file alone, never Slack's AI
+notes beside it (`api/src/connectors/slack/meetings.rs`).
 
 ## Meeting sources
 
@@ -33,12 +34,14 @@ adds its client, its sign-in, and its row in `for_kind`; the meetings page and t
 
 A source may read meetings only some of the time (`Source::reads`): Fireflies reads nothing else, so always, while a
 Teams connector also reads chats, and reads meetings only while its person leaves them on and once it names a storage
-location. The loop lists no meetings for a connector that reads none, and records nothing on it.
+location, and a Slack connector reads huddles while its person leaves them on, with no storage location, since a huddle
+keeps no recording. The loop lists no meetings for a connector that reads none, and records nothing on it.
 
 | Source    | Signs in with                                  | Reads                                                    |
 |-----------|------------------------------------------------|----------------------------------------------------------|
 | Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
 | Teams     | The Teams connector's own browser, signed in to Microsoft | Teams' own store for the listing, then the recording's drive item on the organizer's `SharePoint`: its download and its transcript |
+| Slack     | The Slack connector's own browser, signed in to `app.slack.com` | The web client's own methods in the signed-in tab: `huddles.history`, then each huddle's transcript file (`huddles.get`, `files.info`) |
 
 A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
 recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
@@ -90,6 +93,34 @@ used; one that has expired, or none yet, fails the fetch with its attempts and b
 against a signed-in Teams: its listing found every recorded meeting its chats held, and a fetch read a 40 minute
 meeting's 273 transcript entries from seven speakers, and its recording's address, which answered a ranged download
 from outside the browser as `video/mp4`.
+
+### Slack huddles
+
+A Slack connector (`docs/connectors.md`, Slack) reads its huddles as meetings unless its person turns off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), from the same workspaces and conversations its messages
+come from. `api/src/connectors/slack/meetings.rs` reads through the connector's page script
+(`api/src/connectors/slack.js`), so the session never leaves the browser, with the web client's own methods, which are
+not Slack's published API:
+
+- **Listing** is `huddles.history` in each workspace, newest first, 50 a page and at most four pages a listing. A huddle
+  that ended with a `transcript_file_id` is a meeting, its id `team/huddle`; one still going, or never transcribed, is
+  not listed yet. Whether a huddle is new goes by when it ended, not when it started, since the listing cursor is the
+  newest start seen: a long huddle that started before a shorter one still arrives once its transcript is there. Its
+  title is `Huddle in #channel`, or `Huddle with` who joined for a direct or group huddle; its people are named with
+  `users.info` and `conversations.info`, and its link opens its thread in Slack.
+- **Fetching** asks `huddles.get` (`huddle_id`) for the huddle's transcript file, then `files.info` with
+  `include_transcription`. Where the workspace keeps Slack's AI notes, that file is the notes canvas ("Huddle AI notes
+  & transcript"); only its metadata is read, which names the transcript file beside it (`huddle_transcript_file_id`, a
+  file of type `huddle_transcript`), and that is read instead. Nothing of the notes is read.
+- **A transcript** is `huddle_transcription.lines`: a speaker's user id, a start in milliseconds from the huddle's start
+  (`date_start`, seconds), and the words. Slack gives no end, so a line ends where the next begins and the last where
+  the huddle ended. Speakers are named with `users.info`; one not found keeps their id.
+- **No recording.** Slack keeps none of a huddle, so each is a meeting in words alone: the fetch offers no recording,
+  transcription has nothing to transcribe, and its segments carry no clip. A Slack connector names no storage location.
+
+The shapes were read from a signed-in Slack on a plan with huddle notes, where 65 of 144 huddles had a transcript and
+each fetch read one transcript file of 200 to 390 lines. A workspace that transcribes huddles without notes, whose
+`transcript_file_id` would name the transcript itself, is read the same way but not yet seen.
 
 ### Accounts
 
@@ -553,7 +584,7 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 
 - Meetings as reviewed documents in the knowledge base: captures from several sources and uploads, one final
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
-  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
+  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources.
 - Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of

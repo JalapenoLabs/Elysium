@@ -694,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_provides_something_and_meetings_come_from_teams_and_fireflies() {
+    fn every_kind_provides_something_and_meetings_come_from_teams_slack_and_fireflies() {
         for definition in DEFINITIONS {
             assert!(
                 !definition.provides.is_empty(),
@@ -704,7 +704,11 @@ mod tests {
         }
         assert_eq!(
             providing(Provides::Meetings),
-            [ConnectorKind::Teams, ConnectorKind::Fireflies]
+            [
+                ConnectorKind::Teams,
+                ConnectorKind::Slack,
+                ConnectorKind::Fireflies
+            ]
         );
     }
 
