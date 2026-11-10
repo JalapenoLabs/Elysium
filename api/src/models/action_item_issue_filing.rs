@@ -1,10 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Issues Elysium owes a provider: an item a changeset asked to have its own issue in a
-//! tracker, which the watcher has not filed yet.
+//! Issues Elysium owes a provider: an item a changeset or a person asked to have its own issue in
+//! a tracker, which the watcher has not filed yet.
 //!
 //! A filing is owed in the same transaction as the change that owes it (applying a changeset's
-//! `file-issue` operation), so a crash between the change and the call never loses it, and the
+//! `file-issue` operation, or a person accepting a finding, `crate::findings`), so a crash between
+//! the change and the call never loses it, and the
 //! watcher lands it on its next pass (`crate::action_items::watcher`), as it lands closes and
 //! comments (`crate::models::action_item_link_write`). An item is filed once at a time: the
 //! table holds one filing per item.
@@ -48,7 +49,7 @@ pub struct IssueFiling {
     /// Where the issue opens: a Jira project key, a GitHub `owner/name`, or a YouTrack
     /// project's short name.
     pub destination: String,
-    /// Who proposed it, in a changeset proposer's stored form.
+    /// Who owes it, in [`FiledBy`]'s stored form.
     pub filed_by: String,
     pub changeset_operation_id: Option<Uuid>,
     /// The timeline record of the write, which links to the issue once it is filed.
@@ -74,15 +75,41 @@ impl IssueFiling {
         )
     }
 
-    /// Who the link it lands as is recorded as: its proposer.
+    /// Who the link it lands as is recorded as: whoever owes it.
     ///
     /// # Panics
-    /// Panics if `filed_by` is not a proposer, which `action_item_issue_filings_filed_by_shape`
-    /// rules out.
+    /// Panics if `filed_by` is neither a person nor a proposer, which
+    /// `action_item_issue_filings_filed_by_shape` rules out.
     pub fn actor(&self) -> Actor {
-        Proposer::parse(&self.filed_by)
-            .expect("action_item_issue_filings_filed_by_shape admits only proposers")
+        FiledBy::parse(&self.filed_by)
+            .expect("action_item_issue_filings_filed_by_shape admits only people and proposers")
             .actor()
+    }
+}
+
+/// Who owes a filing: a person who accepted a finding, which is their own action, or the
+/// proposer of the changeset whose `file-issue` applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FiledBy {
+    Person(Uuid),
+    Proposer(Proposer),
+}
+
+impl FiledBy {
+    /// The actor the filing's link and history are recorded as.
+    pub const fn actor(self) -> Actor {
+        match self {
+            Self::Person(id) => Actor::User(id),
+            Self::Proposer(proposer) => proposer.actor(),
+        }
+    }
+
+    /// Reads it in the form it is stored: `user:<id>`, or a proposer's.
+    pub fn parse(text: &str) -> Option<Self> {
+        if let Some(id) = text.strip_prefix("user:") {
+            return id.parse().ok().map(Self::Person);
+        }
+        Proposer::parse(text).map(Self::Proposer)
     }
 }
 
@@ -92,7 +119,7 @@ pub struct NewFiling {
     pub action_item_id: Uuid,
     pub credential: LinkCredential,
     pub destination: String,
-    pub filed_by: Proposer,
+    pub filed_by: FiledBy,
     pub changeset_operation_id: Option<Uuid>,
     pub timeline_record_id: Option<Uuid>,
 }

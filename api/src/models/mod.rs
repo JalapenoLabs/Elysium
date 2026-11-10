@@ -31,6 +31,7 @@ pub mod deployment_update;
 pub mod draft;
 pub mod elysia;
 pub mod environment_variable;
+pub mod finding;
 pub mod github_credential;
 pub mod initiative;
 pub mod initiative_bulk;

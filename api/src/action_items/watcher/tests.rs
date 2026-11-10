@@ -1034,7 +1034,7 @@ async fn item_owed_an_issue(
     destination: &str,
 ) -> (Uuid, IssueFiling) {
     use crate::action_items::changesets::Proposer;
-    use crate::models::action_item_issue_filing::NewFiling;
+    use crate::models::action_item_issue_filing::{FiledBy, NewFiling};
 
     let new_item = NewActionItem {
         title: title.to_owned(),
@@ -1056,7 +1056,7 @@ async fn item_owed_an_issue(
             action_item_id: item.id,
             credential,
             destination: destination.to_owned(),
-            filed_by: Proposer::ProjectManager(Uuid::now_v7()),
+            filed_by: FiledBy::Proposer(Proposer::ProjectManager(Uuid::now_v7())),
             changeset_operation_id: None,
             timeline_record_id: None,
         },
