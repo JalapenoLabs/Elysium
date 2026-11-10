@@ -11,7 +11,7 @@
 //!
 //! - **Accepting** ([`accept`]) is the person's own action: it makes an open action item in the
 //!   project, as theirs, owes the item's issue in the project's tracker through the watcher's
-//!   outbox (`crate::models::action_item_issue_filing`), filed as them, and proposes a batch for
+//!   outbox (`crate::models::action_item_issue_filing`), filed as them, and submits a batch for
 //!   the item. The batch is human-rooted and generation 0 (`Lineage::accepted_finding`), since a
 //!   person decided the work is wanted, so like any batch that traces to a person it waits for
 //!   approval, or queues at once, as the project's level of autonomy says
@@ -228,7 +228,7 @@ pub struct Accepted {
 
 /// Accepts open finding `id` as `person`, at `now`, in one transaction under its lock: makes an
 /// open action item in its project as the person, owes the item's issue in the project's tracker,
-/// filed as them, when the project has one, proposes a batch for the item, human-rooted and
+/// filed as them, when the project has one, submits a batch for the item, human-rooted and
 /// generation 0, and records the finding accepted.
 ///
 /// A project with nowhere to file still gets the item and the batch: the work is accepted either
