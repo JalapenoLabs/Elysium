@@ -24,6 +24,7 @@ use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::Utc;
+use diesel::OptionalExtension;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -203,8 +204,8 @@ pub async fn remove(
 }
 
 /// `GET /api/v1/meetings/thread-items/{itemId}`: the thread an inbox item was raised by, as its
-/// meeting and its id, for the item's page to open it. `404` for an item no thread of the
-/// signed-in person's meetings raised.
+/// meeting and its id, for the item's page to open it. Every item's page asks, so an item no
+/// thread of the signed-in person's meetings raised answers `{ "thread": null }`.
 pub async fn of_item(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -216,13 +217,16 @@ pub async fn of_item(
         .get()
         .await
         .context("no database connection available")?;
-    let (meeting_id, thread_id) = meeting_comment::thread_of_item(&mut connection, item_id)
-        .await?
-        .ok_or(ApiError::NotFound)?;
-    let found = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
-    Ok(Json(
-        json!({ "meetingId": found.id, "threadId": thread_id }),
-    ))
+    let Some((meeting_id, thread_id)) =
+        meeting_comment::thread_of_item(&mut connection, item_id).await?
+    else {
+        return Ok(Json(json!({ "thread": null })));
+    };
+    let owned = meeting::find_owned(&mut connection, meeting_id, current.id())
+        .await
+        .optional()?;
+    let thread = owned.map(|found| json!({ "meetingId": found.id, "threadId": thread_id }));
+    Ok(Json(json!({ "thread": thread })))
 }
 
 /// The person signed in, writing now.

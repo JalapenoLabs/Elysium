@@ -708,8 +708,9 @@ mod tests {
         lines: &[(&str, &str)],
     ) -> (Meeting, MeetingCapture, Vec<Word>) {
         diesel::sql_query(
-            "INSERT INTO users (id, email, name, role, status, approved_at) \
-             VALUES ($1, 'grace@example.com', 'Grace Hopper', 'member', 'active', now())",
+            "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+             VALUES ($1, gen_random_uuid(), 'grace@example.com', 'Grace Hopper', 'member', \
+             'active', now())",
         )
         .bind::<diesel::sql_types::Uuid, _>(GRACE_ID)
         .execute(connection)

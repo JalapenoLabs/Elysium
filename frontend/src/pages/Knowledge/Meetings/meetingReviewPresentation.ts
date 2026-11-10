@@ -53,6 +53,8 @@ export const historySentenceKeys = {
   held: 'review.history.sentences.held',
   released: 'review.history.sentences.released',
   approved: 'review.history.sentences.approved',
+  threadResolved: 'review.history.sentences.threadResolved',
+  threadReopened: 'review.history.sentences.threadReopened',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -72,7 +74,14 @@ export type HistoryRow = {
 // Long enough to recognize a phrase, short enough for a narrow lane.
 const QUOTE_MAX_CHARACTERS = 60
 
-const UNDOABLE_KINDS = new Set([ 'edited', 'marked', 'unmarked', 'hold_changed' ])
+const UNDOABLE_KINDS = new Set([
+  'edited',
+  'marked',
+  'unmarked',
+  'hold_changed',
+  'thread_resolved',
+  'thread_reopened',
+])
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
 // build reads.
@@ -142,6 +151,12 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
         return row
       case 'correction_approved':
         row.sentence = 'approved'
+        return row
+      case 'thread_resolved':
+        row.sentence = 'threadResolved'
+        return row
+      case 'thread_reopened':
+        row.sentence = 'threadReopened'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

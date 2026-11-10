@@ -23,6 +23,7 @@ type Handlers = {
   // Each answers whether it used the key, so one it did not use keeps its usual meaning.
   onEscape: () => boolean
   onEdit: () => boolean
+  onComment: () => boolean
   onCycleMark: (step: 1 | -1) => boolean
   onUndo: () => void
   // What Ctrl+C copies: the words selected, or null to leave copying to the browser.
@@ -34,10 +35,11 @@ function ownsKeys(target: EventTarget | null) {
 }
 
 // The keys of a meeting's page (docs/frontend.md, Hotkeys), outside a text field and while no
-// dialog or menu is open: Esc clears what is picked, E edits the words selected, Tab moves between
-// the marks under the word clicked, Ctrl+Z (Cmd+Z) undoes the page's last change, and Ctrl+C
-// copies the words selected. They listen as the key travels down, so Esc is used here before the
-// page's own Esc goes up a level, which a used key never does (`readPageShortcut`).
+// dialog or menu is open: Esc clears what is picked, E edits the words selected, C starts a
+// comment thread on them, Tab moves between the marks under the word clicked, Ctrl+Z (Cmd+Z)
+// undoes the page's last change, and Ctrl+C copies the words selected. They listen as the key
+// travels down, so Esc is used here before the page's own Esc goes up a level, which a used key
+// never does (`readPageShortcut`).
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {
@@ -62,6 +64,10 @@ export function useReviewHotkeys(handlers: Handlers) {
       return
     }
     if (event.key.toLowerCase() === 'e' && !event.shiftKey && !event.repeat && handlers.onEdit()) {
+      event.preventDefault()
+      return
+    }
+    if (event.key.toLowerCase() === 'c' && !event.shiftKey && !event.repeat && handlers.onComment()) {
       event.preventDefault()
     }
   })

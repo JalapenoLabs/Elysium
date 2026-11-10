@@ -2,11 +2,14 @@
 
 import type { Mock } from 'vitest'
 import type {
+  MeetingComment,
+  MeetingHistoryEntry,
   MeetingMark,
   MeetingTranscriptChange,
   MeetingWord,
   MeetingWords,
 } from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 
 // Core
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -17,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { usersLoaded } from '../../../store/usersSlice'
 
 // User interface
 import { MeetingWorkspace } from './MeetingWorkspace'
@@ -26,8 +30,12 @@ import {
   editMeetingWords,
   getCaptureTranscript,
   getMeetingHistory,
+  getMeetingThreads,
+  setMeetingThreadResolved,
+  startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { ELYSIA_USER_ID } from '../../../constants'
 import { makeMeeting } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { toast } from '../../../toast/toast'
@@ -38,6 +46,9 @@ vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   undoMeetingChange: vi.fn(),
   getMeetingHistory: vi.fn(),
   getCaptureTranscript: vi.fn(),
+  getMeetingThreads: vi.fn(),
+  startMeetingThread: vi.fn(),
+  setMeetingThreadResolved: vi.fn(),
 }))
 
 vi.mock('../../../hooks/useServerData', async (importOriginal) => ({
@@ -106,8 +117,60 @@ type Context = {
   applyChange: Mock<(change: MeetingTranscriptChange) => void>
 }
 
-function renderWorkspace(context: Context) {
+const people: User[] = [
+  {
+    id: 'person',
+    kind: 'person',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    role: 'admin',
+    status: 'active',
+    approvedAt: null,
+    lastSeenAt: null,
+    createdAt: '2026-11-10T12:00:00Z',
+    updatedAt: '2026-11-10T12:00:00Z',
+  },
+  {
+    id: ELYSIA_USER_ID,
+    kind: 'machine',
+    name: 'Elysia',
+    email: null,
+    role: 'agent',
+    status: null,
+    approvedAt: null,
+    lastSeenAt: null,
+    createdAt: '2026-11-10T12:00:00Z',
+    updatedAt: '2026-11-10T12:00:00Z',
+  },
+]
+
+function entry(id: string, kind: string): MeetingHistoryEntry {
+  return {
+    id,
+    kind,
+    createdBy: 'person',
+    agent: null,
+    data: {},
+    undid: null,
+    createdAt: '2026-11-10T12:00:00Z',
+  }
+}
+
+function comment(id: string, threadId: string, body: string): MeetingComment {
+  return {
+    id,
+    threadId,
+    body,
+    mentions: [],
+    createdBy: 'person',
+    agent: null,
+    createdAt: '2026-11-10T12:00:00Z',
+  }
+}
+
+function renderWorkspace(context: Context, shown: MeetingWords = transcript) {
   const store = createAppStore()
+  store.dispatch(usersLoaded(people))
   const router = createMemoryRouter([{
     path: '*',
     element: <Provider store={store}>
@@ -115,7 +178,7 @@ function renderWorkspace(context: Context) {
         <TestAriaRouter>
           <MeetingWorkspace
             meeting={makeMeeting({ id: 'meeting' })}
-            transcript={transcript}
+            transcript={shown}
             applyChange={context.applyChange}
             reload={() => {}}
           />
@@ -147,6 +210,9 @@ describe('MeetingWorkspace', () => {
     vi.mocked(undoMeetingChange).mockReset()
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
     vi.mocked(getCaptureTranscript).mockReset()
+    vi.mocked(getMeetingThreads).mockResolvedValue({ comments: []})
+    vi.mocked(startMeetingThread).mockReset()
+    vi.mocked(setMeetingThreadResolved).mockReset()
     vi.mocked(toast.success).mockReset()
     vi.mocked(toast).mockReset()
   })
@@ -274,6 +340,67 @@ describe('MeetingWorkspace', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Comment' }))
     expect(document.querySelector('[data-comment]')).toBeNull()
     expect(wordPiece('Fryday.').getAttribute('data-confidence')).toBe('20')
+  })
+
+  it<Context>('starts a thread on the words selected with C, mentioning whoever is picked', async (context) => {
+    const change = { removedWordIds: [], words: [], marks: [ ...transcript.marks, mark('new', 'comment', 'w0', 'w1') ]}
+    vi.mocked(startMeetingThread).mockResolvedValue({
+      entry: entry('started', 'marked'),
+      change,
+      comment: { ...comment('first', 'new', '@Elysia who said this?'), mentions: [ ELYSIA_USER_ID ]},
+    })
+    renderWorkspace(context)
+
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('is'), { shiftKey: true })
+    press('c')
+    // The lane holds the composer; below `lg` it opens in the drawer, the copy drawn last.
+    const field = (await screen.findAllByRole('textbox', { name: 'Comment' })).at(-1)
+    if (!(field instanceof HTMLTextAreaElement)) {
+      throw new Error('no comment field')
+    }
+    fireEvent.change(field, { target: { value: '@Ely' }})
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'Elysia' }))
+    expect(field.value).toBe('@Elysia ')
+    fireEvent.change(field, { target: { value: '@Elysia who said this?' }})
+    fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => expect(startMeetingThread).toHaveBeenCalledWith('meeting', {
+      startWordId: 'w0',
+      endWordId: 'w1',
+      body: '@Elysia who said this?',
+      mentions: [ ELYSIA_USER_ID ],
+    }))
+    expect(context.applyChange).toHaveBeenCalledWith(change)
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Comment added')
+    expect(vi.mocked(toast.success).mock.calls[0][1]?.action?.label).toBe('Undo')
+  })
+
+  it<Context>('opens a thread on its words, and resolves it with Undo', async (context) => {
+    vi.mocked(getMeetingThreads).mockResolvedValue({ comments: [ comment('first', 'note', 'Is this Friday?') ]})
+    const change = { removedWordIds: [], words: [], marks: [ mark('note', 'comment', 'w1', 'w2', { resolved: true }) ]}
+    vi.mocked(setMeetingThreadResolved).mockResolvedValue({ entry: entry('resolved', 'thread_resolved'), change })
+    renderWorkspace(context)
+
+    // The comment is the only mark on this word, so a click opens its thread in the lane.
+    fireEvent.click(wordPiece('is'))
+    expect((await screen.findAllByText('Is this Friday?')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Resolve' })[0])
+
+    await waitFor(() => expect(setMeetingThreadResolved).toHaveBeenCalledWith('meeting', 'note', true))
+    expect(context.applyChange).toHaveBeenCalledWith(change)
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Thread resolved')
+  })
+
+  it<Context>('draws a resolved thread no more, and lists it as resolved', async (context) => {
+    vi.mocked(getMeetingThreads).mockResolvedValue({ comments: [ comment('first', 'note', 'Is this Friday?') ]})
+    renderWorkspace(context, {
+      ...transcript,
+      marks: [ mark('note', 'comment', 'w1', 'w2', { resolved: true }) ],
+    })
+
+    expect(wordPiece('is').hasAttribute('data-comment-start')).toBe(false)
+    expect((await screen.findAllByRole('button', { name: '1 resolved' })).length).toBeGreaterThan(0)
   })
 
   it<Context>('reads a capture exactly as it came from the options', async (context) => {

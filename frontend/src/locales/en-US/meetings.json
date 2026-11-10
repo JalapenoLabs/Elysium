@@ -98,6 +98,7 @@
       "selectFromHere": "Select from here",
       "tapToEnd": "Tap where it ends",
       "edit": "Edit",
+      "comment": "Comment",
       "clear": "Clear the selection",
       "clearHint": "Clear the selection (Esc)"
     },
@@ -133,6 +134,33 @@
       "unknownProject": "A project you cannot see",
       "replaced": "Replaced “{{before}}”"
     },
+    "comments": {
+      "title": "Comments",
+      "empty": "No comments yet",
+      "loadError": "Its comments could not be loaded.",
+      "new": "New comment",
+      "label": "Comment",
+      "replyLabel": "Reply",
+      "hint": "@ mentions someone. Ctrl+Enter posts.",
+      "mentionsLabel": "People to mention",
+      "noOneToMention": "Nobody by that name",
+      "post": "Comment",
+      "reply": "Reply",
+      "cancel": "Cancel",
+      "resolve": "Resolve",
+      "reopen": "Reopen",
+      "remove": "Remove thread",
+      "started": "Comment added",
+      "resolved": "Thread resolved",
+      "reopened": "Thread reopened",
+      "removed": "Thread removed",
+      "threadRemoved": "That thread was removed meanwhile.",
+      "elysiaAsked": "Elysia answers here shortly.",
+      "replies_one": "{{count, compact}} reply",
+      "replies_other": "{{count, compact}} replies",
+      "resolvedCount_one": "{{count, compact}} resolved",
+      "resolvedCount_other": "{{count, compact}} resolved"
+    },
     "history": {
       "title": "Changes",
       "loadError": "Its changes could not be loaded.",
@@ -151,8 +179,14 @@
         "held": "Held the meeting for approval",
         "released": "Stopped holding the meeting for approval",
         "approved": "Approved the corrected transcript",
+        "threadResolved": "Resolved a comment thread",
+        "threadReopened": "Reopened a comment thread",
         "changed": "Changed the meeting"
       }
     }
+  },
+  "threadLink": {
+    "heading": "Comment thread",
+    "open": "Open the thread"
   }
 }

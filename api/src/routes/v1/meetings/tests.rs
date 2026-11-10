@@ -420,7 +420,7 @@ async fn a_thread_is_started_replied_to_resolved_and_removed_by_the_meetings_own
     assert_eq!(status, StatusCode::OK, "{opened}");
     assert_eq!(
         opened,
-        json!({ "meetingId": meeting_id, "threadId": thread_id })
+        json!({ "thread": { "meetingId": meeting_id, "threadId": thread_id } })
     );
 
     let resolved_path = format!("{threads}/{thread_id}/resolved");
@@ -472,8 +472,9 @@ async fn insert_grace(connection: &mut AsyncPgConnection) -> Uuid {
     execute(
         connection,
         format!(
-            "INSERT INTO users (id, email, name, role, status, approved_at) \
-             VALUES ('{grace}', 'grace@example.com', 'Grace Hopper', 'member', 'active', now())"
+            "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+             VALUES ('{grace}', gen_random_uuid(), 'grace@example.com', 'Grace Hopper', 'member', \
+             'active', now())"
         ),
     )
     .await;
@@ -536,14 +537,14 @@ async fn every_thread_route_answers_the_meetings_owner_alone() {
         (Method::POST, resolved_path.clone(), None),
         (Method::DELETE, resolved_path, None),
         (Method::DELETE, format!("{threads}/{thread_id}"), None),
-        (
-            Method::GET,
-            format!("/api/v1/meetings/thread-items/{item_id}"),
-            None,
-        ),
     ];
     for (method, path, body) in requests {
         let (status, answer) = send(&state, method, &path, body).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {answer}");
     }
+    // Every item's page asks which thread raised it, so a thread not theirs reads as none.
+    let item_path = format!("/api/v1/meetings/thread-items/{item_id}");
+    let (status, opened) = send(&state, Method::GET, &item_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{opened}");
+    assert_eq!(opened, json!({ "thread": null }));
 }

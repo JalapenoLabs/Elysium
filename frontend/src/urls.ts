@@ -259,6 +259,11 @@ export function getMeetingUrl(meetingId: string) {
   return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
 }
 
+// A meeting's page opened at one of its comment threads.
+export function getMeetingThreadUrl(meetingId: string, threadId: string) {
+  return `${getMeetingUrl(meetingId)}?thread=${threadId}`
+}
+
 export function getConnectorUrl(connectorId: string) {
   return UrlTree.settingsConnector.replace(':connectorId', connectorId)
 }
