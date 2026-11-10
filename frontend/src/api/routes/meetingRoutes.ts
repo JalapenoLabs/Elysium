@@ -139,3 +139,48 @@ export function setMeetingHold(meetingId: string, hold: boolean) {
     : apiClient.delete(path)
   return request.json<MeetingResponse>()
 }
+
+// Two meetings that look like one, as an inbox item asks its person about them: the meeting
+// asked about, whose captures a merge moves, and the one it looks like. Mirrors
+// `DuplicateResponse` in api/src/routes/v1/meetings/get_duplicate.rs.
+export type MeetingDuplicate = {
+  id: string
+  meetingId: string
+  meetingTitle: string
+  sameAsId: string
+  sameAsTitle: string
+  // Null until its person decides.
+  decision: 'merged' | 'not_the_same' | null
+  decidedAt: string | null
+}
+
+type MeetingDuplicateResponse = {
+  duplicate: MeetingDuplicate | null
+}
+
+// The two meetings an inbox item asks the signed-in person about, or null when it asks about
+// none of theirs.
+export function getMeetingDuplicateAskedBy(itemId: string) {
+  return apiClient
+    .get('v1/meetings/duplicates', { searchParams: { itemId }})
+    .json<MeetingDuplicateResponse>()
+}
+
+type DecidedMeetingDuplicateResponse = {
+  duplicate: MeetingDuplicate
+}
+
+// Merges the meeting asked about into the one it looks like. `409 duplicate_decided` once the
+// pair is decided.
+export function mergeMeetingDuplicate(duplicateId: string) {
+  return apiClient
+    .post(`v1/meetings/duplicates/${duplicateId}/merge`)
+    .json<DecidedMeetingDuplicateResponse>()
+}
+
+// Records that the two are different meetings, so they are never asked about again.
+export function keepMeetingDuplicateApart(duplicateId: string) {
+  return apiClient
+    .post(`v1/meetings/duplicates/${duplicateId}/not-the-same`)
+    .json<DecidedMeetingDuplicateResponse>()
+}

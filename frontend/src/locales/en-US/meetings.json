@@ -77,5 +77,16 @@
   "review": {
     "heading": "Meeting",
     "open": "Review the transcript"
+  },
+  "sameMeeting": {
+    "heading": "Same meeting?",
+    "untitled": "Untitled meeting",
+    "merge": "Merge",
+    "notTheSame": "Not the same",
+    "merged": "Merged on {{date}}",
+    "keptApart": "Kept apart on {{date}}",
+    "mergedToast": "Merged",
+    "keptApartToast": "Kept apart",
+    "decidedMeanwhile": "This was decided already."
   }
 }
