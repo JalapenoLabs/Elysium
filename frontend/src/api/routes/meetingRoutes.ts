@@ -147,8 +147,12 @@ export type MeetingDuplicate = {
   id: string
   meetingId: string
   meetingTitle: string
+  // Where each meeting's first capture came from, which tells two meetings of one title apart;
+  // null for the meeting asked about once its captures were merged into the other.
+  meetingSourceKind: ConnectorKind | null
   sameAsId: string
   sameAsTitle: string
+  sameAsSourceKind: ConnectorKind | null
   // Null until its person decides.
   decision: 'merged' | 'not_the_same' | null
   decidedAt: string | null

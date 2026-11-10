@@ -44,7 +44,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
 | PUT    | `/api/v1/meetings/{id}/captures/{captureId}/offset` | `200` `{ capture: { id, offsetMs, offsetSource } }`; body `{ offsetMs }`, at most twelve hours either way (`400` `offset_out_of_range`), set by hand and lined up at once |
 | POST   | `/api/v1/meetings/{id}/captures/{captureId}/split` | `200` `{ meeting }`; splits out the merge that brought the capture, `409` (`capture_not_merged`, `meeting_changed`) when none did or it moved on since |
-| GET    | `/api/v1/meetings/duplicates?itemId=` | `200` `{ duplicate: MeetingDuplicate \| null }`: the two meetings an inbox item asks the caller about |
+| GET    | `/api/v1/meetings/duplicates?itemId=` | `200` `{ duplicate: MeetingDuplicate \| null }`: the two meetings an inbox item asks the caller about, with their titles and the source of each one's first capture |
 | POST   | `/api/v1/meetings/duplicates/{id}/merge` | `200` `{ duplicate }`; merges the meeting asked about into the other, `409` (`duplicate_decided`) once decided |
 | POST   | `/api/v1/meetings/duplicates/{id}/not-the-same` | `200` `{ duplicate }`; remembers they are not the same, `409` (`duplicate_decided`) once decided |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |

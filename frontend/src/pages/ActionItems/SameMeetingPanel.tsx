@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ConnectorKind } from '../../api/routes/connectorRoutes'
 import type { MeetingDuplicate } from '../../api/routes/meetingRoutes'
 
 // Core
@@ -10,6 +11,7 @@ import useSWR from 'swr'
 // User interface
 import { Button, buttonVariants, Link } from '@heroui/react'
 import { LuCombine, LuSplit } from 'react-icons/lu'
+import { ConnectorLogo } from '../Settings/Connectors/ConnectorLogo'
 
 // Misc
 import { getApiErrorCode, getApiErrorMessage } from '../../api/errors'
@@ -24,6 +26,23 @@ import { getMeetingUrl } from '../../urls'
 
 type Props = {
   itemId: string
+}
+
+type MeetingLinkProps = {
+  meetingId: string
+  title: string
+  sourceKind: ConnectorKind | null
+}
+
+// One meeting of the two, linked to its page, with where it came from beside its title, since
+// two recordings of one meeting usually share a title.
+function MeetingLink(props: MeetingLinkProps) {
+  const { t } = useTranslation([ 'meetings', 'connectors' ])
+  return <Link href={getMeetingUrl(props.meetingId)} className={buttonVariants({ variant: 'outline' })}>
+    {props.sourceKind && <ConnectorLogo kind={props.sourceKind} className='size-4' />}
+    <span>{props.title || t('sameMeeting.untitled')}</span>
+    {props.sourceKind && <span className='opacity-60'>{t(`connectors:kinds.${props.sourceKind}.name`)}</span>}
+  </Link>
 }
 
 // The two meetings an item asks its person whether they are one, each linked to its page, with
@@ -75,15 +94,19 @@ export function SameMeetingPanel(props: Props) {
   return <section className='relaxed'>
     <h2 className='compact text-lg font-semibold'>{t('sameMeeting.heading')}</h2>
     <div className='compact flex flex-wrap gap-2'>
-      <Link href={getMeetingUrl(duplicate.meetingId)} className={buttonVariants({ variant: 'outline' })}>
-        <span>{duplicate.meetingTitle || t('sameMeeting.untitled')}</span>
-      </Link>
-      <Link href={getMeetingUrl(duplicate.sameAsId)} className={buttonVariants({ variant: 'outline' })}>
-        <span>{duplicate.sameAsTitle || t('sameMeeting.untitled')}</span>
-      </Link>
+      <MeetingLink
+        meetingId={duplicate.meetingId}
+        title={duplicate.meetingTitle}
+        sourceKind={duplicate.meetingSourceKind}
+      />
+      <MeetingLink
+        meetingId={duplicate.sameAsId}
+        title={duplicate.sameAsTitle}
+        sourceKind={duplicate.sameAsSourceKind}
+      />
     </div>
     {duplicate.decision
-      ? <p className='opacity-80'>{
+      ? <p className='text-sm opacity-80'>{
           t(duplicate.decision === 'merged'
             ? 'sameMeeting.merged'
             : 'sameMeeting.keptApart', {

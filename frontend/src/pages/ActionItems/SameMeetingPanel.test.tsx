@@ -25,8 +25,10 @@ function pair(overrides: Partial<MeetingDuplicate> = {}): MeetingDuplicate {
     id: 'pair',
     meetingId: 'fireflies-meeting',
     meetingTitle: 'Launch review',
+    meetingSourceKind: 'fireflies',
     sameAsId: 'teams-meeting',
-    sameAsTitle: 'Launch review (Teams)',
+    sameAsTitle: 'Launch review',
+    sameAsSourceKind: 'teams',
     decision: null,
     decidedAt: null,
     ...overrides,
@@ -54,9 +56,11 @@ describe('SameMeetingPanel', () => {
     })
     renderFor('item')
 
-    const asked = await screen.findByText('Launch review')
+    // Two recordings of one meeting share its title; where each came from tells them apart.
+    const asked = await screen.findByText('Fireflies')
+    expect(asked.closest('a')?.textContent).toBe('Launch reviewFireflies')
     expect(asked.closest('a')?.getAttribute('href')).toBe('/settings/meetings/fireflies-meeting')
-    const other = screen.getByText('Launch review (Teams)')
+    const other = screen.getByText('Teams')
     expect(other.closest('a')?.getAttribute('href')).toBe('/settings/meetings/teams-meeting')
 
     fireEvent.click(screen.getByText('Merge'))
