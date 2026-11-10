@@ -566,7 +566,7 @@ pub fn parse_answer(
 
 /// A word as fixes are compared: lowercase, without the punctuation around it, so a fix of
 /// case or a comma is no change of words.
-fn comparable(word: &str) -> String {
+pub(super) fn comparable(word: &str) -> String {
     word.trim_matches(|character: char| !character.is_alphanumeric())
         .to_lowercase()
 }

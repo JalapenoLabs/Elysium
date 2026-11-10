@@ -22,8 +22,8 @@ use uuid::{Uuid, uuid};
 
 use super::migrations::{self, MIGRATIONS, MigrationCommand};
 use crate::meetings::correction;
-use crate::meetings::final_transcript;
 use crate::meetings::source::TranscriptLine;
+use crate::meetings::{alignment, final_transcript};
 use crate::models::meeting_word::{BuiltWord, POSITION_GAP};
 use crate::models::user::SYSTEM_USER_ID;
 use crate::test_support::empty_database;
@@ -334,7 +334,7 @@ async fn built_in_rust(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> 
         serde_json::from_value(row["corrected"].clone()).expect("a corrected copy, or none");
     let heard = correction::base(source, whisper.as_ref()).expect("something was heard");
     let (_built_from, lines) = final_transcript::lines_to_build(&heard, corrected.as_deref());
-    final_transcript::words_of(lines, 0)
+    alignment::capture_words(lines, &[], 0)
 }
 
 #[tokio::test]

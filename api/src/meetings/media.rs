@@ -86,6 +86,24 @@ mv -f -- "$1/$3" "$2/$3"
 rmdir -- "$1"
 "#;
 
+/// Writes a recording's energy envelope for aligning it with another
+/// (`super::alignment::audio_lag`): the mean square of its audio over every ten milliseconds, as
+/// little-endian 32-bit floats. `$1` is the recording, `$2` the envelope. Prints the envelope's
+/// size.
+///
+/// The audio is mixed to mono at 8 kHz, which keeps every voice's energy and decodes fast, each
+/// sample squared, and the squares resampled to 100 a second, whose low-pass filter averages them:
+/// two hours of audio is 2.9 MB of envelope.
+const ENVELOPE_SCRIPT: &str = r#"
+set -euo pipefail
+ffmpeg -nostdin -hide_banner -loglevel error -y -i "$1" -vn -ac 1 \
+  -af "aresample=8000,aeval=val(0)*val(0),aresample=100" -f f32le "$2"
+stat -c %s -- "$2"
+"#;
+
+/// Removes one file of a meeting's directory. `$1` is the file.
+const REMOVE_FILE_SCRIPT: &str = r#"rm -f -- "$1""#;
+
 /// Why moving or cutting media failed.
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
@@ -364,6 +382,73 @@ pub async fn cut(
     Ok(())
 }
 
+/// The energy envelope of `recording_name`, in the meeting's workspace directory: the mean square
+/// of its audio over every ten milliseconds (`ENVELOPE_SCRIPT`). Two hours of audio is 720,000
+/// values. The envelope's file is removed once read.
+///
+/// # Errors
+/// [`MediaError::Failed`] with `ffmpeg`'s own words when the recording cannot be decoded, and
+/// [`MediaError::Workspace`] when the workspace refuses.
+pub async fn envelope(
+    workspace: &WorkspaceContainer,
+    meeting_id: Uuid,
+    recording_name: &str,
+) -> Result<Vec<f32>, MediaError> {
+    let meeting_directory = directory(meeting_id);
+    let absolute = meeting_directory.absolute();
+    let envelope_name = format!("{recording_name}.envelope");
+    let output = workspace
+        .run_script(
+            AGENT_USER,
+            ENVELOPE_SCRIPT,
+            &[
+                &format!("{absolute}/{recording_name}"),
+                &format!("{absolute}/{envelope_name}"),
+            ],
+            Vec::new(),
+            SCRIPT_TIMEOUT,
+        )
+        .await
+        .map_err(FileError::from)?;
+    if output.exit_code != Some(0) {
+        return Err(MediaError::Failed(format!(
+            "ffmpeg could not read the recording's audio: {}",
+            output.output.trim()
+        )));
+    }
+    let file = workspace
+        .read_file(&meeting_directory, &envelope_name)
+        .await?;
+    let bytes: Vec<u8> = file
+        .body
+        .try_fold(Vec::new(), |mut read, chunk| async move {
+            read.extend_from_slice(&chunk);
+            Ok(read)
+        })
+        .await?;
+    workspace
+        .run_script(
+            AGENT_USER,
+            REMOVE_FILE_SCRIPT,
+            &[&format!("{absolute}/{envelope_name}")],
+            Vec::new(),
+            SCRIPT_TIMEOUT,
+        )
+        .await
+        .map_err(FileError::from)?;
+    Ok(envelope_of(&bytes))
+}
+
+/// The values of an envelope as `ffmpeg` writes them, little-endian 32-bit floats. A trailing
+/// partial value, which a complete write never leaves, is dropped.
+fn envelope_of(bytes: &[u8]) -> Vec<f32> {
+    let (values, _partial) = bytes.as_chunks::<4>();
+    values
+        .iter()
+        .map(|value| f32::from_le_bytes(*value))
+        .collect()
+}
+
 /// Removes the meeting's workspace directory and everything in it.
 ///
 /// # Errors
@@ -437,6 +522,16 @@ mod tests {
             directory(id).absolute(),
             "/workspace/.elysium/meetings/00000000-0000-0000-0000-000000000000"
         );
+    }
+
+    #[test]
+    fn an_envelope_reads_as_ffmpeg_writes_it() {
+        let mut bytes = Vec::new();
+        for value in [0.25_f32, 1.5, 0.0] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.push(7);
+        assert_eq!(envelope_of(&bytes), vec![0.25, 1.5, 0.0]);
     }
 
     #[test]

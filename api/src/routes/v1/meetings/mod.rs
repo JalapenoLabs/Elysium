@@ -8,16 +8,20 @@
 //! diff; what a meeting said reaches everyone else as its segments on the timeline.
 
 mod approve_correction;
+mod decide_duplicate;
+mod get_duplicate;
 mod get_meeting;
 mod get_transcript;
 mod hold_meeting;
 mod list_meetings;
 mod retry_meeting;
+mod set_capture_offset;
+mod split_capture;
 
 use std::collections::HashMap;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use chrono::{DateTime, Utc};
 use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
@@ -42,6 +46,20 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/hold",
             post(hold_meeting::hold).delete(hold_meeting::release),
+        )
+        .route(
+            "/{id}/captures/{capture_id}/offset",
+            put(set_capture_offset::handle),
+        )
+        .route(
+            "/{id}/captures/{capture_id}/split",
+            post(split_capture::handle),
+        )
+        .route("/duplicates", get(get_duplicate::handle))
+        .route("/duplicates/{id}/merge", post(decide_duplicate::merge))
+        .route(
+            "/duplicates/{id}/not-the-same",
+            post(decide_duplicate::not_the_same),
         )
 }
 

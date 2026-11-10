@@ -12,8 +12,14 @@
 //! | `edited`              | Stands the replaced words up again and moves its marks back (`models::meeting_word`) |
 //! | `marked`, `unmarked`  | Removes the mark, or puts it back (`models::meeting_mark`)        |
 //! | `hold_changed`        | Sets the hold back, while the transcript is not yet corrected, as holding does |
-//! | `built`               | None: a transcript is built once, and changed by edits           |
+//! | `offset_changed`      | Puts the capture's offset back, while nothing moved it since (`super::clock`) |
+//! | `merged`              | Splits the captures back out (`super::duplicates::split`)        |
+//! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
+//! | `built`               | None: what caused a build is undone, and builds it again         |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
+//!
+//! A merge and a split are recorded in both meetings' histories, and undone from the history of
+//! the meeting the captures went into.
 
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
@@ -42,6 +48,9 @@ pub enum UndoError {
     Corrected,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
+    /// The meeting's transcripts could not be read to line it up again.
+    #[error(transparent)]
+    Transcript(anyhow::Error),
 }
 
 /// Undoes change `event_id` of meeting `meeting_id` as `author`, under the meeting's lock, and
@@ -51,10 +60,6 @@ pub enum UndoError {
 /// [`UndoError::NotFound`] when the meeting has no such change, [`UndoError::NotUndoable`] for a
 /// kind that cannot be undone, [`UndoError::ChangedSince`] when what it changed moved on since,
 /// [`UndoError::Corrected`] for a hold once the transcript is corrected; any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the meeting's page undoes its changes (#234)")
-)]
 pub async fn undo(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -81,6 +86,15 @@ pub async fn undo(
                 Some(EventKind::HoldChanged) => {
                     undo_hold(connection, &current, &undone, author).await?
                 }
+                Some(EventKind::OffsetChanged) => {
+                    Some(super::clock::undo(connection, &undone, author).await?)
+                }
+                Some(EventKind::Merged) => {
+                    Some(super::duplicates::split(connection, &current, &undone, author).await?)
+                }
+                Some(EventKind::Split) => Some(
+                    super::duplicates::merge_again(connection, &current, &undone, author).await?,
+                ),
                 Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
                     return Err(UndoError::NotUndoable);
                 }
