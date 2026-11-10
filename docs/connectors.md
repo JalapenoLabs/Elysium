@@ -92,7 +92,9 @@ table of its own:
   when it is saved, so a project the token cannot see is refused then rather than ignored later. It bounds both what
   its reader records and which assigned issues come in.
 - Teams' and Slack's content is the conversations they read, `"*"` when they are made, since nothing can be listed
-  until their person signs in, and narrowed on the connector's page afterwards.
+  until their person signs in, and narrowed on the connector's page afterwards. Slack's also holds
+  `{"readMeetings": bool, "waitForApproval": bool}`: its huddles are read as meetings while `readMeetings` is on (it
+  starts on), with no storage location, since a huddle keeps no recording ([Slack](#slack)).
 
 Its **reading state** is `sign_in_state`, `cursor`, `last_polled_at`, and `last_error`, and `is_active` false means
 paused. Jira and GitHub are read by the link watcher, which records its progress per account in `link_watch_cursors`,
@@ -122,7 +124,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `teams`      | `kinds/teams.rs`       | `messages`, `meetings` | `browser` | `conversations`, `readMeetings`, `storageLocationId`, `waitForApproval` | `ingest` and `crate::meetings` | Itself, thread or conversation |
-| `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
+| `slack`      | `kinds/slack.rs`       | `messages`, `meetings` | `browser` | `conversations`, `readMeetings`, `waitForApproval` | `ingest` and `crate::meetings` | Itself, thread or conversation |
 | `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`, `waitForApproval` | `crate::meetings`           | Never   |
 | `fireflies_browser` | `kinds/fireflies_browser.rs` | `meetings` | `browser` | `storageLocationId` (optional), `waitForApproval` | `crate::meetings` | Never |
 | `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader` and the link watcher | Never   |
@@ -189,7 +191,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
 | Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message`, `list_meetings`, and `sample_transcript` (optional) |
-| Slack             | `browser_running`, `signed_in`, `workspace_reachable`, `sample_conversation` (optional)            |
+| Slack             | `browser_running`, `signed_in`, `workspace_reachable`, `sample_conversation` (optional), `list_meetings` and `sample_transcript` (optional; skipped while meetings are off) |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
 | Fireflies (browser) | `browser_running`, `signed_in`, `list_meetings`, `sample_transcript` (optional)                  |
 | YouTrack          | `sign_in`, `list_projects`, `sample_issues`, `sample_comments` (optional)                          |
@@ -394,8 +396,9 @@ the read opens `https://app.slack.com/client` over DevTools and answers `unknown
 Slack's web API on the workspace's own host. `api/src/connectors/slack.js` runs as the page and makes the same calls
 with that session, then answers what Slack said; the token never leaves the page, and a workspace stored at any host
 that is not `*.slack.com` is never called. Only read methods can be called (`client.counts`, `conversations.history`,
-`subscriptions.thread.getView`, `users.info`, `conversations.info`, `users.conversations`, `auth.test`), so reading
-never posts and never marks a conversation read. Posting is a script of its own ([Sending](#sending)). The API was chosen over the DOM because the DOM shows only the
+`subscriptions.thread.getView`, `users.info`, `conversations.info`, `users.conversations`, `auth.test`, and for
+huddles `huddles.history`, `huddles.get`, and `files.info`), so reading never posts and never marks a conversation
+read. Posting is a script of its own ([Sending](#sending)). The API was chosen over the DOM because the DOM shows only the
 conversation on screen and its markup changes freely, while the API answers every conversation, by id, with Slack's
 own timestamps, whatever the page shows.
 
@@ -418,6 +421,9 @@ active first; the rest keep their place and are read next time.
 - **Content** is `conversations`: `"*"`, or picks of a whole workspace (`T1`), one conversation (`T1/C1`), or a
   workspace's direct and group messages (`T1/dms`), from what the browser's Slack lists (`POST /connectors/options`).
   An option whose words are Elysium's rather than Slack's names them by key (`labelKey`, `detailKey`) for the web app.
+  Beside it are `readMeetings` (on by default) and `waitForApproval`: Slack is a meeting source too, and while
+  `readMeetings` is on the meetings loop lists the transcribed huddles of the conversations it picks
+  (`docs/meetings.md`, Slack huddles), keeping its `since` in the cursor beside the reader's keys.
 - **Each message** becomes a record, its id `team/conversation/ts`, its sender's name as actor, a title naming where
   it was said (`#launch in Mooreslab`, `Reply in #launch in Mooreslab`, `Ada in a direct message in Mooreslab`),
   Slack's markup as plain text, the link Slack's Copy link gives, and in `metadata` where it was said (`team`,

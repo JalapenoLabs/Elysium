@@ -16,6 +16,10 @@
     'client.counts',
     'conversations.history',
     'conversations.info',
+    // A huddle's transcript, which Slack keeps as a file of its own beside its AI notes.
+    'files.info',
+    'huddles.get',
+    'huddles.history',
     'subscriptions.thread.getView',
     'users.conversations',
     'users.info',

@@ -27,6 +27,8 @@ use super::source::{FetchedMeeting, ListedMeeting, MeetingSource, SourceError};
 use crate::browser::devtools::Devtools;
 use crate::connectors::ConnectorKind;
 use crate::connectors::kinds::teams as teams_kind;
+use crate::connectors::slack::meetings::{SlackMeetings, SlackSignIn};
+use crate::connectors::slack::{self, Slack};
 use crate::connectors::teams::meetings::TeamsMeetings;
 use crate::crypto::Cipher;
 use crate::models::browser_session::{self, BrowserSession};
@@ -40,6 +42,7 @@ pub struct Sources {
     fireflies: Fireflies,
     fireflies_browser: FirefliesBrowser,
     teams: TeamsMeetings,
+    slack: SlackMeetings,
 }
 
 impl Sources {
@@ -47,7 +50,8 @@ impl Sources {
         Self {
             fireflies: Fireflies::new(http.clone()),
             fireflies_browser: FirefliesBrowser::new(Devtools::new(http.clone())),
-            teams: TeamsMeetings::new(Devtools::new(http)),
+            teams: TeamsMeetings::new(Devtools::new(http.clone())),
+            slack: SlackMeetings::new(Slack::new(Devtools::new(http))),
         }
     }
 
@@ -58,6 +62,7 @@ impl Sources {
             fireflies,
             fireflies_browser: FirefliesBrowser::new(Devtools::new(reqwest::Client::new())),
             teams: TeamsMeetings::new(Devtools::new(reqwest::Client::new())),
+            slack: SlackMeetings::new(Slack::new(Devtools::new(reqwest::Client::new()))),
         }
     }
 
@@ -76,6 +81,11 @@ impl Sources {
         &self.teams
     }
 
+    /// The Slack huddles client, for the Slack kind's own checks.
+    pub fn slack(&self) -> &SlackMeetings {
+        &self.slack
+    }
+
     /// The source a connector of `kind` reads its meetings from, or `None` for a kind that
     /// provides no meetings.
     pub fn for_kind(&self, kind: ConnectorKind) -> Option<Source> {
@@ -85,12 +95,12 @@ impl Sources {
                 Some(Source::FirefliesBrowser(self.fireflies_browser.clone()))
             }
             ConnectorKind::Teams => Some(Source::Teams(self.teams.clone())),
+            ConnectorKind::Slack => Some(Source::Slack(self.slack.clone())),
             ConnectorKind::Jira
             | ConnectorKind::Confluence
             | ConnectorKind::Github
             | ConnectorKind::Outlook
             | ConnectorKind::Gmail
-            | ConnectorKind::Slack
             | ConnectorKind::Youtrack => None,
         }
     }
@@ -126,18 +136,23 @@ pub enum Source {
     Fireflies(Fireflies),
     FirefliesBrowser(FirefliesBrowser),
     Teams(TeamsMeetings),
+    Slack(SlackMeetings),
 }
 
 impl Source {
     /// Whether `connector` reads its meetings now. Fireflies reads nothing else, so always,
-    /// either way it signs in; a Teams connector also reads chats, and reads meetings only
-    /// while its person leaves them on and once it has a storage location to keep their
-    /// recordings in.
+    /// either way it signs in; a Teams connector also reads chats, and reads meetings only while
+    /// its person leaves them on and once it has a storage location to keep their recordings in;
+    /// a Slack connector reads huddles while its person leaves them on, and needs no storage
+    /// location, since a huddle keeps no recording.
     pub fn reads(&self, connector: &Connector) -> bool {
         match self {
             Self::Fireflies(_) | Self::FirefliesBrowser(_) => true,
             Self::Teams(_client) => {
                 teams_kind::reads_meetings(&connector.content, connector.storage_location_id)
+            }
+            Self::Slack(_client) => {
+                slack::parse_content(&connector.content).is_ok_and(|content| content.read_meetings)
             }
         }
     }
@@ -166,6 +181,11 @@ impl Source {
                 let browser = browser_of(connection, connector).await?;
                 Ok(SignedIn::Teams(client, browser))
             }
+            Self::Slack(client) => {
+                let browser = browser_of(connection, connector).await?;
+                let content = slack::parse_content(&connector.content)?;
+                Ok(SignedIn::Slack(client, SlackSignIn { browser, content }))
+            }
         }
     }
 }
@@ -178,6 +198,7 @@ pub enum SignedIn {
     Fireflies(Fireflies, SecretString),
     FirefliesBrowser(FirefliesBrowser, BrowserSession),
     Teams(TeamsMeetings, BrowserSession),
+    Slack(SlackMeetings, SlackSignIn),
 }
 
 impl SignedIn {
@@ -194,6 +215,7 @@ impl SignedIn {
             Self::Fireflies(client, key) => client.list(key, since, limit).await,
             Self::FirefliesBrowser(client, browser) => client.list(browser, since, limit).await,
             Self::Teams(client, browser) => client.list(browser, since, limit).await,
+            Self::Slack(client, sign_in) => client.list(sign_in, since, limit).await,
         }
     }
 
@@ -206,6 +228,7 @@ impl SignedIn {
             Self::Fireflies(client, key) => client.fetch(key, external_id).await,
             Self::FirefliesBrowser(client, browser) => client.fetch(browser, external_id).await,
             Self::Teams(client, browser) => client.fetch(browser, external_id).await,
+            Self::Slack(client, sign_in) => client.fetch(sign_in, external_id).await,
         }
     }
 }

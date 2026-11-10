@@ -219,6 +219,7 @@ fn content_bounds_what_is_read_and_a_workspaces_dms_cover_group_messages_too() {
     );
     let only = |picked: &[&str]| Content {
         conversations: Selection::Only(picked.iter().map(|entry| (*entry).to_owned()).collect()),
+        ..Content::EVERYTHING
     };
     let baselined = |content: &Content| -> Vec<String> {
         plan(&counted, content, &State::default())
@@ -243,6 +244,7 @@ fn threads_are_viewed_only_where_they_have_unread_replies_and_the_workspace_is_r
 
     let only_elsewhere = Content {
         conversations: Selection::Only(vec!["T9".to_owned()]),
+        ..Content::EVERYTHING
     };
     assert!(
         plan(&unread, &only_elsewhere, &State::default())
@@ -592,15 +594,25 @@ fn content_with_no_selection_reads_everything_and_any_other_shape_is_refused() {
     assert!(matches!(
         parse_content(&Value::Null),
         Ok(Content {
-            conversations: Selection::All
+            conversations: Selection::All,
+            read_meetings: true,
+            ..
         })
     ));
     assert!(matches!(
         parse_content(&json!({})),
         Ok(Content {
-            conversations: Selection::All
+            conversations: Selection::All,
+            read_meetings: true,
+            ..
         })
     ));
+    // Made before huddles were read, it reads them too, until its person turns them off.
+    assert!(
+        parse_content(&json!({ "conversations": "*" }))
+            .expect("accepted")
+            .read_meetings
+    );
     parse_content(&json!({ "conversations": ["T1/C1"] })).expect("accepted");
     parse_content(&json!({ "conversations": 7 })).expect_err("refused");
 }

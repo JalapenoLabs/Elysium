@@ -69,7 +69,7 @@ const ACTOR_MAX_CHARACTERS: usize = 512;
 const TITLE_MAX_CHARACTERS: usize = 2048;
 
 /// Slack's errors for a session that is no longer signed in.
-const SIGNED_OUT_ERRORS: &[&str] = &[
+pub const SIGNED_OUT_ERRORS: &[&str] = &[
     "invalid_auth",
     "not_authed",
     "token_revoked",
@@ -86,16 +86,37 @@ const RECORDED_SUBTYPES: &[&str] = &[
 ];
 
 /// What a Slack connector reads: workspaces (`T1`), one conversation (`T1/C1`), or a
-/// workspace's direct and group messages (`T1/dms`); `"*"` for everything.
+/// workspace's direct and group messages (`T1/dms`); `"*"` for everything. The same picks
+/// bound which huddles it reads as meetings ([`meetings`]).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Content {
     pub conversations: Selection<String>,
+    /// Whether its huddles' transcripts are read as meetings (`readMeetings`). On until its
+    /// person turns it off, so a connector saved before the field existed reads them too.
+    #[serde(default = "reads_meetings_unless_turned_off")]
+    pub read_meetings: bool,
+    /// Whether each huddle waits for its person's approval before it is acted on. The
+    /// correction step reads it from the stored content, as it does every meeting source's
+    /// (`crate::meetings::waits_for_approval`); it is here so content carrying it parses.
+    #[serde(default)]
+    #[expect(
+        dead_code,
+        reason = "read from the stored content by crate::meetings::waits_for_approval"
+    )]
+    wait_for_approval: bool,
+}
+
+/// [`Content::read_meetings`] for content that never saved it; serde names its default by path.
+const fn reads_meetings_unless_turned_off() -> bool {
+    true
 }
 
 impl Content {
     pub const EVERYTHING: Self = Self {
         conversations: Selection::All,
+        read_meetings: true,
+        wait_for_approval: false,
     };
 
     /// Whether a conversation of `team`'s is read.
@@ -189,6 +210,18 @@ pub struct Call {
     team: String,
     method: &'static str,
     params: Value,
+}
+
+impl Call {
+    /// A call of `method` for workspace `team`. The page script makes only its read methods,
+    /// so any other answers `method_not_allowed`.
+    pub fn new(team: &str, method: &'static str, params: Value) -> Self {
+        Self {
+            team: team.to_owned(),
+            method,
+            params,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -785,7 +818,7 @@ fn conversation_of(
 }
 
 /// A message's address in Slack, as its "Copy link" gives it, on its workspace's own host.
-fn permalink(
+pub fn permalink(
     team_url: &str,
     conversation: &str,
     ts: &str,
@@ -925,6 +958,7 @@ fn truncate(text: &str, max_characters: usize) -> String {
     text.trim().chars().take(max_characters).collect()
 }
 
+pub mod meetings;
 pub mod send;
 
 #[cfg(test)]

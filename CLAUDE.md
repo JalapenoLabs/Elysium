@@ -286,7 +286,8 @@ Everything else follows these rules:
   a comment from someone else on their issue or mentioning them raises an inbox item as `watcher:youtrack`. The first
   read records nothing. Its assigned issues come in through the watcher, as every issue connector's do.
 - Slack reads through its own browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
-  web API with the web client's session, which never leaves the page, and only read methods. A direct or group
+  web API with the web client's session, which never leaves the page, and only read methods. Every call carries the
+  web client's `_x_gantry=true` marker, without which Slack refuses credentialed calls from `app.slack.com`. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
   its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
@@ -319,7 +320,8 @@ Everything else follows these rules:
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
   key on a paid plan or through Fireflies' own web app in its connector's browser on any plan (the `fireflies_browser`
-  kind, `meetings::fireflies_browser`), and Teams, through its connector's own browser, so nothing is installed into an
+  kind, `meetings::fireflies_browser`), and Teams and Slack's huddles, each through its connector's own browser, so
+  nothing is installed into an
   organization. A source is a
   connector whose kind declares it provides meetings, managed under Connectors alone; the meetings page and loop never
   name one, and each source's sign-in is resolved beside it (`meetings::sources`). Every meeting belongs to a
@@ -329,6 +331,10 @@ Everything else follows these rules:
   page. It reads meetings while "Read meeting recordings and transcripts" is on (the default) and once a storage
   location is picked. A connector's cursor is merged, not replaced, so its chat reader and the meetings listing each
   keep their own keys. See `docs/meetings.md`, Teams.
+- Slack lists the person's huddles that ended with a transcript and reads each one's transcript file with the web
+  client's own methods, never Slack's AI notes beside it. A huddle keeps no recording, so it is a meeting in words alone
+  and needs no storage location. It reads huddles while "Read meeting recordings and transcripts" is on (the default).
+  See `docs/meetings.md`, Slack huddles.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
   transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
   again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.
