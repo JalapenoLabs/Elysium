@@ -9,12 +9,16 @@
 //! # What is read
 //!
 //! - A listing (`transcripts`) of the meetings that started since the account's cursor.
-//! - One meeting (`transcript`): its sentences, each with a speaker and start and end times
-//!   in seconds, and a download address for its video or, failing that, its audio. Both
-//!   addresses expire after a day, so they are asked for right before the download.
+//! - One meeting, in two calls of `transcript`: first its sentences, each with a speaker and
+//!   start and end times in seconds, then a download address for its video or, failing that,
+//!   its audio. Both addresses expire after a day, so they are asked for right before the
+//!   download.
 //!
-//! Recordings need a Pro plan or higher, and video needs the "record meeting video" setting
-//! in Fireflies; without them the meeting is processed from its transcript alone.
+//! Recording addresses need a Pro plan or higher, and video needs the "record meeting video"
+//! setting in Fireflies. On a lower plan Fireflies refuses the second call with
+//! `paid_required`, which is read as a meeting without a recording: it is processed from its
+//! transcript alone. The sentences are asked for on their own so that refusal never costs the
+//! transcript, and any refusal of the sentences still fails the fetch.
 //!
 //! Nothing Fireflies' own AI wrote is asked for: no summary, action items, notes, outline, or
 //! analytics, since the model behind them is unknown. The queries name what they read, field
@@ -24,7 +28,7 @@
 //!
 //! Fireflies allows 30 to 60 requests a minute and, below Business, 500 to 5,000 a day.
 //! Elysium lists every ten minutes (`crate::meetings::POLL_INTERVAL`) and fetches each new
-//! meeting once, well inside the smallest of them.
+//! meeting once, in two calls, well inside the smallest of them.
 
 use std::time::Duration;
 
@@ -33,6 +37,7 @@ use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tracing::{Level, event};
 use url::Url;
 
 use super::source::{
@@ -55,12 +60,23 @@ const LIST_QUERY: &str = "query Meetings($fromDate: DateTime, $limit: Int) {
   }
 }";
 
-const FETCH_QUERY: &str = "query Meeting($id: String!) {
+/// A meeting's sentences, which every plan reads.
+const TRANSCRIPT_QUERY: &str = "query MeetingTranscript($id: String!) {
   transcript(id: $id) {
-    id video_url audio_url
+    id
     sentences { start_time end_time speaker_name text }
   }
 }";
+
+/// A meeting's recording addresses, asked for apart from its sentences because Fireflies
+/// gates them by plan, so a refusal here leaves the transcript read.
+const RECORDING_QUERY: &str = "query MeetingRecording($id: String!) {
+  transcript(id: $id) { id video_url audio_url }
+}";
+
+/// The code Fireflies answers when the account's plan does not include what was asked, from
+/// its documented error codes (`docs.fireflies.ai`, Error codes).
+const PAID_REQUIRED: &str = "paid_required";
 
 const WHOAMI_QUERY: &str = "query { user { email name } }";
 
@@ -116,7 +132,7 @@ impl Fireflies {
         credential: &SecretString,
         query: &str,
         variables: Value,
-    ) -> Result<Value, SourceError> {
+    ) -> Result<Value, QueryFailure> {
         let response = self
             .http
             .post(self.endpoint.clone())
@@ -126,24 +142,64 @@ impl Fireflies {
             .send()
             .await
             .map_err(|error| {
-                SourceError::Refused(format!("Fireflies could not be reached: {error}"))
+                QueryFailure::Other(SourceError::Refused(format!(
+                    "Fireflies could not be reached: {error}"
+                )))
             })?;
         let status = response.status();
         if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
-            return Err(unauthorized());
+            return Err(QueryFailure::Other(unauthorized()));
         }
         let body: Value = response.json().await.map_err(|error| {
-            SourceError::Refused(format!(
+            QueryFailure::Other(SourceError::Refused(format!(
                 "Fireflies answered {status} with a body that is not JSON: {error}"
-            ))
+            )))
         })?;
         if let Some(error) = body["errors"].as_array().and_then(|errors| errors.first()) {
             return Err(graphql_error(error));
         }
         if !status.is_success() {
-            return Err(SourceError::Refused(format!("Fireflies answered {status}")));
+            return Err(QueryFailure::Other(SourceError::Refused(format!(
+                "Fireflies answered {status}"
+            ))));
         }
         Ok(body["data"].clone())
+    }
+
+    /// A meeting's video, else its audio, or `None` when Fireflies offers neither.
+    ///
+    /// A plan below Pro is answered `paid_required`, which means the account keeps no
+    /// recording Elysium may download: the meeting goes on from its transcript alone. Any other
+    /// failure fails the fetch, so a Fireflies that did not answer never drops a recording.
+    async fn fetch_recording(
+        &self,
+        credential: &SecretString,
+        external_id: &str,
+    ) -> Result<Option<RecordingSource>, SourceError> {
+        let variables = json!({ "id": external_id });
+        let data = match self.query(credential, RECORDING_QUERY, variables).await {
+            Ok(data) => data,
+            Err(QueryFailure::PaidPlanRequired { tier, .. }) => {
+                event!(
+                    name: "meetings.fireflies.recording.paid_plan_required",
+                    Level::INFO,
+                    meeting.external_id = external_id,
+                    fireflies.tier = %tier,
+                    "Fireflies keeps no recording on this account's plan, so the meeting goes on \
+                     from its transcript alone",
+                );
+                return Ok(None);
+            }
+            Err(QueryFailure::Other(error)) => return Err(error),
+        };
+        // A meeting removed between the two calls has no recording left to download.
+        let media: Option<FetchedMedia> = serde_json::from_value(data["transcript"].clone())
+            .map_err(|error| {
+                SourceError::Refused(format!(
+                    "Fireflies sent a meeting's recording in an unknown shape: {error}"
+                ))
+            })?;
+        Ok(media.and_then(recording_of))
     }
 }
 
@@ -174,7 +230,7 @@ impl MeetingSource for Fireflies {
         external_id: &str,
     ) -> Result<FetchedMeeting, SourceError> {
         let data = self
-            .query(credential, FETCH_QUERY, json!({ "id": external_id }))
+            .query(credential, TRANSCRIPT_QUERY, json!({ "id": external_id }))
             .await?;
         if data["transcript"].is_null() {
             return Err(SourceError::NotFound);
@@ -185,7 +241,30 @@ impl MeetingSource for Fireflies {
                     "Fireflies sent a meeting in an unknown shape: {error}"
                 ))
             })?;
-        Ok(fetched(transcript))
+        Ok(FetchedMeeting {
+            transcript: transcript_lines(transcript),
+            recording: self.fetch_recording(credential, external_id).await?,
+        })
+    }
+}
+
+/// Why a query answered no data.
+#[derive(Debug)]
+enum QueryFailure {
+    /// Fireflies answered `paid_required`: the account's plan does not include what was
+    /// asked. `tier` is the plan Fireflies names, such as `pro_or_higher`, and `refusal` is
+    /// the failure for a caller that cannot go on without what was asked.
+    PaidPlanRequired { tier: String, refusal: SourceError },
+    /// Any other failure, as the meeting source reports it.
+    Other(SourceError),
+}
+
+impl From<QueryFailure> for SourceError {
+    fn from(failure: QueryFailure) -> Self {
+        match failure {
+            QueryFailure::PaidPlanRequired { refusal, .. } => refusal,
+            QueryFailure::Other(error) => error,
+        }
     }
 }
 
@@ -209,15 +288,20 @@ struct ListedTranscript {
     transcript_url: Option<String>,
 }
 
-/// One meeting's sentences and recordings, as Fireflies sends them.
+/// One meeting's sentences, as Fireflies sends them.
 #[derive(Debug, Deserialize)]
 struct FetchedTranscript {
+    #[serde(default)]
+    sentences: Option<Vec<Sentence>>,
+}
+
+/// One meeting's recording addresses, as Fireflies sends them.
+#[derive(Debug, Deserialize)]
+struct FetchedMedia {
     #[serde(default)]
     video_url: Option<String>,
     #[serde(default)]
     audio_url: Option<String>,
-    #[serde(default)]
-    sentences: Option<Vec<Sentence>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -266,9 +350,9 @@ fn milliseconds_to_time(milliseconds: f64) -> Option<DateTime<Utc>> {
         .single()
 }
 
-/// A fetched transcript as a meeting: its lines in order, and its video, else its audio.
-fn fetched(transcript: FetchedTranscript) -> FetchedMeeting {
-    let lines = transcript
+/// A fetched transcript's lines, in order.
+fn transcript_lines(transcript: FetchedTranscript) -> Vec<TranscriptLine> {
+    transcript
         .sentences
         .unwrap_or_default()
         .into_iter()
@@ -288,11 +372,14 @@ fn fetched(transcript: FetchedTranscript) -> FetchedMeeting {
                 text,
             })
         })
-        .collect();
+        .collect()
+}
 
-    let recording = [
-        (transcript.video_url, RecordingKind::Video),
-        (transcript.audio_url, RecordingKind::Audio),
+/// A meeting's video, else its audio, skipping any address that is not a public download.
+fn recording_of(media: FetchedMedia) -> Option<RecordingSource> {
+    [
+        (media.video_url, RecordingKind::Video),
+        (media.audio_url, RecordingKind::Audio),
     ]
     .into_iter()
     .find_map(|(address, kind)| {
@@ -302,12 +389,7 @@ fn fetched(transcript: FetchedTranscript) -> FetchedMeeting {
             url: SecretString::from(address),
             kind,
         })
-    });
-
-    FetchedMeeting {
-        transcript: lines,
-        recording,
-    }
+    })
 }
 
 /// Seconds, as a number or a numeric string, in whole milliseconds.
@@ -331,23 +413,30 @@ fn unauthorized() -> SourceError {
     )
 }
 
-/// A GraphQL error as a [`SourceError`], by the code Fireflies puts in its extensions.
-fn graphql_error(error: &Value) -> SourceError {
+/// A GraphQL error as a [`QueryFailure`], by the code Fireflies puts in its extensions.
+fn graphql_error(error: &Value) -> QueryFailure {
     let code = error["extensions"]["code"]
         .as_str()
         .unwrap_or_default()
         .to_ascii_lowercase();
     let message = error["message"]
         .as_str()
-        .unwrap_or("Fireflies refused the request")
-        .to_owned();
+        .unwrap_or("Fireflies refused the request");
+    let refusal = SourceError::Refused(format!("Fireflies refused: {message}"));
+    if code == PAID_REQUIRED {
+        let tier = error["extensions"]["metadata"]["tier"]
+            .as_str()
+            .unwrap_or("paid")
+            .to_owned();
+        return QueryFailure::PaidPlanRequired { tier, refusal };
+    }
     if code.contains("auth") || code.contains("forbidden") || code.contains("unauthenticated") {
-        return unauthorized();
+        return QueryFailure::Other(unauthorized());
     }
     if code.contains("not_found") {
-        return SourceError::NotFound;
+        return QueryFailure::Other(SourceError::NotFound);
     }
-    SourceError::Refused(format!("Fireflies refused: {message}"))
+    QueryFailure::Other(refusal)
 }
 
 #[cfg(test)]
@@ -384,8 +473,6 @@ mod tests {
     #[test]
     fn sentences_become_lines_with_times_as_numbers_or_strings() {
         let transcript: FetchedTranscript = serde_json::from_value(json!({
-            "video_url": null,
-            "audio_url": "https://cdn.fireflies.ai/a.mp3?sig=1",
             "sentences": [
                 { "start_time": 0.48, "end_time": 3.1, "speaker_name": "Ada", "text": " Hi all. " },
                 { "start_time": "3.5", "end_time": "2.0", "speaker_name": null, "text": "Launch is Friday." },
@@ -394,10 +481,9 @@ mod tests {
             ],
         }))
         .expect("parses");
-        let meeting = fetched(transcript);
 
         assert_eq!(
-            meeting.transcript,
+            transcript_lines(transcript),
             vec![
                 TranscriptLine {
                     start_ms: 480,
@@ -414,30 +500,36 @@ mod tests {
                 },
             ]
         );
-        let recording = meeting.recording.expect("the audio");
-        assert_eq!(recording.kind, RecordingKind::Audio);
     }
 
     #[test]
     fn video_is_preferred_and_an_unsafe_address_is_ignored() {
-        let transcript: FetchedTranscript = serde_json::from_value(json!({
-            "video_url": "https://cdn.fireflies.ai/v.mp4",
-            "audio_url": "https://cdn.fireflies.ai/a.mp3",
-        }))
-        .expect("parses");
+        let recording_kind = |media: Value| {
+            let media: FetchedMedia = serde_json::from_value(media).expect("parses");
+            recording_of(media).map(|recording| recording.kind)
+        };
+
         assert_eq!(
-            fetched(transcript)
-                .recording
-                .map(|recording| recording.kind),
+            recording_kind(json!({
+                "video_url": "https://cdn.fireflies.ai/v.mp4",
+                "audio_url": "https://cdn.fireflies.ai/a.mp3",
+            })),
             Some(RecordingKind::Video)
         );
-
-        let transcript: FetchedTranscript = serde_json::from_value(json!({
-            "video_url": "http://169.254.169.254/latest/meta-data",
-            "audio_url": null,
-        }))
-        .expect("parses");
-        assert!(fetched(transcript).recording.is_none());
+        assert_eq!(
+            recording_kind(json!({
+                "video_url": null,
+                "audio_url": "https://cdn.fireflies.ai/a.mp3?sig=1",
+            })),
+            Some(RecordingKind::Audio)
+        );
+        assert_eq!(
+            recording_kind(json!({
+                "video_url": "http://169.254.169.254/latest/meta-data",
+                "audio_url": null,
+            })),
+            None
+        );
     }
 
     /// What Fireflies' own AI writes, by the names its GraphQL schema gives them.
@@ -464,11 +556,8 @@ mod tests {
 
     #[test]
     fn no_query_asks_for_anything_fireflies_ai_wrote() {
-        for query in [LIST_QUERY, FETCH_QUERY, WHOAMI_QUERY] {
-            let fields: Vec<&str> = query
-                .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-                .filter(|field| !field.is_empty())
-                .collect();
+        for query in [LIST_QUERY, TRANSCRIPT_QUERY, RECORDING_QUERY, WHOAMI_QUERY] {
+            let fields = fields_of(query);
             for vendor_field in VENDOR_AI_FIELDS {
                 assert!(
                     !fields.contains(&vendor_field),
@@ -478,21 +567,189 @@ mod tests {
         }
     }
 
+    /// The names a query is made of, split on everything that cannot be part of one.
+    fn fields_of(query: &str) -> Vec<&str> {
+        query
+            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .filter(|field| !field.is_empty())
+            .collect()
+    }
+
+    /// Fireflies refuses recording addresses below Pro, so asking for them beside the
+    /// sentences would cost the transcript on those plans.
+    #[test]
+    fn the_transcript_query_asks_for_no_recording_address() {
+        let fields = fields_of(TRANSCRIPT_QUERY);
+        for media_field in ["video_url", "audio_url"] {
+            assert!(
+                !fields.contains(&media_field),
+                "the transcript query asks for {media_field}"
+            );
+        }
+    }
+
     #[test]
     fn graphql_errors_are_classified_by_their_code() {
+        let classified = |error: Value| SourceError::from(graphql_error(&error));
         assert!(matches!(
-            graphql_error(&json!({ "message": "no", "extensions": { "code": "auth_failed" } })),
+            classified(json!({ "message": "no", "extensions": { "code": "auth_failed" } })),
             SourceError::Unauthorized(_)
         ));
         assert!(matches!(
-            graphql_error(
-                &json!({ "message": "gone", "extensions": { "code": "object_not_found" } })
-            ),
+            classified(json!({ "message": "gone", "extensions": { "code": "object_not_found" } })),
             SourceError::NotFound
         ));
         assert!(matches!(
-            graphql_error(&json!({ "message": "slow down", "extensions": { "code": "too_many_requests" } })),
+            classified(json!({ "message": "slow down", "extensions": { "code": "too_many_requests" } })),
             SourceError::Refused(message) if message.contains("slow down")
         ));
+        assert!(matches!(
+            graphql_error(&paid_required()["errors"][0]),
+            QueryFailure::PaidPlanRequired { tier, refusal: SourceError::Refused(message) }
+                if tier == "pro_or_higher" && message.contains("paid plan")
+        ));
+    }
+
+    /// Fireflies' answer to a free plan asking for what needs Pro, in the shape its error
+    /// codes document.
+    fn paid_required() -> Value {
+        json!({
+            "data": null,
+            "errors": [{
+                "message": "You need to be subscribed to a paid plan to perform this action",
+                "code": "paid_required",
+                "extensions": {
+                    "code": "paid_required",
+                    "status": 403,
+                    "metadata": { "tier": "pro_or_higher" },
+                },
+            }],
+        })
+    }
+
+    /// A meeting's sentences, as Fireflies answers the transcript query.
+    fn sentences() -> Value {
+        json!({
+            "data": {
+                "transcript": {
+                    "id": "01HX",
+                    "sentences": [
+                        { "start_time": 0.5, "end_time": 2.0, "speaker_name": "Ada", "text": "Launch is Friday." },
+                    ],
+                },
+            },
+        })
+    }
+
+    /// What a fake Fireflies answers to each of the meeting's two queries.
+    #[derive(Clone)]
+    struct Answers {
+        transcript: Value,
+        recording: Value,
+    }
+
+    /// A client of a fake Fireflies that answers the transcript and recording queries with
+    /// `answers`, over HTTP 200 as Fireflies sends its GraphQL errors.
+    async fn fake_fireflies(answers: Answers) -> Fireflies {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let endpoint = Url::parse(&format!("http://{address}/graphql")).expect("a url");
+        let router = axum::Router::new()
+            .fallback(answer_fireflies)
+            .with_state(answers);
+        tokio::spawn(async move { axum::serve(listener, router).await });
+        Fireflies::at(reqwest::Client::new(), endpoint)
+    }
+
+    async fn answer_fireflies(
+        axum::extract::State(answers): axum::extract::State<Answers>,
+        axum::Json(request): axum::Json<Value>,
+    ) -> axum::Json<Value> {
+        let query = request["query"].as_str().unwrap_or_default();
+        if query == RECORDING_QUERY {
+            return axum::Json(answers.recording);
+        }
+        assert_eq!(
+            query, TRANSCRIPT_QUERY,
+            "the fake knows only the meeting's queries"
+        );
+        axum::Json(answers.transcript)
+    }
+
+    /// Regression: every meeting of an account on Fireflies' free plan failed `fetch_meeting`
+    /// with "You need to be subscribed to a paid plan", because the recording addresses, which
+    /// need Pro, were asked for in the same query as the sentences.
+    #[tokio::test]
+    async fn a_refused_recording_leaves_the_transcript_fetched_with_no_recording() {
+        let fireflies = fake_fireflies(Answers {
+            transcript: sentences(),
+            recording: paid_required(),
+        })
+        .await;
+
+        let meeting = fireflies
+            .fetch(&SecretString::from("fireflies-key"), "01HX")
+            .await
+            .expect("the transcript is fetched");
+
+        assert_eq!(
+            meeting.transcript,
+            vec![TranscriptLine {
+                start_ms: 500,
+                end_ms: 2000,
+                speaker: "Ada".to_owned(),
+                text: "Launch is Friday.".to_owned(),
+            }]
+        );
+        assert!(meeting.recording.is_none(), "the plan keeps no recording");
+    }
+
+    #[tokio::test]
+    async fn a_refused_transcript_still_fails_the_fetch() {
+        let fireflies = fake_fireflies(Answers {
+            transcript: paid_required(),
+            recording: paid_required(),
+        })
+        .await;
+
+        let failure = fireflies
+            .fetch(&SecretString::from("fireflies-key"), "01HX")
+            .await
+            .map(|meeting| meeting.transcript.len());
+
+        assert!(
+            matches!(&failure, Err(SourceError::Refused(message)) if message.contains("paid plan")),
+            "a transcript Fireflies refuses fails the fetch: {failure:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_offered_recording_is_fetched_beside_the_transcript() {
+        let fireflies = fake_fireflies(Answers {
+            transcript: sentences(),
+            recording: json!({
+                "data": {
+                    "transcript": {
+                        "id": "01HX",
+                        "video_url": null,
+                        "audio_url": "https://cdn.fireflies.ai/a.mp3",
+                    },
+                },
+            }),
+        })
+        .await;
+
+        let meeting = fireflies
+            .fetch(&SecretString::from("fireflies-key"), "01HX")
+            .await
+            .expect("the meeting is fetched");
+
+        assert_eq!(meeting.transcript.len(), 1);
+        assert_eq!(
+            meeting.recording.map(|recording| recording.kind),
+            Some(RecordingKind::Audio)
+        );
     }
 }
