@@ -385,11 +385,10 @@ mod tests {
 
     #[test]
     fn the_prompt_is_never_an_argument_and_the_tool_list_is_one() {
-        let argv = command().argv();
+        let attempt = command();
+        let argv = attempt.argv();
         assert!(
-            !argv
-                .iter()
-                .any(|argument| argument.contains("is the prompt")),
+            !argv.contains(&attempt.prompt),
             "the prompt travels on standard input"
         );
         let claude = argv
@@ -397,11 +396,8 @@ mod tests {
             .position(|argument| argument == "claude")
             .expect("claude");
         assert_eq!(argv[claude + 1], "-p");
-        assert_eq!(
-            argv[claude + 2],
-            "--output-format",
-            "-p reads its prompt from standard input when none follows it"
-        );
+        // `-p` reads its prompt from standard input when no prompt follows it.
+        assert_eq!(argv[claude + 2], "--output-format");
         assert!(argv.contains(&"--allowedTools=Read,mcp__elysia".to_owned()));
         let resume = argv
             .iter()

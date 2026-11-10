@@ -779,6 +779,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_prompt_past_the_models_context_fails_once_and_says_so() {
+        let fake = FakeWorkspace::with_scripts(vec![Script::printing(
+            &[
+                r#"{"type":"result","subtype":"success","is_error":true,"result":"Prompt is too long"}"#,
+            ],
+            1,
+        )]);
+        let runner = runner(
+            fake.clone(),
+            vec![credential("first"), credential("second")],
+        );
+        let ticket = runner
+            .submit(request(
+                ConversationId::new(Uuid::now_v7()),
+                "A whole meeting",
+            ))
+            .expect("accepted");
+        let (_events, outcome) = collect(ticket).await;
+
+        assert_eq!(outcome.status, TurnStatus::Failed);
+        assert!(outcome.prompt_too_long());
+        assert_eq!(
+            lock(&fake.commands).len(),
+            1,
+            "another credential would read the same prompt"
+        );
+
+        let ordinary = TurnOutcome::without_result(TurnStatus::Failed, "The build broke");
+        assert!(!ordinary.prompt_too_long());
+        let cancelled = TurnOutcome::without_result(TurnStatus::Cancelled, "Prompt is too long");
+        assert!(!cancelled.prompt_too_long(), "only a failed turn");
+    }
+
+    #[tokio::test]
     async fn turns_of_one_conversation_run_in_order() {
         let fake = FakeWorkspace::with_scripts(vec![
             Script::printing(&[DONE], 0),

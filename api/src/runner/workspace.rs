@@ -329,9 +329,9 @@ impl WorkspaceContainer {
     ///
     /// # Errors
     /// Propagates Docker's refusal to start the exec or a broken output stream, and
-    /// [`WorkspaceError::StandardInput`] when its standard input could not be written whole, once
-    /// its output has ended: a process handed part of its input must not pass for one that read
-    /// it all.
+    /// [`WorkspaceError::StandardInput`] when its standard input could not be written whole and it
+    /// still exited successfully: a process handed part of its input must not pass for one that
+    /// read it all.
     pub async fn exec(
         &self,
         command: ExecCommand,
@@ -390,9 +390,14 @@ impl WorkspaceContainer {
         };
         let (written, read) = tokio::join!(writing, reading);
         read?;
-        written.map_err(WorkspaceError::StandardInput)?;
-
         let inspected = self.docker.inspect_exec(&exec.id).await?;
+        // A process that failed on its own, such as one that exited before reading its input,
+        // reports why in its output and exit status, and that is what decides what happens next
+        // (a spent credential fails over). Only one that succeeded could pass for having read
+        // input it never received whole.
+        if inspected.exit_code == Some(0) {
+            written.map_err(WorkspaceError::StandardInput)?;
+        }
         Ok(inspected.exit_code)
     }
 

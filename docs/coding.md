@@ -129,11 +129,14 @@ A turn runs in one of three modes (`TurnMode`):
 Every turn's prompt goes to `claude -p` on standard input, never as an argument (`api/src/runner/command.rs`). Linux
 refuses any one argument or environment variable longer than 128 KiB, and a meeting's correction reads its whole
 transcript beside Whisper's in one prompt, several times that. Standard input has no such limit, so no caller cuts what
-it asks to fit; what bounds a prompt is the model's context, and a prompt past it fails the turn with the CLI's reason.
+it asks to fit; what bounds a prompt is the model's context. A prompt past it fails the turn with the CLI's reason,
+on the first credential, since another would read the same prompt, and `TurnOutcome::prompt_too_long` says so, so a
+caller that builds its prompt from what is stored fails for good rather than retrying.
 
 - The exec attaches standard input and writes the prompt while it reads the output, then closes it; `claude` reads to
-  that end before it starts, so a headless turn never waits on a terminal. A prompt that cannot be written whole loses
-  the attempt rather than letting `claude` answer part of it.
+  that end before it starts, so a headless turn never waits on a terminal. A prompt that cannot be written whole to a
+  process that then exits successfully loses the attempt, so `claude` never answers part of a prompt as if it were all
+  of it. One that exits with an error reports why itself, and that report decides the turn, failover included.
 - The turn script hands `claude` its own standard input through a spare descriptor: a non-interactive shell gives a
   command started with `&` `/dev/null` instead.
 - A slash command such as a worker's `/goal` is read from standard input as it is from an argument.

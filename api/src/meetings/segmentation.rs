@@ -24,7 +24,8 @@
 //! a meeting's transcript goes whole, one line per line as its source cut them
 //! ([`transcript_text`]), and a conversation's messages go whole too ([`messages_text`]), as do
 //! the projects they may be about. Nothing is merged or shortened to fit. A transcript too long
-//! for the model's context fails its turn, which fails the step with the CLI's reason.
+//! for the model's context fails the step for good, with the CLI's reason, since every attempt
+//! would read the same prompt.
 //!
 //! # Clips
 //!

@@ -358,6 +358,14 @@ impl CorrectTranscript {
                 }
             }
         };
+        if outcome.prompt_too_long() {
+            // The prompt is the meeting itself, so every attempt would fail the same way. A
+            // person who skips the step lets segmenting go on from the transcript as heard.
+            return Err(StepFailure::permanent(format!(
+                "The meeting is too long for the model to read in one turn: {}",
+                outcome.error.unwrap_or_default()
+            )));
+        }
         if outcome.status != TurnStatus::Completed {
             return Err(StepFailure::retryable(anyhow!(
                 "The correction turn ended {:?}: {}",

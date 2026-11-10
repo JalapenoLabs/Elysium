@@ -32,7 +32,9 @@
 //! the prompt is the whole meeting: the background once ([`background`]: the company doc whole,
 //! the sections that spell names first, then what other meetings taught), every line of the
 //! transcript, and every segment Whisper heard ([`prompt`]). Nothing is cut to fit. A meeting
-//! too long for the model's context fails its turn, which fails the step with the CLI's reason.
+//! too long for the model's context fails the step for good, with the CLI's reason, since every
+//! attempt would read the same prompt; skipping the step lets segmenting go on from the
+//! transcript as heard.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -260,8 +262,8 @@ fn line_text(index: usize, line: &TranscriptLine) -> String {
 /// What heads the transcript's lines in the prompt, and Whisper's text after them.
 const LINES_HEADING: &str =
     "\nThe transcript's lines to correct, each [number] [minutes:seconds]:\n";
-const WHISPER_HEADING: &str = "\nWhat a second transcription heard, each [minutes:seconds], \
-     for comparison only:\n";
+const WHISPER_HEADING: &str =
+    "\nWhat a second transcription heard, each [minutes:seconds], for comparison only:\n";
 
 /// The prompt: `background`, then every line of the transcript, numbered, then every segment
 /// Whisper heard, timed on the same clock so the model can set the two side by side. Nothing is

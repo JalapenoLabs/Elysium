@@ -246,7 +246,9 @@ raw transcripts are never written.
   Models). Its prompt holds the meeting's title and participants, the doc and what other meetings taught, once, then
   every one of the transcript's numbered lines, then every segment Whisper heard, timed on the same clock. The runner
   hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI), so nothing is cut to
-  fit; a meeting too long for the model's context fails the turn, and the step with it, giving the CLI's reason.
+  fit. A meeting too long for the model's context fails the step for good, giving the CLI's reason, since every
+  attempt would read the same prompt (`TurnOutcome::prompt_too_long`); skipping the step on the Runs page lets
+  segmenting go on from the transcript as heard.
 - **The answer** is `{ "edits": [{ "line", "text" }] }`: the whole corrected text of each line it changes.
 - **Nothing in the answer is trusted.** The copy is built from the transcript with only the edited lines' text
   replaced, so it keeps every line, in order, with its speaker and times, whatever the model answers. An edit is kept
@@ -348,8 +350,8 @@ as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow
 
 The prompt holds the transcript whole, one line for each of its lines, every message of a conversation whole, and
 every project: the runner hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI),
-so nothing is merged or shortened to fit. A transcript too long for the model's context fails the turn, and the
-attempt with it, giving the CLI's reason.
+so nothing is merged or shortened to fit. A transcript too long for the model's context fails the step for good,
+giving the CLI's reason, since every attempt would read the same prompt.
 
 **A meeting**, step by step:
 

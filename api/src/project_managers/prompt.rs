@@ -738,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_too_long_for_one_argument_is_cut_and_says_so() {
+    fn a_prompt_over_its_limit_is_cut_and_says_so() {
         let mut woken = context();
         for _ in 0..10 {
             woken.messages.push(PromptMessage {
