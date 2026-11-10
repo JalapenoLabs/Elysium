@@ -9,7 +9,7 @@ This doc is the design. Built so far: meetings and their captures, one clock wit
 capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
 in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned; and the
 meeting's page in the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in
-place, each change undoable, open to its owner alone until meetings are public by default. What is built
+place, each change undoable, and its player, open to its owner alone until meetings are public by default. What is built
 is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
 issues in the Knowledge base milestone.
 

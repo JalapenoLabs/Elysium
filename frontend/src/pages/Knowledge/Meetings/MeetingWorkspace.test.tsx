@@ -441,4 +441,32 @@ describe('MeetingWorkspace player', () => {
     // Twelve seconds into the meeting is seven into a recording that began five seconds in.
     expect(media.currentTime).toBe(7)
   })
+
+  it<Context>('floats the same player once its place scrolls up out of sight, and docks as it returns', (context) => {
+    type Seen = {
+      isIntersecting: boolean
+      boundingClientRect: { top: number }
+      rootBounds: { bottom: number } | null
+    }
+    let report: (entries: Seen[]) => void = () => {}
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: (entries: Seen[]) => void) {
+        report = callback
+      }
+      observe() {}
+      disconnect() {}
+    })
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+    const region = screen.getByRole('region', { name: 'Meeting recording' })
+
+    act(() => report([{ isIntersecting: false, boundingClientRect: { top: -400 }, rootBounds: { bottom: 800 }}]))
+    expect(region.className).toContain('fixed')
+    expect(playerMedia()).toBe(media)
+    expect(document.querySelector('[title="Drag to move the player"]')).toBeTruthy()
+
+    act(() => report([{ isIntersecting: true, boundingClientRect: { top: 100 }, rootBounds: { bottom: 800 }}]))
+    expect(region.className).not.toContain('fixed')
+    expect(playerMedia()).toBe(media)
+  })
 })

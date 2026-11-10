@@ -3,7 +3,7 @@
 import type { CSSProperties, RefObject } from 'react'
 
 // Core
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -48,7 +48,9 @@ type Position = {
 const ROOM_ABOVE_PX = 56
 const GAP_PX = 8
 
-function measure(container: HTMLDivElement, anchorIndex: number): Position | null {
+// The bar takes the width its actions need, so an edge it is held to gives way as far as the
+// transcript's other edge rather than wrapping the actions onto lines of their own.
+function measure(container: HTMLDivElement, anchorIndex: number, barWidth: number): Position | null {
   const word = container.querySelector(`[data-word-index="${anchorIndex}"]`)
   if (!word) {
     return null
@@ -58,16 +60,17 @@ function measure(container: HTMLDivElement, anchorIndex: number): Position | nul
   const top = rect.top - box.top
   const isBelow = top < ROOM_ABOVE_PX
   const isLeftHalf = rect.left - box.left < box.width / 2
+  const furthest = Math.max(0, box.width - barWidth)
   return {
     top: isBelow
       ? rect.bottom - box.top + GAP_PX
       : top - GAP_PX,
     left: isLeftHalf
-      ? Math.max(0, rect.left - box.left)
+      ? Math.min(furthest, Math.max(0, rect.left - box.left))
       : null,
     right: isLeftHalf
       ? null
-      : Math.max(0, box.right - rect.right),
+      : Math.min(furthest, Math.max(0, box.right - rect.right)),
     isBelow,
   }
 }
@@ -80,38 +83,39 @@ function measure(container: HTMLDivElement, anchorIndex: number): Position | nul
 export function TranscriptFloatingBar(props: Props) {
   const { t } = useTranslation('meetings')
   const [ position, setPosition ] = useState<Position | null>(null)
+  const barRef = useRef<HTMLDivElement>(null)
   const { containerRef, anchorIndex } = props
 
-  // The word moves when the text around it reflows, so the bar follows the transcript's size.
+  // The word moves when the text around it reflows, so the bar follows the transcript's size, and
+  // its own as actions come and go.
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) {
       return undefined
     }
-    const place = () => setPosition(measure(container, anchorIndex))
+    const place = () => setPosition(measure(container, anchorIndex, barRef.current?.offsetWidth ?? 0))
     place()
     const observer = new ResizeObserver(place)
     observer.observe(container)
+    if (barRef.current) {
+      observer.observe(barRef.current)
+    }
     return () => observer.disconnect()
   }, [ containerRef, anchorIndex ])
 
-  if (!position) {
-    return null
-  }
-
-  const style: CSSProperties = {
-    top: position.top,
-    left: position.left ?? undefined,
-    right: position.right ?? undefined,
-  }
+  // Drawn unseen until it is placed, so its first placing already knows how wide it is.
+  const style: CSSProperties = position
+    ? { top: position.top, left: position.left ?? undefined, right: position.right ?? undefined }
+    : { top: 0, left: 0, visibility: 'hidden' }
 
   return <div
+    ref={barRef}
     role='toolbar'
     aria-label={t('review.bar.label')}
     className={[
-      'absolute z-20 flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-border',
+      'absolute z-20 flex w-max max-w-full flex-wrap items-center gap-1 rounded-xl border border-border',
       'bg-overlay p-1 shadow-lg',
-      position.isBelow
+      position?.isBelow
         ? ''
         : '-translate-y-full',
     ].join(' ')}

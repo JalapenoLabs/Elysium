@@ -503,6 +503,8 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
 | E, Tab, Esc     | A meeting's page, outside fields     | Edit the words selected, move between the marks under the word clicked, clear what is picked (see Meetings) |
+| Space           | A meeting's page with a recording, outside fields and controls | Plays and pauses, or plays the words selected |
+| Left, Right     | A meeting's page with a recording, outside fields, tabs, and sliders | Jumps ten seconds back or forward |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
 
 - **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
@@ -961,8 +963,17 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
 - **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc,
-  Ctrl+Z, and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a level over a selection. The
-  editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
+  Space, the left and right arrows, Ctrl+Z, and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a
+  level over a selection, and the player's own controls never take Space or an arrow too. Space is left to a button,
+  link, switch, or other control that has focus, which it presses, and the arrows to tabs, sliders, and radio groups
+  such as the pills, which they move through. Without a recording neither is used, so Space scrolls the page as ever.
+  The editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
+- **The player** (`MeetingPlayer`) is one `<video>` with the browser's own controls, kept mounted while it floats, so
+  it never stops; floating is a class and a position, never a second element or a portal. Its media streams from the
+  API on Elysium's own origin, which the app's `default-src 'self'` allows with no `media-src` of its own. The waveform
+  listens through Web Audio
+  (`createMediaElementSource`), once per element for its life, and resumes its audio as playing starts, since a browser
+  starts Web Audio suspended until the page has been pressed.
 
 ### Markdown
 

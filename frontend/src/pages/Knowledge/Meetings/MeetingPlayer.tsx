@@ -73,15 +73,17 @@ export function MeetingPlayer(props: Props) {
   // does not jump as it leaves.
   const [ inFlowHeight, setInFlowHeight ] = useState<number | null>(null)
 
-  // It floats once its place has scrolled up out of sight, and comes back as its place returns.
+  // It floats once its place has scrolled up out of sight, and comes back as its place returns. Out
+  // of sight is out of its scroller's view, which starts below the topbar, so a place that is not
+  // seen and starts above the window's bottom has gone up past it.
   useEffect(() => {
     const slot = slotRef.current
     if (!slot) {
       return undefined
     }
     const observer = new IntersectionObserver(([ entry ]) => {
-      const top = entry.rootBounds?.top ?? 0
-      setIsFloating(!entry.isIntersecting && entry.boundingClientRect.bottom <= top)
+      const bottom = entry.rootBounds?.bottom ?? window.innerHeight
+      setIsFloating(!entry.isIntersecting && entry.boundingClientRect.top < bottom)
     })
     observer.observe(slot)
     return () => observer.disconnect()
@@ -175,7 +177,7 @@ export function MeetingPlayer(props: Props) {
 
   return <div
     ref={slotRef}
-    className='relaxed w-full max-w-3xl'
+    className='relaxed w-full max-w-2xl'
     style={isFloating && inFlowHeight !== null
       ? { height: inFlowHeight }
       : undefined}
