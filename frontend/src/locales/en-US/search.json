@@ -33,7 +33,7 @@
     "allItems": "list every tasks todo",
     "initiatives": "goals epics milestones progress burnup",
     "changesets": "review approvals proposals changes",
-    "projects": "workspaces products",
+    "projects": "workspaces products autonomy trust dial approval",
     "coding": "sessions agents claude code repositories",
     "studio": "3d models renders images assets blender",
     "runs": "workflows engine jobs steps logs",

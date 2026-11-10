@@ -15,11 +15,12 @@ use crate::models::action_item::{self, ActionItemState};
 use crate::models::action_item_link::{LinkKind, LinkProvider};
 use crate::models::attribution::{self, Attributor};
 use crate::models::changeset::ChangesetState;
-use crate::models::project::{NewProject, ProjectChanges};
+use crate::models::project::NewProject;
+use crate::models::project_autonomy::{self, Autonomy};
 use crate::models::project_issue_tracker::{self, NewTracker};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::project_managers::trackers::NO_TRACKER;
-use crate::test_support::{TEST_PERSON, TEST_PERSON_ID};
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, test_member};
 
 /// A project, a meeting segment on its timeline, and the trackers' fakes.
 struct Fixture {
@@ -94,17 +95,17 @@ async fn names_jira(fixture: &mut Fixture) {
     .expect("named");
 }
 
+/// Turns the project's dial to Full autonomy, the one level whose changes apply at once.
 async fn lets_it_write(fixture: &mut Fixture) {
-    project::update(
+    let person = test_member(&mut fixture.links.connection).await;
+    project_autonomy::set(
         &mut fixture.links.connection,
         fixture.project_id,
-        &ProjectChanges {
-            manager_writes_directly: Some(true),
-            ..ProjectChanges::default()
-        },
+        Autonomy::FullAutonomy,
+        &person,
     )
     .await
-    .expect("updated");
+    .expect("turned up");
 }
 
 fn drafted(change: Value, cause_record_id: Uuid) -> Drafted {

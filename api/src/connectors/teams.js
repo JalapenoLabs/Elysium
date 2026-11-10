@@ -7,7 +7,7 @@
 //   { signedIn, found, me, conversations: [...], messages: [...], myThreadIds: [...], databases }
 //
 // New Teams keeps its conversations and their messages in IndexedDB, in databases named
-// `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
+// `Teams:conversation-manager:...:<tenant id>:<user id>:<locale>` and
 // `Teams:replychain-manager:...`. Those records carry each message's id, sender, time, and
 // mentions, and each conversation's read horizon, so reading them answers what is new and what
 // is unread without touching the page. Nothing here clicks, opens a chat, or writes, so reading
@@ -89,14 +89,45 @@
       : value
   }
 
-  // A message's HTML as the text it reads as. A parsed document runs no scripts and loads
-  // nothing, so this is safe on what anyone in the chat wrote.
-  const parser = new DOMParser()
+  // A tag, read past quoted attribute values, which may hold a `>` of their own.
+  const TAG = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)(?:[^>"']|"[^"]*"|'[^']*')*>/g
+  // Tags that end a line of text, so the words on either side stay apart. Every other tag
+  // (bold, a link, a mention) sits inside a word's line and leaves nothing behind.
+  const BREAKING_TAGS = new Set([
+    'blockquote', 'br', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'li', 'ol', 'p',
+    'pre', 'table', 'td', 'th', 'tr', 'ul',
+  ])
+  // The named references HTML's serializer writes, which is how Teams stores what its editor
+  // composed, and `&apos;`; any other named reference is left as written.
+  const NAMED_REFERENCES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: '\u00a0' }
+
+  function decodedReference(reference, name) {
+    if (name[0] !== '#') {
+      return NAMED_REFERENCES[name] ?? reference
+    }
+    const codePoint = name[1] === 'x' || name[1] === 'X'
+      ? Number.parseInt(name.slice(2), 16)
+      : Number.parseInt(name.slice(1), 10)
+    const isCharacter = Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10FFFF
+    return isCharacter
+      ? String.fromCodePoint(codePoint)
+      : reference
+  }
+
+  // A message's HTML as the text it reads as. Teams enforces Trusted Types
+  // (`require-trusted-types-for 'script'`) and its CSP names every policy it allows, none of
+  // them ours, so markup cannot be handed to a parser (`DOMParser`, `innerHTML`, a template).
+  // The text is read off the markup instead: tags dropped, references decoded. Nothing is
+  // rendered, so this is safe on what anyone in the chat wrote.
   function plainText(html) {
     if (typeof html !== 'string' || !html) {
       return ''
     }
-    const text = parser.parseFromString(html, 'text/html').body.textContent || ''
+    const text = html
+      .replace(TAG, (tag, name) => (BREAKING_TAGS.has(name.toLowerCase())
+        ? ' '
+        : ''))
+      .replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, decodedReference)
     return text.replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX_CHARACTERS)
   }
 
@@ -128,8 +159,9 @@
     const conversationStore = await readDatabase(names, 'conversation-manager')
     const replyChainStore = await readDatabase(names, 'replychain-manager')
 
-    // The database name ends in `<user id>:<tenant>:<locale>`; the user's MRI is built from it.
-    const owner = conversationStore.name?.split(':').slice(-3)[0]
+    // The database name ends in `<tenant id>:<user id>:<locale>`; the user's MRI is built from
+    // their id, which their own messages carry as `8:orgid:<user id>`.
+    const owner = conversationStore.name?.split(':').slice(-2)[0]
     const me = owner
       ? `8:orgid:${owner}`
       : null

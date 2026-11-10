@@ -65,6 +65,7 @@ pub mod page_label;
 pub mod page_project;
 pub mod password_vault;
 pub mod project;
+pub mod project_autonomy;
 pub mod project_brief;
 pub mod project_issue_tracker;
 pub mod project_manager;
