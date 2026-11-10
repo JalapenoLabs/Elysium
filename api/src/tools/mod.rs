@@ -35,6 +35,7 @@ use futures_util::future::BoxFuture;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tracing::{Level, event};
+use url::Url;
 use uuid::Uuid;
 
 use crate::action_items::links::Links;
@@ -69,6 +70,8 @@ pub struct ToolContext {
     pub passwords: RemoteVault,
     /// The knowledge base's search, whose budgets agents' searches spend as people's do.
     pub knowledge: KnowledgeSearch,
+    /// The origin people open Elysium at, which links a tool writes outside it point into.
+    pub public_url: Url,
 }
 
 impl std::fmt::Debug for ToolContext {

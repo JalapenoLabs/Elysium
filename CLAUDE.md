@@ -607,6 +607,11 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (approve and reject,
   for a person alone; run next, priority, pause, resume, cancel), each change recorded in `work_batch_events` with who
   made it. The work queue is `/work-queue`, for members.
+- Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
+  for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
+  link. Every pull request a worker records carries the chain at the end of its description
+  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
+  batch exists.
 
 ## One event stream keeps the frontend current
 

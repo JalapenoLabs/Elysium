@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ConfigurationHold } from './agentConfigurationRoutes'
-import type { ActionItemState } from './actionItemRoutes'
+import type { ActionItemState, LinkProvider } from './actionItemRoutes'
 import type {
   WorkBatch,
   WorkBatchOrigin,
@@ -48,6 +48,9 @@ export type WorkQueueEntry = {
   origin: WorkBatchOrigin
   // How many batches led to it: 0 for work a person called for.
   generation: number
+  // What its chain starts from: the first thing that asked for it, or the first item it works
+  // on; null for one that names nothing.
+  cause: WorkBatchLink | null
 }
 
 // Mirrors `QueueResponse` in api/src/routes/v1/work_queue.rs.
@@ -111,32 +114,74 @@ export function getWorkBatchKey(batchId: string) {
   return `v1/work-batches/${batchId}`
 }
 
-// A timeline record that called for a batch, opened through the knowledge base, where any member
-// reads what was ingested.
-export type WorkBatchCause = {
-  id: string
-  sourceKind: string
-  title: string
-  occurredAt: string
-  // Null until the knowledge base has indexed it.
-  documentId: string | null
-}
+// One link of a batch's chain, mirroring `Link` in api/src/models/work_batch/why.rs: from what
+// asked for it (a finding a person accepted, a message to its Project Manager, a timeline record
+// such as a meeting's quote, an issue of an item it works on), to its items, the batch, and its
+// pull requests, in that order.
+export type WorkBatchLink =
+  | {
+    kind: 'finding'
+    id: string
+    title: string
+    acceptedById: string
+    acceptedBy: string
+    acceptedAt: string
+  }
+  | {
+    kind: 'message'
+    id: string
+    authorId: string
+    author: string
+    body: string
+    sentAt: string
+  }
+  | {
+    // Opened through the knowledge base, where any member reads what was ingested.
+    kind: 'record'
+    id: string
+    sourceKind: string
+    title: string
+    occurredAt: string
+    // What it said, its first 600 characters: a meeting segment's quote.
+    excerpt: string
+    // The meeting a segment is a topic of.
+    meetingTitle: string | null
+    // Null until the knowledge base has indexed it.
+    documentId: string | null
+  }
+  | {
+    kind: 'issue'
+    actionItemId: string
+    provider: LinkProvider
+    // `ELY-12`, `owner/name#12`, or `JL-12`.
+    key: string
+    url: string
+    title: string
+  }
+  | {
+    kind: 'item'
+    id: string
+    title: string
+    state: ActionItemState
+  }
+  | {
+    kind: 'batch'
+    id: string
+    projectId: string
+    title: string
+  }
+  | {
+    kind: 'pullRequest'
+    id: string
+    // `owner/name`.
+    repository: string
+    number: number
+    url: string
+    title: string
+    state: 'open' | 'merged' | 'closed'
+  }
 
-// A message a person or Elysia sent the batch's Project Manager that called for it.
-export type WorkBatchMessage = {
-  id: string
-  authorId: string
-  author: string
-  body: string
-  sentAt: string
-}
-
-// An action item a batch works on.
-export type WorkBatchItem = {
-  id: string
-  title: string
-  state: ActionItemState
-}
+export type WorkBatchLinkKind = WorkBatchLink['kind']
 
 // A batch the batch was planned from.
 export type WorkBatchParent = {
@@ -146,12 +191,10 @@ export type WorkBatchParent = {
   generation: number
 }
 
-// Mirrors `WhyResponse` in api/src/routes/v1/work_batches/mod.rs: what called for a batch, and the
-// batches it was planned from.
+// Mirrors `Why` in api/src/models/work_batch/why.rs: a batch's chain, and the batches it was
+// planned from.
 export type WorkBatchWhy = {
-  records: WorkBatchCause[]
-  messages: WorkBatchMessage[]
-  actionItems: WorkBatchItem[]
+  chain: WorkBatchLink[]
   parents: WorkBatchParent[]
 }
 

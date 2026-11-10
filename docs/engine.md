@@ -658,9 +658,8 @@ or Elysia may still withdraw a proposal (`cancelled`).
   changes nothing, and the next proposal raises a new one (`work_batch_approval_items` holds which item a project has).
   As the pool's scheduler starts, it raises the item of any project whose proposals never had one, such as batches
   held for approval without a submission (`approval_item::reconcile`), so no proposal waits unseen.
-- **Why it exists.** A batch's page reads the timeline records its Project Manager named as its cause, by title and
-  kind with the knowledge base's document for each, and the action items it works on (`work_batch::why`). The full
-  chain, from meeting quote to pull request, is on the roadmap (`docs/autonomy.md`, Staying aware).
+- **Why it exists.** A proposal's page and row show what asked for it, so a person decides knowing why (Why a batch
+  exists, below).
 - **Feedback.** A rejection's `rejected` entry, with its reason and the person, is the feedback it leaves for
   self-improvement until a store of feedback exists (`docs/self-improvement.md`).
 
@@ -707,6 +706,43 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   Manager read its result as it planned, unless it names that person's message. A follow-up the Project Manager submits
   in a later turn that nothing of the batch's woke, naming only a person's record, counts from 0, and so does one that
   names a person's unrelated message its turn took; the person still approves either.
+
+### Why a batch exists
+
+Built: every batch's chain, from what asked for it to the pull requests that answer it (`work_batch::why`), on its
+page, at the head of its row in the work queue, and in the description of every pull request its worker records
+(`worker_pool::description`). See `docs/autonomy.md`, Staying aware.
+
+- **Read, never copied.** The chain is read from the batch's provenance as it is shown, the same provenance that gives
+  its origin and generation, so it is never out of date. In order: the finding a person accepted, when accepting one
+  made the batch, with who accepted it and when (Findings, below); the messages to its Project Manager it names, only
+  those sent on its own project; the timeline records it names, a meeting segment with its meeting's title and the
+  first 600 characters of what was said; for each item it works on, the issues linked to it, primary first, then the
+  records that raised it not named already; the items; the batch; and its pull requests in the order its worker
+  recorded them. Anything named that is gone since (a record removed with its connector, a deleted item) is left out.
+- **Where each opens.** A record opens its knowledge base document, which any member reads (`docs/knowledge.md`, Who
+  sees what); one not indexed yet is named without a link. A finding opens its project's Findings tab, a message its
+  Project Manager's tab, an item and a batch their pages, an issue its tracker, and a pull request GitHub.
+- **One read for a list.** `why::read_many` reads any number of batches' chains in one query per kind of link, so the
+  work queue shows each row's head (the first thing that asked for it, or failing that its first item) without a query
+  per row.
+- **In the pull request.** `worker_pull_request` records the pull request first, since that is what lets it merge,
+  reads the chain and gives its database connection back, then reads the pull request again, so an edit made since and
+  the repository's visibility now are what it composes from, and puts the chain at the end of its description,
+  between `<!-- elysium:why -->` and `<!-- /elysium:why -->`, each alone on its line, leaving what was written as it
+  was. GitHub has no conditional write of a description, so an edit landing in that one round trip is the only one it
+  can lose. Recording it again replaces the chain in place, so a worker puts back a chain an edit removed, and a
+  description already carrying it is not written. A write GitHub refuses is logged and told to the worker, never
+  failing the call.
+- **What it says, by who reads it.** In a private repository (GitHub's `isPrivate`, true of an internal one too) the
+  readers are the company, so the chain carries what its page does: titles, a meeting's quote, who wrote a message. In
+  a public one anyone reads it, and nothing ingested leaves the company, so each link says only what kind it is and
+  opens in Elysium, which answers its members alone. Not even an issue's key or address goes out: a key names a
+  private repository or the company's tracker, so an issue opens on the batch's page.
+- **It cannot break a pull request.** Editing a description leaves its head and checks as they are, so a merge
+  decision reads nothing new. Every quoted text is a link's text with Markdown's punctuation escaped, so nothing quoted
+  becomes Markdown, HTML, a mention, an issue reference, or a closing keyword. The chain is at most 8,000 characters,
+  ending with how many links did not fit, and a description it would carry past GitHub's 65,536 is left as it is.
 
 ### Findings
 
@@ -936,7 +972,8 @@ failing closed, and the record of every merge (`api/src/worker_pool/merging/`, `
   not declare is a person's. The choice is read again at every look and every turn, so a change applies at once.
 - **Only its own.** A worker records each pull request it opens with `worker_pull_request`, which checks with GitHub,
   through the project's token, that the project's account opened it, from a branch of the repository itself, after the
-  batch started (`work_batch_pull_requests`). A pull request is one batch's: another batch naming it is refused.
+  batch started (`work_batch_pull_requests`), and puts why its batch exists in its description (Why a batch exists,
+  above). A pull request is one batch's: another batch naming it is refused.
   Nothing a worker did not record is ever merged, and the worker never merges one itself.
 - **When it looks.** The engine looks at a batch's open pull requests as each of its worker's waits ends, before the
   turn that follows, and once more before the batch finishes, so the look follows the worker's own loop: a worker
