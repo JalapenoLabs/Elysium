@@ -551,6 +551,9 @@ async fn findings(
     connection: &mut AsyncPgConnection,
     batch_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Finding>> {
+    if batch_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
     let rows: Vec<(Uuid, Uuid, String, Uuid, String, DateTime<Utc>)> = findings::table
         // `findings` names two people, its reporter's machine user and its decider, so the join
         // says which.
@@ -591,6 +594,9 @@ async fn pull_requests(
     connection: &mut AsyncPgConnection,
     batch_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Vec<PullRequest>>> {
+    if batch_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
     let rows: Vec<(Uuid, Uuid, String, i32, String, String, PullRequestState)> =
         work_batch_pull_requests::table
             .filter(work_batch_pull_requests::work_batch_id.eq_any(batch_ids))

@@ -105,6 +105,17 @@ export function chainLinkTarget(link: WorkBatchLink, projectId: string) {
   }
 }
 
+// Whether this build knows how to draw `link`. The chain is the API's answer, so a browser still
+// holding an older bundle may be sent a kind it has no icon or label for; such a link is left
+// out rather than breaking the page.
+export function isKnownChainLink(link: WorkBatchLink) {
+  if (!Object.hasOwn(chainLinkIcons, link.kind)) {
+    console.debug('isKnownChainLink left out a link of a kind this build does not know', link)
+    return false
+  }
+  return true
+}
+
 // A link's key among its chain's, unique even where two kinds share an id.
 export function chainLinkKey(link: WorkBatchLink): string {
   if (link.kind === 'issue') {

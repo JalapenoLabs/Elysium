@@ -16,7 +16,6 @@
 //! Workers.
 
 use chrono::{TimeDelta, Utc};
-use diesel_async::AsyncPgConnection;
 use futures_util::FutureExt as _;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -30,7 +29,7 @@ use crate::github::issues::IssueRef;
 use crate::github::pulls::PullRequest;
 use crate::models::finding::Reporter;
 use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
-use crate::models::work_batch::why;
+use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
 use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, WorkBatch};
 use crate::models::worker_setup::{self, MergePolicy, WorkerSetup};
@@ -306,17 +305,13 @@ async fn run_pull_request(
     })?;
     announce(&context.events, &batch);
 
-    // Recorded first, since that is what lets it merge.
-    let description = describe(
-        context,
-        scope,
-        &mut connection,
-        &batch,
-        &token,
-        &reference,
-        &found,
-    )
-    .await?;
+    // Recorded first, since that is what lets it merge. The chain is read now and the connection
+    // given back, so none is held across GitHub's round trips.
+    let why = why::read(&mut connection, &batch)
+        .await
+        .map_err(|error| internal(scope, "worker.pull_request.why", &error))?;
+    drop(connection);
+    let description = describe(context, scope, &batch, &token, &reference, &why).await;
 
     let (merged_by, next) = match merging::policy_for(&declared, &recorded.github_url()) {
         MergePolicy::Auto => (
@@ -345,36 +340,22 @@ async fn run_pull_request(
     }))
 }
 
-/// Puts why `batch` exists in the description of `found`, the pull request `reference` names,
-/// and answers what its worker is told of it.
+/// Puts why `batch` exists, `why`, in the description of the pull request `reference` names, and
+/// answers what its worker is told of it.
 ///
 /// A description GitHub would not take is said in the answer and logged rather than failing the
 /// call: the pull request is recorded already, which is what lets it merge, and recording it
 /// again tries the description again.
-///
-/// # Errors
-/// [`ToolError::Internal`] when the batch's chain cannot be read.
 async fn describe(
     context: &ToolContext,
     scope: &CallScope,
-    connection: &mut AsyncPgConnection,
     batch: &WorkBatch,
     token: &SecretString,
     reference: &IssueRef,
-    found: &PullRequest,
-) -> Result<String, ToolError> {
-    let why = why::read(connection, batch)
-        .await
-        .map_err(|error| internal(scope, "worker.pull_request.why", &error))?;
-    let written = description::write(
-        &context.github,
-        token,
-        reference,
-        found,
-        &why,
-        &context.public_url,
-    )
-    .await;
+    why: &Why,
+) -> String {
+    let written =
+        description::write(&context.github, token, reference, why, &context.public_url).await;
     if let Err(error) = written {
         tracing::event!(
             name: "tools.worker.description_unwritten",
@@ -385,17 +366,17 @@ async fn describe(
             error.message = %error,
             "could not put why a batch exists in its pull request's description",
         );
-        return Ok(format!(
+        return format!(
             "It is recorded, but Elysium could not add why this batch exists to its \
              description: {error}. Call worker_pull_request again to try once more."
-        ));
+        );
     }
-    Ok(format!(
+    format!(
         "Its description ends with why this batch exists, between {} and {}. Keep that section \
          when you edit the description; calling worker_pull_request again puts it back.",
         description::START,
         description::END
-    ))
+    )
 }
 
 async fn run_report_finding(

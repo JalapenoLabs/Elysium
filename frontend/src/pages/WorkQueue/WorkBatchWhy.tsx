@@ -11,7 +11,7 @@ import { ChainLinkTitle } from './ChainLinkTitle'
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { sourceLabelKey } from '../Projects/timelinePresentation'
-import { chainLinkIcons, chainLinkKey, chainLinkLabelKeys } from './chainPresentation'
+import { chainLinkIcons, chainLinkKey, chainLinkLabelKeys, isKnownChainLink } from './chainPresentation'
 
 type Props = {
   why: Why
@@ -27,7 +27,7 @@ type Props = {
 // pages, a pull request GitHub.
 export function WorkBatchWhy(props: Props) {
   const { t } = useTranslation([ 'workQueue', 'timeline' ])
-  const chain = props.why.chain
+  const chain = props.why.chain.filter(isKnownChainLink)
   const namesNothing = chain.every((link) => link.kind === 'batch' || link.kind === 'pullRequest')
 
   return <>

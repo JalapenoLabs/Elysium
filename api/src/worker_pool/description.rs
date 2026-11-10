@@ -15,9 +15,10 @@
 //! A pull request's description is read by whoever reads its repository. In a private repository
 //! that is the company, so the chain carries what its page does: titles, a meeting's quote, who
 //! wrote a message. In a public one it is anyone, and nothing ingested or written inside Elysium
-//! leaves the company (`docs/knowledge.md`, Who sees what), so the chain carries only what each
-//! link is, an issue's key, and links into Elysium, which answer its members alone
-//! ([`Audience`]).
+//! leaves the company (`docs/knowledge.md`, Who sees what), so the chain carries only what kind
+//! each link is, each opening in Elysium, which answers its members alone ([`Audience`]). Not even
+//! an issue's key or address: a key names a private repository or the company's tracker, and an
+//! address is the tracker's.
 //!
 //! # Why it cannot break a pull request
 //!
@@ -58,6 +59,9 @@ const TITLE_MAX_CHARACTERS: usize = 200;
 
 /// The most of a quote, such as a meeting's words, the chain carries.
 const QUOTE_MAX_CHARACTERS: usize = 300;
+
+/// What a link reads as in a public repository, where it may say nothing of what it opens.
+const OPEN_IN_ELYSIUM: &str = "Open in Elysium";
 
 /// The web app's paths, as `frontend/src/urls.ts` spells them.
 const KNOWLEDGE_DOCUMENT_PATH: &str = "/knowledge/documents/";
@@ -111,6 +115,9 @@ pub enum DescriptionError {
          {GITHUB_MAX_CHARACTERS} characters"
     )]
     TooLong,
+    /// The project's token can no longer see the pull request.
+    #[error("the project's GitHub token can no longer see the pull request")]
+    NotFound,
     #[error(transparent)]
     Github(#[from] GithubError),
 }
@@ -124,22 +131,33 @@ pub enum Written {
     Unchanged,
 }
 
-/// Puts a batch's chain, `why`, in the description of `found`, the pull request `reference`
-/// names, as GitHub holds it now, through `token`, linking into Elysium at `public_url`.
+/// Puts a batch's chain, `why`, in the description of the pull request `reference` names, through
+/// `token`, linking into Elysium at `public_url`.
+///
+/// The pull request is read here, immediately before the description is composed from it, so
+/// what the worker or a person wrote since it was recorded is kept, and the audience follows the
+/// repository's visibility as it is now. GitHub offers no conditional write of a description, so
+/// an edit landing between this read and the write is the one it can lose; the window is one
+/// round trip, and recording the pull request again puts the chain back.
 ///
 /// # Errors
-/// [`DescriptionError::TooLong`] when the description cannot hold it; GitHub refusing the write.
+/// [`DescriptionError::NotFound`] when the token can no longer see it;
+/// [`DescriptionError::TooLong`] when the description cannot hold the chain; GitHub refusing the
+/// read or the write.
 pub async fn write(
     github: &Github,
     token: &SecretString,
     reference: &IssueRef,
-    found: &PullRequest,
     why: &Why,
     public_url: &Url,
 ) -> Result<Written, DescriptionError> {
-    let chain = section(why, public_url, Audience::of(found));
-    let description = splice(&found.description, &chain);
-    if description == found.description {
+    let current = github
+        .pull_request(token, reference)
+        .await?
+        .ok_or(DescriptionError::NotFound)?;
+    let chain = section(why, public_url, Audience::of(&current));
+    let description = splice(&current.description, &chain);
+    if description == current.description {
         return Ok(Written::Unchanged);
     }
     if description.chars().count() > GITHUB_MAX_CHARACTERS {
@@ -263,16 +281,21 @@ fn line(link: &Link, targets: &Targets, audience: Audience) -> Option<String> {
             entry
         }
         Link::Issue(issue) => {
-            // An issue's key names it and says nothing of it, so anyone may read it.
-            let text = match audience {
-                Audience::Company => format!("{} {}", issue.key, issue.title),
-                Audience::Anyone => issue.key.clone(),
+            // Anyone else opens it with the rest of the chain, on the batch's page.
+            let (text, url) = match audience {
+                Audience::Company => (
+                    flattened(
+                        &format!("{} {}", issue.key, issue.title),
+                        TITLE_MAX_CHARACTERS,
+                    ),
+                    issue.url.as_str(),
+                ),
+                Audience::Anyone => (OPEN_IN_ELYSIUM.to_owned(), targets.batch.as_str()),
             };
-            let text = flattened(&text, TITLE_MAX_CHARACTERS);
             format!(
                 "- {} issue: {}",
                 issue.provider.name(),
-                markdown_link(&text, &issue.url)
+                markdown_link(&text, url)
             )
         }
         Link::Item(item) => {
@@ -290,7 +313,7 @@ fn line(link: &Link, targets: &Targets, audience: Audience) -> Option<String> {
 fn said(audience: Audience, text: &str, max: usize) -> String {
     match audience {
         Audience::Company => flattened(text, max),
-        Audience::Anyone => "Open in Elysium".to_owned(),
+        Audience::Anyone => OPEN_IN_ELYSIUM.to_owned(),
     }
 }
 

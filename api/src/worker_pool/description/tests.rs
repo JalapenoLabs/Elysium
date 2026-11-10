@@ -146,6 +146,9 @@ fn a_public_repository_reads_what_each_link_is_and_nothing_said_inside_the_compa
         "Ada",
         "Alex",
         "Annual pricing",
+        // An issue's key and its tracker name the company's projects and where they live.
+        "ELY",
+        "atlassian.net",
     ] {
         assert!(
             !section.contains(said),
@@ -157,8 +160,11 @@ fn a_public_repository_reads_what_each_link_is_and_nothing_said_inside_the_compa
         "{section}"
     );
     assert!(
-        section.contains("- Jira issue: [ELY\\-12](https://acme.atlassian.net/browse/ELY-12)"),
-        "an issue's key says nothing of it: {section}"
+        section.contains(&format!(
+            "- Jira issue: [Open in Elysium]({PUBLIC_URL}/work-queue/{})",
+            why.batch().id
+        )),
+        "an issue opens with the rest of the chain: {section}"
     );
     assert!(section.contains(&format!(
         "- Message to its Project Manager: [Open in Elysium]({PUBLIC_URL}/projects/{}?tab=manager)",
@@ -306,16 +312,9 @@ async fn writing_puts_the_chain_in_the_description_once() {
         Audience::Company,
         "repositories are private by default"
     );
-    let written = write(
-        &github.github,
-        &token,
-        &reference,
-        &found,
-        &why,
-        &public_url(),
-    )
-    .await
-    .expect("written");
+    let written = write(&github.github, &token, &reference, &why, &public_url())
+        .await
+        .expect("written");
     assert_eq!(written, Written::Changed);
     let stored = github.pull_request_node("acme/web", 7)["body"]
         .as_str()
@@ -327,23 +326,10 @@ async fn writing_puts_the_chain_in_the_description_once() {
     );
     assert!(stored.contains("Weekly sync"), "{stored}");
 
-    // Read again, it already carries this chain, so nothing is written.
-    let found = github
-        .github
-        .pull_request(&token, &reference)
+    // It already carries this chain, so nothing is written.
+    let again = write(&github.github, &token, &reference, &why, &public_url())
         .await
-        .expect("reads")
-        .expect("found");
-    let again = write(
-        &github.github,
-        &token,
-        &reference,
-        &found,
-        &why,
-        &public_url(),
-    )
-    .await
-    .expect("written");
+        .expect("written");
     assert_eq!(again, Written::Unchanged);
     let patches = github
         .writes()
@@ -364,24 +350,11 @@ async fn a_public_repository_is_written_what_anyone_may_read() {
         fake::ready_pull_request_node("acme/web", 7, "Annual pricing"),
     );
     let reference = IssueRef::parse("acme/web#7").expect("a reference");
-    let found = github
-        .github
-        .pull_request(&token, &reference)
-        .await
-        .expect("reads")
-        .expect("found");
     let (why, _document) = chain();
 
-    write(
-        &github.github,
-        &token,
-        &reference,
-        &found,
-        &why,
-        &public_url(),
-    )
-    .await
-    .expect("written");
+    write(&github.github, &token, &reference, &why, &public_url())
+        .await
+        .expect("written");
     let stored = github.pull_request_node("acme/web", 7)["body"].to_string();
     assert!(!stored.contains("Weekly sync"), "{stored}");
     assert!(stored.contains("Open in Elysium"), "{stored}");
@@ -395,23 +368,9 @@ async fn a_description_past_githubs_limit_is_left_as_it_is() {
     node["body"] = serde_json::json!("x".repeat(GITHUB_MAX_CHARACTERS - 10));
     github.put_pull_request_node("acme/web", 7, node);
     let reference = IssueRef::parse("acme/web#7").expect("a reference");
-    let found = github
-        .github
-        .pull_request(&token, &reference)
-        .await
-        .expect("reads")
-        .expect("found");
     let (why, _document) = chain();
 
-    let refused = write(
-        &github.github,
-        &token,
-        &reference,
-        &found,
-        &why,
-        &public_url(),
-    )
-    .await;
+    let refused = write(&github.github, &token, &reference, &why, &public_url()).await;
     assert!(
         matches!(refused, Err(DescriptionError::TooLong)),
         "{refused:?}"
@@ -423,4 +382,47 @@ async fn a_description_past_githubs_limit_is_left_as_it_is() {
         .filter(|request| request.path.ends_with("/pulls/7"))
         .count();
     assert_eq!(patches, 0, "nothing was written");
+}
+
+#[tokio::test]
+async fn an_edit_made_after_the_pull_request_was_recorded_is_kept() {
+    let github = FakeGithub::start().await;
+    let token = SecretString::from(fake::TOKEN);
+    let mut node = fake::ready_pull_request_node("acme/web", 7, "Annual pricing");
+    node["body"] = serde_json::json!("Adds annual pricing.");
+    github.put_pull_request_node("acme/web", 7, node.clone());
+    let reference = IssueRef::parse("acme/web#7").expect("a reference");
+    let (why, _document) = chain();
+
+    // Someone edits it between the worker recording it and Elysium writing its chain: the write
+    // reads the description as it is now, so the edit stays.
+    node["body"] = serde_json::json!("Adds annual pricing, and a toggle to show it monthly.");
+    github.put_pull_request_node("acme/web", 7, node);
+    write(&github.github, &token, &reference, &why, &public_url())
+        .await
+        .expect("written");
+    let stored = github.pull_request_node("acme/web", 7)["body"]
+        .as_str()
+        .expect("a description")
+        .to_owned();
+    assert!(
+        stored.starts_with(
+            "Adds annual pricing, and a toggle to show it monthly.\n\n<!-- elysium:why -->"
+        ),
+        "{stored}"
+    );
+}
+
+#[tokio::test]
+async fn a_pull_request_the_token_cannot_see_is_not_written() {
+    let github = FakeGithub::start().await;
+    let token = SecretString::from(fake::TOKEN);
+    let reference = IssueRef::parse("acme/web#7").expect("a reference");
+    let (why, _document) = chain();
+
+    let refused = write(&github.github, &token, &reference, &why, &public_url()).await;
+    assert!(
+        matches!(refused, Err(DescriptionError::NotFound)),
+        "{refused:?}"
+    );
 }

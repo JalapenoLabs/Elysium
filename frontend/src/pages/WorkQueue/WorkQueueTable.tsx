@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { CsvValue, DataTableAction } from '@jalapenolabs/uikit'
-import type { WorkQueueEntry } from '../../api/routes/workQueueRoutes'
+import type { WorkBatchLink, WorkQueueEntry } from '../../api/routes/workQueueRoutes'
 import type { WorkBatchAction } from './workQueuePresentation'
 
 // Core
@@ -27,7 +27,7 @@ import { useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getProjectViewUrl, getWorkBatchViewUrl } from '../../urls'
 import { sourceLabelKey } from '../Projects/timelinePresentation'
-import { chainLinkLabelKeys, chainLinkText } from './chainPresentation'
+import { chainLinkLabelKeys, chainLinkText, isKnownChainLink } from './chainPresentation'
 import {
   batchOriginChipColors,
   batchOriginLabelKeys,
@@ -141,20 +141,22 @@ export function WorkQueueTable(props: Props) {
     const priorityLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchPriorityLabelKeys[entry.priority])
     const stateLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchStateLabelKeys[entry.state])
     const originLabel = (entry: WorkQueueEntry) => projectsTranslation.t(batchOriginLabelKeys[entry.origin])
-    const causeKind = (entry: WorkQueueEntry) => {
-      if (!entry.cause) {
-        return ''
+    // Where a batch's chain starts, when this build knows how to draw it.
+    const causeOf = (entry: WorkQueueEntry) => entry.cause && isKnownChainLink(entry.cause)
+      ? entry.cause
+      : null
+    const causeKind = (cause: WorkBatchLink) => {
+      if (cause.kind === 'record') {
+        return timelineTranslation.t(sourceLabelKey(cause.sourceKind))
       }
-      if (entry.cause.kind === 'record') {
-        return timelineTranslation.t(sourceLabelKey(entry.cause.sourceKind))
-      }
-      return t(chainLinkLabelKeys[entry.cause.kind])
+      return t(chainLinkLabelKeys[cause.kind])
     }
     const causeText = (entry: WorkQueueEntry) => {
-      if (!entry.cause) {
+      const cause = causeOf(entry)
+      if (!cause) {
         return ''
       }
-      return chainLinkText(entry.cause)
+      return chainLinkText(cause)
     }
     // A place in the queue is where it stands in the list the server ordered, counted once.
     const positions = new Map<string, number>()
@@ -202,12 +204,15 @@ export function WorkQueueTable(props: Props) {
       </div>,
       // What the batch's chain starts from, opening where it lives, with what kind of thing it is
       // beneath.
-      cause: (entry: WorkQueueEntry) => entry.cause
-        ? <div className='flex min-w-0 flex-col items-start gap-1 text-sm'>
-          <ChainLinkTitle link={entry.cause} projectId={entry.projectId} />
-          <span className='text-xs opacity-70'>{causeKind(entry)}</span>
-        </div>
-        : <span className='text-sm opacity-70'>{t('table.noCause')}</span>,
+      cause: (entry: WorkQueueEntry) => {
+        const cause = causeOf(entry)
+        return cause
+          ? <div className='flex min-w-0 flex-col items-start gap-1 text-sm'>
+            <ChainLinkTitle link={cause} projectId={entry.projectId} />
+            <span className='text-xs opacity-70'>{causeKind(cause)}</span>
+          </div>
+          : <span className='text-sm opacity-70'>{t('table.noCause')}</span>
+      },
       project: (entry: WorkQueueEntry) => <Link
         href={getProjectViewUrl(entry.projectId)}
         className='text-sm text-inherit no-underline'

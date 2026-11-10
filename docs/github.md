@@ -265,8 +265,10 @@ Merging), through the project's token, the one its workers get. The calls are in
   the branch's protection on the call itself (`405` for a pull request its rules keep from merging), and Elysium asks
   it to bypass nothing. Any answer but `200` with `merged: true` leaves the pull request open with GitHub's message.
 - **The description.** Every pull request a worker records, whoever merges it, has why its batch exists put at the end
-  of its description (`docs/engine.md`, Why a batch exists). Only the body is sent, so its title, base, and head stay
-  as they are; any answer but `200` is told to the worker, who records it again to retry.
+  of its description (`docs/engine.md`, Why a batch exists). The pull request is read again (the one read, above) just
+  before, so the body sent is the one GitHub holds now with the chain added; GitHub has no conditional write of a
+  description. Only the body is sent, so its title, base, and head stay as they are; any answer but `200` is told to
+  the worker, who records it again to retry.
 - **Permissions.** Per GitHub's documentation, not yet observed with a fine-grained token: reading needs Pull requests
   read and Commit statuses read on a fine-grained token (Checks read too for check runs), or `repo` on a classic one;
   merging needs Contents and Pull requests write, or `repo`; writing a description needs Pull requests write, which a

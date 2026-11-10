@@ -692,14 +692,18 @@ page, at the head of its row in the work queue, and in the description of every 
   work queue shows each row's head (the first thing that asked for it, or failing that its first item) without a query
   per row.
 - **In the pull request.** `worker_pull_request` records the pull request first, since that is what lets it merge,
-  then reads the description GitHub holds and puts the chain at its end, between `<!-- elysium:why -->` and
-  `<!-- /elysium:why -->`, each alone on its line, leaving what the worker wrote as it was. Recording it again replaces
-  the chain in place, so a worker puts back a chain an edit removed, and a description already carrying it is not
-  written. A write GitHub refuses is logged and told to the worker, never failing the call.
+  reads the chain and gives its database connection back, then reads the pull request again, so an edit made since and
+  the repository's visibility now are what it composes from, and puts the chain at the end of its description,
+  between `<!-- elysium:why -->` and `<!-- /elysium:why -->`, each alone on its line, leaving what was written as it
+  was. GitHub has no conditional write of a description, so an edit landing in that one round trip is the only one it
+  can lose. Recording it again replaces the chain in place, so a worker puts back a chain an edit removed, and a
+  description already carrying it is not written. A write GitHub refuses is logged and told to the worker, never
+  failing the call.
 - **What it says, by who reads it.** In a private repository (GitHub's `isPrivate`, true of an internal one too) the
   readers are the company, so the chain carries what its page does: titles, a meeting's quote, who wrote a message. In
-  a public one anyone reads it, and nothing ingested leaves the company, so each link says only what it is, with an
-  issue's key and links into Elysium, which answer its members alone.
+  a public one anyone reads it, and nothing ingested leaves the company, so each link says only what kind it is and
+  opens in Elysium, which answers its members alone. Not even an issue's key or address goes out: a key names a
+  private repository or the company's tracker, so an issue opens on the batch's page.
 - **It cannot break a pull request.** Editing a description leaves its head and checks as they are, so a merge
   decision reads nothing new. Every quoted text is a link's text with Markdown's punctuation escaped, so nothing quoted
   becomes Markdown, HTML, a mention, an issue reference, or a closing keyword. The chain is at most 8,000 characters,

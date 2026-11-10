@@ -140,6 +140,16 @@ describe('WorkBatchWhy', () => {
     expect(screen.getAllByRole('listitem')[0].textContent?.startsWith('Slack')).toBe(true)
   })
 
+  it('leaves out a link of a kind this build does not know, and draws the rest', () => {
+    // As an older bundle reads a newer API's answer.
+    const unknown: WorkBatchLink = JSON.parse('{ "kind": "meetingNote", "id": "note-1", "title": "Pricing" }')
+    renderWhy([ unknown, BATCH ])
+
+    const kinds = screen.getAllByRole('listitem').map((item) => item.textContent ?? '')
+    expect(kinds).toHaveLength(1)
+    expect(kinds[0].startsWith('Work batch')).toBe(true)
+  })
+
   it('says when its Project Manager named nothing', () => {
     renderWhy([ BATCH ])
 
