@@ -14,7 +14,10 @@ import vm from 'node:vm'
 
 const source = await readFile(new URL('./teams.js', import.meta.url), 'utf8')
 
-const SUFFIX = 'react-web-client:aaaa-1111:tttt:en-us'
+const TENANT_ID = '5e3ce6c0-0000-4000-8000-000000000001'
+const MY_ID = 'aaaa1111-0000-4000-8000-000000000002'
+// How Teams names its databases: the tenant, then the signed-in person, then the locale.
+const SUFFIX = `react-web-client:${TENANT_ID}:${MY_ID}:en-us`
 
 // The error Chromium throws when a page under Trusted Types hands a parser a string.
 function trustedTypesRefusal(sink) {
@@ -72,11 +75,11 @@ async function evaluate(messages, { hostname = 'teams.cloud.microsoft' } = {}) {
   return JSON.parse(JSON.stringify(answered))
 }
 
-function stored(id, content, messageType = 'RichText/Html') {
+function stored(id, content, messageType = 'RichText/Html', creator = '8:orgid:bbbb-2222') {
   return {
     id,
     originalArrivalTime: new Date(1730000000000 + Number(id)).toISOString(),
-    creator: '8:orgid:bbbb-2222',
+    creator,
     imDisplayName: 'Ada Lovelace',
     messageType,
     content,
@@ -131,6 +134,14 @@ test('a plain text message keeps what it says, even a comparison that looks like
     a: stored('1', 'If 5 < 6 and 7 > 3, ship', 'Text'),
   })
   assert.equal(textOf(answer, '1'), 'If 5 < 6 and 7 > 3, ship')
+})
+
+test('the person is the user the database is named for, not its tenant', async () => {
+  const answer = await evaluate({
+    a: stored('1', '<p>Mine</p>', 'RichText/Html', `https://notifications.skype.net/v1/users/ME/contacts/8:orgid:${MY_ID}`),
+  })
+  assert.equal(answer.me, `8:orgid:${MY_ID}`)
+  assert.equal(answer.messages[0].from, answer.me)
 })
 
 test('a tab on a sign-in page reads nothing', async () => {

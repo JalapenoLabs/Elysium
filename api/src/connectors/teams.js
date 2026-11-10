@@ -7,7 +7,7 @@
 //   { signedIn, found, me, conversations: [...], messages: [...], myThreadIds: [...], databases }
 //
 // New Teams keeps its conversations and their messages in IndexedDB, in databases named
-// `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
+// `Teams:conversation-manager:...:<tenant id>:<user id>:<locale>` and
 // `Teams:replychain-manager:...`. Those records carry each message's id, sender, time, and
 // mentions, and each conversation's read horizon, so reading them answers what is new and what
 // is unread without touching the page. Nothing here clicks, opens a chat, or writes, so reading
@@ -159,8 +159,9 @@
     const conversationStore = await readDatabase(names, 'conversation-manager')
     const replyChainStore = await readDatabase(names, 'replychain-manager')
 
-    // The database name ends in `<user id>:<tenant>:<locale>`; the user's MRI is built from it.
-    const owner = conversationStore.name?.split(':').slice(-3)[0]
+    // The database name ends in `<tenant id>:<user id>:<locale>`; the user's MRI is built from
+    // their id, which their own messages carry as `8:orgid:<user id>`.
+    const owner = conversationStore.name?.split(':').slice(-2)[0]
     const me = owner
       ? `8:orgid:${owner}`
       : null

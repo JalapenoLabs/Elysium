@@ -313,8 +313,8 @@ is on a sign-in page, the read opens Teams in a new tab over DevTools and answer
 loaded. A tab on a sign-in page means the session ended (`signed_out`). Nothing is installed into the organization.
 
 **It reads Teams' own local store, not the page.** New Teams keeps the chats and channels it has loaded in
-IndexedDB, in databases named `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
-`Teams:replychain-manager:...`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
+IndexedDB, in databases named `Teams:conversation-manager:...:<tenant id>:<user id>:<locale>` and
+`Teams:replychain-manager:...`; the person's own messages carry their id as `8:orgid:<user id>`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
 transactions. Those records carry what the rendered page shows only in part, and in markup every redesign changes:
 each message's id, sender, arrival time, and mentions, and each conversation's read horizon. Reading them opens no
 chat, so unread messages stay unread. The store is the web client's own, not a published API, so the script reads its
@@ -352,8 +352,8 @@ The script was checked against `api/src/connectors/fixtures/teams.html`, a page 
 it out and enforces Trusted Types as Teams does, in headless Chromium (`fixtures/evaluate.mjs` runs any page script
 against a fixture). Its answer, `fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are
 tested against the script's real output; `teams.test.mjs` runs the script against a fake store under the same
-restriction in CI. The store's layout (`conversation-manager` and `replychain-manager`, and the fields read from
-them) is the one a signed-in Teams keeps.
+restriction in CI. The store's layout (`conversation-manager` and `replychain-manager`, the fields read from them, and
+where the database name holds the person's id) is the one a signed-in Teams keeps.
 
 ### Slack
 
