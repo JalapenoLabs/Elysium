@@ -444,7 +444,14 @@ async fn load_assignments(
         let (Some(assigned_at), Some(assigned_by)) =
             (item.manager_assigned_at, item.manager_assigned_by)
         else {
-            unreachable!("assigned_among selects assigned items alone");
+            event!(
+                name: "project_managers.assignment.unreadable",
+                Level::WARN,
+                project_id = %project_id,
+                item_id = %item.id,
+                "an item read as assigned to {{project_id}} holds no assignment; its turn leaves it out",
+            );
+            continue;
         };
         assignments.push(PromptAssignment {
             item_id: item.id,

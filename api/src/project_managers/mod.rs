@@ -5,7 +5,8 @@
 //! worker pool. See `docs/engine.md`, Project Managers.
 //!
 //! It is woken by records attributed to its project (a meeting's or a conversation's topics, or a
-//! record a person put there), by the results of its batches, by a person, and by Elysia. Each of
+//! record a person put there), by the results of its batches, by its promises, by action items a
+//! person assigned it to plan, by a person, and by Elysia. Each of
 //! those writes a wake in the transaction that caused it (`crate::models::project_manager`), and
 //! the engine's [`dispatcher`] turns a project's wakes into one turn once they go quiet
 //! ([`queue`]). Every turn resumes the project's one session (`claude -p --resume`), relying on

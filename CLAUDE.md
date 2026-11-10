@@ -542,8 +542,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
 - It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
-  it, a person, and Elysia, each written as a wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time
-  (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
+  it, a person, and Elysia, each written as a wake in the transaction that caused it. Wakes are debounced into one turn
+  per project, one turn at a time (the database refuses a second), and a turn a restart or a usage limit cut short gives
+  them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,

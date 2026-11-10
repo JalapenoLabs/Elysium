@@ -1152,9 +1152,10 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   nothing matches says so while its tags stay to take a filter off. Selecting rows opens the floating selection bar
   (`useActionItemBulkActions`): Change state (Open, Resolved, Dismissed), Change priority, Snooze (the presets, Pick a
   day, or End the snooze), Add to initiative, Remove from initiative, Assign to Project Manager (for the company's
-  members, a warning naming what no project leads), and Delete, at once with Undo; deleted items Restore together. Each is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most
-  `ACTION_ITEM_BULK_MAX_ITEMS`; the answer lands in Redux at once (`actionItemsUpserted`), the toast counts what
-  changed, and a warning that stays names, by title, an item the change was refused for.
+  members, a warning naming what no project leads), and Delete, at once with Undo; deleted items Restore together. Each
+  is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most `ACTION_ITEM_BULK_MAX_ITEMS`; the
+  answer lands in Redux at once (`actionItemsUpserted`), the toast counts what changed, and a warning that stays names,
+  by title, an item the change was refused for.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
   notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the

@@ -166,12 +166,13 @@ A person picks which work is taken on: assigning an item to its lead project's P
 item. Attribution decides where an item belongs; assigning decides it is to be worked. The code is
 `api/src/models/action_item_assignment.rs`.
 
-- **Who assigns.** A person, from the item's page (`PUT /api/v1/action-items/{id}/manager-assignment`) or a selection
-  of the item list (`assign-to-manager` in the bulk route), and only the company's members, who alone see Project
-  Managers. Elysia suggests: an `assign-item` operation in a changeset, with why the item is ready, which the person
-  approves or rejects like any other ([Changesets](#changesets)). Approving it is the person assigning the item: the
-  item records the person as who assigned it, and its history names Elysia's changeset. No coding agent or Project
-  Manager may propose one, since that would be work assigning itself work.
+- **Who assigns.** A person, from the item's page (`PUT /api/v1/action-items/{id}/manager-assignment`) or a selection of
+  the item list (`assign-to-manager` in the bulk route), and only the company's members, who alone see Project Managers.
+  The model holds this too (`require_member`), so a guest approving Elysia's suggestion, or undoing it, is refused like
+  one calling the route. Elysia suggests: an `assign-item` operation in a changeset, with why the item is ready, which
+  the person approves or rejects like any other ([Changesets](#changesets)). Approving it is the person assigning the
+  item: the item records the person as who assigned it, and its history names Elysia's changeset. No coding agent or
+  Project Manager may propose one, since that would be work assigning itself work.
 - **To its lead's Project Manager.** Only the lead project's Project Manager may submit work for an item, so an item is
   assigned to that one and no other, and the assignment names no project of its own
   (`action_items.manager_assigned_at` and `manager_assigned_by`). An item no project leads cannot be assigned, and its
@@ -180,14 +181,15 @@ item. Attribution decides where an item belongs; assigning decides it is to be w
 - **What it starts.** The assignment writes an `assignment` wake for the lead project's Project Manager in the same
   transaction, naming the item and the person (`docs/engine.md`, Project Managers). Its next turn reads the item, its
   notes, its links, and who assigned it, and plans it into the batch or batches it needs, or says in its reply why it
-  cannot yet. It starts no worker: every batch it plans is proposed, for the person to approve (`docs/engine.md`,
+  cannot yet; an item resolved or dismissed before that turn runs is left out of it. It starts no worker: every batch it plans is proposed, for the person to approve (`docs/engine.md`,
   Proposed batches). A batch planned for the item is human-rooted, through the item, since its history says a person
   assigned it (`docs/engine.md`, Origins and generations).
 - **When it ends.** A person takes the item back (`DELETE .../manager-assignment`), which drops the wake if no turn has
   taken it; what the Project Manager already planned stays, each batch the person's to decide. Moving the item's lead
   to another project, or taking it out of its last one, ends the assignment too, recorded as `manager_unassigned` with
   `leadMoved`: nobody asked the new lead's Project Manager to plan it, so the person assigns it again if they want it
-  planned there. Undoing the lead's move does not bring the assignment back.
+  planned there. Undoing the lead's move does not bring the assignment back. Deleting the item ends it as well, so a
+  restored item is not shown as planned when nothing planned it.
 - **Where its plan stands.** `GET .../manager-assignment` answers, while the item is assigned, the lead project, who
   assigned it and when, the stage (`waiting` for its Project Manager's next turn, `planning` while that turn runs,
   `planned` once it finished, or `failed`), the turn that took it, and the lead project's latest ten batches naming the
@@ -215,7 +217,7 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
 | `manager_assigned`   | `{ projectId }`: a person assigned the item to that project's Project Manager, its lead then |
-| `manager_unassigned` | `{ projectId }`, and `leadMoved` when it ended because the lead moved to another project |
+| `manager_unassigned` | `{ projectId }`, null for an assignment a stray delete left without a lead, and `leadMoved` when it ended because the lead moved to another project |
 
 An entry that undoes another, from the item's history, also names it (`undid`). Kinds and actors are stored as text
 rather than enums, so later stages add kinds without an enum migration. Only a
@@ -599,7 +601,7 @@ and the history entries the undo records name the changeset too:
 | Add to or remove from an initiative | Reverses the membership, if the operation changed it                |
 | Create an initiative | Deletes it softly                                                                  |
 | File an issue        | Drops the filing, or once it was filed, removes the link to the issue              |
-| Assign an item       | Takes it back from its Project Manager, if the assignment it made still stands     |
+| Assign an item       | Takes it back from its Project Manager, if the assignment it made still stands; an inbox item it accepted stays open |
 
 What undo cannot reverse, and says so on the operation (`undo`) for the review to show:
 

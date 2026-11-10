@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use super::timeline;
 use crate::database::schema::{action_items, project_manager_wakes};
+use crate::models::action_item::ActionItemState;
 use crate::models::project_manager::WakeKind;
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::approval::Edits;
@@ -337,7 +338,8 @@ fn refusal_words(refusal: &Refusal) -> String {
 }
 
 /// Refuses a submission naming a record not attributed to its project, an action item that is
-/// deleted or that another project leads, or a message that was not sent to its Project Manager.
+/// deleted, resolved, or dismissed or that another project leads, or a message that was not sent to
+/// its Project Manager.
 async fn refuse_unknown_provenance(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -358,16 +360,29 @@ async fn refuse_unknown_provenance(
         }
     }
     if !submission.action_item_ids.is_empty() {
-        let leads: HashMap<Uuid, Option<Uuid>> = action_items::table
+        let items: HashMap<Uuid, (Option<Uuid>, ActionItemState)> = action_items::table
             .filter(action_items::id.eq_any(&submission.action_item_ids))
             .filter(action_items::deleted_at.is_null())
-            .select((action_items::id, action_items::lead_project_id))
-            .load::<(Uuid, Option<Uuid>)>(connection)
+            .select((
+                action_items::id,
+                action_items::lead_project_id,
+                action_items::state,
+            ))
+            .load::<(Uuid, Option<Uuid>, ActionItemState)>(connection)
             .await?
             .into_iter()
+            .map(|(id, lead, state)| (id, (lead, state)))
             .collect();
         for item_id in &submission.action_item_ids {
-            let lead = leads.get(item_id).copied().flatten();
+            let (lead, state) = items.get(item_id).copied().unzip();
+            let lead = lead.flatten();
+            // Finished work is not planned: a person reopens an item before more is done for it.
+            if let Some(ActionItemState::Resolved | ActionItemState::Dismissed) = state {
+                return Err(BatchError::Refused(format!(
+                    "action item {item_id} is finished; a person reopens it before more work is \
+                     planned for it, so leave it out or say in your reply what it still needs"
+                )));
+            }
             if lead == Some(project_id) {
                 continue;
             }

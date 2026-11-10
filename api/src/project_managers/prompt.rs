@@ -7,9 +7,9 @@
 //! names the docs linked to it, says how its changes reach the work and where its issues file
 //! ([`Writes`]), and carries everything that woke it: the messages, the action items a person
 //! assigned it, the records newly on its timeline, the batches that finished, and the promises
-//! found on its project or whose work finished. Every turn also carries each promise still owed a follow-up, woken for or not, so a
-//! turn that failed never strands one. It is a plain function of its inputs, so it is tested
-//! without a runner.
+//! found on its project or whose work finished. Every turn also carries each promise still owed a
+//! follow-up, woken for or not, so a turn that failed never strands one. It is a plain function of
+//! its inputs, so it is tested without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under

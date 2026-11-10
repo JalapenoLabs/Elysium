@@ -393,6 +393,51 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_an_item_takes_it_from_its_project_manager() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let item = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+
+    let deleted = action_item::soft_delete(&mut connection, item, TEST_PERSON, Utc::now())
+        .await
+        .expect("deleted");
+    assert_eq!(deleted.record.manager_assigned_at, None);
+    assert_eq!(
+        deleted
+            .history
+            .iter()
+            .map(|entry| entry.kind.as_str())
+            .collect::<Vec<_>>(),
+        ["deleted", "manager_unassigned"]
+    );
+    assert!(
+        waiting_assignments(&mut connection, launch)
+            .await
+            .is_empty()
+    );
+
+    let restored = action_item::restore(&mut connection, item, TEST_PERSON, Utc::now())
+        .await
+        .expect("restored");
+    assert_eq!(
+        plan(&mut connection, &restored.record)
+            .await
+            .expect("reads"),
+        None,
+        "nothing planned it, and it no longer says it is"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_turn_plans_only_what_is_still_assigned_to_its_project() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
@@ -408,17 +453,38 @@ async fn a_turn_plans_only_what_is_still_assigned_to_its_project() {
         .await
         .expect("assigned");
     }
-    action_item::soft_delete(&mut connection, deleted, TEST_PERSON, Utc::now())
+    diesel::update(action_items::table.find(deleted))
+        .set(action_items::deleted_at.eq(Utc::now()))
+        .execute(&mut connection)
         .await
-        .expect("deleted");
+        .expect("deleted without ending the assignment");
 
-    let assigned: Vec<Uuid> = assigned_among(&mut connection, launch, &[kept, deleted])
+    let resolved = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        resolved,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+    action_item::transition(
+        &mut connection,
+        resolved,
+        Transition::Resolve,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("resolved before the turn ran");
+
+    let assigned: Vec<Uuid> = assigned_among(&mut connection, launch, &[kept, deleted, resolved])
         .await
         .expect("reads")
         .into_iter()
         .map(|item| item.id)
         .collect();
-    assert_eq!(assigned, [kept]);
+    assert_eq!(assigned, [kept], "finished work is not planned");
     let elsewhere = project_named(&mut connection, "Website").await;
     assert!(
         assigned_among(&mut connection, elsewhere, &[kept])
@@ -439,4 +505,102 @@ async fn the_database_holds_an_assignment_whole() {
         .execute(&mut connection)
         .await;
     assert!(refused.is_err(), "an assignment names who assigned it");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn only_the_company_members_assign_or_take_back() {
+    let (_url, mut connection) = migrated_database().await;
+    let guest = Uuid::now_v7();
+    diesel::sql_query(
+        "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+         VALUES ($1, $2, 'guest@example.com', 'Guest', 'guest', 'active', now())",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(guest)
+    .bind::<diesel::sql_types::Uuid, _>(Uuid::now_v7())
+    .execute(&mut connection)
+    .await
+    .expect("a guest");
+    let launch = project_named(&mut connection, "Launch").await;
+    let item = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+
+    // A guest accepting Elysia's suggestion assigns nothing, as the routes refuse them.
+    let suggested = Assigner {
+        actor: Actor::Elysia,
+        person: guest,
+    };
+    let refused = assign(&mut connection, item, suggested, Utc::now())
+        .await
+        .expect_err("a guest");
+    assert!(matches!(refused, WorkError::Refused(_)));
+    assert!(
+        waiting_assignments(&mut connection, launch)
+            .await
+            .is_empty()
+    );
+
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("a member assigns");
+    let refused = unassign(&mut connection, item, Actor::User(guest), Utc::now())
+        .await
+        .expect_err("a guest");
+    assert!(matches!(refused, WorkError::Refused(_)));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_the_lead_project_ends_the_assignment_and_a_stray_one_is_taken_back() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let item = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+
+    // Deleting a project takes its items out first, which moves their lead and ends this.
+    action_item::remove_all_from_project(&mut connection, launch, TEST_PERSON, Utc::now())
+        .await
+        .expect("taken out");
+    let left = action_item::find(&mut connection, item)
+        .await
+        .expect("an item");
+    assert_eq!(left.manager_assigned_at, None);
+    assert!(
+        kinds(&mut connection, item)
+            .await
+            .contains(&"manager_unassigned".to_owned())
+    );
+
+    // An assignment a stray delete left without a lead is still taken back.
+    let website = project_named(&mut connection, "Website").await;
+    let stray = item_in(&mut connection, vec![website], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        stray,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+    diesel::update(action_items::table.find(stray))
+        .set(action_items::lead_project_id.eq(None::<Uuid>))
+        .execute(&mut connection)
+        .await
+        .expect("a stray lead");
+    let taken_back = unassign(&mut connection, stray, TEST_PERSON, Utc::now())
+        .await
+        .expect("taken back");
+    assert_eq!(taken_back.record.manager_assigned_at, None);
+    assert_eq!(taken_back.history[0].data, json!({ "projectId": null }));
 }

@@ -1568,12 +1568,12 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 
 ### `project_manager_wakes`
 
-What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
-NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
+What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is NULL;
+a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
 `project_manager_wakes_record_waits_once` keeps one waiting wake per record and project,
-`project_manager_wakes_promise_waits_once` one per promise and project, and `project_manager_wakes_assignment_waits_once`
-one per assigned item and project. `project_manager_wakes_by_action_item` finds an item's newest assignment, for where
-its plan stands.
+`project_manager_wakes_promise_waits_once` one per promise and project, and
+`project_manager_wakes_assignment_waits_once` one per assigned item and project. `project_manager_wakes_by_action_item`
+finds an item's newest assignment, for where its plan stands.
 
 | Column               | Type                        | Notes                                                       |
 |----------------------|-----------------------------|-------------------------------------------------------------|

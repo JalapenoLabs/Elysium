@@ -999,27 +999,38 @@ pub async fn soft_delete(
 ) -> Result<Recorded<ActionItem>, WorkError> {
     connection
         .transaction(async move |connection| {
-            lock_live(connection, id).await?;
+            let item = lock_live(connection, id).await?;
+            // A deleted item is no Project Manager's to plan, so its assignment ends with it.
             let record = diesel::update(action_items::table.find(id))
-                .set(action_items::deleted_at.eq(now))
+                .set((
+                    action_items::deleted_at.eq(now),
+                    action_items::manager_assigned_at.eq(None::<DateTime<Utc>>),
+                    action_items::manager_assigned_by.eq(None::<Uuid>),
+                ))
                 .returning(ActionItem::as_returning())
                 .get_result(connection)
                 .await?;
-            let entry = action_item_event::record(
-                connection,
-                Change {
-                    subject: Subject::Item(id),
-                    kind: HistoryKind::Deleted,
-                    actor,
-                    data: json!({}),
-                    at: now,
-                },
-            )
-            .await?;
-            Ok(Recorded {
-                record,
-                history: vec![entry],
-            })
+            let mut history = vec![
+                action_item_event::record(
+                    connection,
+                    Change {
+                        subject: Subject::Item(id),
+                        kind: HistoryKind::Deleted,
+                        actor,
+                        data: json!({}),
+                        at: now,
+                    },
+                )
+                .await?,
+            ];
+            if item.manager_assigned_at.is_some() {
+                let ending = action_item_assignment::Ending::TakenBack;
+                history.push(
+                    action_item_assignment::record_end(connection, &item, actor, ending, now)
+                        .await?,
+                );
+            }
+            Ok(Recorded { record, history })
         })
         .await
 }
@@ -1246,10 +1257,10 @@ pub async fn move_lead(
         )
         .await?,
     ];
-    if let (Some(_), Some(from)) = (item.manager_assigned_at, item.lead_project_id) {
-        history.push(
-            action_item_assignment::ended_by_lead_move(connection, item, from, actor, now).await?,
-        );
+    if item.manager_assigned_at.is_some() {
+        let ending = action_item_assignment::Ending::LeadMoved;
+        history
+            .push(action_item_assignment::record_end(connection, item, actor, ending, now).await?);
     }
     Ok(Recorded { record, history })
 }

@@ -456,9 +456,9 @@ trackers (Its writes, below), and its tabs on the project's page.
   - **an assignment**: an action item its project leads that a person assigned it to plan, themselves or by accepting
     Elysia's suggestion (`crate::models::action_item_assignment`, `docs/action-items.md`, Assigning to a Project
     Manager). The wake names the item, and the person as who woke it. An item waits once however often it is assigned
-    meanwhile; taking it back, or its lead moving, drops a wake no turn has taken, and a turn leaves out an item no longer
-    assigned to its project. It is its own kind rather than a message, so the Project Manager is told what the person
-    chose without words they never wrote.
+    meanwhile; taking it back, or its lead moving, drops a wake no turn has taken, and a turn leaves out an item no
+    longer assigned to its project. It is its own kind rather than a message, so the Project Manager is told what the
+    person chose without words they never wrote.
 
   Linking a page to its project wakes nothing, since nothing has to happen because of a link and a wake spends a turn:
   every turn's prompt names the project's docs, so the next turn finds it, and a person who wants it read says so.
@@ -567,7 +567,8 @@ A batch (`work_batches`) is one piece of work for one worker: a title, a goal wr
 else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
 rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
 provenance: the turn that submitted it, the timeline records and the messages to its Project Manager that called for
-it, each checked to be on its project, and the action items it works on, each checked to be led by its project. An item
+it, each checked to be on its project, and the action items it works on, each checked to be led by its project and
+still in the inbox or open, since a person reopens a finished item before more work is planned for it. An item
 can sit on several projects, but only its lead project's Project Manager works it (`docs/action-items.md`, Projects and
 the lead), so a batch naming an item another project leads is refused, telling the Project Manager which project leads
 it and that a person can move the lead. From its provenance come its origin and generation (Origins and generations,

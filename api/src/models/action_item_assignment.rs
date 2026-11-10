@@ -17,8 +17,9 @@
 //! Only the lead project's Project Manager may submit work for an item, so an item is assigned to
 //! that one and no other, and the assignment names no project of its own. An item with no lead
 //! cannot be assigned. When the lead moves to another project, the assignment ends
-//! ([`ended_by_lead_move`]), since nobody asked the new lead's Project Manager to plan it, and its
-//! wake, if it still waits, goes with it.
+//! ([`record_end`]), since nobody asked the new lead's Project Manager to plan it, and its wake, if
+//! it still waits, goes with it. Deleting the item ends it too, so a restored item is not read as
+//! planned when nothing planned it.
 //!
 //! # Where its plan stands
 //!
@@ -41,6 +42,7 @@ use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject,
 };
 use crate::models::project_manager::{self, TurnStatus, WakeKind};
+use crate::models::user;
 use crate::models::work_batch::BatchState;
 
 /// How many of the batches naming an item its plan lists, newest first. An item is one
@@ -72,7 +74,8 @@ impl Assigner {
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`] for a
-/// deleted, resolved, or dismissed one, or one that no project leads, and any other database error.
+/// deleted, resolved, or dismissed one, or one that no project leads, [`WorkError::Refused`] when
+/// the person is not one of the company's members, and any other database error.
 pub async fn assign(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -81,6 +84,7 @@ pub async fn assign(
 ) -> Result<Recorded<ActionItem>, WorkError> {
     connection
         .transaction(async move |connection| {
+            require_member(connection, assigner.person).await?;
             let item = action_item::lock_live(connection, id).await?;
             if matches!(
                 item.state,
@@ -144,13 +148,17 @@ pub async fn assign(
         .await
 }
 
-/// Ends live item `id`'s assignment to its lead project's Project Manager, as `actor`. A wake for
-/// it no turn has taken yet goes too; batches already planned for it stay, each a person's to
-/// decide. Unassigning an item that is not assigned changes nothing.
+/// Ends live item `id`'s assignment to its lead project's Project Manager, as `actor`, a person. A
+/// wake for it no turn has taken yet goes too; batches already planned for it stay, each a person's
+/// to decide. Unassigning an item that is not assigned changes nothing.
+///
+/// An assignment always has a lead while Elysium moves leads itself (`action_item::move_lead`
+/// ends it), but one a stray delete left without a lead is still cleared here.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`] for a
-/// deleted one, and any other database error.
+/// deleted one, [`WorkError::Refused`] when `actor` is not one of the company's members, and any
+/// other database error.
 pub async fn unassign(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -159,14 +167,14 @@ pub async fn unassign(
 ) -> Result<Recorded<ActionItem>, WorkError> {
     connection
         .transaction(async move |connection| {
+            require_member(connection, actor.user_id()).await?;
             let item = action_item::lock_live(connection, id).await?;
-            let (Some(_), Some(lead_project_id)) = (item.manager_assigned_at, item.lead_project_id)
-            else {
+            if item.manager_assigned_at.is_none() {
                 return Ok(Recorded {
                     record: item,
                     history: Vec::new(),
                 });
-            };
+            }
             let record = diesel::update(action_items::table.find(id))
                 .set((
                     action_items::manager_assigned_at.eq(None::<DateTime<Utc>>),
@@ -175,7 +183,7 @@ pub async fn unassign(
                 .returning(ActionItem::as_returning())
                 .get_result(connection)
                 .await?;
-            let entry = ended(connection, &item, lead_project_id, actor, false, now).await?;
+            let entry = record_end(connection, &item, actor, Ending::TakenBack, now).await?;
             Ok(Recorded {
                 record,
                 history: vec![entry],
@@ -184,30 +192,42 @@ pub async fn unassign(
         .await
 }
 
-/// Records that the locked `item`'s assignment ended because its lead moved off `from`, and drops
-/// the wake `from`'s Project Manager has not taken yet. The caller clears the assignment in the
-/// update that moves the lead. Call it inside the transaction that moves the lead.
+/// Refuses `user_id` unless they are one of the company's members: a Project Manager's turns quote
+/// what was ingested, so only members see Project Managers or give them work. The routes check
+/// their caller as well; this also holds a changeset's decider, since its routes take any person.
+async fn require_member(
+    connection: &mut AsyncPgConnection,
+    user_id: Uuid,
+) -> Result<(), WorkError> {
+    if user::find(connection, user_id).await?.is_company_member() {
+        return Ok(());
+    }
+    Err(WorkError::Refused(
+        "only the company's members assign items to Project Managers or take them back".to_owned(),
+    ))
+}
+
+/// Why an assignment ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ending {
+    /// A person took the item back, or deleted it, which takes it from its Project Manager too.
+    TakenBack,
+    /// The lead moved to another project, or to none, whose Project Manager nobody assigned it to.
+    LeadMoved,
+}
+
+/// Records, as `actor`, the end of the locked `item`'s assignment to the Project Manager of the
+/// project that led it as it was read, or to none when its lead was already gone, and drops the wake
+/// no turn has taken yet. The caller clears the assignment in the update that ends it. Call it
+/// inside that transaction.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn ended_by_lead_move(
+pub async fn record_end(
     connection: &mut AsyncPgConnection,
     item: &ActionItem,
-    from: Uuid,
     actor: Actor,
-    now: DateTime<Utc>,
-) -> QueryResult<HistoryEntry> {
-    ended(connection, item, from, actor, true, now).await
-}
-
-/// Records the end of `item`'s assignment to `project_id`'s Project Manager and drops its wake
-/// while no turn has taken it.
-async fn ended(
-    connection: &mut AsyncPgConnection,
-    item: &ActionItem,
-    project_id: Uuid,
-    actor: Actor,
-    lead_moved: bool,
+    because: Ending,
     now: DateTime<Utc>,
 ) -> QueryResult<HistoryEntry> {
     diesel::delete(
@@ -218,8 +238,8 @@ async fn ended(
     )
     .execute(connection)
     .await?;
-    let mut data = json!({ "projectId": project_id });
-    if lead_moved {
+    let mut data = json!({ "projectId": item.lead_project_id });
+    if because == Ending::LeadMoved {
         data["leadMoved"] = json!(true);
     }
     action_item_event::record(
@@ -316,7 +336,11 @@ pub async fn plan(
         .filter(project_manager_wakes::kind.eq(WakeKind::Assignment))
         .filter(project_manager_wakes::action_item_id.eq(item.id))
         .filter(project_manager_wakes::project_id.eq(project_id))
-        .order(project_manager_wakes::created_at.desc())
+        // UUIDv7 ids break a tie between wakes written in one transaction, which share `now()`.
+        .order((
+            project_manager_wakes::created_at.desc(),
+            project_manager_wakes::id.desc(),
+        ))
         .select((
             project_manager_wakes::turn_id,
             project_manager_turns::status.nullable(),
@@ -351,8 +375,9 @@ pub async fn plan(
     }))
 }
 
-/// Which of `item_ids` are assigned to `project_id`'s Project Manager now: still live and led by
-/// the project. A turn leaves out an assignment that ended, or moved with the lead, before it ran.
+/// Which of `item_ids` are assigned to `project_id`'s Project Manager now: live, in the inbox or
+/// open, and led by the project. A turn leaves out an assignment that ended, moved with the lead,
+/// or whose item was resolved or dismissed before it ran: finished work is not planned.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -369,6 +394,7 @@ pub async fn assigned_among(
         .filter(action_items::lead_project_id.eq(project_id))
         .filter(action_items::manager_assigned_at.is_not_null())
         .filter(action_items::deleted_at.is_null())
+        .filter(action_items::state.eq_any([ActionItemState::Inbox, ActionItemState::Open]))
         .order(action_items::manager_assigned_at.asc())
         .select(ActionItem::as_select())
         .load(connection)

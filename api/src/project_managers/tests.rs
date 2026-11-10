@@ -17,10 +17,10 @@ use super::batches::{self, BatchError, Submission};
 use super::dispatcher::{self, DispatchContext};
 use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
-use crate::action_items::Actor;
 use crate::action_items::changesets::{
     AssignItem, Existing, LinkReads, Operation, Proposal, ProposedOperation, Proposer, Target,
 };
+use crate::action_items::{Actor, Transition};
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
@@ -669,6 +669,36 @@ async fn only_the_lead_projects_project_manager_submits_a_batch_for_an_item() {
     };
     assert!(reason.contains("not one sent to this project's Project Manager"));
 
+    // Finished work is not planned until a person reopens it.
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Resolve,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("resolved");
+    let refused = batches::submit(&mut connection, &events, other, turn.id, for_item.clone())
+        .await
+        .expect_err("a resolved item");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    assert!(
+        reason.contains("is finished; a person reopens it"),
+        "{reason}"
+    );
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Reopen,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("reopened");
+
     let batch = batches::submit(&mut connection, &events, other, turn.id, for_item)
         .await
         .expect("submitted");
@@ -1219,13 +1249,14 @@ async fn an_assigned_item_is_planned_in_one_turn_and_nothing_stale_is_named() {
         .expect("assigned");
         items.push(item);
     }
-    // One is deleted before the turn runs: no longer the Project Manager's to plan.
+    // One is deleted before the turn runs, which ends its assignment and drops its wake: no longer
+    // the Project Manager's to plan.
     action_item::soft_delete(&mut connection, items[1], TEST_PERSON, Utc::now())
         .await
         .expect("deleted");
     assert_eq!(
         waiting_kinds(&mut connection, launch).await,
-        [WakeKind::Assignment, WakeKind::Assignment]
+        [WakeKind::Assignment]
     );
 
     // Assignments wait like records, so a selection is one turn.
