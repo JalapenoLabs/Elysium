@@ -318,8 +318,8 @@ is on a sign-in page, the read opens Teams in a new tab over DevTools and answer
 loaded. A tab on a sign-in page means the session ended (`signed_out`). Nothing is installed into the organization.
 
 **It reads Teams' own local store, not the page.** New Teams keeps the chats and channels it has loaded in
-IndexedDB, in databases named `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
-`Teams:replychain-manager:...`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
+IndexedDB, in databases named `Teams:conversation-manager:...:<tenant id>:<user id>:<locale>` and
+`Teams:replychain-manager:...`; the person's own messages carry their id as `8:orgid:<user id>`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
 transactions. Those records carry what the rendered page shows only in part, and in markup every redesign changes:
 each message's id, sender, arrival time, and mentions, and each conversation's read horizon. Reading them opens no
 chat, so unread messages stay unread. The store is the web client's own, not a published API, so the script reads its
@@ -341,15 +341,24 @@ mean:
   a channel thread the person wrote in. Other channel messages are recorded without raising anything, and the person's
   own messages are recorded too. System events (members added, calls) are not recorded.
 - **Each record** is titled with its conversation (a channel's or group's topic, or for a chat without one, who else
-  wrote in it), comes from its sender, holds the message as plain text (the browser parses its HTML), and links to it
-  with Teams' documented message link, `https://teams.microsoft.com/l/message/<conversation>/<message>`. Its
-  `metadata` keeps where it was said (`conversationId`, `messageId`, `parentId` for a message in a thread, and
-  `isChat`), which a reply to it needs.
+  wrote in it), comes from its sender, holds the message as plain text, and links to it with Teams' documented message
+  link, `https://teams.microsoft.com/l/message/<conversation>/<message>`. Its `metadata` keeps where it was said
+  (`conversationId`, `messageId`, `parentId` for a message in a thread, and `isChat`), which a reply to it needs.
+
+**Message text is read off the markup, never parsed.** Teams enforces Trusted Types (`require-trusted-types-for
+'script'`), and its `trusted-types` directive lists every policy it allows by name, none of them Elysium's, so the page
+refuses any string handed to an HTML parser (`DOMParser`, `innerHTML`, a template). The script drops each tag instead,
+leaving a space for one that ends a line (a paragraph, a break, a list item, a quote, a table cell) so the words on
+either side stay apart, and then decodes character references: the five that HTML's serializer writes (`&amp;`, `&lt;`,
+`&gt;`, `&quot;`, `&nbsp;`), `&apos;`, and numeric ones. Decoding after the tags are gone keeps escaped markup as text.
+Over every message a signed-in Teams had stored, this reads the same words as the browser's own parser.
 
 The script was checked against `api/src/connectors/fixtures/teams.html`, a page that seeds IndexedDB the way Teams lays
-it out, in headless Chromium (`fixtures/evaluate.mjs` runs any page script against a fixture). Its answer,
-`fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are tested against the script's real
-output. Neither has yet read a signed-in Teams.
+it out and enforces Trusted Types as Teams does, in headless Chromium (`fixtures/evaluate.mjs` runs any page script
+against a fixture). Its answer, `fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are
+tested against the script's real output; `teams.test.mjs` runs the script against a fake store under the same
+restriction in CI. The store's layout (`conversation-manager` and `replychain-manager`, the fields read from them, and
+where the database name holds the person's id) is the one a signed-in Teams keeps.
 
 ### Slack
 
@@ -631,9 +640,9 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
 - Slack: confirming `client.counts` and the threads view against a signed-in Slack, and an Enterprise Grid org,
   whose workspaces the web client may keep differently in `localConfig_v2`.
-- Teams: confirming the store's layout against a signed-in Teams, and how much of it Teams keeps. The connector reads
-  only what Teams has stored; if Teams stores a channel's messages only after showing that channel, a channel never
-  opened in that browser is not read. Not yet confirmed either way.
+- Teams: how much of its store Teams keeps. The connector reads only what Teams has stored; if Teams stores a channel's
+  messages only after showing that channel, a channel never opened in that browser is not read. Not yet confirmed
+  either way.
 - YouTrack issues in the link picker, and YouTrack containers for initiatives.
 - YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - Keeping a token account's `identity` and `checked_at` current from its checks.

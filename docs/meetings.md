@@ -28,13 +28,16 @@ in `for_kind`; the meetings page and the loop pick it up unchanged.
 
 | Source    | Signs in with                                  | Reads                                                    |
 |-----------|------------------------------------------------|----------------------------------------------------------|
-| Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, video or audio |
+| Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
 
-A Fireflies key reads what its own user can see. Recordings need a Pro plan or higher, and video needs the "record
-meeting video" setting in Fireflies; without them a meeting is processed from its transcript alone and its segments
-carry no clip. Recording addresses expire after a day, so each is asked for right before its download. Fireflies
-allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each meeting once stays far
-inside that.
+A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
+recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
+in Fireflies. On the free plan Fireflies answers the second call with its `paid_required` error code, which Elysium
+reads as a meeting without a recording, logging `meetings.fireflies.recording.paid_plan_required` with the plan tier
+Fireflies names: the meeting is processed from its transcript alone and its segments carry no clip. Any refusal of
+the sentences still fails the fetch. Recording addresses expire after a day, so each is asked for right before its
+download. Fireflies allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each
+meeting once, in two calls, stays far inside that.
 
 A sentence's start and end are read as seconds, sent either as a number or a numeric string. That is checked against
 the documented schema and a fixture, not yet against a live account.
@@ -110,7 +113,9 @@ no step of its own.
 
 - It fetches the transcript and a fresh recording address from the source, downloads the recording into the
   workspace, and uploads it to the connector's storage location at `meetings/<id>/recording.<ext>`. Without a
-  recording, or with nowhere to keep it, the meeting goes on from its transcript alone, and the log says which.
+  recording, or with nowhere to keep it, the meeting goes on from its transcript alone, and the log says which. A
+  source whose plan keeps no recording, such as Fireflies' free plan, offers none, so its meetings are fetched from
+  their transcripts alone rather than failing.
 - The transcript is stored as the source sent it, with its SHA-256 (`meetings.transcript_hash`, the hash of its JSON as
   stored), in one write that only a meeting never fetched takes. Its connector shows as syncing meanwhile.
 - A meeting is fetched once. Running the step again for the same meeting, a retried attempt or a later run, fetches
