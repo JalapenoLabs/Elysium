@@ -21,14 +21,6 @@ window.matchMedia = (query: string) => ({
   dispatchEvent: () => false,
 })
 
-// jsdom lays nothing out, so it leaves `elementFromPoint` unimplemented. `input-otp` (HeroUI's
-// InputOTP, our AuthenticatorCodeInput) calls it from timers 0, 2, and 5 seconds after the field
-// is focused, hit-testing the field's right edge for a password manager's badge. Without it each
-// timer throws outside any test, and Vitest fails the run though every test passed. Nothing sits
-// at any point of an unlaid page, so the answer is null. `input-otp` reads that as a badge and
-// widens the field, which is harmless here. AuthenticatorCodeInput.test.tsx guards it.
-document.elementFromPoint = () => null
-
 // Testing Library only unmounts on its own when test globals are enabled; they are not.
 afterEach(() => {
   cleanup()
