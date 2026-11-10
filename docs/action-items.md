@@ -375,8 +375,9 @@ the two never loses one:
   one.
 - Writing a comment on an item, by the user or an agent, owes it to the item's primary link. An item with no primary
   link owes nothing, including one whose own issue is still being filed.
-- Applying a changeset's `file-issue` owes the item its own issue (`action_item_issue_filings`): the watcher opens it in
-  the tracker the operation names, with the item's title and notes, and links it as the item's primary, keeping the
+- Applying a changeset's `file-issue`, or a person accepting a finding (`docs/engine.md`, Findings), owes the item its
+  own issue (`action_item_issue_filings`): the watcher opens it in the tracker the operation or the project names, as
+  whoever owed it, with the item's title and notes, and links it as the item's primary, keeping the
   item's owner, since nobody is assigned a new issue yet; the owner follows the issue's assignee from the first change
   the watcher reads. An item is filed
   once at a time, and one already following an issue is refused. A filing records each attempt as it begins, and an

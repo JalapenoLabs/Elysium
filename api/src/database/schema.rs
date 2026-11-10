@@ -70,6 +70,14 @@ pub mod sql_types {
     pub struct ElysiaWorkStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "finding_cost"))]
+    pub struct FindingCost;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "finding_state"))]
+    pub struct FindingState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "github_access"))]
     pub struct GithubAccess;
 
@@ -795,6 +803,35 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::FindingCost;
+    use super::sql_types::FindingState;
+
+    findings (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        fingerprint -> Text,
+        title -> Text,
+        detail -> Text,
+        repository_url -> Nullable<Text>,
+        location -> Text,
+        cost -> FindingCost,
+        state -> FindingState,
+        work_batch_id -> Nullable<Uuid>,
+        project_manager_turn_id -> Nullable<Uuid>,
+        reports -> Int4,
+        last_reported_at -> Timestamptz,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        dismissal_reason -> Nullable<Text>,
+        action_item_id -> Nullable<Uuid>,
+        accepted_batch_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 
@@ -1980,6 +2017,9 @@ diesel::joinable!(elysia_turns -> users (created_by));
 diesel::joinable!(elysia_work -> action_items (action_item_id));
 diesel::joinable!(elysia_work -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
+diesel::joinable!(findings -> action_items (action_item_id));
+diesel::joinable!(findings -> project_manager_turns (project_manager_turn_id));
+diesel::joinable!(findings -> projects (project_id));
 diesel::joinable!(github_credentials -> users (created_by));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
 diesel::joinable!(initiative_items -> initiative_links (via_link_id));
@@ -2142,6 +2182,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     elysia_turns,
     elysia_work,
     environment_variables,
+    findings,
     github_credentials,
     initiative_items,
     initiative_links,

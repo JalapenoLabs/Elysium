@@ -3,8 +3,9 @@
 //! `/api/v1/projects`: what coding sessions are grouped under, the models a project's own agents
 //! run on (`/{id}/model-settings`, `docs/engine.md`, Models), its Project Manager
 //! (`/{id}/project-manager`, [`project_manager`]), how its workers' containers are readied
-//! (`/{id}/worker-setup`, `docs/engine.md`, Workers), and the knowledge base pages linked to it
-//! (`/{id}/pages`, `docs/knowledge.md`, Pages).
+//! (`/{id}/worker-setup`, `docs/engine.md`, Workers), the knowledge base pages linked to it
+//! (`/{id}/pages`, `docs/knowledge.md`, Pages), and its open findings (`/{id}/findings`,
+//! `crate::routes::v1::findings`).
 
 mod create_project;
 mod delete_cover;
@@ -33,6 +34,7 @@ use validator::ValidationError;
 
 use crate::images::MAX_UPLOAD_BYTES;
 use crate::models::project::{GithubAccess, Project, ProjectCoverFit};
+use crate::routes::v1::findings::list_findings;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -53,6 +55,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{id}/cover/restore", post(restore_cover::handle))
         .route("/{id}/pages", get(list_pages::handle))
+        .route("/{id}/findings", get(list_findings::handle))
         .route("/{id}/model-settings", get(list_model_settings::handle))
         .route(
             "/{id}/model-settings/{kind}",

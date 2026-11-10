@@ -41,7 +41,7 @@ use crate::action_items::{Actor, Transition, WorkError};
 use crate::models::action_item::{self, ActionItemChanges, ActionItemState, NewActionItem, Owner};
 use crate::models::action_item_assignment::{self, Assigner};
 use crate::models::action_item_event::{self, HistoryEntry, HistoryKind};
-use crate::models::action_item_issue_filing::{self, NewFiling};
+use crate::models::action_item_issue_filing::{self, FiledBy, NewFiling};
 use crate::models::action_item_link::Claim;
 use crate::models::initiative::{self, NewInitiative};
 use crate::models::{action_item_comment, action_item_link, action_item_link_write};
@@ -591,7 +591,7 @@ async fn file_issue(
             action_item_id: id,
             credential: file.tracker.credential(),
             destination: file.tracker.destination,
-            filed_by: run.proposer,
+            filed_by: FiledBy::Proposer(run.proposer),
             changeset_operation_id: Some(operation_id),
             timeline_record_id: None,
         },

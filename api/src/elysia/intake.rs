@@ -284,6 +284,21 @@ mod tests {
         assert!(classify(&ungathered).is_some());
     }
 
+    /// Findings reach her as a count in her overview, never one turn each: they wait for a
+    /// person, and she only tells the person how many (`docs/autonomy.md`, Findings).
+    #[test]
+    fn a_finding_never_wakes_her() {
+        let reported = bus(
+            "finding.changed",
+            &json!({
+                "id": "0199a3c4-0000-7000-8000-00000000f00d",
+                "projectId": "0199a3c4-0000-7000-8000-00000000beef",
+                "state": "open",
+            }),
+        );
+        assert!(classify(&reported).is_none());
+    }
+
     #[test]
     fn a_message_its_conversation_handles_is_not_hers_too() {
         let gathered = bus(

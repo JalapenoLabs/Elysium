@@ -110,8 +110,8 @@ pub struct Lineage {
 
 impl Lineage {
     /// The batch a person makes by accepting a finding: human-rooted, since a person decided the
-    /// work is wanted, and generation 0, since that decision starts the chain again. Accepting a
-    /// finding (#213) makes its batch with it.
+    /// work is wanted, and generation 0, since that decision starts the chain again. Only
+    /// `crate::findings::accept` makes its batch with it.
     pub fn accepted_finding() -> Self {
         Self {
             origin: Origin::HumanRooted,

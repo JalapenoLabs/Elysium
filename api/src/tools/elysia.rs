@@ -33,7 +33,7 @@ use crate::models::action_item::{self, ActionItemFilter, ActionItemState};
 use crate::models::elysia::{self, NewQuestion, NewWork, WorkChanges, WorkStatus};
 use crate::models::initiative::{self, InitiativeFilter, InitiativeState};
 use crate::models::user::{self, ELYSIA_USER_ID};
-use crate::models::{action_item_comment, project};
+use crate::models::{action_item_comment, finding, project};
 use crate::project_managers;
 use crate::routes::v1::elysia::publish_snapshot;
 
@@ -61,7 +61,10 @@ pub const SERVER: ToolServer = ToolServer {
         or what you learned calls for it, run a batch next, change its priority, or pause it with \
         elysia_change_batch, and withdraw one with elysia_cancel_batch. A batch starts proposed \
         and waits for a person to approve it; elysia_work_queue lists those too, but only a \
-        person approves or rejects one.",
+        person approves or rejects one. Workers and Project Managers report work nobody asked \
+        for as findings, which wait on each project's Findings list for a person to accept or \
+        dismiss; elysia_overview counts them per project. Tell the person how many wait when it \
+        matters, and never make an item or a batch for one.",
     ),
     tools: &TOOLS,
 };
@@ -71,8 +74,9 @@ const TOOLS: [Tool; 10] = [
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
             first, without notes, each with the project that leads it and when a person assigned \
-            it to that project's Project Manager; the active initiatives; the projects; and your \
-            own open questions and unfinished work.",
+            it to that project's Project Manager; the active initiatives; the projects, each with \
+            how many findings wait on its Findings list for a person; and your own open questions \
+            and unfinished work.",
         input_schema: no_arguments_schema,
         run: |context, scope, arguments| run_overview(context, scope, arguments).boxed(),
     },
@@ -363,6 +367,12 @@ async fn overview(
     )
     .await?;
     let projects = project::list(connection).await?;
+    // Findings reach her as a count per project, never one by one: they are a person's to
+    // decide, and she tells the person how many wait (`docs/autonomy.md`, Findings).
+    let open_findings: HashMap<Uuid, i64> = finding::open_counts(connection)
+        .await?
+        .into_iter()
+        .collect();
     let questions = elysia::open_questions(connection).await?;
     let work = elysia::unfinished_work(connection).await?;
 
@@ -400,6 +410,7 @@ async fn overview(
             "id": project.id,
             "name": project.name,
             "description": project.description,
+            "openFindings": open_findings.get(&project.id).copied().unwrap_or_default(),
         })).collect::<Vec<Value>>(),
         "openQuestions": questions.iter().map(|question| json!({
             "id": question.id,

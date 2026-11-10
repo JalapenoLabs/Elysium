@@ -17,6 +17,7 @@ pub mod drafts;
 pub mod elysia;
 pub mod environment_variables;
 mod events;
+pub mod findings;
 pub mod github_credentials;
 pub mod initiatives;
 pub mod issue_reports;
@@ -101,6 +102,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/drafts", drafts::router())
         .nest("/elysia", elysia::router())
         .nest("/environment-variables", environment_variables::router())
+        .nest("/findings", findings::router())
         .nest("/github-credentials", github_credentials::router())
         .nest("/initiatives", initiatives::router())
         .nest("/issue-reports", issue_reports::router())
