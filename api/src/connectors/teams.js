@@ -89,14 +89,45 @@
       : value
   }
 
-  // A message's HTML as the text it reads as. A parsed document runs no scripts and loads
-  // nothing, so this is safe on what anyone in the chat wrote.
-  const parser = new DOMParser()
+  // A tag, read past quoted attribute values, which may hold a `>` of their own.
+  const TAG = /<\/?([a-zA-Z][a-zA-Z0-9:-]*)(?:[^>"']|"[^"]*"|'[^']*')*>/g
+  // Tags that end a line of text, so the words on either side stay apart. Every other tag
+  // (bold, a link, a mention) sits inside a word's line and leaves nothing behind.
+  const BREAKING_TAGS = new Set([
+    'blockquote', 'br', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'li', 'ol', 'p',
+    'pre', 'table', 'td', 'th', 'tr', 'ul',
+  ])
+  // The named references HTML's serializer writes, which is how Teams stores what its editor
+  // composed, and `&apos;`; any other named reference is left as written.
+  const NAMED_REFERENCES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: '\u00a0' }
+
+  function decodedReference(reference, name) {
+    if (name[0] !== '#') {
+      return NAMED_REFERENCES[name] ?? reference
+    }
+    const codePoint = name[1] === 'x' || name[1] === 'X'
+      ? Number.parseInt(name.slice(2), 16)
+      : Number.parseInt(name.slice(1), 10)
+    const isCharacter = Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10FFFF
+    return isCharacter
+      ? String.fromCodePoint(codePoint)
+      : reference
+  }
+
+  // A message's HTML as the text it reads as. Teams enforces Trusted Types
+  // (`require-trusted-types-for 'script'`) and its CSP names every policy it allows, none of
+  // them ours, so markup cannot be handed to a parser (`DOMParser`, `innerHTML`, a template).
+  // The text is read off the markup instead: tags dropped, references decoded. Nothing is
+  // rendered, so this is safe on what anyone in the chat wrote.
   function plainText(html) {
     if (typeof html !== 'string' || !html) {
       return ''
     }
-    const text = parser.parseFromString(html, 'text/html').body.textContent || ''
+    const text = html
+      .replace(TAG, (tag, name) => (BREAKING_TAGS.has(name.toLowerCase())
+        ? ' '
+        : ''))
+      .replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, decodedReference)
     return text.replace(/\s+/g, ' ').trim().slice(0, TEXT_MAX_CHARACTERS)
   }
 
