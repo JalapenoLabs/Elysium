@@ -133,6 +133,7 @@ fn new_batch(project_id: Uuid, title: &str) -> NewWorkBatch {
         source_record_ids: json!([]),
         action_item_ids: json!([]),
         source_message_ids: json!([]),
+        serves: None,
         lineage: person_rooted(),
         created_by: PROJECT_MANAGER_USER_ID,
     }
