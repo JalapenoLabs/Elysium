@@ -1391,7 +1391,9 @@ start.
   its count, are Proposed (what waits for the person's approval, first because it is theirs to do, its count accented
   while above zero), Queued (in the order slots are handed out, each row with its place), Running (the batches holding
   slots, one waiting for its worker reading so), Scheduled (not yet due), and Paused. Each is a `WorkQueueTable`:
-  the title, linking to the batch's page, with Runs next on a batch asked to; its project, linking to the project; its
+  the title, linking to the batch's page, with Runs next on a batch asked to; Why, where its chain starts (the meeting,
+  mail, message, or issue that asked for it, or its first item), opening where it lives, with what kind it is beneath,
+  or Nothing named; its project, linking to the project; its
   priority with a scheduled one's time; its state; its origin, From a person or Found by an agent, the second in
   warning so found work stands out; its generation, how many batches led to it; and when it was submitted. Admins get
   Pool size in the header, linking to Settings, Worker pool.
@@ -1405,9 +1407,11 @@ start.
   Reject and Cancel are red.
 - **A batch.** `WorkBatchPage` shows its state, project, priority, origin, generation, the batches it was planned from
   (each linking to its page, once any led to it), when it was submitted, started, and finished, what its worker
-  reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`: the
-  messages sent to its Project Manager that called for it, each with who wrote it and when, the records that did,
-  each opening its knowledge base document, and the action items it works on), its
+  reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`: its chain
+  as one list read top to bottom, each link with its kind and icon above and opening where it lives through
+  `ChainLinkTitle`, a record its knowledge base document, an issue its tracker and a pull request GitHub in a new tab,
+  a message the Project Manager tab; a record shows its quote and when, a message who sent it and when, a finding who
+  accepted it and when, and the batch itself reads as this batch; `chainPresentation.ts`, pure and tested beside), its
   history (`WorkBatchHistory`), each line naming who did it, an edit naming the fields it changed, and its worker's
   log; its header's Actions are the row's. A proposal leads with Approve as its primary action, with Edit and Reject
   in its Actions. A project's Work batches and Proposed tabs link each title here.

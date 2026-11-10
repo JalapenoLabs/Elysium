@@ -35,7 +35,7 @@ import {
   useProjectTimelineLoader,
 } from '../../hooks/useServerData'
 import { useTabParam } from '../../hooks/useTabParam'
-import { PROJECT_DOCS_TAB, PROJECT_MANAGER_TAB } from '../../urls'
+import { PROJECT_DOCS_TAB, PROJECT_FINDINGS_TAB, PROJECT_MANAGER_TAB } from '../../urls'
 import { DEFAULT_STATES } from '../ActionItems/actionItemFilters'
 import { useProjectFindings } from './useProjectFindings'
 import { useProjectPages } from './useProjectPages'
@@ -47,7 +47,7 @@ const MEMBER_TABS = [
   PROJECT_DOCS_TAB,
   PROJECT_MANAGER_TAB,
   'proposed',
-  'findings',
+  PROJECT_FINDINGS_TAB,
   'batches',
   'promises',
   'sessions',
@@ -125,7 +125,7 @@ export function ProjectLists(props: Props) {
             isWaiting: true,
           },
           {
-            id: 'findings',
+            id: PROJECT_FINDINGS_TAB,
             label: t('findings.tab'),
             count: findings.total ?? null,
             isWaiting: true,
@@ -174,7 +174,7 @@ export function ProjectLists(props: Props) {
           <Spinner />
         </div>
     }</Tabs.Panel>}
-    {isMember && <Tabs.Panel id='findings'>
+    {isMember && <Tabs.Panel id={PROJECT_FINDINGS_TAB}>
       <ProjectFindings status={findings.status} findings={findings.findings ?? []} />
     </Tabs.Panel>}
     {isMember && <Tabs.Panel id='batches'>{
