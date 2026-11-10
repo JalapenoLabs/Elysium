@@ -64,8 +64,7 @@ pub fn router() -> Router<AppState> {
 }
 
 /// A meeting as its owner sees it. Where it came from (its connector, its source, its page there,
-/// and whether a recording is kept) is its first capture's, the one a meeting holds until
-/// captures can be merged.
+/// and whether a recording is kept) is its first capture's, the one it was listed with.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingResponse {
