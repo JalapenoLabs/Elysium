@@ -273,26 +273,28 @@ the next one still reads its input. A meeting not fetched skips it, saying "Not 
 raw transcripts are never written.
 
 - **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
-  transcribed, Whisper's. The company doc, with its pending proposals (`company_doc::read`, `docs/knowledge.md`), its
-  sections in the order correction needs them (people, glossary, products, projects, stakeholders, leadership,
-  company) within 40,000 bytes, the lines a pending proposal would add marked as proposed. And the company's other
-  meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved corrections
-  first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled them, which is
-  usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
+  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`,
+  `docs/knowledge.md`), its sections in the order correction needs them (people, glossary, products, projects,
+  stakeholders, leadership, company), the lines a pending proposal would add marked as proposed. And the company's
+  other meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved
+  corrections first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled
+  them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
   knowledge base is (`docs/knowledge.md`, Who sees what).
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
   Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
   so nothing to correct".
-- **Turns.** Each is a text turn on the runner on the model resolved for the step, of the correction kind: Opus 5.5
-  at high effort unless an admin chose another for the step or the kind (`docs/engine.md`, Models). Its prompt holds the meeting's title and participants, the doc, what
-  other meetings taught, and as many of the transcript's numbered lines as fit under 120,000 bytes, beside Whisper's
-  text over the same stretch, five seconds either side. A long meeting takes several turns, each with the doc again,
-  since the runner passes the prompt as one argument; at most eight, and lines past them stay as heard, the log says
-  from which.
+- **The turn.** One text turn on the runner, however long the meeting, on the model resolved for the step, of the
+  correction kind: Opus 5.5 at high effort unless an admin chose another for the step or the kind (`docs/engine.md`,
+  Models). Its prompt holds the meeting's title and participants, the doc and what other meetings taught, once, then
+  every one of the transcript's numbered lines, then every segment Whisper heard, timed on the same clock. The runner
+  hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI), so nothing is cut to
+  fit. A meeting too long for the model's context fails the step for good, giving the CLI's reason, since every
+  attempt would read the same prompt (`TurnOutcome::prompt_too_long`); skipping the step on the Runs page lets
+  segmenting go on from the transcript as heard.
 - **The answer** is `{ "edits": [{ "line", "text" }] }`: the whole corrected text of each line it changes.
 - **Nothing in the answer is trusted.** The copy is built from the transcript with only the edited lines' text
   replaced, so it keeps every line, in order, with its speaker and times, whatever the model answers. An edit is kept
-  only for a line its turn offered, once per line, with text, and only when it fixes words: compared word by word,
+  only for a line the transcript has, once per line, with text, and only when it fixes words: compared word by word,
   without regard to case or the punctuation around a word, each change replaces at most four words with at most four
   (a name heard as several words is one fix), none adds words where there were none or drops words without a
   replacement, and the words replaced are at most half the line's (or four, on a short line). A refused edit leaves
@@ -303,8 +305,7 @@ raw transcripts are never written.
 - **The final transcript.** Every attempt that has a copy builds the meeting's final transcript from it, unless the
   meeting has one already (The final transcript, below), so an engine that stopped between the two builds it on the
   next attempt.
-- **What it logs.** Line counts, line numbers, the doc's sections that did not fit whole, and hashes, never a word
-  that was said.
+- **What it logs.** Line counts, line numbers, and hashes, never a word that was said.
 
 #### The corrected copy
 
@@ -392,10 +393,10 @@ as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow
   naming none still reads.
 - An answer with no JSON, the wrong shape, or no segment left fails the attempt, which the run's backoff tries again.
 
-The runner passes a prompt as one argument to `claude`, and Linux allows one argument 128 KiB. A transcript therefore
-merges each speaker's consecutive lines and, past 100 KB, shortens every line evenly; a transcript too long for even
-that keeps its start and says where it was cut. A conversation's messages are never merged, since the answer names
-them by number, and are shortened the same way.
+The prompt holds the transcript whole, one line for each of its lines, every message of a conversation whole, and
+every project: the runner hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI),
+so nothing is merged or shortened to fit. A transcript too long for the model's context fails the step for good,
+giving the CLI's reason, since every attempt would read the same prompt.
 
 **A meeting**, step by step:
 
@@ -599,6 +600,4 @@ whose effect still stands is undone; one moved on since answers that it changed 
   (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
   signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
   `sources.rs` instead.
-- Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument,
-  and a long meeting's correction reads the company doc once rather than in every turn.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.

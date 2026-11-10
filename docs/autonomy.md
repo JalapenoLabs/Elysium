@@ -34,11 +34,10 @@ Built. A Project Manager still plans, orders, and submits everything. Its batche
 `queued`, and the scheduler never gives a proposed batch a slot. The person sees each with its goal, repositories,
 priority, and why, on the work queue's Proposed tab and the project's own, and approves it, edits those fields and
 approves it, or rejects it with a reason. Each project with proposals waiting has one inbox item counting them,
-resolved once none are left. A rejection's reason wakes the Project Manager, and it is recorded in the batch's history
-as the person's feedback for self-improvement. Only a person decides: Elysia and Project Managers list proposals and
-approve none. Until the dial below exists, every batch is proposed.
-
-On the roadmap: a rejection's reason also goes into the project brief (The project brief, below).
+resolved once none are left. A rejection's reason wakes the Project Manager, which records it in the project brief
+(below), and it is recorded in the batch's history as the person's feedback for self-improvement. Only a person
+decides: Elysia and Project Managers list proposals and approve none. Until the dial below exists, every batch is
+proposed.
 
 ## The dial
 
@@ -67,7 +66,8 @@ more, until nobody remembers why. The brake is structural.
   the decision to the person. A person accepting a finding resets it to zero (Findings, below).
 - Built: a Project Manager cannot submit a batch with no origin. The work queue and every batch's page show both.
   The exact rules are `docs/engine.md`, Origins and generations.
-- On the roadmap: each batch names the goal in the project brief it serves.
+- Built: each batch a Project Manager submits names the goal in the project brief it serves, and one that serves none
+  is refused (The project brief, below).
 
 ## Findings
 
@@ -83,10 +83,21 @@ rules are `docs/engine.md`, Findings.
 
 ## The project brief
 
-Each project has a brief: a page in the knowledge base linked to the project, holding its goals, its decisions, and
-what is out of scope. The Project Manager reads it every turn and keeps it current, so what it knows does not live
-only in its session, and a person can read one page, correct it, and see every later batch follow. Its folder in the
-workspace stays for its working notes.
+Built. Each project has a brief: a page in the knowledge base linked to the project, holding its goals, its decisions,
+and what is out of scope, versioned like any page. Creating a project creates it, under the Project briefs page, and
+it holds its place while the project exists. The Project Manager reads it every turn and keeps it current, so what it
+knows does not live only in its session, and a person can read one page, correct it, and see every later batch follow.
+See `docs/engine.md`, The project brief, and `docs/knowledge.md`, Pages, Projects.
+
+- **Goals are what batches serve.** Each goal is a heading of its own under Goals. Every batch names the one it serves,
+  and a batch that names none is refused with the goals there are, so work outside the brief becomes a question for the
+  person, never a batch. Goals come from people: the Project Manager adds one only when a person asked for it. A batch
+  a person makes by accepting a finding (Findings, above) names no goal, since their acceptance is that answer.
+- **Rejections are kept.** A batch a person rejects goes under Decisions, with their reason in their words.
+- **A person's edits win.** The Project Manager saves against the version it read, so a save after someone else's
+  edit is refused and it merges into what the brief says now. Anyone's edit but its own wakes it, and its next turn
+  follows it.
+- Its folder in the workspace stays for its working notes, and its instructions say to use both.
 
 ## What agents know
 
@@ -102,8 +113,13 @@ Coding sessions and Elysia are not held, since a person watches each session and
 
 ## Staying aware
 
-Every batch shows its why: the meeting quote or issue that called for it, the item, the batch, and its pull request.
-Elysia's brief says what shipped, what waits on the person, and what was found. Activity holds everything else.
+Built: every batch shows its why as one chain, read top to bottom, each link opening where it lives: the finding a
+person accepted, with who accepted it, when accepting one made the batch; the messages to its Project Manager; the
+records it names (a meeting segment with its quote, a mail, a chat message); the issues linked to its items; the
+items; the batch; and its pull requests. Its page shows the whole chain and the batches it was planned from; the work
+queue shows where each batch's chain starts. Every pull request a worker records carries the same chain at the end of
+its description, so a reviewer on GitHub sees why it exists without opening Elysium. The rules are `docs/engine.md`,
+Why a batch exists.
 
 Built: Elysia's overview counts each project's open findings, which is what her brief reports as found. The brief
-itself, what shipped and what waits, is on the roadmap.
+itself, what shipped and what waits on the person, is on the roadmap. Activity holds everything else.

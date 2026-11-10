@@ -68,6 +68,7 @@ async fn reported(connection: &mut AsyncPgConnection, project_id: Uuid, title: &
             source_record_ids: json!([]),
             action_item_ids: json!([]),
             source_message_ids: json!([]),
+            serves: None,
             lineage: person_rooted(),
             created_by: PROJECT_MANAGER_USER_ID,
         },

@@ -24,6 +24,7 @@ function entry(overrides: Partial<WorkQueueEntry> = {}): WorkQueueEntry {
     startedAt: null,
     origin: 'human_rooted',
     generation: 0,
+    cause: null,
     ...overrides,
   }
 }

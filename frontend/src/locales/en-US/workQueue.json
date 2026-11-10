@@ -21,9 +21,11 @@
   "table": {
     "label": "Work batches",
     "runsNext": "Runs next",
+    "noCause": "Nothing named",
     "columns": {
       "position": "Place",
       "title": "Batch",
+      "cause": "Why",
       "project": "Project",
       "priority": "Priority",
       "state": "State",
@@ -79,6 +81,7 @@
   },
   "batch": {
     "project": "Project",
+    "serves": "Serves",
     "priority": "Priority",
     "state": "State",
     "submitted": "Submitted",
@@ -97,9 +100,18 @@
     "why": {
       "title": "Why",
       "none": "Its Project Manager named nothing that called for it.",
-      "recordFrom": "{{source}}, {{time}}",
-      "messageFrom": "Message from {{author}}, {{time}}",
-      "actionItem": "Action item"
+      "messageFrom": "From {{author}}, {{time}}",
+      "acceptedBy": "Accepted by {{person}}, {{time}}",
+      "thisBatch": "{{title}} (this batch)",
+      "kinds": {
+        "finding": "Finding",
+        "message": "Message to its Project Manager",
+        "record": "Record",
+        "issue": "Issue",
+        "item": "Action item",
+        "batch": "Work batch",
+        "pullRequest": "Pull request"
+      }
     },
     "history": "History",
     "loadError": "This batch could not be loaded.",

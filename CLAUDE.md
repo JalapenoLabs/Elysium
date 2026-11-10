@@ -186,6 +186,8 @@ Everything else follows these rules:
   account's only refresher: turns get its access token alone, and the keeper in `api/src/claude_accounts/` refreshes
   it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
   `docs/coding.md`, Claude accounts.
+- A turn's prompt reaches the CLI on standard input, never as an argument, so no caller cuts what it asks to fit the
+  128 KiB Linux allows one argument. See `docs/coding.md`, How a prompt reaches the CLI.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
 - Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings, read with a
   GitHub token of its own chosen beside it, and adapted to the container that runs it. No worker or Project Manager
@@ -543,15 +545,22 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - Every project has a Project Manager (`api/src/project_managers/`): one Claude Code session per project, resumed for
   every turn (`claude -p --resume`) and kept indefinitely, relying on Claude Code's compaction. It plans the project's
-  work and submits it as work batches (`work_batches`: a goal, repositories, ASAP, normal, or a scheduled time, and its
-  provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+  work and submits it as work batches (`work_batches`: a goal, the goal in its project's brief it serves, repositories,
+  ASAP, normal, or a scheduled time, and its provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+- Every project has a brief (`api/src/models/project_brief.rs`): a fixed knowledge base page under Project briefs,
+  created and renamed with the project and linked to it, holding its goals (`###` headings under `## Goals`), decisions,
+  and what is out of scope. Every turn's prompt carries it whole; the Project Manager keeps it current with `page_save`
+  against the version it read, recording each rejection's reason, and a batch serving no goal in it is refused. Anyone's
+  publish of it but its own Project Manager's and the system user's wakes that Project Manager. See `docs/autonomy.md`,
+  The project brief.
 - Every batch's origin (human-rooted or found) and generation (how many batches led to it) are worked out from its
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
-- It is woken by a record newly attributed to its project, a batch's result, a promise, a person, and Elysia, each
-  written as a wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time
-  (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
+- It is woken by a record newly attributed to its project, a batch's result, a promise, a person, Elysia, and someone
+  else's edit of its brief, each written as a wake in the transaction that caused it. Wakes are debounced into one turn
+  per project, one turn at a time (the database refuses a second), and a turn a restart or a usage limit cut short
+  gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,
@@ -612,6 +621,11 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (approve and reject,
   for a person alone; run next, priority, pause, resume, cancel), each change recorded in `work_batch_events` with who
   made it. The work queue is `/work-queue`, for members.
+- Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
+  for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
+  link. Every pull request a worker records carries the chain at the end of its description
+  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
+  batch exists.
 
 ## One event stream keeps the frontend current
 

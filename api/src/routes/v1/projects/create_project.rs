@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/projects`: create a project.
+//! `POST /api/v1/projects`: create a project, with its brief in the knowledge base.
 
 use anyhow::Context;
 use axum::Json;
@@ -15,6 +15,7 @@ use super::{ProjectResponse, validate_not_blank};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::project::{self, NewProject};
+use crate::models::project_brief;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -48,12 +49,16 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let project = project::create(&mut connection, &new_project).await?;
+    let brief = project_brief::find(&mut connection, project.id).await?;
 
     state
         .events
         .publish(&ServerEvent::ProjectUpserted(ProjectResponse::from(
             project.clone(),
         )));
+    state
+        .events
+        .publish(&ServerEvent::PageChanged { id: brief.id });
 
     Ok((
         StatusCode::CREATED,
