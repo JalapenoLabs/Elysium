@@ -82,6 +82,9 @@ export const UrlTree = {
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
   settingsMeeting: '/settings/meetings/:meetingId',
+  // Uploading a meeting, or a recording or transcript of one the person has (a capture of it).
+  meetingUploadNew: '/settings/meetings/new',
+  meetingCaptureUploadNew: '/settings/meetings/:meetingId/captures/new',
   settingsCompanyDoc: '/settings/company-doc',
   // Learnings' earlier address, which redirects to the Knowledge page's, as do the pages under it.
   settingsLearnings: '/settings/learnings',
@@ -254,6 +257,10 @@ export function getWorkBatchEditUrl(batchId: string) {
 
 export function getMeetingUrl(meetingId: string) {
   return UrlTree.settingsMeeting.replace(':meetingId', meetingId)
+}
+
+export function getMeetingCaptureUploadUrl(meetingId: string) {
+  return UrlTree.meetingCaptureUploadNew.replace(':meetingId', meetingId)
 }
 
 export function getConnectorUrl(connectorId: string) {

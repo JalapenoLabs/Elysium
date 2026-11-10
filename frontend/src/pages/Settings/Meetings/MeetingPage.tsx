@@ -15,10 +15,10 @@ import { meetingUpserted, selectMeetingById } from '../../../store/meetingsSlice
 
 // User interface
 import { Button, Chip, Link, Spinner, Tabs } from '@heroui/react'
-import { LuCheck, LuExternalLink, LuHand, LuPlay, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuExternalLink, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
-import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 import { SettingsPage } from '../SettingsPage'
+import { MeetingSourceLogo } from './MeetingSourceLogo'
 import { MeetingTopics } from './MeetingTopics'
 import { MeetingTranscript } from './MeetingTranscript'
 
@@ -30,12 +30,13 @@ import { formatDuration } from '../../../format/durations'
 import { useConnectorsLoader, useMeetingLoader, useMeetingTopicsLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
 import { useUserNames } from '../../../hooks/useUserNames'
-import { UrlTree, getRunViewUrl } from '../../../urls'
+import { UrlTree, getMeetingCaptureUploadUrl, getRunViewUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
 import {
   correctionStatusChipColors,
   correctionStatusLabelKeys,
   correctionStatusOf,
+  meetingSourceNameKey,
   meetingStateChipColors,
   meetingStateLabelKeys,
 } from './meetingsPresentation'
@@ -151,6 +152,12 @@ function MeetingView(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
+  actions.push({
+    id: 'addCapture',
+    label: t('upload.addCapture'),
+    icon: LuUpload,
+    href: getMeetingCaptureUploadUrl(meeting.id),
+  })
 
   const approvedBy = meeting.correction?.approvedBy
   // Before it is corrected, whether its run will wait, and why.
@@ -164,7 +171,7 @@ function MeetingView(props: Props) {
 
   return <SettingsPage
     title={meeting.title || t('list.untitled')}
-    icon={<ConnectorLogo kind={meeting.sourceKind} className='size-8' />}
+    icon={<MeetingSourceLogo kind={meeting.sourceKind} className='size-8' />}
     parents={[{ label: t('title'), href: UrlTree.settingsMeetings }]}
     // While its run waits for the person, its processing waits too; the correction's status
     // below says so, rather than a state that reads as work under way.
@@ -195,7 +202,7 @@ function MeetingView(props: Props) {
       {meeting.url && <>
         <span aria-hidden className='opacity-70'>·</span>
         <Link href={meeting.url} target='_blank' rel='noreferrer' className='text-link text-sm'>
-          <span>{t('page.openAtSource', { source: t(`connectors:kinds.${meeting.sourceKind}.name`) })}</span>
+          <span>{t('page.openAtSource', { source: t(meetingSourceNameKey(meeting.sourceKind)) })}</span>
           <LuExternalLink className='ml-1 inline size-3.5' aria-hidden />
         </Link>
       </>}

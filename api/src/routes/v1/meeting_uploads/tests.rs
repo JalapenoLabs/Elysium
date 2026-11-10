@@ -618,7 +618,8 @@ async fn what_a_meeting_does_not_take_is_refused_before_it_is_kept() {
         StatusCode::NOT_FOUND
     );
 
-    // A transcript that is not text is refused when the upload finishes, which stays to cancel.
+    // A transcript that is not text is refused as its last part arrives, before anything sent
+    // after it, and the upload stays, to cancel.
     let created = fixture
         .json(
             Method::POST,
@@ -631,7 +632,7 @@ async fn what_a_meeting_does_not_take_is_refused_before_it_is_kept() {
         )
         .await;
     let upload = id_of(&created, "upload");
-    fixture
+    let not_text = fixture
         .put_part(
             &upload,
             "transcript",
@@ -639,6 +640,12 @@ async fn what_a_meeting_does_not_take_is_refused_before_it_is_kept() {
             Bytes::from_static(b"\0\0\0\x20ftyp"),
         )
         .await;
+    assert_eq!(not_text.status, StatusCode::BAD_REQUEST);
+    assert_eq!(not_text.body["code"], "meeting_upload_not_text");
+    let uncounted = fixture
+        .get(&format!("/api/v1/meeting-uploads/{upload}"))
+        .await;
+    assert_eq!(received(&uncounted, "transcript"), 0);
     let finished = fixture
         .send(
             Method::POST,
@@ -647,8 +654,7 @@ async fn what_a_meeting_does_not_take_is_refused_before_it_is_kept() {
             None,
         )
         .await;
-    assert_eq!(finished.status, StatusCode::BAD_REQUEST);
-    assert_eq!(finished.body["code"], "meeting_upload_not_text");
+    assert_eq!(finished.body["code"], "meeting_upload_incomplete");
     assert!(fixture.staging.path().join(&upload).exists());
     let cancelled = fixture
         .send(

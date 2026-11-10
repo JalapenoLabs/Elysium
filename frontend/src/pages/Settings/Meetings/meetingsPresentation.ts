@@ -2,12 +2,21 @@
 
 import type { ParseKeys } from 'i18next'
 import type { Connector, ConnectorKind, ConnectorKindDefinition } from '../../../api/routes/connectorRoutes'
-import type { Meeting, MeetingState, TranscriptLine } from '../../../api/routes/meetingRoutes'
+import type { Meeting, MeetingSourceKind, MeetingState, TranscriptLine } from '../../../api/routes/meetingRoutes'
 
 // Misc
+import { UPLOAD_SOURCE_KIND } from '../../../api/routes/meetingRoutes'
 import { formatMediaPosition } from '../../../format/durations'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
+
+// The words naming where a meeting came from: its connector kind's name, or Uploaded.
+export function meetingSourceNameKey(kind: MeetingSourceKind) {
+  if (kind === UPLOAD_SOURCE_KIND) {
+    return 'meetings:upload.sourceName' as const
+  }
+  return `connectors:kinds.${kind}.name` as const
+}
 
 // Where a meeting's corrected transcript stands: not corrected yet, its run held for the
 // person's approval, approved, or corrected and gone on without it.

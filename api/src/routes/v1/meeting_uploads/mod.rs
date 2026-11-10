@@ -19,14 +19,20 @@ mod upload_part;
 #[cfg(test)]
 mod tests;
 
+use anyhow::Context;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post, put};
 use chrono::{DateTime, Utc};
+use futures_util::TryStreamExt;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::meeting_uploads::PART_BYTES;
+use crate::errors::ApiError;
+use crate::meeting_uploads::staging::Staging;
+use crate::meeting_uploads::transcript::{self, TranscriptError};
+use crate::meeting_uploads::{self, FileKind, PART_BYTES};
+use crate::meetings::source::TranscriptLine;
 use crate::models::meeting_upload::{MeetingUploadFile, Staged};
 use crate::state::AppState;
 
@@ -109,4 +115,44 @@ impl From<Staged> for UploadResponse {
             updated_at: upload.updated_at,
         }
     }
+}
+
+/// The lines `staged`'s transcript says, read whole from its parts in `staging`, or `None` when it
+/// uploads a recording alone. Read when the transcript's last part arrives, so one that cannot be
+/// read is refused before a recording sent after it, and again when the upload finishes.
+///
+/// # Errors
+/// `400` with `meeting_upload_not_text`, `meeting_upload_nothing_said`, or
+/// `meeting_upload_too_many_lines`, and the workspace's refusal.
+pub async fn read_transcript(
+    staging: &Staging,
+    staged: &Staged,
+) -> Result<Option<Vec<TranscriptLine>>, ApiError> {
+    let Some(file) = staged.file(FileKind::Transcript) else {
+        return Ok(None);
+    };
+    let format = meeting_uploads::type_of(FileKind::Transcript, &file.file_name)
+        .context("a stored file's name keeps the extension it was taken by")?
+        .format();
+    let parts = meeting_uploads::part_count(file.size_bytes(), staged.upload.part_bytes());
+    // At most `MAX_TRANSCRIPT_BYTES`, which `create_upload` holds every transcript to.
+    let bytes: Vec<u8> = staging
+        .read((staged.upload.id, FileKind::Transcript), parts)
+        .try_fold(Vec::new(), |mut bytes, chunk| async move {
+            bytes.extend_from_slice(&chunk);
+            Ok(bytes)
+        })
+        .await?;
+    let lines = transcript::read(&bytes, format).map_err(|error| {
+        let code = match error {
+            TranscriptError::NotText => "meeting_upload_not_text",
+            TranscriptError::Empty => "meeting_upload_nothing_said",
+            TranscriptError::TooLong => "meeting_upload_too_many_lines",
+        };
+        ApiError::CodedBadRequest {
+            code,
+            message: error.to_string(),
+        }
+    })?;
+    Ok(Some(lines))
 }

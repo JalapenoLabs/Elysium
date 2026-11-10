@@ -5,6 +5,13 @@ import type { ConnectorKind } from './connectorRoutes'
 // Misc
 import { apiClient } from '../index'
 
+// What a capture a person uploaded names as its source, as `SOURCE_KIND` in
+// api/src/meeting_uploads/mod.rs.
+export const UPLOAD_SOURCE_KIND = 'upload'
+
+// Where a meeting came from: the kind of connector that read it, or a person's upload.
+export type MeetingSourceKind = ConnectorKind | typeof UPLOAD_SOURCE_KIND
+
 // Mirrors `Processing` in api/src/meetings/workflow.rs: how far a meeting's processing got, or
 // that its run failed or went through without it, a person having skipped a step it needed.
 export const MEETING_STATES = [ 'pending', 'recorded', 'segmented', 'done', 'skipped', 'failed' ] as const
@@ -27,8 +34,8 @@ export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
   connectorId: string | null
-  // The kind of connector it came from, which outlives the connector.
-  sourceKind: ConnectorKind
+  // The kind of connector it came from, which outlives the connector, or `upload`.
+  sourceKind: MeetingSourceKind
   title: string
   startedAt: string
   durationMs: number | null

@@ -8,7 +8,8 @@
 //! needs next is written and counted; one it has already is acknowledged without being written,
 //! so a part resent after its answer was lost changes nothing; one past the next is refused with
 //! how far the file got, for the page to resume from. A recording's first part must open as its
-//! format does before any of it is kept.
+//! format does before any of it is kept, and a transcript's last part is counted only once the
+//! whole transcript reads as one (`super::read_transcript`).
 //!
 //! [`MeetingUpload::part_bytes`]: crate::models::meeting_upload::MeetingUpload::part_bytes
 
@@ -25,7 +26,7 @@ use futures_util::stream::{self, Stream, StreamExt as _};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::UploadResponse;
+use super::{UploadResponse, read_transcript};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meeting_uploads::{self, FileKind, SIGNATURE_BYTES};
@@ -100,6 +101,11 @@ pub async fn handle(
         .upload_staging
         .write_part((id, kind), index, expected, whole)
         .await?;
+    if kind == FileKind::Transcript && received + expected == file.size_bytes() {
+        // The transcript's last part: one that cannot be read is refused now, before a recording
+        // sent after it, rather than when the upload finishes. The part stays uncounted.
+        read_transcript(&state.upload_staging, &staged).await?;
+    }
 
     let mut connection = state
         .database

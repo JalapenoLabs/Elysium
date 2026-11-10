@@ -102,6 +102,7 @@ import { LearningRedirect } from './pages/Knowledge/Learnings/LearningRedirect'
 import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
 import { MeetingPage } from './pages/Settings/Meetings/MeetingPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
+import { UploadMeetingPage } from './pages/MeetingUploads/UploadMeetingPage'
 import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
 import { NewLearningPage } from './pages/Knowledge/Learnings/NewLearningPage'
 
@@ -389,6 +390,14 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsMeeting,
       element: <MeetingPage />,
+    },
+    {
+      path: UrlTree.meetingUploadNew,
+      element: <UploadMeetingPage />,
+    },
+    {
+      path: UrlTree.meetingCaptureUploadNew,
+      element: <UploadMeetingPage />,
     },
     {
       path: UrlTree.settingsCompanyDoc,

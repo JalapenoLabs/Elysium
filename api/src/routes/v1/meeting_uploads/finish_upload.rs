@@ -3,8 +3,8 @@
 //! `POST /api/v1/meeting-uploads/{id}/finish`: once every part of every file arrived, makes the
 //! upload's meeting (or its capture of a meeting the person has) and starts the meeting's run.
 //!
-//! The transcript is read here, while the person waits, so one that is not text or holds nothing
-//! said is refused with the upload intact, to cancel or finish with another. Then, in one
+//! The transcript is read again here, as it was when its last part arrived (`upload_part`), for the
+//! lines the meeting keeps. Then, in one
 //! transaction, the meeting and its capture are stored, the upload is marked finished with the
 //! lines it was read as, and the meeting's run is started from its fetch, which stores the
 //! recording in the storage location the upload chose (`crate::meetings::fetch`). Starting the run
@@ -21,15 +21,14 @@ use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
-use futures_util::TryStreamExt;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::create_upload::meeting_processing;
+use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::meeting_uploads::transcript::{self, TranscriptError};
-use crate::meeting_uploads::{self, FileKind};
+use crate::meeting_uploads::{self, transcript};
 use crate::meetings::source::TranscriptLine;
 use crate::meetings::workflow;
 use crate::models::meeting::{self, Meeting, NewMeeting};
@@ -71,7 +70,7 @@ pub async fn handle(
     }
     // Reading the transcript may take a moment; no connection is held while it does.
     drop(connection);
-    let lines = read_transcript(&state, &staged).await?;
+    let lines = read_transcript(&state.upload_staging, &staged).await?;
 
     let mut connection = state
         .database
@@ -119,41 +118,6 @@ pub async fn handle(
     });
     let answered = meetings::response(&mut connection, made).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))
-}
-
-/// The lines `staged`'s transcript says, or `None` when it uploads a recording alone.
-async fn read_transcript(
-    state: &AppState,
-    staged: &Staged,
-) -> Result<Option<Vec<TranscriptLine>>, ApiError> {
-    let Some(file) = staged.file(FileKind::Transcript) else {
-        return Ok(None);
-    };
-    let format = meeting_uploads::type_of(FileKind::Transcript, &file.file_name)
-        .context("a stored file's name keeps the extension it was taken by")?
-        .format();
-    let parts = meeting_uploads::part_count(file.size_bytes(), staged.upload.part_bytes());
-    // At most `MAX_TRANSCRIPT_BYTES`, which `create_upload` holds every transcript to.
-    let bytes: Vec<u8> = state
-        .upload_staging
-        .read((staged.upload.id, FileKind::Transcript), parts)
-        .try_fold(Vec::new(), |mut bytes, chunk| async move {
-            bytes.extend_from_slice(&chunk);
-            Ok(bytes)
-        })
-        .await?;
-    let lines = transcript::read(&bytes, format).map_err(|error| {
-        let code = match error {
-            TranscriptError::NotText => "meeting_upload_not_text",
-            TranscriptError::Empty => "meeting_upload_nothing_said",
-            TranscriptError::TooLong => "meeting_upload_too_many_lines",
-        };
-        ApiError::CodedBadRequest {
-            code,
-            message: error.to_string(),
-        }
-    })?;
-    Ok(Some(lines))
 }
 
 /// Stores what `staged` becomes: a new meeting with it as its first capture, or a capture of the
