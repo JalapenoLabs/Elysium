@@ -103,6 +103,13 @@ describe('describeHistoryEntry', () => {
     expect(describeHistoryEntry(takenBack, context, t).summary).toBe('took it back from Elysium\'s Project Manager')
     expect(describeHistoryEntry(leadMoved, context, t).summary)
       .toBe('ended its assignment to Elysium\'s Project Manager, since Elysium no longer leads it')
+    const finished = makeHistoryEntry({
+      id: 'e4',
+      kind: 'manager_unassigned',
+      data: { projectId: 'p1', finished: true },
+    })
+    expect(describeHistoryEntry(finished, context, t).summary)
+      .toBe('ended its assignment to Elysium\'s Project Manager, since it is finished')
   })
 
   it<Context>('names the other side of a membership change for each history', ({ t, context }) => {

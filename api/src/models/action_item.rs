@@ -890,12 +890,22 @@ pub async fn transition(
             let state = transition.apply(item.state).map_err(WorkError::Conflict)?;
             let resolved_at = (state == ActionItemState::Resolved).then_some(now);
             let dismissed_at = (state == ActionItemState::Dismissed).then_some(now);
+            let is_finished = resolved_at.is_some() || dismissed_at.is_some();
+            // Finished work is no Project Manager's to plan, so its assignment ends with it.
+            let ends_assignment = is_finished && item.manager_assigned_at.is_some();
+            let (assigned_at, assigned_by) = if ends_assignment {
+                (None, None)
+            } else {
+                (item.manager_assigned_at, item.manager_assigned_by)
+            };
 
             let record = diesel::update(action_items::table.find(id))
                 .set((
                     action_items::state.eq(state),
                     action_items::resolved_at.eq(resolved_at),
                     action_items::dismissed_at.eq(dismissed_at),
+                    action_items::manager_assigned_at.eq(assigned_at),
+                    action_items::manager_assigned_by.eq(assigned_by),
                 ))
                 .returning(ActionItem::as_returning())
                 .get_result(connection)
@@ -904,21 +914,27 @@ pub async fn transition(
                 action_item_link_write::owe_closes(connection, id, now).await?;
             }
             promise::follow_item(connection, id, state, actor.user_id(), now).await?;
-            let entry = action_item_event::record(
-                connection,
-                Change {
-                    subject: Subject::Item(id),
-                    kind: HistoryKind::StateChanged,
-                    actor,
-                    data: replaced(item.state, state),
-                    at: now,
-                },
-            )
-            .await?;
-            Ok(Recorded {
-                record,
-                history: vec![entry],
-            })
+            let mut history = vec![
+                action_item_event::record(
+                    connection,
+                    Change {
+                        subject: Subject::Item(id),
+                        kind: HistoryKind::StateChanged,
+                        actor,
+                        data: replaced(item.state, state),
+                        at: now,
+                    },
+                )
+                .await?,
+            ];
+            if ends_assignment {
+                let ending = action_item_assignment::Ending::Finished;
+                history.push(
+                    action_item_assignment::record_end(connection, &item, actor, ending, now)
+                        .await?,
+                );
+            }
+            Ok(Recorded { record, history })
         })
         .await
 }

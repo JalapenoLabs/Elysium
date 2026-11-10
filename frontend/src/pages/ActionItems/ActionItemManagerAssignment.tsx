@@ -33,7 +33,7 @@ type Props = {
 // Who an item is assigned to, and where its plan stands: assigning wakes its lead project's
 // Project Manager to plan it, and what it plans waits for the person's approval. An item no
 // project leads cannot be assigned, and says so. The company's members alone see it, as they
-// alone see Project Managers; a finished item shows it only while it is still assigned.
+// alone see Project Managers. A finished item shows none: finishing it ends its assignment.
 export function ActionItemManagerAssignment(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'projects', 'common' ])
   useProjectsLoader()
@@ -46,7 +46,7 @@ export function ActionItemManagerAssignment(props: Props) {
   const { plan, status } = useManagerPlan(item.id, isMember && isAssigned)
   const isFinished = item.state === 'resolved' || item.state === 'dismissed'
 
-  if (!isMember || item.deletedAt || (isFinished && !isAssigned)) {
+  if (!isMember || item.deletedAt || isFinished) {
     return null
   }
 

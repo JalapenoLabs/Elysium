@@ -158,6 +158,7 @@
     "managerAssigned": "assigned it to {{name}}'s Project Manager",
     "managerUnassigned": "took it back from {{name}}'s Project Manager",
     "managerUnassignedByLeadMove": "ended its assignment to {{name}}'s Project Manager, since {{name}} no longer leads it",
+    "managerUnassignedByFinish": "ended its assignment to {{name}}'s Project Manager, since it is finished",
     "reassigned": "{{key}} was assigned to {{assignee}} instead of you",
     "containerLinked": "linked {{key}}",
     "containerUnlinked": "unlinked {{key}}",

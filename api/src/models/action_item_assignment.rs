@@ -18,8 +18,8 @@
 //! that one and no other, and the assignment names no project of its own. An item with no lead
 //! cannot be assigned. When the lead moves to another project, the assignment ends
 //! ([`record_end`]), since nobody asked the new lead's Project Manager to plan it, and its wake, if
-//! it still waits, goes with it. Deleting the item ends it too, so a restored item is not read as
-//! planned when nothing planned it.
+//! it still waits, goes with it. Resolving, dismissing, or deleting the item ends it too, so an
+//! item reopened or restored is not read as planned when nothing planned it.
 //!
 //! # Where its plan stands
 //!
@@ -214,6 +214,9 @@ pub enum Ending {
     TakenBack,
     /// The lead moved to another project, or to none, whose Project Manager nobody assigned it to.
     LeadMoved,
+    /// The item was resolved or dismissed: finished work is not planned, and an assignment kept
+    /// through it would read as planned once the item is reopened, when nothing planned it.
+    Finished,
 }
 
 /// Records, as `actor`, the end of the locked `item`'s assignment to the Project Manager of the
@@ -239,8 +242,10 @@ pub async fn record_end(
     .execute(connection)
     .await?;
     let mut data = json!({ "projectId": item.lead_project_id });
-    if because == Ending::LeadMoved {
-        data["leadMoved"] = json!(true);
+    match because {
+        Ending::TakenBack => {}
+        Ending::LeadMoved => data["leadMoved"] = json!(true),
+        Ending::Finished => data["finished"] = json!(true),
     }
     action_item_event::record(
         connection,
@@ -376,8 +381,8 @@ pub async fn plan(
 }
 
 /// Which of `item_ids` are assigned to `project_id`'s Project Manager now: live, in the inbox or
-/// open, and led by the project. A turn leaves out an assignment that ended, moved with the lead,
-/// or whose item was resolved or dismissed before it ran: finished work is not planned.
+/// open, and led by the project. A turn leaves out an assignment that ended, by a person, by the
+/// lead moving, or by the item being finished, before it ran: finished work is not planned.
 ///
 /// # Errors
 /// Propagates any database error.

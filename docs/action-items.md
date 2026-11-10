@@ -188,8 +188,9 @@ item. Attribution decides where an item belongs; assigning decides it is to be w
   taken it; what the Project Manager already planned stays, each batch the person's to decide. Moving the item's lead
   to another project, or taking it out of its last one, ends the assignment too, recorded as `manager_unassigned` with
   `leadMoved`: nobody asked the new lead's Project Manager to plan it, so the person assigns it again if they want it
-  planned there. Undoing the lead's move does not bring the assignment back. Deleting the item ends it as well, so a
-  restored item is not shown as planned when nothing planned it.
+  planned there. Undoing the lead's move does not bring the assignment back. Resolving, dismissing, or deleting the item
+  ends it as well (`finished` for the first two), whoever does it, the watcher included, so an item reopened or
+  restored is not shown as planned when nothing planned it.
 - **Where its plan stands.** `GET .../manager-assignment` answers, while the item is assigned, the lead project, who
   assigned it and when, the stage (`waiting` for its Project Manager's next turn, `planning` while that turn runs,
   `planned` once it finished, or `failed`), the turn that took it, and the lead project's latest ten batches naming the
@@ -217,7 +218,7 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
 | `manager_assigned`   | `{ projectId }`: a person assigned the item to that project's Project Manager, its lead then |
-| `manager_unassigned` | `{ projectId }`, null for an assignment a stray delete left without a lead, and `leadMoved` when it ended because the lead moved to another project |
+| `manager_unassigned` | `{ projectId }`, null for an assignment a stray delete left without a lead; `leadMoved` when it ended because the lead moved to another project, `finished` when the item was resolved or dismissed |
 
 An entry that undoes another, from the item's history, also names it (`undid`). Kinds and actors are stored as text
 rather than enums, so later stages add kinds without an enum migration. Only a

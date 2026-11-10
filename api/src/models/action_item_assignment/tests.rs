@@ -438,6 +438,60 @@ async fn deleting_an_item_takes_it_from_its_project_manager() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn finishing_an_item_ends_its_assignment_so_reopening_it_reads_unassigned() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let item = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+
+    // The watcher reads its issue closed before the Project Manager's turn runs.
+    let watcher = Actor::Watcher(crate::models::action_item_link::LinkProvider::Jira);
+    let resolved = action_item::transition(
+        &mut connection,
+        item,
+        Transition::Resolve,
+        watcher,
+        Utc::now(),
+    )
+    .await
+    .expect("resolved");
+    assert_eq!(resolved.record.manager_assigned_at, None);
+    let ended = resolved.history.last().expect("recorded");
+    assert_eq!(ended.kind, "manager_unassigned");
+    assert_eq!(ended.data, json!({ "projectId": launch, "finished": true }));
+    assert!(
+        waiting_assignments(&mut connection, launch)
+            .await
+            .is_empty()
+    );
+
+    let reopened = action_item::transition(
+        &mut connection,
+        item,
+        Transition::Reopen,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("reopened");
+    assert_eq!(
+        plan(&mut connection, &reopened.record)
+            .await
+            .expect("reads"),
+        None,
+        "nothing planned it, and it no longer says it is"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_turn_plans_only_what_is_still_assigned_to_its_project() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
