@@ -16,6 +16,7 @@
 
 pub mod bunny;
 pub mod path;
+pub mod range;
 pub mod s3;
 pub mod transfer;
 
@@ -25,13 +26,15 @@ pub mod tests;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures_util::Stream;
-use reqwest::header::CONTENT_TYPE;
+use reqwest::StatusCode;
+use reqwest::header::{CONTENT_RANGE, CONTENT_TYPE};
 use secrecy::SecretString;
 use serde::Serialize;
 
 use crate::models::storage_location::{StorageLocation, StorageProvider};
 use bunny::{Bunny, BunnyZone};
 use path::RelativePath;
+use range::{ByteRange, ContentRange, Span};
 use s3::{S3, S3Target};
 use transfer::ByteStream;
 
@@ -138,6 +141,83 @@ impl std::fmt::Debug for Download {
             .field("content_length", &self.content_length)
             .field("content_type", &self.content_type)
             .finish_non_exhaustive()
+    }
+}
+
+/// What a provider answered a request for part of a file.
+#[derive(Debug)]
+pub enum RangedDownload {
+    /// The bytes `span` covers, of a file `total` bytes long when the provider says. The part's
+    /// own length is its `content_length`.
+    Part {
+        span: Span,
+        total: Option<u64>,
+        download: Download,
+    },
+    /// The whole file: the provider sent it whole and did not say how long it is, so no part
+    /// of it could be cut.
+    Whole(Download),
+    /// The range covers no byte of the file, `total` bytes long when the provider says.
+    Unsatisfiable { total: Option<u64> },
+}
+
+impl RangedDownload {
+    /// Reads a provider's answer to a request for `range`, which it accepted or answered `416`.
+    ///
+    /// A provider that takes ranges answers `206` with the part, as S3 does. One that does not
+    /// answers `200` with the whole file, and Bunny's storage API documents no ranges, so the
+    /// part is cut from that answer here: the bytes before it are read and dropped, and nothing
+    /// after it is read at all. Either way the browser receives only what it asked for.
+    ///
+    /// # Errors
+    /// [`StorageError::Refused`] for a `206` that does not say which part it holds.
+    fn from_response(
+        response: reqwest::Response,
+        range: ByteRange,
+        provider: &'static str,
+    ) -> Result<Self, StorageError> {
+        let content_range = response
+            .headers()
+            .get(CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
+        match response.status() {
+            StatusCode::PARTIAL_CONTENT => {
+                let Some(sent) = content_range.as_deref().and_then(ContentRange::parse) else {
+                    return Err(StorageError::Refused(format!(
+                        "{provider} sent part of a file without saying which part"
+                    )));
+                };
+                Ok(Self::Part {
+                    span: sent.span,
+                    total: sent.total,
+                    download: Download::from_response(response, provider),
+                })
+            }
+            StatusCode::RANGE_NOT_SATISFIABLE => Ok(Self::Unsatisfiable {
+                total: content_range
+                    .as_deref()
+                    .and_then(ContentRange::unsatisfied_total),
+            }),
+            _ => {
+                let whole = Download::from_response(response, provider);
+                let Some(total) = whole.content_length else {
+                    return Ok(Self::Whole(whole));
+                };
+                let Some(span) = range.within(total) else {
+                    return Ok(Self::Unsatisfiable { total: Some(total) });
+                };
+                Ok(Self::Part {
+                    span,
+                    total: Some(total),
+                    download: Download {
+                        content_length: Some(span.length()),
+                        content_type: whole.content_type,
+                        body: transfer::slice(whole.body, span.start, span.length()),
+                    },
+                })
+            }
+        }
     }
 }
 
@@ -277,6 +357,29 @@ impl Storage {
             Target::Bunny(zone) => self.bunny.download(&zone, &key).await,
             Target::S3(bucket) => self.s3.download(&bucket, &key).await,
         }
+    }
+
+    /// Opens the part of the file at `path` that `range` covers, for a player seeking inside a
+    /// recording. The provider is asked for that part alone; see [`RangedDownload`] for what it
+    /// may answer.
+    ///
+    /// # Errors
+    /// As [`Storage::download`].
+    pub async fn download_range(
+        &self,
+        location: &StorageLocation,
+        access_key: &SecretString,
+        path: &str,
+        range: ByteRange,
+    ) -> Result<RangedDownload, StorageError> {
+        let path = RelativePath::parse_named(path)?;
+        let key = path.within(&location.path_prefix)?;
+        let provider = location.provider();
+        let (response, provider) = match Target::new(&provider, access_key) {
+            Target::Bunny(zone) => self.bunny.download_range(&zone, &key, range).await?,
+            Target::S3(bucket) => self.s3.download_range(&bucket, &key, range).await?,
+        };
+        RangedDownload::from_response(response, range, provider)
     }
 
     /// Writes `body`, exactly `content_length` bytes, to the file at `path`, replacing any

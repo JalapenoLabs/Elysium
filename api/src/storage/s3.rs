@@ -19,7 +19,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures_util::Stream;
 use instant_xml::FromXml;
-use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, LAST_MODIFIED};
+use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, LAST_MODIFIED, RANGE};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use rusty_s3::actions::{ListObjectsV2, ListObjectsV2Response};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
@@ -28,6 +28,7 @@ use tracing::{Level, event};
 use url::Url;
 
 use super::path::RelativePath;
+use super::range::ByteRange;
 use super::transfer::{self, send_failure};
 use super::{Download, Entry, EntryKind, Page, StorageError};
 use crate::models::storage_location::S3Service;
@@ -412,6 +413,31 @@ impl S3 {
         let response = transfer::send_for_body(self.http.get(url), name).await?;
         let response = accepted(name, response).await?;
         Ok(Download::from_response(response, name))
+    }
+
+    /// Asks for the part of the object at `key` that `range` covers, answering the service's
+    /// response, accepted or `416`, for [`super::RangedDownload`] to read, and its name.
+    /// Presigned URLs sign only the host, so the range travels as a plain header.
+    ///
+    /// # Errors
+    /// As [`S3::download`].
+    pub async fn download_range(
+        &self,
+        target: &S3Target<'_>,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<(Response, &'static str), StorageError> {
+        let name = service_name(target.service);
+        let (bucket, credentials) = target.signing()?;
+        let url = bucket
+            .get_object(Some(&credentials), key)
+            .sign(PRESIGNED_LIFETIME);
+        let request = self.http.get(url).header(RANGE, range.to_string());
+        let response = transfer::send_for_body(request, name).await?;
+        if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            return Ok((response, name));
+        }
+        Ok((accepted(name, response).await?, name))
     }
 
     /// Writes `chunks`, exactly `content_length` bytes, to the object at `key` in one

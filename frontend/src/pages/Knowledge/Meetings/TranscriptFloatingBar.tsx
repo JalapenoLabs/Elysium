@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Kbd, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
-import { LuPencil, LuTextSelect, LuX } from 'react-icons/lu'
+import { LuPencil, LuPlay, LuTextSelect, LuX } from 'react-icons/lu'
 
 export type MarkPill = {
   markId: string
@@ -31,6 +31,8 @@ type Props = {
   // which the next tap ends.
   onSelectFromHere: (() => void) | null
   isExtending: boolean
+  // Plays the meeting from what is picked, while it has a recording to play.
+  onPlayFromHere: (() => void) | null
 }
 
 type Position = {
@@ -72,8 +74,9 @@ function measure(container: HTMLDivElement, anchorIndex: number): Position | nul
 
 // The bar beside what is picked in a meeting's transcript (docs/meeting-review.md, Clicking,
 // selecting, and acting): the marks under the word clicked as pills, which Tab moves between, then
-// what can be done to the words selected, each with its key. Actions whose features are not built
-// yet (Comment, Assign to a project, Black out, Pin a frame, Play from here) join it with them.
+// what can be done to the words selected, each with its key, and Play from here while the meeting
+// has a recording. Actions whose features are not built yet (Comment, Assign to a project, Black
+// out, Pin a frame) join it with them.
 export function TranscriptFloatingBar(props: Props) {
   const { t } = useTranslation('meetings')
   const [ position, setPosition ] = useState<Position | null>(null)
@@ -148,6 +151,14 @@ export function TranscriptFloatingBar(props: Props) {
     </Button>}
 
     {props.isExtending && <span className='px-2 text-xs opacity-70'>{t('review.bar.tapToEnd')}</span>}
+
+    {props.onPlayFromHere && <Button size='sm' variant='ghost' onPress={props.onPlayFromHere}>
+      <LuPlay className='size-4' aria-hidden />
+      <span>{t('review.bar.playFromHere')}</span>
+      <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+        <Kbd.Content>{t('review.bar.spaceKey')}</Kbd.Content>
+      </Kbd>
+    </Button>}
 
     {props.hasSelection && <>
       <Button size='sm' variant='ghost' onPress={props.onEdit}>

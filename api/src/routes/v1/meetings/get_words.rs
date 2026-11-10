@@ -2,7 +2,8 @@
 
 //! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
 //! it reads, for its page: its standing words in order, every standing mark over them, and its
-//! captures, each of which opens as it came (`captures/{captureId}/transcript`).
+//! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
+//! recording (`captures/{captureId}/media`).
 //!
 //! `words` is empty until the transcript is built, which its correction does
 //! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.
@@ -18,6 +19,7 @@ use uuid::Uuid;
 use super::{MarkResponse, WordResponse};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::media::media_type_of;
 use crate::models::meeting_capture::{self, CaptureSummary};
 use crate::models::{meeting, meeting_mark, meeting_word};
 use crate::state::AppState;
@@ -35,10 +37,21 @@ struct CaptureResponse {
     /// Where its clock sits on the meeting's.
     offset_ms: i64,
     has_recording: bool,
+    /// What its recording is, such as `video/mp4`, which the player's switcher starts on the best
+    /// video by; `null` without a recording, or one of a kind Elysium never writes.
+    recording_content_type: Option<String>,
 }
 
 impl From<CaptureSummary> for CaptureResponse {
     fn from(capture: CaptureSummary) -> Self {
+        // A recording kept before its type was recorded is named by its extension, as its media
+        // route serves it.
+        let recording_content_type = capture.recording_path.as_deref().and_then(|path| {
+            capture
+                .recording_content_type
+                .clone()
+                .or_else(|| media_type_of(path).map(ToOwned::to_owned))
+        });
         Self {
             id: capture.id,
             connector_id: capture.connector_id,
@@ -46,6 +59,7 @@ impl From<CaptureSummary> for CaptureResponse {
             url: capture.url,
             offset_ms: capture.offset_ms,
             has_recording: capture.recording_path.is_some(),
+            recording_content_type,
         }
     }
 }

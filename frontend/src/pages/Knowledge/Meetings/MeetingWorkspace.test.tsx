@@ -51,6 +51,7 @@ vi.mock('../../../toast/toast', () => ({
 }))
 
 class InertObserver {
+  unobserve() {}
   observe() {}
   disconnect() {}
 }
@@ -99,6 +100,7 @@ const transcript: MeetingWords = {
     url: null,
     offsetMs: 0,
     hasRecording: false,
+    recordingContentType: null,
   }],
 }
 
@@ -106,7 +108,7 @@ type Context = {
   applyChange: Mock<(change: MeetingTranscriptChange) => void>
 }
 
-function renderWorkspace(context: Context) {
+function renderWorkspace(context: Context, shown: MeetingWords = transcript) {
   const store = createAppStore()
   const router = createMemoryRouter([{
     path: '*',
@@ -115,7 +117,7 @@ function renderWorkspace(context: Context) {
         <TestAriaRouter>
           <MeetingWorkspace
             meeting={makeMeeting({ id: 'meeting' })}
-            transcript={transcript}
+            transcript={shown}
             applyChange={context.applyChange}
             reload={() => {}}
           />
@@ -290,5 +292,153 @@ describe('MeetingWorkspace', () => {
     expect(await screen.findByText('Launch is Fryday.')).toBeTruthy()
     expect(getCaptureTranscript).toHaveBeenCalledWith('meeting', 'capture')
     expect(document.querySelector('[data-word-index]')).toBeNull()
+  })
+})
+
+// The same meeting with an audio and a video recording, the audio's clock five seconds along the
+// meeting's.
+const recorded: MeetingWords = {
+  ...transcript,
+  captures: [
+    {
+      id: 'audio',
+      connectorId: null,
+      sourceKind: 'fireflies',
+      url: null,
+      offsetMs: 5000,
+      hasRecording: true,
+      recordingContentType: 'audio/mpeg',
+    },
+    {
+      id: 'video',
+      connectorId: null,
+      sourceKind: 'fireflies',
+      url: null,
+      offsetMs: 0,
+      hasRecording: true,
+      recordingContentType: 'video/mp4',
+    },
+  ],
+}
+
+function playerMedia() {
+  const media = document.querySelector('video')
+  if (!media) {
+    throw new Error('no player')
+  }
+  return media
+}
+
+describe('MeetingWorkspace player', () => {
+  beforeEach<Context>((context) => {
+    vi.stubGlobal('ResizeObserver', InertObserver)
+    vi.stubGlobal('IntersectionObserver', InertObserver)
+    // jsdom loads no media, so playing is what the page asks for.
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    context.applyChange = vi.fn()
+    vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.mocked(HTMLMediaElement.prototype.play).mockRestore()
+    vi.mocked(HTMLMediaElement.prototype.pause).mockRestore()
+  })
+
+  it<Context>('starts on the video, streamed from its capture\'s media route', (context) => {
+    renderWorkspace(context, recorded)
+
+    expect(playerMedia().getAttribute('src')).toBe('/api/v1/meetings/meeting/captures/video/media')
+  })
+
+  it<Context>('plays nothing for a meeting with no recording, leaving Space to the page', (context) => {
+    renderWorkspace(context)
+
+    expect(document.querySelector('video')).toBeNull()
+    // Not prevented: the page scrolls as Space always does.
+    expect(fireEvent.keyDown(document.body, { key: ' ' })).toBe(true)
+  })
+
+  it<Context>('seeks to a word clicked, on the meeting\'s clock', (context) => {
+    renderWorkspace(context, recorded)
+
+    fireEvent.click(wordPiece('Fryday.'))
+
+    expect(playerMedia().currentTime).toBe(2)
+  })
+
+  it<Context>('plays and pauses on Space, and jumps ten seconds on the arrows', (context) => {
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+
+    press(' ')
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+    Object.defineProperty(media, 'paused', { configurable: true, value: false })
+    fireEvent.play(media)
+    press(' ')
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1)
+
+    media.currentTime = 30
+    press('ArrowRight')
+    expect(media.currentTime).toBe(40)
+    press('ArrowLeft')
+    press('ArrowLeft')
+    expect(media.currentTime).toBe(20)
+  })
+
+  it<Context>('leaves Space to a button that has focus, and the arrows to the pills', (context) => {
+    renderWorkspace(context, recorded)
+    fireEvent.click(wordPiece('Fryday.'))
+    const media = playerMedia()
+    media.currentTime = 30
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /Play from here/ }), { key: ' ' })
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Confidence' }), { key: 'ArrowRight' })
+
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+    expect(media.currentTime).toBe(30)
+  })
+
+  it<Context>('plays from the words selected, from Space or Play from here', (context) => {
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+    fireEvent.click(wordPiece('is'))
+    fireEvent.click(wordPiece('Agreed.'), { shiftKey: true })
+    media.currentTime = 30
+
+    press(' ')
+    expect(media.currentTime).toBe(1)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+
+    media.currentTime = 30
+    fireEvent.click(screen.getByRole('button', { name: /Play from here/ }))
+    expect(media.currentTime).toBe(1)
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+  })
+
+  it<Context>('underlines the word being spoken once the player has moved', (context) => {
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+    expect(document.querySelector('[data-spoken]')).toBeNull()
+
+    media.currentTime = 1.5
+    fireEvent.seeked(media)
+
+    expect(wordPiece('is').hasAttribute('data-spoken')).toBe(true)
+  })
+
+  it<Context>('switches capture at the same moment on the meeting\'s clock', async (context) => {
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+    media.currentTime = 12
+
+    fireEvent.click(screen.getByRole('button', { name: /Recording/ }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Fireflies 1' }))
+    expect(media.getAttribute('src')).toBe('/api/v1/meetings/meeting/captures/audio/media')
+    fireEvent.loadedMetadata(media)
+
+    // Twelve seconds into the meeting is seven into a recording that began five seconds in.
+    expect(media.currentTime).toBe(7)
   })
 })

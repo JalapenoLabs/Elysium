@@ -32,6 +32,8 @@ type Props = {
   focus: number | null
   selectedMark: PlacedMark | null
   moment: number | null
+  // The word being spoken as the meeting plays, underlined.
+  spoken: number | null
   pills: MarkPill[]
   isEditing: boolean
   isExtending: boolean
@@ -45,6 +47,7 @@ type Props = {
   onApplyEdit: (text: string) => Promise<boolean>
   onCancelEdit: () => void
   onSelectFromHere: (() => void) | null
+  onPlayFromHere: (() => void) | null
 }
 
 // The word a piece of the transcript stands for: a word itself, or the space after one.
@@ -187,6 +190,9 @@ export function FinalTranscript(props: Props) {
         moment={props.moment !== null && paragraph.start <= props.moment && props.moment <= paragraph.end
           ? props.moment
           : null}
+        spoken={props.spoken !== null && paragraph.start <= props.spoken && props.spoken <= paragraph.end
+          ? props.spoken
+          : null}
         editing={editing}
         editor={editing.start === props.selection?.start
           ? editor
@@ -206,6 +212,7 @@ export function FinalTranscript(props: Props) {
       onClear={props.onClear}
       onSelectFromHere={props.onSelectFromHere}
       isExtending={props.isExtending}
+      onPlayFromHere={props.onPlayFromHere}
     />}
   </div>
 }

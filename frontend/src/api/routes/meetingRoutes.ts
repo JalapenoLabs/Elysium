@@ -4,6 +4,7 @@ import type { ConnectorKind } from './connectorRoutes'
 import type { LearningAgent } from './learningRoutes'
 
 // Misc
+import { API_BASE_PATH } from '../../constants'
 import { apiClient } from '../index'
 
 // Mirrors `Processing` in api/src/meetings/workflow.rs: how far a meeting's processing got, or
@@ -112,6 +113,8 @@ export type MeetingCapture = {
   // Where its clock sits on the meeting's.
   offsetMs: number
   hasRecording: boolean
+  // What its recording is, such as `video/mp4`; null without one.
+  recordingContentType: string | null
 }
 
 // A meeting's final transcript as it reads: its standing words in order, the marks over them,
@@ -208,6 +211,11 @@ export function getMeetingWords(meetingId: string) {
   return apiClient
     .get(meetingWordsKey(meetingId))
     .json<MeetingWords>()
+}
+
+// A capture's recording, which the player streams a range at a time from Elysium's own origin.
+export function getCaptureMediaUrl(meetingId: string, captureId: string) {
+  return `${API_BASE_PATH}/v1/meetings/${meetingId}/captures/${captureId}/media`
 }
 
 export function getCaptureTranscript(meetingId: string, captureId: string) {

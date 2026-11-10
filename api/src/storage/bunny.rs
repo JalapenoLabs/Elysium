@@ -22,7 +22,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures_util::Stream;
-use reqwest::header::{ACCEPT, CONTENT_TYPE};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, RANGE};
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -30,6 +30,7 @@ use tracing::{Level, event};
 use url::Url;
 
 use super::path::RelativePath;
+use super::range::ByteRange;
 use super::transfer::{self, send_failure};
 use super::{Download, Entry, EntryKind, Page, StorageError};
 use crate::models::storage_location::BunnyStorageRegion;
@@ -318,6 +319,27 @@ impl Bunny {
         let request = self.request(Method::GET, zone, key, false);
         let response = accepted(transfer::send_for_body(request, PROVIDER).await?).await?;
         Ok(Download::from_response(response, PROVIDER))
+    }
+
+    /// Asks for the part of the file at `key` that `range` covers, answering the provider's
+    /// response, accepted or `416`, for [`super::RangedDownload`] to read, and its name.
+    ///
+    /// # Errors
+    /// As [`Bunny::download`].
+    pub async fn download_range(
+        &self,
+        zone: &BunnyZone<'_>,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<(Response, &'static str), StorageError> {
+        let request = self
+            .request(Method::GET, zone, key, false)
+            .header(RANGE, range.to_string());
+        let response = transfer::send_for_body(request, PROVIDER).await?;
+        if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            return Ok((response, PROVIDER));
+        }
+        Ok((accepted(response).await?, PROVIDER))
     }
 
     /// Writes `chunks`, exactly `content_length` bytes, to the file at `key`, replacing

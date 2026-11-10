@@ -19,25 +19,63 @@ const OWNS_KEYS_SELECTOR = [
   '[role="alertdialog"]',
 ].join(', ')
 
+// Where Space presses what has focus, such as a button or a switch, and so plays nothing.
+const PRESSES_SPACE_SELECTOR = [
+  'button',
+  'a[href]',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="switch"]',
+  '[role="radio"]',
+  '[role="tab"]',
+  '[role="option"]',
+  '[role="menuitem"]',
+].join(', ')
+
+// Where the arrows move through what has focus, such as tabs or the pills of a radio group.
+const MOVES_ON_ARROWS_SELECTOR = [
+  '[role="slider"]',
+  '[role="radiogroup"]',
+  '[role="tablist"]',
+  '[role="tree"]',
+  '[role="treegrid"]',
+  '[role="grid"]',
+].join(', ')
+
+const jumpStepByKey: Partial<Record<string, 1 | -1>> = {
+  ArrowLeft: -1,
+  ArrowRight: 1,
+}
+
 type Handlers = {
   // Each answers whether it used the key, so one it did not use keeps its usual meaning.
   onEscape: () => boolean
   onEdit: () => boolean
   onCycleMark: (step: 1 | -1) => boolean
+  // Held down, Space repeats; a repeat is used without playing, so the page neither scrolls nor
+  // flicks between playing and paused.
+  onPlayPause: (isRepeat: boolean) => boolean
+  onJump: (step: 1 | -1) => boolean
   onUndo: () => void
   // What Ctrl+C copies: the words selected, or null to leave copying to the browser.
   selectedText: () => string | null
 }
 
+function isWithin(target: EventTarget | null, selector: string) {
+  return target instanceof Element && Boolean(target.closest(selector))
+}
+
 function ownsKeys(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest(OWNS_KEYS_SELECTOR))
+  return isWithin(target, OWNS_KEYS_SELECTOR)
 }
 
 // The keys of a meeting's page (docs/frontend.md, Hotkeys), outside a text field and while no
 // dialog or menu is open: Esc clears what is picked, E edits the words selected, Tab moves between
-// the marks under the word clicked, Ctrl+Z (Cmd+Z) undoes the page's last change, and Ctrl+C
-// copies the words selected. They listen as the key travels down, so Esc is used here before the
-// page's own Esc goes up a level, which a used key never does (`readPageShortcut`).
+// the marks under the word clicked, Space plays and pauses, the left and right arrows jump back
+// and forward, Ctrl+Z (Cmd+Z) undoes the page's last change, and Ctrl+C copies the words selected.
+// They listen as the key travels down, so Esc is used here before the page's own Esc goes up a
+// level, which a used key never does (`readPageShortcut`), and Space and the arrows before the
+// player's own controls take them, so they mean the same wherever focus is.
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {
@@ -62,6 +100,17 @@ export function useReviewHotkeys(handlers: Handlers) {
       return
     }
     if (event.key.toLowerCase() === 'e' && !event.shiftKey && !event.repeat && handlers.onEdit()) {
+      event.preventDefault()
+      return
+    }
+    if (event.key === ' ' && !event.shiftKey && !isWithin(event.target, PRESSES_SPACE_SELECTOR)) {
+      if (handlers.onPlayPause(event.repeat)) {
+        event.preventDefault()
+      }
+      return
+    }
+    const step = jumpStepByKey[event.key]
+    if (step && !event.shiftKey && !isWithin(event.target, MOVES_ON_ARROWS_SELECTOR) && handlers.onJump(step)) {
       event.preventDefault()
     }
   })
