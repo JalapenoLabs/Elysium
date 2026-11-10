@@ -298,7 +298,7 @@ pub async fn create(
     content: Value,
 ) -> Result<Connector, ApiError> {
     content_of(content.clone())?;
-    super::browser::create(state, current, ConnectorKind::Slack, content).await
+    super::browser::create(state, current, ConnectorKind::Slack, content, None).await
 }
 
 /// Replaces what the connector reads. Conversations it stops reading keep their place in its

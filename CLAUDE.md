@@ -275,7 +275,8 @@ Everything else follows these rules:
   result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
 - Teams reads through its own browser signed in to Microsoft, from Teams' own local store (IndexedDB) rather than its
   page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a channel thread the
-  person wrote in raises an inbox item; other channel messages are only recorded.
+  person wrote in raises an inbox item; other channel messages are only recorded. Teams enforces Trusted Types, so its
+  page scripts read markup with patterns and never hand it to a parser.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
@@ -313,11 +314,16 @@ Everything else follows these rules:
 
 ## Meetings
 
-- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
-  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). Every
-  meeting belongs to a connector, which is what keeps it and its segments from being recorded twice. See
-  `docs/meetings.md`.
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
+  key, and Teams, through its connector's own browser, so nothing is installed into an organization. A source is a
+  connector whose kind declares it provides meetings, managed under Connectors alone; the meetings page and loop never
+  name one, and each source's sign-in is resolved beside it (`meetings::sources`). Every meeting belongs to a
+  connector, which is what keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+- Teams lists the recorded meetings whose chats its store holds, and fetches each recording's download address and its
+  transcript, with speakers, from the organizer's SharePoint with the token Teams keeps for it, which never leaves the
+  page. It reads meetings while "Read meeting recordings and transcripts" is on (the default) and once a storage
+  location is picked. A connector's cursor is merged, not replaced, so its chat reader and the meetings listing each
+  keep their own keys. See `docs/meetings.md`, Teams.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
   transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
   again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.

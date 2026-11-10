@@ -54,8 +54,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use self::source::{ListedMeeting, MeetingSource, SourceError};
-use self::sources::{Source, Sources};
+use self::source::{ListedMeeting, SourceError};
+use self::sources::Sources;
 use self::workflow::RunToStart;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
@@ -66,7 +66,6 @@ use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::storage_location::{self, StorageLocation};
-use crate::models::token_account;
 use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::workflows;
@@ -242,18 +241,31 @@ impl Meetings {
         }
     }
 
-    /// Lists one connector's new meetings, stores them, and records how the listing went.
+    /// Lists one connector's new meetings, stores them, and records how the listing went. A
+    /// connector that reads no meetings now, such as a Teams connector with them turned off, is
+    /// left as it is.
     async fn poll_account(&self, account: &Connector) -> anyhow::Result<()> {
-        let source = source_of(&self.inner.sources, account)?;
-        let credential = {
+        if !self.inner.sources.reads_meetings(account) {
+            event!(
+                name: "meetings.account.not_reading",
+                Level::DEBUG,
+                connector.id = %account.id,
+                "a meeting connector that reads no meetings now was not listed",
+            );
+            return Ok(());
+        }
+        let source = {
             let mut connection = self.connection().await?;
-            key_of(&mut connection, &self.inner.cipher, account).await?
+            self.inner
+                .sources
+                .signed_in(&mut connection, &self.inner.cipher, account)
+                .await?
         };
         let since = listing_since(account);
         let started = Utc::now();
         let mut run = None;
 
-        let outcome = match source.list(&credential, Some(since), LISTING_SIZE).await {
+        let outcome = match source.list(Some(since), LISTING_SIZE).await {
             Ok(listed) => {
                 let (newest, stored) = self.store_listed(account, &listed).await?;
                 if stored > 0 {
@@ -437,30 +449,6 @@ impl Meetings {
             created_by: changed.created_by,
         });
     }
-}
-
-/// The source `connector`'s kind reads its meetings from.
-fn source_of(sources: &Sources, connector: &Connector) -> anyhow::Result<Source> {
-    ConnectorKind::parse(&connector.kind)
-        .and_then(|kind| sources.for_kind(kind))
-        .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))
-}
-
-/// The API key `connector` reads its meetings with, from the token account it reads through.
-/// Every source today signs in with a key; a source read through a browser will resolve its
-/// sign-in beside its source instead.
-async fn key_of(
-    connection: &mut AsyncPgConnection,
-    cipher: &Cipher,
-    connector: &Connector,
-) -> anyhow::Result<secrecy::SecretString> {
-    let token_account_id = connector
-        .token_account_id
-        .context("a meeting connector reads with an API key, and this one has none")?;
-    let account = token_account::find(connection, token_account_id).await?;
-    account
-        .credential(cipher)
-        .context("the connector's key cannot be decrypted")
 }
 
 /// Storage location `storage_location_id`, with the key that opens it.

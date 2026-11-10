@@ -482,6 +482,7 @@ fn truncate(text: &str, max_characters: usize) -> String {
     text.trim().chars().take(max_characters).collect()
 }
 
+pub mod meetings;
 pub mod send;
 
 #[cfg(test)]

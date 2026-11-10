@@ -204,9 +204,12 @@ impl Fireflies {
 }
 
 impl MeetingSource for Fireflies {
+    /// The person's API key.
+    type SignIn = SecretString;
+
     async fn list(
         &self,
-        credential: &SecretString,
+        sign_in: &SecretString,
         since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> Result<Vec<ListedMeeting>, SourceError> {
@@ -214,7 +217,7 @@ impl MeetingSource for Fireflies {
             "fromDate": since.map(|since| since.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
             "limit": limit.min(MAX_LISTING),
         });
-        let data = self.query(credential, LIST_QUERY, variables).await?;
+        let data = self.query(sign_in, LIST_QUERY, variables).await?;
         let transcripts: Vec<ListedTranscript> =
             serde_json::from_value(data["transcripts"].clone()).map_err(|error| {
                 SourceError::Refused(format!(
@@ -226,11 +229,11 @@ impl MeetingSource for Fireflies {
 
     async fn fetch(
         &self,
-        credential: &SecretString,
+        sign_in: &SecretString,
         external_id: &str,
     ) -> Result<FetchedMeeting, SourceError> {
         let data = self
-            .query(credential, TRANSCRIPT_QUERY, json!({ "id": external_id }))
+            .query(sign_in, TRANSCRIPT_QUERY, json!({ "id": external_id }))
             .await?;
         if data["transcript"].is_null() {
             return Err(SourceError::NotFound);
@@ -243,7 +246,7 @@ impl MeetingSource for Fireflies {
             })?;
         Ok(FetchedMeeting {
             transcript: transcript_lines(transcript),
-            recording: self.fetch_recording(credential, external_id).await?,
+            recording: self.fetch_recording(sign_in, external_id).await?,
         })
     }
 }
