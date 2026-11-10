@@ -111,7 +111,7 @@
       "storageLocation": "Choose where the recording is kept"
     },
     "refusals": {
-      "type": "Choose a {{extensions}} file.",
+      "type": "Choose a file of one of these kinds: {{extensions}}.",
       "empty": "{{name}} is empty.",
       "tooLarge": "Choose a file of up to {{limit}}.",
       "notMedia": "This recording isn't the kind of file its name says. Choose another.",

@@ -20,6 +20,7 @@
   },
   "segment": {
     "inMeeting": "In {{meeting}}, {{start}} to {{end}}",
+    "inMeetingWords": "In {{meeting}}",
     "transcript": "Transcript",
     "hideTranscript": "Hide transcript",
     "noClip": "No recording was kept for this meeting."

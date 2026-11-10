@@ -326,7 +326,7 @@ export function UploadMeetingForm(props: Props) {
       value={progress.total
         ? Math.round(progress.received / progress.total * 100)
         : 0}
-      className='max-w-xl'
+      className='w-full'
     >
       <Label>{isFinishing
         ? t('upload.progress.finishing')

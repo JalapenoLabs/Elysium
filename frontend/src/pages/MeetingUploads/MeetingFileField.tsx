@@ -54,7 +54,7 @@ export function MeetingFileField(props: Props) {
   const taken = props.policy[props.kind]
   const Icon = iconByKind[props.kind]
   const id = `meeting-upload-${props.kind}`
-  const dottedExtensions = taken.extensions.map((extension) => `.${extension}`).join(', ')
+  const kinds = taken.extensions.map((extension) => extension.toUpperCase()).join(', ')
 
   function choose(file: File | undefined) {
     if (!file) {
@@ -64,7 +64,7 @@ export function MeetingFileField(props: Props) {
     const refused = describeFileRefusal(file, props.kind, props.policy)
     if (refused) {
       const messages = {
-        type: () => t('upload.refusals.type', { extensions: dottedExtensions }),
+        type: () => t('upload.refusals.type', { extensions: kinds }),
         empty: () => t('upload.refusals.empty', { name: file.name }),
         tooLarge: () => t('upload.refusals.tooLarge', { limit: formatBytes(taken.maxBytes) }),
       } as const satisfies Record<FileRefusal, () => string>
@@ -84,10 +84,7 @@ export function MeetingFileField(props: Props) {
     choose(event.dataTransfer.files[0])
   }
 
-  const hint = t('upload.fields.hint', {
-    extensions: taken.extensions.map((extension) => extension.toUpperCase()).join(', '),
-    limit: formatBytes(taken.maxBytes),
-  })
+  const hint = t('upload.fields.hint', { extensions: kinds, limit: formatBytes(taken.maxBytes) })
   const message = refusal ?? props.errorMessage
   // A file held over the field lights it, so it is clear where it drops.
   const dropTone = isDropping
