@@ -1231,7 +1231,7 @@ async fn members_create_publish_read_and_restore_pages_over_the_routes() {
     let own = own.expect("the page beside the fixed ones");
     assert_eq!(own["title"], "Deploying the API");
     assert!(own.get("body").is_none());
-    assert_eq!(listed.len(), 11, "and the ten every tree starts with");
+    assert_eq!(listed.len(), 12, "and the eleven every tree starts with");
 }
 
 #[tokio::test]
