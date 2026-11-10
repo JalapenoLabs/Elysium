@@ -23,6 +23,7 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::file_names;
 
 /// The largest file a page takes: 50 MB, room for a datasheet or a slide deck.
 ///
@@ -156,11 +157,7 @@ pub fn displays_inline(content_type: &str) -> bool {
         .any(|kind| kind.image.is_some() && kind.content_type == content_type)
 }
 
-/// A file's name once it is safe to keep, with the kind of file it names.
-///
-/// What arrives is a browser's, or an agent's, to choose. Any path is dropped, control characters
-/// and the invisible ones that reorder text go, so `exe.gnp` cannot read as something else, and
-/// runs of spaces become one. It stays in the alphabet it was written in, since people read it.
+/// A file's name once it is safe to keep (`crate::file_names`), with the kind of file it names.
 #[derive(Debug)]
 pub struct AttachmentName {
     name: String,
@@ -174,35 +171,21 @@ impl AttachmentName {
     /// `400` with the code `attachment_name` when no name is left, and `attachment_type` when its
     /// extension is not one a page takes.
     pub fn parse(raw: &str) -> Result<Self, ApiError> {
-        let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
-        let kept: String = base
-            .chars()
-            .filter(|&character| is_kept(character))
-            .collect();
-        let name = kept.split_whitespace().collect::<Vec<_>>().join(" ");
-
-        let (stem, extension) = name.rsplit_once('.').unwrap_or((&name, ""));
-        let stem = stem.trim_matches([' ', '.']);
-        if stem.is_empty() {
+        let Some(cleaned) = file_names::clean(raw) else {
             return Err(ApiError::CodedBadRequest {
                 code: "attachment_name",
                 message: "a file needs a name and an extension to be attached".to_owned(),
             });
-        }
-
-        let extension = extension.to_lowercase();
+        };
+        let extension = cleaned.extension();
         let Some(file_type) = FILE_TYPES.iter().find(|kind| kind.extension == extension) else {
             return Err(ApiError::CodedBadRequest {
                 code: "attachment_type",
                 message: format!("pages do not take .{extension} files"),
             });
         };
-
-        // The extension stays, so a shortened name still says what it is.
-        let room = MAX_NAME_CHARACTERS - extension.chars().count() - 1;
-        let stem: String = stem.chars().take(room).collect();
         Ok(Self {
-            name: format!("{}.{extension}", stem.trim_end()),
+            name: cleaned.into_name(MAX_NAME_CHARACTERS),
             file_type,
         })
     }
@@ -214,13 +197,6 @@ impl AttachmentName {
     pub const fn file_type(&self) -> &'static FileType {
         self.file_type
     }
-}
-
-/// Whether `character` may stay in a name. Rust has no table of invisible characters, so the ones
-/// that matter are named: the marks and overrides that change the direction text reads in.
-fn is_kept(character: char) -> bool {
-    !character.is_control()
-        && !matches!(character, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 /// `file_name` as one plain segment of a path: letters and digits of the English alphabet, with

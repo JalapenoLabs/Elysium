@@ -74,6 +74,7 @@ use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Replies};
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::meeting_uploads;
 use crate::models::attribution::{self, Attributor};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, MeetingState};
@@ -415,27 +416,43 @@ impl SegmentMeeting {
         let duration_ms = duration_of(current, transcript);
         let participants: Vec<String> =
             serde_json::from_value(current.participants.clone()).unwrap_or_default();
-        let prompt = segmentation::prompt(
-            MeetingContext {
-                title: &current.title,
-                duration_ms,
-                participants: &participants,
-            },
-            transcript,
-            &choices,
-        );
+        let meeting_context = MeetingContext {
+            title: &current.title,
+            duration_ms,
+            participants: &participants,
+        };
+        // A meeting in words alone has no clock to answer in, so it is answered by its lines.
+        let in_words_alone = meeting_uploads::transcript::is_untimed(transcript);
+        let (prompt, system_prompt) = if in_words_alone {
+            context
+                .log
+                .line("The transcript carries no times, so its topics are runs of its lines");
+            (
+                segmentation::lines_prompt(meeting_context, transcript, &choices),
+                segmentation::LINES_SYSTEM_PROMPT,
+            )
+        } else {
+            (
+                segmentation::prompt(meeting_context, transcript, &choices),
+                segmentation::SYSTEM_PROMPT,
+            )
+        };
         let answer = self
             .ask(
                 format!("meeting:{}:segmentation", current.id),
                 prompt,
-                segmentation::SYSTEM_PROMPT,
+                system_prompt,
                 context,
             )
             .await?;
-        let segments =
-            segmentation::parse_answer(&answer, duration_ms, &choices).map_err(|error| {
-                StepFailure::retryable(format!("The segmentation's answer: {error}"))
-            })?;
+        let parsed = if in_words_alone {
+            segmentation::parse_lines_answer(&answer, transcript, &choices)
+        } else {
+            segmentation::parse_answer(&answer, duration_ms, &choices)
+        };
+        let segments = parsed.map_err(|error| {
+            StepFailure::retryable(format!("The segmentation's answer: {error}"))
+        })?;
         let attributed = segments
             .iter()
             .filter(|segment| !segment.projects.is_empty())
@@ -577,6 +594,11 @@ impl SegmentMeeting {
         log: &StepLog,
     ) -> Result<Vec<Option<Clip>>, StepFailure> {
         let meeting_id = capture.meeting_id;
+        if segments.iter().any(|segment| segment.lines.is_some()) {
+            // Runs of lines in words alone, with no times to cut a recording at.
+            log.line("The transcript carries no times, so the topics carry no clips");
+            return Ok(Vec::new());
+        }
         let (Some(storage_location_id), Some(recording_path)) = (
             capture.storage_location_id,
             capture.recording_path.as_deref(),
@@ -1302,7 +1324,11 @@ mod tests {
             serde_json::to_value(TranscriptToSegment::Meeting(corrected.clone()))
                 .expect("serializes"),
             json!({ "meetingId": meeting_id, "transcriptHash": "a".repeat(64), "recording": null }),
-            serde_json::to_value(MeetingToFetch { meeting_id }).expect("serializes"),
+            serde_json::to_value(MeetingToFetch {
+                meeting_id,
+                capture_id: None,
+            })
+            .expect("serializes"),
         ];
         assert_eq!(
             meetings[0],
@@ -1347,6 +1373,7 @@ mod tests {
                 project_id,
                 confidence: 0.9,
             }],
+            lines: None,
         };
         let location = Uuid::now_v7();
         let record = segment_record(
@@ -1430,6 +1457,7 @@ mod tests {
                 title: "Intros".to_owned(),
                 summary: String::new(),
                 projects: Vec::new(),
+                lines: None,
             },
             None,
         );
@@ -1454,6 +1482,7 @@ mod tests {
                 title: "Intros".to_owned(),
                 summary: String::new(),
                 projects: Vec::new(),
+                lines: None,
             },
             None,
         );
@@ -1546,6 +1575,7 @@ mod tests {
                     project_id: launch.id,
                     confidence: 0.8,
                 }],
+                lines: None,
             },
             Segment {
                 start_ms: 300_000,
@@ -1553,6 +1583,7 @@ mod tests {
                 title: "Lunch".to_owned(),
                 summary: String::new(),
                 projects: Vec::new(),
+                lines: None,
             },
         ];
         meeting::record_segments(
@@ -1681,6 +1712,7 @@ mod tests {
                 title: "Launch".to_owned(),
                 summary: String::new(),
                 projects: Vec::new(),
+                lines: None,
             },
             Segment {
                 start_ms: 300_000,
@@ -1688,6 +1720,7 @@ mod tests {
                 title: "Lunch".to_owned(),
                 summary: String::new(),
                 projects: Vec::new(),
+                lines: None,
             },
         ];
         meeting::record_segments(

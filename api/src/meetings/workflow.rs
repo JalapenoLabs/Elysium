@@ -64,9 +64,45 @@ pub fn run_for(meeting_id: Uuid) -> NewRun {
     workflow().new_run(Start {
         source_kind: SOURCE_KIND.to_owned(),
         source_id: meeting_id.to_string(),
-        input: MeetingToFetch { meeting_id },
+        input: MeetingToFetch {
+            meeting_id,
+            capture_id: None,
+        },
         created_by: SYSTEM_USER_ID,
     })
+}
+
+/// A run of the meeting workflow on capture `capture_id` of meeting `meeting_id`, from its fetch,
+/// which person `started_by` starts by finishing its upload.
+pub fn run_for_upload(meeting_id: Uuid, capture_id: Uuid, started_by: Uuid) -> NewRun {
+    workflow().new_run(Start {
+        source_kind: SOURCE_KIND.to_owned(),
+        source_id: meeting_id.to_string(),
+        input: MeetingToFetch {
+            meeting_id,
+            capture_id: Some(capture_id),
+        },
+        created_by: started_by,
+    })
+}
+
+/// Whether meeting `meeting_id` has a run that is still its: one going, held, or failed and
+/// waiting for a person. A meeting holds one run at a time (`workflow_run::start`).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn is_processing(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> diesel::QueryResult<bool> {
+    let live = workflow_run::find_live(
+        connection,
+        workflow().name(),
+        SOURCE_KIND,
+        &meeting_id.to_string(),
+    )
+    .await?;
+    Ok(live.is_some())
 }
 
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with

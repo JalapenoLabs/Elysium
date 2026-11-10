@@ -395,6 +395,21 @@ impl From<crate::runner::files::FileError> for ApiError {
     }
 }
 
+impl From<crate::meeting_uploads::staging::StagingError> for ApiError {
+    fn from(error: crate::meeting_uploads::staging::StagingError) -> Self {
+        use crate::meeting_uploads::staging::StagingError;
+
+        match error {
+            short @ StagingError::Length { .. } => Self::CodedBadRequest {
+                code: "meeting_upload_part_length",
+                message: short.to_string(),
+            },
+            StagingError::Workspace(refused) => Self::from(refused),
+            failed @ StagingError::Io(_) => Self::BadGateway(failed.to_string()),
+        }
+    }
+}
+
 impl From<crate::github::GithubError> for ApiError {
     fn from(error: crate::github::GithubError) -> Self {
         use crate::github::GithubError;

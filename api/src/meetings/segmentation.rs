@@ -11,6 +11,9 @@
 //! topics are runs of messages rather than stretches of time. A conversation's answer also names
 //! the promises its person made in it ("I'll let you know here when it's live"), each by the
 //! message it was made in, for its Project Manager to follow up (`docs/engine.md`, Follow-ups).
+//! A meeting in words alone, a transcript uploaded with no times and no recording, has no clock to
+//! answer in, so it is answered by the numbers of its lines as a conversation is
+//! ([`parse_lines_answer`]), each segment a run of its lines.
 //! An action item that arrived in no project is read the same way, without segments: its answer
 //! names the projects it belongs to, surest first ([`parse_item_answer`]), the surest to lead it.
 //! Nothing either answer says is taken on trust: only segments that lie inside the meeting or the
@@ -89,6 +92,20 @@ sentences of what was said and decided, with any action items and who owns them.
 Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
 projects empty for small talk or anything no project is about.";
 
+/// A meeting in words alone's segmentation turn's instructions: segments as runs of its numbered
+/// lines, since it has no clock.
+pub const LINES_SYSTEM_PROMPT: &str = "\
+You divide a meeting's transcript into its topics, the way a person skimming it would want it \
+chaptered, and say which of the listed projects each topic is about. The transcript carries no \
+times, so its lines are numbered from 1. Answer with one JSON object and nothing else: \
+{\"segments\": [{\"firstLine\": number, \"lastLine\": number, \"title\": string, \
+\"summary\": string, \"projects\": [{\"projectId\": string, \"confidence\": number}]}]}. \
+Segments are in order, do not overlap, and together cover the meeting; a topic usually runs \
+for many lines, not one. The title is a short phrase. The summary is two to four plain \
+sentences of what was said and decided, with any action items and who owns them. \
+Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
+projects empty for small talk or anything no project is about.";
+
 /// A conversation's segmentation turn's instructions: segments as runs of numbered messages, and
 /// the promises its person made in them.
 pub const CONVERSATION_SYSTEM_PROMPT: &str = "\
@@ -124,11 +141,36 @@ pub struct ProjectChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Segment {
+    /// On the capture's clock; both `0` for a meeting in words alone, which has none.
     pub start_ms: i64,
     pub end_ms: i64,
     pub title: String,
     pub summary: String,
     pub projects: Vec<SegmentProject>,
+    /// The run of transcript lines a meeting in words alone's segment holds, by their place from
+    /// 0, first and last included; `None` for a segment of a meeting on a clock, which its times
+    /// say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines: Option<LineRun>,
+}
+
+/// A run of a transcript's lines, by their place from 0, first and last included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineRun {
+    pub first: usize,
+    pub last: usize,
+}
+
+impl Segment {
+    /// Whether `line`, the transcript's line at `index`, falls inside this segment: by its place
+    /// for a meeting in words alone, and by its start otherwise.
+    fn holds(&self, index: usize, line: &TranscriptLine) -> bool {
+        match self.lines {
+            Some(run) => (run.first..=run.last).contains(&index),
+            None => line.start_ms >= self.start_ms && line.start_ms < self.end_ms,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -199,6 +241,25 @@ pub fn prompt(
     prompt
 }
 
+/// The segmentation turn's prompt for a meeting in words alone: its lines numbered, with no times,
+/// for [`parse_lines_answer`] to read.
+pub fn lines_prompt(
+    meeting: MeetingContext<'_>,
+    transcript: &[TranscriptLine],
+    projects: &[ProjectChoice],
+) -> String {
+    let mut prompt = String::new();
+    let _ = writeln!(prompt, "Meeting: {}", meeting.title);
+    let _ = writeln!(prompt, "Lines: {}", transcript.len());
+    if !meeting.participants.is_empty() {
+        let _ = writeln!(prompt, "Participants: {}", meeting.participants.join(", "));
+    }
+    push_projects(&mut prompt, projects);
+    prompt.push_str("\nTranscript, each line numbered:\n");
+    prompt.push_str(&numbered_text(transcript, TRANSCRIPT_BUDGET_BYTES, false));
+    prompt
+}
+
 /// A conversation's segmentation turn's prompt: `title` is what the conversation is called
 /// where it was had, `person` the name of whose timeline it is on, the one whose promises the
 /// answer names, and `messages` are its messages in order, each timed from the first.
@@ -260,6 +321,13 @@ fn push_projects(prompt: &mut String, projects: &[ProjectChoice]) {
 /// evenly; a conversation too long for even that keeps its start and says where it was cut, and
 /// its answer may still only name the messages shown.
 pub fn messages_text(messages: &[TranscriptLine], budget: usize) -> String {
+    numbered_text(messages, budget, true)
+}
+
+/// Lines as `[n] [m:ss] Speaker: text`, numbered from 1 and never merged, shortened as
+/// [`messages_text`] says; without the `[m:ss]` when `with_clock` is false, for a meeting in words
+/// alone.
+fn numbered_text(messages: &[TranscriptLine], budget: usize, with_clock: bool) -> String {
     let prefixes: Vec<String> = messages
         .iter()
         .zip(1..)
@@ -269,7 +337,11 @@ pub fn messages_text(messages: &[TranscriptLine], budget: usize) -> String {
             } else {
                 message.speaker.as_str()
             };
-            format!("[{number}] [{}] {speaker}: ", clock(message.start_ms))
+            if with_clock {
+                format!("[{number}] [{}] {speaker}: ", clock(message.start_ms))
+            } else {
+                format!("[{number}] {speaker}: ")
+            }
         })
         .collect();
     let render = |limit: Option<usize>| {
@@ -531,6 +603,13 @@ struct ConversationAnswer {
     promises: Vec<AnswerPromise>,
 }
 
+/// A meeting in words alone's answer: its segments as runs of its lines.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinesAnswer {
+    segments: Vec<ConversationAnswerSegment>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnswerPromise {
@@ -546,7 +625,10 @@ struct AnswerPromise {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConversationAnswerSegment {
+    /// A meeting in words alone names its lines where a conversation names its messages.
+    #[serde(alias = "firstLine")]
     first_message: i64,
+    #[serde(alias = "lastLine")]
     last_message: i64,
     #[serde(default)]
     title: String,
@@ -573,12 +655,31 @@ pub fn parse_conversation_answer(
     let json = json_object(answer).ok_or(AnswerError::NoJson)?;
     let parsed: ConversationAnswer =
         serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
+    let segments = kept_runs(parsed.segments, messages.len(), offered, |first| {
+        format!("From {}", clock(messages[first].start_ms))
+    });
+    if segments.is_empty() {
+        return Err(AnswerError::Empty);
+    }
+    let promises = kept_promises(parsed.promises, messages.len(), offered);
+    Ok(ConversationReading { segments, promises })
+}
 
+/// The runs among `candidates`, of a sequence of `count` messages or lines numbered from 1, that
+/// hold up: in order and apart, a run starting before the last one ended starting after it, one
+/// reaching past the end ending there, at most [`MAX_SEGMENTS`], and attributed only to projects
+/// in `offered`. A run with no title takes `untitled` of its first, by its place from 0.
+fn kept_runs(
+    candidates: Vec<ConversationAnswerSegment>,
+    count: usize,
+    offered: &[ProjectChoice],
+    untitled: impl Fn(usize) -> String,
+) -> Vec<ConversationSegment> {
     let mut segments: Vec<ConversationSegment> = Vec::new();
     // The first message the next segment may start at, from 0.
     let mut next_free = 0;
-    for candidate in parsed.segments {
-        if segments.len() == MAX_SEGMENTS || next_free >= messages.len() {
+    for candidate in candidates {
+        if segments.len() == MAX_SEGMENTS || next_free >= count {
             break;
         }
         // Numbered from 1 in the answer; anything below that names no message.
@@ -589,25 +690,62 @@ pub fn parse_conversation_answer(
             continue;
         };
         let first = first.max(next_free);
-        let last = last.min(messages.len() - 1);
+        let last = last.min(count - 1);
         if last < first {
             continue;
         }
+        let title = one_line(&candidate.title, TITLE_CHARACTERS);
         segments.push(ConversationSegment {
             first,
             last,
-            title: title_or(&candidate.title, messages[first].start_ms),
+            title: if title.is_empty() {
+                untitled(first)
+            } else {
+                title
+            },
             summary: one_line(&candidate.summary, SUMMARY_CHARACTERS),
             projects: kept_projects(candidate.projects, offered),
         });
         next_free = last + 1;
     }
+    segments
+}
 
-    if segments.is_empty() {
+/// The segments in a meeting in words alone's answer that hold up: runs of its lines, kept as a
+/// conversation's runs of messages are ([`parse_conversation_answer`]), attributed only to
+/// projects in `offered`. Each has no times, since the meeting has no clock.
+///
+/// # Errors
+/// [`AnswerError`] when the answer holds no JSON object, is not the asked-for shape, or leaves no
+/// segment standing.
+pub fn parse_lines_answer(
+    answer: &str,
+    transcript: &[TranscriptLine],
+    offered: &[ProjectChoice],
+) -> Result<Vec<Segment>, AnswerError> {
+    let json = json_object(answer).ok_or(AnswerError::NoJson)?;
+    let parsed: LinesAnswer =
+        serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
+    let runs = kept_runs(parsed.segments, transcript.len(), offered, |first| {
+        format!("From line {}", first + 1)
+    });
+    if runs.is_empty() {
         return Err(AnswerError::Empty);
     }
-    let promises = kept_promises(parsed.promises, messages.len(), offered);
-    Ok(ConversationReading { segments, promises })
+    Ok(runs
+        .into_iter()
+        .map(|segment| Segment {
+            start_ms: 0,
+            end_ms: 0,
+            title: segment.title,
+            summary: segment.summary,
+            projects: segment.projects,
+            lines: Some(LineRun {
+                first: segment.first,
+                last: segment.last,
+            }),
+        })
+        .collect())
 }
 
 /// The promises in `answered` that hold up, among a conversation of `message_count` messages.
@@ -700,6 +838,7 @@ pub fn parse_answer(
             title: title_or(&candidate.title, start_ms),
             summary: one_line(&candidate.summary, SUMMARY_CHARACTERS),
             projects: kept_projects(candidate.projects, offered),
+            lines: None,
         });
         previous_end = end_ms;
     }
@@ -794,11 +933,12 @@ fn nearest(words: &[WhisperWord], target: i64, at: impl Fn(&WhisperWord) -> i64)
         .min_by_key(|time| (time - target).abs())
 }
 
-/// The transcript lines that fall inside `segment`, as its excerpt.
+/// The transcript lines that fall inside `segment`, as its excerpt: `[m:ss] Speaker: text` lines,
+/// without the time for a meeting in words alone.
 pub fn excerpt(transcript: &[TranscriptLine], segment: &Segment) -> String {
     let mut excerpt = String::new();
-    for line in transcript {
-        if line.start_ms < segment.start_ms || line.start_ms >= segment.end_ms {
+    for (index, line) in transcript.iter().enumerate() {
+        if !segment.holds(index, line) {
             continue;
         }
         let speaker = if line.speaker.is_empty() {
@@ -806,12 +946,16 @@ pub fn excerpt(transcript: &[TranscriptLine], segment: &Segment) -> String {
         } else {
             line.speaker.as_str()
         };
-        let _ = writeln!(
-            excerpt,
-            "[{}] {speaker}: {}",
-            clock(line.start_ms),
-            line.text
-        );
+        let _ = if segment.lines.is_some() {
+            writeln!(excerpt, "{speaker}: {}", line.text)
+        } else {
+            writeln!(
+                excerpt,
+                "[{}] {speaker}: {}",
+                clock(line.start_ms),
+                line.text
+            )
+        };
     }
     excerpt
 }
@@ -819,8 +963,8 @@ pub fn excerpt(transcript: &[TranscriptLine], segment: &Segment) -> String {
 /// The speakers heard in `segment`, in the order they first spoke.
 pub fn speakers(transcript: &[TranscriptLine], segment: &Segment) -> Vec<String> {
     let mut speakers: Vec<String> = Vec::new();
-    for line in transcript {
-        let inside = line.start_ms >= segment.start_ms && line.start_ms < segment.end_ms;
+    for (index, line) in transcript.iter().enumerate() {
+        let inside = segment.holds(index, line);
         if inside && !line.speaker.is_empty() && !speakers.contains(&line.speaker) {
             speakers.push(line.speaker.clone());
         }
@@ -1032,6 +1176,7 @@ mod tests {
             title: "Launch".to_owned(),
             summary: String::new(),
             projects: Vec::new(),
+            lines: None,
         };
         assert_eq!(excerpt(&transcript, &segment), "[0:30] Grace: Launch.\n");
         assert_eq!(speakers(&transcript, &segment), vec!["Grace".to_owned()]);
@@ -1151,6 +1296,79 @@ mod tests {
         );
         assert_eq!(
             parse_conversation_answer("{\"segments\": []}", &messages, &[]),
+            Err(AnswerError::Empty)
+        );
+    }
+
+    #[test]
+    fn a_meeting_in_words_alone_is_asked_and_answered_by_its_lines() {
+        let launch = project("Launch");
+        let transcript = [
+            line(0, "Ada", "Hello everyone."),
+            line(0, "Ada", "Launch is Friday."),
+            line(0, "", "Agreed."),
+            line(0, "Grace", "How was the weekend?"),
+        ];
+        let prompt = lines_prompt(
+            MeetingContext {
+                title: "Weekly sync",
+                duration_ms: 0,
+                participants: &["Ada".to_owned()],
+            },
+            &transcript,
+            std::slice::from_ref(&launch),
+        );
+        assert!(prompt.contains("Lines: 4\n"), "{prompt}");
+        assert!(
+            prompt.contains("[2] Ada: Launch is Friday.\n[3] Someone: Agreed.\n"),
+            "lines are numbered, never merged, and carry no times: {prompt}"
+        );
+        assert!(!prompt.contains("0:00"), "{prompt}");
+
+        let answer = format!(
+            "{{\"segments\": [\
+              {{\"firstLine\": 1, \"lastLine\": 3, \"title\": \"Launch\", \
+                \"summary\": \"Ships Friday.\", \
+                \"projects\": [{{\"projectId\": \"{launch}\", \"confidence\": 0.9}}]}}, \
+              {{\"firstLine\": 3, \"lastLine\": 9, \"title\": \"\"}}\
+            ]}}",
+            launch = launch.id,
+        );
+        let segments = parse_lines_answer(&answer, &transcript, std::slice::from_ref(&launch))
+            .expect("segments");
+
+        assert_eq!(
+            segments,
+            vec![
+                Segment {
+                    start_ms: 0,
+                    end_ms: 0,
+                    title: "Launch".to_owned(),
+                    summary: "Ships Friday.".to_owned(),
+                    projects: vec![SegmentProject {
+                        project_id: launch.id,
+                        confidence: 0.9,
+                    }],
+                    lines: Some(LineRun { first: 0, last: 2 }),
+                },
+                // It overlapped the first, so it starts after it and ends at the last line.
+                Segment {
+                    start_ms: 0,
+                    end_ms: 0,
+                    title: "From line 4".to_owned(),
+                    summary: String::new(),
+                    projects: Vec::new(),
+                    lines: Some(LineRun { first: 3, last: 3 }),
+                },
+            ]
+        );
+        assert_eq!(
+            excerpt(&transcript, &segments[0]),
+            "Ada: Hello everyone.\nAda: Launch is Friday.\nSomeone: Agreed.\n"
+        );
+        assert_eq!(speakers(&transcript, &segments[1]), ["Grace"]);
+        assert_eq!(
+            parse_lines_answer("{\"segments\": []}", &transcript, &[]),
             Err(AnswerError::Empty)
         );
     }

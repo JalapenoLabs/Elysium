@@ -70,10 +70,12 @@ use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::meeting_uploads::{self, staging::Staging};
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
+use crate::models::meeting_upload;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::token_account;
 use crate::models::workflow_run::{self, WorkflowRun};
@@ -125,6 +127,7 @@ struct Inner {
     activity: Activity,
     cipher: Arc<Cipher>,
     sources: Sources,
+    staging: Staging,
 }
 
 impl std::fmt::Debug for Meetings {
@@ -145,6 +148,9 @@ pub struct MeetingsDeps {
     pub activity: Activity,
     pub cipher: Arc<Cipher>,
     pub sources: Sources,
+    /// Where uploads' parts wait, which the loop clears of uploads abandoned for
+    /// `meeting_uploads::STALE_AFTER`.
+    pub staging: Staging,
 }
 
 impl Meetings {
@@ -156,6 +162,7 @@ impl Meetings {
                 activity: deps.activity,
                 cipher: deps.cipher,
                 sources: deps.sources,
+                staging: deps.staging,
             }),
         }
     }
@@ -343,9 +350,11 @@ impl Meetings {
         Ok((newest, stored_count))
     }
 
-    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`). One meeting
-    /// whose run cannot be started is logged and left for the next pass; the rest go on.
+    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`), and removes the
+    /// uploads abandoned since the last pass. One meeting whose run cannot be started is logged and
+    /// left for the next pass; the rest go on.
     async fn process(&self) {
+        self.sweep_stale_uploads().await;
         let needed = match self.runs_needed().await {
             Ok(needed) => needed,
             Err(error) => {
@@ -367,6 +376,49 @@ impl Meetings {
                     meeting.id = %meeting_id,
                     error.message = %format!("{error:#}"),
                     "cannot start a meeting's run; the next pass tries again",
+                );
+            }
+        }
+    }
+
+    /// Removes every upload no part reached for `meeting_uploads::STALE_AFTER`, and its parts.
+    /// The rows go first, so nothing can resume an upload whose parts are going; parts that
+    /// could not be removed only cost the workspace space, and are logged.
+    async fn sweep_stale_uploads(&self) {
+        let before = Utc::now() - meeting_uploads::STALE_AFTER;
+        let swept = match self.connection().await {
+            Ok(mut connection) => meeting_upload::delete_stale(&mut connection, before)
+                .await
+                .map_err(anyhow::Error::from),
+            Err(error) => Err(error),
+        };
+        let swept = match swept {
+            Ok(swept) => swept,
+            Err(error) => {
+                event!(
+                    name: "meetings.uploads.sweep_failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot remove abandoned uploads; the next pass tries again",
+                );
+                return;
+            }
+        };
+        for upload_id in swept {
+            if let Err(error) = self.inner.staging.remove(upload_id).await {
+                event!(
+                    name: "meetings.uploads.parts_unremoved",
+                    Level::WARN,
+                    meeting_upload.id = %upload_id,
+                    error.message = %error,
+                    "an abandoned upload's parts could not be removed from the workspace",
+                );
+            } else {
+                event!(
+                    name: "meetings.uploads.swept",
+                    Level::INFO,
+                    meeting_upload.id = %upload_id,
+                    "removed an upload nothing reached for a week",
                 );
             }
         }
