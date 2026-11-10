@@ -135,24 +135,56 @@ export function MentionTextArea(props: Props) {
   }
 
   const listId = `${id}-mentions`
-  return <div className='relative'>
-    <TextField
-      id={`meeting-comment-${id}`}
-      className='w-full'
-      value={props.value}
-      maxLength={COMMENT_MAX_CHARACTERS}
-      onChange={(value) => {
-        props.onChange(value)
-        // Where typing left the caret, which says whether a mention is being typed.
-        setCaret(field.current?.selectionStart ?? value.length)
-        setIsDismissed(false)
-        setHighlighted(0)
-      }}
-    >
-      <Label className='sr-only'>{props.label}</Label>
+  const list = isOpen && <ul
+    id={listId}
+    role='listbox'
+    aria-label={t('review.comments.mentionsLabel')}
+    className={[
+      'absolute top-full left-0 z-30 mt-1 w-full max-w-xs overflow-hidden rounded-lg border',
+      'border-border bg-overlay py-1 text-sm shadow-lg',
+    ].join(' ')}
+  >
+    {candidates.length
+      ? candidates.map((user) => <li
+        key={user.id}
+        id={`${listId}-${user.id}`}
+        role='option'
+        aria-selected={user.id === active?.id}
+        className={[
+          'cursor-pointer truncate px-3 py-1.5',
+          user.id === active?.id
+            ? 'bg-default'
+            : '',
+        ].join(' ')}
+        // Before the field loses focus to the press, so the pick lands in the text.
+        onMouseDown={(event) => {
+          event.preventDefault()
+          pick(user)
+        }}
+      >{user.name}</li>)
+      : <li className='px-3 py-1.5 opacity-70'>{t('review.comments.noOneToMention')}</li>}
+  </ul>
+
+  return <TextField
+    id={`meeting-comment-${id}`}
+    className='w-full'
+    value={props.value}
+    maxLength={COMMENT_MAX_CHARACTERS}
+    onChange={(value) => {
+      props.onChange(value)
+      // Where typing left the caret, which says whether a mention is being typed.
+      setCaret(field.current?.selectionStart ?? value.length)
+      setIsDismissed(false)
+      setHighlighted(0)
+    }}
+  >
+    <Label className='sr-only'>{props.label}</Label>
+    {/* The list opens just under the field, over what follows it. */}
+    <div className='relative'>
       <TextArea
         ref={attach}
         rows={2}
+        className='w-full'
         aria-controls={isOpen
           ? listId
           : undefined}
@@ -169,37 +201,8 @@ export function MentionTextArea(props: Props) {
           track(event.currentTarget)
         }}
       />
-      <Description className='text-xs'>{t('review.comments.hint')}</Description>
-    </TextField>
-
-    {isOpen && <ul
-      id={listId}
-      role='listbox'
-      aria-label={t('review.comments.mentionsLabel')}
-      className={[
-        'absolute top-full left-0 z-30 mt-1 w-full max-w-xs overflow-hidden rounded-lg border',
-        'border-border bg-overlay py-1 text-sm shadow-lg',
-      ].join(' ')}
-    >
-      {candidates.length
-        ? candidates.map((user) => <li
-          key={user.id}
-          id={`${listId}-${user.id}`}
-          role='option'
-          aria-selected={user.id === active?.id}
-          className={[
-            'cursor-pointer truncate px-3 py-1.5',
-            user.id === active?.id
-              ? 'bg-default'
-              : '',
-          ].join(' ')}
-          // Before the field loses focus to the press, so the pick lands in the text.
-          onMouseDown={(event) => {
-            event.preventDefault()
-            pick(user)
-          }}
-        >{user.name}</li>)
-        : <li className='px-3 py-1.5 opacity-70'>{t('review.comments.noOneToMention')}</li>}
-    </ul>}
-  </div>
+      {list}
+    </div>
+    <Description className='text-xs'>{t('review.comments.hint')}</Description>
+  </TextField>
 }

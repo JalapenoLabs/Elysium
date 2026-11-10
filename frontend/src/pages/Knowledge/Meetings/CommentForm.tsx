@@ -79,7 +79,7 @@ export function CommentForm(props: Props) {
         : props.onCancel}
       focusOnOpen={props.focusOnOpen}
     />
-    <div className='mt-2 level-right gap-2'>
+    <div className='mt-2 flex justify-end gap-2'>
       {props.onCancel && <Button size='sm' variant='ghost' isDisabled={isPosting} onPress={props.onCancel}>
         <span>{t('review.comments.cancel')}</span>
       </Button>}
