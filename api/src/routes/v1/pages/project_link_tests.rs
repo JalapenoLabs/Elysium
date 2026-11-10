@@ -89,10 +89,13 @@ async fn a_page_links_to_any_number_of_projects_in_its_history_and_never_as_a_ve
     assert_eq!(linked["page"]["projectIds"], json!([roadmap, billing]));
     link(&state, other_id, roadmap).await;
 
+    // Every project is linked to its own brief from the start.
     let mut listed = linked_titles(&state, roadmap).await;
     listed.sort();
-    assert_eq!(listed, ["Deploying", "Rollbacks"]);
-    assert_eq!(linked_titles(&state, billing).await, ["Deploying"]);
+    assert_eq!(listed, ["Deploying", "Roadmap brief", "Rollbacks"]);
+    let mut listed = linked_titles(&state, billing).await;
+    listed.sort();
+    assert_eq!(listed, ["Billing brief", "Deploying"]);
 
     // Answered unchanged: nothing recorded, nothing announced.
     while heard.try_recv().is_ok() {}
@@ -114,7 +117,9 @@ async fn a_page_links_to_any_number_of_projects_in_its_history_and_never_as_a_ve
         serde_json::from_str(&heard.try_recv().expect("an event")).expect("JSON");
     assert_eq!(announced["type"], "page.changed");
     assert_eq!(announced["data"]["id"], json!(page_id));
-    assert_eq!(linked_titles(&state, roadmap).await, ["Rollbacks"]);
+    let mut listed = linked_titles(&state, roadmap).await;
+    listed.sort();
+    assert_eq!(listed, ["Roadmap brief", "Rollbacks"]);
 
     let (status, again) = call(
         &state,
@@ -224,7 +229,7 @@ async fn a_deleted_page_keeps_its_links_takes_no_new_ones_and_leaves_the_list_un
     page::delete(&mut connection, page_id, author(None), None)
         .await
         .expect("deleted");
-    assert!(linked_titles(&state, roadmap).await.is_empty());
+    assert_eq!(linked_titles(&state, roadmap).await, ["Roadmap brief"]);
 
     for (method, project_id) in [(Method::PUT, billing), (Method::DELETE, roadmap)] {
         let (status, refused) = call(
@@ -241,8 +246,11 @@ async fn a_deleted_page_keeps_its_links_takes_no_new_ones_and_leaves_the_list_un
     page::restore(&mut connection, page_id, author(None), None)
         .await
         .expect("restored");
-    assert_eq!(linked_titles(&state, roadmap).await, ["Deploying"]);
-    assert!(linked_titles(&state, billing).await.is_empty());
+    assert_eq!(
+        linked_titles(&state, roadmap).await,
+        ["Roadmap brief", "Deploying"]
+    );
+    assert_eq!(linked_titles(&state, billing).await, ["Billing brief"]);
 }
 
 #[tokio::test]
@@ -357,4 +365,43 @@ async fn a_guest_on_a_project_reaches_none_of_its_pages() {
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {refused}");
         assert_eq!(refused["code"], "members_only", "{path}");
     }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_projects_brief_stays_linked_to_it_and_may_be_linked_to_others() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let roadmap = new_project(&mut connection, "Roadmap").await;
+    let billing = new_project(&mut connection, "Billing").await;
+    let brief = crate::models::project_brief::find(&mut connection, roadmap)
+        .await
+        .expect("every project has a brief");
+
+    let (status, refused) = call(
+        &state,
+        Method::DELETE,
+        &format!("/api/v1/pages/{}/projects/{roadmap}", brief.id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["code"], "page_brief_linked");
+
+    let linked = link(&state, brief.id, billing).await;
+    assert_eq!(linked["page"]["briefProjectId"], json!(roadmap));
+    assert_eq!(linked["page"]["fixed"], true);
+    let (status, unlinked) = call(
+        &state,
+        Method::DELETE,
+        &format!("/api/v1/pages/{}/projects/{billing}", brief.id),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "another project's link comes off: {unlinked}"
+    );
+    assert_eq!(unlinked["page"]["projectIds"], json!([roadmap]));
 }

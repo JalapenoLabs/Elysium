@@ -193,6 +193,10 @@ function WorkBatchDetails(props: DetailsProps) {
           projectNames[batch.projectId] ?? ''
         }</Link>
       </dd>
+      {batch.serves && <>
+        <dt className='opacity-70'>{t('batch.serves')}</dt>
+        <dd>{batch.serves}</dd>
+      </>}
       <dt className='opacity-70'>{t('batch.priority')}</dt>
       <dd className='flex items-center gap-2'>
         <Chip size='sm' variant='soft' color={batchPriorityChipColors[batch.priority]}>{

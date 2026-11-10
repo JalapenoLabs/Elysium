@@ -29,6 +29,8 @@ CREATE TYPE project_manager_wake_kind AS ENUM (
     'message',
     -- A promise was found on the project, or the work it waits on finished.
     'promise',
+    -- Someone else published the project's brief.
+    'brief',
     -- A person assigned it an action item the project leads, to plan.
     'assignment'
 );
@@ -44,6 +46,7 @@ ALTER TABLE project_manager_wakes ADD CONSTRAINT project_manager_wakes_kind_fiel
     AND (work_batch_id IS NOT NULL) = (kind = 'batch')
     AND (body IS NOT NULL) = (kind = 'message')
     AND (promise_id IS NOT NULL) = (kind = 'promise')
+    AND (page_version IS NOT NULL) = (kind = 'brief')
     AND (action_item_id IS NOT NULL) = (kind = 'assignment')
 );
 

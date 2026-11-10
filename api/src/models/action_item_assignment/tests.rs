@@ -360,6 +360,7 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
             action_item_ids: json!([item]),
             source_message_ids: json!([]),
             lineage: person_rooted(),
+            serves: None,
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )

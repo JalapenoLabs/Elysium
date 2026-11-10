@@ -7,9 +7,9 @@
 //!
 //! Whatever should wake a Project Manager writes a wake (`project_manager_wakes`) in the same
 //! transaction as what caused it: a record attributed to its project, a batch of its finishing,
-//! a person's or Elysia's message, a promise found on its project or its work finishing, an action
-//! item a person assigned it. So nothing that should wake it is lost to a crash or a missed
-//! signal. A wake waits until a turn takes it.
+//! a person's or Elysia's message, a promise found on its project or its work finishing, someone
+//! else publishing its project's brief, or an action item a person assigned it. So nothing that
+//! should wake it is lost to a crash or a missed signal. A wake waits until a turn takes it.
 //!
 //! A turn is created as it starts ([`start_turn`]), taking every wake waiting for its project in
 //! the same transaction, so a burst of wakes is one turn, and wakes arriving while it runs wait
@@ -58,6 +58,8 @@ pub enum WakeKind {
     /// A promise was found on its project, or the work it waits on finished
     /// (`crate::models::promise`).
     Promise,
+    /// Someone else published its project's brief (`crate::models::project_brief`).
+    Brief,
     /// A person assigned it an action item its project leads, to plan
     /// (`crate::models::action_item_assignment`).
     Assignment,
@@ -104,6 +106,8 @@ pub struct Wake {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub promise_id: Option<Uuid>,
+    /// The version of the brief a publish made, for a brief's wake.
+    pub page_version: Option<i32>,
     /// The action item an assignment is for.
     pub action_item_id: Option<Uuid>,
 }
@@ -128,6 +132,7 @@ struct NewWake<'a> {
     work_batch_id: Option<Uuid>,
     body: Option<&'a str>,
     promise_id: Option<Uuid>,
+    page_version: Option<i32>,
     action_item_id: Option<Uuid>,
     created_by: Uuid,
 }
@@ -142,6 +147,7 @@ impl NewWake<'_> {
             work_batch_id: None,
             body: None,
             promise_id: None,
+            page_version: None,
             action_item_id: None,
             created_by,
         }
@@ -209,6 +215,23 @@ pub async fn wake_for_promise(
 ) -> QueryResult<()> {
     let mut wake = NewWake::new(project_id, WakeKind::Promise, by);
     wake.promise_id = Some(promise_id);
+    wake.insert(connection).await.map(drop)
+}
+
+/// Wakes `project_id`'s Project Manager for version `version` of its project's brief, which `by`
+/// just published. Each publish is a wake of its own, so the turn names everyone who edited the
+/// brief since the last. Call it in the transaction that publishes the version.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn wake_for_brief(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    version: i32,
+    by: Uuid,
+) -> QueryResult<()> {
+    let mut wake = NewWake::new(project_id, WakeKind::Brief, by);
+    wake.page_version = Some(version);
     wake.insert(connection).await.map(drop)
 }
 

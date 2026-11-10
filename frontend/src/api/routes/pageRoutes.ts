@@ -18,6 +18,8 @@ export type KnowledgePageSummary = {
   currentVersion: number
   // One of the pages Elysium relies on, which nobody moves, deletes, or renames.
   fixed: boolean
+  // The project whose brief it is, which it stays linked to; null for every other page.
+  briefProjectId: string | null
   // The labels it carries, in order. Holding them here filters the tree, lists a label's pages, and
   // suggests the labels in use, all from what the tree already loaded.
   labels: string[]

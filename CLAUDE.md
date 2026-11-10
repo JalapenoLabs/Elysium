@@ -536,16 +536,22 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - Every project has a Project Manager (`api/src/project_managers/`): one Claude Code session per project, resumed for
   every turn (`claude -p --resume`) and kept indefinitely, relying on Claude Code's compaction. It plans the project's
-  work and submits it as work batches (`work_batches`: a goal, repositories, ASAP, normal, or a scheduled time, and its
-  provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+  work and submits it as work batches (`work_batches`: a goal, the goal in its project's brief it serves, repositories,
+  ASAP, normal, or a scheduled time, and its provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+- Every project has a brief (`api/src/models/project_brief.rs`): a fixed knowledge base page under Project briefs,
+  created and renamed with the project and linked to it, holding its goals (`###` headings under `## Goals`), decisions,
+  and what is out of scope. Every turn's prompt carries it whole; the Project Manager keeps it current with `page_save`
+  against the version it read, recording each rejection's reason, and a batch serving no goal in it is refused. Anyone's
+  publish of it but its own Project Manager's and the system user's wakes that Project Manager. See `docs/autonomy.md`,
+  The project brief.
 - Every batch's origin (human-rooted or found) and generation (how many batches led to it) are worked out from its
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
 - It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
-  it, a person, and Elysia, each written as a wake in the transaction that caused it. Wakes are debounced into one turn
-  per project, one turn at a time (the database refuses a second), and a turn a restart or a usage limit cut short gives
-  them back.
+  it, a person, Elysia, and someone else's edit of its brief, each written as a wake in the transaction that caused it.
+  Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
+  restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,

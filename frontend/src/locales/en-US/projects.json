@@ -199,6 +199,8 @@
       "batches_other": "{{count, compact}} batches finished",
       "promises_one": "{{count, compact}} promise to keep",
       "promises_other": "{{count, compact}} promises to keep",
+      "briefEdits_one": "{{count, compact}} edit to the brief",
+      "briefEdits_other": "{{count, compact}} edits to the brief",
       "assignments_one": "{{count, compact}} action item assigned to plan",
       "assignments_other": "{{count, compact}} action items assigned to plan",
       "fromElysia": "Elysia",

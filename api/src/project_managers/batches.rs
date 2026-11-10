@@ -11,6 +11,11 @@
 //! function tested on its own; [`submit`] adds the checks that read the database. A person's edits
 //! to a proposed batch are held to the same rules ([`check_edits`]).
 //!
+//! Every batch serves a goal in its project's brief (`crate::models::project_brief`), named by
+//! the goal's heading, and is refused when the brief has no such goal: work outside the brief is
+//! the person's to decide, so the refusal says to ask them rather than to submit it some other
+//! way. The batch stores the goal as the brief spells it ([`goal_served`]).
+//!
 //! Its origin and generation are worked out from that provenance and the turn that submits it,
 //! never asserted (`crate::models::work_batch::lineage`): a batch that names nothing, or that
 //! would be past the generation limit, is refused with what to do instead.
@@ -31,6 +36,7 @@ use super::timeline;
 use crate::database::schema::{action_items, project_manager_wakes};
 use crate::models::action_item::ActionItemState;
 use crate::models::project;
+use crate::models::project_brief;
 use crate::models::project_manager::WakeKind;
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
@@ -56,12 +62,18 @@ const REPOSITORIES_MAX: usize = 16;
 /// piece of work; more than this is several.
 const PROVENANCE_MAX: usize = 50;
 
+/// The longest goal a batch names as the one it serves, matching `work_batches.serves`: a heading,
+/// as long as a page's title may be.
+const SERVES_MAX_CHARACTERS: usize = 300;
+
 /// A batch as a Project Manager submits it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Submission {
     pub title: String,
     pub goal: String,
+    /// The goal in its project's brief it serves, by the goal's heading.
+    pub serves: String,
     #[serde(default)]
     pub repositories: Vec<Repository>,
     pub priority: Priority,
@@ -96,6 +108,13 @@ pub enum BatchError {
 pub fn check(submission: &Submission, now: DateTime<Utc>) -> Result<(), String> {
     check_title(&submission.title)?;
     check_goal(&submission.goal)?;
+    let serves = submission.serves.trim();
+    if serves.is_empty() || serves.chars().count() > SERVES_MAX_CHARACTERS {
+        return Err(format!(
+            "serves must name the goal in the project's brief this batch serves, by its \
+             heading, at most {SERVES_MAX_CHARACTERS} characters"
+        ));
+    }
     check_repositories(&submission.repositories)?;
     work_batch::check_schedule(submission.priority, submission.scheduled_for, now)?;
 
@@ -214,9 +233,10 @@ fn tidy_repositories(repositories: Vec<Repository>) -> Vec<Repository> {
 /// the project's approval item, and announces all three.
 ///
 /// # Errors
-/// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it names a record or
-/// message that is not on the project, it works on an action item the project does not lead, it
-/// names nothing that called for it, or it would be past the generation limit; any database error.
+/// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it serves no goal in
+/// the project's brief, it names a record or message that is not on the project, it works on an
+/// action item the project does not lead, it names nothing that called for it, or it would be past
+/// the generation limit; any database error.
 pub async fn submit(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -225,6 +245,7 @@ pub async fn submit(
     submission: Submission,
 ) -> Result<WorkBatch, BatchError> {
     check(&submission, Utc::now()).map_err(BatchError::Refused)?;
+    let serves = goal_served(connection, project_id, &submission.serves).await?;
     refuse_unknown_provenance(connection, project_id, &submission).await?;
     let provenance = Provenance {
         records: &submission.record_ids,
@@ -251,6 +272,7 @@ pub async fn submit(
         project_id,
         title: submission.title.trim().to_owned(),
         goal: submission.goal.trim().to_owned(),
+        serves: Some(serves),
         repositories: json!(repositories),
         priority: submission.priority,
         scheduled_for: submission.scheduled_for,
@@ -353,6 +375,48 @@ pub async fn cancel(
         ChangeError::Invalid(reason) => BatchError::Refused(reason),
         ChangeError::Database(error) => BatchError::Database(error),
     })
+}
+
+/// The goal in `project_id`'s brief that `serves` names, as the brief spells it, or a refusal
+/// that lists the goals there are and says to ask the person when the work serves none.
+async fn goal_served(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    serves: &str,
+) -> Result<String, BatchError> {
+    let brief = project_brief::find(connection, project_id).await?;
+    let goals = project_brief::goals(&brief.body);
+    if let Some(goal) = project_brief::find_goal(&goals, serves) {
+        return Ok(goal.to_owned());
+    }
+    Err(BatchError::Refused(refusal_for(
+        serves.trim(),
+        &goals,
+        brief.id,
+        brief.current_version,
+    )))
+}
+
+/// Why a batch serving `serves` was refused, given the brief's `goals`: what the brief does name,
+/// and that work outside it is the person's to decide. Never a way around the check: a goal is
+/// added to the brief only when a person asked for it.
+fn refusal_for(serves: &str, goals: &[String], brief_id: Uuid, version: i32) -> String {
+    let brief = format!("this project's brief (page {brief_id}, version {version})");
+    if goals.is_empty() {
+        return format!(
+            "{brief} names no goals yet, so no batch can serve one. Ask the person what the \
+             project is for, with an action item, and once they say, record each goal they give \
+             as a ### heading under ## Goals, quoting them, then submit against it."
+        );
+    }
+    let named: Vec<String> = goals.iter().map(|goal| format!("\"{goal}\"")).collect();
+    format!(
+        "\"{serves}\" is not a goal in {brief}, whose goals are {}. Pass the one this work \
+         serves as serves. If it serves none of them, it is outside the brief: ask the person \
+         whether it belongs, with an action item, and submit it only once they add the goal or \
+         ask you to.",
+        named.join(", ")
+    )
 }
 
 /// What a Project Manager is told when its batch's lineage is refused: why, and what to do
@@ -479,6 +543,7 @@ mod tests {
         Submission {
             title: "Annual pricing".to_owned(),
             goal: "Show annual pricing on the pricing page, as Ada asked.".to_owned(),
+            serves: "Annual pricing".to_owned(),
             repositories: vec![Repository {
                 url: "https://github.com/JalapenoLabs/Elysium.git".to_owned(),
                 base_branch: None,
@@ -504,6 +569,48 @@ mod tests {
         let mut aimless = submission();
         aimless.goal = String::new();
         assert!(check(&aimless, Utc::now()).is_err_and(|reason| reason.contains("goal")));
+    }
+
+    #[test]
+    fn a_batch_names_the_goal_in_the_brief_it_serves() {
+        let mut serving_nothing = submission();
+        serving_nothing.serves = "  ".to_owned();
+        assert!(check(&serving_nothing, Utc::now()).is_err_and(|reason| reason.contains("serves")));
+        let mut too_long = submission();
+        too_long.serves = "g".repeat(SERVES_MAX_CHARACTERS + 1);
+        assert!(check(&too_long, Utc::now()).is_err_and(|reason| reason.contains("serves")));
+
+        serde_json::from_value::<Submission>(json!({
+            "title": "x", "goal": "y", "priority": "asap",
+        }))
+        .expect_err("serves is required");
+    }
+
+    #[test]
+    fn a_refusal_names_the_briefs_goals_and_says_to_ask_the_person() {
+        let brief_id = Uuid::now_v7();
+        let goals = vec!["Annual pricing".to_owned(), "Spring launch".to_owned()];
+        let refusal = refusal_for("Dark mode", &goals, brief_id, 4);
+        assert!(refusal.contains("\"Dark mode\" is not a goal"), "{refusal}");
+        assert!(
+            refusal.contains(&format!("(page {brief_id}, version 4)")),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains("\"Annual pricing\", \"Spring launch\""),
+            "{refusal}"
+        );
+        assert!(
+            refusal.contains("ask the person whether it belongs"),
+            "{refusal}"
+        );
+
+        let empty = refusal_for("Dark mode", &[], brief_id, 1);
+        assert!(empty.contains("names no goals yet"), "{empty}");
+        assert!(
+            empty.contains("Ask the person what the project is for"),
+            "{empty}"
+        );
     }
 
     #[test]
@@ -575,6 +682,7 @@ mod tests {
         let read: Submission = serde_json::from_value(json!({
             "title": "Nightly report",
             "goal": "Send the nightly report.",
+            "serves": "Reporting",
             "priority": "scheduled",
             "scheduledFor": "2026-11-05T09:00:00Z",
             "repositories": [{ "url": "https://github.com/org/repo", "baseBranch": "develop" }],
@@ -585,11 +693,11 @@ mod tests {
         assert!(read.record_ids.is_empty());
 
         serde_json::from_value::<Submission>(json!({
-            "title": "x", "goal": "y", "priority": "urgent",
+            "title": "x", "goal": "y", "serves": "z", "priority": "urgent",
         }))
         .expect_err("asap, normal, or scheduled");
         serde_json::from_value::<Submission>(json!({
-            "title": "x", "goal": "y", "priority": "asap", "worker": "me",
+            "title": "x", "goal": "y", "serves": "z", "priority": "asap", "worker": "me",
         }))
         .expect_err("nothing else");
     }
