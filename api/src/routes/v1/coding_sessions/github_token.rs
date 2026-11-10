@@ -178,6 +178,7 @@ mod tests {
 
     use super::*;
     use crate::models::project::{GithubAccess, ProjectCoverFit};
+    use crate::models::project_autonomy::Autonomy;
     use crate::test_support::TEST_PERSON_ID;
 
     fn project(github_access: GithubAccess, github_credential_id: Option<Uuid>) -> Project {
@@ -193,7 +194,7 @@ mod tests {
             cover_fit: ProjectCoverFit::Fit,
             github_access,
             github_credential_id,
-            manager_writes_directly: false,
+            autonomy: Autonomy::ApproveEveryBatch,
         }
     }
 

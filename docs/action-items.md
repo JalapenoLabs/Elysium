@@ -517,8 +517,9 @@ approved and applied as they are made (`docs/engine.md`, Its writes).
 - Applied operations are recorded in each item's history with the changeset as their source, so one changeset can be
   undone as a whole.
 
-A project's switch for its Project Manager is the one rule that applies changes without review today; rules for other
-proposers and trusted kinds of operations are on the roadmap.
+A project's Full autonomy, the top of its trust dial (`docs/autonomy.md`, The dial), is the one rule that applies a
+Project Manager's changes without review today; rules for other proposers and trusted kinds of operations are on the
+roadmap.
 
 The rules are `api/src/action_items/changesets.rs`, and the queries that store, apply, and undo changesets are
 `api/src/models/changeset.rs` with `apply.rs` and `undo.rs` beside it.

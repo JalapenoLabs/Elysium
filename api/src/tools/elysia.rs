@@ -60,11 +60,13 @@ pub const SERVER: ToolServer = ToolServer {
         for the workspace's workers, which elysia_work_queue shows in order; when a person asks, \
         or what you learned calls for it, run a batch next, change its priority, or pause it with \
         elysia_change_batch, and withdraw one with elysia_cancel_batch. A batch starts proposed \
-        and waits for a person to approve it; elysia_work_queue lists those too, but only a \
-        person approves or rejects one. Workers and Project Managers report work nobody asked \
-        for as findings, which wait on each project's Findings list for a person to accept or \
-        dismiss; elysia_overview counts them per project. Tell the person how many wait when it \
-        matters, and never make an item or a batch for one.",
+        and waits for a person to approve it, unless its project's level of autonomy, which only \
+        a person sets, lets work a person asked for queue at once; found work always waits. \
+        elysia_work_queue lists the proposed ones too, but only a person approves or rejects one. \
+        Workers and Project Managers report work nobody asked for as findings, which wait on each \
+        project's Findings list for a person to accept or dismiss; elysia_overview counts them \
+        per project. Tell the person how many wait when it matters, and never make an item or a \
+        batch for one.",
     ),
     tools: &TOOLS,
 };

@@ -244,8 +244,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
+| GET    | `/api/v1/projects/{id}/autonomy`      | `200` `{ autonomy: { autonomy, setBy, setAt } }` |
+| PUT    | `/api/v1/projects/{id}/autonomy`      | `200` `{ project, autonomy }`; `{ autonomy }`; members only |
 | GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
-| PATCH  | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; `{ writesDirectly }`; members only |
 | PUT    | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; `{ provider, credentialId?, destination }`; members only |
 | DELETE | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; follows the precedent again; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/destinations?provider=&credentialId=` | `200` `{ destinations: [{ reference, name }] }`; members only |
@@ -488,11 +489,12 @@ A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpd
 `coverFit` (`fit` or `fill`, how clients frame the cover), and `github`: `{ access, credentialId }`, how the project
 picks its sessions' GitHub token. `access` is `default` (the workspace default), `none`, or `specific` with the token's
 `credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
-`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty), and
-creates the project's brief with it, announced as `page.changed` (`docs/autonomy.md`, The project brief). `PATCH`
-accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected, and a new `name` renames the
-brief too. A `github` whose
-`credentialId` is missing for `specific`, present for another access, or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
+`autonomy` is its trust dial (`docs/autonomy.md`, The dial): `approve_every_batch`, the default, `approve_found_work`,
+or `full_autonomy`. `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000,
+default empty), and creates the project's brief with it, announced as `page.changed` (`docs/autonomy.md`, The project
+brief). `PATCH` accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected, and a new
+`name` renames the brief too. A `github` whose `credentialId` is missing for `specific`, present for another access,
+or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,
@@ -501,6 +503,13 @@ to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at 
 dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
+
+`GET /{id}/autonomy` answers `{ autonomy: { autonomy, setBy, setAt } }`: the project's level, with the person who set
+it and when, both `null` while it is at the default it started with. `PUT /{id}/autonomy` takes `{ autonomy }` and
+nothing else, records the change as the caller, and answers `{ project, autonomy }`; choosing the level the project has
+changes nothing. It takes a company member, so a guest is refused `403` and no agent's tool reaches it (`members_only`).
+A change publishes `project.upserted` and `projectManager.changed`, and applies to what the Project Manager submits and
+changes from then on.
 
 `GET /{id}/worker-setup` answers `{ workerSetup: { toolsSetupScript, repositories } }`: how the project readies its
 workers' containers (`docs/engine.md`, Workers). `toolsSetupScript` is bash run as root in every worker's container
@@ -534,9 +543,9 @@ recordId, sourceKind, title, url, occurredAt, personId }`, the message it was ma
 null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
 `draftId` (its follow-up's draft, which only its person may read), and `createdAt`; `/api/v1/promises` answers the same
 shape (`docs/engine.md`, Follow-ups). `writes` says how its changes reach the work (`docs/engine.md`, Its writes):
-`direct`, whether they apply at once; `tracker`, where its issues file, `{ source, provider, credentialId,
-credentialName, destination }` with `source` `named` or `precedent`, or null with `trackerRefusal` saying why. A project
-nothing woke yet answers `idle` with none. `PATCH /{id}/project-manager` takes `{ writesDirectly }`. `PUT
+`direct`, whether they apply at once, true at the project's Full autonomy; `tracker`, where its issues file, `{ source,
+provider, credentialId, credentialName, destination }` with `source` `named` or `precedent`, or null with
+`trackerRefusal` saying why. A project nothing woke yet answers `idle` with none. `PUT
 /{id}/project-manager/tracker` names the tracker: `provider`, `destination` as the destinations listing names it, and
 `credentialId`, a Jira credential or a YouTrack account the caller owns, left out for GitHub, which files with the
 project's token; the place is read through that credential before it is stored, and a GitHub tracker on a project
@@ -612,9 +621,10 @@ lastReportedAt, decidedBy, decidedAt, dismissalReason, actionItemId, acceptedBat
 being `small`, `medium`, or `large` and `state` `open`, `accepted`, or `dismissed`.
 
 `POST /findings/{id}/accept` takes no body. In one transaction it makes an open action item in the finding's project as
-the person, owes its issue in the project's tracker, filed as them, when the project has one, proposes a batch for the
-item, human-rooted and generation 0, and records the finding accepted. It answers the finding, the item's and the
-batch's ids, and `issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
+the person, owes its issue in the project's tracker, filed as them, when the project has one, submits a batch for the
+item, human-rooted and generation 0, proposed or queued as the project's level of autonomy says, and records the
+finding accepted. It answers the finding, the item's and the batch's ids, `batchState` (`proposed` or `queued`), and
+`issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
 files nowhere. `POST /findings/{id}/dismiss` takes an optional `reason`, up to 2,000 characters, which agents that
 report the finding again are told, and answers the finding. Both answer `404` for an unknown finding and `409` `code`
 `finding_decided` once someone decided it.

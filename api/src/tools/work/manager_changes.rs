@@ -5,15 +5,16 @@
 //!
 //! Every change is a changeset operation, as every agent's is, so the person reviews, applies,
 //! and undoes a Project Manager's work the way they do anyone's, and each change it applies lands
-//! on the project's timeline with the record that caused it. What its project allows decides
-//! the rest (`projects.manager_writes_directly`):
+//! on the project's timeline with the record that caused it. Its project's level of autonomy
+//! decides the rest (`crate::models::project_autonomy`):
 //!
-//! - **Proposing**, the default: the changeset waits for a person's approval, and nothing is
-//!   written in Elysium or any tracker until then.
-//! - **Writing directly**: the changeset is approved and applied at once, by the Project
-//!   Managers' machine, so an item it creates starts in the inbox for the person to accept.
-//!   Comments, status changes, and new issues reach the trackers through the watcher's outbox,
-//!   like the person's own.
+//! - **Proposing**, at Approve every batch, the default, and Approve found work only: the
+//!   changeset waits for a person's approval, and nothing is written in Elysium or any tracker
+//!   until then.
+//! - **Writing directly**, at Full autonomy: the changeset is approved and applied at once, by
+//!   the Project Managers' machine, so an item it creates starts in the inbox for the person to
+//!   accept. Comments, status changes, and new issues reach the trackers through the watcher's
+//!   outbox, like the person's own.
 //!
 //! What it can change, in Elysium's terms: create, update, resolve, dismiss, and comment on
 //! items, move them between initiatives, create initiatives, and file an item's own issue
@@ -225,7 +226,8 @@ async fn make_changes(
     let staged = propose::stage(connection, scope, summary, operations, now).await?;
     if !project::find(connection, project_id)
         .await?
-        .manager_writes_directly
+        .autonomy
+        .writes_directly()
     {
         return Ok(Made::Staged(staged));
     }

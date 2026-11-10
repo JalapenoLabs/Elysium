@@ -72,6 +72,7 @@ import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/route
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
+import { getProjectAutonomyKey } from '../api/routes/projectRoutes'
 import { projectFindingsKey } from '../api/routes/findingRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
 import {
@@ -434,7 +435,12 @@ const handlers: Handlers = {
   'mailServer.updated': (event) => store.dispatch(mailServerUpdated(event.data)),
   'mailDomain.upserted': (event) => store.dispatch(mailDomainUpserted(event.data)),
   'mailDomain.deleted': (event) => store.dispatch(mailDomainDeleted(event.data.id)),
-  'project.upserted': (event) => store.dispatch(projectUpserted(event.data)),
+  // Who set the project's level of autonomy is read apart, by its page alone, which refetches it
+  // only while it holds the key.
+  'project.upserted': (event) => {
+    store.dispatch(projectUpserted(event.data))
+    void mutate(getProjectAutonomyKey(event.data.id))
+  },
   'project.deleted': (event) => store.dispatch(projectDeleted(event.data.id)),
   'storageLocation.upserted': (event) => store.dispatch(storageLocationUpserted(event.data)),
   'storageLocation.deleted': (event) => store.dispatch(storageLocationDeleted(event.data.id)),

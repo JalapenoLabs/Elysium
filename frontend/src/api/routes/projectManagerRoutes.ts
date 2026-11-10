@@ -173,8 +173,8 @@ export type ProjectTracker = {
   destination: string
 }
 
-// Mirrors `WritesResponse`: whether its changes apply as it makes them, and where its issues
-// file, or why there is nowhere.
+// Mirrors `WritesResponse`: whether its changes apply as it makes them, which the project's level
+// of autonomy decides, and where its issues file, or why there is nowhere.
 export type ProjectManagerWrites = {
   direct: boolean
   tracker: ProjectTracker | null
@@ -215,13 +215,6 @@ export function getProjectManagerTurn(projectId: string, turnId: string) {
   return apiClient
     .get(getProjectManagerTurnKey(projectId, turnId))
     .json<ProjectManagerTurnResponse>()
-}
-
-// Whether its changes apply as it makes them, rather than waiting for a person's approval.
-export function setProjectManagerWritesDirectly(projectId: string, writesDirectly: boolean) {
-  return apiClient
-    .patch(getProjectManagerKey(projectId), { json: { writesDirectly }})
-    .json<ProjectManagerResponse>()
 }
 
 type SetProjectTrackerRequest = {

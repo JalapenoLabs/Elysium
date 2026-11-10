@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { LinkProvider } from './actionItemRoutes'
+import type { WorkBatchState } from './projectManagerRoutes'
 
 // Misc
 import { apiClient } from '../index'
@@ -68,6 +69,9 @@ type AcceptFindingResponse = {
   finding: Finding
   itemId: string
   batchId: string
+  // `proposed`, waiting for the person's approval, or `queued` when the project's level of
+  // autonomy runs work a person asked for at once.
+  batchState: WorkBatchState
   // Where its issue files, or null when the project has nowhere to file it.
   issue: { provider: LinkProvider, destination: string } | null
   // Why it files nowhere, in the API's words, when `issue` is null.
@@ -75,7 +79,8 @@ type AcceptFindingResponse = {
 }
 
 // Accepts an open finding: it becomes an action item whose issue files in the project's
-// tracker, and a proposed batch for it. `409 finding_decided` once someone decided it.
+// tracker, and a batch for it, proposed or queued as the project's level of autonomy says.
+// `409 finding_decided` once someone decided it.
 export function acceptFinding(findingId: string) {
   return apiClient
     .post(`v1/findings/${findingId}/accept`)

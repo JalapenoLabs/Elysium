@@ -38,17 +38,17 @@ waiting for a turn, being planned, planned with the batches naming it, or a turn
 ## Proposed batches
 
 Built. A Project Manager still plans, orders, and submits everything. Its batches start `proposed`, ahead of
-`queued`, and the scheduler never gives a proposed batch a slot. The person sees each with its goal, repositories,
-priority, and why, on the work queue's Proposed tab and the project's own, and approves it, edits those fields and
-approves it, or rejects it with a reason. Each project with proposals waiting has one inbox item counting them,
-resolved once none are left. A rejection's reason wakes the Project Manager, which records it in the project brief
-(below), and it is recorded in the batch's history as the person's feedback for self-improvement. Only a person
-decides: Elysia and Project Managers list proposals and approve none. Until the dial below exists, every batch is
-proposed.
+`queued`, unless the project's level (The dial, below) lets work that traces to a person run, and the scheduler
+never gives a proposed batch a slot. The person sees each with its goal, repositories, priority, and why, on the
+work queue's Proposed tab and the project's own, and approves it, edits those fields and approves it, or rejects it
+with a reason. Each project with proposals waiting has one inbox item counting them, resolved once none are left. A
+rejection's reason wakes the Project Manager, which records it in the project brief (below), and it is recorded in
+the batch's history as the person's feedback for self-improvement. Only a person decides: Elysia and Project
+Managers list proposals and approve none.
 
 ## The dial
 
-Each project has one level, changed only by a person and recorded with who changed it:
+Built. Each project has one level, shown and set on its page:
 
 | Level                   | Batches that trace to a person | Its writes to trackers |
 |-------------------------|--------------------------------|------------------------|
@@ -56,8 +56,24 @@ Each project has one level, changed only by a person and recorded with who chang
 | Approve found work only | Run                            | Wait for approval      |
 | Full autonomy           | Run                            | Apply at once          |
 
-Approve every batch is the default. Full autonomy absorbs `projects.manager_writes_directly`. No level lets found
-work queue itself: at every level it stays in Findings until a person accepts it.
+- **Approve every batch is the default**, where every project starts, those that existed before the dial too. A
+  project whose Project Manager wrote to its trackers directly also starts there, since Full autonomy would let its
+  batches run as well, which nobody chose; a person turns it up.
+- **Only a person changes it.** Setting it takes a company member, which no machine user is, so neither Elysia nor a
+  Project Manager can, and a guest cannot. Every change is recorded with who made it and when, and the project's
+  page says who set the level it has.
+- **No level lets found work queue itself.** Work an agent noticed stays in Findings until a person accepts it, and
+  a found batch is proposed at every level. A finding a person accepts is theirs from then on (Findings, below), so
+  its batch follows the dial like any work a person asked for.
+- **A batch that runs says why.** Its history's submission names the level that let it skip approval.
+- **Full autonomy is how a Project Manager writes directly.** Its changes to items and trackers apply as it makes
+  them, and each is still a changeset a person can undo. At the other two levels they wait for approval, and so do
+  the action items it makes from a meeting's tasks (`docs/meeting-review.md`, Tasks).
+- **Turning it applies to what comes next.** The Project Manager's next submission and next change follow the new
+  level; batches already proposed or queued stay where they are, for the person to decide on the work queue.
+
+The rules are `crate::models::project_autonomy`. On the roadmap: turning the dial down holds the batches it let queue
+that no worker has started, so they wait for the person again.
 
 ## Origins and generations
 
@@ -82,7 +98,8 @@ Built. Agent-found work never queues itself, at any level. Workers and Project M
 `worker_report_finding` and `manager_report_finding`: what they saw, where, and what it would cost. Their instructions
 say to report such work rather than do it, file it, or submit a batch for it. Each project's Findings tab lists the
 open ones with their count for a person to accept or dismiss. Accepting makes an action item as that person, files its
-issue in the project's tracker, and proposes a batch for it, human-rooted and generation 0 from then on. Dismissing is
+issue in the project's tracker, and submits a batch for it, human-rooted and generation 0 from then on, which waits
+for approval or runs as the project's level says (The dial, above). Dismissing is
 remembered, with the person's reason when they give one, so the same finding reported again stays dismissed and its
 reporter is told why. Findings reach the person as a list they read when they choose, never one item each, and they
 never wake Elysia: she reads each project's count in her overview and tells the person when it matters. The exact

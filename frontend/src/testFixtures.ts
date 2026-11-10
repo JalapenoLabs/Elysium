@@ -163,6 +163,7 @@ export function makeProject(overrides: Partial<Project> & Pick<Project, 'id'>): 
     coverUpdatedAt: null,
     coverFit: 'fit',
     github: { access: 'default', credentialId: null },
+    autonomy: 'approve_every_batch',
     ...overrides,
   }
 }

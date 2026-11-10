@@ -561,8 +561,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   any other page. A link wakes nobody.
 - It changes its project's action items and files their issues in Jira, YouTrack, or GitHub with
   `manager_make_changes`: one changeset per call, as `project_manager:<project id>`, each operation naming the timeline
-  record that caused it and recorded on the timeline when it applies. A per-project switch
-  (`projects.manager_writes_directly`), off by default, applies them at once; off, they wait for a person's approval.
+  record that caused it and recorded on the timeline when it applies. They apply at once only at its project's Full
+  autonomy; at every other level they wait for a person's approval.
+- Each project has one level of autonomy, its trust dial (`projects.autonomy`, `crate::models::project_autonomy`):
+  Approve every batch, the default; Approve found work only, where human-rooted batches queue without an approval;
+  and Full autonomy, where its changes apply at once too. Only a person sets it, on the project's page
+  (`project_autonomy::set` takes a `MemberUser`), each change recorded with who and when, and it applies to what comes
+  next. No level lets found work queue itself. See `docs/autonomy.md`, The dial.
 - Its issues file in the tracker the project names, or else where most of its items' issues already are; Jira and
   YouTrack through that tracker's credential, GitHub through the project's own token or the workspace default. Filings
   are an outbox the watcher lands (`action_item_issue_filings`), and a retried filing finds the issue its earlier
@@ -575,14 +580,16 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Agent-found work never queues itself. Workers and Project Managers report work nobody asked for as a finding
   (`worker_report_finding`, `manager_report_finding`, `api/src/findings.rs`): what was seen, where, and what it would
   cost, one per project however often it is reported. A person accepts it from the project's Findings tab, which makes
-  an item as them, owes its issue in the project's tracker, and proposes a batch, human-rooted and generation 0, or
+  an item as them, owes its issue in the project's tracker, and submits a batch, human-rooted and generation 0, which
+  follows the project's level of autonomy, or
   dismisses it for good, with a reason its reporters are told. Findings raise no item each and never wake Elysia; she
   reads each project's count in `elysia_overview`. See `docs/engine.md`, Findings.
 
 ## The worker pool
 
-- Every batch a Project Manager submits starts `proposed` and waits for a person to approve it, edit and approve it,
-  or reject it with a reason, which wakes its Project Manager; the pool never gives a proposal a slot. Only a person
+- A batch a Project Manager submits starts `proposed` and waits for a person to approve it, edit and approve it, or
+  reject it with a reason, which wakes its Project Manager; the pool never gives a proposal a slot. Only a human-rooted
+  batch on a project whose level of autonomy lets it starts `queued` instead (`work_batch::submit`). Only a person
   decides (`worker_pool::actions::approve` and `reject` take a `MemberUser`); Elysia and Project Managers list
   proposals. Each project with proposals waiting has one inbox item counting them. See `docs/engine.md`, Proposed
   batches.

@@ -162,8 +162,8 @@ describe('ProjectManagerPanel', () => {
       writes: PROPOSING,
     }
     const store = renderPanel(idle)
-    const writesDirectly = screen.getByRole('switch', { name: 'Write to trackers without review' })
-    expect(writesDirectly).toHaveProperty('checked', false)
+    expect(screen.getByText('Its changes to items and trackers wait for your approval')).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
     expect(screen.getByText('Files issues in Jira ELY through Work')).toBeTruthy()
     expect(screen.getByText('Where this project\'s issues already are')).toBeTruthy()
 
@@ -173,7 +173,7 @@ describe('ProjectManagerPanel', () => {
         writes: { direct: true, tracker: null, trackerRefusal: 'this project names no tracker' },
       }))
     })
-    expect(screen.getByRole('switch', { name: 'Write to trackers without review' })).toHaveProperty('checked', true)
+    expect(screen.getByText('Its changes to items and trackers apply as it makes them')).toBeTruthy()
     expect(screen.getByText('this project names no tracker')).toBeTruthy()
   })
 })
