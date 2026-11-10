@@ -342,7 +342,8 @@ pub(in crate::tools) fn staged_answer(staged: &Staged) -> Value {
 pub(in crate::tools) enum Proposing {
     /// A coding session: it links its pull requests, and what it creates joins its project.
     Session,
-    /// Elysia: she names the projects what she creates joins, and links no pull requests.
+    /// Elysia: she names the projects what she creates joins, suggests assigning items to their
+    /// Project Managers, and links no pull requests.
     Elysia,
     /// A project's Project Manager: it files items' issues in its project's tracker, names the
     /// record each change came from, and links no pull requests.
@@ -473,6 +474,13 @@ fn change_schemas(proposing: Proposing) -> Vec<Value> {
     if proposing == Proposing::ProjectManager {
         schemas.push(change_schema(
             "file-issue",
+            json!({ "item": target_schema("item") }),
+            &["item"],
+        ));
+    }
+    if proposing == Proposing::Elysia {
+        schemas.push(change_schema(
+            "assign-item",
             json!({ "item": target_schema("item") }),
             &["item"],
         ));

@@ -25,6 +25,9 @@ function wake(id: string, kind: ProjectManagerWakeKind, body: string | null = nu
     pageVersion: kind === 'brief'
       ? 2
       : null,
+    actionItemId: kind === 'assignment'
+      ? `item-${id}`
+      : null,
     body,
     createdBy: 'someone',
     createdAt: '2026-11-04T15:00:00Z',
@@ -32,7 +35,7 @@ function wake(id: string, kind: ProjectManagerWakeKind, body: string | null = nu
 }
 
 describe('groupWakes', () => {
-  it('keeps every message in order and counts the records, batches, promises, and brief edits', () => {
+  it('keeps every message in order and counts the records, batches, promises, brief edits, and assignments', () => {
     const grouped = groupWakes([
       wake('1', 'record'),
       wake('2', 'message', 'Ship it this week.'),
@@ -42,6 +45,7 @@ describe('groupWakes', () => {
       wake('6', 'promise'),
       wake('7', 'brief'),
       wake('8', 'brief'),
+      wake('9', 'assignment'),
     ])
 
     expect(grouped.messages.map((message) => message.body)).toEqual([ 'Ship it this week.', 'And tell Ada.' ])
@@ -49,10 +53,18 @@ describe('groupWakes', () => {
     expect(grouped.batches).toBe(1)
     expect(grouped.promises).toBe(1)
     expect(grouped.briefEdits).toBe(2)
+    expect(grouped.assignments).toBe(1)
   })
 
   it('reads a turn that nothing woke as empty', () => {
-    expect(groupWakes([])).toEqual({ messages: [], records: 0, batches: 0, promises: 0, briefEdits: 0 })
+    expect(groupWakes([])).toEqual({
+      messages: [],
+      records: 0,
+      batches: 0,
+      promises: 0,
+      briefEdits: 0,
+      assignments: 0,
+    })
   })
 })
 

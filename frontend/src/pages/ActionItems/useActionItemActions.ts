@@ -5,6 +5,7 @@ import type { ActionItem, ActionItemTransition } from '../../api/routes/actionIt
 // Core
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
+import { mutate } from 'swr'
 
 // Redux
 import { useAppDispatch } from '../../store/hooks'
@@ -15,10 +16,13 @@ import { HTTPError } from 'ky'
 
 // Misc
 import {
+  assignActionItemToManager,
   deleteActionItem,
+  getManagerAssignmentKey,
   restoreActionItem,
   snoozeActionItem,
   transitionActionItem,
+  unassignActionItemFromManager,
   waitOnActionItem,
 } from '../../api/routes/actionItemRoutes'
 import { ACTION_ITEM_PERSON_MAX_CHARACTERS } from '../../constants'
@@ -99,6 +103,37 @@ export function useActionItemActions() {
     }
   }
 
+  // Wakes the item's lead project's Project Manager to plan it; what it plans waits for the
+  // person's approval. Taking it back leaves what was planned for the person to decide. Unlike
+  // the other actions, an item page alone offers these, so the plan it shows is read again.
+  async function assignToManager(item: ActionItem) {
+    try {
+      const response = await assignActionItemToManager(item.id)
+      dispatch(actionItemUpserted(response.item))
+      void mutate(getManagerAssignmentKey(item.id))
+      toast.success(t('toasts.assignedToManager', { title: item.title }))
+      return true
+    }
+    catch (error) {
+      reportFailure(error, 'assign to its Project Manager', item)
+      return false
+    }
+  }
+
+  async function unassignFromManager(item: ActionItem) {
+    try {
+      const response = await unassignActionItemFromManager(item.id)
+      dispatch(actionItemUpserted(response.item))
+      void mutate(getManagerAssignmentKey(item.id))
+      toast.success(t('toasts.unassignedFromManager', { title: item.title }))
+      return true
+    }
+    catch (error) {
+      reportFailure(error, 'take back from its Project Manager', item)
+      return false
+    }
+  }
+
   // Asks who the next step is waiting on.
   function waitOn(item: ActionItem) {
     prompt({
@@ -175,5 +210,7 @@ export function useActionItemActions() {
     stopWaiting,
     remove,
     restore,
+    assignToManager,
+    unassignFromManager,
   } as const
 }

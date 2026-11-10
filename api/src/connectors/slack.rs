@@ -363,7 +363,16 @@ pub fn count_teams(teams: &[Team]) -> Result<Vec<(Team, Counts)>, ConnectorError
             Some(Ok(counts)) => counted.push((team.clone(), counts)),
             Some(Err(error)) if SIGNED_OUT_ERRORS.contains(&error.as_str()) => {}
             Some(Err(error)) => {
-                first_failure.get_or_insert(error);
+                // The page names why a call never reached Slack (`fetch_failed`, with the
+                // browser's own message), which is what tells a refused request from an outage.
+                let message = team
+                    .counts
+                    .as_ref()
+                    .and_then(|counts| counts["message"].as_str());
+                first_failure.get_or_insert_with(|| match message {
+                    Some(message) => format!("{error} ({message})"),
+                    None => error,
+                });
             }
             None => {
                 first_failure.get_or_insert_with(|| "client.counts was not answered".to_owned());

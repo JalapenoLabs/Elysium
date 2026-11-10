@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Chip } from '@heroui/react'
-import { LuAlarmClock, LuCalendar, LuHourglass } from 'react-icons/lu'
+import { LuAlarmClock, LuCalendar, LuHourglass, LuWorkflow } from 'react-icons/lu'
 
 // Misc
 import { formatDate, formatDateTime } from '../../format/dates'
@@ -30,8 +30,8 @@ type Props = {
 }
 
 // The facts about an item worth seeing at a glance: its state, a priority other than
-// normal, when it is due (in red once overdue), a snooze, who it waits on, and whose it is
-// when it is not the user's.
+// normal, when it is due (in red once overdue), a snooze, who it waits on, that its Project
+// Manager has it to plan, and whose it is when it is not the user's.
 export function ActionItemBadges(props: Props) {
   const { t } = useTranslation('actionItems')
   const item = props.item
@@ -63,6 +63,10 @@ export function ActionItemBadges(props: Props) {
     {item.waitingOn && <Chip size='sm' variant='soft' color='warning'>
       <LuHourglass className='size-3' aria-hidden />
       <span>{t('badges.waiting', { name: item.waitingOn })}</span>
+    </Chip>}
+    {item.managerAssignment && <Chip size='sm' variant='soft' color='accent'>
+      <LuWorkflow className='size-3' aria-hidden />
+      <span>{t('badges.withManager')}</span>
     </Chip>}
     {item.owner.kind !== 'user' && <Chip size='sm' variant='soft'>{
       t('badges.owner', { owner: t(owner.key, owner.values) })

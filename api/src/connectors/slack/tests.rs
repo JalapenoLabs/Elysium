@@ -120,6 +120,21 @@ fn a_workspace_that_signed_out_is_left_out_and_any_other_failure_of_all_of_them_
 }
 
 #[test]
+fn a_call_that_never_reached_slack_says_what_the_browser_said() {
+    let mut refused = team("T1", "Mooreslab");
+    refused.counts = Some(json!({
+        "ok": false,
+        "error": "fetch_failed",
+        "message": "TypeError: Failed to fetch",
+    }));
+    assert!(matches!(
+        count_teams(&[refused]),
+        Err(ConnectorError::Unexpected(message))
+            if message == "Slack answered client.counts with fetch_failed (TypeError: Failed to fetch)"
+    ));
+}
+
+#[test]
 fn a_conversation_never_read_is_baselined_at_its_newest_message_not_fetched() {
     let counted = counted(
         vec![conversation(

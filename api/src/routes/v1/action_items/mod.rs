@@ -8,6 +8,7 @@
 
 mod add_link;
 mod add_project;
+mod assign_to_manager;
 mod cancel_issue_filing;
 mod cancel_link_write;
 mod change_action_items;
@@ -17,6 +18,7 @@ mod create_from_link;
 mod delete_action_item;
 mod delete_comment;
 mod get_action_item;
+mod get_manager_assignment;
 mod join_initiative;
 mod leave_initiative;
 mod list_action_items;
@@ -32,6 +34,7 @@ mod restore_action_item;
 mod set_lead_project;
 mod snooze_action_item;
 mod transition_action_item;
+mod unassign_from_manager;
 mod undo_history_entry;
 mod update_action_item;
 mod update_comment;
@@ -61,7 +64,7 @@ use crate::models::action_item::{
     ProjectFilter,
 };
 use crate::models::action_item_comment::Comment;
-use crate::models::action_item_event::{HistoryEntry, Recorded};
+use crate::models::action_item_event::{HistoryEntry, HistoryKind, Recorded};
 use crate::models::action_item_issue_filing::{self, IssueFiling};
 use crate::models::action_item_link::{
     self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState,
@@ -104,6 +107,12 @@ pub fn router() -> Router<AppState> {
             post(undo_history_entry::handle),
         )
         .route("/{id}/lead-project", put(set_lead_project::handle))
+        .route(
+            "/{id}/manager-assignment",
+            get(get_manager_assignment::handle)
+                .put(assign_to_manager::handle)
+                .delete(unassign_from_manager::handle),
+        )
         .route(
             "/{id}/comments",
             get(list_comments::handle).post(create_comment::handle),
@@ -172,6 +181,8 @@ pub struct ActionItemResponse {
     project_attributions: Vec<ProjectAttribution>,
     /// The one of its projects that leads it, whose Project Manager alone works it.
     lead_project_id: Option<Uuid>,
+    /// While a person has assigned it to its lead project's Project Manager, when and who.
+    manager_assignment: Option<ManagerAssignmentResponse>,
     /// The initiatives it is in now, leaving out deleted ones.
     initiative_ids: Vec<Uuid>,
     created_at: DateTime<Utc>,
@@ -180,6 +191,15 @@ pub struct ActionItemResponse {
     updated_at: DateTime<Utc>,
     /// The issue Elysium owes the item and has not filed yet, while it owes one.
     issue_filing: Option<IssueFilingResponse>,
+}
+
+/// An item's assignment to its lead project's Project Manager, as clients see it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagerAssignmentResponse {
+    assigned_at: DateTime<Utc>,
+    /// The person who assigned it.
+    assigned_by: Uuid,
 }
 
 /// An issue an item is owed, as clients see it: where it files, and how filing it has gone.
@@ -224,6 +244,12 @@ impl ActionItemResponse {
             project_ids: memberships.project_ids(item.id),
             project_attributions: memberships.project_attributions(item.id),
             lead_project_id: item.lead_project_id,
+            manager_assignment: item.manager_assigned_at.zip(item.manager_assigned_by).map(
+                |(assigned_at, assigned_by)| ManagerAssignmentResponse {
+                    assigned_at,
+                    assigned_by,
+                },
+            ),
             initiative_ids: memberships.initiative_ids(item.id),
             id: item.id,
             title: item.title,
@@ -480,6 +506,28 @@ pub async fn item_responses(
         .collect())
 }
 
+/// Tells every Project Manager that `history` assigned an item to, or took one from, that its
+/// wakes changed, and has the dispatcher look at once for the turn an assignment woke.
+pub fn publish_manager_assignments(events: &EventBus, history: &[HistoryEntry]) {
+    let mut project_ids: Vec<Uuid> = history
+        .iter()
+        .filter(|entry| {
+            entry.kind == HistoryKind::ManagerAssigned.as_str()
+                || entry.kind == HistoryKind::ManagerUnassigned.as_str()
+        })
+        .filter_map(|entry| entry.data["projectId"].as_str()?.parse().ok())
+        .collect();
+    if project_ids.is_empty() {
+        return;
+    }
+    project_ids.sort_unstable();
+    project_ids.dedup();
+    for project_id in project_ids {
+        events.publish(&ServerEvent::ProjectManagerChanged { project_id });
+    }
+    events.signal(&Signal::ProjectManagers);
+}
+
 /// Sends a write's history entries to every client.
 pub fn publish_history(events: &EventBus, history: Vec<HistoryEntry>) {
     for entry in history {
@@ -546,6 +594,7 @@ pub async fn publish_item_writes(
     for Recorded { record, history } in written {
         if !history.is_empty() {
             changed_ids.insert(record.id);
+            publish_manager_assignments(events, &history);
             publish_history(events, history);
         }
         records.push(record);

@@ -349,6 +349,8 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Uuid,
         lead_project_id -> Nullable<Uuid>,
+        manager_assigned_at -> Nullable<Timestamptz>,
+        manager_assigned_by -> Nullable<Uuid>,
     }
 }
 
@@ -1504,6 +1506,7 @@ diesel::table! {
         created_at -> Timestamptz,
         promise_id -> Nullable<Uuid>,
         page_version -> Nullable<Int4>,
+        action_item_id -> Nullable<Uuid>,
     }
 }
 
@@ -2052,7 +2055,6 @@ diesel::joinable!(action_item_links -> github_credentials (github_credential_id)
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_links -> token_accounts (token_account_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
-diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(agent_configuration_status -> action_items (inbox_item_id));
 diesel::joinable!(agent_configuration_status -> users (created_by));
 diesel::joinable!(agent_guidance_versions -> users (created_by));
@@ -2181,6 +2183,7 @@ diesel::joinable!(project_issue_trackers -> users (created_by));
 diesel::joinable!(project_manager_turns -> project_managers (project_id));
 diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id));
 diesel::joinable!(project_manager_turns -> users (created_by));
+diesel::joinable!(project_manager_wakes -> action_items (action_item_id));
 diesel::joinable!(project_manager_wakes -> project_manager_turns (turn_id));
 diesel::joinable!(project_manager_wakes -> projects (project_id));
 diesel::joinable!(project_manager_wakes -> promises (promise_id));

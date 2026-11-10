@@ -505,6 +505,11 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   Elysia's confidence, the surest leading; she never overrides anyone else's choice, every change is in the item's
   history and undoable, and attributing wakes no Project Manager (`api/src/models/action_item_attribution.rs`). See
   `docs/action-items.md`, Projects and the lead.
+- A person assigns an item, alone or a selection, to its lead project's Project Manager, which wakes to plan it and
+  starts no worker; an item no project leads is refused, and moving the lead ends the assignment. Elysia suggests
+  assignments as `assign-item` changeset operations, and the person accepting one is who assigned it. The item's page
+  shows where its plan stands (`api/src/models/action_item_assignment.rs`). See `docs/action-items.md`, Assigning to a
+  Project Manager.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
 - Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own
@@ -557,10 +562,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
-- It is woken by a record newly attributed to its project, a batch's result, a promise, a person, Elysia, and someone
-  else's edit of its brief, each written as a wake in the transaction that caused it. Wakes are debounced into one turn
-  per project, one turn at a time (the database refuses a second), and a turn a restart or a usage limit cut short
-  gives them back.
+- It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
+  it, a person, Elysia, and someone else's edit of its brief, each written as a wake in the transaction that caused it.
+  Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
+  restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,
