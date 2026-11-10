@@ -6,8 +6,9 @@ what it changed, what each part was taken into, and what was said about it. Anyo
 recording, and what is relevant, and only that, flows on to projects, their Project Managers, and workers.
 
 This doc is the design. Built so far: meetings and their captures, one clock with each capture's offset, Whisper per
-capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
-in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned. What is built
+capture, the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change in a
+meeting's history, undoable, each built from the meeting's first capture until captures are aligned, and uploads of
+recordings and transcripts as new meetings or captures of one. What is built
 is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
 issues in the Knowledge base milestone.
 
@@ -224,9 +225,12 @@ The `meeting` workflow becomes:
 - From the Meetings page (a new meeting) or a meeting's page (a capture of it): recordings as `.mp3`, `.wav`, `.mp4`,
   or `.mov`, and transcripts as WebVTT, SRT, or plain text and Markdown, where `Speaker: line` and `[00:01:23]` are read
   when they are there. A recording and a transcript can be one capture.
-- Uploads are resumable, in chunks, into the person's storage location, since a recording can be gigabytes.
+- Uploads are resumable, in parts, into the storage location the person keeps meetings in, since a recording can be
+  gigabytes.
 - An upload is a capture like any other: transcribed, aligned, corrected, and segmented. A transcript with no times
   and no media is a meeting in words alone: reviewed, excerpted, and commented, with no player.
+- How it works today is `docs/meetings.md`, Uploads. When the knowledge base's own Meetings page is built (#235), its
+  upload moves there, and a capture's moves into the meeting's options.
 
 ## Teams and Slack huddles
 
@@ -259,7 +263,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | Phase | Issue | Lane                                                                                  |
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #230  | Turns: prompts on standard input                                                      |
-| 1     | #233  | Uploads: recordings and transcripts                                                   |
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
 | 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |

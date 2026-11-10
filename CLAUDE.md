@@ -352,6 +352,11 @@ Everything else follows these rules:
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting (or the conversation) in order,
   and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
   for the person to retry it from the Meetings page or the run's page.
+- A person uploads their own meetings (`api/src/meeting_uploads/`, `/api/v1/meeting-uploads`): a recording
+  (`.mp3`, `.wav`, `.mp4`, `.mov`), a transcript (WebVTT, SRT, text, Markdown), or both, as a new meeting or a capture of
+  one. Files arrive in 8 MiB parts staged in the workspace, resumable, checked as they arrive; finishing starts the
+  meeting's run as the person, whose fetch streams the recording to the storage location they chose. A transcript with
+  no times is a meeting in words alone, segmented by its lines. See `docs/meetings.md`, Uploads.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
   and owner, never its title or transcript.
 

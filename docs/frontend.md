@@ -328,6 +328,8 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
 | `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its topics and their projects, and its transcript beside its corrections, as tabs in `?tab=`; Approve and its hold |
+| `/settings/meetings/new`      | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
+| `/settings/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
 | `/settings/agent-guidance`    | `AgentGuidancePage`      | What every connected agent reads, edited by admins, with its rules, CLAUDE.md block, and versions; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |

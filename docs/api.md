@@ -42,6 +42,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
+| GET    | `/api/v1/meeting-uploads/policy?meetingId=` | `200` `{ policy }`: `partBytes`, each kind's `maxBytes` and `extensions`, and `defaultStorageLocationId` |
+| GET    | `/api/v1/meeting-uploads`             | `200` `{ uploads: MeetingUpload[] }`, the caller's unfinished, most recently moved first |
+| POST   | `/api/v1/meeting-uploads`             | `201` `{ upload }`; a new meeting's `title` and `startedAt`, or a `meetingId`, with a `recording`, a `transcript`, or both, each `{ name, sizeBytes, modifiedAt }`, and `storageLocationId` with a recording |
+| GET    | `/api/v1/meeting-uploads/{id}`        | `200` `{ upload }`, with how much of each file arrived |
+| PUT    | `/api/v1/meeting-uploads/{id}/{kind}/parts/{index}` | `200` `{ upload }`; the part's bytes as the body with their length, `409` (`meeting_upload_part_ahead`) past the next |
+| POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before |
+| DELETE | `/api/v1/meeting-uploads/{id}`        | `204`; stops an unfinished upload and removes its parts |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
@@ -1236,6 +1243,7 @@ person besides (`/api/v1/search` and `/api/v1/knowledge`, Budget).
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
 | `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
+| `src/meeting_uploads/`   | What a meeting takes as an upload, its parts staged in the workspace (`staging.rs`), and transcripts read into lines (`transcript.rs`) |
 | `src/meetings/`          | Meeting sources, one per kind that provides meetings (`sources.rs`), the listing and processing loop, the meeting workflow's steps (fetching, transcription, correction), segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/issue_reports/`     | Problem reports filed on Elysium's GitHub repository: subjects, redaction, fingerprints, rendering, and filing, see `docs/issue-reporting.md` |
