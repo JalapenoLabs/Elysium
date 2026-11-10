@@ -204,9 +204,12 @@ impl Fireflies {
 }
 
 impl MeetingSource for Fireflies {
+    /// The person's API key.
+    type SignIn = SecretString;
+
     async fn list(
         &self,
-        credential: &SecretString,
+        sign_in: &SecretString,
         since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> Result<Vec<ListedMeeting>, SourceError> {
@@ -214,7 +217,7 @@ impl MeetingSource for Fireflies {
             "fromDate": since.map(|since| since.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
             "limit": limit.min(MAX_LISTING),
         });
-        let data = self.query(credential, LIST_QUERY, variables).await?;
+        let data = self.query(sign_in, LIST_QUERY, variables).await?;
         let transcripts: Vec<ListedTranscript> =
             serde_json::from_value(data["transcripts"].clone()).map_err(|error| {
                 SourceError::Refused(format!(
@@ -226,11 +229,11 @@ impl MeetingSource for Fireflies {
 
     async fn fetch(
         &self,
-        credential: &SecretString,
+        sign_in: &SecretString,
         external_id: &str,
     ) -> Result<FetchedMeeting, SourceError> {
         let data = self
-            .query(credential, TRANSCRIPT_QUERY, json!({ "id": external_id }))
+            .query(sign_in, TRANSCRIPT_QUERY, json!({ "id": external_id }))
             .await?;
         if data["transcript"].is_null() {
             return Err(SourceError::NotFound);
@@ -243,7 +246,7 @@ impl MeetingSource for Fireflies {
             })?;
         Ok(FetchedMeeting {
             transcript: transcript_lines(transcript),
-            recording: self.fetch_recording(credential, external_id).await?,
+            recording: self.fetch_recording(sign_in, external_id).await?,
         })
     }
 }
@@ -297,7 +300,7 @@ struct FetchedTranscript {
 
 /// One meeting's recording addresses, as Fireflies sends them.
 #[derive(Debug, Deserialize)]
-struct FetchedMedia {
+pub(super) struct FetchedMedia {
     #[serde(default)]
     video_url: Option<String>,
     #[serde(default)]
@@ -376,7 +379,7 @@ fn transcript_lines(transcript: FetchedTranscript) -> Vec<TranscriptLine> {
 }
 
 /// A meeting's video, else its audio, skipping any address that is not a public download.
-fn recording_of(media: FetchedMedia) -> Option<RecordingSource> {
+pub(super) fn recording_of(media: FetchedMedia) -> Option<RecordingSource> {
     [
         (media.video_url, RecordingKind::Video),
         (media.audio_url, RecordingKind::Audio),
@@ -554,11 +557,28 @@ mod tests {
         "ai_filters",
     ];
 
+    /// The same, by the names the web app's own schema gives them, which the browser source
+    /// (`crate::meetings::fireflies_browser`) reads: its meeting and feed queries' AI fields,
+    /// and what `AskFred` and the AI apps answer.
+    const WEB_APP_AI_FIELDS: [&str; 9] = [
+        "shortSummary",
+        "brief",
+        "summaryStatus",
+        "promptSuggestions",
+        "hasAiApps",
+        "aiApps",
+        "actionItems",
+        "askFred",
+        "appOutputs",
+    ];
+
     #[test]
     fn no_query_asks_for_anything_fireflies_ai_wrote() {
-        for query in [LIST_QUERY, TRANSCRIPT_QUERY, RECORDING_QUERY, WHOAMI_QUERY] {
+        let key_queries = [LIST_QUERY, TRANSCRIPT_QUERY, RECORDING_QUERY, WHOAMI_QUERY];
+        let browser_queries = crate::meetings::fireflies_browser::QUERIES;
+        for query in key_queries.into_iter().chain(browser_queries) {
             let fields = fields_of(query);
-            for vendor_field in VENDOR_AI_FIELDS {
+            for vendor_field in VENDOR_AI_FIELDS.into_iter().chain(WEB_APP_AI_FIELDS) {
                 assert!(
                     !fields.contains(&vendor_field),
                     "a Fireflies query asks for {vendor_field}: {query}"

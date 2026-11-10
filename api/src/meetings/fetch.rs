@@ -161,9 +161,9 @@ impl FetchMeeting {
         let account = self.account_of(&current).await?;
         let source =
             super::source_of(&self.inner.sources, &account).map_err(StepFailure::permanent)?;
-        let credential = {
+        let sign_in = {
             let mut connection = self.connection().await?;
-            super::key_of(&mut connection, &self.inner.cipher, &account)
+            super::sources::sign_in_of(&mut connection, &self.inner.cipher, &account)
                 .await
                 .map_err(StepFailure::retryable)?
         };
@@ -171,7 +171,7 @@ impl FetchMeeting {
 
         log.line(&format!("Fetching the meeting from {}", account.kind));
         let fetched = source
-            .fetch(&credential, &current.external_id)
+            .fetch(&sign_in, &current.external_id)
             .await
             .map_err(source_failure)?;
         let fetched_hash = transcript_hash(&fetched.transcript);

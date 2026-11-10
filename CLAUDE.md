@@ -314,10 +314,11 @@ Everything else follows these rules:
 ## Meetings
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
-  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). Every
-  meeting belongs to a connector, which is what keeps it and its segments from being recorded twice. See
-  `docs/meetings.md`.
+  own API key on a paid plan, or through Fireflies' own web app in the connector's browser on any plan (the
+  `fireflies_browser` kind, `meetings::fireflies_browser`), so nothing is installed into an organization. A source is a
+  connector whose kind declares it provides meetings, managed under Connectors alone; the meetings page and loop never
+  name one (`meetings::sources`), and `sources::sign_in_of` resolves its key or browser. Every meeting belongs to a
+  connector, which is what keeps it and its segments from being recorded twice. See `docs/meetings.md`.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
   transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
   again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.

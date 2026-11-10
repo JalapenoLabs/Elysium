@@ -4,14 +4,16 @@
 //! recording.
 //!
 //! A source is the meeting counterpart of `crate::connectors::Connector`: it reads as its
-//! account's person, signed in the way its connector signs in. Today's source is Fireflies,
-//! read with the person's own API key; sources that read Google Meet and Teams recordings
-//! through a signed-in browser fill the same trait.
+//! account's person, signed in the way its connector signs in ([`SignIn`]). Fireflies is read
+//! either with the person's own API key or through a browser they signed in to; sources that
+//! read Google Meet and Teams recordings through a signed-in browser fill the same trait.
 
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+use crate::models::browser_session::BrowserSession;
 
 /// One meeting as a listing shows it, before its transcript is read.
 #[derive(Debug, Clone, PartialEq)]
@@ -80,12 +82,27 @@ pub enum SourceError {
     Refused(String),
 }
 
+/// How a meeting connector signs in to its source, resolved from the account it owns
+/// (`crate::meetings::sources::sign_in_of`).
+#[derive(Debug, Clone)]
+pub enum SignIn {
+    /// An API key, from the connector's token account.
+    Key(SecretString),
+    /// The connector's own browser, which its person signed in to. A source reads through it
+    /// over `DevTools`, as the page, so the session never leaves the browser.
+    Browser(BrowserSession),
+}
+
 /// A service that records meetings, read as its account's person.
 pub trait MeetingSource {
+    /// What it reads as: an API key, a browser, or, for a source that dispatches to others,
+    /// any [`SignIn`].
+    type SignIn: Sync;
+
     /// Meetings that started at or after `since`, newest first, at most `limit` of them.
     fn list(
         &self,
-        credential: &SecretString,
+        sign_in: &Self::SignIn,
         since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> impl Future<Output = Result<Vec<ListedMeeting>, SourceError>> + Send;
@@ -93,7 +110,7 @@ pub trait MeetingSource {
     /// One meeting's transcript and a fresh address to download its recording from.
     fn fetch(
         &self,
-        credential: &SecretString,
+        sign_in: &Self::SignIn,
         external_id: &str,
     ) -> impl Future<Output = Result<FetchedMeeting, SourceError>> + Send;
 }

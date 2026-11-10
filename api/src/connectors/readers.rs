@@ -33,6 +33,7 @@ pub fn for_kind(kind: ConnectorKind, devtools: &Devtools) -> Option<Reader> {
         | ConnectorKind::Confluence
         | ConnectorKind::Github
         | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => None,
     }
 }

@@ -5,13 +5,14 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources. Today one exists, Fireflies.ai, read with the person's own API key. The code is
+Meetings come from meeting sources. Today Fireflies.ai is one, read two ways: with the person's own API key, for paid
+plans, or through Fireflies' own web app in a browser the person signed in to, on any plan. The code is
 `api/src/meetings/`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
-used, since the model behind it is unknown. Fireflies' queries name each field they read, and a test fails if one asks
-for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
+used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails if
+one asks for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
 
 ## Meeting sources
 
@@ -26,9 +27,15 @@ and fetches every source the same way, and a test fails when a kind that provide
 adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and adds its client and its row
 in `for_kind`; the meetings page and the loop pick it up unchanged.
 
-| Source    | Signs in with                                  | Reads                                                    |
-|-----------|------------------------------------------------|----------------------------------------------------------|
-| Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
+A source signs in the way its connector's account does (`SignIn` in `source.rs`): an API key from its token account,
+or the browser it owns. `sources::sign_in_of` resolves it from the connector, beside the sources, and each source's
+client takes only its own kind of sign-in (`MeetingSource::SignIn`); handed the other, the dispatch refuses it as a
+sign-in to fix.
+
+| Source              | Signs in with                                  | Reads                                                    |
+|---------------------|------------------------------------------------|----------------------------------------------------------|
+| Fireflies           | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
+| Fireflies (browser) | The connector's own browser, signed in to `app.fireflies.ai` | The web app's `/api/v4/hive`, from its tab: the notebook's listing, then each meeting's captions and, apart, its video or audio |
 
 A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
 recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
@@ -41,6 +48,40 @@ meeting once, in two calls, stays far inside that.
 
 A sentence's start and end are read as seconds, sent either as a number or a numeric string. That is checked against
 the documented schema and a fixture, not yet against a live account.
+
+### Fireflies through a browser
+
+Fireflies' free plan refuses transcripts and recordings to its API, but its web app reads every meeting, on any plan,
+from its own GraphQL endpoint, `POST /api/v4/hive` on `app.fireflies.ai`, signed in by the session in the page. The
+`fireflies_browser` kind reads that endpoint from its own browser (`docs/browser.md`), started at Fireflies' sign-in
+page; its person signs in once on the connector's page. `api/src/meetings/fireflies_browser/` is the source:
+`hive.js` runs as the page over DevTools and asks the endpoint the queries the source hands it, refusing anything
+that is not a query, and the web app's session token (`localStorage.AUTHORIZATION`) never leaves the page; only
+Fireflies' answers do. The queries are the web app's own, read from its public JavaScript, with selections of Elysium's
+own that leave out every AI field; how to find them again is in that directory's `CLAUDE.md`.
+
+- **Listing** asks `getFilteredMeetings` for the meetings the person is part of (the notebook's "My Meetings",
+  `USER_PART_OF`) that started since the cursor, oldest first, at most 50, so a listing that cannot hold them all
+  leaves the rest for the next one. Fireflies lists a meeting before its words exist, and a meeting is fetched once,
+  so a listing stops at the first meeting still being transcribed and the cursor waits before it; one that has said so
+  for a day (`TRANSCRIBING_PATIENCE`) is taken as it is, so it never holds the rest back. Each meeting links to its page,
+  `app.fireflies.ai/view/<id>`.
+- **Fetching** asks `meetingNote` twice in one evaluation: its captions, each with a speaker and start and end in
+  seconds, then its video and audio addresses, so a refusal of the recording costs only the recording. The edits its
+  people saved in Fireflies are applied as Fireflies shows them: a rewritten sentence in place of what was heard, a
+  deleted one left out, one reassigned under its new speaker, and captions with neither a letter nor a digit hidden.
+  A speaker is named from `speakerMeta`, or `Speaker <n>` as the web app shows one nobody named. A meeting still being
+  transcribed is refused for the run's backoff to try again.
+- **Signed in** is the session token in the page, so the check asks nothing of Fireflies. No Fireflies tab opens one
+  and reads as not open yet; a tab on Google's, Microsoft's, or Apple's sign-in reads as signed out, as does a session
+  Fireflies answers `UNAUTHENTICATED`, which marks the connector `signed_out`.
+- The web app refreshes its own session, a two-week token, while a Fireflies tab is open, and Elysium never does, so
+  the browser stays signed in as long as its Fireflies tab stays open; every read opens one when none is.
+- Its storage location is optional (`docs/connectors.md`, Connectors): a meeting with nowhere to keep its recording
+  goes on from its transcript alone.
+
+Not yet checked against a signed-in session: that `USER_PART_OF` lists what the key kind's listing does, and that a
+recording address downloads whole from the engine on the free plan.
 
 ### Accounts
 
@@ -504,7 +545,6 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
   is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
 - Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
-  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
-  signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
-  `sources.rs` instead.
+  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user, signing in with
+  their connector's browser through `SignIn::Browser`, as Fireflies (browser) does.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
