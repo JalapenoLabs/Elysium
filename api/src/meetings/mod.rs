@@ -40,6 +40,7 @@ pub mod correction;
 pub mod fetch;
 pub mod final_transcript;
 pub mod fireflies;
+pub mod fireflies_browser;
 pub mod history;
 pub mod media;
 pub mod segment;
@@ -62,8 +63,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use self::source::{ListedMeeting, MeetingSource, SourceError};
-use self::sources::{Source, Sources};
+use self::source::{ListedMeeting, SourceError};
+use self::sources::Sources;
 use self::workflow::RunToStart;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
@@ -75,7 +76,6 @@ use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
 use crate::models::storage_location::{self, StorageLocation};
-use crate::models::token_account;
 use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::workflows;
@@ -251,18 +251,31 @@ impl Meetings {
         }
     }
 
-    /// Lists one connector's new meetings, stores them, and records how the listing went.
+    /// Lists one connector's new meetings, stores them, and records how the listing went. A
+    /// connector that reads no meetings now, such as a Teams connector with them turned off, is
+    /// left as it is.
     async fn poll_account(&self, account: &Connector) -> anyhow::Result<()> {
-        let source = source_of(&self.inner.sources, account)?;
-        let credential = {
+        if !self.inner.sources.reads_meetings(account) {
+            event!(
+                name: "meetings.account.not_reading",
+                Level::DEBUG,
+                connector.id = %account.id,
+                "a meeting connector that reads no meetings now was not listed",
+            );
+            return Ok(());
+        }
+        let source = {
             let mut connection = self.connection().await?;
-            key_of(&mut connection, &self.inner.cipher, account).await?
+            self.inner
+                .sources
+                .signed_in(&mut connection, &self.inner.cipher, account)
+                .await?
         };
         let since = listing_since(account);
         let started = Utc::now();
         let mut run = None;
 
-        let outcome = match source.list(&credential, Some(since), LISTING_SIZE).await {
+        let outcome = match source.list(Some(since), LISTING_SIZE).await {
             Ok(listed) => {
                 let (newest, stored) = self.store_listed(account, &listed).await?;
                 if stored > 0 {
@@ -288,7 +301,8 @@ impl Meetings {
                     }
                     .as_str()
                     .to_owned(),
-                    cursor: account.cursor.clone(),
+                    // Nothing of the cursor changes; it is merged, not replaced.
+                    cursor: json!({}),
                     last_polled_at: Some(Utc::now()),
                     last_error: Some(error.to_string()),
                 }
@@ -447,30 +461,6 @@ impl Meetings {
     }
 }
 
-/// The source `connector`'s kind reads its meetings from.
-fn source_of(sources: &Sources, connector: &Connector) -> anyhow::Result<Source> {
-    ConnectorKind::parse(&connector.kind)
-        .and_then(|kind| sources.for_kind(kind))
-        .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))
-}
-
-/// The API key `connector` reads its meetings with, from the token account it reads through.
-/// Every source today signs in with a key; a source read through a browser will resolve its
-/// sign-in beside its source instead.
-async fn key_of(
-    connection: &mut AsyncPgConnection,
-    cipher: &Cipher,
-    connector: &Connector,
-) -> anyhow::Result<secrecy::SecretString> {
-    let token_account_id = connector
-        .token_account_id
-        .context("a meeting connector reads with an API key, and this one has none")?;
-    let account = token_account::find(connection, token_account_id).await?;
-    account
-        .credential(cipher)
-        .context("the connector's key cannot be decrypted")
-}
-
 /// The capture a step's input names (`capture_id`), or, for what a run started before meetings
 /// had captures was handed, which names the meeting alone, the meeting's one capture. A capture of
 /// another meeting reads as none.
@@ -524,8 +514,10 @@ fn listing_since(account: &Connector) -> DateTime<Utc> {
         )
 }
 
-/// The cursor after a listing whose newest meeting started at `newest`. It never moves
-/// backwards, and listings overlap by that one meeting, which the account already knows.
+/// The listing's keys of the cursor after a listing whose newest meeting started at `newest`,
+/// which `connector::record_poll` merges over the stored cursor: a connector another loop also
+/// reads, such as Teams' chats, keeps that loop's keys. It never moves backwards, and listings
+/// overlap by that one meeting, which the account already knows.
 fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
     let previous = cursor["since"]
         .as_str()
@@ -533,7 +525,7 @@ fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
         .map(|since| since.with_timezone(&Utc));
     match previous.max(newest) {
         Some(since) => json!({ "since": since.to_rfc3339() }),
-        None => cursor.clone(),
+        None => json!({}),
     }
 }
 
@@ -618,5 +610,22 @@ mod tests {
             json!({ "since": "2026-10-21T09:30:00+00:00" })
         );
         assert_eq!(next_cursor(&json!({}), None), json!({}));
+    }
+
+    #[test]
+    fn the_listing_writes_only_its_own_keys_of_the_cursor() {
+        // A Teams connector's cursor also holds its chat reader's keys, which the listing must
+        // neither drop nor put back as it read them.
+        let shared = json!({
+            "since": "2026-10-20T09:30:00+00:00",
+            "baselined": true,
+            "reader": { "since": 1_730_000_000_000_i64 },
+        });
+        let newer: DateTime<Utc> = "2026-10-21T09:30:00Z".parse().expect("a time");
+        assert_eq!(
+            next_cursor(&shared, Some(newer)),
+            json!({ "since": "2026-10-21T09:30:00+00:00" })
+        );
+        assert_eq!(next_cursor(&json!({ "baselined": true }), None), json!({}));
     }
 }

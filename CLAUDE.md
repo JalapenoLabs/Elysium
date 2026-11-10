@@ -239,6 +239,9 @@ Everything else follows these rules:
 - A browser connector's page carries its sign-in panel, which speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- Once a day the engine's ingest pass reloads each browser's service tab in place, one browser a pass, so its
+  rolling session renews, then reads its connector, which records a lapsed session as signed out. The last refresh is
+  `browser_sessions.refreshed_at`; the interval is a code constant. See `docs/browser.md`, Refreshing.
 - A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
   removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
   says so, with the media ports behind its help, rather than spinning.
@@ -275,14 +278,16 @@ Everything else follows these rules:
   result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
 - Teams reads through its own browser signed in to Microsoft, from Teams' own local store (IndexedDB) rather than its
   page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a channel thread the
-  person wrote in raises an inbox item; other channel messages are only recorded.
+  person wrote in raises an inbox item; other channel messages are only recorded. Teams enforces Trusted Types, so its
+  page scripts read markup with patterns and never hand it to a parser.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
   a comment from someone else on their issue or mentioning them raises an inbox item as `watcher:youtrack`. The first
   read records nothing. Its assigned issues come in through the watcher, as every issue connector's do.
 - Slack reads through its own browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
-  web API with the web client's session, which never leaves the page, and only read methods. A direct or group
+  web API with the web client's session, which never leaves the page, and only read methods. Every call carries the
+  web client's `_x_gantry=true` marker, without which Slack refuses credentialed calls from `app.slack.com`. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
   its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
@@ -313,10 +318,12 @@ Everything else follows these rules:
 
 ## Meetings
 
-- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
-  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). See
-  `docs/meetings.md`.
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
+  key on a paid plan or through Fireflies' own web app in its connector's browser on any plan (the `fireflies_browser`
+  kind, `meetings::fireflies_browser`), and Teams and Slack's huddles, each through its connector's own browser, so
+  nothing is installed into an organization. A source is a connector whose kind declares it provides meetings, managed
+  under Connectors alone; the meetings page and loop never name one, and each source's sign-in is resolved beside it
+  (`meetings::sources`). See `docs/meetings.md`.
 - A meeting is the one event; a capture (`meeting_captures`) is one record of it, as its source gave it: today a
   connector's meeting, each holding its connector, its raw transcript and recording with their hashes, and its offset
   onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
@@ -327,6 +334,15 @@ Everything else follows these rules:
   marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to
   a meeting is in its history (`meeting_events`) with who made it, and undoable (`meetings::history`). See
   `docs/meetings.md`, The final transcript, and History.
+- Teams lists the recorded meetings whose chats its store holds, and fetches each recording's download address and its
+  transcript, with speakers, from the organizer's SharePoint with the token Teams keeps for it, which never leaves the
+  page. It reads meetings while "Read meeting recordings and transcripts" is on (the default) and once a storage
+  location is picked. A connector's cursor is merged, not replaced, so its chat reader and the meetings listing each
+  keep their own keys. See `docs/meetings.md`, Teams.
+- Slack lists the person's huddles that ended with a transcript and reads each one's transcript file with the web
+  client's own methods, never Slack's AI notes beside it. A huddle keeps no recording, so it is a meeting in words alone
+  and needs no storage location. It reads huddles while "Read meeting recordings and transcripts" is on (the default).
+  See `docs/meetings.md`, Slack huddles.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is

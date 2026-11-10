@@ -218,6 +218,7 @@ one connector that reads through it.
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
 | `state`                     | `browser_state` | `starting`, `running`, or `failed`, as the engine's reconciler last found it |
 | `state_error`               | `TEXT`        | Why it failed; set exactly while `failed`                       |
+| `refreshed_at`              | `TIMESTAMPTZ` | When the engine last reloaded its service so the session renews, recorded as it starts; null until the first, see `docs/browser.md`, Refreshing |
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 

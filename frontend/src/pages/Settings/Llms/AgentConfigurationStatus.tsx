@@ -22,6 +22,9 @@ import { toast } from '../../../toast/toast'
 
 type Props = {
   settings: WorkspaceSettings
+  // The page's repository or token differ from what is saved. A fetch reads the saved ones, so
+  // Fetch now waits for Save rather than fetching what the page no longer shows.
+  hasUnsavedChanges: boolean
 }
 
 // How the saved repository's last fetch went: why workers and Project Managers wait, if they do,
@@ -59,15 +62,23 @@ export function AgentConfigurationStatus(props: Props) {
   return <section className='relaxed max-w-2xl'>
     <div className='compact flex flex-wrap items-center justify-between gap-3'>
       <h2 className='text-lg font-semibold'>{t('agentConfiguration.lastFetch')}</h2>
-      {repository && <Button
-        variant='secondary'
-        size='sm'
-        isPending={isAsking}
-        onPress={() => void fetchNow()}
-      >
-        <LuRefreshCw className='size-4' aria-hidden />
-        <span>{t('agentConfiguration.fetchNow')}</span>
-      </Button>}
+      {repository && <Tooltip delay={200} isDisabled={!props.hasUnsavedChanges}>
+        <Tooltip.Trigger>
+          <div>
+            <Button
+              variant='secondary'
+              size='sm'
+              isDisabled={props.hasUnsavedChanges}
+              isPending={isAsking}
+              onPress={() => void fetchNow()}
+            >
+              <LuRefreshCw className='size-4' aria-hidden />
+              <span>{t('agentConfiguration.fetchNow')}</span>
+            </Button>
+          </div>
+        </Tooltip.Trigger>
+        <Tooltip.Content>{t('agentConfiguration.fetchNeedsSave')}</Tooltip.Content>
+      </Tooltip>}
     </div>
 
     {hold && <ConfigurationHoldAlert hold={hold} linksToSettings={false} />}

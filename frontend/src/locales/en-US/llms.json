@@ -17,6 +17,7 @@
     "adminOnly": "Only admins change the agent configuration.",
     "lastFetch": "Last fetch",
     "fetchNow": "Fetch now",
+    "fetchNeedsSave": "Save to fetch with these changes",
     "fetchAsked": "Fetching the configuration repository",
     "fetchedAt": "Fetched {{time}}",
     "failedAt": "Failed {{time}}",

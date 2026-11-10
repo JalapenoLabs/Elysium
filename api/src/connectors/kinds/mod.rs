@@ -32,6 +32,7 @@
 pub mod browser;
 pub mod confluence;
 pub mod fireflies;
+pub mod fireflies_browser;
 pub mod github;
 pub mod jira;
 pub mod slack;
@@ -124,8 +125,12 @@ pub enum ContentFieldType {
     Selection,
     /// One of the workspace's storage locations, by id.
     StorageLocation,
-    /// On or off, a JSON boolean; off when the connector never saved it.
-    Toggle,
+    /// On or off, a JSON boolean. A new connector's form starts it at `on_by_default`, and the
+    /// kind reads a connector that never saved it the same way.
+    Toggle {
+        #[serde(rename = "onByDefault")]
+        on_by_default: bool,
+    },
 }
 
 /// What the hub knows about a kind of account, so a new one's form can be drawn.
@@ -159,7 +164,7 @@ pub enum AccountFieldType {
 }
 
 /// Every kind, in the order the hub lists them.
-pub const DEFINITIONS: [&Definition; 9] = [
+pub const DEFINITIONS: [&Definition; 10] = [
     &jira::DEFINITION,
     &confluence::DEFINITION,
     &github::DEFINITION,
@@ -168,6 +173,7 @@ pub const DEFINITIONS: [&Definition; 9] = [
     &teams::DEFINITION,
     &slack::DEFINITION,
     &fireflies::DEFINITION,
+    &fireflies_browser::DEFINITION,
     &youtrack::DEFINITION,
 ];
 
@@ -196,6 +202,18 @@ pub fn providing(what: Provides) -> Vec<ConnectorKind> {
         .collect()
 }
 
+/// Every kind read through a browser of its own, in the hub's order: those `ingest` reads
+/// (`ConnectorKind::BROWSER_READ`) and those another loop reads, such as Fireflies (browser),
+/// which the meetings loop does. Every one of their browsers is refreshed daily
+/// (`crate::connectors::refresh`).
+pub fn read_through_a_browser() -> Vec<ConnectorKind> {
+    DEFINITIONS
+        .into_iter()
+        .filter(|definition| definition.account == AccountKind::Browser)
+        .map(|definition| definition.kind)
+        .collect()
+}
+
 /// The link provider a kind's issues are read through, for every kind that provides issues and
 /// no other. Declaring [`Provides::Issues`] is all a kind does to have the link watcher bring in
 /// what is assigned to its person (`crate::action_items::assigned`); a test fails when a kind
@@ -210,7 +228,8 @@ pub const fn link_provider(kind: ConnectorKind) -> Option<LinkProvider> {
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
         | ConnectorKind::Slack
-        | ConnectorKind::Fireflies => None,
+        | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser => None,
     }
 }
 
@@ -285,6 +304,7 @@ pub enum KindChecks {
     Teams(teams::TeamsChecks),
     Slack(slack::SlackChecks),
     Fireflies(fireflies::FirefliesChecks),
+    FirefliesBrowser(fireflies_browser::FirefliesBrowserChecks),
     Youtrack(youtrack::YoutrackChecks),
 }
 
@@ -308,6 +328,7 @@ impl Checks for KindChecks {
             Self::Teams(checks) => checks.check(id).await,
             Self::Slack(checks) => checks.check(id).await,
             Self::Fireflies(checks) => checks.check(id).await,
+            Self::FirefliesBrowser(checks) => checks.check(id).await,
             Self::Youtrack(checks) => checks.check(id).await,
         }
     }
@@ -337,6 +358,9 @@ pub async fn prepare_checks(
         ConnectorKind::Slack => KindChecks::Slack(slack::prepare_checks(state, source).await?),
         ConnectorKind::Fireflies => {
             KindChecks::Fireflies(fireflies::prepare_checks(state, source).await?)
+        }
+        ConnectorKind::FirefliesBrowser => {
+            KindChecks::FirefliesBrowser(fireflies_browser::prepare_checks(state, source).await?)
         }
         ConnectorKind::Youtrack => {
             KindChecks::Youtrack(youtrack::prepare_checks(state, current, source).await?)
@@ -432,6 +456,7 @@ pub async fn create(
         ConnectorKind::Teams => teams::create(state, current, content).await,
         ConnectorKind::Slack => slack::create(state, current, content).await,
         ConnectorKind::Fireflies => fireflies::create(state, current, new, content).await,
+        ConnectorKind::FirefliesBrowser => fireflies_browser::create(state, current, content).await,
         ConnectorKind::Youtrack => youtrack::create(state, current, new, content).await,
     }
 }
@@ -486,6 +511,7 @@ pub fn reply_target(
         | ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => Err(ApiError::Internal(anyhow::anyhow!(
             "{} declares that it sends, and has no reply target",
             kind.as_str()
@@ -517,6 +543,7 @@ pub async fn send(
         | ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => Err(ConnectorError::Refused(format!(
             "{} does not send through its connector",
             kind.as_str()
@@ -542,9 +569,10 @@ pub async fn options(
         ConnectorKind::Slack => slack::options(state, current, account).await,
         ConnectorKind::Youtrack => youtrack::options(state, current, account).await,
         ConnectorKind::Github => github::options(state, account).await,
-        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Fireflies => {
-            Ok(Value::Object(serde_json::Map::new()))
-        }
+        ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser => Ok(Value::Object(serde_json::Map::new())),
     }
 }
 
@@ -562,6 +590,9 @@ pub async fn update_content(
         ConnectorKind::Jira => jira::update_content(state, connector, content).await,
         ConnectorKind::Confluence => confluence::update_content(state, connector, content).await,
         ConnectorKind::Fireflies => fireflies::update_content(state, connector, content).await,
+        ConnectorKind::FirefliesBrowser => {
+            fireflies_browser::update_content(state, connector, content).await
+        }
         ConnectorKind::Teams => teams::update_content(state, connector, content).await,
         ConnectorKind::Slack => slack::update_content(state, connector, content).await,
         ConnectorKind::Youtrack => youtrack::update_content(state, connector, content).await,
@@ -601,6 +632,7 @@ pub async fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiErro
         | ConnectorKind::Slack
         | ConnectorKind::Confluence
         | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => {
             if !state.connectors.activity.request_sync(connector.id).await? {
                 return Err(ApiError::Conflict("the connector is already syncing"));
@@ -629,7 +661,8 @@ pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiEr
         ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
-        | ConnectorKind::Slack => browser::remove(state, connector).await,
+        | ConnectorKind::Slack
+        | ConnectorKind::FirefliesBrowser => browser::remove(state, connector).await,
         ConnectorKind::Fireflies | ConnectorKind::Youtrack => {
             let id = connector.token_account_id.ok_or_else(|| {
                 ApiError::Internal(anyhow::anyhow!(
@@ -690,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_provides_something_and_meetings_come_from_fireflies() {
+    fn every_kind_provides_something_and_meetings_come_from_teams_slack_and_fireflies() {
         for definition in DEFINITIONS {
             assert!(
                 !definition.provides.is_empty(),
@@ -698,7 +731,15 @@ mod tests {
                 definition.kind.as_str()
             );
         }
-        assert_eq!(providing(Provides::Meetings), [ConnectorKind::Fireflies]);
+        assert_eq!(
+            providing(Provides::Meetings),
+            [
+                ConnectorKind::Teams,
+                ConnectorKind::Slack,
+                ConnectorKind::Fireflies,
+                ConnectorKind::FirefliesBrowser
+            ]
+        );
     }
 
     #[test]
@@ -728,7 +769,7 @@ mod tests {
         for kind in providing(Provides::Meetings) {
             let asks = definition(kind).content.iter().any(|field| {
                 field.id == crate::meetings::WAIT_FOR_APPROVAL_FIELD
-                    && matches!(field.field, ContentFieldType::Toggle)
+                    && matches!(field.field, ContentFieldType::Toggle { .. })
                     && !field.required
             });
             assert!(asks, "{} has no waitForApproval toggle", kind.as_str());
@@ -757,6 +798,7 @@ mod tests {
                 | ConnectorKind::Confluence
                 | ConnectorKind::Github
                 | ConnectorKind::Fireflies
+                | ConnectorKind::FirefliesBrowser
                 | ConnectorKind::Youtrack => Replies::Never,
             };
             assert_eq!(definition.replies, expected, "{}", definition.kind.as_str());
