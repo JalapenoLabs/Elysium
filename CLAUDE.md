@@ -313,12 +313,22 @@ Everything else follows these rules:
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
   own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
-  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). Every
-  meeting belongs to a connector, which is what keeps it and its segments from being recorded twice. See
+  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). See
   `docs/meetings.md`.
-- Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
-  transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
-  again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.
+- A meeting is the one event; a capture (`meeting_captures`) is one record of it, as its source gave it: today a
+  connector's meeting, each holding its connector, its raw transcript and recording with their hashes, and its offset
+  onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
+  being recorded twice. A meeting holds one capture until captures can be merged. See `docs/meetings.md`, Meetings
+  and captures.
+- The final transcript is words with stable ids (`meeting_words`) on the meeting's clock, each saying where it came
+  from; every mark (`meeting_marks`) is a range of word ids, and an edit replaces a range with new words that the
+  marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to
+  a meeting is in its history (`meeting_events`) with who made it, and undoable (`meetings::history`). See
+  `docs/meetings.md`, The final transcript, and History.
+- Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
+  transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
+  fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is
+  read or kept.
 - The run's last step, `segment_meeting`, segments the corrected transcript in one text turn on the segmenting kind's
   model and publishes it: `ffmpeg` cuts each segment's clip in the workspace container at the words Whisper heard
   nearest its ends, and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed
@@ -331,12 +341,14 @@ Everything else follows these rules:
   `whisper/`), the meeting workflow's `transcribe_meeting` step: one container per transcription that the engine
   creates through `docker-proxy`, with no network, the recording on standard input and the transcript, every word
   timed, on standard output. It decodes on half the host's CPUs, at most 16, one transcription at a time, and is stored
-  once in `meeting_transcriptions`. A meeting without audio skips the step. See `docs/meetings.md`, Transcription.
+  once per capture in `meeting_transcriptions`. A meeting without audio skips the step. See `docs/meetings.md`,
+  Transcription.
 - Each meeting's run corrects its transcript (`correct_transcript`) against every transcript it has, the company doc,
   and other meetings, into a copy beside the raw ones, which are never changed. The model only names lines and their
   fixed text, each checked word by word, so the copy keeps every line, speaker, and time. A source's "Wait for my
   approval before acting on meetings", or a meeting held by hand, holds the run with an inbox item until the person
-  approves the copy, and segmenting runs once it goes on. See `docs/meetings.md`, Correction.
+  approves the copy, and segmenting runs once it goes on. The step builds the final transcript from the copy, and
+  segmenting builds it for a meeting whose correction was skipped. See `docs/meetings.md`, Correction.
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting (or the conversation) in order,
   and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
   for the person to retry it from the Meetings page or the run's page.

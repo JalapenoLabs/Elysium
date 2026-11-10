@@ -5,16 +5,17 @@ A meeting is a living document in the knowledge base. Its final transcript is bu
 what it changed, what each part was taken into, and what was said about it. Anyone can correct it by ear against the
 recording, and what is relevant, and only that, flows on to projects, their Project Managers, and workers.
 
-This doc is the design. Nothing of it is built yet; the roadmap is below, as issues in the Knowledge base
-milestone. What is built
-today is `docs/meetings.md`, which this design changes where it says so.
+This doc is the design. Built so far: meetings and their captures, one clock with each capture's offset, Whisper per
+capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
+in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned. What is built
+is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
+issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
 - A **meeting** is the one event that happened. A **capture** is one record of it: a connector's meeting (Fireflies,
   a Teams recording, a Slack huddle) or an upload. A meeting has one or more captures, and every capture belongs to
-  one meeting. Today a meeting belongs to a connector; that moves to its captures, `UNIQUE (connector_id,
-  external_id)` with them.
+  one meeting. `UNIQUE (connector_id, external_id)` is the captures'.
 - A capture holds what its source gave, kept as it came and never written: its transcript, its media when there is
   any, and the hashes of both. Every capture with audio is transcribed by Whisper on its own, so a meeting with a
   Teams and a Fireflies recording has two Whisper transcripts.
@@ -258,7 +259,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | Phase | Issue | Lane                                                                                  |
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #230  | Turns: prompts on standard input                                                      |
-| 1     | #231  | Model: captures, and the final transcript as words with stable ids                    |
 | 1     | #233  | Uploads: recordings and transcripts                                                   |
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |

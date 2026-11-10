@@ -36,6 +36,7 @@ use super::segment::{SegmentMeeting, TranscriptToSegment};
 use super::source::TranscriptLine;
 use super::transcribe::TranscribeMeeting;
 use crate::models::meeting::{self, Meeting, MeetingState};
+use crate::models::meeting_capture;
 use crate::models::meeting_correction;
 use crate::models::meeting_transcription;
 use crate::models::step_job::{self, StepActionError, StepJobState};
@@ -69,7 +70,7 @@ pub fn run_for(meeting_id: Uuid) -> NewRun {
 }
 
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with
-/// what the meeting holds: its transcript, its recording, its Whisper transcript, and its
+/// what the meeting holds: its capture's transcript, recording, and Whisper transcript, and its
 /// corrected copy with whether it was approved, as the steps before segmenting would hand them on.
 ///
 /// # Errors
@@ -78,19 +79,21 @@ pub async fn run_from_segmenting(
     connection: &mut AsyncPgConnection,
     fetched: &Meeting,
 ) -> anyhow::Result<NewRun> {
-    let transcript_hash = if let Some(hash) = &fetched.transcript_hash {
+    let capture = meeting_capture::first_of(connection, fetched.id).await?;
+    let transcript_hash = if let Some(hash) = &capture.transcript_hash {
         hash.clone()
     } else {
         // A meeting fetched before transcripts were hashed: its transcript is what was stored.
-        let lines: Vec<TranscriptLine> = serde_json::from_value(fetched.transcript.clone())?;
+        let lines: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())?;
         fetch::transcript_hash(&lines)
     };
-    let whisper = meeting_transcription::find(connection, fetched.id).await?;
+    let whisper = meeting_transcription::find(connection, capture.id).await?;
     let correction = meeting_correction::find(connection, fetched.id).await?;
     let input = CorrectedMeeting {
         meeting_id: fetched.id,
+        capture_id: Some(capture.id),
         transcript_hash: Some(transcript_hash),
-        recording: fetched.stored_recording(),
+        recording: capture.stored_recording(),
         whisper_transcript_hash: whisper.map(|stored| stored.transcript_hash),
         approved: correction
             .as_ref()
@@ -237,7 +240,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::models::meeting::NewMeeting;
+    use crate::models::meeting::tests::stored as stored_meeting;
     use crate::models::step_job::StepOutcome;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
     use crate::workflows::Done;
@@ -395,10 +398,7 @@ mod tests {
             .await
             .expect("a pool");
         let events = EventBus::in_process();
-        let pending = meeting::insert_new(&mut connection, new_meeting())
-            .await
-            .expect("insert")
-            .expect("new");
+        let (pending, _capture) = stored_meeting(&mut connection).await;
         let started = workflows::start(&mut connection, &events, run_for(pending.id))
             .await
             .expect("the run starts");
@@ -460,8 +460,11 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_meeting_fetched_before_segmenting_was_a_step_enters_its_run_there() {
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+
         use crate::meetings::correction;
-        use crate::models::meeting::Fetched;
+        use crate::models::meeting_capture::Fetched;
         use crate::models::meeting_correction::{self, NewMeetingCorrection};
 
         let (_url, mut connection) = migrated_database().await;
@@ -472,13 +475,10 @@ mod tests {
             speaker: "Ada".to_owned(),
             text: "Jon ships Friday".to_owned(),
         }];
-        let pending = meeting::insert_new(&mut connection, new_meeting())
-            .await
-            .expect("insert")
-            .expect("new");
-        let fetched = meeting::record_fetched(
+        let (pending, pending_capture) = stored_meeting(&mut connection).await;
+        let captured = meeting_capture::record_fetched(
             &mut connection,
-            pending.id,
+            pending_capture.id,
             Fetched {
                 transcript: serde_json::to_value(&heard).expect("serializes"),
                 transcript_hash: fetch::transcript_hash(&heard),
@@ -488,6 +488,9 @@ mod tests {
         .await
         .expect("records")
         .expect("the first fetch");
+        let fetched = meeting::record_recorded(&mut connection, pending.id)
+            .await
+            .expect("moves");
         let mut corrected = heard.clone();
         corrected[0].text = "John ships Friday".to_owned();
         let corrected_hash = correction::transcript_hash(&corrected);
@@ -521,7 +524,8 @@ mod tests {
             panic!("a meeting enters as a meeting, not {input:?}");
         };
         assert_eq!(input.meeting_id, fetched.id);
-        assert_eq!(input.transcript_hash, fetched.transcript_hash);
+        assert_eq!(input.capture_id, Some(captured.id));
+        assert_eq!(input.transcript_hash, captured.transcript_hash);
         assert_eq!(input.corrected_transcript_hash, Some(corrected_hash));
         assert!(input.approved);
 
@@ -541,32 +545,18 @@ mod tests {
         );
 
         // A meeting fetched before transcripts were hashed enters with its stored transcript's hash.
-        let mut unhashed = fetched;
-        unhashed.transcript_hash = None;
-        let unhashed_run = run_from_segmenting(&mut connection, &unhashed)
+        diesel::update(crate::database::schema::meeting_captures::table.find(captured.id))
+            .set(crate::database::schema::meeting_captures::transcript_hash.eq(None::<String>))
+            .execute(&mut connection)
+            .await
+            .expect("unhashes");
+        let unhashed_run = run_from_segmenting(&mut connection, &fetched)
             .await
             .expect("builds");
         assert_eq!(
             unhashed_run.input["transcriptHash"],
             json!(fetch::transcript_hash(&heard))
         );
-    }
-
-    fn new_meeting() -> NewMeeting {
-        NewMeeting {
-            id: Uuid::now_v7(),
-            connector_id: None,
-            source_kind: "fireflies".to_owned(),
-            external_id: Uuid::now_v7().to_string(),
-            title: "Weekly sync".to_owned(),
-            started_at: Utc::now(),
-            duration_ms: None,
-            organizer: String::new(),
-            participants: json!([]),
-            url: None,
-            transcript: json!([]),
-            created_by: TEST_PERSON_ID,
-        }
     }
 
     /// Fails the run's next step for good, as a source refusing the key would.
@@ -598,10 +588,7 @@ mod tests {
     async fn issue_77_retrying_from_either_page_moves_the_meeting_at_once() {
         let (_url, mut connection) = migrated_database().await;
         let events = EventBus::in_process();
-        let pending = meeting::insert_new(&mut connection, new_meeting())
-            .await
-            .expect("insert")
-            .expect("new");
+        let (pending, _capture) = stored_meeting(&mut connection).await;
 
         // The loop starts the meeting's run, and its fetch fails for good.
         let started = workflows::start(&mut connection, &events, run_for(pending.id))

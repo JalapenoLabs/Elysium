@@ -1,22 +1,27 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meeting workflow's first step, [`FetchMeeting`]: a meeting's transcript and recording,
-//! exactly as its source keeps them.
+//! The meeting workflow's first step, [`FetchMeeting`]: a meeting's capture, its transcript and
+//! recording exactly as its source keeps them.
 //!
-//! One step reads every meeting source, through the meeting's connector and its kind's source
-//! ([`Sources::for_kind`]), so a new source needs no step of its own. What it stores is what the
-//! source recorded: the timestamped transcript, and the recording uploaded to the connector's
-//! storage location. Nothing a source's own AI wrote (summaries, action items, notes) is asked
-//! for or kept, since the model behind it is unknown; every later step reads the transcript.
+//! One step reads every meeting source, through the capture's connector and its kind's source
+//! ([`Sources::for_kind`]), so a new source needs no step of its own. What it stores on the
+//! capture is what the source recorded: the timestamped transcript, and the recording uploaded to
+//! the connector's storage location, each with its SHA-256. Nothing a source's own AI wrote
+//! (summaries, action items, notes) is asked for or kept, since the model behind it is unknown;
+//! every later step reads the transcript.
+//!
+//! A meeting holds one capture, the one its source listed, until captures can be merged (#238);
+//! the step fetches that one.
 //!
 //! # Doing it once
 //!
-//! A meeting is fetched once. The first fetch stores the transcript with its SHA-256
-//! ([`transcript_hash`]) and moves the meeting to `recorded`, in one write that only a meeting
-//! never fetched takes (`models::meeting::record_fetched`). Running the step again for the same
-//! meeting, a retried attempt or a later run, fetches the source again and compares hashes, and
-//! writes and uploads nothing: the first fetch is what every later step has read. The log says
-//! whether the source still holds the same transcript.
+//! A capture is fetched once. The first fetch stores the transcript with its SHA-256
+//! ([`transcript_hash`]) and the recording with the SHA-256 of its bytes, in one write that only
+//! a capture never fetched takes (`models::meeting_capture::record_fetched`), and moves the
+//! meeting to `recorded` in the same transaction. Running the step again for the same meeting, a
+//! retried attempt or a later run, fetches the source again and compares hashes, and writes and
+//! uploads nothing: the first fetch is what every later step has read. The log says whether the
+//! source still holds the same transcript.
 //!
 //! An attempt cut short after its upload but before its write uploads the recording again, to
 //! the same path, on the next attempt.
@@ -30,6 +35,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use diesel_async::AsyncConnection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{Level, event};
@@ -43,7 +49,10 @@ use crate::connectors::activity::Activity;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::connector::{self, Connector};
-use crate::models::meeting::{self, Fetched, Meeting, StoredRecording};
+use crate::models::meeting::{self, Meeting};
+use crate::models::meeting_capture::{
+    self, Fetched, KeptRecording, MeetingCapture, StoredRecording,
+};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::Storage;
@@ -60,8 +69,8 @@ pub struct MeetingToFetch {
     pub meeting_id: Uuid,
 }
 
-/// What [`FetchMeeting`] gives: the meeting, which transcript it was fetched with, and where its
-/// recording is kept, for the steps that transcribe and correct it.
+/// What [`FetchMeeting`] gives: the meeting, its capture, which transcript the capture was
+/// fetched with, and where its recording is kept, for the steps that transcribe and correct it.
 ///
 /// A [`MeetingToFetch`] reads as one that was never fetched, which is what the step after
 /// receives when a person skips the fetch: every step after it then skips the meeting too, so
@@ -70,6 +79,11 @@ pub struct MeetingToFetch {
 #[serde(rename_all = "camelCase")]
 pub struct RecordedMeeting {
     pub meeting_id: Uuid,
+    /// The capture fetched. `None` in what a run started before meetings had captures was handed,
+    /// which names the meeting alone: such a step reads the meeting's one capture
+    /// (`super::capture_of`).
+    #[serde(default)]
+    pub capture_id: Option<Uuid>,
     /// The SHA-256 of the stored transcript, as hex; `None` when the meeting was not fetched.
     #[serde(default)]
     pub transcript_hash: Option<String>,
@@ -151,14 +165,25 @@ impl FetchMeeting {
         })
     }
 
-    /// One attempt at fetching meeting `meeting_id`.
+    /// One attempt at fetching meeting `meeting_id`'s capture.
     async fn fetch(
         &self,
         meeting_id: Uuid,
         log: &StepLog,
     ) -> Result<Done<RecordedMeeting>, StepFailure> {
         let current = self.meeting(meeting_id).await?;
-        let account = self.account_of(&current).await?;
+        let capture = {
+            let mut connection = self.connection().await?;
+            meeting_capture::first_of(&mut connection, meeting_id)
+                .await
+                .map_err(StepFailure::retryable)?
+        };
+        let account = self.account_of(&current, &capture).await?;
+        let Some(external_id) = capture.external_id.clone() else {
+            return Err(StepFailure::permanent(
+                "The meeting's capture names nothing at its source to fetch",
+            ));
+        };
         let source =
             super::source_of(&self.inner.sources, &account).map_err(StepFailure::permanent)?;
         let credential = {
@@ -171,7 +196,7 @@ impl FetchMeeting {
 
         log.line(&format!("Fetching the meeting from {}", account.kind));
         let fetched = source
-            .fetch(&credential, &current.external_id)
+            .fetch(&credential, &external_id)
             .await
             .map_err(source_failure)?;
         let fetched_hash = transcript_hash(&fetched.transcript);
@@ -180,12 +205,12 @@ impl FetchMeeting {
             fetched.transcript.len()
         ));
 
-        if current.transcript_hash.is_some() {
-            return already_fetched(&current, &fetched_hash, log);
+        if capture.is_fetched() {
+            return already_fetched(&capture, &fetched_hash, log);
         }
 
         let recording = self
-            .keep_recording(&current, &account, fetched.recording.as_ref(), log)
+            .keep_recording(&capture, &account, fetched.recording.as_ref(), log)
             .await?;
         let first_fetch = Fetched {
             transcript: serde_json::to_value(&fetched.transcript)
@@ -193,16 +218,30 @@ impl FetchMeeting {
             transcript_hash: fetched_hash.clone(),
             recording,
         };
+        let capture_id = capture.id;
         let written = {
             let mut connection = self.connection().await?;
-            meeting::record_fetched(&mut connection, meeting_id, first_fetch)
+            connection
+                .transaction(async move |connection| {
+                    let Some(stored) =
+                        meeting_capture::record_fetched(connection, capture_id, first_fetch)
+                            .await?
+                    else {
+                        return Ok(None);
+                    };
+                    let recorded = meeting::record_recorded(connection, meeting_id).await?;
+                    Ok::<_, diesel::result::Error>(Some((stored, recorded)))
+                })
                 .await
                 .map_err(StepFailure::retryable)?
         };
-        let Some(recorded) = written else {
+        let Some((stored, recorded)) = written else {
             // Another attempt stored its fetch between this one's read and its write.
-            let current = self.meeting(meeting_id).await?;
-            return already_fetched(&current, &fetched_hash, log);
+            let mut connection = self.connection().await?;
+            let capture = meeting_capture::find(&mut connection, capture_id)
+                .await
+                .map_err(StepFailure::retryable)?;
+            return already_fetched(&capture, &fetched_hash, log);
         };
 
         self.inner.events.publish(&ServerEvent::MeetingChanged {
@@ -210,7 +249,7 @@ impl FetchMeeting {
             state: recorded.state.clone(),
             created_by: recorded.created_by,
         });
-        let recording = recorded.stored_recording();
+        let recording = stored.stored_recording();
         let line_count = fetched.transcript.len();
         let summary = if recording.is_some() {
             format!("Fetched {line_count} transcript lines and the recording")
@@ -220,6 +259,7 @@ impl FetchMeeting {
         Ok(Done::Succeeded {
             output: RecordedMeeting {
                 meeting_id,
+                capture_id: Some(stored.id),
                 transcript_hash: Some(fetched_hash),
                 recording,
             },
@@ -228,15 +268,15 @@ impl FetchMeeting {
     }
 
     /// Downloads the recording the source offered and uploads it to the connector's storage
-    /// location, answering where it was kept, or `None` when there is nothing to keep or nowhere
-    /// to keep it.
+    /// location, answering where it was kept and the hash of its bytes, or `None` when there is
+    /// nothing to keep or nowhere to keep it.
     async fn keep_recording(
         &self,
-        current: &Meeting,
+        capture: &MeetingCapture,
         account: &Connector,
         offered: Option<&RecordingSource>,
         log: &StepLog,
-    ) -> Result<Option<StoredRecording>, StepFailure> {
+    ) -> Result<Option<KeptRecording>, StepFailure> {
         let Some(offered) = offered else {
             log.line("The source keeps no recording of this meeting");
             return Ok(None);
@@ -247,7 +287,8 @@ impl FetchMeeting {
             event!(
                 name: "meetings.recording.unkept",
                 Level::WARN,
-                meeting.id = %current.id,
+                meeting.id = %capture.meeting_id,
+                meeting_capture.id = %capture.id,
                 connector.id = %account.id,
                 "the source offered a recording, but the connector names no storage location",
             );
@@ -267,12 +308,16 @@ impl FetchMeeting {
         let local = media::download(
             &self.inner.downloads,
             &self.inner.workspace,
-            current.id,
+            (capture.meeting_id, capture.id),
             offered,
         )
         .await
         .map_err(StepFailure::retryable)?;
-        let path = media::recording_path(current.id, media::extension_of(&local.file_name));
+        let path = media::recording_path(
+            capture.meeting_id,
+            capture.id,
+            media::extension_of(&local.file_name),
+        );
         let kept = media::Kept {
             storage: &self.inner.storage,
             location: &location,
@@ -281,7 +326,7 @@ impl FetchMeeting {
         media::upload(
             kept,
             &self.inner.workspace,
-            current.id,
+            capture.meeting_id,
             &local.file_name,
             &path,
             &local.content_type,
@@ -289,23 +334,30 @@ impl FetchMeeting {
         .await
         .map_err(StepFailure::retryable)?;
         log.line(&format!(
-            "Kept the recording ({}) at {path}",
-            local.content_type
+            "Kept the recording ({}) at {path}, SHA-256 {}",
+            local.content_type, local.hash
         ));
-        Ok(Some(StoredRecording {
-            storage_location_id,
-            path,
-            content_type: Some(local.content_type),
+        Ok(Some(KeptRecording {
+            stored: StoredRecording {
+                storage_location_id,
+                path,
+                content_type: Some(local.content_type),
+            },
+            hash: local.hash,
         }))
     }
 
-    /// The connector `current` was read through, which signs in to its source. One removed, or
-    /// one that changed hands, fails the step for good.
-    async fn account_of(&self, current: &Meeting) -> Result<Connector, StepFailure> {
+    /// The connector `capture` of meeting `current` was read through, which signs in to its
+    /// source. One removed, or one that changed hands, fails the step for good.
+    async fn account_of(
+        &self,
+        current: &Meeting,
+        capture: &MeetingCapture,
+    ) -> Result<Connector, StepFailure> {
         let removed = || {
             StepFailure::permanent("The meeting's connector was removed, so it cannot be fetched")
         };
-        let connector_id = current.connector_id.ok_or_else(removed)?;
+        let connector_id = capture.connector_id.ok_or_else(removed)?;
         let mut connection = self.connection().await?;
         let found = match connector::find(&mut connection, connector_id).await {
             Ok(found) => found,
@@ -395,14 +447,14 @@ pub fn transcript_hash(transcript: &[TranscriptLine]) -> String {
     hex::encode(Sha256::digest(serialized))
 }
 
-/// How an attempt ends for a meeting fetched before: with what was stored then, writing nothing,
+/// How an attempt ends for a capture fetched before: with what was stored then, writing nothing,
 /// and saying whether the source still holds that transcript.
 fn already_fetched(
-    current: &Meeting,
+    capture: &MeetingCapture,
     fetched_hash: &str,
     log: &StepLog,
 ) -> Result<Done<RecordedMeeting>, StepFailure> {
-    let Some(stored_hash) = current.transcript_hash.clone() else {
+    let Some(stored_hash) = capture.transcript_hash.clone() else {
         // Only a write this attempt could not see leads here, which the next attempt reads.
         return Err(StepFailure::retryable(
             "The meeting's fetch was being stored by another attempt",
@@ -420,9 +472,10 @@ fn already_fetched(
     log.line("Nothing was changed");
     Ok(Done::Succeeded {
         output: RecordedMeeting {
-            meeting_id: current.id,
+            meeting_id: capture.meeting_id,
+            capture_id: Some(capture.id),
             transcript_hash: Some(stored_hash),
-            recording: current.stored_recording(),
+            recording: capture.stored_recording(),
         },
         summary: Some(summary.to_owned()),
     })
@@ -452,6 +505,7 @@ mod tests {
     use crate::meetings::fireflies::Fireflies;
     use crate::models::connector::{AccountRef, NewConnector};
     use crate::models::meeting::{MeetingState, NewMeeting};
+    use crate::models::meeting_capture::NewMeetingCapture;
     use crate::models::token_account::{self, NewTokenAccount};
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
@@ -547,8 +601,11 @@ mod tests {
     }
 
     /// A pending meeting of the test person's Fireflies connector, which names no storage
-    /// location.
-    async fn pending_meeting(connection: &mut AsyncPgConnection, cipher: &Cipher) -> Meeting {
+    /// location, and its capture.
+    async fn pending_meeting(
+        connection: &mut AsyncPgConnection,
+        cipher: &Cipher,
+    ) -> (Meeting, MeetingCapture) {
         let key = token_account::create(
             connection,
             NewTokenAccount::new(
@@ -572,20 +629,25 @@ mod tests {
         )
         .await
         .expect("a connector");
+        let meeting_id = Uuid::now_v7();
         meeting::insert_new(
             connection,
             NewMeeting {
-                id: Uuid::now_v7(),
-                connector_id: Some(account.id),
-                source_kind: "fireflies".to_owned(),
-                external_id: "01HX".to_owned(),
+                id: meeting_id,
                 title: "Quarterly roadmap".to_owned(),
                 started_at: chrono::Utc::now(),
                 duration_ms: Some(1_800_000),
                 organizer: "ada@example.com".to_owned(),
                 participants: json!(["ada@example.com"]),
+                created_by: TEST_PERSON_ID,
+            },
+            NewMeetingCapture {
+                id: Uuid::now_v7(),
+                meeting_id,
+                connector_id: Some(account.id),
+                source_kind: "fireflies".to_owned(),
+                external_id: Some("01HX".to_owned()),
                 url: None,
-                transcript: json!([]),
                 created_by: TEST_PERSON_ID,
             },
         )
@@ -620,7 +682,7 @@ mod tests {
             .await
             .expect("a pool");
         let cipher = Arc::new(crate::test_support::cipher());
-        let pending = pending_meeting(&mut connection, &cipher).await;
+        let (pending, capture) = pending_meeting(&mut connection, &cipher).await;
         let fireflies = FakeFireflies::start(json!([
             { "start_time": 0.5, "end_time": 3.0, "speaker_name": "Ada", "text": "Launch is Friday." },
             { "start_time": "4", "end_time": "6.5", "speaker_name": "Grace", "text": "Agreed." },
@@ -645,6 +707,7 @@ mod tests {
             },
         ];
         assert_eq!(first.meeting_id, pending.id);
+        assert_eq!(first.capture_id, Some(capture.id));
         assert_eq!(
             first.transcript_hash,
             Some(transcript_hash(&expected_lines))
@@ -654,10 +717,13 @@ mod tests {
             first_summary.as_deref(),
             Some("Fetched 2 transcript lines, with no recording kept")
         );
-        let recorded = meeting::find(&mut connection, pending.id)
+        let recorded_meeting = meeting::find(&mut connection, pending.id)
             .await
             .expect("found");
-        assert_eq!(recorded.state(), MeetingState::Recorded);
+        assert_eq!(recorded_meeting.state(), MeetingState::Recorded);
+        let recorded = meeting_capture::find(&mut connection, capture.id)
+            .await
+            .expect("found");
         assert_eq!(
             serde_json::from_value::<Vec<TranscriptLine>>(recorded.transcript.clone())
                 .expect("stored lines"),
@@ -667,6 +733,10 @@ mod tests {
             recorded.transcript_hash.as_deref(),
             first.transcript_hash.as_deref()
         );
+        assert_eq!(
+            recorded.recording_hash, None,
+            "there was no recording to hash"
+        );
 
         // The same meeting again: the same answer, and the meeting untouched.
         let (again, again_summary, again_log) = fetch_once(&step, &database, pending.id).await;
@@ -675,7 +745,7 @@ mod tests {
             again_summary.as_deref(),
             Some("Already fetched, and the source's transcript is unchanged")
         );
-        let unchanged = meeting::find(&mut connection, pending.id)
+        let unchanged = meeting_capture::find(&mut connection, capture.id)
             .await
             .expect("found");
         assert_eq!(unchanged.updated_at, recorded.updated_at);
@@ -691,7 +761,7 @@ mod tests {
             changed_summary.as_deref(),
             Some("Already fetched; the source's transcript changed since, and the first is kept")
         );
-        let kept = meeting::find(&mut connection, pending.id)
+        let kept = meeting_capture::find(&mut connection, capture.id)
             .await
             .expect("found");
         assert_eq!(kept.updated_at, recorded.updated_at);

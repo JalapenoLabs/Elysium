@@ -1,33 +1,35 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Meetings read from a meeting source, and how far each one's processing got. See
+//! Meetings: each the one event that happened, with how far its processing got. See
 //! `crate::meetings` and `docs/meetings.md`.
 //!
-//! A meeting belongs to whoever owns the account it was read from, like every timeline
-//! record. It moves through `pending` (listed), `recorded` (fetched by its run of the meeting
-//! workflow), `segmented`, and `done`, each written by a step of that run. How far it got is
-//! all it keeps: whether it failed, and why, is its run's (`crate::meetings::workflow`).
+//! A meeting is the event; its captures (`models::meeting_capture`) are the records of it, each
+//! with what its source gave. The meeting keeps the event's own fields (its title, when it started
+//! and for how long, who organized it and took part) and what Elysium made of it: its segments,
+//! its final transcript (`models::meeting_transcript`), and its history.
 //!
-//! What a fetch stores, the source's transcript and the recording, is written once
-//! ([`record_fetched`]): a later fetch of the same meeting writes nothing. Its segments are
-//! written once too ([`record_segments`]).
+//! A meeting belongs to whoever owns the account its first capture was read from, like every
+//! timeline record. It moves through `pending` (listed), `recorded` (its capture fetched by its
+//! run of the meeting workflow), `segmented`, and `done`, each written by a step of that run. How
+//! far it got is all it keeps of its processing: whether it failed, and why, is its run's
+//! (`crate::meetings::workflow`). Its segments are written once ([`record_segments`]).
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde::{Deserialize, Serialize};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::meetings;
+use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
 
 /// How far a meeting's processing got. Stored as `meetings.state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeetingState {
     /// Listed by its source; its run of the meeting workflow fetches it.
     Pending,
-    /// Its transcript is stored, and its recording too, unless the source keeps none or its
-    /// connector names nowhere to keep it.
+    /// Its capture's transcript is stored, and its recording too, unless the source keeps none or
+    /// its connector names nowhere to keep it.
     Recorded,
     /// Elysia has cut its transcript into topic segments.
     Segmented,
@@ -57,21 +59,12 @@ impl MeetingState {
 #[diesel(table_name = meetings, check_for_backend(diesel::pg::Pg))]
 pub struct Meeting {
     pub id: Uuid,
-    pub connector_id: Option<Uuid>,
-    pub source_kind: String,
-    pub external_id: String,
     pub title: String,
     pub started_at: DateTime<Utc>,
     pub duration_ms: Option<i64>,
     pub organizer: String,
     /// An array of strings.
     pub participants: Value,
-    pub url: Option<String>,
-    /// An array of `{ startMs, endMs, speaker, text }`; see `crate::meetings::TranscriptLine`.
-    pub transcript: Value,
-    pub storage_location_id: Option<Uuid>,
-    pub recording_path: Option<String>,
-    pub recording_content_type: Option<String>,
     /// The segments Elysia found; see `crate::meetings::segmentation::Segment`.
     pub segments: Option<Value>,
     /// See [`MeetingState`].
@@ -79,9 +72,6 @@ pub struct Meeting {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// The SHA-256 of the transcript its fetch stored (`crate::meetings::fetch`), as hex.
-    /// `None` until it is fetched.
-    pub transcript_hash: Option<String>,
     /// Whether its person asked to approve its corrected transcript before it is acted on,
     /// whatever its source's setting (`crate::meetings::correct`).
     pub hold_for_approval: bool,
@@ -96,69 +86,51 @@ impl Meeting {
     pub fn state(&self) -> MeetingState {
         MeetingState::parse(&self.state).expect("meetings_state_check allows only MeetingState")
     }
-
-    /// Where its recording is stored, if it is.
-    pub fn stored_recording(&self) -> Option<StoredRecording> {
-        Some(StoredRecording {
-            storage_location_id: self.storage_location_id?,
-            path: self.recording_path.clone()?,
-            content_type: self.recording_content_type.clone(),
-        })
-    }
 }
 
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = meetings)]
 pub struct NewMeeting {
     pub id: Uuid,
-    pub connector_id: Option<Uuid>,
-    pub source_kind: String,
-    pub external_id: String,
     pub title: String,
     pub started_at: DateTime<Utc>,
     pub duration_ms: Option<i64>,
     pub organizer: String,
     pub participants: Value,
-    pub url: Option<String>,
-    pub transcript: Value,
     pub created_by: Uuid,
 }
 
-/// Stores `meeting` unless its account already read the same one, and returns it when it
-/// is new.
+/// Stores `meeting` with its first capture, `capture`, unless the capture's connector already
+/// recorded the same one, and answers both when they are new. A capture its connector recorded
+/// before leaves no meeting behind: the two are written together or not at all.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn insert_new(
     connection: &mut AsyncPgConnection,
     meeting: NewMeeting,
-) -> QueryResult<Option<Meeting>> {
-    diesel::insert_into(meetings::table)
-        .values(meeting)
-        .on_conflict((meetings::connector_id, meetings::external_id))
-        .do_nothing()
-        .returning(Meeting::as_returning())
-        .get_result(connection)
-        .await
-        .optional()
-}
-
-/// The external ids among `external_ids` that the account already read, so a listing can
-/// skip them without fetching each one's transcript.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn known_external_ids(
-    connection: &mut AsyncPgConnection,
-    connector_id: Uuid,
-    external_ids: &[String],
-) -> QueryResult<Vec<String>> {
-    meetings::table
-        .filter(meetings::connector_id.eq(connector_id))
-        .filter(meetings::external_id.eq_any(external_ids))
-        .select(meetings::external_id)
-        .load(connection)
-        .await
+    capture: NewMeetingCapture,
+) -> QueryResult<Option<(Meeting, MeetingCapture)>> {
+    // A savepoint when the caller's transaction is already open.
+    let stored = connection
+        .transaction(async |connection| {
+            let stored: Meeting = diesel::insert_into(meetings::table)
+                .values(meeting)
+                .returning(Meeting::as_returning())
+                .get_result(connection)
+                .await?;
+            match meeting_capture::insert_new(connection, capture).await? {
+                Some(captured) => Ok((stored, captured)),
+                // Recorded before: the meeting just stored goes back with the transaction.
+                None => Err(diesel::result::Error::RollbackTransaction),
+            }
+        })
+        .await;
+    match stored {
+        Ok(stored) => Ok(Some(stored)),
+        Err(diesel::result::Error::RollbackTransaction) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Every meeting whose segments are not on the timeline yet, oldest first. The condition is
@@ -222,9 +194,9 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<M
         .await
 }
 
-/// The meeting `id`, locked until the transaction ends, so its hold and its corrected
-/// transcript are decided one writer at a time: the correction step deciding whether to hold
-/// its run, and its person holding it by hand or approving it.
+/// The meeting `id`, locked until the transaction ends, so what changes it is decided one writer
+/// at a time: the correction step deciding whether to hold its run, its person holding it by hand
+/// or approving it, and every change to its final transcript.
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when it does not exist.
@@ -253,60 +225,23 @@ pub async fn set_hold_for_approval(
         .await
 }
 
-/// What a meeting's first fetch stores.
-#[derive(Debug, Clone)]
-pub struct Fetched {
-    /// An array of `crate::meetings::source::TranscriptLine`.
-    pub transcript: Value,
-    /// The SHA-256 of `transcript`, as hex.
-    pub transcript_hash: String,
-    /// Where its recording was put, or `None` when it has none to keep.
-    pub recording: Option<StoredRecording>,
-}
-
-/// Stores the meeting's first fetch, its transcript and where its recording is kept, and moves
-/// it to `recorded`. Answers `None`, writing nothing, when the meeting was fetched already: the
-/// transcript a meeting was first fetched with is the one every later step reads, so nothing a
-/// later fetch finds replaces it.
+/// Moves pending meeting `id` to `recorded`, once its capture's fetch is stored. A meeting past
+/// `pending` already is answered as it is.
 ///
 /// # Errors
-/// Propagates any database error.
-pub async fn record_fetched(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    fetched: Fetched,
-) -> QueryResult<Option<Meeting>> {
-    let (storage_location_id, recording_path, recording_content_type) = match fetched.recording {
-        Some(stored) => (
-            Some(stored.storage_location_id),
-            Some(stored.path),
-            stored.content_type,
-        ),
-        None => (None, None, None),
-    };
-    diesel::update(meetings::table.find(id))
-        .filter(meetings::transcript_hash.is_null())
-        .set((
-            meetings::transcript.eq(fetched.transcript),
-            meetings::transcript_hash.eq(Some(fetched.transcript_hash)),
-            meetings::storage_location_id.eq(storage_location_id),
-            meetings::recording_path.eq(recording_path),
-            meetings::recording_content_type.eq(recording_content_type),
-            meetings::state.eq(MeetingState::Recorded.as_str()),
-        ))
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn record_recorded(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
+    let moved = diesel::update(meetings::table.find(id))
+        .filter(meetings::state.eq(MeetingState::Pending.as_str()))
+        .set(meetings::state.eq(MeetingState::Recorded.as_str()))
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await
-        .optional()
-}
-
-/// Where a meeting's recording was stored.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StoredRecording {
-    pub storage_location_id: Uuid,
-    pub path: String,
-    pub content_type: Option<String>,
+        .optional()?;
+    match moved {
+        Some(moved) => Ok(moved),
+        None => find(connection, id).await,
+    }
 }
 
 /// Stores the segments Elysia found for fetched meeting `id` and moves it to `segmented`.
@@ -345,13 +280,14 @@ pub async fn record_done(connection: &mut AsyncPgConnection, id: Uuid) -> QueryR
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use secrecy::{ExposeSecret, SecretString};
     use serde_json::json;
 
     use super::*;
     use crate::connectors::ConnectorKind;
     use crate::models::connector::{self, AccountRef, NewConnector};
+    use crate::models::meeting_capture::{Fetched, KeptRecording, StoredRecording};
     use crate::models::storage_location;
     use crate::models::token_account::{self, NewTokenAccount};
     use crate::test_support::{
@@ -367,29 +303,76 @@ mod tests {
         Fetched {
             transcript: json!([{ "startMs": 0, "endMs": 1000, "speaker": "Ada", "text": "Hi." }]),
             transcript_hash: TRANSCRIPT_HASH.to_owned(),
-            recording: location_id.map(|storage_location_id| StoredRecording {
-                storage_location_id,
-                path: "meetings/x/recording.mp4".to_owned(),
-                content_type: Some("video/mp4".to_owned()),
+            recording: location_id.map(|storage_location_id| KeptRecording {
+                stored: StoredRecording {
+                    storage_location_id,
+                    path: "meetings/x/recording.mp4".to_owned(),
+                    content_type: Some("video/mp4".to_owned()),
+                },
+                hash: "c".repeat(64),
             }),
         }
     }
 
-    fn new_meeting(account_id: Uuid, external_id: &str) -> NewMeeting {
-        NewMeeting {
-            id: Uuid::now_v7(),
-            connector_id: Some(account_id),
-            source_kind: "fireflies".to_owned(),
-            external_id: external_id.to_owned(),
-            title: "Weekly sync".to_owned(),
-            started_at: Utc::now(),
-            duration_ms: Some(1_800_000),
-            organizer: "ada@example.com".to_owned(),
-            participants: json!(["ada@example.com"]),
-            url: None,
-            transcript: json!([]),
-            created_by: TEST_PERSON_ID,
-        }
+    /// A meeting of the test person's, as a source listed it, and its first capture through
+    /// `connector_id` under `external_id`.
+    pub(crate) fn listed(
+        connector_id: Option<Uuid>,
+        external_id: &str,
+    ) -> (NewMeeting, NewMeetingCapture) {
+        let meeting_id = Uuid::now_v7();
+        (
+            NewMeeting {
+                id: meeting_id,
+                title: "Weekly sync".to_owned(),
+                started_at: Utc::now(),
+                duration_ms: Some(1_800_000),
+                organizer: "ada@example.com".to_owned(),
+                participants: json!(["ada@example.com"]),
+                created_by: TEST_PERSON_ID,
+            },
+            NewMeetingCapture {
+                id: Uuid::now_v7(),
+                meeting_id,
+                connector_id,
+                source_kind: "fireflies".to_owned(),
+                external_id: Some(external_id.to_owned()),
+                url: None,
+                created_by: TEST_PERSON_ID,
+            },
+        )
+    }
+
+    /// Stores a listed meeting with no connector, as a test of anything after the listing needs.
+    pub(crate) async fn stored(connection: &mut AsyncPgConnection) -> (Meeting, MeetingCapture) {
+        let (meeting, capture) = listed(None, &Uuid::now_v7().to_string());
+        insert_new(connection, meeting, capture)
+            .await
+            .expect("insert")
+            .expect("new")
+    }
+
+    /// Stores a listed meeting with no connector whose capture was fetched with `transcript`, an
+    /// array of transcript lines, under the transcript hash `"a"` sixty-four times, and no
+    /// recording; the meeting is `recorded`.
+    pub(crate) async fn fetched_with(
+        connection: &mut AsyncPgConnection,
+        transcript: Value,
+    ) -> (Meeting, MeetingCapture) {
+        let (meeting, capture) = stored(connection).await;
+        let fetched = Fetched {
+            transcript,
+            transcript_hash: "a".repeat(64),
+            recording: None,
+        };
+        let capture = meeting_capture::record_fetched(connection, capture.id, fetched)
+            .await
+            .expect("records")
+            .expect("the first fetch");
+        let meeting = record_recorded(connection, meeting.id)
+            .await
+            .expect("moves");
+        (meeting, capture)
     }
 
     /// A Fireflies key and the connector it feeds, keeping recordings in `location_id`.
@@ -426,6 +409,10 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one meeting listed twice, fetched, segmented, and done, with what each left"
+    )]
     async fn a_meeting_is_stored_once_and_moves_through_its_steps() {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
@@ -442,19 +429,35 @@ mod tests {
         assert_eq!(credential.expose_secret(), "fireflies-key");
         assert_eq!(account.browser_session_id, None);
 
-        let stored = insert_new(&mut connection, new_meeting(account.id, "01HX"))
+        let (meeting, capture) = listed(Some(account.id), "01HX");
+        let (stored, captured) = insert_new(&mut connection, meeting, capture)
             .await
             .expect("insert")
             .expect("new");
-        let again = insert_new(&mut connection, new_meeting(account.id, "01HX"))
+        assert_eq!(captured.meeting_id, stored.id);
+        assert_eq!(
+            captured.offset_ms, 0,
+            "a first capture runs on the meeting's clock"
+        );
+
+        let (again, again_capture) = listed(Some(account.id), "01HX");
+        let again_id = again.id;
+        let second = insert_new(&mut connection, again, again_capture)
             .await
             .expect("insert");
         assert!(
-            again.is_none(),
-            "the same meeting is stored once per account"
+            second.is_none(),
+            "the same meeting is stored once per connector"
+        );
+        assert!(
+            matches!(
+                find(&mut connection, again_id).await,
+                Err(diesel::result::Error::NotFound)
+            ),
+            "and the meeting stored for it is gone with its capture"
         );
         assert_eq!(
-            known_external_ids(
+            meeting_capture::known_external_ids(
                 &mut connection,
                 account.id,
                 &["01HX".to_owned(), "other".to_owned()]
@@ -464,35 +467,51 @@ mod tests {
             vec!["01HX".to_owned()]
         );
 
-        let recorded = record_fetched(&mut connection, stored.id, fetched(Some(location.id)))
-            .await
-            .expect("recorded")
-            .expect("the first fetch is stored");
-        assert_eq!(recorded.state(), MeetingState::Recorded);
+        let recorded = meeting_capture::record_fetched(
+            &mut connection,
+            captured.id,
+            fetched(Some(location.id)),
+        )
+        .await
+        .expect("recorded")
+        .expect("the first fetch is stored");
         assert_eq!(recorded.storage_location_id, Some(location.id));
+        assert_eq!(recorded.recording_hash, Some("c".repeat(64)));
         assert_eq!(
             recorded.transcript_hash.as_deref(),
             Some(TRANSCRIPT_HASH),
             "the hash is stored with the transcript"
         );
+        let moved = record_recorded(&mut connection, stored.id)
+            .await
+            .expect("moves");
+        assert_eq!(moved.state(), MeetingState::Recorded);
 
         let first_answer = json!([{ "startMs": 0, "endMs": 60_000 }]);
-        let segmented = record_segments(&mut connection, recorded.id, first_answer.clone())
+        let segmented = record_segments(&mut connection, stored.id, first_answer.clone())
             .await
             .expect("segmented")
             .expect("the first answer is stored");
         assert_eq!(segmented.state(), MeetingState::Segmented);
         // An attempt that runs again keeps the first answer its clips are cut from.
-        let second = record_segments(&mut connection, recorded.id, json!([]))
+        let second = record_segments(&mut connection, stored.id, json!([]))
             .await
             .expect("a second write runs");
         assert!(second.is_none(), "segments are written once");
         assert_eq!(
-            find(&mut connection, recorded.id)
+            find(&mut connection, stored.id)
                 .await
                 .expect("found")
                 .segments,
             Some(first_answer)
+        );
+        // A meeting past pending stays where it got.
+        assert_eq!(
+            record_recorded(&mut connection, stored.id)
+                .await
+                .expect("answers")
+                .state(),
+            MeetingState::Segmented
         );
 
         let done = record_done(&mut connection, segmented.id)
@@ -509,8 +528,8 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_meeting_is_fetched_once_and_a_later_fetch_writes_nothing() {
-        let (_url, mut connection) = migrated_database().await;
+    async fn two_listings_of_one_meeting_at_once_store_it_once() {
+        let (url, mut connection) = migrated_database().await;
         let cipher = cipher();
         let location = storage_location::create(
             &mut connection,
@@ -521,24 +540,62 @@ mod tests {
         .expect("a location");
         let (_key, account) =
             fireflies_connector(&mut connection, &cipher, location.id, "fireflies-key").await;
-        let pending = insert_new(&mut connection, new_meeting(account.id, "01HX"))
+        let mut other = AsyncPgConnection::establish(url.expose_secret())
             .await
-            .expect("insert")
-            .expect("new");
+            .expect("a second connection");
 
-        let first = record_fetched(&mut connection, pending.id, fetched(None))
+        let (first_meeting, first_capture) = listed(Some(account.id), "01HX");
+        let (second_meeting, second_capture) = listed(Some(account.id), "01HX");
+        let (first, second) = tokio::join!(
+            insert_new(&mut connection, first_meeting, first_capture),
+            insert_new(&mut other, second_meeting, second_capture),
+        );
+        let stored = [first.expect("inserts"), second.expect("inserts")];
+        assert_eq!(
+            stored.iter().filter(|stored| stored.is_some()).count(),
+            1,
+            "one listing stores it and the other finds it recorded"
+        );
+        let meetings = list_owned(&mut connection, TEST_PERSON_ID, 10)
+            .await
+            .expect("lists");
+        assert_eq!(meetings.len(), 1, "no meeting is left without its capture");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_capture_is_fetched_once_and_a_later_fetch_writes_nothing() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let location = storage_location::create(
+            &mut connection,
+            &cipher,
+            &location_for_every_project("Recordings"),
+        )
+        .await
+        .expect("a location");
+        let (_meeting, pending) = stored(&mut connection).await;
+        assert!(!pending.is_fetched());
+
+        let first = meeting_capture::record_fetched(&mut connection, pending.id, fetched(None))
             .await
             .expect("recorded")
             .expect("the first fetch is stored");
-        assert_eq!(first.state(), MeetingState::Recorded);
+        assert!(first.is_fetched());
         assert_eq!(first.stored_recording(), None);
 
-        // Another fetch, even one that found a recording, leaves the meeting exactly as it was.
-        let again = record_fetched(&mut connection, pending.id, fetched(Some(location.id)))
+        // Another fetch, even one that found a recording, leaves the capture exactly as it was.
+        let again = meeting_capture::record_fetched(
+            &mut connection,
+            pending.id,
+            fetched(Some(location.id)),
+        )
+        .await
+        .expect("a second write runs");
+        assert!(again.is_none(), "a fetched capture is not written again");
+        let unchanged = meeting_capture::find(&mut connection, pending.id)
             .await
-            .expect("a second write runs");
-        assert!(again.is_none(), "a fetched meeting is not written again");
-        let unchanged = find(&mut connection, pending.id).await.expect("found");
+            .expect("found");
         assert_eq!(unchanged.updated_at, first.updated_at);
         assert_eq!(unchanged.storage_location_id, None);
     }

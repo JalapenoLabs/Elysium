@@ -1,12 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! The meeting workflow's second step, [`TranscribeMeeting`]: Elysium's own transcript of a
-//! meeting's recording, word by word, from the local Whisper (`crate::whisper`).
+//! capture's recording, word by word, from the local Whisper (`crate::whisper`).
 //!
 //! The source's transcript is the source's; this one is Elysium's, heard from the recording on
-//! the host's own CPUs, so nothing leaves the host. It is stored beside the source's
-//! (`models::meeting_transcription`), for correction to reconcile the two and for segmenting to
-//! cut clips by its word timings.
+//! the host's own CPUs, so nothing leaves the host. Each capture with audio is transcribed on its
+//! own, and its transcript stored beside its source's (`models::meeting_transcription`), for
+//! correction to reconcile the two and for segmenting to cut clips by its word timings.
 //!
 //! # When there is nothing to hear
 //!
@@ -16,8 +16,8 @@
 //!
 //! # Doing it once
 //!
-//! A meeting is transcribed once. The first transcription stored is kept
-//! (`meeting_transcription::record` writes only for a meeting that has none), and running the
+//! A capture is transcribed once. The first transcription stored is kept
+//! (`meeting_transcription::record` writes only for a capture that has none), and running the
 //! step again answers it without transcribing anything.
 //!
 //! # What it logs
@@ -35,8 +35,8 @@ use super::fetch::RecordedMeeting;
 use crate::agent_models::AgentKind;
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::models::meeting::StoredRecording;
-use crate::models::meeting_transcription::{self, NewMeetingTranscription};
+use crate::models::meeting_capture::StoredRecording;
+use crate::models::meeting_transcription::{self, MeetingTranscription, NewMeetingTranscription};
 use crate::storage::Storage;
 use crate::whisper::{Transcribed, Whisper, WhisperTranscript};
 use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
@@ -50,6 +50,10 @@ use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
 #[serde(rename_all = "camelCase")]
 pub struct TranscribedMeeting {
     pub meeting_id: Uuid,
+    /// The capture transcribed; `None` in what a run started before meetings had captures was
+    /// handed (`super::capture_of`).
+    #[serde(default)]
+    pub capture_id: Option<Uuid>,
     /// The SHA-256 of the source's stored transcript, as hex; `None` when the meeting was not
     /// fetched.
     #[serde(default)]
@@ -127,12 +131,7 @@ impl TranscribeMeeting {
             });
         };
 
-        let stored = {
-            let mut connection = self.connection().await?;
-            meeting_transcription::find(&mut connection, recorded.meeting_id)
-                .await
-                .map_err(StepFailure::retryable)?
-        };
+        let (capture_id, stored) = self.stored_transcription(&recorded).await?;
         if let Some(stored) = stored {
             log.line(&format!(
                 "Already transcribed, SHA-256 {}; nothing was changed",
@@ -140,6 +139,7 @@ impl TranscribeMeeting {
             ));
             return Ok(transcribed(
                 recorded,
+                capture_id,
                 stored.transcript_hash,
                 "Already transcribed".to_owned(),
             ));
@@ -193,7 +193,7 @@ impl TranscribeMeeting {
             meeting_transcription::record(
                 &mut connection,
                 NewMeetingTranscription {
-                    meeting_id: recorded.meeting_id,
+                    capture_id,
                     transcript: serde_json::to_value(&transcript)
                         .map_err(StepFailure::permanent)?,
                     transcript_hash: hash.clone(),
@@ -209,7 +209,32 @@ impl TranscribeMeeting {
             ));
         };
         log.line(&format!("Stored the transcript, SHA-256 {hash}"));
-        Ok(transcribed(recorded, written.transcript_hash, summary))
+        Ok(transcribed(
+            recorded,
+            capture_id,
+            written.transcript_hash,
+            summary,
+        ))
+    }
+
+    /// The capture `recorded` names, and the transcription stored for it, if there is one.
+    async fn stored_transcription(
+        &self,
+        recorded: &RecordedMeeting,
+    ) -> Result<(Uuid, Option<MeetingTranscription>), StepFailure> {
+        let mut connection = self.connection().await?;
+        let capture = super::capture_of(&mut connection, recorded.meeting_id, recorded.capture_id)
+            .await
+            .map_err(|error| match error {
+                diesel::result::Error::NotFound => StepFailure::permanent(
+                    "The meeting's capture no longer exists, so there is nothing to transcribe",
+                ),
+                other => StepFailure::retryable(other),
+            })?;
+        let stored = meeting_transcription::find(&mut connection, capture.id)
+            .await
+            .map_err(StepFailure::retryable)?;
+        Ok((capture.id, stored))
     }
 
     async fn connection(
@@ -249,15 +274,17 @@ pub fn whisper_transcript_hash(transcript: &WhisperTranscript) -> String {
     hex::encode(Sha256::digest(serialized))
 }
 
-/// The step's success, naming the transcript stored for the meeting.
+/// The step's success, naming the capture transcribed and the transcript stored for it.
 fn transcribed(
     recorded: RecordedMeeting,
+    capture_id: Uuid,
     whisper_transcript_hash: String,
     summary: String,
 ) -> Done<TranscribedMeeting> {
     Done::Succeeded {
         output: TranscribedMeeting {
             meeting_id: recorded.meeting_id,
+            capture_id: Some(capture_id),
             transcript_hash: recorded.transcript_hash,
             recording: recorded.recording,
             whisper_transcript_hash: Some(whisper_transcript_hash),
@@ -306,11 +333,10 @@ impl TranscribeMeeting {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
 
     use super::*;
-    use crate::models::meeting::{self, NewMeeting};
-    use crate::test_support::{TEST_PERSON_ID, migrated_database};
+    use crate::models::meeting::tests::stored;
+    use crate::test_support::migrated_database;
     use crate::whisper::{WhisperSegment, WhisperWord};
 
     fn unconnected_pool() -> Pool {
@@ -346,9 +372,14 @@ mod tests {
         }
     }
 
-    fn recorded(meeting_id: Uuid, recording: Option<StoredRecording>) -> RecordedMeeting {
+    fn recorded(
+        meeting_id: Uuid,
+        capture_id: Option<Uuid>,
+        recording: Option<StoredRecording>,
+    ) -> RecordedMeeting {
         RecordedMeeting {
             meeting_id,
+            capture_id,
             transcript_hash: Some("a".repeat(64)),
             recording,
         }
@@ -386,7 +417,7 @@ mod tests {
         let log = context.log.clone();
 
         let done = step
-            .run(recorded(Uuid::now_v7(), None), context)
+            .run(recorded(Uuid::now_v7(), None, None), context)
             .await
             .expect("skipping is not a failure");
         assert_eq!(
@@ -401,11 +432,12 @@ mod tests {
     #[test]
     fn what_the_fetch_gave_reads_as_a_meeting_with_no_whisper_transcript() {
         // A skipped transcription hands the next step what the fetch gave.
-        let fetched = recorded(Uuid::now_v7(), None);
+        let fetched = recorded(Uuid::now_v7(), Some(Uuid::now_v7()), None);
         let read: TranscribedMeeting =
             serde_json::from_value(serde_json::to_value(&fetched).expect("serializes"))
                 .expect("reads");
         assert_eq!(read.meeting_id, fetched.meeting_id);
+        assert_eq!(read.capture_id, fetched.capture_id);
         assert_eq!(read.transcript_hash, fetched.transcript_hash);
         assert_eq!(read.whisper_transcript_hash, None);
     }
@@ -438,37 +470,18 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_meeting_transcribed_already_answers_its_transcript_without_whisper() {
+    async fn a_capture_transcribed_already_answers_its_transcript_without_whisper() {
         let (url, mut connection) = migrated_database().await;
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("a pool");
-        let stored = meeting::insert_new(
-            &mut connection,
-            NewMeeting {
-                id: Uuid::now_v7(),
-                connector_id: None,
-                source_kind: "fireflies".to_owned(),
-                external_id: "01HX".to_owned(),
-                title: "Weekly sync".to_owned(),
-                started_at: chrono::Utc::now(),
-                duration_ms: None,
-                organizer: String::new(),
-                participants: json!([]),
-                url: None,
-                transcript: json!([]),
-                created_by: TEST_PERSON_ID,
-            },
-        )
-        .await
-        .expect("insert")
-        .expect("new");
+        let (stored, capture) = stored(&mut connection).await;
         let heard = transcript("Launch is Friday");
         let hash = whisper_transcript_hash(&heard);
         meeting_transcription::record(
             &mut connection,
             NewMeetingTranscription {
-                meeting_id: stored.id,
+                capture_id: capture.id,
                 transcript: serde_json::to_value(&heard).expect("serializes"),
                 transcript_hash: hash.clone(),
             },
@@ -485,22 +498,33 @@ mod tests {
             path: format!("meetings/{}/recording.mp4", stored.id),
             content_type: Some("video/mp4".to_owned()),
         };
-        let context = StepContext::for_test::<TranscribeMeeting>(database);
+        let context = StepContext::for_test::<TranscribeMeeting>(database.clone());
         let done = step
-            .run(recorded(stored.id, Some(recording.clone())), context)
+            .run(
+                recorded(stored.id, Some(capture.id), Some(recording.clone())),
+                context,
+            )
             .await
             .expect("answers what is stored");
-        assert_eq!(
-            done,
-            Done::Succeeded {
-                output: TranscribedMeeting {
-                    meeting_id: stored.id,
-                    transcript_hash: Some("a".repeat(64)),
-                    recording: Some(recording),
-                    whisper_transcript_hash: Some(hash),
-                },
-                summary: Some("Already transcribed".to_owned()),
-            }
-        );
+        let expected = Done::Succeeded {
+            output: TranscribedMeeting {
+                meeting_id: stored.id,
+                capture_id: Some(capture.id),
+                transcript_hash: Some("a".repeat(64)),
+                recording: Some(recording.clone()),
+                whisper_transcript_hash: Some(hash),
+            },
+            summary: Some("Already transcribed".to_owned()),
+        };
+        assert_eq!(done, expected);
+
+        // What a run started before captures was handed names the meeting alone, and reads its
+        // one capture.
+        let context = StepContext::for_test::<TranscribeMeeting>(database);
+        let unnamed = step
+            .run(recorded(stored.id, None, Some(recording)), context)
+            .await
+            .expect("answers what is stored");
+        assert_eq!(unnamed, expected);
     }
 }

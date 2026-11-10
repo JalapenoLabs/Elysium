@@ -3,7 +3,7 @@
 //! A meeting's corrected transcript, one per meeting, beside the raw ones it was made from. See
 //! `crate::meetings::correct` and `docs/meetings.md`, Correction.
 //!
-//! The raw transcripts (the source's in `meetings.transcript`, Whisper's in
+//! The raw transcripts (the source's in `meeting_captures.transcript`, Whisper's in
 //! `meeting_transcriptions`) are never changed: correction writes this copy instead, once
 //! ([`record`] writes only for a meeting that has none), so a later attempt of the step keeps
 //! what the first stored. Approving it ([`approve`]) is optional, and is recorded here with who
@@ -241,9 +241,10 @@ struct SpeakerRow {
     speaker: String,
 }
 
-/// The names speakers went by in the newest `meetings` meetings other than `meeting_id`, as
-/// their sources labelled them, most often heard first: sources name a speaker from their
-/// calendar or account, so these are usually spelled as the people spell themselves.
+/// The names speakers went by in the newest `meetings` meetings other than `meeting_id`, in
+/// every capture of each, as their sources labelled them, most often heard first: sources name a
+/// speaker from their calendar or account, so these are usually spelled as the people spell
+/// themselves.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -255,9 +256,10 @@ pub async fn recent_speakers(
 ) -> QueryResult<Vec<String>> {
     let rows: Vec<SpeakerRow> = diesel::sql_query(
         "SELECT line->>'speaker' AS speaker \
-         FROM (SELECT transcript FROM meetings WHERE id <> $1 \
-               ORDER BY started_at DESC LIMIT $2) AS recent, \
-              jsonb_array_elements(recent.transcript) AS line \
+         FROM (SELECT id FROM meetings WHERE id <> $1 \
+               ORDER BY started_at DESC LIMIT $2) AS recent \
+         JOIN meeting_captures captures ON captures.meeting_id = recent.id, \
+              jsonb_array_elements(captures.transcript) AS line \
          WHERE coalesce(line->>'speaker', '') <> '' \
          GROUP BY 1 ORDER BY count(*) DESC, 1 \
          LIMIT $3",
@@ -275,30 +277,11 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::models::meeting::{self, NewMeeting};
-    use crate::test_support::{TEST_PERSON_ID, migrated_database};
+    use crate::models::meeting::tests::fetched_with;
+    use crate::test_support::migrated_database;
 
     async fn stored(connection: &mut AsyncPgConnection, transcript: Value) -> Meeting {
-        meeting::insert_new(
-            connection,
-            NewMeeting {
-                id: Uuid::now_v7(),
-                connector_id: None,
-                source_kind: "fireflies".to_owned(),
-                external_id: Uuid::now_v7().to_string(),
-                title: "Weekly sync".to_owned(),
-                started_at: Utc::now(),
-                duration_ms: None,
-                organizer: String::new(),
-                participants: json!([]),
-                url: None,
-                transcript,
-                created_by: TEST_PERSON_ID,
-            },
-        )
-        .await
-        .expect("insert")
-        .expect("new")
+        fetched_with(connection, transcript).await.0
     }
 
     #[tokio::test]

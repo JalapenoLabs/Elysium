@@ -81,7 +81,9 @@ index's cascades and columns, timeline records indexed as they are stored with a
 backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
 the knowledge search's two rankings, filters, folding, documents, refusal of guests, and budget through the router,
 learnings saved, revised, undone, deleted, and indexed with them, pages' labels and the search's filter by them, the move of learnings and the company doc onto pages
-against data laid out as production's, up, down to the row, and up again, with no passage re-embedded, learning categories
+against data laid out as production's, up, down to the row, and up again, with no passage re-embedded, the split of
+meetings into captures the same way, each final transcript built word for word as the code builds one, meetings'
+edits and marks moved and undone over their words, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
@@ -694,43 +696,61 @@ learning is filed under a workspace category, rather than refile or drop it.
 
 ### `meetings`
 
-Meetings read from a meeting source, and how far each one's processing got; see `docs/meetings.md`. Unique on
-`(connector_id, external_id)`; meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`).
-`recording_path` and `storage_location_id` are set together (`meetings_recording_fields`).
+Meetings, each the one event that happened, and how far each one's processing got; see `docs/meetings.md`. What its
+source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
+it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`).
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
 | `id`                     | `UUID`        | UUIDv7, primary key                                                     |
-| `connector_id`           | `UUID`        | References `connectors`; set to `NULL` when the connector goes          |
-| `source_kind`            | `TEXT`        | The source, such as `fireflies`                                         |
-| `external_id`            | `TEXT`        | The source's id, at most 1024 characters                                |
 | `title`                  | `TEXT`        | At most 2048 characters                                                 |
-| `started_at`             | `TIMESTAMPTZ` | When it started                                                         |
-| `duration_ms`            | `BIGINT`      | How long it ran, when the source says                                   |
-| `organizer`              | `TEXT`        | Who organized it, as the source shows them                              |
+| `started_at`             | `TIMESTAMPTZ` | When it started: the zero of the meeting's clock                        |
+| `duration_ms`            | `BIGINT`      | How long it ran, when its source says                                   |
+| `organizer`              | `TEXT`        | Who organized it, as its source shows them                              |
 | `participants`           | `JSONB`       | An array of strings                                                     |
-| `url`                    | `TEXT`        | Its page at the source                                                  |
-| `transcript`             | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`                         |
-| `transcript_hash`        | `TEXT`        | The SHA-256 of `transcript` as hex; `NULL` until it is fetched          |
-| `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
-| `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
-| `recording_content_type` | `TEXT`        | The recording's media type                                              |
 | `segments`               | `JSONB`       | Elysia's topic segments, written once by segmenting; `NULL` until she has read it |
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
+### `meeting_captures`
+
+Each one record of a meeting, as its source gave it, kept as it came; see `docs/meetings.md`, Meetings and captures.
+Its transcript and recording are written once, by its fetch, and never again. Unique on `(connector_id,
+external_id)` (`meeting_captures_once_per_connector`), so a connector records each of its meetings once;
+`meeting_captures_of_meeting` on `(meeting_id, created_at, id)` reads a meeting's captures first to last.
+`recording_path` and `storage_location_id` are set together (`meeting_captures_recording_fields`), and a recording's
+hash only with its path (`meeting_captures_recording_hash`).
+
+| Column                   | Type          | Notes                                                                   |
+|--------------------------|---------------|-------------------------------------------------------------------------|
+| `id`                     | `UUID`        | UUIDv7, primary key                                                     |
+| `meeting_id`             | `UUID`        | References `meetings`, cascading                                        |
+| `connector_id`           | `UUID`        | References `connectors`; set to `NULL` when the connector goes, and `NULL` for an upload |
+| `source_kind`            | `TEXT`        | The source, such as `fireflies`                                         |
+| `external_id`            | `TEXT`        | The source's id, at most 1024 characters; `NULL` for an upload          |
+| `url`                    | `TEXT`        | Its page at the source                                                  |
+| `transcript`             | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`, on the capture's own clock |
+| `transcript_hash`        | `TEXT`        | The SHA-256 of `transcript` as hex; `NULL` until it is fetched          |
+| `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
+| `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
+| `recording_content_type` | `TEXT`        | The recording's media type                                              |
+| `recording_hash`         | `TEXT`        | The SHA-256 of the recording's bytes as downloaded, as hex; `NULL` for a recording kept before captures were hashed |
+| `offset_ms`              | `BIGINT`      | Where its clock falls on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock; `0` unless set |
+| `created_by`             | `UUID`        | References `users`; whose capture it is: the connector's person, or who uploaded it |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
+
 ### `meeting_transcriptions`
 
-What Elysium's own Whisper heard in a meeting's recording, one per meeting, written once by the meeting workflow's
-transcription step; see `docs/meetings.md`, Transcription. A table of its own beside `meetings.transcript`, because
-every word is timed and the meetings loop reads every unfinished meeting's row each minute. A child of its meeting, so
-it has no `created_by`.
+What Elysium's own Whisper heard in a capture's recording, one per capture, written once by the meeting workflow's
+transcription step; see `docs/meetings.md`, Transcription. A table of its own beside `meeting_captures.transcript`,
+because every word is timed and the meetings loop reads every unfinished meeting's capture each minute. A child of its
+capture, so it has no `created_by`.
 
 | Column            | Type          | Notes                                                                        |
 |-------------------|---------------|------------------------------------------------------------------------------|
-| `meeting_id`      | `UUID`        | Primary key; references `meetings`, cascading                                |
+| `capture_id`      | `UUID`        | Primary key; references `meeting_captures`, cascading                        |
 | `transcript`      | `JSONB`       | `{ model, language, languageProbability, durationMs, segments }`, each segment `{ startMs, endMs, text, words }` and each word `{ startMs, endMs, text, probability }` |
 | `transcript_hash` | `TEXT`        | The SHA-256 of `transcript` as it was serialized to be stored, as hex        |
 | `created_at`      | `TIMESTAMPTZ` | Set on insert                                                                |
@@ -754,6 +774,62 @@ raw transcripts, which it never changes; see `docs/meetings.md`, Correction. A c
 | `approved_at`             | `TIMESTAMPTZ` | When                                                                  |
 | `review_item_id`          | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item raised when its run held for approval; indexed, for the item's page |
 | `created_at`              | `TIMESTAMPTZ` | Set on insert                                                         |
+
+### `meeting_events`
+
+A meeting's history, one row per change, shaped like `page_events`; see `docs/meetings.md`, History. Cascades with its
+meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's history in order.
+
+| Column                | Type          | Notes                                                             |
+|-----------------------|---------------|-------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
+| `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
+| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, or `correction_approved`; text, so a later kind needs no migration |
+| `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
+| `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |
+| `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment of the change                      |
+
+### `meeting_words`
+
+A meeting's final transcript: every word it ever held, standing or replaced, each with a stable id; see
+`docs/meetings.md`, The final transcript. Cascades with its meeting. `position` orders every word of a meeting in one
+sequence, gapped by 1024, and is unique per meeting (`meeting_words_order`, deferrable so one statement renumbers a
+meeting); `meeting_words_standing` on `(meeting_id, position)`, where `superseded_by` is `NULL`, reads the transcript
+as it reads now. A word's span never runs backwards (`meeting_words_span`).
+
+| Column          | Type          | Notes                                                                      |
+|-----------------|---------------|----------------------------------------------------------------------------|
+| `id`            | `UUID`        | UUIDv7, primary key; what marks anchor to                                  |
+| `meeting_id`    | `UUID`        | References `meetings`, cascading                                           |
+| `position`      | `BIGINT`      | Its place in the sequence                                                  |
+| `text`          | `TEXT`        | The word as written, with no space around it; never empty                  |
+| `speaker`       | `TEXT`        | Who said it, as its capture names them; empty when nothing says            |
+| `start_ms`, `end_ms` | `BIGINT` | On the meeting's clock                                                     |
+| `origin`        | `TEXT`        | `source`, `whisper`, `correction`, or `edit`: where it came from           |
+| `capture_id`    | `UUID`        | References `meeting_captures`, set to `NULL` with it: the capture it was heard in; `NULL` for an edit's words |
+| `introduced_by` | `UUID`        | References `meeting_events`: the change that wrote it                      |
+| `superseded_by` | `UUID`        | References `meeting_events`: the change that replaced it; `NULL` while it stands |
+| `created_at`    | `TIMESTAMPTZ` | Set on insert                                                              |
+
+### `meeting_marks`
+
+Everything anchored to a range of a meeting's words: confidence flags, edits, excerpts, black-outs, comments, pins,
+and tasks; see `docs/meetings.md`, The final transcript. Cascades with its meeting; `meeting_marks_of_meeting` on
+`(meeting_id, id)` reads one meeting's. Both ends stand: an edit moves every mark over the words it replaces onto the
+words that replace them.
+
+| Column                | Type          | Notes                                                             |
+|-----------------------|---------------|-------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                               |
+| `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
+| `kind`                | `TEXT`        | `confidence`, `edit`, `excerpt`, `black_out`, `comment`, `pin`, or `task`; text, so a later kind needs no migration |
+| `start_word_id`, `end_word_id` | `UUID` | Reference `meeting_words`: the first and last word of its range |
+| `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
+| `created_by`          | `UUID`        | References `users`: who made it                                   |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `meeting_events`                 |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                     |
+| `removed_by`          | `UUID`        | References `meeting_events`: the change that removed it; `NULL` while it stands |
 
 ### `mail_servers`
 

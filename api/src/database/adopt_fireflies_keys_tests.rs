@@ -109,7 +109,23 @@ async fn connectors_of(
     .expect("the connectors load")
 }
 
+/// The connector meeting `meeting_id` was read through, once every migration is applied: its
+/// capture's, since a meeting's connector moved onto its capture.
 async fn connector_of_meeting(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> Option<Uuid> {
+    diesel::sql_query("SELECT connector_id FROM meeting_captures WHERE meeting_id = $1")
+        .bind::<SqlUuid, _>(meeting_id)
+        .get_result::<MeetingRow>(connection)
+        .await
+        .expect("the meeting's capture is still there")
+        .connector_id
+}
+
+/// The connector meeting `meeting_id` was read through in the layout from before meetings had
+/// captures, which reverting to before [`ADOPT`] leaves.
+async fn connector_of_meeting_before_captures(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
 ) -> Option<Uuid> {
@@ -237,7 +253,7 @@ async fn reverting_leaves_the_keys_without_connectors_and_keeps_the_rest() {
         assert!(connectors_of(&mut connection, key).await.is_empty());
     }
     assert_eq!(
-        connector_of_meeting(&mut connection, ADA_NEWER_COPY).await,
+        connector_of_meeting_before_captures(&mut connection, ADA_NEWER_COPY).await,
         None
     );
     assert_eq!(connectors_of(&mut connection, ADA_LIVE_KEY).await.len(), 1);

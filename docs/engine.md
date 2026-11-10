@@ -252,14 +252,16 @@ the Runs page.
 
 - Every source is read deterministically: the transcript, and the recording when there is one. Elysium never uses a
   transcription service's own AI summary or notes, since the model behind them is unknown.
-- Built: each meeting is a run of the `meeting` workflow, whose `fetch_meeting` step reads every meeting source the
-  same way, stores the raw transcript with its SHA-256, and uploads the recording; running it again for the same
-  meeting changes nothing. The meetings loop only lists meetings and starts their runs; whether a meeting failed, and
-  why, is its run's, so a person acting on the run's page moves the meeting at once. See `docs/meetings.md`,
-  Processing.
-- Built: when there is audio, the run's `transcribe_meeting` step produces a second transcript, word by word, with a
-  local Whisper (faster-whisper with Whisper large-v3, pinned and checked) in a container of its own with no network,
-  and stores it beside the source's. Anthropic offers no transcription for recorded audio, and nothing leaves the host.
+- Built: a meeting is the one event, and each of its captures one record of it as its source gave it (today a
+  connector's meeting). Each meeting is a run of the `meeting` workflow, whose `fetch_meeting` step reads every meeting
+  source the same way, stores its capture's raw transcript and recording, each with its SHA-256, and running it again
+  for the same meeting changes nothing. The meetings loop only lists meetings and starts their runs; whether a meeting
+  failed, and why, is its run's, so a person acting on the run's page moves the meeting at once. See
+  `docs/meetings.md`, Meetings and captures, and Processing.
+- Built: when there is audio, the run's `transcribe_meeting` step produces a second transcript of the capture, word by
+  word, with a local Whisper (faster-whisper with Whisper large-v3, pinned and checked) in a container of its own with
+  no network, and stores it under the capture, beside its source's. Anthropic offers no transcription for recorded
+  audio, and nothing leaves the host.
   A meeting without audio skips the step, saying so. See `docs/meetings.md`, Transcription. Every transcript a meeting
   has is an input to correction; more sources mean better corrections.
 - Built: correction, the run's `correct_transcript` step, is an agent that reconciles the transcripts against the
@@ -268,6 +270,10 @@ the Runs page.
   fixes misheard names and terms. The web app shows the two as a diff on the meeting's page, and the person may
   approve it. Approval is optional: every later step reads the corrected copy either way, told whether it was
   approved (its output's `approved`). See `docs/meetings.md`, Correction.
+- Built: the step then builds the meeting's final transcript from its corrected copy: a stream of words with stable
+  ids on the meeting's clock, each saying where it came from, which every mark (an edit, an excerpt, a comment, and
+  the rest) anchors to as a range of word ids. Every change to a meeting is in its history, undoable. Segmenting builds
+  it for a meeting whose correction was skipped. See `docs/meetings.md`, The final transcript, and History.
 - Built: each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops
   after correction (`Done::Held`) with an inbox item to review the diff, and continues once approved, the output
   saying so; Resume on the Runs page passes the held output on unapproved. One meeting can also be held by hand.

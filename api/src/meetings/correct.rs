@@ -5,13 +5,16 @@
 //! the company doc, and the company's other meetings, beside the raw ones it was made from.
 //!
 //! The prompt and the checks on the model's answer are `super::correction`; this module runs
-//! the turns, stores the copy, and decides whether the run waits for its person's approval.
+//! the turns, stores the copy, builds the meeting's final transcript from it
+//! (`super::final_transcript`), and decides whether the run waits for its person's approval.
 //!
 //! # Doing it once
 //!
 //! A meeting is corrected once. The raw transcripts are never written: the copy goes in
 //! `meeting_corrections` (`models::meeting_correction`), which keeps the first copy stored, and
-//! running the step again answers it without asking the model anything.
+//! running the step again answers it without asking the model anything. Every attempt that has a
+//! copy makes sure the final transcript is built from it, so an engine that stopped between the
+//! two builds it on the next.
 //!
 //! # Waiting for approval
 //!
@@ -40,6 +43,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::correction::{self, Background, Base, Edit};
+use super::final_transcript;
 use super::segment::TranscriptToSegment;
 use super::source::TranscriptLine;
 use super::transcribe::TranscribedMeeting;
@@ -51,9 +55,12 @@ use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
 use crate::models::action_item_event::Recorded;
+use crate::models::agent::Author;
 use crate::models::connector;
-use crate::models::meeting::{self, Meeting, StoredRecording};
+use crate::models::meeting::{self, Meeting};
+use crate::models::meeting_capture::{self, MeetingCapture, StoredRecording};
 use crate::models::meeting_correction::{self, MeetingCorrection, NewMeetingCorrection};
+use crate::models::meeting_event::{self, Change, EventKind};
 use crate::models::meeting_transcription;
 use crate::models::model_setting::ModelChoice;
 use crate::models::step_job::{self, StepActionError, StepJobState};
@@ -90,6 +97,10 @@ const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 #[serde(rename_all = "camelCase")]
 pub struct CorrectedMeeting {
     pub meeting_id: Uuid,
+    /// The capture corrected; `None` in what a run started before meetings had captures was
+    /// handed (`super::capture_of`).
+    #[serde(default)]
+    pub capture_id: Option<Uuid>,
     /// The SHA-256 of the source's stored transcript, as hex; `None` when the meeting was not
     /// fetched.
     #[serde(default)]
@@ -194,23 +205,9 @@ impl CorrectTranscript {
         let mut connection = self.connection().await?;
         let read = async {
             let meeting = meeting::find(&mut connection, input.meeting_id).await?;
-            let source: Vec<TranscriptLine> = serde_json::from_value(meeting.transcript.clone())
-                .map_err(|error| {
-                    anyhow!("the meeting's transcript is not in the stored shape: {error}")
-                })?;
-            let whisper = match &input.whisper_transcript_hash {
-                Some(_) => meeting_transcription::find(&mut connection, input.meeting_id)
-                    .await?
-                    .map(|stored| serde_json::from_value::<WhisperTranscript>(stored.transcript))
-                    .transpose()
-                    .map_err(|error| {
-                        anyhow!(
-                            "the meeting's Whisper transcript is not in the stored shape: {error}"
-                        )
-                    })?,
-                None => None,
-            };
-            let Some(base) = correction::base(source, whisper.as_ref()) else {
+            let read_whisper = input.whisper_transcript_hash.is_some();
+            let (_capture, base, whisper) = heard_by(&mut connection, input, read_whisper).await?;
+            let Some(base) = base else {
                 return anyhow::Ok(Read::Silent);
             };
             let doc = company_doc::read(&mut connection).await?;
@@ -396,6 +393,43 @@ impl CorrectTranscript {
         Ok(outcome.result.unwrap_or_default())
     }
 
+    /// Builds the meeting's final transcript from `correction`, the copy it has, unless it has one
+    /// already (`final_transcript::ensure_built`).
+    async fn build_final_transcript(
+        &self,
+        input: &TranscribedMeeting,
+        correction: &MeetingCorrection,
+        log: &crate::workflows::StepLog,
+    ) -> Result<(), StepFailure> {
+        let mut connection = self.connection().await?;
+        let build = async {
+            // Whatever the run handed on, the copy follows Whisper's segments when its source sent
+            // no lines, so Whisper's transcript is read whenever there is one.
+            let (capture, base, _whisper) = heard_by(&mut connection, input, true).await?;
+            let Some(base) = base else {
+                // A copy follows a transcript, so only one stored by hand reaches this.
+                return Err(anyhow!(
+                    "the meeting has a corrected copy but no transcript"
+                ));
+            };
+            let corrected: Vec<TranscriptLine> =
+                serde_json::from_value(correction.transcript.clone()).map_err(|error| {
+                    anyhow!("the corrected copy is not in the stored shape: {error}")
+                })?;
+            let built =
+                final_transcript::ensure_built(&mut connection, &capture, &base, Some(&corrected))
+                    .await?;
+            anyhow::Ok(built)
+        };
+        if let Some(built) = build.await.map_err(StepFailure::retryable)? {
+            log.line(&format!(
+                "Built the final transcript from the corrected copy: {} words",
+                built.data["words"]
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether the run waits for the meeting's person, decided under its lock, raising the
     /// inbox item that asks for the review when it waits and none was raised.
     async fn decide(&self, meeting_id: Uuid) -> Result<Decision, StepFailure> {
@@ -495,11 +529,14 @@ impl Step for CorrectTranscript {
             self.announce(&heard.meeting);
             stored
         };
+        self.build_final_transcript(&input, &correction, &context.log)
+            .await?;
 
         let summary = summary_of(&correction);
         let output = |approved: bool| {
             TranscriptToSegment::Meeting(CorrectedMeeting {
                 meeting_id: input.meeting_id,
+                capture_id: input.capture_id,
                 transcript_hash: input.transcript_hash.clone(),
                 recording: input.recording.clone(),
                 whisper_transcript_hash: input.whisper_transcript_hash.clone(),
@@ -578,8 +615,8 @@ fn summary_of(correction: &MeetingCorrection) -> String {
 }
 
 /// Whether `current` waits for its person's approval before it is acted on: held by hand, or
-/// its source has "Wait for my approval before acting on meetings" on. A meeting whose
-/// connector was removed follows its own hold alone.
+/// the source of its capture has "Wait for my approval before acting on meetings" on. A meeting
+/// whose connector was removed follows its own hold alone.
 async fn waits_for_approval(
     connection: &mut AsyncPgConnection,
     current: &Meeting,
@@ -587,7 +624,8 @@ async fn waits_for_approval(
     if current.hold_for_approval {
         return Ok(true);
     }
-    let Some(connector_id) = current.connector_id else {
+    let capture = meeting_capture::first_of(connection, current.id).await?;
+    let Some(connector_id) = capture.connector_id else {
         return Ok(false);
     };
     match connector::find(connection, connector_id).await {
@@ -622,6 +660,32 @@ fn review_item(current: &Meeting) -> NewActionItem {
         project_ids: Vec::new(),
         initiative_ids: Vec::new(),
     }
+}
+
+/// The capture `input` names, and what it heard: the transcript a correction follows
+/// (`correction::base`), `None` when nothing was heard, and Whisper's transcript, read when
+/// `read_whisper` and there is one.
+async fn heard_by(
+    connection: &mut AsyncPgConnection,
+    input: &TranscribedMeeting,
+    read_whisper: bool,
+) -> anyhow::Result<(MeetingCapture, Option<Base>, Option<WhisperTranscript>)> {
+    let capture = super::capture_of(connection, input.meeting_id, input.capture_id).await?;
+    let source: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())
+        .map_err(|error| anyhow!("the capture's transcript is not in the stored shape: {error}"))?;
+    let whisper = if read_whisper {
+        meeting_transcription::find(connection, capture.id)
+            .await?
+            .map(|stored| serde_json::from_value::<WhisperTranscript>(stored.transcript))
+            .transpose()
+            .map_err(|error| {
+                anyhow!("the capture's Whisper transcript is not in the stored shape: {error}")
+            })?
+    } else {
+        None
+    };
+    let base = correction::base(source, whisper.as_ref());
+    Ok((capture, base, whisper))
 }
 
 /// The lines of the corrected copy `corrected` names, when it names one that is stored: what a
@@ -681,12 +745,36 @@ pub async fn approve(
             if current.created_by != owner {
                 return Err(ApproveError::NotFound);
             }
+            let already = meeting_correction::find(connection, meeting_id)
+                .await?
+                .ok_or(ApproveError::NotFound)?
+                .approved_at
+                .is_some();
             let correction = meeting_correction::approve(connection, meeting_id, owner, now)
                 .await
                 .map_err(|error| match error {
                     diesel::result::Error::NotFound => ApproveError::NotFound,
                     other => ApproveError::Database(other),
                 })?;
+            if !already {
+                let author = Author {
+                    user_id: owner,
+                    agent: None,
+                    at: now,
+                };
+                meeting_event::record(
+                    connection,
+                    Change {
+                        id: Uuid::now_v7(),
+                        meeting_id,
+                        kind: EventKind::CorrectionApproved,
+                        author,
+                        data: serde_json::json!({}),
+                        undid: None,
+                    },
+                )
+                .await?;
+            }
             let resolved = match correction.review_item_id {
                 Some(item_id) => resolve_review_item(connection, item_id, owner, now).await?,
                 None => None,
@@ -734,9 +822,10 @@ pub enum HoldError {
 }
 
 /// Sets whether meeting `meeting_id` waits for `owner`'s approval of its corrected transcript
-/// before it is acted on, whatever its source's setting, and announces it. The correction step
-/// reads it as it decides, under the same lock, so a hold set before its copy is stored is
-/// always honoured; once a copy is stored, the hold no longer changes.
+/// before it is acted on, whatever its source's setting, records the change in its history, and
+/// announces it. The correction step reads it as it decides, under the same lock, so a hold set
+/// before its copy is stored is always honoured; once a copy is stored, the hold no longer
+/// changes.
 ///
 /// # Errors
 /// [`HoldError::NotFound`] when the meeting is not `owner`'s, [`HoldError::Corrected`] once
@@ -760,7 +849,18 @@ pub async fn hold(
             {
                 return Err(HoldError::Corrected);
             }
-            Ok(meeting::set_hold_for_approval(connection, meeting_id, hold).await?)
+            if current.hold_for_approval == hold {
+                return Ok(current);
+            }
+            let changed = meeting::set_hold_for_approval(connection, meeting_id, hold).await?;
+            let author = Author {
+                user_id: owner,
+                agent: None,
+                at: Utc::now(),
+            };
+            super::history::record_hold(connection, meeting_id, (!hold, hold), author, None)
+                .await?;
+            Ok(changed)
         })
         .await?;
     events.publish(&ServerEvent::MeetingChanged {
@@ -840,9 +940,13 @@ async fn resume_held_correction(
 mod tests {
     use serde_json::json;
 
+    use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
+    use diesel_async::RunQueryDsl;
+
     use super::*;
     use crate::meetings::fetch::RecordedMeeting;
-    use crate::models::meeting::NewMeeting;
+    use crate::models::meeting::tests::fetched_with;
+    use crate::models::meeting_word::{self, Origin};
     use crate::models::step_job::StepOutcome;
     use crate::models::workflow_run::WorkflowRunState;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
@@ -856,21 +960,19 @@ mod tests {
         }
     }
 
-    fn new_meeting(title: &str) -> NewMeeting {
-        NewMeeting {
-            id: Uuid::now_v7(),
-            connector_id: None,
-            source_kind: "fireflies".to_owned(),
-            external_id: Uuid::now_v7().to_string(),
-            title: title.to_owned(),
-            started_at: Utc::now(),
-            duration_ms: None,
-            organizer: String::new(),
-            participants: json!([]),
-            url: None,
-            transcript: json!([heard_line("Jon is here")]),
-            created_by: TEST_PERSON_ID,
-        }
+    /// A meeting titled `title` whose capture heard one line, "Jon is here".
+    async fn heard_meeting(
+        connection: &mut AsyncPgConnection,
+        title: &str,
+    ) -> (Meeting, MeetingCapture) {
+        let (stored, capture) = fetched_with(connection, json!([heard_line("Jon is here")])).await;
+        let titled = diesel::update(crate::database::schema::meetings::table.find(stored.id))
+            .set(crate::database::schema::meetings::title.eq(title))
+            .returning(Meeting::as_returning())
+            .get_result(connection)
+            .await
+            .expect("titled");
+        (titled, capture)
     }
 
     #[test]
@@ -878,6 +980,7 @@ mod tests {
         // A skipped correction hands the next step what the transcription gave.
         let transcribed = TranscribedMeeting {
             meeting_id: Uuid::now_v7(),
+            capture_id: Some(Uuid::now_v7()),
             transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: Some("b".repeat(64)),
@@ -893,6 +996,7 @@ mod tests {
             transcribed.whisper_transcript_hash
         );
         assert_eq!(read.corrected_transcript_hash, None);
+        assert_eq!(read.capture_id, transcribed.capture_id);
         assert!(!read.approved);
     }
 
@@ -908,14 +1012,15 @@ mod tests {
             .await
             .expect("a pool");
         let events = EventBus::in_process();
-        let stored = meeting::insert_new(&mut connection, new_meeting("Weekly sync"))
-            .await
-            .expect("insert")
-            .expect("new");
+        let (stored, capture) = heard_meeting(&mut connection, "Weekly sync").await;
         // Its person holds it by hand; it has no source to say otherwise.
         hold(&mut connection, &events, stored.id, TEST_PERSON_ID, true)
             .await
             .expect("held");
+        // Holding it again changes nothing, and so records nothing.
+        hold(&mut connection, &events, stored.id, TEST_PERSON_ID, true)
+            .await
+            .expect("still held");
 
         // Its run, through the fetch and the transcription.
         workflows::start(
@@ -927,6 +1032,7 @@ mod tests {
         .expect("the run starts");
         let fetched = RecordedMeeting {
             meeting_id: stored.id,
+            capture_id: Some(capture.id),
             transcript_hash: Some("a".repeat(64)),
             recording: None,
         };
@@ -976,12 +1082,32 @@ mod tests {
         let step = CorrectTranscript::for_test(database.clone());
         let input = TranscribedMeeting {
             meeting_id: stored.id,
+            capture_id: Some(capture.id),
             transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
         };
         let context = StepContext::for_test::<CorrectTranscript>(database.clone());
         let done = step.run(input.clone(), context).await.expect("decides");
+        // The attempt built the final transcript from the stored copy, its fix the correction's.
+        let words = meeting_word::standing(&mut connection, stored.id)
+            .await
+            .expect("reads");
+        assert_eq!(meeting_word::text_of(&words), "John is here");
+        assert!(
+            words
+                .iter()
+                .all(|word| word.origin == Origin::Correction.as_str())
+        );
+        assert!(words.iter().all(|word| word.capture_id == Some(capture.id)));
+        assert_eq!(
+            words
+                .iter()
+                .map(|word| (word.start_ms, word.end_ms))
+                .collect::<Vec<_>>(),
+            vec![(61_000, 62_000), (62_000, 63_000), (63_000, 64_000)],
+            "on the meeting's clock, the line's time spread across its words"
+        );
         let Done::Held {
             output: TranscriptToSegment::Meeting(output),
             summary,
@@ -1095,6 +1221,31 @@ mod tests {
             .expect("reads")
             .expect("stored");
         assert_eq!(approved.approved_by, Some(TEST_PERSON_ID));
+        // Approving again changes nothing.
+        approve(&mut connection, &events, stored.id, TEST_PERSON_ID)
+            .await
+            .expect("approved already");
+
+        // Its history: held once, built once (however many attempts ran), approved once.
+        let history = meeting_event::history(&mut connection, stored.id)
+            .await
+            .expect("history");
+        assert_eq!(
+            history
+                .iter()
+                .map(|entry| (entry.kind.as_str(), entry.created_by))
+                .collect::<Vec<_>>(),
+            vec![
+                ("hold_changed", TEST_PERSON_ID),
+                ("built", crate::models::user::SYSTEM_USER_ID),
+                ("correction_approved", TEST_PERSON_ID),
+            ]
+        );
+        assert_eq!(history[0].data, json!({ "before": false, "after": true }));
+        assert_eq!(
+            history[1].data,
+            json!({ "captureId": capture.id, "builtFrom": "correction", "words": 3 })
+        );
 
         // And segmenting reads the copy the run handed on.
         let copy = corrected_lines(&mut connection, &handed_on)
@@ -1110,10 +1261,7 @@ mod tests {
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("a pool");
-        let stored = meeting::insert_new(&mut connection, new_meeting("Standup"))
-            .await
-            .expect("insert")
-            .expect("new");
+        let (stored, capture) = heard_meeting(&mut connection, "Standup").await;
         let corrected = vec![heard_line("Jon is here")];
         meeting_correction::record(
             &mut connection,
@@ -1132,8 +1280,10 @@ mod tests {
         .expect("records")
         .expect("new");
         let step = CorrectTranscript::for_test(database.clone());
+        // What a run started before captures was handed names the meeting alone.
         let input = TranscribedMeeting {
             meeting_id: stored.id,
+            capture_id: None,
             transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
@@ -1157,15 +1307,22 @@ mod tests {
             summary.as_deref(),
             Some("Nothing needed correcting in 1 line")
         );
-
-        let mut silent = new_meeting("Silence");
-        silent.transcript = json!([]);
-        let silent = meeting::insert_new(&mut connection, silent)
+        // A copy that changed nothing builds a transcript as its source heard it.
+        let words = meeting_word::standing(&mut connection, stored.id)
             .await
-            .expect("insert")
-            .expect("new");
+            .expect("reads");
+        assert_eq!(meeting_word::text_of(&words), "Jon is here");
+        assert!(
+            words
+                .iter()
+                .all(|word| word.origin == Origin::Source.as_str())
+        );
+        assert!(words.iter().all(|word| word.capture_id == Some(capture.id)));
+
+        let (silent, silent_capture) = fetched_with(&mut connection, json!([])).await;
         let nothing = TranscribedMeeting {
             meeting_id: silent.id,
+            capture_id: Some(silent_capture.id),
             transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
@@ -1187,6 +1344,7 @@ mod tests {
         // A meeting a person skipped the fetch of reaches correction never fetched, and skips.
         let unfetched = TranscribedMeeting {
             meeting_id: silent.id,
+            capture_id: None,
             transcript_hash: None,
             recording: None,
             whisper_transcript_hash: None,
