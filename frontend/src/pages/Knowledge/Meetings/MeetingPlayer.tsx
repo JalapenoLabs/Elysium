@@ -219,6 +219,14 @@ export function MeetingPlayer(props: Props) {
           aria-label={t('review.player.label')}
           className='absolute inset-0 size-full'
           {...player.mediaHandlers}
+          // Focused, a browser's own controls keep every key, and every press, from the page, so
+          // the arrows would stop jumping. A mouse that focuses them hands focus back; a keyboard
+          // that tabs into them, which shows its focus, keeps them.
+          onFocus={(event) => {
+            if (!event.currentTarget.matches(':focus-visible')) {
+              event.currentTarget.blur()
+            }
+          }}
         />
         {player.isAudioOnly && !player.hasFailed && <PlayerWaveform
           mediaRef={player.mediaRef}

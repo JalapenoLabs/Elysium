@@ -969,7 +969,10 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   such as the pills, which they move through. Without a recording neither is used, so Space scrolls the page as ever.
   The editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
 - **The player** (`MeetingPlayer`) is one `<video>` with the browser's own controls, kept mounted while it floats, so
-  it never stops; floating is a class and a position, never a second element or a portal. Its media streams from the
+  it never stops; floating is a class and a position, never a second element or a portal. A browser's own controls,
+  focused, keep every key and press from the page, so a mouse that focuses them hands focus back at once (one that is
+  not `:focus-visible`), and Space and the arrows mean the same after a click on them; a keyboard that tabs into them
+  keeps them, with the browser's own keys. Its media streams from the
   API on Elysium's own origin, which the app's `default-src 'self'` allows with no `media-src` of its own. The waveform
   listens through Web Audio
   (`createMediaElementSource`), once per element for its life, and resumes its audio as playing starts, since a browser
