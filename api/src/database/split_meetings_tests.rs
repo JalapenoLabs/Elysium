@@ -30,7 +30,7 @@ use crate::test_support::empty_database;
 use crate::whisper::WhisperTranscript;
 
 /// The migration under test.
-const SPLIT: &str = "2026-11-10-020000-0000_split_meetings_into_captures";
+const SPLIT: &str = "2026-11-10-030000-0000_split_meetings_into_captures";
 
 /// Its connector's, corrected from the source's lines (the first fixed), with a recording, a
 /// Whisper transcript, and its segments on the timeline.
