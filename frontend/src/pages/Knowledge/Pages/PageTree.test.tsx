@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Key } from 'react-aria-components'
+import type { PageTree as PageTreeShape } from './pageTree'
 
 // Core
 import { fireEvent, render, screen } from '@testing-library/react'
@@ -16,10 +17,11 @@ import { createAppStore } from '../../../store'
 import { PageTree } from './PageTree'
 
 // Misc
-import { makePageSummary } from '../../../testFixtures'
+import { MEETINGS_PAGE_ID } from '../../../constants'
+import { makeMeeting, makePageSummary } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
-import { getKnowledgePageUrl, getNewChildPageUrl } from '../../../urls'
-import { buildPageTree } from './pageTree'
+import { getKnowledgePageUrl, getMeetingUrl, getNewChildPageUrl, getProjectMeetingsUrl, UrlTree } from '../../../urls'
+import { buildPageTree, withMeetingEntries } from './pageTree'
 
 const tree = buildPageTree([
   makePageSummary({ id: 'guide', title: 'Guide' }),
@@ -30,6 +32,7 @@ const tree = buildPageTree([
 ])
 
 type HarnessProps = {
+  tree: PageTreeShape
   initialOpenIds: string[]
 }
 
@@ -38,7 +41,7 @@ function Harness(props: HarnessProps) {
 
   return <TestAriaRouter>
     <PageTree
-      tree={tree}
+      tree={props.tree}
       openIds={new Set(Array.from(openIds, String))}
       onOpenIdsChange={setOpenIds}
       onOpenBranches={() => undefined}
@@ -47,9 +50,13 @@ function Harness(props: HarnessProps) {
 }
 
 function renderTree(currentPageId: string, initialOpenIds: string[] = []) {
+  return renderAt(getKnowledgePageUrl(currentPageId), tree, initialOpenIds)
+}
+
+function renderAt(path: string, shownTree: PageTreeShape, initialOpenIds: string[]) {
   const router = createMemoryRouter(
-    [{ path: '*', element: <Harness initialOpenIds={initialOpenIds} /> }],
-    { initialEntries: [ getKnowledgePageUrl(currentPageId) ]},
+    [{ path: '*', element: <Harness tree={shownTree} initialOpenIds={initialOpenIds} /> }],
+    { initialEntries: [ path ]},
   )
   render(<Provider store={createAppStore()}>
     <RouterProvider router={router} />
@@ -165,5 +172,57 @@ describe('PageTree', () => {
     expect(screen.getByRole('menuitem', { name: 'Move' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByRole('menuitem', { name: 'Delete' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText('Elysium keeps this page in place')).toBeDefined()
+  })
+})
+
+describe('meetings in the tree', () => {
+  const meetingsTree = withMeetingEntries(
+    buildPageTree([
+      makePageSummary({ id: MEETINGS_PAGE_ID, title: 'Meetings', fixed: true }),
+      makePageSummary({ id: 'briefs', title: 'Project briefs', fixed: true }),
+      makePageSummary({ id: 'launch-brief', parentId: 'briefs', title: 'Launch brief', briefProjectId: 'launch' }),
+    ]),
+    [
+      makeMeeting({ id: 'standup', title: 'Standup', projectIds: [ 'launch' ]}),
+      makeMeeting({ id: 'untitled', title: '', projectIds: []}),
+    ],
+  )
+
+  function renderMeetingsTree(path: string) {
+    return renderAt(path, meetingsTree, [ MEETINGS_PAGE_ID, 'briefs', 'launch-brief', 'meetings:launch' ])
+  }
+
+  it('opens the Meetings page as the Meetings list, and lists every meeting under it', () => {
+    renderMeetingsTree(UrlTree.knowledgeMeetings)
+
+    expect(screen.getByRole('link', { name: 'Meetings' }).getAttribute('href')).toBe(UrlTree.knowledgeMeetings)
+    expect(screen.getByRole('link', { name: 'Meetings' }).getAttribute('aria-current')).toBe('page')
+    const homes = screen.getAllByRole('link', { name: 'Standup' })
+    expect(homes[0].getAttribute('href')).toBe(getMeetingUrl('standup'))
+    expect(screen.getByRole('link', { name: 'Untitled meeting' }).getAttribute('href')).toBe(getMeetingUrl('untitled'))
+  })
+
+  it('groups a project\'s meetings under its brief, linking each to the one meeting page', () => {
+    renderMeetingsTree(getMeetingUrl('standup'))
+
+    // The group's row is named as the Meetings page's is, so it is found by where it goes.
+    const groupRows = screen.getAllByRole('row', { name: 'Meetings', expanded: true })
+    const groupLinks = groupRows.map((row) => row.querySelector('a')?.getAttribute('href'))
+    expect(groupLinks).toEqual([ UrlTree.knowledgeMeetings, getProjectMeetingsUrl('launch') ])
+    // Its home and its linked entry are one page, so both read as the page open.
+    const entries = screen.getAllByRole('link', { name: 'Standup' })
+    expect(entries).toHaveLength(2)
+    for (const entry of entries) {
+      expect(entry.getAttribute('aria-current')).toBe('page')
+    }
+  })
+
+  it('gives a meeting no menu and no drag a keyboard could start', () => {
+    renderMeetingsTree(UrlTree.knowledgeMeetings)
+
+    expect(screen.queryByRole('button', { name: 'Actions for Standup' })).toBeNull()
+    for (const drag of screen.getAllByRole('button', { name: 'Drag Standup', hidden: true })) {
+      expect(drag.hasAttribute('disabled')).toBe(true)
+    }
   })
 })

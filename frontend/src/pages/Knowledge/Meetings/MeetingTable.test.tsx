@@ -11,12 +11,13 @@ import { MemoryRouter } from 'react-router'
 // Redux
 import { createAppStore } from '../../../store'
 import { meetingsLoaded } from '../../../store/meetingsSlice'
+import { projectsLoaded } from '../../../store/projectsSlice'
 
 // User interface
 import { MeetingTable } from './MeetingTable'
 
 // Misc
-import { makeMeeting } from '../../../testFixtures'
+import { makeMeeting, makeProject } from '../../../testFixtures'
 
 // Retrying is the network boundary; toasts are watched for what they say.
 const routes = vi.hoisted(() => ({
@@ -94,6 +95,22 @@ describe('MeetingTable', () => {
     expect(title?.getAttribute('target')).toBeNull()
     const source = screen.getByRole('link', { name: 'Fireflies' })
     expect(source.getAttribute('href')).toBe('/settings/connectors/connector-1')
+  })
+
+  it('names the projects a meeting\'s topics are on, leaving out one deleted since', () => {
+    const store = createAppStore()
+    store.dispatch(projectsLoaded([
+      makeProject({ id: 'launch', name: 'Launch' }),
+      makeProject({ id: 'billing', name: 'Billing' }),
+    ]))
+    const meeting = makeMeeting({ id: 'planning', projectIds: [ 'launch', 'gone', 'billing' ]})
+    render(<Provider store={store}>
+      <MemoryRouter>
+        <MeetingTable meetings={[ meeting ]} controlsContainer={null} emptyNotice={<p>No meetings</p>} />
+      </MemoryRouter>
+    </Provider>)
+
+    expect(screen.getByText('Launch, Billing')).toBeTruthy()
   })
 
   it('says under its state that a meeting\'s run waits for the person\'s approval', () => {

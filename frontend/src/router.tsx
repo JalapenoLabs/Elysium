@@ -100,6 +100,7 @@ import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/New
 import { LearningPage } from './pages/Knowledge/Learnings/LearningPage'
 import { LearningRedirect } from './pages/Knowledge/Learnings/LearningRedirect'
 import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
+import { KnowledgeMeetingsPage } from './pages/Knowledge/Meetings/KnowledgeMeetingsPage'
 import { MeetingPage } from './pages/Knowledge/Meetings/MeetingPage'
 import { MeetingRedirect } from './pages/Knowledge/Meetings/MeetingRedirect'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
@@ -303,6 +304,10 @@ export const workspaceRoutes: RouteObject = {
         {
           path: UrlTree.knowledgeLabel,
           element: <KnowledgeLabelPage />,
+        },
+        {
+          path: UrlTree.knowledgeMeetings,
+          element: <KnowledgeMeetingsPage />,
         },
         {
           path: UrlTree.knowledgeMeeting,

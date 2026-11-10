@@ -177,7 +177,8 @@
       "keepEditing": "Keep editing",
       "seeAgain": "See what changed",
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
-    }
+    },
+    "meetingsGroup": "Meetings"
   },
   "projectLinks": {
     "label": "Projects",

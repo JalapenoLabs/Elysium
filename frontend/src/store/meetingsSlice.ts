@@ -6,9 +6,11 @@ import type { RootState } from './index'
 // Core
 import { createEntityAdapter, createSlice } from '@reduxjs/toolkit'
 
-// Newest first, as the meetings list shows them.
+// Newest first, as the API lists them: the later id first between two that started together, so
+// two never tie, in the Meetings list or as siblings in the tree.
 const meetingsAdapter = createEntityAdapter<Meeting>({
-  sortComparer: (first, second) => second.startedAt.localeCompare(first.startedAt),
+  sortComparer: (first, second) => second.startedAt.localeCompare(first.startedAt)
+    || second.id.localeCompare(first.id),
 })
 
 export const meetingsSlice = createSlice({

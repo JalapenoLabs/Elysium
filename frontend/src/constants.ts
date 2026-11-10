@@ -149,6 +149,11 @@ export const PAGE_TREE_STORAGE_KEY = 'elysium.pageTree.v1'
 // What a page dragged in the tree carries, so a drop only ever means a page moving.
 export const PAGE_DRAG_TYPE = 'application/vnd.elysium.page'
 
+// The page every meeting is listed under, as the API seeds it (`MEETINGS_PAGE_ID` in
+// api/src/models/page.rs). Meetings are no pages: the tree lists the person's under it, and the
+// page itself opens as the Meetings list.
+export const MEETINGS_PAGE_ID = '00000000-0000-0000-0001-000000000004'
+
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300
 

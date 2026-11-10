@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CsvValue, DataTableAction } from '@jalapenolabs/uikit'
+import type { CsvValue, DataTableAction, SmartTableFilters } from '@jalapenolabs/uikit'
 import type { ReactNode } from 'react'
 import type { Meeting } from '../../../api/routes/meetingRoutes'
 
@@ -9,14 +9,15 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { useAppDispatch } from '../../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { meetingUpserted } from '../../../store/meetingsSlice'
+import { selectProjectEntities } from '../../../store/projectsSlice'
 
 // User interface
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { LuRotateCcw } from 'react-icons/lu'
-import { ConnectorLogo } from '../Connectors/ConnectorLogo'
+import { ConnectorLogo } from '../../Settings/Connectors/ConnectorLogo'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
@@ -28,7 +29,7 @@ import { formatNumber } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { getConnectorUrl, getMeetingUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
-import { meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
+import { meetingStateChipColors, meetingStateLabelKeys } from '../../Settings/Meetings/meetingsPresentation'
 
 type Props = {
   // Newest first.
@@ -38,15 +39,18 @@ type Props = {
   // Said in place of the rows when there are none. The table itself stays, so its controls
   // stay in the titlebar too.
   emptyNotice: ReactNode
+  // The page's filters, which it applies itself; the table draws their drawer and tags.
+  filters?: SmartTableFilters<Meeting>
 }
 
-const MEETING_COLUMN_KEYS = [ 'meeting', 'source', 'state', 'started', 'duration', 'topics' ] as const
+const MEETING_COLUMN_KEYS = [ 'meeting', 'source', 'state', 'projects', 'started', 'duration', 'topics' ] as const
 type MeetingColumnKey = typeof MEETING_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   meeting: 'table.meeting',
   source: 'table.source',
   state: 'table.state',
+  projects: 'table.projects',
   started: 'table.started',
   duration: 'table.duration',
   topics: 'table.topics',
@@ -57,6 +61,7 @@ const columnSizes = {
   meeting: 240,
   source: 140,
   state: 220,
+  projects: 180,
   started: 130,
   duration: 120,
   topics: 100,
@@ -65,20 +70,32 @@ const columnSizes = {
 // uikit holds a column to 160 pixels unless it sets its own floor, and most of these need less.
 const COLUMN_MIN_SIZE = 100
 
-// The person's recent meetings in a table: each one's title (opening its page, with its
-// transcript and corrections), the source it came from, how far its processing got and why it
-// failed or what it waits for, when it was, how long it ran, and how many topics Elysia found.
-// A failed one can be tried again from its row. A click on a row expands it, which is how a
-// long failure reads in full; its title is the link.
+// The person's meetings in a table: each one's title (opening its page, with its transcript and
+// corrections), the source it came from, how far its processing got and why it failed or what it
+// waits for, the projects its topics are on, when it was, how long it ran, and how many topics
+// Elysia found. A failed one can be tried again from its row. A click on a row expands it, which is
+// how a long failure reads in full; its title is the link.
 export function MeetingTable(props: Props) {
   const { t, i18n } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const labels = useSmartTableLabels()
+  const projectsById = useAppSelector(selectProjectEntities)
   const hasMeetings = props.meetings.length > 0
 
   const managedColumns = useMemo(() => {
     function titleText(meeting: Meeting) {
       return meeting.title || t('list.untitled')
+    }
+    // A project deleted since the meetings loaded names nothing, so it is left out.
+    function projectsText(meeting: Meeting) {
+      const names: string[] = []
+      for (const projectId of meeting.projectIds) {
+        const project = projectsById[projectId]
+        if (project) {
+          names.push(project.name)
+        }
+      }
+      return names.join(', ')
     }
     function sourceText(meeting: Meeting) {
       return t(`connectors:kinds.${meeting.sourceKind}.name`)
@@ -143,6 +160,7 @@ export function MeetingTable(props: Props) {
           {note && <div className={`mt-1 text-xs ${noteTone}`}>{note}</div>}
         </div>
       },
+      projects: projectsText,
       started: (meeting: Meeting) => <DateText value={meeting.startedAt} isFocusable={false} />,
       duration: durationText,
       topics: topicsText,
@@ -153,6 +171,7 @@ export function MeetingTable(props: Props) {
       meeting: titleText,
       source: sourceText,
       state: (meeting: Meeting) => `${stateText(meeting)} ${stateNote(meeting)}`,
+      projects: projectsText,
       started: (meeting: Meeting) => formatDateTime(meeting.startedAt),
       duration: durationText,
       topics: topicsText,
@@ -164,6 +183,7 @@ export function MeetingTable(props: Props) {
       meeting: (meeting: Meeting) => titleText(meeting).toLocaleLowerCase(i18n.language),
       source: (meeting: Meeting) => sourceText(meeting).toLocaleLowerCase(i18n.language),
       state: (meeting: Meeting) => MEETING_STATES.indexOf(meeting.state),
+      projects: (meeting: Meeting) => projectsText(meeting).toLocaleLowerCase(i18n.language),
       started: (meeting: Meeting) => Date.parse(meeting.startedAt),
       duration: (meeting: Meeting) => meeting.durationMs ?? Number.POSITIVE_INFINITY,
       topics: (meeting: Meeting) => meeting.segmentCount ?? Number.POSITIVE_INFINITY,
@@ -175,6 +195,7 @@ export function MeetingTable(props: Props) {
       meeting: titleText,
       source: sourceText,
       state: stateText,
+      projects: projectsText,
       started: (meeting: Meeting) => meeting.startedAt,
       duration: durationText,
       topics: (meeting: Meeting) => meeting.segmentCount,
@@ -195,7 +216,7 @@ export function MeetingTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, i18n.language ])
+  }, [ t, i18n.language, projectsById ])
 
   // A failed meeting resumes from the step it failed at. The promise spins the button until the
   // API answers.
@@ -221,17 +242,18 @@ export function MeetingTable(props: Props) {
     <SmartTable
       ids={{
         tableElementId: 'meetings-table',
-        tableLocalStorageId: 'elysium.settings.meetings.table.v1',
+        tableLocalStorageId: 'elysium.knowledge.meetings.table.v1',
       }}
       className={hasMeetings
         ? undefined
         : 'hidden'}
-      tableAriaLabel={t('tabs.meetings')}
+      tableAriaLabel={t('title')}
       data={props.meetings}
       managedColumns={managedColumns}
       getRowId={(meeting) => meeting.id}
       labels={labels}
       controls={{ container: props.controlsContainer }}
+      filters={props.filters}
       rowActions={rowActions}
       csvExport={{ fileName: 'meetings' }}
       pagination={{ show: true }}

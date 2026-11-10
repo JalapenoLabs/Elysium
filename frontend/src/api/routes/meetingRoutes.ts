@@ -51,6 +51,9 @@ export type Meeting = {
   runId: string | null
   // Whether that run is held, waiting for its person to approve the corrected transcript.
   awaitingApproval: boolean
+  // The projects its topics are on: where the tree lists it beside its home under Meetings, and
+  // what the Meetings page filters it by.
+  projectIds: string[]
   createdAt: string
   updatedAt: string
 }

@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { makePageSummary } from '../../../testFixtures'
+import { MEETINGS_PAGE_ID } from '../../../constants'
+import { makeMeeting, makePageSummary } from '../../../testFixtures'
 import {
   buildPageTree,
   collectLabelsInUse,
@@ -17,7 +18,69 @@ import {
   findSiblingsBesides,
   isPageUnder,
   listPageDestinations,
+  withMeetingEntries,
 } from './pageTree'
+
+describe('withMeetingEntries', () => {
+  const pages = buildPageTree([
+    makePageSummary({ id: MEETINGS_PAGE_ID, title: 'Meetings', fixed: true }),
+    makePageSummary({ id: 'briefs', title: 'Project briefs', fixed: true }),
+    makePageSummary({ id: 'launch-brief', parentId: 'briefs', title: 'Launch brief', briefProjectId: 'launch' }),
+    makePageSummary({ id: 'billing-brief', parentId: 'briefs', title: 'Billing brief', briefProjectId: 'billing' }),
+  ])
+  // Newest first, as the meetings slice holds them.
+  const meetings = [
+    makeMeeting({ id: 'standup', title: 'Standup', projectIds: [ 'launch', 'billing' ]}),
+    makeMeeting({ id: 'one-to-one', title: 'One to one', projectIds: []}),
+    makeMeeting({ id: 'retro', title: 'Retro', projectIds: [ 'launch' ]}),
+  ]
+
+  it('lists every meeting at its home under Meetings, on a project or not, in their order', () => {
+    const tree = withMeetingEntries(pages, meetings)
+
+    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID) ?? []
+    expect(homes.map((entry) => entry.meetingId)).toEqual([ 'standup', 'one-to-one', 'retro' ])
+  })
+
+  it('groups each project\'s meetings under its brief, a meeting on two projects in both', () => {
+    const tree = withMeetingEntries(pages, meetings)
+
+    const launch = tree.meetingGroupsByPage.get('launch-brief')
+    expect(launch?.projectId).toBe('launch')
+    expect(launch?.entries.map((entry) => entry.meetingId)).toEqual([ 'standup', 'retro' ])
+    const billing = tree.meetingGroupsByPage.get('billing-brief')
+    expect(billing?.entries.map((entry) => entry.meetingId)).toEqual([ 'standup' ])
+    // The same meeting is several rows of one tree, so no two share a key.
+    const keys = [
+      ...(tree.meetingsByPage.get(MEETINGS_PAGE_ID) ?? []),
+      ...(launch?.entries ?? []),
+      ...(billing?.entries ?? []),
+    ].map((entry) => entry.key)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('gives a project with no brief in the tree no group, and a project with no meeting none', () => {
+    const tree = withMeetingEntries(pages, [ makeMeeting({ id: 'elsewhere', projectIds: [ 'deleted' ]}) ])
+
+    expect([ ...tree.meetingGroupsByPage.keys() ]).toEqual([])
+  })
+
+  it('lists no meeting while the tree has no Meetings page to hold them', () => {
+    const tree = withMeetingEntries(buildPageTree([]), meetings)
+
+    expect(tree.meetingsByPage.size).toBe(0)
+  })
+
+  it('keeps the pages as they are, and a filter narrows pages alone', () => {
+    const tree = withMeetingEntries(pages, meetings)
+    expect(tree.byId).toBe(pages.byId)
+
+    const filtered = filterPageTree(tree, { label: null, title: 'launch' })
+    expect([ ...filtered.byId.keys() ]).toEqual([ 'briefs', 'launch-brief' ])
+    expect(filtered.meetingsByPage.size).toBe(0)
+    expect(filtered.meetingGroupsByPage.size).toBe(0)
+  })
+})
 
 describe('buildPageTree', () => {
   it('keeps each page under its parent, in the order it arrived', () => {

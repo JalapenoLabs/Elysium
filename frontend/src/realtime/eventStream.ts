@@ -364,14 +364,22 @@ const handlers: Handlers = {
   },
   // A record moved between projects, or its history grew: it is loaded by id, so a project it
   // left stops listing it, and the timeline's pages and histories that are open reload, so
-  // their totals and entries follow.
+  // their totals and entries follow. A meeting's topic moving changes the projects its meeting is
+  // on, so the meeting loads too, and the tree's Meetings groups follow.
   'timelineRecord.changed': (event) => {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
     getTimelineRecord(event.data.id)
-      .then((response) => store.dispatch(timelineRecordUpserted(response.record)))
-      .catch((error: unknown) => console.debug('A changed record could not be loaded', {
+      .then(async (response) => {
+        store.dispatch(timelineRecordUpserted(response.record))
+        const meetingId = response.record.media?.meetingId
+        if (meetingId) {
+          const meeting = await getMeeting(meetingId)
+          store.dispatch(meetingUpserted(meeting.meeting))
+        }
+      })
+      .catch((error: unknown) => console.debug('A changed record, or its meeting, could not be loaded', {
         error,
         recordId: event.data.id,
       }))

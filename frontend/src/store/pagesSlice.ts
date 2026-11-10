@@ -7,8 +7,11 @@ import type { RootState } from './index'
 // Core
 import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
+// Redux
+import { selectAllMeetings } from './meetingsSlice'
+
 // Misc
-import { buildPageTree, collectLabelsInUse } from '../pages/Knowledge/Pages/pageTree'
+import { buildPageTree, collectLabelsInUse, withMeetingEntries } from '../pages/Knowledge/Pages/pageTree'
 
 // In order among siblings, as the API lists them, so nesting them keeps that order.
 const summariesAdapter = createEntityAdapter<KnowledgePageSummary>({
@@ -62,6 +65,10 @@ const { selectAll: selectPageSummaries } = summariesAdapter.getSelectors(
 )
 
 export const selectPageTree = createSelector([ selectPageSummaries ], buildPageTree)
+
+// The tree as the Knowledge area's panel draws it, with the reader's meetings in it. Everything that
+// only reads pages, a breadcrumb or a picker, keeps `selectPageTree`.
+export const selectKnowledgeTree = createSelector([ selectPageTree, selectAllMeetings ], withMeetingEntries)
 
 // Every label on a live page, which suggestions and filters offer.
 export const selectLabelsInUse = createSelector([ selectPageSummaries ], collectLabelsInUse)

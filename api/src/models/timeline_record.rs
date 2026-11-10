@@ -19,8 +19,10 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
+use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::database::schema::{timeline_record_projects, timeline_records};
@@ -482,6 +484,48 @@ pub async fn of_meeting(
         limit: i64::try_from(MAX_SEGMENTS).expect("a meeting's segments are few"),
     };
     list(connection, query).await
+}
+
+/// The projects each of `meeting_ids` has a topic on: every project one of its segments' records is
+/// attributed to, once each, in the order of their ids. A meeting with no topic on a project has no
+/// entry. A segment's record is its meeting's owner's, so this reads nobody else's.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn projects_of_meetings(
+    connection: &mut AsyncPgConnection,
+    meeting_ids: &[Uuid],
+) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
+    let keys: Vec<String> = meeting_ids.iter().map(Uuid::to_string).collect();
+    // Spelled exactly as the index `timeline_records_meeting_segments` is, so the planner matches
+    // it in every plan it caches; a key bound as a parameter is a different expression to it.
+    let meeting_key = diesel::dsl::sql::<Text>("timeline_records.metadata ->> 'meetingId'");
+    let rows: Vec<(String, Uuid)> = timeline_records::table
+        .inner_join(timeline_record_projects::table)
+        .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
+        .filter(meeting_key.clone().eq_any(&keys))
+        .select((meeting_key, timeline_record_projects::project_id))
+        .distinct()
+        .order_by(timeline_record_projects::project_id.asc())
+        .load(connection)
+        .await?;
+
+    let mut by_meeting: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (key, project_id) in rows {
+        // Every segment's record is written with its meeting's id; a key that is not one names no
+        // meeting asked for.
+        let Ok(meeting_id) = Uuid::parse_str(&key) else {
+            event!(
+                name: "timeline.segment.meeting_id_unreadable",
+                Level::WARN,
+                project.id = %project_id,
+                "a segment record names a meeting by an id that does not read; it is left out",
+            );
+            continue;
+        };
+        by_meeting.entry(meeting_id).or_default().push(project_id);
+    }
+    Ok(by_meeting)
 }
 
 /// How many records `query` matches across every page, ignoring `before` and `limit`.

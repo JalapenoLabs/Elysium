@@ -556,6 +556,7 @@ export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): 
     correction: null,
     runId: null,
     awaitingApproval: false,
+    projectIds: [],
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,

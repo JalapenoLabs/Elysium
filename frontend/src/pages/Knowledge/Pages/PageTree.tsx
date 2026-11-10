@@ -21,14 +21,18 @@ import {
   TreeContext,
   useDragAndDrop,
 } from 'react-aria-components'
-import { LuChevronRight, LuGripVertical, LuLock } from 'react-icons/lu'
+import { LuGripVertical, LuLock } from 'react-icons/lu'
+import { MeetingGroupTreeItem } from './MeetingGroupTreeItem'
+import { MeetingTreeItem } from './MeetingTreeItem'
 import { MovePageModal } from './MovePageModal'
 import { PageRowActions } from './PageRowActions'
+import { PageTreeChevron } from './PageTreeChevron'
 
 // Misc
 import { PAGE_DRAG_TYPE } from '../../../constants'
-import { getKnowledgePageUrl } from '../../../urls'
+import { getKnowledgePageUrl, pageAddressById } from '../../../urls'
 import { findDropPlacement } from './pageTree'
+import { TREE_ROW_CLASS_NAME, TREE_ROW_CONTENT_CLASS_NAME } from './pageTreeRow'
 import { usePageActions } from './usePageActions'
 
 type Props = {
@@ -49,19 +53,6 @@ type ItemProps = Pick<Props, 'tree' | 'onNavigate'> & {
   onDelete: (page: KnowledgePageSummary) => void
 }
 
-// Hovering fills a row neutrally and the current page is accent-colored, so the two never look
-// alike (`~/.claude/docs/ux.md`, Navigation). A row a drag would drop on takes the accent outright,
-// and the row being dragged fades, so both read whatever the row was showing.
-const ROW_CLASS_NAME = [
-  'group/page-row relative rounded-md text-sm text-foreground/80 outline-none',
-  'transition-colors duration-150 motion-reduce:transition-none',
-  'not-data-current:hover:bg-default not-data-current:hover:text-foreground',
-  'data-current:bg-accent/15 data-current:font-medium data-current:text-accent',
-  'data-focus-visible:ring-2 data-focus-visible:ring-focus data-focus-visible:ring-inset',
-  'data-dragging:opacity-50',
-  'data-drop-target:bg-accent/30 data-drop-target:ring-2 data-drop-target:ring-accent data-drop-target:ring-inset',
-].join(' ')
-
 // Shown over a row's end only when it is wanted, so a title keeps the panel's width the rest of the
 // time. Fading rather than hiding keeps every control in the tab order. A touch screen has no hover,
 // so its menu always shows.
@@ -77,7 +68,7 @@ const ROW_CONTROLS_CLASS_NAME = [
 // branch costs React Aria's walk over what shows rather than a render of every page. A row's menu
 // and lock are most of what it costs to draw, and show only under a mouse or with focus in the row,
 // so they mount on the first of those; a touch screen, which has no hover and always shows the
-// menu, mounts them with the row.
+// menu, mounts them with the row. The meetings listed under a page follow its child pages.
 const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
   const { page, tree, onNavigate, onMove, onDelete } = props
   const { t } = useTranslation('knowledge')
@@ -85,42 +76,19 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
   // Never in the event itself. Tab out of the tree focuses its last control so the browser moves on
   // from there, and a menu mounted in that focus would be where the browser moved on to.
   const showControls = () => startTransition(() => setHasControls(true))
+  const meetingGroup = tree.meetingGroupsByPage.get(page.id)
 
   return <NavigationTreeItem
     id={page.id}
-    href={getKnowledgePageUrl(page.id)}
+    href={pageAddressById[page.id] ?? getKnowledgePageUrl(page.id)}
     textValue={page.title}
-    className={ROW_CLASS_NAME}
+    className={TREE_ROW_CLASS_NAME}
     onHoverStart={showControls}
   >
     <NavigationTreeItemContent>{
-      (row) => <div
-        onFocus={showControls}
-        className={[
-          'flex min-w-0 items-center gap-0.5 py-0.5 pr-2',
-          // React Aria names the row's depth; past eight levels a row stops indenting, so a deep
-          // page's title keeps room in the panel.
-          'pl-[calc((min(var(--tree-item-level),8)-1)*0.875rem)]',
-        ].join(' ')}
-      >
+      (row) => <div onFocus={showControls} className={TREE_ROW_CONTENT_CLASS_NAME}>
         {row.hasChildItems
-          ? <Button
-            slot='chevron'
-            className={[
-              'grid size-6 shrink-0 cursor-default place-items-center rounded outline-none',
-              'hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-focus',
-            ].join(' ')}
-          >
-            <LuChevronRight
-              aria-hidden
-              className={[
-                'size-3.5 transition-transform duration-150 motion-reduce:transition-none',
-                row.isExpanded
-                  ? 'rotate-90'
-                  : 'rotate-0',
-              ].join(' ')}
-            />
-          </Button>
+          ? <PageTreeChevron isExpanded={row.isExpanded} />
           : <span aria-hidden className='size-6 shrink-0' />}
         {/* The row's real link: `NavigationTreeItem` hands it the address and `aria-current`. */}
         <Link onPress={onNavigate} className={[
@@ -180,6 +148,12 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
       onMove={onMove}
       onDelete={onDelete}
     />)}
+    {tree.meetingsByPage.get(page.id)?.map((entry) => <MeetingTreeItem
+      key={entry.key}
+      entry={entry}
+      onNavigate={onNavigate}
+    />)}
+    {meetingGroup && <MeetingGroupTreeItem group={meetingGroup} onNavigate={onNavigate} />}
   </NavigationTreeItem>
 })
 
@@ -201,7 +175,8 @@ function renderDropIndicator(target: DropTarget) {
 // `KnowledgeFrame`. React Aria's `NavigationTree` gives it a tree's arrow keys and scrolling the
 // current page into view, and its drag and drop reorders and moves pages by pointer and by keyboard,
 // refusing a target under the page being dragged. Dragging can't happen everywhere, so each row's
-// menu offers the same move with a picker.
+// menu offers the same move with a picker. The reader's meetings sit in it too, under Meetings and in
+// each brief's Meetings group, as links that move nowhere.
 export function PageTree(props: Props) {
   const { t } = useTranslation('knowledge')
   const { pathname } = useLocation()
@@ -238,6 +213,14 @@ export function PageTree(props: Props) {
     }),
     getAllowedDropOperations: () => [ 'move' ],
     acceptedDragTypes: [ PAGE_DRAG_TYPE ],
+    // A meeting and a Meetings group are no pages: nothing lands on, before, or after one, since
+    // where a page goes is named by a page.
+    getDropOperation: (target) => {
+      if (target.type === 'item' && !props.tree.byId.has(String(target.key))) {
+        return 'cancel'
+      }
+      return 'move'
+    },
     renderDragPreview,
     renderDropIndicator,
     onMove: (event) => {
