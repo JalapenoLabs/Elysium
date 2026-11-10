@@ -285,6 +285,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/learnings/:learningId/edit` | `LearningPage` | One learning, corrected in place, with its history and Undo |
 | `/knowledge/documents/:documentId` | `KnowledgeDocumentPage` | One document whole, as every citation opens it; `?passage=` scrolls to one |
 | `/knowledge/labels/:label`    | `KnowledgeLabelPage`     | Every live page carrying a label, as a table             |
+| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane) and its topics, as tabs in `?tab=` |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -327,7 +328,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
-| `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its topics and their projects, and its transcript beside its corrections, as tabs in `?tab=`; Approve and its hold |
+| `/settings/meetings/:meetingId` | redirect             | To `/knowledge/meetings/:meetingId`, keeping its query   |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
 | `/settings/agent-guidance`    | `AgentGuidancePage`      | What every connected agent reads, edited by admins, with its rules, CLAUDE.md block, and versions; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
@@ -501,6 +502,8 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
+| E, Tab, Esc     | A meeting's page, outside fields     | Edit the words selected, move between the marks under the word clicked, clear what is picked (see Meetings) |
+| Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
 
 - **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
   default), or, for a list that is not only a table, `ListSearchField`, whose table hides its own search
@@ -945,6 +948,21 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 - **A label's page** (`KnowledgeLabelPage`) is a `SmartTable` of the live pages carrying it, read from the tree: each
   page's link, where it sits, its other labels, and when it last changed, with search, sorting, and export in the
   titlebar. A label nothing carries any more says so, since a link to it may outlive it.
+
+### Meetings
+
+`src/pages/Knowledge/Meetings/` is a meeting's page in the knowledge base (`docs/meetings.md`, In the web app, and
+`docs/meeting-review.md`, The meeting's page).
+
+- **Data.** The transcript (`useMeetingWords`) and the history (`useMeetingHistory`) are read through SWR alone, since
+  no other view shows them, and `meeting.changed` revalidates both. An edit or an undo answers what it did, which the
+  page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again.
+- **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
+  paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
+  confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
+- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc, Ctrl+Z,
+  and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a level over a selection. The editor's Esc
+  and Ctrl+Enter are its form's (`submitOnEnter`).
 
 ### Markdown
 

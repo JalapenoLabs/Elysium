@@ -325,6 +325,11 @@ Everything else follows these rules:
   marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to
   a meeting is in its history (`meeting_events`) with who made it, and undoable (`meetings::history`). See
   `docs/meetings.md`, The final transcript, and History.
+- A meeting's page is in the knowledge base (`/knowledge/meetings/:meetingId`): its final transcript with every mark
+  drawn over it beside a lane of options, the mark selected, and its history. Whole words are selected and edited in
+  place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
+  Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
+  app.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is

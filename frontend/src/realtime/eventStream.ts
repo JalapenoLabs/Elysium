@@ -69,7 +69,7 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting } from '../api/routes/meetingRoutes'
+import { getMeeting, meetingHistoryKey, meetingWordsKey } from '../api/routes/meetingRoutes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { projectFindingsKey } from '../api/routes/findingRoutes'
@@ -394,11 +394,14 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id.
+  // meeting is loaded by id, and its page's transcript and history, read only while it is open,
+  // are read again.
   'meeting.changed': (event) => {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
+    void mutate(meetingWordsKey(event.data.id))
+    void mutate(meetingHistoryKey(event.data.id))
     getMeeting(event.data.id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))
       .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {

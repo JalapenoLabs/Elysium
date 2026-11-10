@@ -48,15 +48,10 @@
     "released": "This meeting no longer waits for your approval",
     "correctedMeanwhile": "This meeting was just corrected. Review its transcript and approve it.",
     "tabs": {
-      "label": "Its topics and transcript",
-      "topics": "Topics",
-      "transcript": "Transcript"
-    },
-    "diffLabel": "Corrections to the transcript",
-    "foldedLines_one": "{{count, compact}} unchanged line",
-    "foldedLines_other": "{{count, compact}} unchanged lines",
-    "nothingChanged": "Nothing needed correcting.",
-    "nothingHeard": "Nothing was heard in this meeting."
+      "label": "Its review and topics",
+      "review": "Review",
+      "topics": "Topics"
+    }
   },
   "correction": {
     "status": {
@@ -76,6 +71,88 @@
   },
   "review": {
     "heading": "Meeting",
-    "open": "Review the transcript"
+    "open": "Review the transcript",
+    "loadError": "Its transcript could not be loaded.",
+    "notBuilt": "The transcript is ready once the meeting is corrected.",
+    "noSpeaker": "Unknown speaker",
+    "transcriptLabel": "Transcript",
+    "captureEmpty": "Nothing was heard in this capture.",
+    "captureFromWhisper": "Its source sent no transcript, so this is what Whisper heard.",
+    "edited": "Transcript edited",
+    "undone": "Change undone",
+    "undo": "Undo",
+    "undoEdit": "Undo this edit",
+    "changedSince": "That changed again since, so it stays.",
+    "wordsChanged": "Those words changed meanwhile. The transcript is up to date again; try once more.",
+    "nothingToUndo": "Nothing to undo yet",
+    "marks": {
+      "confidence": "Confidence",
+      "edit": "Edit",
+      "excerpt": "Excerpt",
+      "blackOut": "Black-out",
+      "comment": "Comment"
+    },
+    "bar": {
+      "label": "What to do with the words selected",
+      "marks": "Marks here",
+      "selectFromHere": "Select from here",
+      "tapToEnd": "Tap where it ends",
+      "edit": "Edit",
+      "clear": "Clear the selection",
+      "clearHint": "Clear the selection (Esc)"
+    },
+    "editor": {
+      "alternatives": "It might be:",
+      "label": "What these words should say",
+      "hint": "Ctrl+Enter applies, Esc leaves them as they were.",
+      "cancel": "Cancel",
+      "apply": "Apply"
+    },
+    "options": {
+      "label": "Options",
+      "title": "Options",
+      "open": "Options",
+      "close": "Back to the transcript",
+      "transcript": "Transcript",
+      "final": "Final",
+      "marks": "Marks",
+      "selected": "Selected",
+      "nothingSelected": "Nothing selected",
+      "span_one": "{{start}} to {{end}}, {{length}}, {{words}} word",
+      "span_other": "{{start}} to {{end}}, {{length}}, {{words}} words",
+      "moment": "At {{at}}"
+    },
+    "detail": {
+      "byPerson": "By {{name}}",
+      "byAgent": "By {{name}}, an agent",
+      "byUnnamedAgent": "By an agent",
+      "unnamedAgent": "An agent",
+      "span": "{{start}} to {{end}}",
+      "confidence": "{{confidence}}% sure",
+      "alternatives": "It might be:",
+      "unknownProject": "A project you cannot see",
+      "replaced": "Replaced “{{before}}”"
+    },
+    "history": {
+      "title": "Changes",
+      "loadError": "Its changes could not be loaded.",
+      "empty": "No changes yet",
+      "showAll_one": "Show all {{count, compact}} change",
+      "showAll_other": "Show all {{count, compact}} changes",
+      "unknownKind": "Mark",
+      "sentences": {
+        "builtFromCorrection": "Built the transcript from its corrected copy",
+        "builtFromSource": "Built the transcript from its source's transcript",
+        "builtFromWhisper": "Built the transcript from what Whisper heard",
+        "edited": "Changed “{{before}}” to “{{after}}”",
+        "undidEdit": "Undid an edit, putting “{{after}}” back",
+        "marked": "Added a mark: {{kind}}",
+        "unmarked": "Removed a mark: {{kind}}",
+        "held": "Held the meeting for approval",
+        "released": "Stopped holding the meeting for approval",
+        "approved": "Approved the corrected transcript",
+        "changed": "Changed the meeting"
+      }
+    }
   }
 }

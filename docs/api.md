@@ -38,7 +38,11 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest; `reviewItemId` keeps the one an inbox item asks to review |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
-| GET    | `/api/v1/meetings/{id}/transcript`    | `200` `{ original, corrected }`: the transcript as heard and its corrected copy, line for line |
+| GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures |
+| GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
+| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile |
+| GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
+| POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -422,10 +426,21 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
-connector was removed. Its transcript is served to its owner alone by `GET /meetings/{id}/transcript`: `original` is
-`{ basedOn, lines }`, the transcript the copy follows (`source`, or `whisper` when the source sent no lines), or `null`
-while nothing was heard; `corrected` is `{ lines, changedLines, approvedAt, approvedBy }`, or `null` before it is
-corrected; each line is `{ startMs, endMs, speaker, text }`. See `docs/meetings.md`, Correction.
+connector was removed.
+
+Every meeting route answers the meeting's owner alone, `404` for anyone else, until meetings are public by default
+(`docs/meeting-review.md`, Who sees a meeting). `GET /meetings/{id}/words` reads one snapshot: `words` are its final
+transcript's standing words in order, each `{ id, position, text, speaker, startMs, endMs, origin, captureId }`, empty
+until it is built; `marks` are its standing marks, each `{ id, kind, startWordId, endWordId, data, createdBy, agent,
+createdAt }`, with `agent` `{ id, name }` or `null`; `captures` are `{ id, connectorId, sourceKind, url, offsetMs,
+hasRecording }`, first first. `GET .../captures/{captureId}/transcript` answers `{ basedOn, lines }` (`source`, or
+`whisper` when the source sent no lines), each line `{ startMs, endMs, speaker, text }` moved by the capture's offset,
+or `null` while nothing was heard. An edit takes `{ startWordId, endWordId, text }`: `400` with `meeting_edit_empty`
+for text with no words, `meeting_edit_too_long` past 20,000 characters, or a range that ends before it starts. An edit
+and an undo answer `entry`, the history entry, and `change`, what it did to the transcript: `{ removedWordIds, words,
+marks }`, the words it took out, those it stood in their place, and every mark as it now stands, for the page to apply
+without reading the transcript again. A history entry is `{ id, kind, createdBy, agent, data, undid, createdAt }`,
+`undid` naming the entry an undo undid. See `docs/meetings.md`, The final transcript and History.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,

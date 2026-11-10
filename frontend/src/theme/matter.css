@@ -82,6 +82,15 @@
   --code-number: #8a6f12;
   --code-title: #a3467a;
   --code-type: #2f7a78;
+
+  /* Marks on a meeting's transcript (docs/meeting-review.md, Marks): an edit purple, an
+     excerpt blue, a black-out black. A comment is outlined white on the dark page, which on
+     white would vanish, so here it is the foreground's ink. */
+  --mark-edit: #8a4fd6;
+  --mark-excerpt: #267fb5;
+  --mark-black-out: #14191f;
+  --mark-black-out-edge: #14191f;
+  --mark-comment: #3d4a5c;
 }
 
 [data-theme='dark'] {
@@ -157,6 +166,13 @@
   --code-number: #e2c15a;
   --code-title: #f28ac4;
   --code-type: #5fd0c8;
+
+  --mark-edit: #b48cff;
+  --mark-excerpt: #4cbbff;
+  --mark-black-out: #000000;
+  /* Black on Matter's near-black page needs an edge to read as a box. */
+  --mark-black-out-edge: #3a4554;
+  --mark-comment: #ffffff;
 }
 
 /* Field shape for both themes: rounder, taller, and flat, in the manner of HeroUI v2's
