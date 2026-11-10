@@ -494,6 +494,9 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 
 ## Roadmap
 
+- Meetings as reviewed documents in the knowledge base: captures from several sources and uploads, one final
+  transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
+  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
 - Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
   (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
   signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in

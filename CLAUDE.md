@@ -12,6 +12,7 @@ Rooms, where people's Claude Code sessions work together, are designed in `docs/
 Activity, the full investigable log of every agent session, is designed in `docs/activity.md`.
 Self-improvement (learning from feedback, self-healing connectors) is designed in `docs/self-improvement.md`.
 Autonomy (issue intake, proposed batches, the trust dial, findings) is designed in `docs/autonomy.md`.
+Meeting review (captures, the final transcript, excerpts, black-outs, uploads) is designed in `docs/meeting-review.md`.
 
 - Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
   latest release, and never contributes to it.
