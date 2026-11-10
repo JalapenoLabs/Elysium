@@ -72,7 +72,7 @@ export function ProjectAutonomyField(props: Props) {
       PROJECT_AUTONOMY_LEVELS.map((level) => <Radio key={level} value={level} className='m-0'>
         <Radio.Content
           className={[
-            'flex h-full w-full cursor-pointer flex-col gap-1 rounded-xl border-2 border-separator p-3',
+            'flex h-full w-full cursor-pointer flex-col items-start gap-1 rounded-xl border-2 border-separator p-3',
             'transition-colors data-[hovered=true]:border-accent/40',
             'data-[selected=true]:border-accent data-[selected=true]:ring-4 data-[selected=true]:ring-accent/15',
             'data-[focus-visible=true]:ring-4 data-[focus-visible=true]:ring-accent/30',
