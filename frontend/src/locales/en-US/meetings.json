@@ -83,7 +83,7 @@
     "undo": "Undo",
     "undoEdit": "Undo this edit",
     "changedSince": "That changed again since, so it stays.",
-    "wordsChanged": "Those words changed meanwhile. The transcript is up to date again; try once more.",
+    "wordsChanged": "Those words changed meanwhile, so nothing was edited. The transcript shows them as they read now.",
     "nothingToUndo": "Nothing to undo yet",
     "marks": {
       "confidence": "Confidence",

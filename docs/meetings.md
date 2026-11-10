@@ -587,11 +587,12 @@ whose effect still stands is undone; one moved on since answers that it changed 
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
-    reading the transcript again. Words changed meanwhile keep the editor open and read the transcript again.
-  - **Every change is an action** (`useMeetingChanges`): it applies at once with Undo in its toast, and there is no Save.
-    The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last of
-    them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list every
-    change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
+    reading the transcript again. Words changed meanwhile make no edit and read the transcript again; any other
+    refusal keeps the editor open with what was typed.
+  - **Every change is an action** (`useMeetingChanges`): it applies at once with Undo in its toast, and there is no
+    Save. The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last
+    of them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list
+    every change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **The source's setting** is its connector's content form's switch, "Wait for my approval before acting on

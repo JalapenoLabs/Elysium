@@ -71,8 +71,8 @@ export function useMeetingChanges(options: Options) {
     }
     catch (error) {
       console.debug('useMeetingChanges could not edit words', { error, startWordId, endWordId })
-      // Someone changed those words meanwhile: the page reads them again, and the text typed
-      // stays in the editor to try once more.
+      // Someone changed those words meanwhile, so the page reads the transcript again and shows
+      // them as they stand; the words picked are gone, and the editor with them.
       if (getApiErrorCode(error) === 'meeting_words_changed') {
         options.reload()
         toast.warning(t('review.wordsChanged'))

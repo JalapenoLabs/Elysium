@@ -960,9 +960,9 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
-- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc, Ctrl+Z,
-  and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a level over a selection. The editor's Esc
-  and Ctrl+Enter are its form's (`submitOnEnter`).
+- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc,
+  Ctrl+Z, and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a level over a selection. The
+  editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
 
 ### Markdown
 
