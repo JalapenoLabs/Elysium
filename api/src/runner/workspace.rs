@@ -43,6 +43,7 @@ use bollard::query_parameters::{
     RemoveVolumeOptionsBuilder,
 };
 use futures_util::StreamExt;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
@@ -73,6 +74,8 @@ pub enum WorkspaceError {
     Detached,
     #[error("a workspace script took longer than {0} seconds")]
     ScriptTimeout(u64),
+    #[error("could not hand the process its standard input: {0}")]
+    StandardInput(std::io::Error),
 }
 
 /// One process to run in the workspace.
@@ -81,6 +84,12 @@ pub struct ExecCommand {
     pub argv: Vec<String>,
     pub environment: Vec<String>,
     pub user: &'static str,
+    /// Written to the process's standard input, which then closes. `None` attaches none.
+    ///
+    /// Anything long travels here rather than in `argv` or `environment`: Linux refuses any one
+    /// argument or variable longer than 128 KiB (`MAX_ARG_STRLEN`), and every process in the
+    /// container can read argv from `ps`.
+    pub standard_input: Option<String>,
 }
 
 /// What a short control script printed, and its exit status.
@@ -314,8 +323,15 @@ impl WorkspaceContainer {
     /// Runs `command`, sending each line it prints to `lines` as it arrives, and returns its
     /// exit status once it ends. A closed `lines` receiver does not stop the process.
     ///
+    /// Its standard input, when it has one, is written while its output is read rather than
+    /// before: a process that prints as it reads would otherwise fill its output buffer and stop
+    /// reading, and neither side would move.
+    ///
     /// # Errors
-    /// Propagates Docker's refusal to start the exec or a broken output stream.
+    /// Propagates Docker's refusal to start the exec or a broken output stream, and
+    /// [`WorkspaceError::StandardInput`] when its standard input could not be written whole, once
+    /// its output has ended: a process handed part of its input must not pass for one that read
+    /// it all.
     pub async fn exec(
         &self,
         command: ExecCommand,
@@ -329,35 +345,52 @@ impl WorkspaceContainer {
                     cmd: Some(command.argv),
                     env: Some(command.environment),
                     user: Some(command.user.to_owned()),
+                    attach_stdin: Some(command.standard_input.is_some()),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
                     ..Default::default()
                 },
             )
             .await?;
-        let StartExecResults::Attached { mut output, .. } =
-            self.docker.start_exec(&exec.id, None).await?
+        let StartExecResults::Attached {
+            mut output,
+            mut input,
+        } = self.docker.start_exec(&exec.id, None).await?
         else {
             return Err(WorkspaceError::Detached);
         };
 
-        let mut splitter = LineSplitter::default();
-        while let Some(chunk) = output.next().await {
-            let bytes = match chunk? {
-                LogOutput::StdOut { message }
-                | LogOutput::StdErr { message }
-                | LogOutput::Console { message } => message,
-                LogOutput::StdIn { .. } => continue,
+        let writing = async {
+            let Some(standard_input) = command.standard_input else {
+                return Ok(());
             };
-            for line in splitter.push(&bytes) {
-                // The receiver going away means nobody is listening, not that the turn
-                // should stop; cancellation is how a turn is stopped.
+            input.write_all(standard_input.as_bytes()).await?;
+            // Closing our half is the end of file the process reads up to.
+            input.shutdown().await
+        };
+        let reading = async {
+            let mut splitter = LineSplitter::default();
+            while let Some(chunk) = output.next().await {
+                let bytes = match chunk? {
+                    LogOutput::StdOut { message }
+                    | LogOutput::StdErr { message }
+                    | LogOutput::Console { message } => message,
+                    LogOutput::StdIn { .. } => continue,
+                };
+                for line in splitter.push(&bytes) {
+                    // The receiver going away means nobody is listening, not that the turn
+                    // should stop; cancellation is how a turn is stopped.
+                    let _unheard = lines.send(line).await;
+                }
+            }
+            if let Some(line) = splitter.finish() {
                 let _unheard = lines.send(line).await;
             }
-        }
-        if let Some(line) = splitter.finish() {
-            let _unheard = lines.send(line).await;
-        }
+            Ok::<_, WorkspaceError>(())
+        };
+        let (written, read) = tokio::join!(writing, reading);
+        read?;
+        written.map_err(WorkspaceError::StandardInput)?;
 
         let inspected = self.docker.inspect_exec(&exec.id).await?;
         Ok(inspected.exit_code)
@@ -388,6 +421,7 @@ impl WorkspaceContainer {
             argv,
             environment,
             user,
+            standard_input: None,
         };
 
         let run = async {

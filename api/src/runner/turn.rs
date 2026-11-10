@@ -369,6 +369,7 @@ impl Executor {
                     argv: command.argv(),
                     environment: command.environment(),
                     user: AGENT_USER,
+                    standard_input: Some(command.prompt),
                 };
                 workspace
                     .exec(exec, lines)

@@ -3,12 +3,24 @@
 //! The exact process one turn attempt runs in the workspace.
 //!
 //! An attempt is `bash -c TURN_SCRIPT` with the turn's directory, working directory, and the
-//! `claude` argv as positional parameters, so no prompt or path is ever interpolated into
-//! shell text. [`TURN_SCRIPT`] creates the turn's directory, writes the MCP configuration from
-//! an environment variable into a private file there, starts `claude` in its own process group
+//! `claude` argv as positional parameters, so no path is ever interpolated into shell text.
+//! [`TURN_SCRIPT`] creates the turn's directory, writes the MCP configuration from an
+//! environment variable into a private file there, starts `claude` in its own process group
 //! (recording the group's id so [`KILL_SCRIPT`] can stop everything the turn spawned), waits,
-//! and removes the directory. Secrets travel only in the exec's environment, never in argv,
-//! which every process in the container could read from `ps`.
+//! and removes the directory.
+//!
+//! # Where each part travels
+//!
+//! - **The prompt** goes on the exec's standard input ([`AttemptCommand::prompt`]), which
+//!   `claude -p` reads to its end before it starts. Linux refuses any one argument or
+//!   environment variable longer than 128 KiB, and a meeting's transcript, every capture side by
+//!   side, runs to several times that; standard input has no such limit.
+//! - **Secrets** travel only in the exec's environment, never in argv, which every process in
+//!   the container could read from `ps`.
+//! - **The system prompt** stays an argument (`--system-prompt`, `--append-system-prompt`): the
+//!   CLI takes it no other way. It holds a caller's standing instructions from the code and, for
+//!   a worker, its batch's brief, whose goal is bounded. Anything that grows with what a turn
+//!   reads belongs in the prompt.
 
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Map, Value, json};
@@ -21,10 +33,13 @@ use crate::models::model_setting::Effort;
 const MCP_CONFIG_VARIABLE: &str = "ELYSIUM_MCP_CONFIG";
 
 /// Runs one attempt. `$1` is the turn's directory, `$2` the working directory, and the rest
-/// the `claude` argv.
+/// the `claude` argv. The prompt is on standard input.
 ///
 /// `setsid` puts `claude` in a new process group whose id is its pid, so killing `-pid` stops
-/// its tools too. Standard input is closed: a headless turn must never wait on a terminal.
+/// its tools too. `claude` reads the script's standard input, the prompt and then its end, so a
+/// headless turn never waits on a terminal. A non-interactive shell hands a command started
+/// with `&` `/dev/null` for its standard input, ahead of the command's own redirections, so the
+/// script keeps its own as descriptor 3 and gives `claude` that one.
 /// The directory goes away with the turn, taking the MCP configuration's tokens with it.
 pub const TURN_SCRIPT: &str = r#"
 turn_directory="$1"; working_directory="$2"; shift 2
@@ -36,8 +51,10 @@ if [ -n "${ELYSIUM_MCP_CONFIG:-}" ]; then
   set -- "$@" --mcp-config "$turn_directory/mcp.json"
 fi
 unset ELYSIUM_MCP_CONFIG
-setsid "$@" < /dev/null &
+exec 3<&0
+setsid "$@" <&3 3<&- &
 pid=$!
+exec 3<&-
 printf '%s' "$pid" > "$turn_directory/pid"
 trap 'kill -TERM -- "-$pid" 2>/dev/null' TERM INT
 wait "$pid"
@@ -85,6 +102,8 @@ pub struct AttemptCommand {
     pub turn_directory: String,
     /// Absolute, under the workspace.
     pub working_directory: String,
+    /// Written whole to the attempt's standard input, never put in argv. Slash commands such as
+    /// a worker's `/goal` are read from there as they are from an argument.
     pub prompt: String,
     pub resume: Option<HarnessSessionId>,
     pub model: Option<String>,
@@ -113,14 +132,13 @@ impl AttemptCommand {
         argv
     }
 
-    /// `claude`'s own arguments. The prompt follows `-p` directly: `--allowedTools` is
-    /// variadic and would swallow a prompt placed after it, so it is passed as one
-    /// `--allowedTools=...` argument too.
+    /// `claude`'s own arguments. `-p` with no prompt after it reads the prompt from standard
+    /// input. `--allowedTools` is variadic, so the list is one `--allowedTools=...` argument,
+    /// which can never take the argument after it as a tool.
     fn claude_argv(&self) -> Vec<String> {
         let mut argv = vec![
             "claude".to_owned(),
             "-p".to_owned(),
-            self.prompt.clone(),
             "--output-format".to_owned(),
             "stream-json".to_owned(),
             // stream-json in print mode emits the full event stream only with --verbose.
@@ -366,8 +384,14 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_follows_dash_p_and_the_tool_list_is_one_argument() {
+    fn the_prompt_is_never_an_argument_and_the_tool_list_is_one() {
         let argv = command().argv();
+        assert!(
+            !argv
+                .iter()
+                .any(|argument| argument.contains("is the prompt")),
+            "the prompt travels on standard input"
+        );
         let claude = argv
             .iter()
             .position(|argument| argument == "claude")
@@ -375,7 +399,8 @@ mod tests {
         assert_eq!(argv[claude + 1], "-p");
         assert_eq!(
             argv[claude + 2],
-            "--allowedTools looks like a flag but is the prompt"
+            "--output-format",
+            "-p reads its prompt from standard input when none follows it"
         );
         assert!(argv.contains(&"--allowedTools=Read,mcp__elysia".to_owned()));
         let resume = argv
@@ -383,6 +408,92 @@ mod tests {
             .position(|argument| argument == "--resume")
             .expect("--resume");
         assert_eq!(argv[resume + 1], "session-a");
+    }
+
+    /// Longer than Linux allows any one argument (`MAX_ARG_STRLEN`, 128 KiB), with what a shell
+    /// would trip on if it were ever interpolated, and characters of several bytes.
+    fn prompt_over_the_argument_limit() -> String {
+        let line = "[12] [3:04] Ada: \"Ship it\" $HOME `date` --resume ☃ é\n";
+        let prompt = line.repeat(300 * 1024 / line.len() + 1);
+        assert!(prompt.len() > 128 * 1024);
+        prompt
+    }
+
+    #[test]
+    fn a_long_prompt_leaves_every_argument_short() {
+        let attempt = AttemptCommand {
+            prompt: prompt_over_the_argument_limit(),
+            ..command()
+        };
+        let longest = attempt.argv().iter().map(String::len).max().unwrap_or(0);
+        assert!(
+            longest < 128 * 1024,
+            "an argument of {longest} bytes would be refused"
+        );
+    }
+
+    /// The turn script as the workspace runs it, through a real `bash` and `setsid`, with a
+    /// stand-in `claude` that keeps what it read on standard input: a prompt over the argument
+    /// limit arrives whole and byte for byte. Before prompts travelled on standard input, this
+    /// one could not even be started (`E2BIG`).
+    #[tokio::test]
+    async fn a_prompt_over_the_argument_limit_reaches_the_cli_intact() {
+        use std::os::unix::fs::PermissionsExt;
+        use tokio::io::AsyncWriteExt;
+
+        let scratch = tempfile::tempdir().expect("a scratch directory");
+        let bin = scratch.path().join("bin");
+        std::fs::create_dir(&bin).expect("bin");
+        let stand_in = bin.join("claude");
+        std::fs::write(&stand_in, "#!/bin/sh\ncat > received\n").expect("the stand-in");
+        std::fs::set_permissions(&stand_in, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+
+        let working_directory = scratch.path().join("session");
+        let attempt = AttemptCommand {
+            turn_directory: scratch.path().join("turn").display().to_string(),
+            working_directory: working_directory.display().to_string(),
+            prompt: prompt_over_the_argument_limit(),
+            ..command()
+        };
+        let argv = attempt.argv();
+        let path = format!(
+            "{}:{}",
+            bin.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let mut process = tokio::process::Command::new(&argv[0])
+            .args(&argv[1..])
+            .env_clear()
+            .env("PATH", path)
+            .envs(
+                attempt
+                    .environment()
+                    .iter()
+                    .filter_map(|entry| entry.split_once('=')),
+            )
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("the turn script starts");
+        let mut input = process.stdin.take().expect("standard input");
+        input
+            .write_all(attempt.prompt.as_bytes())
+            .await
+            .expect("the prompt is written");
+        drop(input);
+        let status = process.wait().await.expect("the turn script ends");
+
+        assert!(status.success(), "{status}");
+        let received = std::fs::read(working_directory.join("received")).expect("what claude read");
+        assert_eq!(received.len(), attempt.prompt.len());
+        assert!(
+            received == attempt.prompt.as_bytes(),
+            "the prompt arrived intact"
+        );
+        assert!(
+            !scratch.path().join("turn").exists(),
+            "the turn's directory goes with it"
+        );
     }
 
     #[test]
