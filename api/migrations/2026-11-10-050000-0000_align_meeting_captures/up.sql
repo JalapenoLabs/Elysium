@@ -13,7 +13,11 @@ ALTER TABLE meeting_captures
     ADD COLUMN offset_source TEXT NOT NULL DEFAULT 'listed'
         CHECK (offset_source IN ('listed', 'audio', 'words', 'hand'));
 
+-- Every capture joined its meeting as it was listed. Its updated_at stays as it was: nothing about
+-- the capture changed.
+ALTER TABLE meeting_captures DISABLE TRIGGER set_updated_at;
 UPDATE meeting_captures SET joined_at = created_at;
+ALTER TABLE meeting_captures ENABLE TRIGGER set_updated_at;
 
 DROP INDEX meeting_captures_of_meeting;
 CREATE INDEX meeting_captures_of_meeting ON meeting_captures (meeting_id, joined_at, id);

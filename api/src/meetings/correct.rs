@@ -1024,7 +1024,7 @@ mod tests {
             .await
             .expect("still held");
 
-        // Its run, through the fetch and the transcription.
+        // Its run, through the fetch, the transcription, and aligning.
         workflows::start(
             &mut connection,
             &events,
@@ -1039,6 +1039,7 @@ mod tests {
             recording: None,
         };
         let through = [
+            serde_json::to_value(&fetched).expect("serializes"),
             serde_json::to_value(&fetched).expect("serializes"),
             serde_json::to_value(&fetched).expect("serializes"),
         ];
@@ -1246,7 +1247,14 @@ mod tests {
         assert_eq!(history[0].data, json!({ "before": false, "after": true }));
         assert_eq!(
             history[1].data,
-            json!({ "captureId": capture.id, "builtFrom": "correction", "words": 3 })
+            json!({
+                "captures": [{ "captureId": capture.id, "offsetMs": 0 }],
+                "builtFrom": "correction",
+                "words": 3,
+                "added": 3,
+                "replaced": 0,
+                "marksMoved": 0,
+            })
         );
 
         // And segmenting reads the copy the run handed on.

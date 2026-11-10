@@ -53,6 +53,9 @@ pub mod sources;
 pub mod transcribe;
 pub mod workflow;
 
+#[cfg(test)]
+mod same_meeting_tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
