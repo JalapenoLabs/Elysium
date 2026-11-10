@@ -77,6 +77,31 @@ fn a_listed_meeting_reads_its_start_as_milliseconds_or_text_and_links_its_page()
     assert!(listed_meeting(listed("01D", &Value::Null, "completed")).is_none());
 }
 
+/// The shapes a free-plan account's notebook answered live: the start as ISO 8601 text, the
+/// length with a fraction, and the participants as one string.
+#[test]
+fn a_listed_meeting_in_the_shape_fireflies_sends_it_is_read() {
+    let meeting: NoteMeeting = serde_json::from_value(json!({
+        "id": "01K7EXAMPLE",
+        "title": "Weekly sync",
+        "date": "2026-10-12T19:00:00Z",
+        "durationMins": 26.63,
+        "creator_email": "ada@example.com",
+        "allEmails": "ada@example.com,grace@example.com",
+        "processMeetingStatus": "completed",
+    }))
+    .expect("the live shape parses");
+
+    let listed = listed_meeting(meeting).expect("a meeting");
+
+    assert_eq!(listed.started_at, time("2026-10-12T19:00:00Z"));
+    assert_eq!(listed.duration_ms, Some(1_597_800));
+    assert_eq!(
+        listed.participants,
+        ["ada@example.com", "grace@example.com"]
+    );
+}
+
 #[test]
 fn participants_sent_as_one_string_are_split() {
     let mut meeting = listed("01A", &json!(1_762_000_000_000_i64), "completed");

@@ -54,8 +54,10 @@ Write a selection of your own instead, from fields the app's queries show exist.
 | `sentenceMeta`                | an object keyed by caption index: the edited sentence; `""` deleted it      |
 | `labelMeta`                   | an object keyed by speaker id: the caption indexes reassigned to them       |
 | `processMeetingStatus`        | `not_started`, `started`, `completed`, or `failed`                          |
-| listing `date`                | read as milliseconds or ISO 8601 text; not yet seen live                    |
-| listing `allEmails`           | read as a list or a comma separated string; not yet seen live               |
+| listing `date`                | ISO 8601 text in UTC, such as `2026-10-12T19:00:00Z`; milliseconds are read too |
+| listing `durationMins`        | a number with a fraction, such as `26.63`                                   |
+| listing `allEmails`           | one string of addresses, read as comma separated; a list is read too        |
+| `video_url`, `audio_url`      | on the free plan, `video_url` is `null` and `audio_url` a signed address on `cdn.fireflies.ai` |
 
 Errors come back over HTTP 200 with `extensions.code`: `UNAUTHENTICATED` when the session ended, `NOT_FOUND_ERROR` for
 a meeting this account cannot open.
@@ -72,7 +74,14 @@ a meeting this account cannot open.
   refreshes it; the daily browser refresh (`crate::connectors::refresh`, which reaches every browser kind) reloads the
   Fireflies tab, and the app refreshes it then.
 
-## Not yet verified against a signed-in session
+## What a signed-in session showed
 
-- That `getFilteredMeetings` with `USER_PART_OF` lists the same meetings the key kind's `transcripts` does.
-- That a signed recording address downloads whole from the engine on the free plan.
+All three queries were asked, as written in `mod.rs`, of a free-plan account's own signed-in tab on 2026-11-10:
+
+- The listing answered 28 meetings for 30 days, every one `completed`, in the shapes above.
+- Full transcripts come back on the free plan: across ten meetings, the last caption ended within a minute or two of
+  `durationMins` (888 captions to 57.3 minutes of a 58.8 minute meeting).
+- The recording query answers no error on the free plan (no `paid_required`), with audio alone.
+
+Not yet verified: that the audio address downloads whole from the engine, outside the browser. A ranged fetch from the
+page fails on CORS, which says nothing about a download from the server.
