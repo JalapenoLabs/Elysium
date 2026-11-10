@@ -5,8 +5,8 @@ The user signs in on the real page, through any OAuth, MFA, or passkey prompt it
 on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
 Elysium uses each service as its user does and never installs anything into an organization.
 
-Today every Outlook, Gmail, Teams, and Slack connector owns a browser of its own, started with it and removed with it
-(`docs/connectors.md`). The engine runs each browser and reads pages in it, the API relays its stream, and the
+Today every Outlook, Gmail, Teams, Slack, and Fireflies (browser) connector owns a browser of its own, started with it
+and removed with it (`docs/connectors.md`). The engine runs each browser and reads pages in it, the API relays its stream, and the
 connector's page streams it to its owner to sign in on. The facts below were verified against the pinned versions.
 
 ## Neko

@@ -19,7 +19,7 @@ Accounts live in one store per way of signing in, each with the columns and cons
 |--------------|----------------------|--------------------------------------------|----------------------------------|
 | `atlassian`  | `jira_credentials`   | A site, an account email, and an API token | A Jira or Confluence connector   |
 | `github`     | `github_credentials` | A personal access token                    | A GitHub connector               |
-| `browser`    | `browser_sessions`   | A browser the person signed in to          | An Outlook, Gmail, Teams, or Slack connector |
+| `browser`    | `browser_sessions`   | A browser the person signed in to          | An Outlook, Gmail, Teams, Slack, or Fireflies (browser) connector |
 | `fireflies`  | `token_accounts`     | An API key                                 | A Fireflies connector            |
 | `youtrack`   | `token_accounts`     | A site and a permanent token               | A YouTrack connector             |
 
@@ -76,6 +76,9 @@ table of its own:
   `{"waitForApproval": bool}`, whether each meeting's run waits for its person to approve the corrected transcript
   (`docs/meetings.md`, Correction). Every kind that provides meetings declares that toggle; a test fails on one that
   does not.
+- Fireflies (browser) keeps the same two, but its storage location is optional: the connector is made with its browser
+  before anything is filled in, and its person picks a location on its page. Until then, and whenever it names none,
+  its meetings go on from their transcripts alone.
 - Teams' content is the conversations its chat reader records, `{"conversations": "*"}` or a list of ids, and, since
   it is a meeting source too, `{"readMeetings": bool, "waitForApproval": bool}` and the storage location its
   recordings are kept in, `storage_location_id`. Its meetings are read only while `readMeetings` is on (it starts on)
@@ -123,6 +126,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `teams`      | `kinds/teams.rs`       | `messages`, `meetings` | `browser` | `conversations`, `readMeetings`, `storageLocationId`, `waitForApproval` | `ingest` and `crate::meetings` | Itself, thread or conversation |
 | `slack`      | `kinds/slack.rs`       | `messages`, `meetings` | `browser` | `conversations`, `readMeetings`, `waitForApproval` | `ingest` and `crate::meetings` | Itself, thread or conversation |
 | `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`, `waitForApproval` | `crate::meetings`           | Never   |
+| `fireflies_browser` | `kinds/fireflies_browser.rs` | `meetings` | `browser` | `storageLocationId` (optional), `waitForApproval` | `crate::meetings` | Never |
 | `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader` and the link watcher | Never   |
 
 A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
@@ -189,6 +193,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message`, `list_meetings`, and `sample_transcript` (optional) |
 | Slack             | `browser_running`, `signed_in`, `workspace_reachable`, `sample_conversation` (optional), `list_meetings` and `sample_transcript` (optional; skipped while meetings are off) |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
+| Fireflies (browser) | `browser_running`, `signed_in`, `list_meetings`, `sample_transcript` (optional)                  |
 | YouTrack          | `sign_in`, `list_projects`, `sample_issues`, `sample_comments` (optional)                          |
 
 `checks::run_in_order` runs them one at a time against one value, so a later check uses what an earlier one fetched.
@@ -289,7 +294,8 @@ keys of a cursor, merged over what is stored in the same statement (`connector::
 read, as Teams is by ingest and the meetings listing (`{"since": ...}`), keeps both. A reader whose service has no
 tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its rows in `for_kind` and
 `service_page` (which tabs show its app and which its sign-in), and itself to `BROWSER_READ`, and a test fails when any
-is missing or its start page is not its app.
+is missing or its start page is not its app. A browser kind that provides meetings alone, Fireflies (browser), is read by
+the meetings loop through its meeting source instead, and is not in `BROWSER_READ`.
 
 Each pass also refreshes at most one browser, the one longest without, once a day: it reloads the service's tab so its
 rolling session renews, and the connector's read in the same pass is its sign-in check (`docs/browser.md`,

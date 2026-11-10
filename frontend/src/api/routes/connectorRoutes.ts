@@ -15,6 +15,7 @@ export const CONNECTOR_KINDS = [
   'teams',
   'slack',
   'fireflies',
+  'fireflies_browser',
   'youtrack',
 ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]

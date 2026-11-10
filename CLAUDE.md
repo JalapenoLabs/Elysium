@@ -319,7 +319,9 @@ Everything else follows these rules:
 ## Meetings
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
-  key, and Teams and Slack's huddles, each through its connector's own browser, so nothing is installed into an
+  key on a paid plan or through Fireflies' own web app in its connector's browser on any plan (the `fireflies_browser`
+  kind, `meetings::fireflies_browser`), and Teams and Slack's huddles, each through its connector's own browser, so
+  nothing is installed into an
   organization. A source is a
   connector whose kind declares it provides meetings, managed under Connectors alone; the meetings page and loop never
   name one, and each source's sign-in is resolved beside it (`meetings::sources`). Every meeting belongs to a

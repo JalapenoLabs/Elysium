@@ -136,7 +136,9 @@ async fn run(readers: &Readers, connector: &Connector) {
         }
         Some(ConnectorKind::Confluence) => readers.confluence.read_now(connector).await,
         Some(ConnectorKind::Youtrack) => readers.youtrack.read_now(connector).await,
-        Some(ConnectorKind::Fireflies) => readers.meetings.sync(connector).await,
+        Some(ConnectorKind::Fireflies | ConnectorKind::FirefliesBrowser) => {
+            readers.meetings.sync(connector).await;
+        }
         // The link watcher reads these; the API wakes it without marking them.
         Some(ConnectorKind::Jira | ConnectorKind::Github) => {
             readers.events.signal(&Signal::LinkWatcher);

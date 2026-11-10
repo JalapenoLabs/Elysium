@@ -46,6 +46,8 @@ pub fn service_page(kind: ConnectorKind, url: &str) -> Option<ServicePage> {
         | ConnectorKind::Confluence
         | ConnectorKind::Github
         | ConnectorKind::Fireflies
+        // Read by the meetings loop, whose source matches its own tabs, not by ingest.
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => return None,
     };
     if on_app {
@@ -74,6 +76,7 @@ pub fn for_kind(kind: ConnectorKind, devtools: &Devtools) -> Option<Reader> {
         | ConnectorKind::Confluence
         | ConnectorKind::Github
         | ConnectorKind::Fireflies
+        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => None,
     }
 }

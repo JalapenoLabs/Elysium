@@ -22,6 +22,7 @@ use diesel_async::AsyncPgConnection;
 use secrecy::SecretString;
 
 use super::fireflies::Fireflies;
+use super::fireflies_browser::FirefliesBrowser;
 use super::source::{FetchedMeeting, ListedMeeting, MeetingSource, SourceError};
 use crate::browser::devtools::Devtools;
 use crate::connectors::ConnectorKind;
@@ -39,6 +40,7 @@ use crate::models::token_account;
 #[derive(Debug, Clone)]
 pub struct Sources {
     fireflies: Fireflies,
+    fireflies_browser: FirefliesBrowser,
     teams: TeamsMeetings,
     slack: SlackMeetings,
 }
@@ -47,6 +49,7 @@ impl Sources {
     pub fn new(http: reqwest::Client) -> Self {
         Self {
             fireflies: Fireflies::new(http.clone()),
+            fireflies_browser: FirefliesBrowser::new(Devtools::new(http.clone())),
             teams: TeamsMeetings::new(Devtools::new(http.clone())),
             slack: SlackMeetings::new(Slack::new(Devtools::new(http))),
         }
@@ -57,6 +60,7 @@ impl Sources {
     pub fn with_fireflies(fireflies: Fireflies) -> Self {
         Self {
             fireflies,
+            fireflies_browser: FirefliesBrowser::new(Devtools::new(reqwest::Client::new())),
             teams: TeamsMeetings::new(Devtools::new(reqwest::Client::new())),
             slack: SlackMeetings::new(Slack::new(Devtools::new(reqwest::Client::new()))),
         }
@@ -65,6 +69,11 @@ impl Sources {
     /// The Fireflies client, for the Fireflies kind's own checks and sign-in.
     pub fn fireflies(&self) -> &Fireflies {
         &self.fireflies
+    }
+
+    /// The client reading Fireflies through a browser, for that kind's own checks.
+    pub fn fireflies_browser(&self) -> &FirefliesBrowser {
+        &self.fireflies_browser
     }
 
     /// The Teams client, for the Teams kind's own checks.
@@ -82,6 +91,9 @@ impl Sources {
     pub fn for_kind(&self, kind: ConnectorKind) -> Option<Source> {
         match kind {
             ConnectorKind::Fireflies => Some(Source::Fireflies(self.fireflies.clone())),
+            ConnectorKind::FirefliesBrowser => {
+                Some(Source::FirefliesBrowser(self.fireflies_browser.clone()))
+            }
             ConnectorKind::Teams => Some(Source::Teams(self.teams.clone())),
             ConnectorKind::Slack => Some(Source::Slack(self.slack.clone())),
             ConnectorKind::Jira
@@ -122,19 +134,20 @@ impl Sources {
 #[derive(Debug, Clone)]
 pub enum Source {
     Fireflies(Fireflies),
+    FirefliesBrowser(FirefliesBrowser),
     Teams(TeamsMeetings),
     Slack(SlackMeetings),
 }
 
 impl Source {
-    /// Whether `connector` reads its meetings now. Fireflies reads nothing else, so always; a
-    /// Teams connector also reads chats, and reads meetings only while its person leaves them on
-    /// and once it has a storage location to keep their recordings in; a Slack connector reads
-    /// huddles while its person leaves them on, and needs no storage location, since a huddle
-    /// keeps no recording.
+    /// Whether `connector` reads its meetings now. Fireflies reads nothing else, so always,
+    /// either way it signs in; a Teams connector also reads chats, and reads meetings only while
+    /// its person leaves them on and once it has a storage location to keep their recordings in;
+    /// a Slack connector reads huddles while its person leaves them on, and needs no storage
+    /// location, since a huddle keeps no recording.
     pub fn reads(&self, connector: &Connector) -> bool {
         match self {
-            Self::Fireflies(_client) => true,
+            Self::Fireflies(_) | Self::FirefliesBrowser(_) => true,
             Self::Teams(_client) => {
                 teams_kind::reads_meetings(&connector.content, connector.storage_location_id)
             }
@@ -160,6 +173,10 @@ impl Source {
                 let key = key_of(connection, cipher, connector).await?;
                 Ok(SignedIn::Fireflies(client, key))
             }
+            Self::FirefliesBrowser(client) => {
+                let browser = browser_of(connection, connector).await?;
+                Ok(SignedIn::FirefliesBrowser(client, browser))
+            }
             Self::Teams(client) => {
                 let browser = browser_of(connection, connector).await?;
                 Ok(SignedIn::Teams(client, browser))
@@ -179,6 +196,7 @@ impl Source {
 #[derive(Debug)]
 pub enum SignedIn {
     Fireflies(Fireflies, SecretString),
+    FirefliesBrowser(FirefliesBrowser, BrowserSession),
     Teams(TeamsMeetings, BrowserSession),
     Slack(SlackMeetings, SlackSignIn),
 }
@@ -195,6 +213,7 @@ impl SignedIn {
     ) -> Result<Vec<ListedMeeting>, SourceError> {
         match self {
             Self::Fireflies(client, key) => client.list(key, since, limit).await,
+            Self::FirefliesBrowser(client, browser) => client.list(browser, since, limit).await,
             Self::Teams(client, browser) => client.list(browser, since, limit).await,
             Self::Slack(client, sign_in) => client.list(sign_in, since, limit).await,
         }
@@ -207,6 +226,7 @@ impl SignedIn {
     pub async fn fetch(&self, external_id: &str) -> Result<FetchedMeeting, SourceError> {
         match self {
             Self::Fireflies(client, key) => client.fetch(key, external_id).await,
+            Self::FirefliesBrowser(client, browser) => client.fetch(browser, external_id).await,
             Self::Teams(client, browser) => client.fetch(browser, external_id).await,
             Self::Slack(client, sign_in) => client.fetch(sign_in, external_id).await,
         }

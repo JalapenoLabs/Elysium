@@ -81,6 +81,9 @@ pub enum ConnectorKind {
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
+    /// The same meetings, read through Fireflies' own web app in a browser its person signed in
+    /// to, on any plan. See `crate::meetings::fireflies_browser`.
+    FirefliesBrowser,
     /// Pages and comments on a Confluence Cloud site, read through an Atlassian account of its
     /// own. See `crate::confluence`.
     Confluence,
@@ -91,7 +94,7 @@ pub enum ConnectorKind {
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Jira,
         Self::Confluence,
         Self::Github,
@@ -100,6 +103,7 @@ impl ConnectorKind {
         Self::Teams,
         Self::Slack,
         Self::Fireflies,
+        Self::FirefliesBrowser,
         Self::Youtrack,
     ];
 
@@ -112,6 +116,8 @@ impl ConnectorKind {
     pub const LINKS: [Self; 2] = [Self::Jira, Self::Github];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
+    /// Fireflies' browser kind is not among them: its meetings are read by the meetings loop
+    /// (`crate::meetings`), through its meeting source.
     pub const BROWSER_READ: [Self; 4] = [Self::Outlook, Self::Gmail, Self::Teams, Self::Slack];
 
     pub const fn as_str(self) -> &'static str {
@@ -123,6 +129,7 @@ impl ConnectorKind {
             Self::Teams => "teams",
             Self::Slack => "slack",
             Self::Fireflies => "fireflies",
+            Self::FirefliesBrowser => "fireflies_browser",
             Self::Confluence => "confluence",
             Self::Youtrack => "youtrack",
         }

@@ -300,7 +300,7 @@ struct FetchedTranscript {
 
 /// One meeting's recording addresses, as Fireflies sends them.
 #[derive(Debug, Deserialize)]
-struct FetchedMedia {
+pub(super) struct FetchedMedia {
     #[serde(default)]
     video_url: Option<String>,
     #[serde(default)]
@@ -379,7 +379,7 @@ fn transcript_lines(transcript: FetchedTranscript) -> Vec<TranscriptLine> {
 }
 
 /// A meeting's video, else its audio, skipping any address that is not a public download.
-fn recording_of(media: FetchedMedia) -> Option<RecordingSource> {
+pub(super) fn recording_of(media: FetchedMedia) -> Option<RecordingSource> {
     [
         (media.video_url, RecordingKind::Video),
         (media.audio_url, RecordingKind::Audio),
@@ -557,11 +557,28 @@ mod tests {
         "ai_filters",
     ];
 
+    /// The same, by the names the web app's own schema gives them, which the browser source
+    /// (`crate::meetings::fireflies_browser`) reads: its meeting and feed queries' AI fields,
+    /// and what `AskFred` and the AI apps answer.
+    const WEB_APP_AI_FIELDS: [&str; 9] = [
+        "shortSummary",
+        "brief",
+        "summaryStatus",
+        "promptSuggestions",
+        "hasAiApps",
+        "aiApps",
+        "actionItems",
+        "askFred",
+        "appOutputs",
+    ];
+
     #[test]
     fn no_query_asks_for_anything_fireflies_ai_wrote() {
-        for query in [LIST_QUERY, TRANSCRIPT_QUERY, RECORDING_QUERY, WHOAMI_QUERY] {
+        let key_queries = [LIST_QUERY, TRANSCRIPT_QUERY, RECORDING_QUERY, WHOAMI_QUERY];
+        let browser_queries = crate::meetings::fireflies_browser::QUERIES;
+        for query in key_queries.into_iter().chain(browser_queries) {
             let fields = fields_of(query);
-            for vendor_field in VENDOR_AI_FIELDS {
+            for vendor_field in VENDOR_AI_FIELDS.into_iter().chain(WEB_APP_AI_FIELDS) {
                 assert!(
                     !fields.contains(&vendor_field),
                     "a Fireflies query asks for {vendor_field}: {query}"

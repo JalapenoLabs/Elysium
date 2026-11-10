@@ -87,6 +87,10 @@
       "name": "Fireflies",
       "description": "Your recorded meetings, read with your Fireflies API key and cut into segments on each project's timeline."
     },
+    "fireflies_browser": {
+      "name": "Fireflies (browser)",
+      "description": "Your recorded meetings, read through Fireflies in a browser Elysium runs, which you sign in to once. Works on every Fireflies plan, including the free one, and cuts each meeting into segments on each project's timeline."
+    },
     "slack": {
       "name": "Slack",
       "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox, and each transcribed huddle lands on your timeline."
@@ -212,6 +216,7 @@
       "mailbox_not_open": "Open the mailbox in the browser, then run the checks again.",
       "teams_not_open": "Teams is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
       "teams_store_not_found": "Teams is open, but its chats were not found. Open a chat, then run the checks again.",
+      "fireflies_not_open": "Fireflies is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
       "meeting_unavailable": "The newest meeting is still being processed. Run the checks again later.",

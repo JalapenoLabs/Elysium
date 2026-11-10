@@ -33,6 +33,7 @@ pub mod correct;
 pub mod correction;
 pub mod fetch;
 pub mod fireflies;
+pub mod fireflies_browser;
 pub mod media;
 pub mod segment;
 pub mod segmentation;
