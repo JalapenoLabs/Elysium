@@ -10,7 +10,7 @@
 //! `404` for a meeting that is not theirs or a word that is not the meeting's; `409`
 //! `meeting_words_changed` when a word of the range was replaced meanwhile; `400`
 //! `meeting_edit_empty` for text with no words, `meeting_edit_too_long` past
-//! [`meeting_word::EDIT_TEXT_MAX_CHARACTERS`], and for a range that ends before it starts.
+//! [`EDIT_TEXT_MAX_CHARACTERS`], and for a range that ends before it starts.
 
 use anyhow::Context;
 use axum::Json;
@@ -24,10 +24,11 @@ use uuid::Uuid;
 use super::{MeetingEventResponse, announce, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::comments;
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_mark::Range;
-use crate::models::meeting_word::{self, EDIT_TEXT_MAX_CHARACTERS, EditError, Replacement};
+use crate::models::meeting_word::{EDIT_TEXT_MAX_CHARACTERS, EditError, Replacement};
 use crate::state::AppState;
 
 /// The range to replace, from its first word to its last, and what replaces it.
@@ -66,7 +67,7 @@ pub async fn handle(
         agent: None,
         at: Utc::now(),
     };
-    let entry = meeting_word::edit(&mut connection, found.id, replacement, author)
+    let entry = comments::edit_words(&mut connection, &found, replacement, author)
         .await
         .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;

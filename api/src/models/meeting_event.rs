@@ -35,16 +35,22 @@ pub enum EventKind {
     HoldChanged,
     /// Its corrected transcript was approved: `{}`.
     CorrectionApproved,
+    /// A comment thread was resolved: `{ markId }`.
+    ThreadResolved,
+    /// A resolved comment thread was opened again: `{ markId }`.
+    ThreadReopened,
 }
 
 impl EventKind {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 8] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
         Self::Unmarked,
         Self::HoldChanged,
         Self::CorrectionApproved,
+        Self::ThreadResolved,
+        Self::ThreadReopened,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -55,6 +61,8 @@ impl EventKind {
             Self::Unmarked => "unmarked",
             Self::HoldChanged => "hold_changed",
             Self::CorrectionApproved => "correction_approved",
+            Self::ThreadResolved => "thread_resolved",
+            Self::ThreadReopened => "thread_reopened",
         }
     }
 

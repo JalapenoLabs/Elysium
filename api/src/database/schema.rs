@@ -1196,6 +1196,29 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_comment_mentions (comment_id, user_id) {
+        comment_id -> Uuid,
+        user_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_comments (id) {
+        id -> Uuid,
+        mark_id -> Uuid,
+        body -> Text,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_corrections (meeting_id) {
         meeting_id -> Uuid,
         transcript -> Jsonb,
@@ -1242,6 +1265,18 @@ diesel::table! {
         agent_name -> Nullable<Text>,
         created_at -> Timestamptz,
         removed_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_thread_items (action_item_id) {
+        action_item_id -> Uuid,
+        mark_id -> Uuid,
+        person_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 
@@ -2120,6 +2155,10 @@ diesel::joinable!(meeting_captures -> connectors (connector_id));
 diesel::joinable!(meeting_captures -> meetings (meeting_id));
 diesel::joinable!(meeting_captures -> storage_locations (storage_location_id));
 diesel::joinable!(meeting_captures -> users (created_by));
+diesel::joinable!(meeting_comment_mentions -> meeting_comments (comment_id));
+diesel::joinable!(meeting_comment_mentions -> users (user_id));
+diesel::joinable!(meeting_comments -> meeting_marks (mark_id));
+diesel::joinable!(meeting_comments -> users (created_by));
 diesel::joinable!(meeting_corrections -> action_items (review_item_id));
 diesel::joinable!(meeting_corrections -> meetings (meeting_id));
 diesel::joinable!(meeting_corrections -> users (approved_by));
@@ -2128,6 +2167,8 @@ diesel::joinable!(meeting_events -> users (created_by));
 diesel::joinable!(meeting_marks -> meeting_events (removed_by));
 diesel::joinable!(meeting_marks -> meetings (meeting_id));
 diesel::joinable!(meeting_marks -> users (created_by));
+diesel::joinable!(meeting_thread_items -> action_items (action_item_id));
+diesel::joinable!(meeting_thread_items -> meeting_marks (mark_id));
 diesel::joinable!(meeting_transcriptions -> meeting_captures (capture_id));
 diesel::joinable!(meeting_words -> meeting_captures (capture_id));
 diesel::joinable!(meeting_words -> meetings (meeting_id));
@@ -2277,9 +2318,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_domains,
     mail_servers,
     meeting_captures,
+    meeting_comment_mentions,
+    meeting_comments,
     meeting_corrections,
     meeting_events,
     meeting_marks,
+    meeting_thread_items,
     meeting_transcriptions,
     meeting_words,
     meetings,

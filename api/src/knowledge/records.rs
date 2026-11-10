@@ -12,8 +12,11 @@
 //!
 //! A record's document is its title, who it came from, and its body, in that order, cut into
 //! passages by [`passages::split`]. A meeting segment's speakers are already named on every
-//! line of its excerpt, so it gives its summary in their place. A record's metadata and media
-//! are never indexed: they hold the provider's ids and where a clip is kept, not what was said.
+//! line of its excerpt, so it gives its summary in their place, and is followed by the comment
+//! threads whose range overlaps it (`crate::meetings::comments`), each the first words of its
+//! range and its comments by their authors' names, so a meeting's comments are indexed with it
+//! and go wherever its segments go. A record's metadata and media are never indexed: they hold
+//! the provider's ids and where a clip is kept, not what was said.
 //! A body past [`BODY_MAX_CHARACTERS`] is cut there, which every source today stays inside
 //! (Confluence and sent mail keep 20,000 characters, Slack 4,000, webmail and Teams 1,000)
 //! except a long meeting segment's excerpt.
@@ -37,6 +40,7 @@ use uuid::Uuid;
 use crate::connectors::ConnectorKind;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::knowledge_document::{IndexedDocument, KnowledgeSource};
+use crate::models::meeting_comment::IndexedThread;
 use crate::models::timeline_record::TimelineRecord;
 
 use super::passages;
@@ -52,9 +56,10 @@ pub const INDEXED_AS: i32 = 1;
 /// cannot hold the embedder for minutes. Raising it re-indexes nothing already indexed.
 pub const BODY_MAX_CHARACTERS: usize = 100_000;
 
-/// The document `record` is indexed as, or `None` when it says nothing to search: no title, no
-/// sender, and no body.
-pub fn document(record: &TimelineRecord) -> Option<IndexedDocument> {
+/// The document `record` is indexed as, with `threads`, the comment threads over a meeting
+/// segment, after its body; `None` when it says nothing to search: no title, no sender, and no
+/// body.
+pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<IndexedDocument> {
     let mut paragraphs: Vec<String> = vec![record.title.clone()];
     if record.source_kind == SEGMENT_SOURCE_KIND {
         if let Some(summary) = record.metadata["summary"].as_str() {
@@ -64,6 +69,18 @@ pub fn document(record: &TimelineRecord) -> Option<IndexedDocument> {
         paragraphs.push(format!("From {}", record.actor.trim()));
     }
     paragraphs.push(record.body.chars().take(BODY_MAX_CHARACTERS).collect());
+    // After the body, so a comment written later changes only the passages at the document's end
+    // and the rest keep their embeddings.
+    for thread in threads {
+        let mut paragraph = format!("Comment on \"{}\"", thread.quote);
+        for comment in &thread.comments {
+            paragraph.push('\n');
+            paragraph.push_str(&comment.author);
+            paragraph.push_str(": ");
+            paragraph.push_str(&comment.body);
+        }
+        paragraphs.push(paragraph);
+    }
 
     let passages = passages::split(&paragraphs.join("\n\n"));
     if passages.is_empty() {
@@ -129,6 +146,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::models::meeting_comment::IndexedComment;
 
     fn record(source_kind: &str) -> TimelineRecord {
         TimelineRecord {
@@ -152,7 +170,7 @@ mod tests {
     #[test]
     fn a_message_is_its_title_sender_and_body_attributed_to_its_owner() {
         let message = record("slack");
-        let indexed = document(&message).expect("a document");
+        let indexed = document(&message, &[]).expect("a document");
 
         assert_eq!(
             indexed.passages,
@@ -176,7 +194,7 @@ mod tests {
     fn metadata_is_never_indexed() {
         let mut message = record("slack");
         message.metadata = json!({ "conversation": "C0SECRETID", "draftId": Uuid::now_v7() });
-        let indexed = document(&message).expect("a document");
+        let indexed = document(&message, &[]).expect("a document");
 
         assert!(
             indexed
@@ -194,7 +212,7 @@ mod tests {
         segment.body = "[1:05] Ada: Friday works.\n[1:20] Grace: Friday it is.".to_owned();
         segment.metadata = json!({ "summary": "The launch moved to Friday.", "segmentIndex": 2 });
 
-        let indexed = document(&segment).expect("a document");
+        let indexed = document(&segment, &[]).expect("a document");
 
         assert_eq!(
             indexed.passages,
@@ -205,12 +223,44 @@ mod tests {
     }
 
     #[test]
+    fn a_segments_comment_threads_follow_its_text() {
+        let mut segment = record(SEGMENT_SOURCE_KIND);
+        segment.title = "Launch date".to_owned();
+        segment.body = "[1:05] Sheriff: Friday works.".to_owned();
+        segment.metadata = json!({ "summary": "The launch moved to Friday." });
+        let threads = [IndexedThread {
+            quote: "Sheriff: Friday works.".to_owned(),
+            comments: vec![
+                IndexedComment {
+                    author: "Ada Lovelace".to_owned(),
+                    body: "@Elysia this was Sharath".to_owned(),
+                },
+                IndexedComment {
+                    author: "Elysia".to_owned(),
+                    body: "Fixed: it reads Sharath now.".to_owned(),
+                },
+            ],
+        }];
+
+        let indexed = document(&segment, &threads).expect("a document");
+
+        assert_eq!(
+            indexed.passages,
+            [
+                "Launch date\n\nThe launch moved to Friday.\n\n[1:05] Sheriff: Friday works.\n\n\
+                 Comment on \"Sheriff: Friday works.\"\nAda Lovelace: @Elysia this was Sharath\n\
+                 Elysia: Fixed: it reads Sharath now."
+            ]
+        );
+    }
+
+    #[test]
     fn a_record_that_says_nothing_has_no_document() {
         let mut empty = record("outlook");
         empty.title = String::new();
         empty.actor = " ".to_owned();
         empty.body = "\n\n".to_owned();
-        assert!(document(&empty).is_none());
+        assert!(document(&empty, &[]).is_none());
     }
 
     #[test]
@@ -220,7 +270,7 @@ mod tests {
         segment.metadata = json!({});
         segment.body = "word ".repeat(BODY_MAX_CHARACTERS); // five times the limit
 
-        let indexed = document(&segment).expect("a document");
+        let indexed = document(&segment, &[]).expect("a document");
         let indexed_characters: usize = indexed
             .passages
             .iter()

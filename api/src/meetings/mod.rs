@@ -34,6 +34,7 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod comments;
 pub mod conversation;
 pub mod correct;
 pub mod correction;

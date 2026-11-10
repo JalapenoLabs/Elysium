@@ -53,6 +53,7 @@ pub mod mail_domain;
 pub mod mail_server;
 pub mod meeting;
 pub mod meeting_capture;
+pub mod meeting_comment;
 pub mod meeting_correction;
 pub mod meeting_event;
 pub mod meeting_mark;

@@ -359,3 +359,191 @@ async fn every_review_route_answers_the_meetings_owner_alone() {
         assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {answer}");
     }
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_thread_is_started_replied_to_resolved_and_removed_by_the_meetings_owner_alone() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let grace = insert_grace(&mut connection).await;
+    let (capture, words) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
+    let meeting_id = capture.meeting_id;
+    let sheriff = word(&words, "Sheriff");
+    let threads = format!("/api/v1/meetings/{meeting_id}/threads");
+
+    let (status, started) = send(
+        &state,
+        Method::POST,
+        &threads,
+        Some(&json!({
+            "startWordId": sheriff.id,
+            "endWordId": sheriff.id,
+            "body": "Is this Sharath, Grace?",
+            "mentions": [grace],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    assert_eq!(started["entry"]["kind"], "marked");
+    let thread_id = started["comment"]["threadId"]
+        .as_str()
+        .expect("a thread id")
+        .to_owned();
+    assert_eq!(started["comment"]["mentions"], json!([grace]));
+    let thread = started["change"]["marks"]
+        .as_array()
+        .expect("marks")
+        .iter()
+        .find(|mark| mark["id"] == json!(thread_id))
+        .expect("the thread's mark");
+    assert_eq!(thread["kind"], "comment");
+    assert_eq!(thread["data"]["resolved"], false);
+
+    let (status, replied) = send(
+        &state,
+        Method::POST,
+        &format!("{threads}/{thread_id}/comments"),
+        Some(&json!({ "body": "Answering myself: it is." })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{replied}");
+    assert!(replied.get("entry").is_none());
+    let (status, listed) = send(&state, Method::GET, &threads, None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed["comments"][0]["body"], "Is this Sharath, Grace?");
+    assert_eq!(listed["comments"][1]["body"], "Answering myself: it is.");
+
+    // The item the mention raised opens the thread from its page.
+    let item_id = thread_item_for(&mut connection, grace).await;
+    let item_path = format!("/api/v1/meetings/thread-items/{item_id}");
+    let (status, opened) = send(&state, Method::GET, &item_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{opened}");
+    assert_eq!(
+        opened,
+        json!({ "meetingId": meeting_id, "threadId": thread_id })
+    );
+
+    let resolved_path = format!("{threads}/{thread_id}/resolved");
+    let (status, resolved) = send(&state, Method::POST, &resolved_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{resolved}");
+    assert_eq!(resolved["entry"]["kind"], "thread_resolved");
+    let (status, again) = send(&state, Method::POST, &resolved_path, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{again}");
+    assert_eq!(again["code"], "meeting_thread_unchanged");
+    let (status, reopened) = send(&state, Method::DELETE, &resolved_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert_eq!(reopened["entry"]["kind"], "thread_reopened");
+
+    for (body, code) in [
+        (json!({ "body": "  " }), "meeting_comment_empty"),
+        (
+            json!({ "body": "Hello?", "mentions": [Uuid::now_v7()] }),
+            "meeting_comment_mention",
+        ),
+    ] {
+        let (status, refused) = send(
+            &state,
+            Method::POST,
+            &format!("{threads}/{thread_id}/comments"),
+            Some(&body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        assert_eq!(refused["code"], code);
+    }
+
+    let (status, removed) = send(
+        &state,
+        Method::DELETE,
+        &format!("{threads}/{thread_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    assert_eq!(removed["entry"]["kind"], "unmarked");
+    let (status, listed) = send(&state, Method::GET, &threads, None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(listed["comments"], json!([]));
+}
+
+/// Grace Hopper, an active member someone can mention.
+async fn insert_grace(connection: &mut AsyncPgConnection) -> Uuid {
+    let grace = Uuid::now_v7();
+    execute(
+        connection,
+        format!(
+            "INSERT INTO users (id, email, name, role, status, approved_at) \
+             VALUES ('{grace}', 'grace@example.com', 'Grace Hopper', 'member', 'active', now())"
+        ),
+    )
+    .await;
+    grace
+}
+
+/// The inbox item a thread raised for `person`.
+async fn thread_item_for(connection: &mut AsyncPgConnection, person: Uuid) -> Uuid {
+    use diesel::{ExpressionMethods, QueryDsl};
+
+    use crate::database::schema::meeting_thread_items;
+    meeting_thread_items::table
+        .filter(meeting_thread_items::person_id.eq(person))
+        .select(meeting_thread_items::action_item_id)
+        .first(connection)
+        .await
+        .expect("a thread raised an item for them")
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn every_thread_route_answers_the_meetings_owner_alone() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let grace = insert_grace(&mut connection).await;
+    let (capture, words) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
+    let meeting_id = capture.meeting_id;
+    let sheriff = word(&words, "Sheriff");
+    let threads = format!("/api/v1/meetings/{meeting_id}/threads");
+    let start = json!({
+        "startWordId": sheriff.id,
+        "endWordId": sheriff.id,
+        "body": "Grace?",
+        "mentions": [grace],
+    });
+    let (status, started) = send(&state, Method::POST, &threads, Some(&start)).await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    let thread_id = started["comment"]["threadId"]
+        .as_str()
+        .expect("a thread id")
+        .to_owned();
+    let item_id = thread_item_for(&mut connection, grace).await;
+    let resolved_path = format!("{threads}/{thread_id}/resolved");
+
+    // Someone else's meeting, as far as the test person is concerned.
+    execute(
+        &mut connection,
+        format!("UPDATE meetings SET created_by = '{SYSTEM_USER_ID}' WHERE id = '{meeting_id}'"),
+    )
+    .await;
+    let reply = json!({ "body": "Mine?" });
+    let requests = [
+        (Method::GET, threads.clone(), None),
+        (Method::POST, threads.clone(), Some(&start)),
+        (
+            Method::POST,
+            format!("{threads}/{thread_id}/comments"),
+            Some(&reply),
+        ),
+        (Method::POST, resolved_path.clone(), None),
+        (Method::DELETE, resolved_path, None),
+        (Method::DELETE, format!("{threads}/{thread_id}"), None),
+        (
+            Method::GET,
+            format!("/api/v1/meetings/thread-items/{item_id}"),
+            None,
+        ),
+    ];
+    for (method, path, body) in requests {
+        let (status, answer) = send(&state, method, &path, body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {answer}");
+    }
+}

@@ -12,6 +12,7 @@
 //! | `edited`              | Stands the replaced words up again and moves its marks back (`models::meeting_word`) |
 //! | `marked`, `unmarked`  | Removes the mark, or puts it back (`models::meeting_mark`)        |
 //! | `hold_changed`        | Sets the hold back, while the transcript is not yet corrected, as holding does |
+//! | `thread_resolved`, `thread_reopened` | Opens the thread again, or resolves it again (`meetings::comments`) |
 //! | `built`               | None: a transcript is built once, and changed by edits           |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
 
@@ -19,6 +20,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::meetings::comments;
 use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_correction;
@@ -77,11 +79,23 @@ pub async fn undo(
                 Some(EventKind::HoldChanged) => {
                     undo_hold(connection, &current, &undone, author).await?
                 }
+                Some(EventKind::ThreadResolved | EventKind::ThreadReopened) => {
+                    comments::undo_resolution(connection, &undone, author).await?
+                }
                 Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };
-            undo.ok_or(UndoError::ChangedSince)
+            let undo = undo.ok_or(UndoError::ChangedSince)?;
+            // A thread put back or taken away, or words a thread quotes, change what the
+            // meeting's segments index.
+            if matches!(
+                undone.kind(),
+                Some(EventKind::Edited | EventKind::Marked | EventKind::Unmarked)
+            ) {
+                comments::reindex(connection, &current).await?;
+            }
+            Ok(undo)
         })
         .await
 }
