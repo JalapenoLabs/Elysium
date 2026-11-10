@@ -310,6 +310,10 @@ pub async fn accept(
                     source_record_ids: json!([]),
                     action_item_ids: json!([item.record.id]),
                     source_message_ids: json!([]),
+                    // It names no goal of the brief. The goal check turns a Project Manager's
+                    // work outside the brief into a question for the person, and accepting the
+                    // finding is the person answering it.
+                    serves: None,
                     lineage: Lineage::accepted_finding(),
                     created_by: person,
                 },

@@ -449,7 +449,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
   its own runner conversation, working in `project-managers/<project id>` in the workspace, so its files persist. The
   session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
-- **What wakes it.** Five things, each written as a wake (`project_manager_wakes`) in the same transaction as what
+- **What wakes it.** Six things, each written as a wake (`project_manager_wakes`) in the same transaction as what
   caused it, so no crash or lost signal loses one:
   - **a record newly on its project**: segmenting a meeting or a conversation attributing a topic or a message to it,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
@@ -467,7 +467,12 @@ trackers (Its writes, below), and its tabs on the project's page.
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
   - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);
   - **a promise**: one segmenting found on its project, or one whose work just finished (Follow-ups, below); a promise
-    waits once however often it is woken for meanwhile.
+    waits once however often it is woken for meanwhile;
+  - **its brief**: a publish of the project's brief, its edit or a restore of a version, by anyone but the Project
+    Manager itself and the system user, which renames the brief with its project (`page::publish_content`,
+    `project_brief::wakes_its_manager`). A person's edit is the direction it follows, and an agent acting for a person,
+    Elysia, or another project's Project Manager is someone else too. Each publish is a wake of its own, naming its
+    version, so the turn names everyone who edited it.
 
   Linking a page to its project wakes nothing, since nothing has to happen because of a link and a wake spends a turn:
   every turn's prompt names the project's docs, so the next turn finds it, and a person who wants it read says so.
@@ -490,10 +495,11 @@ trackers (Its writes, below), and its tabs on the project's page.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
-  where its issues file (or why nowhere), names the project's docs, the knowledge base pages linked to it, up to 50 of
-  them newest published first, and carries what woke it: each message with the id a batch names it by, each record's
-  kind, title, summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that
-  failed, and
+  where its issues file (or why nowhere), carries the project's brief whole (The project brief, below), names the
+  project's other docs, the knowledge base pages linked to it, up to 50 of them newest published first, and carries
+  what woke it: each message with the id a batch names it by, who published the brief and as which version, each
+  record's kind, title, summary, attribution, and an excerpt, each batch's result with the promises still waiting on
+  one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
   one. It ends with a `Summary:` line, which
@@ -522,6 +528,29 @@ trackers (Its writes, below), and its tabs on the project's page.
   knowledge base does.
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
+
+### The project brief
+
+Built: every project's brief (`api/src/models/project_brief.rs`), a knowledge base page linked to its project
+(`docs/knowledge.md`, Pages, Projects), is what the project is for, and its Project Manager keeps it.
+
+- **Read every turn.** The prompt carries it whole, cut at 20,000 characters with the rest a `manager_page` away, ahead
+  of what woke the turn so a long prompt is never cut through it, with its version and its goals as a batch names them.
+  It is left out of the docs listed after it.
+- **Kept current.** The Project Manager writes it with `page_save` from `elysium_knowledge`, as its machine user naming
+  its project, against the version its prompt gave. Its instructions say to record what is decided and what is out of
+  scope as it learns it, and every batch a person rejects under Decisions with their reason in their words; the
+  prompt says so beside each rejection, naming the version to save against.
+- **A person's edits win.** A save against a version that is no longer current answers `page_changed`, and the
+  instructions say to read the brief again and merge into what it says now rather than write back over it. Someone
+  else's publish wakes the Project Manager (What wakes it, above), and its next turn is told who published which
+  version and to follow it.
+- **Goals are headings.** A goal is a `###` heading under `## Goals`, read from the Markdown line by line as a heading
+  is, skipping fenced code (`project_brief::goals`, a pure function), so whether a batch serves one is checked without a
+  model. Goals come from people: the instructions say to add one only when a person asked for it, quoting them, and
+  never to add or widen one so work passes the check.
+- **Its folder.** Its workspace folder, `project-managers/<project id>`, stays for its working notes, which nobody else
+  reads; the brief is what people read and correct. The instructions say to use both.
 
 ### Its writes
 
@@ -571,14 +600,19 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
 ### Work batches
 
 A batch (`work_batches`) is one piece of work for one worker: a title, a goal written so a worker who has seen nothing
-else can finish it, the repositories it needs (`[{ url, baseBranch? }]`, at most 16, each held to a coding session's
-rules), a priority (`asap`, `normal`, or `scheduled` with `scheduled_for`, in the future and within a year), and its
-provenance: the turn that submitted it, the timeline records and the messages to its Project Manager that called for
-it, each checked to be on its project, and the action items it works on, each checked to be led by its project. An item
-can sit on several projects, but only its lead project's Project Manager works it (`docs/action-items.md`, Projects and
-the lead), so a batch naming an item another project leads is refused, telling the Project Manager which project leads
-it and that a person can move the lead. From its provenance come its origin and generation (Origins and generations,
-below). Submitting stores it, proposed, puts it on the timeline, brings its project's approval item up to date, and
+else can finish it, the goal in its project's brief it serves (`serves`), the repositories it needs (`[{ url,
+baseBranch? }]`, at most 16, each held to a coding session's rules), a priority (`asap`, `normal`, or `scheduled` with
+`scheduled_for`, in the future and within a year), and its provenance: the turn that submitted it, the timeline records
+and the messages to its Project Manager that called for it, each checked to be on its project, and the action items it
+works on, each checked to be led by its project. An item can sit on several projects, but only its lead project's
+Project Manager works it (`docs/action-items.md`, Projects and the lead), so a batch naming an item another project
+leads is refused, telling the Project Manager which project leads it and that a person can move the lead. From its
+provenance come its origin and generation (Origins and generations, below). `serves` names a goal of the brief by its
+heading, whatever its spacing and case, and is stored as the brief spells it; a batch that names none of the brief's
+goals is refused, listing the goals there are and saying that work outside the brief is the person's to decide, so its
+Project Manager asks them rather than submits it. A batch a person makes by accepting a finding names no goal, since
+their acceptance is that answer. A goal renamed in the brief later leaves the batches that served it as they were
+submitted. Submitting stores it, proposed, puts it on the timeline, brings its project's approval item up to date, and
 announces all three in one place (`project_managers::batches`).
 
 Where a batch stands (`api/src/models/work_batch.rs`):
@@ -625,7 +659,8 @@ submits everything; the gate is between its plan and the pool.
   and priority (with a scheduled one's time) in the same transaction, each held to the rules a submission is
   (`project_managers::batches::check_edits`), and records only what changed. Reject needs a reason, which becomes its
   result and wakes its Project Manager, whose next turn reads it under the batch and is told to follow it rather than
-  submit the same work again. Its Project Manager or Elysia may still withdraw a proposal (`cancelled`).
+  submit the same work again, and to record it in the project's brief (The project brief, above). Its Project Manager
+or Elysia may still withdraw a proposal (`cancelled`).
 - **Only a person.** `worker_pool::actions::approve` and `reject` take a `MemberUser`, which a seeded machine never is
   (`auth::MemberUser::check` refuses the `agent` and `system` roles), so no tool reaches them: Elysia's
   `elysia_work_queue` and a Project Manager's `manager_batches` list proposals, and no agent's tool approves or rejects
@@ -638,9 +673,8 @@ submits everything; the gate is between its plan and the pool.
   changes nothing, and the next proposal raises a new one (`work_batch_approval_items` holds which item a project has).
   As the pool's scheduler starts, it raises the item of any project whose proposals never had one, such as batches
   held for approval without a submission (`approval_item::reconcile`), so no proposal waits unseen.
-- **Why it exists.** A batch's page reads the timeline records its Project Manager named as its cause, by title and
-  kind with the knowledge base's document for each, and the action items it works on (`work_batch::why`). The full
-  chain, from meeting quote to pull request, is on the roadmap (`docs/autonomy.md`, Staying aware).
+- **Why it exists.** A proposal's page and row show what asked for it, so a person decides knowing why (Why a batch
+  exists, below).
 - **Feedback.** A rejection's `rejected` entry, with its reason and the person, is the feedback it leaves for
   self-improvement until a store of feedback exists (`docs/self-improvement.md`).
 
@@ -687,6 +721,43 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   Manager read its result as it planned, unless it names that person's message. A follow-up the Project Manager submits
   in a later turn that nothing of the batch's woke, naming only a person's record, counts from 0, and so does one that
   names a person's unrelated message its turn took; the person still approves either.
+
+### Why a batch exists
+
+Built: every batch's chain, from what asked for it to the pull requests that answer it (`work_batch::why`), on its
+page, at the head of its row in the work queue, and in the description of every pull request its worker records
+(`worker_pool::description`). See `docs/autonomy.md`, Staying aware.
+
+- **Read, never copied.** The chain is read from the batch's provenance as it is shown, the same provenance that gives
+  its origin and generation, so it is never out of date. In order: the finding a person accepted, when accepting one
+  made the batch, with who accepted it and when (Findings, below); the messages to its Project Manager it names, only
+  those sent on its own project; the timeline records it names, a meeting segment with its meeting's title and the
+  first 600 characters of what was said; for each item it works on, the issues linked to it, primary first, then the
+  records that raised it not named already; the items; the batch; and its pull requests in the order its worker
+  recorded them. Anything named that is gone since (a record removed with its connector, a deleted item) is left out.
+- **Where each opens.** A record opens its knowledge base document, which any member reads (`docs/knowledge.md`, Who
+  sees what); one not indexed yet is named without a link. A finding opens its project's Findings tab, a message its
+  Project Manager's tab, an item and a batch their pages, an issue its tracker, and a pull request GitHub.
+- **One read for a list.** `why::read_many` reads any number of batches' chains in one query per kind of link, so the
+  work queue shows each row's head (the first thing that asked for it, or failing that its first item) without a query
+  per row.
+- **In the pull request.** `worker_pull_request` records the pull request first, since that is what lets it merge,
+  reads the chain and gives its database connection back, then reads the pull request again, so an edit made since and
+  the repository's visibility now are what it composes from, and puts the chain at the end of its description,
+  between `<!-- elysium:why -->` and `<!-- /elysium:why -->`, each alone on its line, leaving what was written as it
+  was. GitHub has no conditional write of a description, so an edit landing in that one round trip is the only one it
+  can lose. Recording it again replaces the chain in place, so a worker puts back a chain an edit removed, and a
+  description already carrying it is not written. A write GitHub refuses is logged and told to the worker, never
+  failing the call.
+- **What it says, by who reads it.** In a private repository (GitHub's `isPrivate`, true of an internal one too) the
+  readers are the company, so the chain carries what its page does: titles, a meeting's quote, who wrote a message. In
+  a public one anyone reads it, and nothing ingested leaves the company, so each link says only what kind it is and
+  opens in Elysium, which answers its members alone. Not even an issue's key or address goes out: a key names a
+  private repository or the company's tracker, so an issue opens on the batch's page.
+- **It cannot break a pull request.** Editing a description leaves its head and checks as they are, so a merge
+  decision reads nothing new. Every quoted text is a link's text with Markdown's punctuation escaped, so nothing quoted
+  becomes Markdown, HTML, a mention, an issue reference, or a closing keyword. The chain is at most 8,000 characters,
+  ending with how many links did not fit, and a description it would carry past GitHub's 65,536 is left as it is.
 
 ### Findings
 
@@ -916,7 +987,8 @@ failing closed, and the record of every merge (`api/src/worker_pool/merging/`, `
   not declare is a person's. The choice is read again at every look and every turn, so a change applies at once.
 - **Only its own.** A worker records each pull request it opens with `worker_pull_request`, which checks with GitHub,
   through the project's token, that the project's account opened it, from a branch of the repository itself, after the
-  batch started (`work_batch_pull_requests`). A pull request is one batch's: another batch naming it is refused.
+  batch started (`work_batch_pull_requests`), and puts why its batch exists in its description (Why a batch exists,
+  above). A pull request is one batch's: another batch naming it is refused.
   Nothing a worker did not record is ever merged, and the worker never merges one itself.
 - **When it looks.** The engine looks at a batch's open pull requests as each of its worker's waits ends, before the
   turn that follows, and once more before the batch finishes, so the look follows the worker's own loop: a worker

@@ -345,6 +345,7 @@ async fn records_name_their_batch_only_when_elysium_made_them() {
             action_item_ids: json!([]),
             source_message_ids: json!([]),
             lineage: crate::test_support::person_rooted(),
+            serves: None,
             created_by: PROJECT_MANAGER_USER_ID,
         },
     )

@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Pull requests as Elysium merges them: everything one look needs to decide, the rules GitHub
-//! enforces on the base branch, and the merge itself. See `docs/github.md`, Merging.
+//! enforces on the base branch, and the merge itself, and the description Elysium keeps why its
+//! batch exists in. See `docs/github.md`, Merging.
 //!
 //! What a pull request is (its state, its author, whether it merges cleanly, its review threads,
 //! its reviews, and its head commit's checks) is read in one GraphQL call ([`Github::pull_request`])
@@ -28,18 +29,20 @@ use crate::models::work_batch::pull_request::MergeMethod;
 /// be said to pass.
 const PAGE: u32 = 100;
 
-/// One read of a pull request: its repository's merge settings, the pull request, its reviews
-/// and threads, its base branch's classic protection as a non-admin sees it, and its head
-/// commit's checks. Field names were checked against a live answer.
+/// One read of a pull request: its repository's merge settings and whether it is private, the
+/// pull request with its description, its reviews and threads, its base branch's classic
+/// protection as a non-admin sees it, and its head commit's checks. Field names were checked
+/// against a live answer.
 const PULL_REQUEST_QUERY: &str = "query($owner: String!, $name: String!, $number: Int!) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     nameWithOwner
+    isPrivate
     squashMergeAllowed
     mergeCommitAllowed
     rebaseMergeAllowed
     pullRequest(number: $number) {
-      number url title state isDraft mergedAt
+      number url title body state isDraft mergedAt
       mergedBy { login }
       author { login }
       createdAt isCrossRepository headRefOid baseRefName
@@ -153,6 +156,8 @@ pub struct PullRequest {
     pub number: u64,
     pub url: String,
     pub title: String,
+    /// Its description, as Markdown.
+    pub description: String,
     pub status: PullRequestStatus,
     pub is_draft: bool,
     pub merged_at: Option<DateTime<Utc>>,
@@ -184,6 +189,9 @@ pub struct PullRequest {
     pub classic_required_checks: Vec<String>,
     /// Whether the base branch's classic protection requires a linear history.
     pub classic_linear_history: bool,
+    /// Whether its repository is private, so only those it was shared with read it. GitHub says
+    /// so of an internal repository too.
+    pub repository_is_private: bool,
     /// The repository's own merge settings.
     pub squash_allowed: bool,
     pub merge_commit_allowed: bool,
@@ -256,6 +264,7 @@ impl Github {
             data.viewer.login,
             repository.name_with_owner,
             RepositorySettings {
+                is_private: repository.is_private,
                 squash: repository.squash_merge_allowed,
                 merge_commit: repository.merge_commit_allowed,
                 rebase: repository.rebase_merge_allowed,
@@ -292,6 +301,31 @@ impl Github {
         Ok(read_rules(rules))
     }
 
+    /// Replaces pull request `pull_request`'s description with `description`. Its head, and so
+    /// its checks, stay as they are: GitHub reruns only the workflows its repository runs on an
+    /// edited description.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Refused`] with GitHub's message when it refuses, such as `422` for
+    /// a description past its limit; [`GithubError::NoAccess`] for a token that may not edit it.
+    pub async fn update_pull_request_description(
+        &self,
+        token: &SecretString,
+        pull_request: &IssueRef,
+        description: &str,
+    ) -> Result<(), GithubError> {
+        let url = self.repository_url(
+            &pull_request.repository,
+            &["pulls", &pull_request.number.to_string()],
+        );
+        let body = json!({ "body": description });
+        let reply = self.send(Method::PATCH, &url, token, Some(&body)).await?;
+        if reply.status != StatusCode::OK {
+            return Err(reply.write_refusal());
+        }
+        Ok(())
+    }
+
     /// Merges pull request `pull_request` with `method`, provided its head is still `head_oid`,
     /// and answers the commit it merged as. GitHub enforces the base branch's rules on the call
     /// itself; nothing here asks it to bypass them.
@@ -324,9 +358,15 @@ impl Github {
     }
 }
 
-/// A repository's own merge settings.
+/// What a pull request's repository says of itself: whether it is private, and its merge
+/// settings.
 #[derive(Clone, Copy)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is one yes-or-no fact GitHub answers of the repository, read independently"
+)]
 struct RepositorySettings {
+    is_private: bool,
     squash: bool,
     merge_commit: bool,
     rebase: bool,
@@ -371,6 +411,7 @@ fn read_pull_request(
         number: body.number,
         url: body.url,
         title: body.title,
+        description: body.description,
         status: body.state,
         is_draft: body.is_draft,
         merged_at: body.merged_at,
@@ -394,6 +435,7 @@ fn read_pull_request(
             .map(|rule| rule.required_status_check_contexts.clone())
             .unwrap_or_default(),
         classic_linear_history: rule.is_some_and(|rule| rule.requires_linear_history),
+        repository_is_private: settings.is_private,
         squash_allowed: settings.squash,
         merge_commit_allowed: settings.merge_commit,
         rebase_allowed: settings.rebase,
@@ -498,8 +540,13 @@ struct LoginBody {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "GitHub's answer, field for field: each is one yes-or-no fact of the repository"
+)]
 struct RepositoryBody {
     name_with_owner: String,
+    is_private: bool,
     squash_merge_allowed: bool,
     merge_commit_allowed: bool,
     rebase_merge_allowed: bool,
@@ -512,6 +559,9 @@ struct PullRequestBody {
     number: u64,
     url: String,
     title: String,
+    /// Its description, which GitHub calls its body.
+    #[serde(rename = "body")]
+    description: String,
     state: PullRequestStatus,
     is_draft: bool,
     merged_at: Option<DateTime<Utc>>,
@@ -675,6 +725,7 @@ mod tests {
             "number": 63,
             "url": "https://github.com/JalapenoLabs/Elysium/pull/63",
             "title": "Give every browser a way out",
+            "body": "Closes #61",
             "state": "MERGED",
             "isDraft": false,
             "mergedAt": "2026-11-02T22:26:13Z",
@@ -702,6 +753,7 @@ mod tests {
             "viewer": { "login": "navarrotech" },
             "repository": {
                 "nameWithOwner": "JalapenoLabs/Elysium",
+                "isPrivate": false,
                 "squashMergeAllowed": true,
                 "mergeCommitAllowed": false,
                 "rebaseMergeAllowed": false,
@@ -718,6 +770,7 @@ mod tests {
             data.viewer.login,
             repository.name_with_owner,
             RepositorySettings {
+                is_private: repository.is_private,
                 squash: repository.squash_merge_allowed,
                 merge_commit: repository.merge_commit_allowed,
                 rebase: repository.rebase_merge_allowed,
@@ -731,6 +784,8 @@ mod tests {
         let read = read(&answer());
         assert_eq!(read.viewer, "navarrotech");
         assert_eq!(read.repository, "JalapenoLabs/Elysium");
+        assert!(!read.repository_is_private);
+        assert_eq!(read.description, "Closes #61");
         assert_eq!(read.status, PullRequestStatus::Merged);
         assert_eq!(read.merged_by.as_deref(), Some("navarrotech"));
         assert_eq!(read.mergeable, Mergeability::Unknown);

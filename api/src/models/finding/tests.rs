@@ -154,6 +154,7 @@ async fn workers_batch(connection: &mut AsyncPgConnection, project_id: Uuid) -> 
             source_record_ids: json!([]),
             action_item_ids: json!([]),
             source_message_ids: json!([]),
+            serves: None,
             lineage: person_rooted(),
             created_by: crate::models::user::PROJECT_MANAGER_USER_ID,
         },

@@ -490,8 +490,10 @@ A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpd
 `coverFit` (`fit` or `fill`, how clients frame the cover), and `github`: `{ access, credentialId }`, how the project
 picks its sessions' GitHub token. `access` is `default` (the workspace default), `none`, or `specific` with the token's
 `credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
-`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
-accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected. A `github` whose
+`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty), and
+creates the project's brief with it, announced as `page.changed` (`docs/autonomy.md`, The project brief). `PATCH`
+accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected, and a new `name` renames the
+brief too. A `github` whose
 `credentialId` is missing for `specific`, present for another access, or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
@@ -519,8 +521,10 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
 first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
-timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, `message`, or
-`promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
+timelineRecordId, workBatchId, promiseId, pageVersion, body, createdBy, createdAt }`, `kind` being `record`, `batch`,
+`message`, `promise`, or `brief` (someone else published the project's brief, as version `pageVersion`). A batch has
+`id`, `title`, `goal`, `serves` (the goal in the project's brief it serves, `null` for a batch from before briefs or
+one a person made by accepting a finding), `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
 `scheduled`), `scheduledFor`, `state` (`proposed`, `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`,
 `cancelled`, `rejected`),
 `result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `sourceMessageIds` (the messages to its Project Manager that
@@ -562,16 +566,19 @@ has looked, when `size` is `null` too unless an admin chose one), and `usageHeld
 at its usage limit. `inSlots` lists the batches holding slots, in the order they got them; `next` every batch the pool
 may hand a slot now, first first; `scheduled` the scheduled batches not yet due, soonest first; `paused` the paused
 ones; and `proposed` those waiting for a person's approval, oldest first, which the pool hands nothing. Each entry is
-`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt, origin, generation
-}`, without its goal;
+`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt, origin, generation,
+cause }`, without its goal, `cause` being the head of its chain (the first link of `why.chain` below that is neither the
+batch nor a pull request), or `null` for a batch that names nothing;
 at most the 1,000 oldest waiting batches are read, and apart from them at most the 1,000 oldest proposed.
 
 `GET /work-batches/{id}` answers `{ batch, why, history }`: the batch whole, as `GET /projects/{id}/project-manager`
-lists it; `why`, `{ records, messages, actionItems, parents }`, the timeline records its Project Manager named as its
-cause, each `{ id, sourceKind, title, occurredAt, documentId }` with `documentId` the knowledge base's document a member
-opens it by (`null` before it is indexed), the messages sent to its Project Manager that called for it, each `{ id,
-authorId, author, body, sentAt }`, the action items it works on, each `{ id, title, state }`, in the order it named
-them, leaving out any gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
+lists it; `why`, `{ chain, parents }`, its chain from what asked for it to its pull requests (`docs/engine.md`, Why a
+batch exists), each link tagged by `kind`: `finding` `{ id, title, acceptedById, acceptedBy, acceptedAt }`, `message`
+`{ id, authorId, author, body, sentAt }`, `record` `{ id, sourceKind, title, occurredAt, excerpt, meetingTitle,
+documentId }` with `excerpt` its first 600 characters and `documentId` the knowledge base's document a member opens it
+by (`null` before it is indexed), `issue` `{ actionItemId, provider, key, url, title }`, `item` `{ id, title, state }`,
+`batch` `{ id, projectId, title }`, and `pullRequest` `{ id, repository, number, url, title, state }`, leaving out
+anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
 history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
 (`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
@@ -779,10 +786,11 @@ and members, and a guest `403 members_only`. `page.changed` carries an id alone,
 load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
-`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `briefProjectId` (the
+project whose brief it is, `null` on any other page), `labels` (in order),
 `attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest
 version), `createdBy`, `createdAt`, `updatedAt`, `deletedAt`, and `projectIds`, the projects it is linked to, oldest link
-first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
+first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, `briefProjectId`,
 `labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
 the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move, a label, or a
@@ -816,7 +824,8 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
-| `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
+| `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, or Project briefs page, a section, or a project's brief |
+| `page_brief_linked`   | Taking a project's brief off that project, which only deleting the project does   |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
 | `page_not_a_learning` | A publish named a category and evidence for a page that is no learning           |
 | `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |

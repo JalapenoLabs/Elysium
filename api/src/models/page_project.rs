@@ -9,7 +9,9 @@
 //!
 //! Every write takes the [`Author`] making it. Agents may link any page, a proposal-only one too:
 //! that rule guards what the company doc says and where it sits, which a link does not touch, and
-//! so does a fixed page's. A link already there, or one already gone, records nothing.
+//! so does a fixed page's. A link already there, or one already gone, records nothing. The one link
+//! nobody removes is a brief's to its own project (`crate::models::project_brief`), which goes only
+//! with the project.
 //!
 //! Each write holds the project before it locks the page, the order deleting a project takes them
 //! in ([`remove_all_from_project`]), so the two never wait on each other. A deleted page keeps its
@@ -99,7 +101,8 @@ pub async fn link(
 /// that is not there records nothing.
 ///
 /// # Errors
-/// `NotFound` for an unknown page or project, and [`PageError::Deleted`] for a deleted page.
+/// `NotFound` for an unknown page or project, [`PageError::Deleted`] for a deleted page, and
+/// [`PageError::BriefStaysLinked`] for a project's brief and that project.
 pub async fn unlink(
     connection: &mut AsyncPgConnection,
     page_id: Uuid,
@@ -110,6 +113,9 @@ pub async fn unlink(
         .transaction(async move |connection| {
             let project_name = hold_project(connection, project_id).await?;
             let page = lock_live(connection, page_id).await?;
+            if page.brief_project_id == Some(project_id) {
+                return Err(PageError::BriefStaysLinked);
+            }
             let unlinked = diesel::delete(page_projects::table.find((page_id, project_id)))
                 .execute(connection)
                 .await?;
