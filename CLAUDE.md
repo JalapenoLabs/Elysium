@@ -318,8 +318,14 @@ Everything else follows these rules:
 - A meeting is the one event; a capture (`meeting_captures`) is one record of it, as its source gave it: today a
   connector's meeting, each holding its connector, its raw transcript and recording with their hashes, and its offset
   onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
-  being recorded twice. A meeting holds one capture until captures can be merged. See `docs/meetings.md`, Meetings
-  and captures.
+  being recorded twice. A meeting's captures are in the order they joined it, the first its clock. See
+  `docs/meetings.md`, Meetings and captures.
+- The run's `align_meeting` step places every capture on the meeting's clock (audio cross-correlated against the
+  first capture's, or words and times matched), lines their words up into the final transcript keeping every edit,
+  and, for a meeting overlapping another of its person's with participants in common, holds the run with an inbox item
+  ("Same meeting as") until they Merge or say Not the same; Elysium never merges on its own. A merge is undone by
+  splitting, both in the meetings' histories, and a hand-set offset is recorded and undoable. See `docs/meetings.md`,
+  Aligning, and The same meeting twice.
 - The final transcript is words with stable ids (`meeting_words`) on the meeting's clock, each saying where it came
   from; every mark (`meeting_marks`) is a range of word ids, and an edit replaces a range with new words that the
   marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to

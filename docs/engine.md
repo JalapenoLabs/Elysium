@@ -127,9 +127,11 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   that brings into the index what was stored before it was indexed on write (timeline records, and turn summaries not
   yet on the timeline) is a loop for the same reason (`docs/knowledge.md`, The backfill).
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and four production
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and five production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
-`correct_transcript`, and `segment_meeting`; `request` (`api/src/conversations/workflow.rs`), which starts at
+`align_meeting`, `correct_transcript`, and `segment_meeting`; `meeting_alignment`, one step, `align_meeting`, which
+aligns a meeting again once its captures change after its own run aligned it (a merge, a split); `request`
+(`api/src/conversations/workflow.rs`), which starts at
 segmenting, `segment_meeting` then `handle_request`; `assigned_issue` (`api/src/action_items/assigned/workflow.rs`),
 one step, `segment_meeting`, which attributes an issue that arrived assigned to its person to its projects (source
 `action_item`, `docs/action-items.md`, Projects and the lead); and `company_doc_review`
@@ -270,10 +272,17 @@ the Runs page.
   fixes misheard names and terms. The web app shows the two as a diff on the meeting's page, and the person may
   approve it. Approval is optional: every later step reads the corrected copy either way, told whether it was
   approved (its output's `approved`). See `docs/meetings.md`, Correction.
-- Built: the step then builds the meeting's final transcript from its corrected copy: a stream of words with stable
-  ids on the meeting's clock, each saying where it came from, which every mark (an edit, an excerpt, a comment, and
-  the rest) anchors to as a range of word ids. Every change to a meeting is in its history, undoable. Segmenting builds
-  it for a meeting whose correction was skipped. See `docs/meetings.md`, The final transcript, and History.
+- Built: before correction, the run's `align_meeting` step puts every capture of the meeting on its clock, by
+  cross-correlating each recording's audio against the first capture's, or by matching words and their times, and
+  lines their words up into the meeting's final transcript: a stream of words with stable ids on the meeting's clock,
+  each saying where it came from, Whisper's timings anchoring and the sources' speakers naming who spoke, which every
+  mark (an edit, an excerpt, a comment, and the rest) anchors to as a range of word ids. Correction lines it up again
+  with its copy, keeping every edit. Every change to a meeting is in its history, undoable. See `docs/meetings.md`,
+  Aligning, The final transcript, and History.
+- Built: a meeting that overlaps another of its person's, with participants in common, holds its run at aligning
+  with an inbox item, "Same meeting as" the other, until its person merges it or says it is not the same; Elysium
+  never merges on its own. Merging moves its captures into the other, which a `meeting_alignment` run aligns again,
+  and a merge is undone by splitting. See `docs/meetings.md`, The same meeting twice.
 - Built: each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops
   after correction (`Done::Held`) with an inbox item to review the diff, and continues once approved, the output
   saying so; Resume on the Runs page passes the held output on unapproved. One meeting can also be held by hand.
