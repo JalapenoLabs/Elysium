@@ -51,12 +51,12 @@ pub const SERVER: ToolServer = ToolServer {
         base pages linked to the project, its docs, and manager_page reads one. manager_batches \
         lists the batches you submitted and where each stands; check it before submitting, so \
         no work is submitted twice. manager_submit_batch proposes a piece of work for a worker: \
-        write its goal so a worker who has seen nothing else can finish it, and name the records \
-        and action items it came from. A batch waits for a person to approve it, edit and \
-        approve it, or reject it with a reason, which wakes you, unless the project's level of \
-        autonomy, which your prompt names, lets a human-rooted one queue at once; a found batch \
-        always waits. Queued, it waits in the one queue for the whole workspace, which a person \
-        or Elysia may reorder or pause. \
+        write its goal so a worker who has seen nothing else can finish it, name the goal in the \
+        project's brief it serves, and name the records and action items it came from. A batch \
+        waits for a person to approve it, edit and approve it, or reject it with a reason, which \
+        wakes you, unless the project's level of autonomy, which your prompt names, lets a \
+        human-rooted one queue at once; a found batch always waits. Queued, it waits in the one \
+        queue for the whole workspace, which a person or Elysia may reorder or pause. \
         manager_cancel_batch withdraws a batch no worker has started on yet. Work nobody asked \
         for that you notice is a finding, not a batch: manager_report_finding puts it on the \
         project's Findings list for a person to accept or dismiss, and you never submit a batch, \
@@ -119,16 +119,17 @@ const TOOLS: [Tool; 13] = [
     Tool {
         name: "manager_submit_batch",
         description: "Proposes a work batch for a worker: a title, a goal complete enough to \
-            work from alone, the repositories it needs, and a priority, asap, normal, or \
-            scheduled with scheduledFor (an ISO 8601 time with its offset). recordIds, \
-            actionItemIds, and messageIds name what called for it, which the person reads as they \
-            decide; a batch naming none is refused. Its origin (human_rooted when anything named \
-            traces to a person, found when all of it is an agent's) and its generation (how many \
-            batches led to it) are worked out from them and from what woke this turn, and one past \
-            the generation limit is refused, saying why. It is put on the project's timeline. A \
-            found batch waits, proposed, until a person approves it; a human-rooted one waits too \
-            unless the project's level of autonomy lets it queue at once, as your prompt says. \
-            Answers the stored batch, with its state.",
+            work from alone, the goal in the project's brief it serves (serves, by its heading), \
+            the repositories it needs, and a priority, asap, normal, or scheduled with \
+            scheduledFor (an ISO 8601 time with its offset). recordIds, actionItemIds, and \
+            messageIds name what called for it, which the person reads as they decide; a batch \
+            naming none is refused, and so is work that serves no goal in the brief. Its origin \
+            (human_rooted when anything named traces to a person, found when all of it is an \
+            agent's) and its generation (how many batches led to it) are worked out from them and \
+            from what woke this turn, and one past the generation limit is refused, saying why. \
+            It is put on the project's timeline. A found batch waits, proposed, until a person \
+            approves it; a human-rooted one waits too unless the project's level of autonomy lets \
+            it queue at once, as your prompt says. Answers the stored batch, with its state.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
     },
@@ -401,6 +402,14 @@ fn submit_schema() -> Value {
                 "description": "What done looks like, for a worker who has seen nothing else: \
                     the context, what to change, how to check it, and who asked.",
             },
+            "serves": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "The goal in the project's brief this work serves, by its heading \
+                    as your prompt lists it. A batch that serves none is refused: ask the person \
+                    whether the work belongs instead.",
+            },
             "repositories": {
                 "type": "array",
                 "maxItems": 16,
@@ -444,7 +453,7 @@ fn submit_schema() -> Value {
             "messageIds": ids("The messages sent to you that called for it, by the ids your \
                 prompt gives them."),
         },
-        "required": ["title", "goal", "priority"],
+        "required": ["title", "goal", "serves", "priority"],
         "additionalProperties": false,
     })
 }
@@ -1010,6 +1019,7 @@ fn batch_view(batch: &WorkBatch) -> Value {
         "id": batch.id,
         "title": batch.title,
         "goal": batch.goal,
+        "serves": batch.serves,
         "repositories": batch.repositories,
         "priority": batch.priority,
         "scheduledFor": batch.scheduled_for,
@@ -1149,9 +1159,11 @@ mod tests {
         };
         let bearer = headers[0].1.expose_secret().to_owned();
 
+        // Its brief is one of its docs too, linked since the project was created.
         let listed = answered(call(&state, &bearer, "manager_pages", json!({})).await);
-        assert_eq!(listed["pages"].as_array().expect("pages").len(), 1);
+        assert_eq!(listed["pages"].as_array().expect("pages").len(), 2);
         assert_eq!(listed["pages"][0]["title"], "Launch checklist");
+        assert_eq!(listed["pages"][1]["title"], "Launch brief");
 
         let arguments = json!({ "pageId": linked });
         let first = answered(call(&state, &bearer, "manager_page", arguments).await);

@@ -122,7 +122,7 @@ async fn children(connection: &mut AsyncPgConnection, parent_id: Option<Uuid>) -
         .await
         .expect("listed")
         .into_iter()
-        .filter(|page| page.parent_id == parent_id && !page::is_fixed(page.id))
+        .filter(|page| page.parent_id == parent_id && !page.is_fixed())
         .map(|page| page.title)
         .collect()
 }
@@ -1231,7 +1231,7 @@ async fn members_create_publish_read_and_restore_pages_over_the_routes() {
     let own = own.expect("the page beside the fixed ones");
     assert_eq!(own["title"], "Deploying the API");
     assert!(own.get("body").is_none());
-    assert_eq!(listed.len(), 10, "and the nine every tree starts with");
+    assert_eq!(listed.len(), 11, "and the ten every tree starts with");
 }
 
 #[tokio::test]

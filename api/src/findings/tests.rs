@@ -180,6 +180,7 @@ async fn approved(connection: &mut AsyncPgConnection, project_id: Uuid) -> WorkB
             source_record_ids: json!([]),
             action_item_ids: json!([]),
             source_message_ids: json!([]),
+            serves: None,
             lineage: person_rooted(),
             created_by: PROJECT_MANAGER_USER_ID,
         },
@@ -278,6 +279,10 @@ async fn accepting_files_its_issue_and_proposes_a_batch_rooted_in_the_person() {
     );
     assert_eq!(batch.origin, Origin::HumanRooted);
     assert_eq!(batch.generation, 0, "accepting starts the chain again");
+    assert_eq!(
+        batch.serves, None,
+        "the person accepting it decided it is wanted, so it names no goal of the brief"
+    );
     assert_eq!(batch.created_by, TEST_PERSON_ID);
     assert_eq!(batch.action_item_ids, json!([item.id]));
     assert_eq!(

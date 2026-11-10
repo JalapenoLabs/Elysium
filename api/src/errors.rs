@@ -212,6 +212,10 @@ impl From<crate::models::page::PageError> for ApiError {
                 "page_fixed",
                 "this page holds its place: it cannot be moved, deleted, or renamed",
             ),
+            PageError::BriefStaysLinked => (
+                "page_brief_linked",
+                "a project's brief stays linked to its project for as long as the project exists",
+            ),
             PageError::TitleTaken => (
                 "page_title_taken",
                 "another learning already has this title",

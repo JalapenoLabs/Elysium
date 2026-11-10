@@ -488,9 +488,10 @@ picks its sessions' GitHub token. `access` is `default` (the workspace default),
 `credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
 `autonomy` is its trust dial (`docs/autonomy.md`, The dial): `approve_every_batch`, the default, `approve_found_work`,
 or `full_autonomy`. `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000,
-default empty). `PATCH` accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected.
-A `github` whose `credentialId` is missing for `specific`, present for another access, or names no token answers
-`400`. `DELETE` answers `409` while any coding session belongs to the project.
+default empty), and creates the project's brief with it, announced as `page.changed` (`docs/autonomy.md`, The project
+brief). `PATCH` accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected, and a new
+`name` renames the brief too. A `github` whose `credentialId` is missing for `specific`, present for another access,
+or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,
@@ -524,8 +525,10 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
 first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
-timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, `message`, or
-`promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
+timelineRecordId, workBatchId, promiseId, pageVersion, body, createdBy, createdAt }`, `kind` being `record`, `batch`,
+`message`, `promise`, or `brief` (someone else published the project's brief, as version `pageVersion`). A batch has
+`id`, `title`, `goal`, `serves` (the goal in the project's brief it serves, `null` for a batch from before briefs or
+one a person made by accepting a finding), `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
 `scheduled`), `scheduledFor`, `state` (`proposed`, `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`,
 `cancelled`, `rejected`),
 `result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `sourceMessageIds` (the messages to its Project Manager that
@@ -785,10 +788,11 @@ and members, and a guest `403 members_only`. `page.changed` carries an id alone,
 load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
-`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `briefProjectId` (the
+project whose brief it is, `null` on any other page), `labels` (in order),
 `attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest
 version), `createdBy`, `createdAt`, `updatedAt`, `deletedAt`, and `projectIds`, the projects it is linked to, oldest link
-first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
+first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, `briefProjectId`,
 `labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
 the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move, a label, or a
@@ -822,7 +826,8 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
-| `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
+| `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, or Project briefs page, a section, or a project's brief |
+| `page_brief_linked`   | Taking a project's brief off that project, which only deleting the project does   |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
 | `page_not_a_learning` | A publish named a category and evidence for a page that is no learning           |
 | `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |

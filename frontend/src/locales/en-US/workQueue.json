@@ -79,6 +79,7 @@
   },
   "batch": {
     "project": "Project",
+    "serves": "Serves",
     "priority": "Priority",
     "state": "State",
     "submitted": "Submitted",

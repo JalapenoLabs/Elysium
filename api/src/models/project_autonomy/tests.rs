@@ -85,6 +85,7 @@ fn batch_for(project_id: Uuid, lineage: Lineage) -> NewWorkBatch {
         project_id,
         title: "Annual pricing".to_owned(),
         goal: "Show annual pricing on the pricing page.".to_owned(),
+        serves: None,
         repositories: json!([]),
         priority: Priority::Normal,
         scheduled_for: None,

@@ -220,7 +220,8 @@ impl TurnResponse {
     }
 }
 
-/// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
+/// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id, or
+/// a publish of the brief, by its version.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WakeResponse {
@@ -229,6 +230,7 @@ pub struct WakeResponse {
     timeline_record_id: Option<Uuid>,
     work_batch_id: Option<Uuid>,
     promise_id: Option<Uuid>,
+    page_version: Option<i32>,
     body: Option<String>,
     /// Who caused it: the person or Elysia who wrote, or whoever attributed the record.
     created_by: Uuid,
@@ -243,6 +245,7 @@ impl From<Wake> for WakeResponse {
             timeline_record_id: wake.timeline_record_id,
             work_batch_id: wake.work_batch_id,
             promise_id: wake.promise_id,
+            page_version: wake.page_version,
             body: wake.body,
             created_by: wake.created_by,
             created_at: wake.created_at,

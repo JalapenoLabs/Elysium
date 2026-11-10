@@ -152,6 +152,10 @@ async fn finds_each_kind_by_words_that_begin_its_title() {
     let state = app_state(&url).await;
     let item_id = item(&mut connection, "Fix WAY-123 sign-in loop").await;
     let project_id = project(&mut connection, "Platform").await;
+    let brief_id = crate::models::project_brief::find(&mut connection, project_id)
+        .await
+        .expect("every project has a brief")
+        .id;
     let session_id = session(&mut connection, "Sign-in redirect", None).await;
     let initiative_id = initiative(&mut connection, "Launch the platform").await;
 
@@ -172,6 +176,7 @@ async fn finds_each_kind_by_words_that_begin_its_title() {
         json!([
             { "kind": "project", "id": project_id, "title": "Platform" },
             { "kind": "initiative", "id": initiative_id, "title": "Launch the platform", "state": "active" },
+            { "kind": "page", "id": brief_id, "title": "Platform brief" },
         ]),
         "case is ignored"
     );
