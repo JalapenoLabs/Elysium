@@ -769,6 +769,175 @@ async fn a_capture_joins_a_meeting_once_its_run_is_done() {
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }
 
+/// Claims the next step due, which must be `Running`, and runs one attempt of it on the input its
+/// row holds, recording how it ended, as the engine's workers do.
+async fn run_next<Running: Step>(
+    connection: &mut AsyncPgConnection,
+    step: &Running,
+    database: &crate::database::Pool,
+) -> Done<Running::Output> {
+    use crate::models::step_job::{self, StepOutcome};
+
+    let at = chrono::Utc::now();
+    let claims = step_job::claim(connection, at, 1)
+        .await
+        .expect("claims")
+        .claims;
+    let claim = claims.as_slice().first().expect("a step is due");
+    assert_eq!(claim.job.step, Running::NAME);
+    let input = serde_json::from_value(claim.job.input.clone().expect("an input"))
+        .expect("the step reads its input");
+    let done = step
+        .run(input, StepContext::for_test::<Running>(database.clone()))
+        .await
+        .expect("an attempt");
+    let outcome = match &done {
+        Done::Succeeded { output, summary } => StepOutcome::Succeeded {
+            output: serde_json::to_value(output).expect("serializes"),
+            summary: summary.clone(),
+        },
+        Done::Held { output, summary } => StepOutcome::Held {
+            output: serde_json::to_value(output).expect("serializes"),
+            summary: summary.clone(),
+        },
+        Done::Skipped { reason } => StepOutcome::Skipped {
+            reason: reason.clone(),
+        },
+    };
+    step_job::finish(connection, claim, outcome, at)
+        .await
+        .expect("records")
+        .expect("the claim holds");
+    done
+}
+
+/// Until captures are aligned (#238), a capture added to a meeting already corrected and published
+/// is stored and transcribed by its run, and its correction and segmenting change nothing.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a published meeting, a capture uploaded to it, and its run step by step"
+)]
+async fn a_capture_of_a_published_meeting_is_stored_and_changes_nothing_else() {
+    use crate::meetings::correct::CorrectTranscript;
+    use crate::meetings::segment::SegmentMeeting;
+    use crate::meetings::transcribe::TranscribeMeeting;
+    use crate::models::meeting_correction::{self, NewMeetingCorrection};
+
+    let mut fixture = fixture().await;
+    let heard =
+        json!([{ "startMs": 0, "endMs": 20_000, "speaker": "Ada", "text": "Launch is Friday." }]);
+    let (published, _first) =
+        crate::models::meeting::tests::fetched_with(&mut fixture.connection, heard.clone()).await;
+    meeting_correction::record(
+        &mut fixture.connection,
+        NewMeetingCorrection {
+            meeting_id: published.id,
+            transcript: heard,
+            transcript_hash: "b".repeat(64),
+            based_on: "source".to_owned(),
+            source_transcript_hash: "a".repeat(64),
+            whisper_transcript_hash: None,
+            changed_lines: 0,
+            fixes: json!([]),
+        },
+    )
+    .await
+    .expect("records")
+    .expect("new");
+    let segments = json!([{ "startMs": 0, "endMs": 20_000, "title": "Launch", "summary": "", "projects": [] }]);
+    meeting::record_segments(&mut fixture.connection, published.id, segments.clone())
+        .await
+        .expect("records")
+        .expect("the first answer");
+    meeting::record_done(&mut fixture.connection, published.id)
+        .await
+        .expect("done");
+    let items_before: i64 = crate::database::schema::action_items::table
+        .count()
+        .get_result(&mut fixture.connection)
+        .await
+        .expect("counts");
+
+    let transcript =
+        Bytes::from_static(b"WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n<v Grace>Agreed.</v>\n");
+    let created = fixture
+        .json(
+            Method::POST,
+            "/api/v1/meeting-uploads",
+            &json!({
+                "meetingId": published.id,
+                "transcript": { "name": "teams.vtt", "sizeBytes": transcript.len() },
+            }),
+        )
+        .await;
+    let upload = id_of(&created, "upload");
+    fixture.put_part(&upload, "transcript", 0, transcript).await;
+    let finished = fixture
+        .send(
+            Method::POST,
+            &format!("/api/v1/meeting-uploads/{upload}/finish"),
+            Body::empty(),
+            None,
+        )
+        .await;
+    assert_eq!(finished.status, StatusCode::CREATED, "{:?}", finished.body);
+
+    let database = step_database(&fixture).await;
+    let fetch = fixture.fetch_step().await;
+    let fetched = run_next(&mut fixture.connection, &fetch, &database).await;
+    let Done::Succeeded { output: stored, .. } = fetched else {
+        panic!("the capture is stored");
+    };
+    let transcribe =
+        TranscribeMeeting::for_test(database.clone(), Arc::clone(&fixture.state.cipher));
+    let transcribed = run_next(&mut fixture.connection, &transcribe, &database).await;
+    assert!(
+        matches!(transcribed, Done::Skipped { .. }),
+        "no recording to transcribe"
+    );
+    let correct = CorrectTranscript::for_test(database.clone());
+    let corrected = run_next(&mut fixture.connection, &correct, &database).await;
+    assert!(matches!(corrected, Done::Succeeded { .. }), "{corrected:?}");
+    let segment = SegmentMeeting::for_test(database.clone());
+    let segmented = run_next(&mut fixture.connection, &segment, &database).await;
+    assert!(matches!(segmented, Done::Succeeded { .. }), "{segmented:?}");
+
+    let run = workflow_run::newest(
+        &mut fixture.connection,
+        workflow::workflow().name(),
+        workflow::SOURCE_KIND,
+        &published.id.to_string(),
+    )
+    .await
+    .expect("reads")
+    .expect("a run");
+    assert_eq!(run.state, WorkflowRunState::Succeeded);
+    let after = meeting::find(&mut fixture.connection, published.id)
+        .await
+        .expect("found");
+    assert_eq!(after.state(), MeetingState::Done);
+    assert_eq!(after.segments, Some(segments));
+    let capture = meeting_capture::find(
+        &mut fixture.connection,
+        stored.capture_id.expect("names the capture"),
+    )
+    .await
+    .expect("found");
+    assert_eq!(capture.meeting_id, published.id);
+    assert_eq!(
+        capture.transcript,
+        json!([{ "startMs": 1000, "endMs": 4000, "speaker": "Grace", "text": "Agreed." }])
+    );
+    let items_after: i64 = crate::database::schema::action_items::table
+        .count()
+        .get_result(&mut fixture.connection)
+        .await
+        .expect("counts");
+    assert_eq!(items_after, items_before, "no inbox item asks about it");
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn the_policy_says_what_a_meeting_takes_and_where_recordings_go() {

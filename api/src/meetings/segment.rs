@@ -1006,27 +1006,40 @@ impl Step for SegmentMeeting {
     }
 }
 
+/// A workspace whose Docker answers nothing, for tests that never reach it.
+#[cfg(test)]
+fn unreachable_workspace() -> WorkspaceContainer {
+    let docker =
+        bollard::Docker::connect_with_http("http://127.0.0.1:9", 5, bollard::API_DEFAULT_VERSION)
+            .expect("a static address parses");
+    WorkspaceContainer::new(docker, "elysium-workspace:test".to_owned())
+}
+
 #[cfg(test)]
 impl SegmentMeeting {
     /// The step over `database`, with a runner and a workspace Docker never answers: enough for
     /// a meeting segmented already, one not fetched, or one in which nothing was said.
     pub fn for_test(database: Pool) -> Self {
-        let docker = bollard::Docker::connect_with_http(
-            "http://127.0.0.1:9",
-            5,
-            bollard::API_DEFAULT_VERSION,
-        )
-        .expect("a static address parses");
-        let workspace = WorkspaceContainer::new(docker, "elysium-workspace:test".to_owned());
-        let events = EventBus::in_process();
         let runner = Runner::new(
-            workspace.clone(),
+            unreachable_workspace(),
             database.clone(),
             Arc::new(crate::test_support::cipher()),
             crate::activity::Activities::new(),
             crate::claude_accounts::TurnSignal::default(),
             &tokio_util::sync::CancellationToken::new(),
         );
+        Self::with_runner(database, runner)
+    }
+
+    /// The step as [`Self::for_test`] builds it, its segmentation turns answering `answers` in
+    /// order.
+    pub fn answering(database: Pool, answers: &[&str]) -> Self {
+        Self::with_runner(database, Runner::answering(answers))
+    }
+
+    fn with_runner(database: Pool, runner: Runner) -> Self {
+        let workspace = unreachable_workspace();
+        let events = EventBus::in_process();
         Self::new(SegmentMeetingDeps {
             activity: Activity::new(database.clone(), events.clone()),
             database,
@@ -1251,7 +1264,7 @@ fn segment_record(
 mod tests {
     use super::*;
     use crate::meetings::fetch::MeetingToFetch;
-    use crate::meetings::segmentation::SegmentProject;
+    use crate::meetings::segmentation::{LineRun, SegmentProject};
     use crate::models::meeting::tests::fetched_with;
     use crate::models::meeting_word::{self, Origin};
     use crate::models::project::NewProject;
@@ -1753,6 +1766,77 @@ mod tests {
             .await
             .expect("reads");
         assert_eq!(records.len(), 2, "each segment is one record");
+    }
+
+    /// #233: a transcript uploaded with no times and no recording is a meeting in words alone,
+    /// asked and answered by its numbered lines, each topic a run of them with no clip and no span.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_in_words_alone_is_segmented_by_its_lines() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let untimed = |speaker: &str, text: &str| TranscriptLine {
+            start_ms: 0,
+            end_ms: 0,
+            speaker: speaker.to_owned(),
+            text: text.to_owned(),
+        };
+        let heard = fetched_meeting(
+            &mut connection,
+            &[
+                untimed("Ada", "Hello everyone."),
+                untimed("Ada", "Launch is Friday."),
+                untimed("Grace", "How was the weekend?"),
+            ],
+        )
+        .await;
+        let answer = r#"{"segments": [
+            {"firstLine": 1, "lastLine": 2, "title": "Launch", "summary": "Launch is Friday."},
+            {"firstLine": 3, "lastLine": 3, "title": "The weekend", "summary": "Small talk."}
+        ]}"#;
+        let step = SegmentMeeting::answering(database.clone(), &[answer]);
+
+        let done = step
+            .run(
+                input_for(&heard),
+                StepContext::for_test::<SegmentMeeting>(database.clone()),
+            )
+            .await
+            .expect("an attempt");
+
+        assert!(matches!(done, Done::Succeeded { .. }), "{done:?}");
+        let published = meeting::find(&mut connection, heard.0.id)
+            .await
+            .expect("found");
+        assert_eq!(published.state(), MeetingState::Done);
+        let segments = stored_segments(&published).expect("reads").expect("stored");
+        assert_eq!(
+            segments
+                .iter()
+                .map(|segment| (segment.lines, segment.start_ms, segment.end_ms))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some(LineRun { first: 0, last: 1 }), 0, 0),
+                (Some(LineRun { first: 2, last: 2 }), 0, 0),
+            ]
+        );
+        let mut records = timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, heard.0.id)
+            .await
+            .expect("reads");
+        records.sort_by_key(|(record, _attributions)| record.metadata["segmentIndex"].as_u64());
+        let (launch, _attributions) = &records[0];
+        assert_eq!(launch.title, "Launch");
+        assert_eq!(
+            launch.body,
+            "Ada: Hello everyone.\nAda: Launch is Friday.\n"
+        );
+        assert_eq!(launch.actor, "Ada");
+        let media = launch.media.as_ref().expect("a span");
+        assert_eq!((&media["startMs"], &media["endMs"]), (&json!(0), &json!(0)));
+        assert_eq!(media["clip"], Value::Null);
+        assert_eq!(records[1].0.body, "Grace: How was the weekend?\n");
     }
 
     #[tokio::test]
