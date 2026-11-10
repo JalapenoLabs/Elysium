@@ -88,9 +88,10 @@ own that leave out every AI field; how to find them again is in that directory's
 - Its storage location is optional (`docs/connectors.md`, Connectors): a meeting with nowhere to keep its recording
   goes on from its transcript alone.
 
-All three queries were checked against a free-plan account's signed-in tab: the listing, full transcripts, and a
-recording query that answers audio alone (`video_url` is `null`, `audio_url` a signed address on `cdn.fireflies.ai`).
-Not yet checked: that the audio address downloads whole from the engine, outside the browser.
+All three queries were checked against a free-plan account's signed-in tab, production's connector browser among
+them: the listing, full transcripts, and a recording query that answers audio alone (`video_url` is `null`,
+`audio_url` a signed address on `cdn.fireflies.ai`), which downloads whole from the host, outside the browser, so a
+free-plan meeting keeps its recording, its clips, and its Whisper transcript.
 
 ### Teams
 

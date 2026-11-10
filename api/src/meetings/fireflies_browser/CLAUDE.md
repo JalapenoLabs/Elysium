@@ -83,5 +83,8 @@ All three queries were asked, as written in `mod.rs`, of a free-plan account's o
   `durationMins` (888 captions to 57.3 minutes of a 58.8 minute meeting).
 - The recording query answers no error on the free plan (no `paid_required`), with audio alone.
 
-Not yet verified: that the audio address downloads whole from the engine, outside the browser. A ranged fetch from the
-page fails on CORS, which says nothing about a download from the server.
+The same day, through production's own connector browser, the listing found 13 meetings in 14 days (150 with no date
+filter, so the filter narrows), a fetch read 139 captions under two named speakers, and the audio address downloaded
+whole from the VM, outside the browser: `audio/mpeg`, 19 MB, no redirect, a ranged request answered `206`. So a
+free-plan meeting keeps its recording. A ranged fetch from the page itself fails on CORS, which says nothing about a
+download from the server.
