@@ -88,7 +88,7 @@ VALUES
   '[{"startMs": 0, "endMs": 1000, "speaker": "Ada", "text": "  Morning,\tall  "},
     {"startMs": 1000, "endMs": 2000, "speaker": "Grace", "text": "   "},
     {"startMs": 3000, "endMs": 2500, "speaker": "Grace", "text": "Late again"},
-    {"startMs": 4000, "endMs": 7000, "speaker": "Ada", "text": "Hello there　friend"}]',
+    {"startMs": 4000, "endMs": 7000, "speaker": "Ada", "text": "Hello\u00a0there\u3000friend"}]',
   NULL, NULL, NULL, NULL, '[]', 'done', '0199a3c4-0000-7000-8000-00000000ada0',
   '2026-11-02T16:00:00Z', '2026-11-02T16:05:00Z'),
  ('00000000-0000-7000-8000-0000000e1003', '00000000-0000-7000-8000-0000000fc101', 'fireflies',
@@ -120,7 +120,7 @@ INSERT INTO meeting_transcriptions (meeting_id, transcript, transcript_hash, cre
  ('00000000-0000-7000-8000-0000000e1003',
   '{"model": "Whisper large-v3", "language": "en", "languageProbability": 0.99,
     "durationMs": 9000, "segments": [
-      {"startMs": 0, "endMs": 2000, "text": "  Welcome back. ", "words": []},
+      {"startMs": 0, "endMs": 2000, "text": " \u00a0Welcome back.\u2003", "words": []},
       {"startMs": 2000, "endMs": 3000, "text": "  ", "words": []},
       {"startMs": 3000, "endMs": 9000, "text": "Ely see um ships now", "words": []}]}',
   repeat('f', 64), '2026-11-03T16:10:00Z'),

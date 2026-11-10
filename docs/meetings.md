@@ -60,10 +60,11 @@ connector read are its connector's again, so resuming it reads none of them twic
 Every capture a source read belongs to a connector (`connectors`), the same table mailboxes use.
 `UNIQUE (connector_id, external_id)` on both `meeting_captures` and `timeline_records` is what keeps a meeting, and each
 of its segments, from being recorded twice. A capture with no connector or no id at its source, such as an upload,
-names its segments' records by its meeting (`meeting:<id>#<index>`), and those are kept single by the meeting being
-marked done in the transaction that stores them: a meeting done publishes nothing again. A listing that stored meetings, and a meeting whose segments were
-published, is a run of its connector, and a connector is `syncing` while a meeting of its is fetched or its segments
-are cut and published.
+names its segments' records by its meeting (`meeting:<id>#<index>`), which the unique key cannot hold once; what does
+is that segmenting stores a meeting's records under the meeting's lock, in the transaction that marks it done, and
+stores nothing for a meeting done, so two attempts at once publish it once. A listing that stored meetings, and a
+meeting whose segments were published, is a run of its connector, and a connector is `syncing` while a meeting of its
+is fetched or its segments are cut and published.
 
 ## Meetings and captures
 

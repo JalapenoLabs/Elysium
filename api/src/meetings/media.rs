@@ -20,7 +20,12 @@
 //! named by its recording's hash ([`recording_path`]): whichever attempt's write the capture
 //! keeps, the path it names holds exactly the bytes its hash says. Only that attempt moves its
 //! copy to the capture's scratch name in the meeting's directory ([`keep_local`]); any other
-//! discards its own ([`discard`]). A clip is cut with `-c copy`, which
+//! discards its own ([`discard`]).
+//!
+//! An attempt whose bytes differed from the kept one's leaves its object in storage, named by
+//! its hash and by no row, and nothing sweeps it. That is the price of never overwriting the
+//! recording a capture keeps, and it is rare: it takes two attempts at once and a source that
+//! answered them with different recordings of one meeting. A clip is cut with `-c copy`, which
 //! is fast and lossless but starts at the keyframe nearest the segment's start, a second or
 //! two early at most. That is the trade for not re-encoding an hour of video per meeting.
 

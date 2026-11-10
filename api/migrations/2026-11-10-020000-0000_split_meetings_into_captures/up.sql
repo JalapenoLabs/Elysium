@@ -203,7 +203,7 @@ CREATE TEMPORARY TABLE final_lines (
 -- it: Unicode's White_Space property, which `\s` does not cover under glibc (no-break and
 -- ideographic spaces among them). Every split and trim below uses exactly this class.
 CREATE TEMPORARY TABLE whitespace AS
-SELECT '[\t\n\v\f\r \u0085   -     　]'::TEXT AS class;
+SELECT '[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'::TEXT AS class;
 
 -- The lines a capture heard, as `crate::meetings::correction::base` reads them: the source's
 -- lines, or Whisper's segments that say something, trimmed, when the source sent none.

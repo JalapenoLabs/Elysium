@@ -310,6 +310,9 @@ impl SegmentMeeting {
         let published = self
             .publish(&current, &capture, &transcript, &segments, clips)
             .await?;
+        let Some(published) = published else {
+            return self.published_by_another(current.id, log).await;
+        };
         log.line(&format!(
             "Published {} topics to the timeline",
             published.created.len()
@@ -490,6 +493,23 @@ impl SegmentMeeting {
         })
     }
 
+    /// How an attempt ends that found meeting `meeting_id` published by another attempt while it
+    /// worked: with what that attempt published.
+    async fn published_by_another(
+        &self,
+        meeting_id: Uuid,
+        log: &StepLog,
+    ) -> Result<Done<Segmented>, StepFailure> {
+        log.line("Another attempt published the meeting first; nothing was stored twice");
+        let done = {
+            let mut connection = self.connection().await?;
+            meeting::find(&mut connection, meeting_id)
+                .await
+                .map_err(StepFailure::retryable)?
+        };
+        self.already_published(&done, log).await
+    }
+
     /// What a meeting published already gives, changing nothing.
     async fn already_published(
         &self,
@@ -639,7 +659,10 @@ impl SegmentMeeting {
     }
 
     /// Stores every segment as a timeline record, attributed to its projects, and marks the
-    /// meeting done, in one transaction.
+    /// meeting done, in one transaction under the meeting's lock. Answers `None`, storing nothing,
+    /// when another attempt marked the meeting done first: two attempts at once publish it once,
+    /// whether or not the unique key on its records can tell them apart (a capture with no
+    /// connector cannot).
     async fn publish(
         &self,
         current: &Meeting,
@@ -647,7 +670,7 @@ impl SegmentMeeting {
         transcript: &[TranscriptLine],
         segments: &[Segment],
         clips: Vec<Option<Clip>>,
-    ) -> Result<Published, StepFailure> {
+    ) -> Result<Option<Published>, StepFailure> {
         let records: Vec<NewTimelineRecord> = segments
             .iter()
             .enumerate()
@@ -661,6 +684,9 @@ impl SegmentMeeting {
         let meeting_id = current.id;
         let published = connection
             .transaction(async move |connection| {
+                if meeting::lock(connection, meeting_id).await?.state() == MeetingState::Done {
+                    return Ok(None);
+                }
                 let existing = existing_projects(connection).await?;
                 let mut published = Published::default();
                 for (record, segment) in records.into_iter().zip(segments) {
@@ -700,7 +726,7 @@ impl SegmentMeeting {
                     published.created.push(stored);
                 }
                 meeting::record_done(connection, meeting_id).await?;
-                Ok::<_, diesel::result::Error>(published)
+                Ok::<_, diesel::result::Error>(Some(published))
             })
             .await
             .map_err(StepFailure::retryable)?;
@@ -1147,8 +1173,8 @@ fn duration_of(current: &Meeting, transcript: &[TranscriptLine]) -> i64 {
 /// A record is unique per connector and the capture's id at its source, with the segment's index.
 /// A capture with no id at its source, such as an upload, names its records by the meeting
 /// (`meeting:<id>#<index>`), and with no connector the unique key cannot hold them once: what
-/// does is that the meeting is marked done in the transaction that stores its records, and a
-/// meeting done publishes nothing again.
+/// does is that `publish` stores them under the meeting's lock, in the transaction that marks it
+/// done, and stores nothing for a meeting done.
 fn segment_record(
     current: &Meeting,
     capture: &MeetingCapture,
@@ -1628,6 +1654,72 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    /// A capture with no connector names its records by its meeting, which no unique key holds
+    /// once, so two attempts segmenting it at once rest on the meeting's lock alone.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn two_attempts_at_once_publish_a_meeting_with_no_connector_once() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let heard = fetched_meeting(
+            &mut connection,
+            &[
+                line(61_000, "Ada", "Launch is Friday."),
+                line(400_000, "Grace", "Lunch?"),
+            ],
+        )
+        .await;
+        assert_eq!(heard.1.connector_id, None);
+        let segments = vec![
+            Segment {
+                start_ms: 60_000,
+                end_ms: 300_000,
+                title: "Launch".to_owned(),
+                summary: String::new(),
+                projects: Vec::new(),
+            },
+            Segment {
+                start_ms: 300_000,
+                end_ms: 600_000,
+                title: "Lunch".to_owned(),
+                summary: String::new(),
+                projects: Vec::new(),
+            },
+        ];
+        meeting::record_segments(
+            &mut connection,
+            heard.0.id,
+            serde_json::to_value(&segments).expect("serializes"),
+        )
+        .await
+        .expect("records")
+        .expect("the first answer");
+
+        let step = SegmentMeeting::for_test(database.clone());
+        let (first, second) = tokio::join!(
+            step.run(
+                input_for(&heard),
+                StepContext::for_test::<SegmentMeeting>(database.clone()),
+            ),
+            step.run(
+                input_for(&heard),
+                StepContext::for_test::<SegmentMeeting>(database.clone()),
+            ),
+        );
+        let (Ok(Done::Succeeded { output: first, .. }), Ok(Done::Succeeded { output: second, .. })) =
+            (first, second)
+        else {
+            panic!("both attempts succeed");
+        };
+        assert_eq!(first, second, "the later answers what the first published");
+        let records = timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, heard.0.id)
+            .await
+            .expect("reads");
+        assert_eq!(records.len(), 2, "each segment is one record");
     }
 
     #[tokio::test]
