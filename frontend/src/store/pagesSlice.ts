@@ -46,6 +46,7 @@ export const pagesSlice = createSlice({
         title: page.title,
         currentVersion: page.currentVersion,
         fixed: page.fixed,
+        briefProjectId: page.briefProjectId,
         labels: page.labels,
         updatedAt: page.updatedAt,
         deletedAt: page.deletedAt,

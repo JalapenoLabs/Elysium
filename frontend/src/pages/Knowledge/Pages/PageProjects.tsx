@@ -69,7 +69,8 @@ export function PageProjects(props: Props) {
               <Chip.Label>{name}</Chip.Label>
             </Chip>
           </Link>
-          {!isReadOnly && <Tooltip delay={400}>
+          {/* A project's brief stays linked to it for as long as the project exists. */}
+          {!isReadOnly && page.briefProjectId !== projectId && <Tooltip delay={400}>
             <Button
               isIconOnly
               size='sm'

@@ -563,9 +563,11 @@ being under itself at any depth, are the API's to keep, under one advisory lock 
 is a rule of one row. A learning is a page with a category and evidence: the partial unique index
 `pages_learning_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
 included, so saving a title again revises its learning, and `migrate run` rebuilds it with every other text index when
-the collation changes (Collations, above). The Learnings page, the Company page, and the company doc's seven sections
-are seeded by the migration at ids fixed in code (`crate::models::page`, `Section::page_id`); the last seven keep their
-limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`. `updated_at` says when
+the collation changes (Collations, above). The Learnings page, the Company page, the company doc's seven sections, and
+the Project briefs page are seeded by migrations at ids fixed in code (`crate::models::page`, `Section::page_id`); the
+sections keep their limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`. A
+project's brief is a page whose `brief_project_id` names it (`docs/autonomy.md`, The project brief), one per project,
+and `pages_brief_is_a_plain_page` keeps a brief from being a learning or proposal-only. `updated_at` says when
 what a page holds last changed, so its trigger skips a row whose parent or position changes: a move or a renumbering
 never reorders the Learnings list.
 
@@ -584,6 +586,7 @@ never reorders the Learnings list.
 | `created_by`      | `UUID`        | References `users`: who created it                                    |
 | `created_at`      | `TIMESTAMPTZ` | Written by the API, the moment it was created                         |
 | `updated_at`      | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+| `brief_project_id` | `UUID`       | References `projects`, `SET NULL`, unique: the project whose brief it is, which makes it fixed; deleting the project leaves an ordinary page |
 
 ### `page_versions`
 
@@ -1566,13 +1569,14 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
 `project_manager_wakes_record_waits_once` keeps one waiting wake per record and project, and
-`project_manager_wakes_promise_waits_once` one per promise and project.
+`project_manager_wakes_promise_waits_once` one per promise and project. Every publish of a brief that wakes its Project
+Manager is a wake of its own, so a turn names each edit.
 
 | Column               | Type                        | Notes                                                       |
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, or `promise`                  |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, or `brief`         |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
@@ -1580,6 +1584,7 @@ NULL; a turn takes every waiting wake of its project as it starts. Indexed for w
 | `created_by`         | `UUID`                      | References `users`: who wrote, who attributed the record, or the system user for a result |
 | `created_at`         | `TIMESTAMPTZ`               | Set on insert                                               |
 | `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
+| `page_version`       | `INTEGER`                   | Set exactly for `brief`: the version of the project's brief someone else published |
 
 ### `promises`
 
@@ -1618,6 +1623,7 @@ API applies (`docs/engine.md`, Origins and generations), generation 0, and no pa
 | `project_id`         | `UUID`                | References `projects`, cascading                                  |
 | `title`              | `TEXT`                | 1 to 200 characters                                               |
 | `goal`               | `TEXT`                | What the worker should accomplish, 1 to 20,000 characters         |
+| `serves`             | `TEXT`                | 1 to 300 characters: the goal in its project's brief it serves, as the brief's heading spelled it at submission; NULL for a batch from before briefs |
 | `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
 | `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
 | `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
