@@ -307,6 +307,54 @@ async fn moving_the_lead_ends_the_assignment_nobody_gave_the_new_lead() {
     assert_eq!(left.record.manager_assigned_at, None);
 }
 
+/// Taking an item back drops only the wake no turn took, so reassigning it while a turn holds the
+/// first leaves that one taken and a second waiting. A turn that fails and gives its wakes back
+/// must drop its copy rather than make the item wait twice, which the index refuses.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn reassigning_during_a_turn_that_fails_leaves_the_item_waiting_once() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let item = item_in(&mut connection, vec![launch], ActionItemState::Open).await;
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned");
+    let (turn, taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("the assignment woke it");
+    assert_eq!(taken.len(), 1);
+
+    unassign(&mut connection, item, TEST_PERSON, Utc::now())
+        .await
+        .expect("taken back");
+    assign(
+        &mut connection,
+        item,
+        Assigner::person(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("assigned again");
+
+    let failed = Finished::Failed {
+        error: "the runner stopped",
+        retry: true,
+    };
+    project_manager::finish_turn(&mut connection, turn.id, failed, "")
+        .await
+        .expect("gives its wakes back without waking the item twice");
+    assert_eq!(
+        waiting_assignments(&mut connection, launch).await,
+        [(Some(item), TEST_PERSON_ID)]
+    );
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item() {

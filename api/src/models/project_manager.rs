@@ -546,9 +546,9 @@ pub async fn fail_interrupted_turns(
         .await
 }
 
-/// Gives the wakes the turns `turn_ids` took back, to wait for the next turn. A record or a
-/// promise woken for again meanwhile already waits, so its taken copy is dropped rather than
-/// waiting twice.
+/// Gives the wakes the turns `turn_ids` took back, to wait for the next turn. A record, a
+/// promise, or an item assigned again meanwhile already waits, so its taken copy is dropped
+/// rather than waiting twice, which each one's `..._waits_once` index refuses.
 async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) -> QueryResult<()> {
     diesel::sql_query(
         "DELETE FROM project_manager_wakes AS taken \
@@ -558,7 +558,8 @@ async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) ->
              WHERE waiting.turn_id IS NULL \
                AND waiting.project_id = taken.project_id \
                AND (waiting.timeline_record_id = taken.timeline_record_id \
-                    OR waiting.promise_id = taken.promise_id) \
+                    OR waiting.promise_id = taken.promise_id \
+                    OR waiting.action_item_id = taken.action_item_id) \
            )",
     )
     .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(turn_ids)

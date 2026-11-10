@@ -461,9 +461,10 @@ trackers (Its writes, below), and its tabs on the project's page.
   - **an assignment**: an action item its project leads that a person assigned it to plan, themselves or by accepting
     Elysia's suggestion (`crate::models::action_item_assignment`, `docs/action-items.md`, Assigning to a Project
     Manager). The wake names the item, and the person as who woke it. An item waits once however often it is assigned
-    meanwhile; taking it back, its lead moving, or the item being finished or deleted drops a wake no turn has taken,
-    and a turn leaves out an item no longer assigned to its project. It is its own kind rather than a message, so the Project Manager is told what the
-    person chose without words they never wrote.
+    meanwhile, even when a turn that took an earlier assignment gives it back; taking it back, its lead moving, or the
+    item being finished or deleted drops a wake no turn has taken, and a turn leaves out an item no longer assigned to
+    its project. It is its own kind rather than a message, so the Project Manager is told what the person chose
+    without words they never wrote.
 
   Linking a page to its project wakes nothing, since nothing has to happen because of a link and a wake spends a turn:
   every turn's prompt names the project's docs, so the next turn finds it, and a person who wants it read says so.
