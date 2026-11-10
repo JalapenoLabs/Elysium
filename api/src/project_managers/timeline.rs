@@ -24,7 +24,7 @@ use crate::models::work_batch::{Priority, WorkBatch};
 pub const SOURCE_KIND: &str = "project_manager";
 
 /// Who a Project Manager's records say they came from.
-const ACTOR: &str = "Project Manager";
+pub const ACTOR: &str = "Project Manager";
 
 /// The most of a record's title a summary or batch title fills, matching what a timeline shows.
 const TITLE_MAX_CHARACTERS: usize = 300;
@@ -60,13 +60,15 @@ pub async fn record_turn(
 }
 
 /// Batch `batch` as it was submitted, as a record: its title, priority, the goal in the brief it
-/// serves, and its goal. Call it in the transaction that submits the batch.
+/// serves, and its goal, said to come from `actor`, its Project Manager ([`ACTOR`]) or the person
+/// who accepted the finding it was made from. Call it in the transaction that submits the batch.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn record_batch(
     connection: &mut AsyncPgConnection,
     batch: &WorkBatch,
+    actor: &str,
 ) -> diesel::QueryResult<TimelineRecord> {
     let priority = match batch.priority {
         Priority::Asap => "asap",
@@ -79,7 +81,7 @@ pub async fn record_batch(
         connector_id: None,
         external_id: Some(format!("batch:{}", batch.id)),
         occurred_at: batch.created_at,
-        actor: ACTOR.to_owned(),
+        actor: actor.to_owned(),
         title: batch.title.chars().take(TITLE_MAX_CHARACTERS).collect(),
         body: batch.goal.clone(),
         url: None,

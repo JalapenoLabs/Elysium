@@ -62,7 +62,7 @@ password and code it handed out before they are stored, as coding sessions' even
 
 | Tool                 | Does                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| `elysia_overview`    | Every item in the inbox or open, the active initiatives, the projects, and her own questions and work |
+| `elysia_overview`    | Every item in the inbox or open, the active initiatives, the projects, each with how many findings wait on it (`docs/engine.md`, Findings), and her own questions and work |
 | `elysia_item`        | One item's notes and comments                                                 |
 | `elysia_ask`         | Asks a person a question with up to four suggested answers                    |
 | `elysia_work_start`  | Records work she takes on, with when she expects it ready                     |
@@ -75,7 +75,8 @@ password and code it handed out before they are stored, as coding sessions' even
 
 What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
 the whole workspace. She changes the work queue directly, as a person may, each change recorded in the batch's history
-as hers, except that only a person approves or rejects a proposed batch: she lists them and tells the person. She
+as hers, except that only a person approves or rejects a proposed batch: she lists them and tells the person. Findings
+reach her as a count per project, never one turn each, and only a person accepts or dismisses one. She
 changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
 proposed as `elysia`, which may name any live item, initiative, or project; what she creates joins the projects she
 names. Linking provider issues and pull requests stays a person's to do.

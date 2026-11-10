@@ -123,6 +123,8 @@ ALTER TABLE project_manager_wakes ADD CONSTRAINT project_manager_wakes_kind_fiel
 );
 
 -- The goal in its project's brief a batch serves, as the brief's heading spelled it when the batch
--- was submitted. Every batch submitted since briefs exist names one; those from before name none.
+-- was submitted. Every batch a Project Manager submits names one. Those from before briefs name
+-- none, and so does one a person made by accepting a finding, since their acceptance is the
+-- decision the goal check would have asked them for.
 ALTER TABLE work_batches
     ADD COLUMN serves TEXT CHECK (char_length(serves) BETWEEN 1 AND 300);

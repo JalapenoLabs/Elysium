@@ -11,6 +11,7 @@ import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Connector } from './api/routes/connectorRoutes'
 import type { Draft } from './api/routes/draftRoutes'
+import type { Finding } from './api/routes/findingRoutes'
 import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { LearningCategory } from './api/routes/learningCategoryRoutes'
@@ -603,6 +604,30 @@ export function makeWorkBatch(overrides: Partial<WorkBatch> & Pick<WorkBatch, 'i
     waitingDetail: null,
     waitingUntil: null,
     configuration: null,
+    ...overrides,
+  }
+}
+
+export function makeFinding(overrides: Partial<Finding> & Pick<Finding, 'id'>): Finding {
+  return {
+    projectId: 'project-1',
+    title: 'Retry loop never gives up',
+    detail: 'The retry loop never gives up when the provider answers 429.',
+    repositoryUrl: 'https://github.com/JalapenoLabs/Elysium.git',
+    location: 'api/src/retry.rs',
+    cost: 'small',
+    state: 'open',
+    workBatchId: 'batch-1',
+    projectManagerTurnId: null,
+    reports: 1,
+    lastReportedAt: CREATED_AT,
+    decidedBy: null,
+    decidedAt: null,
+    dismissalReason: null,
+    actionItemId: null,
+    acceptedBatchId: null,
+    createdBy: 'coding-agent',
+    createdAt: CREATED_AT,
     ...overrides,
   }
 }

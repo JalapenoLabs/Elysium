@@ -19,6 +19,7 @@ import { ProjectLists } from './ProjectLists'
 
 // Misc
 import {
+  makeFinding,
   makePageSummary,
   makeProject,
   makeProjectManager,
@@ -27,9 +28,11 @@ import {
 } from '../../testFixtures'
 import { TestAriaRouter } from '../../testRouter'
 import { getProjectDocsUrl } from '../../urls'
+import { useProjectFindings } from './useProjectFindings'
 import { useProjectPages } from './useProjectPages'
 
 vi.mock('./useProjectPages', () => ({ useProjectPages: vi.fn() }))
+vi.mock('./useProjectFindings', () => ({ useProjectFindings: vi.fn() }))
 
 vi.mock('../../hooks/useServerData', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../hooks/useServerData')>(),
@@ -91,6 +94,39 @@ describe('ProjectLists', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', InertObserver)
     vi.mocked(useProjectPages).mockReturnValue({ pages: [ LINKED_PAGE ], status: 'loaded' })
+    vi.mocked(useProjectFindings).mockReturnValue({
+      findings: [ makeFinding({ id: 'retry', projectId: 'launch', reports: 3 }) ],
+      // More are open than the list holds, and the tab counts them all.
+      total: 4,
+      status: 'loaded',
+    })
+  })
+
+  it('counts what agents noticed on its own tab, each for the person to decide', () => {
+    renderLists('member', '/projects/launch?tab=findings')
+
+    expect(screen.getByRole('tab', { name: /Findings/, selected: true }).textContent).toContain('4')
+    expect(screen.getByText('Retry loop never gives up')).toBeTruthy()
+    expect(screen.getByText('api/src/retry.rs')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /github\.com\/JalapenoLabs\/Elysium/ }).getAttribute('href'))
+      .toBe('https://github.com/JalapenoLabs/Elysium')
+    expect(screen.getByText('Small')).toBeTruthy()
+    expect(useProjectFindings).toHaveBeenCalledWith('launch', true)
+  })
+
+  it('says so when no finding waits', () => {
+    vi.mocked(useProjectFindings).mockReturnValue({ findings: [], total: 0, status: 'loaded' })
+
+    renderLists('member', '/projects/launch?tab=findings')
+
+    expect(screen.getByText('Nothing waits for your decision.')).toBeTruthy()
+  })
+
+  it('gives a guest no Findings tab and asks nothing for it', () => {
+    renderLists('guest', '/projects/launch?tab=findings')
+
+    expect(screen.queryByRole('tab', { name: /Findings/ })).toBeNull()
+    expect(useProjectFindings).toHaveBeenCalledWith('launch', false)
   })
 
   it('shows a member the project\'s docs with their count', () => {

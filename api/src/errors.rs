@@ -123,6 +123,25 @@ impl From<crate::models::work_batch::ChangeError> for ApiError {
     }
 }
 
+impl From<crate::findings::FindingError> for ApiError {
+    fn from(error: crate::findings::FindingError) -> Self {
+        use crate::findings::FindingError;
+        use crate::models::finding::DecideError;
+
+        match error {
+            FindingError::Invalid(reason) => Self::BadRequest(reason),
+            FindingError::Decide(DecideError::NotFound) => Self::NotFound,
+            FindingError::Decide(DecideError::Decided(_state)) => Self::CodedConflict {
+                code: "finding_decided",
+                message: "someone already decided this finding",
+            },
+            FindingError::Decide(DecideError::Database(database))
+            | FindingError::Database(database) => database.into(),
+            FindingError::Work(work) => work.into(),
+        }
+    }
+}
+
 impl From<crate::models::attribution::UndoError> for ApiError {
     fn from(error: crate::models::attribution::UndoError) -> Self {
         use crate::models::attribution::UndoError;

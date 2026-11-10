@@ -12,6 +12,7 @@ Rooms, where people's Claude Code sessions work together, are designed in `docs/
 Activity, the full investigable log of every agent session, is designed in `docs/activity.md`.
 Self-improvement (learning from feedback, self-healing connectors) is designed in `docs/self-improvement.md`.
 Autonomy (issue intake, proposed batches, the trust dial, findings) is designed in `docs/autonomy.md`.
+Meeting review (captures, the final transcript, excerpts, black-outs, uploads) is designed in `docs/meeting-review.md`.
 
 - Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
   latest release, and never contributes to it.
@@ -563,6 +564,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   segmenting finds: it ties each to a batch or an action item, and once that work succeeds or resolves it drafts the
   follow-up in the person's voice, a draft of theirs beside an inbox item they send, edit, or dismiss. Nothing is sent
   without their Send, which keeps the promise and resolves the item. See `docs/engine.md`, Follow-ups.
+
+- Agent-found work never queues itself. Workers and Project Managers report work nobody asked for as a finding
+  (`worker_report_finding`, `manager_report_finding`, `api/src/findings.rs`): what was seen, where, and what it would
+  cost, one per project however often it is reported. A person accepts it from the project's Findings tab, which makes
+  an item as them, owes its issue in the project's tracker, and proposes a batch, human-rooted and generation 0, or
+  dismisses it for good, with a reason its reporters are told. Findings raise no item each and never wake Elysia; she
+  reads each project's count in `elysia_overview`. See `docs/engine.md`, Findings.
 
 ## The worker pool
 
