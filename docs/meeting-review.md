@@ -155,6 +155,8 @@ into stretches: the point is to take only what matters.
 - People select a range and assign it, change an excerpt's projects, or remove it. Elysia never overrides a person's
   assignment, as today.
 - Only excerpts reach Project Managers and workers. An agent never reads a whole meeting unless it asks for one.
+- The topics meetings were segmented into before become excerpts over their words, keeping their records,
+  projects, and history.
 
 ## Black-outs
 
@@ -169,7 +171,8 @@ weekend?". Segmenting applies them on its own, and people add, change, and remov
 
 - Segmenting marks each task it hears as a range, with who owes it and the project it is for.
 - **A project's tasks go to its Project Manager**, with their ranges and the excerpts around them, not the meeting.
-  It creates the action items, each linked to its range, or says why it made none.
+  It makes the action items, each linked to its range, or says why it made none. They arrive as its changeset, under
+  its project's level of autonomy (`docs/autonomy.md`, The dial), so at the default they wait for a person.
 - **The person's own tasks with no project**, outside coding, become action items of theirs at once.
 - **A coworker's tasks** go to them when they are on Elysium, or to the person as waiting on them when not.
 - **Tasks no project fits** are Other.
