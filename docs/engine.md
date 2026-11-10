@@ -479,12 +479,12 @@ trackers (Its writes, below), and its tabs on the project's page.
   item says why for every held project and batch. The keeper signals `projectManagers` once a fetch succeeds.
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
-  system prompt, and its prompt names the project, says whether its changes apply at once or wait for a person and
-  where its issues file (or why nowhere), carries the project's brief whole (The project brief, below), names the
-  project's other docs, the knowledge base pages linked to it, up to 50 of them newest published first, and carries
-  what woke it: each message with the id a batch names it by, who published the brief and as which version, each
-  record's kind, title, summary, attribution, and an excerpt, each batch's result with the promises still waiting on
-  one that failed, and
+  system prompt, and its prompt names the project, names its level of autonomy and says which of its batches and
+  changes that lets through and which wait for a person, and where its issues file (or why nowhere), carries the
+  project's brief whole (The project brief, below), names the project's other docs, the knowledge base pages linked
+  to it, up to 50 of them newest published first, and carries what woke it: each message with the id a batch names
+  it by, who published the brief and as which version, each record's kind, title, summary, attribution, and an
+  excerpt, each batch's result with the promises still waiting on one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
   one. It ends with a `Summary:` line, which
@@ -547,12 +547,13 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
 
 - **One path.** Every call is one changeset proposed as `project_manager:<project id>` (`docs/action-items.md`,
   Changesets), so a person reviews, applies, and undoes a Project Manager's work as they do anyone's.
-- **The switch.** Each project chooses whether its Project Manager writes directly (`projects.manager_writes_directly`,
-  the Project Manager tab's "Write to trackers without review"). Off, the default, every changeset waits for a person's
-  approval and nothing is written in Elysium or any tracker until then: a new project starts with its Project Manager
-  proposing, the safer way, and a person turns writing on once its proposals have earned it. On, the changeset is
-  approved and applied at once by the Project Managers' machine user (`decided_by`); an item it creates then starts in
-  the inbox, since nobody accepted it, where a person's approval would have made it open.
+- **The dial.** The project's level of autonomy decides whether its Project Manager writes directly
+  (`projects.autonomy`, `crate::models::project_autonomy`, `docs/autonomy.md`, The dial). At Approve every batch, the
+  default, and Approve found work only, every changeset waits for a person's approval and nothing is written in
+  Elysium or any tracker until then: a new project starts with its Project Manager proposing, the safer way, and a
+  person turns the dial up once its proposals have earned it. At Full autonomy the changeset is approved and applied
+  at once by the Project Managers' machine user (`decided_by`); an item it creates then starts in the inbox, since
+  nobody accepted it, where a person's approval would have made it open. The Project Manager tab says which.
 - **Filing an issue.** `file-issue` gives an item with no linked issue its own: the watcher opens it with the item's
   title (cut to 255 characters, Jira's limit) and notes, and links it as the item's primary. The filing is owed in
   the transaction that applies the operation and landed by the watcher (`action_item_issue_filings`,
@@ -597,15 +598,17 @@ heading, whatever its spacing and case, and is stored as the brief spells it; a 
 goals is refused, listing the goals there are and saying that work outside the brief is the person's to decide, so its
 Project Manager asks them rather than submits it. A batch a person makes by accepting a finding names no goal, since
 their acceptance is that answer. A goal renamed in the brief later leaves the batches that served it as they were
-submitted. Submitting stores it, proposed, puts it on the timeline, brings its project's approval item up to date, and
-announces all three in one place (`project_managers::batches`).
+submitted. Submitting stores it, proposed, or queued when its project's level lets it (Proposed batches, below), puts
+it on the timeline, brings its project's approval item up to date when it is proposed, tells the pool when it is
+queued, and announces them in one place (`project_managers::batches`). Every path that stores a batch, a finding's
+included, goes through `work_batch::submit`, so the dial decides each.
 
 Where a batch stands (`api/src/models/work_batch.rs`):
 
 | State       | Means                                                             | Moves on by                        |
 |-------------|-------------------------------------------------------------------|------------------------------------|
 | `proposed`  | Its Project Manager submitted it; it waits for a person           | A person's approval, to `queued`; a person's rejection; a cancel |
-| `queued`    | Waits for a slot                                                  | The scheduler's `assign`; a pause; a cancel |
+| `queued`    | Waits for a slot: approved, or let through by its project's level | The scheduler's `assign`; a pause; a cancel |
 | `paused`    | Held back by a person, Elysia, or its Project Manager             | A resume, back to `queued`; a cancel |
 | `assigned`  | Holds a slot; no worker has started on it                         | A worker's `start`; a pause or cancel, which gives the slot back; `unassign` when the pool shrank |
 | `running`   | A worker has it                                                   | Its worker's `finish`              |
@@ -618,7 +621,8 @@ the Project Manager itself, so it learns its work was declined or withdrawn and 
 `workerPool` and `projectManagers` and publishes `workBatch.changed` and `projectManager.changed`.
 
 - **History.** Every change is written to the batch's history (`work_batch_events`) in the transaction that makes it,
-  with who made it: `submitted` by its Project Manager, or by the person who accepted the finding it was made from;
+  with who made it: `submitted` by its Project Manager, or by the person who accepted the finding it was made from,
+  naming the project's level (`{ autonomy }`) when that level let it queue without an approval;
   `edited` (`{ before, after }`, each holding only the fields
   that changed), `approved`, and `rejected` (`{ reason }`) by the person who decided; `held_for_approval` (`{ from }`)
   by the system user, for a batch that waited for a slot when proposals began and went back for approval;
@@ -632,9 +636,16 @@ the Project Manager itself, so it learns its work was declined or withdrawn and 
 
 ### Proposed batches
 
-Built: every batch starts proposed, and a person approves it before any worker sees it
-(`api/src/models/work_batch/approval.rs`, `approval_item.rs`, and `why.rs`). A Project Manager still plans, orders, and
-submits everything; the gate is between its plan and the pool.
+Built: a batch starts proposed, and a person approves it before any worker sees it
+(`api/src/models/work_batch/approval.rs`, `approval_item.rs`, and `why.rs`), unless its project's level of autonomy
+lets it through. A Project Manager still plans, orders, and submits everything; the gate is between its plan and the
+pool.
+
+- **The dial decides the gate.** `work_batch::submit` reads the project's level under a share lock, so a person
+  turning it waits for the submission and the batch follows the level it was submitted under. At Approve every batch,
+  the default, every batch is proposed. At Approve found work only and Full autonomy, a human-rooted batch is stored
+  `queued`, its `submitted` entry naming the level, no approval item is raised for it, and the pool is told at once;
+  a found batch is proposed at every level (`project_autonomy::Autonomy::queues`, `docs/autonomy.md`, The dial).
 
 - **The pool hands a proposal nothing.** `work_batch::assign` takes only `queued` batches, the queue's order reads only
   them, and `work_batches_claimed_while_in_a_slot` refuses a claim on anything but a batch in a slot, so a proposed batch
@@ -698,8 +709,8 @@ brake on work that files work (`docs/autonomy.md`, Origins and generations). A s
   beside a person's request never holds the request to that batch's chain. Records it names still count.
 - **Resetting.** A person accepting a finding re-roots the work: its batch is human-rooted and generation 0
   (`Lineage::accepted_finding`, made only by `findings::accept`; Findings, below).
-- **Never queued alone.** Every batch is proposed today. A trust dial that lets human-rooted work run past approval
-  must still propose every found batch (`work_batch::submit`).
+- **Never queued alone.** A found batch is proposed at every level of the trust dial, so only human-rooted work ever
+  runs past approval, and only at a level a person chose (`work_batch::submit`, Proposed batches, above).
 - **Existing batches** have the origin their provenance proves, generation 0, and no parents: no chain was recorded for
   them, so a chain counts from them.
 - **What a turn that both a person's message and a batch's result woke submits** counts that batch, since the Project
@@ -768,11 +779,13 @@ files its issue or submits its batch. See `docs/autonomy.md`, Findings.
 - **Accepting.** A person accepts one from the project's Findings tab, under the finding's lock, in one transaction:
   an open action item in the project, created as them, whose notes hold the detail, where, and the cost; its issue owed
   in the project's tracker (Its writes, above) and filed as them (`action_item_issue_filings.filed_by` `user:<id>`), so
-  its link and history are theirs; and a proposed batch for that item, its title the finding's, its goal the detail
-  and where, its repository the finding's, human-rooted and generation 0 (`Lineage::accepted_finding`), created by
-  the person, whose name its timeline record carries. Like every batch it waits for approval, and the project's
-  approval item counts it. A project with nowhere to file still gets the item and the batch, since the work is
-  wanted either way, and the answer says why no issue was owed, in the words `file-issue` is refused with.
+  its link and history are theirs; and a batch for that item, its title the finding's, its goal the detail and where,
+  its repository the finding's, human-rooted and generation 0 (`Lineage::accepted_finding`), created by the person,
+  whose name its timeline record carries. Like any human-rooted batch it follows the project's level: at Approve every
+  batch it waits for approval and the project's approval item counts it; at the two levels above it queues at once,
+  the Accept being the person's word that the work is wanted. The answer names the batch's state. A project with
+  nowhere to file still gets the item and the batch, since the work is wanted either way, and the answer says why no
+  issue was owed, in the words `file-issue` is refused with.
 - **Dismissing.** Dismissing takes an optional reason and keeps the row, so the same finding reported again lands on it
   and stays dismissed, and its reporter is told the reason. Rows are never deleted.
 - **Only a person.** Accepting and dismissing take a `MemberUser`, which no machine user is, so no tool reaches either,

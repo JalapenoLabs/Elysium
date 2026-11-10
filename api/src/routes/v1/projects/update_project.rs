@@ -61,7 +61,6 @@ pub async fn handle(
         cover_fit: body.cover_fit,
         github_access: body.github.map(|github| github.access),
         github_credential_id: body.github.map(|github| github.credential_id),
-        ..ProjectChanges::default()
     };
     if changes.is_empty() {
         return Err(ApiError::BadRequest(

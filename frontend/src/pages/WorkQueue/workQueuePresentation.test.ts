@@ -106,6 +106,38 @@ describe('describeHistoryEntry', () => {
     expect(finished.succeeded).toBe(false)
   })
 
+  it('names the level of autonomy that let a submitted batch queue at once', () => {
+    const queued = describeHistoryEntry({
+      id: 'event-7',
+      kind: 'submitted',
+      data: { autonomy: 'approve_found_work' },
+      createdBy: 'project-manager',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(queued.labelKey).toBe('history.submittedQueued')
+    expect(queued.queuedAt).toBe('approve_found_work')
+
+    const proposed = describeHistoryEntry({
+      id: 'event-8',
+      kind: 'submitted',
+      data: {},
+      createdBy: 'project-manager',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(proposed.labelKey).toBe('history.kinds.submitted')
+    expect(proposed.queuedAt).toBeNull()
+
+    // A level this build does not know reads as a plain submission rather than a wrong name.
+    const unknown = describeHistoryEntry({
+      id: 'event-9',
+      kind: 'submitted',
+      data: { autonomy: 'anything_goes' },
+      createdBy: 'project-manager',
+      createdAt: '2026-11-04T11:00:00Z',
+    })
+    expect(unknown.labelKey).toBe('history.kinds.submitted')
+  })
+
   it('names the fields a person changed before approving, priority and its time as one', () => {
     const edited = describeHistoryEntry({
       id: 'event-5',
