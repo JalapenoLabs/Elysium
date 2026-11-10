@@ -1650,7 +1650,7 @@ mod tests {
             {"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92,
              "alternatives": ["Sharad"], "why": "The participants name a Sharath."},
             {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 60},
-            {"line": 1, "heard": "ships Friday", "text": "shipped on a Friday", "confidence": 90},
+            {"line": 1, "heard": "ships Friday", "text": "ships Friday at noon", "confidence": 90},
             {"line": 1, "heard": "Friday", "text": "Friday", "confidence": 0}
         ]}"#;
         let step = CorrectTranscript::new(CorrectTranscriptDeps {

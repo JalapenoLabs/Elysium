@@ -52,8 +52,8 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --interactive --network none --cpus 4 --cap-drop ALL \
-            --security-opt no-new-privileges "${IMAGE}" --threads 4 \
-            --hint-words "LibriVox, Elysium" \
+            --security-opt no-new-privileges --env WHISPER_HINT_WORDS="LibriVox, Elysium" \
+            "${IMAGE}" --threads 4 \
             < whisper/fixtures/librivox-intro.opus > "${RUNNER_TEMP}/transcript.json"
           python3 - "${RUNNER_TEMP}/transcript.json" <<'EOF'
           import json, sys

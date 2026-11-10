@@ -12,9 +12,11 @@ contract is the process's standard streams alone:
 - progress goes to standard error, one line at a time, and never quotes what was said,
   since every company member can read the step's log.
 
-It may be told names and terms to listen for (`--hint-words`, one comma-separated argument): the
+It may be told names and terms to listen for, in `WHISPER_HINT_WORDS`, separated by commas: the
 company's Transcription doc and the names its company doc spells, so a name is heard right more
-often before anything corrects it.
+often before anything corrects it. An environment variable rather than an argument, so an engine
+newer than its image only goes untold, where an argument the image does not know would fail the
+transcription.
 
 It exits 0 with a transcript, NO_AUDIO when the recording has no audio stream, and
 UNREADABLE when it cannot be decoded at all. Anything else is a failure another attempt may
@@ -47,6 +49,9 @@ UNREADABLE = 2
 # Where the Dockerfile puts the pinned model, and what it names it.
 MODEL_DIRECTORY = Path(os.environ["WHISPER_MODEL_DIRECTORY"])
 MODEL_NAME = os.environ["WHISPER_MODEL_NAME"]
+
+# The names and terms to listen for, as the engine passes them (api/src/whisper/container.rs).
+HINT_WORDS = os.environ.get("WHISPER_HINT_WORDS", "").strip()
 
 # How often progress is reported, in seconds of audio transcribed: often enough that a step's
 # log shows it moving, rarely enough that an hour's log stays a screenful.
@@ -185,11 +190,6 @@ def main() -> int:
     """Reads the recording, transcribes it, and writes the transcript to standard output."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--threads", type=int, required=True, help="CPU threads to decode on")
-    parser.add_argument(
-        "--hint-words",
-        default="",
-        help="Names and terms to listen for, separated by commas",
-    )
     arguments = parser.parse_args()
 
     # Standard output carries the transcript alone. Libraries that print, from Python or
@@ -215,7 +215,7 @@ def main() -> int:
             logger.warning("The recording has no audio stream, so there is nothing to transcribe")
             return NO_AUDIO
 
-        transcription = transcribe(recording, arguments.threads, arguments.hint_words)
+        transcription = transcribe(recording, arguments.threads, HINT_WORDS)
 
     transcript_output.write(transcription.model_dump_json(by_alias=True))
     transcript_output.close()

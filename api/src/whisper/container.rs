@@ -34,6 +34,10 @@ pub(super) const MEMORY_BYTES: i64 = 12 << 30;
 /// `CTranslate2`'s and ONNX Runtime's threads, with room to spare.
 const PIDS_LIMIT: i64 = 256;
 
+/// What the transcriber reads the names and terms to listen for from (`whisper/transcribe.py`),
+/// separated by commas.
+const HINT_WORDS_VARIABLE: &str = "WHISPER_HINT_WORDS";
+
 /// The container a transcription keyed `key` runs in.
 pub(super) fn name(key: Uuid) -> String {
     format!("elysium-whisper-{key}")
@@ -42,18 +46,19 @@ pub(super) fn name(key: Uuid) -> String {
 /// A container of `image` that decodes on `threads` threads, listening for `hint_words` (names and
 /// terms, such as the Transcription doc's), with nothing to reach and nothing shared, reading the
 /// recording on its standard input.
+///
+/// The hint words go in an environment variable, [`HINT_WORDS_VARIABLE`], rather than an argument:
+/// an image older than its engine ignores a variable it does not read, where an argument it did
+/// not know would fail the transcription.
 pub(super) fn spec(image: &str, threads: usize, hint_words: &[String]) -> ContainerCreateBody {
     // A thread count is a small number; it fits any integer type.
     let threads_i64 = i64::try_from(threads).expect("a thread count fits in i64");
-    let mut cmd = vec!["--threads".to_owned(), threads.to_string()];
-    if !hint_words.is_empty() {
-        // One argument, never a shell: Docker hands it to the transcriber as it is.
-        cmd.push("--hint-words".to_owned());
-        cmd.push(hint_words.join(", "));
-    }
+    let env = (!hint_words.is_empty())
+        .then(|| vec![format!("{HINT_WORDS_VARIABLE}={}", hint_words.join(", "))]);
     ContainerCreateBody {
         image: Some(image.to_owned()),
-        cmd: Some(cmd),
+        cmd: Some(vec!["--threads".to_owned(), threads.to_string()]),
+        env,
         labels: Some(HashMap::from([(
             MANAGED_LABEL.0.to_owned(),
             MANAGED_LABEL.1.to_owned(),

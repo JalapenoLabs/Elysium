@@ -195,9 +195,11 @@ step and the next one still reads its input.
   cuts clips by its word timings.
 - Running the step again for a capture transcribed already answers the stored transcript and transcribes nothing.
 - **Told the names first.** Each transcription is given the Transcription doc's entries and the company doc's people
-  and glossary as Whisper's hint words (`transcription_doc::hint_words`, The Transcription doc, below): one argument to
-  the container, `--hint-words`, which faster-whisper reads as `hotwords`, the start of the model's own context. So a
-  name is heard right more often before anything corrects it. The log counts them.
+  and glossary as Whisper's hint words (`transcription_doc::hint_words`, The Transcription doc, below), in the
+  container's `WHISPER_HINT_WORDS`, which faster-whisper reads as `hotwords`, the start of the model's own context. So
+  a name is heard right more often before anything corrects it. A variable rather than an argument, so an engine newer
+  than its Whisper image only goes untold, where an argument the image does not know would fail the transcription. The
+  log counts them.
 - As a running step, a transcription holds an activity, so auto-update waits for it rather than cutting it short.
 - A meeting without a recording (the source keeps none, or the connector names nowhere to keep it) skips the step,
   saying "No recording, so nothing to transcribe", and one whose recording has no audio stream skips it saying that.

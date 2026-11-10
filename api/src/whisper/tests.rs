@@ -26,22 +26,17 @@ fn the_container_has_no_network_and_is_capped_at_its_threads() {
         spec.cmd.as_deref(),
         Some(&["--threads".to_owned(), "16".to_owned()][..])
     );
-    // Names to listen for go as one argument, joined as Whisper reads them.
+    assert_eq!(spec.env, None, "nothing to listen for, nothing set");
+    // Names to listen for go in one variable, joined as Whisper reads them.
     let hinted = container::spec(
         "elysium-whisper:dev",
         16,
         &["Sharath".to_owned(), "Elysium".to_owned()],
     );
+    assert_eq!(hinted.cmd, spec.cmd);
     assert_eq!(
-        hinted.cmd.as_deref(),
-        Some(
-            &[
-                "--threads".to_owned(),
-                "16".to_owned(),
-                "--hint-words".to_owned(),
-                "Sharath, Elysium".to_owned(),
-            ][..]
-        )
+        hinted.env.as_deref(),
+        Some(&["WHISPER_HINT_WORDS=Sharath, Elysium".to_owned()][..])
     );
     // The recording arrives on standard input, closed when the attach closes its end.
     assert_eq!(
@@ -244,7 +239,7 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
         .collect::<Vec<_>>();
     let key = Uuid::now_v7();
     let heard = Mutex::new(Vec::new());
-    // Names to listen for reach the transcriber as its own argument.
+    // Names to listen for reach the transcriber in its environment.
     let hint_words = ["Elysium".to_owned(), "Sharath".to_owned()];
     let transcribed = whisper
         .transcribe(
