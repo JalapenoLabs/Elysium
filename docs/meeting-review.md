@@ -5,7 +5,8 @@ A meeting is a living document in the knowledge base. Its final transcript is bu
 what it changed, what each part was taken into, and what was said about it. Anyone can correct it by ear against the
 recording, and what is relevant, and only that, flows on to projects, their Project Managers, and workers.
 
-This doc is the design. Nothing of it is built yet; the roadmap is the issues in the Meetings milestone. What is built
+This doc is the design. Nothing of it is built yet; the roadmap is below, as issues in the Knowledge base
+milestone. What is built
 today is `docs/meetings.md`, which this design changes where it says so.
 
 ## Meetings and captures
@@ -249,3 +250,27 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
   meeting page, so a meeting about three projects shows in three places and is one page.
 - The meeting's page today, `/settings/meetings/:meetingId`, moves into the knowledge base; Settings, Meetings keeps its
   Sources.
+
+## Roadmap
+
+Five lanes, in order. Each issue is whole on its own; what it depends on is named in it.
+
+| Phase | Issue | Lane                                                                                  |
+|-------|-------|---------------------------------------------------------------------------------------|
+| 1     | #230  | Turns: prompts on standard input                                                      |
+| 1     | #231  | Model: captures, and the final transcript as words with stable ids                    |
+| 1     | #233  | Uploads: recordings and transcripts                                                   |
+| 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
+| 1     | #236  | The player                                                                            |
+| 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
+| 2     | #238  | Aligning captures, and asking before merging duplicates                               |
+| 2     | #239  | Settling the final transcript, and the Transcription doc                              |
+| 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
+| 3     | #243  | Tasks through Project Managers                                                        |
+| 3     | #245  | Comments                                                                              |
+| 4     | #246  | Public by default, private until checked, and sharing                                 |
+| 5     | #248  | Teams recordings and Slack huddle transcripts                                         |
+| 5     | #250  | Attachments and frames                                                                |
+
+Phase 1 is what lets a person add and fix their own meetings; the rest makes the transcript better, takes only what
+matters into projects, and brings in more sources.
