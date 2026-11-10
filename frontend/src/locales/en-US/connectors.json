@@ -81,7 +81,7 @@
     },
     "teams": {
       "name": "Teams",
-      "description": "Your Teams chats and channels, read through a browser Elysium runs, which you sign in to once. Unread chats, mentions, and replies in your threads land in your inbox."
+      "description": "Your Teams chats, channels, and recorded meetings, read through a browser Elysium runs, which you sign in to once. Unread chats, mentions, and replies in your threads land in your inbox, and each recorded meeting lands on your timeline."
     },
     "fireflies": {
       "name": "Fireflies",
@@ -112,6 +112,7 @@
     "boards": "Boards",
     "spaces": "Spaces",
     "conversations": "Conversations",
+    "readMeetings": "Read meeting recordings and transcripts",
     "storageLocationId": "Storage location",
     "waitForApproval": "Wait for my approval before acting on meetings",
     "choices": {
@@ -219,6 +220,9 @@
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
       "meeting_unavailable": "The newest meeting is still being processed. Run the checks again later.",
+      "meetings_off": "Meetings are turned off for this connector.",
+      "no_storage_location": "Pick a storage location to start reading meetings.",
+      "recording_not_downloadable": "Its transcript reads, but its recording cannot be downloaded, so meetings are read from their transcripts.",
       "spaces_unresolved": "Couldn't confirm the chosen spaces. Run the checks again.",
       "no_spaces_chosen": "Choose at least one space to search it.",
       "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",

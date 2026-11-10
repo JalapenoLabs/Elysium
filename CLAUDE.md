@@ -239,6 +239,9 @@ Everything else follows these rules:
 - A browser connector's page carries its sign-in panel, which speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- Once a day the engine's ingest pass reloads each browser's service tab in place, one browser a pass, so its
+  rolling session renews, then reads its connector, which records a lapsed session as signed out. The last refresh is
+  `browser_sessions.refreshed_at`; the interval is a code constant. See `docs/browser.md`, Refreshing.
 - A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
   removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
   says so, with the media ports behind its help, rather than spinning.
@@ -275,7 +278,8 @@ Everything else follows these rules:
   result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
 - Teams reads through its own browser signed in to Microsoft, from Teams' own local store (IndexedDB) rather than its
   page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a channel thread the
-  person wrote in raises an inbox item; other channel messages are only recorded.
+  person wrote in raises an inbox item; other channel messages are only recorded. Teams enforces Trusted Types, so its
+  page scripts read markup with patterns and never hand it to a parser.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
@@ -313,12 +317,18 @@ Everything else follows these rules:
 
 ## Meetings
 
-- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key on a paid plan, or through Fireflies' own web app in the connector's browser on any plan (the
-  `fireflies_browser` kind, `meetings::fireflies_browser`), so nothing is installed into an organization. A source is a
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
+  key on a paid plan or through Fireflies' own web app in its connector's browser on any plan (the `fireflies_browser`
+  kind, `meetings::fireflies_browser`), and Teams, through its connector's own browser, so nothing is installed into an
+  organization. A source is a
   connector whose kind declares it provides meetings, managed under Connectors alone; the meetings page and loop never
-  name one (`meetings::sources`), and `sources::sign_in_of` resolves its key or browser. Every meeting belongs to a
+  name one, and each source's sign-in is resolved beside it (`meetings::sources`). Every meeting belongs to a
   connector, which is what keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+- Teams lists the recorded meetings whose chats its store holds, and fetches each recording's download address and its
+  transcript, with speakers, from the organizer's SharePoint with the token Teams keeps for it, which never leaves the
+  page. It reads meetings while "Read meeting recordings and transcripts" is on (the default) and once a storage
+  location is picked. A connector's cursor is merged, not replaced, so its chat reader and the meetings listing each
+  keep their own keys. See `docs/meetings.md`, Teams.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
   transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
   again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.

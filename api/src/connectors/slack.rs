@@ -340,7 +340,7 @@ fn is_app(url: &str) -> bool {
 
 /// A Slack page that is not the web client: a sign-in page, or a workspace's own address,
 /// which redirects to sign in.
-fn is_sign_in(url: &str) -> bool {
+pub fn is_sign_in(url: &str) -> bool {
     Url::parse(url).is_ok_and(|parsed| {
         parsed.scheme() == "https"
             && parsed

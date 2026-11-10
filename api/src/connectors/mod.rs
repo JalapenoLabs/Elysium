@@ -33,6 +33,7 @@ pub mod checks;
 pub mod ingest;
 pub mod kinds;
 pub mod readers;
+pub mod refresh;
 pub mod slack;
 pub mod teams;
 pub mod webmail;

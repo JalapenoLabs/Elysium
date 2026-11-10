@@ -79,6 +79,10 @@ table of its own:
 - Fireflies (browser) keeps the same two, but its storage location is optional: the connector is made with its browser
   before anything is filled in, and its person picks a location on its page. Until then, and whenever it names none,
   its meetings go on from their transcripts alone.
+- Teams' content is the conversations its chat reader records, `{"conversations": "*"}` or a list of ids, and, since
+  it is a meeting source too, `{"readMeetings": bool, "waitForApproval": bool}` and the storage location its
+  recordings are kept in, `storage_location_id`. Its meetings are read only while `readMeetings` is on (it starts on)
+  and once a storage location is picked ([Teams](#teams)).
 - GitHub's content is the repositories whose assigned issues come in (`docs/github.md`, Assigned issues),
   `{"repositories": "*"}` or `{"repositories": ["owner/name", ...]}`, matched against what the token lists when it is
   saved and stored as GitHub spells each name. A token added under Settings, GitHub reads every repository. It bounds
@@ -117,7 +121,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `github`     | `kinds/github.rs`      | `issues`   | `github`      | `repositories`               | The link watcher            | Never   |
 | `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
-| `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
+| `teams`      | `kinds/teams.rs`       | `messages`, `meetings` | `browser` | `conversations`, `readMeetings`, `storageLocationId`, `waitForApproval` | `ingest` and `crate::meetings` | Itself, thread or conversation |
 | `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
 | `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`, `waitForApproval` | `crate::meetings`           | Never   |
 | `fireflies_browser` | `kinds/fireflies_browser.rs` | `meetings` | `browser` | `storageLocationId` (optional), `waitForApproval` | `crate::meetings` | Never |
@@ -125,7 +129,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 
 A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
 kind's start page, its content fields (a `selection` picked from what the account reaches, a `storage_location`, or a
-`toggle`, on or off), its ordered checks, and how what it reads is answered (`replies`: never, through the connector itself in the places it
+`toggle`, on or off, which a new connector's form starts at the field's `onByDefault`), its ordered checks, and how what it reads is answered (`replies`: never, through the connector itself in the places it
 names, or from a mailbox; see [Sending](#sending)). Account definitions say what a new account asks for (text, email, URL, secret, or a choice).
 `GET /connectors/kinds` serves both, and the web app draws its forms and check lists from them, naming every id from
 its `connectors` translations.
@@ -184,7 +188,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | Confluence        | `sign_in`, `list_spaces` (also proves every chosen space is reached), `sample_pages`, `sample_page_comments` (optional) |
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
-| Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message` (optional)                       |
+| Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message`, `list_meetings`, and `sample_transcript` (optional) |
 | Slack             | `browser_running`, `signed_in`, `workspace_reachable`, `sample_conversation` (optional)            |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
 | Fireflies (browser) | `browser_running`, `signed_in`, `list_meetings`, `sample_transcript` (optional)                  |
@@ -283,10 +287,17 @@ Each browser kind has a reader behind one trait, `BrowserReader`, and `api/src/c
 kind meets its reader (`for_kind`). A reader is given its browser, what it kept from its last read, and its connector's
 content (`ReadInput`), and answers a reading: the sign-in state, the items it found, and optionally its state for the
 next read, such as a watermark. Ingest keeps that state in the connector's cursor beside the baseline,
-`{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. A reader whose service has no
-tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its row in `for_kind`, and itself to
-`BROWSER_READ`, and a test fails when any of the three is missing. A browser kind that provides meetings, Fireflies
-(browser), is read by the meetings loop through its meeting source instead, and is not in `BROWSER_READ`.
+`{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. Every loop writes only its own
+keys of a cursor, merged over what is stored in the same statement (`connector::record_poll`), so a connector two loops
+read, as Teams is by ingest and the meetings listing (`{"since": ...}`), keeps both. A reader whose service has no
+tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its rows in `for_kind` and
+`service_page` (which tabs show its app and which its sign-in), and itself to `BROWSER_READ`, and a test fails when any
+is missing or its start page is not its app. A browser kind that provides meetings alone, Fireflies (browser), is read by
+the meetings loop through its meeting source instead, and is not in `BROWSER_READ`.
+
+Each pass also refreshes at most one browser, the one longest without, once a day: it reloads the service's tab so its
+rolling session renews, and the connector's read in the same pass is its sign-in check (`docs/browser.md`,
+Refreshing).
 
 `api/src/connectors/webmail.rs` reads a mailbox through its browser. Each service is one row of `SERVICES`:
 
@@ -353,6 +364,15 @@ leaving a space for one that ends a line (a paragraph, a break, a list item, a q
 either side stay apart, and then decodes character references: the five that HTML's serializer writes (`&amp;`, `&lt;`,
 `&gt;`, `&quot;`, `&nbsp;`), `&apos;`, and numeric ones. Decoding after the tags are gone keeps escaped markup as text.
 Over every message a signed-in Teams had stored, this reads the same words as the browser's own parser.
+
+**It is a meeting source too.** Unless its person turns off "Read meeting recordings and transcripts"
+(`readMeetings`), the same browser lists the recorded meetings whose chats Teams has stored, and fetches each one's
+recording and transcript from the organizer's SharePoint with the token Teams keeps for it, through
+`api/src/connectors/teams_meetings.js` (`docs/meetings.md`, Teams). Meetings wait for a storage location to keep the
+recordings in, which the connector's page asks for once its person has signed in; until one is picked, `list_meetings`
+says so (`no_storage_location`). `list_meetings` lists the last two weeks' recordings, and `sample_transcript` reads
+the newest one's transcript, saying when its recording cannot be downloaded (`recording_not_downloadable`); both are
+skipped while meetings are off (`meetings_off`). A sync someone asks for reads the chats and lists the meetings.
 
 The script was checked against `api/src/connectors/fixtures/teams.html`, a page that seeds IndexedDB the way Teams lays
 it out and enforces Trusted Types as Teams does, in headless Chromium (`fixtures/evaluate.mjs` runs any page script
@@ -644,7 +664,7 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
 
 - Changing a token connector's sign-in from its page: a new key for Fireflies or YouTrack, and a new token for
   Confluence, whose Atlassian account has no edit page of its own; today such a connector is removed and added again.
-- More kinds: Google Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: Google Meet recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
 - Slack: confirming the threads view against a signed-in Slack, and an Enterprise Grid org,

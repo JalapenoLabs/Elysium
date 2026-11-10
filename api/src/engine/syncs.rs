@@ -125,13 +125,14 @@ async fn run(readers: &Readers, connector: &Connector) {
     // Dropping it clears the mark, however the read ends.
     let _syncing = readers.activity.syncing(connector.id);
     match ConnectorKind::parse(&connector.kind) {
-        Some(
-            ConnectorKind::Outlook
-            | ConnectorKind::Gmail
-            | ConnectorKind::Teams
-            | ConnectorKind::Slack,
-        ) => {
+        Some(ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Slack) => {
             readers.ingest.read_now(connector).await;
+        }
+        // Teams reads chats through ingest and recorded meetings through the meetings loop,
+        // which skips a connector whose meetings are off.
+        Some(ConnectorKind::Teams) => {
+            readers.ingest.read_now(connector).await;
+            readers.meetings.sync(connector).await;
         }
         Some(ConnectorKind::Confluence) => readers.confluence.read_now(connector).await,
         Some(ConnectorKind::Youtrack) => readers.youtrack.read_now(connector).await,

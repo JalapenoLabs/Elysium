@@ -5,14 +5,16 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources. Today Fireflies.ai is one, read two ways: with the person's own API key, for paid
-plans, or through Fireflies' own web app in a browser the person signed in to, on any plan. The code is
-`api/src/meetings/`.
+Meetings come from meeting sources: Fireflies.ai, read with the person's own API key on a paid plan or through
+Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams, read through the browser
+the person's Teams connector signed in to. The code is `api/src/meetings/`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
-used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails if
-one asks for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
+used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails
+if one asks for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`); Teams' page script reads the recording
+and its transcript alone, never the meeting recap or notes Microsoft's AI writes, and a test fails if it names them
+(`api/src/connectors/teams/meetings.rs`).
 
 ## Meeting sources
 
@@ -21,21 +23,24 @@ A meeting source is a connector whose kind provides meetings: its definition say
 organization. Like every connector, it is added, edited, checked, paused, and removed under Settings, Connectors alone.
 
 Every source fills one trait, `MeetingSource` in `api/src/meetings/source.rs`: it lists the meetings that started
-since a time, and fetches one meeting's transcript with a fresh address to download its recording from.
-`api/src/meetings/sources.rs` is the one place a kind meets its source (`Sources::for_kind`), so the loop below lists
-and fetches every source the same way, and a test fails when a kind that provides meetings has no source. A new source
-adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and adds its client and its row
-in `for_kind`; the meetings page and the loop pick it up unchanged.
+since a time, and fetches one meeting's transcript with a fresh address to download its recording from, each as its
+person, signed in the way its connector signs in (`MeetingSource::SignIn`). `api/src/meetings/sources.rs` is the one
+place a kind meets its source (`Sources::for_kind`), and where each source's sign-in is resolved from its connector
+(`Source::sign_in`): a key-based source opens the token account it reads through, and a browser source finds its
+connector's browser. The loop below and the fetch step hold the signed-in source (`SignedIn`) and never handle a
+credential, so they list and fetch every source the same way, and a test fails when a kind that provides meetings has
+no source. A new source adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and
+adds its client, its sign-in, and its row in `for_kind`; the meetings page and the loop pick it up unchanged.
 
-A source signs in the way its connector's account does (`SignIn` in `source.rs`): an API key from its token account,
-or the browser it owns. `sources::sign_in_of` resolves it from the connector, beside the sources, and each source's
-client takes only its own kind of sign-in (`MeetingSource::SignIn`); handed the other, the dispatch refuses it as a
-sign-in to fix.
+A source may read meetings only some of the time (`Source::reads`): Fireflies reads nothing else, so always, while a
+Teams connector also reads chats, and reads meetings only while its person leaves them on and once it names a storage
+location. The loop lists no meetings for a connector that reads none, and records nothing on it.
 
 | Source              | Signs in with                                  | Reads                                                    |
 |---------------------|------------------------------------------------|----------------------------------------------------------|
 | Fireflies           | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
 | Fireflies (browser) | The connector's own browser, signed in to `app.fireflies.ai` | The web app's `/api/v4/hive`, from its tab: the notebook's listing, then each meeting's captions and, apart, its video or audio |
+| Teams               | The Teams connector's own browser, signed in to Microsoft | Teams' own store for the listing, then the recording's drive item on the organizer's `SharePoint`: its download and its transcript |
 
 A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
 recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
@@ -83,6 +88,45 @@ own that leave out every AI field; how to find them again is in that directory's
 Not yet checked against a signed-in session: that `USER_PART_OF` lists what the key kind's listing does, and that a
 recording address downloads whole from the engine on the free plan.
 
+### Teams
+
+A Teams connector (`docs/connectors.md`, Teams) reads its person's recorded meetings unless they turn off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), and only once they pick the storage location its
+recordings are kept in: a browser connector is made before its person can choose one, and a meeting is fetched once, so
+reading before then would keep none of those recordings. `api/src/connectors/teams/meetings.rs` reads through
+`api/src/connectors/teams_meetings.js`, which runs in the browser's Teams tab as the page, over DevTools, and does only
+GETs:
+
+- **Listing** reads the store Teams keeps in IndexedDB (`Teams:replychain-manager:...`), as the chat reader does, and
+  calls nothing. Once a meeting's recording is ready, Teams posts a message in the meeting's chat
+  (`RichText/Media_CallRecording`, its `RecordingStatus` `Success`, earlier versions `Initial` and `ChunkFinished`):
+  the recording's title, start (`RecordingContent timestamp`), length (`duration`, `H:MM:SS.ff`), the call it belongs
+  to, and its drive item in the organizer's OneDrive (`item type="onedriveForBusinessVideo"`, with its sharing link,
+  `driveId`, and `driveItemId`). The call's ended message (`Event/Call`, matched by `callId`) names the organizer's
+  UPN and who took part. So the meetings listed are the recorded ones whose chats this person's Teams has stored. Each
+  is known by its drive item's address on SharePoint's API,
+  `https://<tenant>-my.sharepoint.com/_api/v2.1/drives/<drive>/items/<item>`, its external id; its link is the sharing
+  link, which opens it in Stream. The markup is read with patterns, never a parser, which Teams' Trusted Types policy
+  refuses.
+- **Fetching** reads that drive item with the access token Teams keeps for the SharePoint host in its MSAL cache
+  (localStorage), which never leaves the page: `?select=...,@content.downloadUrl` for the recording's
+  pre-authenticated download address (`/_layouts/15/download.aspx?...&tempauth=...`, good for about an hour), then
+  `/media/transcripts` for the transcript Teams marks default, then its
+  `/media/transcripts/<id>/content?format=json`, whose entries carry `speakerDisplayName`, `startOffset`, `endOffset`
+  (`HH:MM:SS.fffffff`), and `text`. The WebVTT the same address serves carries no speakers (`<v>` tags), so the JSON
+  is read. The fetch step downloads the recording from the address the page handed over, as it does Fireflies', and
+  accepts only `https` on a `*.sharepoint.com` host.
+
+Transcript offsets count from the start of the transcript, which starts with the recording to within a few seconds;
+clips are cut on the words Whisper heard (Clips), so that drift never reaches a clip. A recording whose organizer
+blocked downloads has no download address, and its meeting is processed from its transcript alone, as a source without
+a recording is; the `sample_transcript` check says so (`recording_not_downloadable`). A drive item the person cannot
+see, or one removed, answers `403` or `404` and fails its fetch for good. Teams renews its SharePoint token as it is
+used; one that has expired, or none yet, fails the fetch with its attempts and backoff and says so. Both were read
+against a signed-in Teams: its listing found every recorded meeting its chats held, and a fetch read a 40 minute
+meeting's 273 transcript entries from seven speakers, and its recording's address, which answered a ranged download
+from outside the browser as `video/mp4`.
+
 ### Accounts
 
 A Fireflies key is an account of its own (`token_accounts`, `docs/connectors.md`), sealed like every application
@@ -110,8 +154,10 @@ connector is `syncing` while a meeting of its is fetched or its segments are cut
   through its kind's source, the meetings that started since its cursor (`{"since": <the newest start time seen>}`),
   at most 50 at a time (`LISTING_SIZE`). A new connector's first listing reaches back two weeks
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
-  has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses marks the connector
-  `signed_out` with the reason in `last_error`.
+  has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses, or a browser signed out,
+  marks the connector `signed_out` with the reason in `last_error`. The listing writes only its own `since` into the
+  cursor, merged over what is stored (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys
+  beside it; the two share the connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
   by the system user (`workflow::run_to_start`).
 
@@ -544,7 +590,8 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 - Meetings as reviewed documents in the knowledge base: captures from several sources and uploads, one final
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
   is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
-- Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
-  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user, signing in with
-  their connector's browser through `SignIn::Browser`, as Fireflies (browser) does.
+- Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
+  they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
+- Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
+  meetings whose chats the person's Teams has not stored.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.

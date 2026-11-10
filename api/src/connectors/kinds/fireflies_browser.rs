@@ -53,7 +53,9 @@ pub const DEFINITION: Definition = Definition {
         },
         ContentField {
             id: WAIT_FOR_APPROVAL_FIELD,
-            field: ContentFieldType::Toggle,
+            field: ContentFieldType::Toggle {
+                on_by_default: false,
+            },
             required: false,
         },
     ],
@@ -218,25 +220,14 @@ pub async fn create(
 ) -> Result<Connector, ApiError> {
     let content: Content = parse_content(ConnectorKind::FirefliesBrowser, content)?;
     ensure_location(state, content.storage_location_id).await?;
-    let created = super::browser::create(
+    super::browser::create(
         state,
         current,
         ConnectorKind::FirefliesBrowser,
         content.stored(),
+        content.storage_location_id,
     )
-    .await?;
-    let Some(storage_location_id) = content.storage_location_id else {
-        return Ok(created);
-    };
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let updated = connector::set_content(
-        &mut connection,
-        created.id,
-        content.stored(),
-        Some(storage_location_id),
-    )
-    .await?;
-    Ok(updated)
+    .await
 }
 
 /// Sets where the connector keeps new recordings, or that it keeps none, and whether it waits

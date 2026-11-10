@@ -125,8 +125,12 @@ pub enum ContentFieldType {
     Selection,
     /// One of the workspace's storage locations, by id.
     StorageLocation,
-    /// On or off, a JSON boolean; off when the connector never saved it.
-    Toggle,
+    /// On or off, a JSON boolean. A new connector's form starts it at `on_by_default`, and the
+    /// kind reads a connector that never saved it the same way.
+    Toggle {
+        #[serde(rename = "onByDefault")]
+        on_by_default: bool,
+    },
 }
 
 /// What the hub knows about a kind of account, so a new one's form can be drawn.
@@ -707,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn every_kind_provides_something_and_meetings_come_from_fireflies_either_way() {
+    fn every_kind_provides_something_and_meetings_come_from_teams_and_fireflies() {
         for definition in DEFINITIONS {
             assert!(
                 !definition.provides.is_empty(),
@@ -717,7 +721,11 @@ mod tests {
         }
         assert_eq!(
             providing(Provides::Meetings),
-            [ConnectorKind::Fireflies, ConnectorKind::FirefliesBrowser]
+            [
+                ConnectorKind::Teams,
+                ConnectorKind::Fireflies,
+                ConnectorKind::FirefliesBrowser
+            ]
         );
     }
 
@@ -748,7 +756,7 @@ mod tests {
         for kind in providing(Provides::Meetings) {
             let asks = definition(kind).content.iter().any(|field| {
                 field.id == crate::meetings::WAIT_FOR_APPROVAL_FIELD
-                    && matches!(field.field, ContentFieldType::Toggle)
+                    && matches!(field.field, ContentFieldType::Toggle { .. })
                     && !field.required
             });
             assert!(asks, "{} has no waitForApproval toggle", kind.as_str());

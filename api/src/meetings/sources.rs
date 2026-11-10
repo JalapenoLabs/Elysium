@@ -5,25 +5,32 @@
 //! [`Sources::for_kind`] is the one place a kind is matched to its source, so the listing and
 //! processing loop reads every source the same way and never names one. A connector kind
 //! declares that it provides meetings (`kinds::Provides::Meetings`); a new source adds its
-//! client here, a variant to [`Source`], and its row in [`Sources::for_kind`], and a test fails
-//! when a kind that provides meetings has no source.
+//! client here, a variant to [`Source`] and to [`SignedIn`], and its row in
+//! [`Sources::for_kind`], and a test fails when a kind that provides meetings has no source.
 //!
-//! [`sign_in_of`] resolves what a connector signs in with from the account it owns: a key
-//! source's token account, or a browser source's browser. A source is handed only the sign-in
-//! its own client reads as; a connector whose account is the other kind is refused.
+//! # Signing in
+//!
+//! Each source reads as its connector's person, signed in the way the connector signs in
+//! ([`MeetingSource::SignIn`]), and [`Source::sign_in`] resolves that sign-in from the
+//! connector beside the source: a key-based source opens the token account it reads through,
+//! and a source read through a browser finds the browser its person signed in to. The loop and
+//! the fetch step hold a [`SignedIn`] source and never handle a credential themselves.
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
+use secrecy::SecretString;
 
 use super::fireflies::Fireflies;
 use super::fireflies_browser::FirefliesBrowser;
-use super::source::{FetchedMeeting, ListedMeeting, MeetingSource, SignIn, SourceError};
+use super::source::{FetchedMeeting, ListedMeeting, MeetingSource, SourceError};
 use crate::browser::devtools::Devtools;
 use crate::connectors::ConnectorKind;
+use crate::connectors::kinds::teams as teams_kind;
+use crate::connectors::teams::meetings::TeamsMeetings;
 use crate::crypto::Cipher;
-use crate::models::browser_session;
-use crate::models::connector::{AccountRef, Connector};
+use crate::models::browser_session::{self, BrowserSession};
+use crate::models::connector::Connector;
 use crate::models::token_account;
 
 /// The client of every meeting source, each built once and shared by every connector of its
@@ -32,13 +39,15 @@ use crate::models::token_account;
 pub struct Sources {
     fireflies: Fireflies,
     fireflies_browser: FirefliesBrowser,
+    teams: TeamsMeetings,
 }
 
 impl Sources {
     pub fn new(http: reqwest::Client) -> Self {
         Self {
             fireflies: Fireflies::new(http.clone()),
-            fireflies_browser: FirefliesBrowser::new(Devtools::new(http)),
+            fireflies_browser: FirefliesBrowser::new(Devtools::new(http.clone())),
+            teams: TeamsMeetings::new(Devtools::new(http)),
         }
     }
 
@@ -48,6 +57,7 @@ impl Sources {
         Self {
             fireflies,
             fireflies_browser: FirefliesBrowser::new(Devtools::new(reqwest::Client::new())),
+            teams: TeamsMeetings::new(Devtools::new(reqwest::Client::new())),
         }
     }
 
@@ -61,6 +71,11 @@ impl Sources {
         &self.fireflies_browser
     }
 
+    /// The Teams client, for the Teams kind's own checks.
+    pub fn teams(&self) -> &TeamsMeetings {
+        &self.teams
+    }
+
     /// The source a connector of `kind` reads its meetings from, or `None` for a kind that
     /// provides no meetings.
     pub fn for_kind(&self, kind: ConnectorKind) -> Option<Source> {
@@ -69,105 +84,158 @@ impl Sources {
             ConnectorKind::FirefliesBrowser => {
                 Some(Source::FirefliesBrowser(self.fireflies_browser.clone()))
             }
+            ConnectorKind::Teams => Some(Source::Teams(self.teams.clone())),
             ConnectorKind::Jira
             | ConnectorKind::Confluence
             | ConnectorKind::Github
             | ConnectorKind::Outlook
             | ConnectorKind::Gmail
-            | ConnectorKind::Teams
             | ConnectorKind::Slack
             | ConnectorKind::Youtrack => None,
         }
     }
-}
 
-/// What `connector` signs in to its meeting source with: the key its token account holds, or
-/// the browser it owns.
-///
-/// # Errors
-/// When the connector owns neither, such as one still waiting for its browser, when its browser
-/// was removed, or when its key cannot be decrypted.
-pub async fn sign_in_of(
-    connection: &mut AsyncPgConnection,
-    cipher: &Cipher,
-    connector: &Connector,
-) -> anyhow::Result<SignIn> {
-    match connector.account() {
-        Some(AccountRef::Token(id)) => {
-            let account = token_account::find(connection, id).await?;
-            let key = account
-                .credential(cipher)
-                .context("the connector's key cannot be decrypted")?;
-            Ok(SignIn::Key(key))
-        }
-        Some(AccountRef::Browser(id)) => {
-            let browser = browser_session::find(connection, id)
-                .await?
-                .context("the connector's browser was removed")?;
-            Ok(SignIn::Browser(browser))
-        }
-        Some(AccountRef::Atlassian(_) | AccountRef::Github(_)) => Err(anyhow::anyhow!(
-            "a meeting connector signs in with a key or a browser, and this one has neither"
-        )),
-        None => Err(anyhow::anyhow!(
-            "the connector has no browser yet; start one from its page and sign in"
-        )),
+    /// Whether `connector` reads its meetings now ([`Source::reads`]); a kind that provides no
+    /// meetings reads none.
+    pub fn reads_meetings(&self, connector: &Connector) -> bool {
+        ConnectorKind::parse(&connector.kind)
+            .and_then(|kind| self.for_kind(kind))
+            .is_some_and(|source| source.reads(connector))
+    }
+
+    /// `connector`'s source, signed in as its person.
+    ///
+    /// # Errors
+    /// When the connector's kind provides no meetings, or its sign-in cannot be read.
+    pub async fn signed_in(
+        &self,
+        connection: &mut AsyncPgConnection,
+        cipher: &Cipher,
+        connector: &Connector,
+    ) -> anyhow::Result<SignedIn> {
+        let source = ConnectorKind::parse(&connector.kind)
+            .and_then(|kind| self.for_kind(kind))
+            .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))?;
+        source.sign_in(connection, cipher, connector).await
     }
 }
 
-/// One meeting source. An enum rather than a trait object, since [`MeetingSource`]'s futures
-/// keep it from being one, and the set of sources is known.
+/// One meeting source's client, before it is signed in as anyone.
 #[derive(Debug, Clone)]
 pub enum Source {
     Fireflies(Fireflies),
     FirefliesBrowser(FirefliesBrowser),
+    Teams(TeamsMeetings),
 }
 
-impl MeetingSource for Source {
-    /// Whatever the connector signs in with; each source takes only its own kind of sign-in.
-    type SignIn = SignIn;
+impl Source {
+    /// Whether `connector` reads its meetings now. Fireflies reads nothing else, so always,
+    /// either way it signs in; a Teams connector also reads chats, and reads meetings only
+    /// while its person leaves them on and once it has a storage location to keep their
+    /// recordings in.
+    pub fn reads(&self, connector: &Connector) -> bool {
+        match self {
+            Self::Fireflies(_) | Self::FirefliesBrowser(_) => true,
+            Self::Teams(_client) => {
+                teams_kind::reads_meetings(&connector.content, connector.storage_location_id)
+            }
+        }
+    }
 
-    async fn list(
+    /// This source signed in as `connector`'s person, the way `connector` signs in.
+    ///
+    /// # Errors
+    /// When the connector has no sign-in of the kind its source reads with, or it cannot be
+    /// read or opened.
+    pub async fn sign_in(
+        self,
+        connection: &mut AsyncPgConnection,
+        cipher: &Cipher,
+        connector: &Connector,
+    ) -> anyhow::Result<SignedIn> {
+        match self {
+            Self::Fireflies(client) => {
+                let key = key_of(connection, cipher, connector).await?;
+                Ok(SignedIn::Fireflies(client, key))
+            }
+            Self::FirefliesBrowser(client) => {
+                let browser = browser_of(connection, connector).await?;
+                Ok(SignedIn::FirefliesBrowser(client, browser))
+            }
+            Self::Teams(client) => {
+                let browser = browser_of(connection, connector).await?;
+                Ok(SignedIn::Teams(client, browser))
+            }
+        }
+    }
+}
+
+/// One connector's meeting source, signed in as its person. An enum rather than a trait
+/// object, since [`MeetingSource`]'s futures and sign-ins keep it from being one, and the set of
+/// sources is known; each variant pairs a client with the sign-in that client reads with.
+#[derive(Debug)]
+pub enum SignedIn {
+    Fireflies(Fireflies, SecretString),
+    FirefliesBrowser(FirefliesBrowser, BrowserSession),
+    Teams(TeamsMeetings, BrowserSession),
+}
+
+impl SignedIn {
+    /// Meetings that started at or after `since`, newest first, at most `limit` of them.
+    ///
+    /// # Errors
+    /// [`SourceError`] as the source answers.
+    pub async fn list(
         &self,
-        sign_in: &SignIn,
         since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> Result<Vec<ListedMeeting>, SourceError> {
-        match (self, sign_in) {
-            (Self::Fireflies(source), SignIn::Key(key)) => source.list(key, since, limit).await,
-            (Self::FirefliesBrowser(source), SignIn::Browser(browser)) => {
-                source.list(browser, since, limit).await
-            }
-            (source, _other) => Err(mismatched(source)),
+        match self {
+            Self::Fireflies(client, key) => client.list(key, since, limit).await,
+            Self::FirefliesBrowser(client, browser) => client.list(browser, since, limit).await,
+            Self::Teams(client, browser) => client.list(browser, since, limit).await,
         }
     }
 
-    async fn fetch(
-        &self,
-        sign_in: &SignIn,
-        external_id: &str,
-    ) -> Result<FetchedMeeting, SourceError> {
-        match (self, sign_in) {
-            (Self::Fireflies(source), SignIn::Key(key)) => source.fetch(key, external_id).await,
-            (Self::FirefliesBrowser(source), SignIn::Browser(browser)) => {
-                source.fetch(browser, external_id).await
-            }
-            (source, _other) => Err(mismatched(source)),
+    /// One meeting's transcript and a fresh address to download its recording from.
+    ///
+    /// # Errors
+    /// [`SourceError`] as the source answers.
+    pub async fn fetch(&self, external_id: &str) -> Result<FetchedMeeting, SourceError> {
+        match self {
+            Self::Fireflies(client, key) => client.fetch(key, external_id).await,
+            Self::FirefliesBrowser(client, browser) => client.fetch(browser, external_id).await,
+            Self::Teams(client, browser) => client.fetch(browser, external_id).await,
         }
     }
 }
 
-/// A connector whose account is not what its kind's source reads as, which only a database
-/// written by hand holds.
-fn mismatched(source: &Source) -> SourceError {
-    let (name, reads_with) = match source {
-        Source::Fireflies(_) => ("Fireflies", "an API key"),
-        Source::FirefliesBrowser(_) => ("Fireflies (browser)", "a browser"),
-    };
-    SourceError::Unauthorized(format!(
-        "{name} reads with {reads_with}, and this connector signs in otherwise; remove it and \
-         add it again"
-    ))
+/// The API key `connector` reads its meetings with, from the token account it reads through.
+async fn key_of(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    connector: &Connector,
+) -> anyhow::Result<SecretString> {
+    let token_account_id = connector
+        .token_account_id
+        .context("this meeting connector reads with an API key, and it has none")?;
+    let account = token_account::find(connection, token_account_id).await?;
+    account
+        .credential(cipher)
+        .context("the connector's key cannot be decrypted")
+}
+
+/// The browser `connector` reads through, signed in to its service by its person.
+async fn browser_of(
+    connection: &mut AsyncPgConnection,
+    connector: &Connector,
+) -> anyhow::Result<BrowserSession> {
+    let browser_session_id = connector
+        .browser_session_id
+        .context("this meeting connector is still waiting for its browser")?;
+    browser_session::find(connection, browser_session_id)
+        .await?
+        .context("this meeting connector's browser was removed")
 }
 
 #[cfg(test)]
@@ -187,22 +255,5 @@ mod tests {
                 kind.as_str()
             );
         }
-    }
-
-    #[tokio::test]
-    async fn a_source_refuses_a_sign_in_of_the_other_kind() {
-        let sources = Sources::new(reqwest::Client::new());
-        let source = sources
-            .for_kind(ConnectorKind::FirefliesBrowser)
-            .expect("the browser kind has a source");
-
-        let listed = source
-            .list(&SignIn::Key(secrecy::SecretString::from("key")), None, 1)
-            .await;
-
-        assert!(
-            matches!(&listed, Err(SourceError::Unauthorized(message)) if message.contains("reads with a browser")),
-            "a browser source handed a key is refused: {listed:?}"
-        );
     }
 }

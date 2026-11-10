@@ -4,16 +4,13 @@
 //! recording.
 //!
 //! A source is the meeting counterpart of `crate::connectors::Connector`: it reads as its
-//! account's person, signed in the way its connector signs in ([`SignIn`]). Fireflies is read
-//! either with the person's own API key or through a browser they signed in to; sources that
-//! read Google Meet and Teams recordings through a signed-in browser fill the same trait.
+//! account's person, signed in the way its connector signs in ([`MeetingSource::SignIn`]):
+//! Fireflies with the person's own API key, Teams through the browser they signed in to.
 
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use url::Url;
-
-use crate::models::browser_session::BrowserSession;
 
 /// One meeting as a listing shows it, before its transcript is read.
 #[derive(Debug, Clone, PartialEq)]
@@ -82,21 +79,10 @@ pub enum SourceError {
     Refused(String),
 }
 
-/// How a meeting connector signs in to its source, resolved from the account it owns
-/// (`crate::meetings::sources::sign_in_of`).
-#[derive(Debug, Clone)]
-pub enum SignIn {
-    /// An API key, from the connector's token account.
-    Key(SecretString),
-    /// The connector's own browser, which its person signed in to. A source reads through it
-    /// over `DevTools`, as the page, so the session never leaves the browser.
-    Browser(BrowserSession),
-}
-
 /// A service that records meetings, read as its account's person.
 pub trait MeetingSource {
-    /// What it reads as: an API key, a browser, or, for a source that dispatches to others,
-    /// any [`SignIn`].
+    /// How the source reads as its person: an API key, or the browser they signed in to.
+    /// `crate::meetings::sources` resolves it from the connector beside its source.
     type SignIn: Sync;
 
     /// Meetings that started at or after `since`, newest first, at most `limit` of them.

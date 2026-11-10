@@ -128,10 +128,11 @@ impl NewConnector {
 }
 
 /// What one read of a connector recorded about it.
-#[derive(Debug, AsChangeset)]
-#[diesel(table_name = connectors, treat_none_as_null = true)]
+#[derive(Debug)]
 pub struct PollOutcome {
     pub sign_in_state: String,
+    /// The keys of the cursor this read owns, merged over the stored cursor rather than in
+    /// place of it ([`record_poll`]).
     pub cursor: Value,
     pub last_polled_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
@@ -305,6 +306,12 @@ pub async fn create(
 
 /// Records what a read found.
 ///
+/// The outcome's cursor is merged over the stored one, key by key, in the same statement
+/// (`cursor || $1`), so two loops that read one connector each keep their own keys: a Teams
+/// connector's chat reader keeps `baselined` and `reader`, and the meetings loop keeps `since`.
+/// A read that wrote the whole cursor it read at its start would put back what the other loop
+/// had replaced meanwhile.
+///
 /// # Errors
 /// Propagates any database error.
 pub async fn record_poll(
@@ -313,7 +320,12 @@ pub async fn record_poll(
     outcome: PollOutcome,
 ) -> QueryResult<Connector> {
     diesel::update(connectors::table.find(id))
-        .set(outcome)
+        .set((
+            connectors::sign_in_state.eq(outcome.sign_in_state),
+            connectors::cursor.eq(connectors::cursor.concat(outcome.cursor)),
+            connectors::last_polled_at.eq(outcome.last_polled_at),
+            connectors::last_error.eq(outcome.last_error),
+        ))
         .returning(Connector::as_returning())
         .get_result(connection)
         .await
