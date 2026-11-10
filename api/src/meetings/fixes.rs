@@ -48,12 +48,13 @@ pub async fn edit(
             let lessons = lessons_of(connection, &entry, author).await?;
             let learned = transcription_doc::learn(connection, &lessons, author).await?;
             let people = people_of(connection, meeting_id).await?;
-            let proposer = Proposer::Person {
+            let as_person = Proposer::Person {
                 user_id: author.user_id,
                 agent: author.agent,
             };
             let proposed =
-                transcription_doc::propose_unknown(connection, &lessons, &people, proposer).await?;
+                transcription_doc::propose_unknown(connection, &lessons, &people, as_person)
+                    .await?;
             Ok::<_, EditError>((entry, learned, proposed))
         })
         .await?;

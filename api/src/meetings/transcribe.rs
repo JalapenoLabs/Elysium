@@ -146,25 +146,17 @@ impl TranscribeMeeting {
             ));
         }
 
-        let (location, access_key, hint_words) = {
+        let (location, access_key) = {
             let mut connection = self.connection().await?;
-            let (location, access_key) = super::location(
+            super::location(
                 &mut connection,
                 &self.inner.cipher,
                 recording.storage_location_id,
             )
             .await
-            .map_err(StepFailure::retryable)?;
-            // Whisper hears a name right more often when it is told the name first.
-            let hint_words = transcription_doc::hint_words(&mut connection)
-                .await
-                .map_err(StepFailure::retryable)?;
-            (location, access_key, hint_words)
+            .map_err(StepFailure::retryable)?
         };
-        log.line(&format!(
-            "Telling Whisper {} names and terms from the Transcription doc and the company doc",
-            hint_words.len()
-        ));
+        let hint_words = self.hint_words(log).await?;
         let open = async {
             log.line(&format!("Reading the recording from {}", recording.path));
             let download = self
@@ -225,6 +217,21 @@ impl TranscribeMeeting {
             written.transcript_hash,
             summary,
         ))
+    }
+
+    /// The names and terms Whisper is told to listen for: the Transcription doc's, and the company
+    /// doc's people and glossary (`transcription_doc::hint_words`). Whisper hears a name right more
+    /// often when it is told the name first. The log counts them.
+    async fn hint_words(&self, log: &StepLog) -> Result<Vec<String>, StepFailure> {
+        let mut connection = self.connection().await?;
+        let hint_words = transcription_doc::hint_words(&mut connection)
+            .await
+            .map_err(StepFailure::retryable)?;
+        log.line(&format!(
+            "Telling Whisper {} names and terms from the Transcription doc and the company doc",
+            hint_words.len()
+        ));
+        Ok(hint_words)
     }
 
     /// The capture `recorded` names, and the transcription stored for it, if there is one.

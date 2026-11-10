@@ -19,6 +19,7 @@
 //! lines in place, so a person's own rows, notes, and order stay as they wrote them.
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::ops::Range;
 
 use chrono::{Datelike, NaiveDate};
@@ -115,27 +116,24 @@ pub fn teach(body: &str, lessons: &[Lesson], day: NaiveDate) -> String {
                 })
                 .map(|entry| (index, entry))
         });
-        match existing {
-            Some((index, mut entry)) => {
-                if strengthen(&mut entry, lesson) {
-                    lines[index] = render_row(&entry);
-                    taught.push(bullet(lesson, day, "heard again"));
-                }
+        if let Some((index, mut entry)) = existing {
+            if strengthen(&mut entry, lesson) {
+                lines[index] = render_row(&entry);
+                taught.push(bullet(lesson, day, "heard again"));
             }
-            None => {
-                let mut entry = Entry {
-                    heard: lesson.heard.trim().to_owned(),
-                    written: lesson.written.trim().to_owned(),
-                    sources: Vec::new(),
-                    speakers: Vec::new(),
-                    meetings: Vec::new(),
-                };
-                strengthen(&mut entry, lesson);
-                let at = sorted_place(&lines, rows, &written_key);
-                lines.insert(at, render_row(&entry));
-                taught.push(bullet(lesson, day, "added"));
-            }
+            continue;
         }
+        let mut entry = Entry {
+            heard: lesson.heard.trim().to_owned(),
+            written: lesson.written.trim().to_owned(),
+            sources: Vec::new(),
+            speakers: Vec::new(),
+            meetings: Vec::new(),
+        };
+        strengthen(&mut entry, lesson);
+        let at = sorted_place(&lines, rows, &written_key);
+        lines.insert(at, render_row(&entry));
+        taught.push(bullet(lesson, day, "added"));
     }
     if taught.is_empty() {
         return body.to_owned();
@@ -254,20 +252,17 @@ fn strengthen(entry: &mut Entry, lesson: &Lesson) -> bool {
 /// Puts `taught`, newest first, at the top of the doc's self-taught bullets, putting the heading
 /// back at the doc's end when a person removed it, and keeps the newest [`TAUGHT_SHOWN`].
 fn record_taught(lines: &mut Vec<String>, taught: Vec<String>) {
-    let heading = match lines
+    let found = lines
         .iter()
-        .position(|line| line.trim().eq_ignore_ascii_case(TAUGHT_HEADING))
-    {
-        Some(heading) => heading,
-        None => {
-            while lines.last().is_some_and(|line| line.trim().is_empty()) {
-                lines.pop();
-            }
-            lines.push(String::new());
-            lines.push(TAUGHT_HEADING.to_owned());
-            lines.len() - 1
+        .position(|line| line.trim().eq_ignore_ascii_case(TAUGHT_HEADING));
+    let heading = found.unwrap_or_else(|| {
+        while lines.last().is_some_and(|line| line.trim().is_empty()) {
+            lines.pop();
         }
-    };
+        lines.push(String::new());
+        lines.push(TAUGHT_HEADING.to_owned());
+        lines.len() - 1
+    });
     let section_end = lines[heading + 1..]
         .iter()
         .position(|line| line.starts_with("## "))
@@ -276,18 +271,15 @@ fn record_taught(lines: &mut Vec<String>, taught: Vec<String>) {
         .iter()
         .position(|line| line.starts_with("- "))
         .map(|offset| heading + 1 + offset);
-    let at = match first_bullet {
-        Some(at) => at,
-        None => {
-            // The heading's own paragraph stays above the first bullet, a blank line between.
-            let mut at = section_end;
-            while at > heading + 1 && lines[at - 1].trim().is_empty() {
-                at -= 1;
-            }
-            lines.insert(at, String::new());
-            at + 1
+    let at = first_bullet.unwrap_or_else(|| {
+        // The heading's own paragraph stays above the first bullet, a blank line between.
+        let mut at = section_end;
+        while at > heading + 1 && lines[at - 1].trim().is_empty() {
+            at -= 1;
         }
-    };
+        lines.insert(at, String::new());
+        at + 1
+    });
     let count = taught.len();
     lines.splice(at..at, taught);
 
@@ -315,16 +307,16 @@ fn bullet(lesson: &Lesson, day: NaiveDate, how: &str) -> String {
         inline(&lesson.written)
     );
     if let Some(source) = lesson.source.as_deref().filter(|source| !source.is_empty()) {
-        text.push_str(&format!(", heard by {}", inline(source)));
+        let _ = write!(text, ", heard by {}", inline(source));
     }
     if let Some(speaker) = lesson
         .speaker
         .as_deref()
         .filter(|speaker| !speaker.is_empty())
     {
-        text.push_str(&format!(" when {} spoke", inline(speaker)));
+        let _ = write!(text, " when {} spoke", inline(speaker));
     }
-    text.push_str(&format!(", in {}.", link(&lesson.meeting)));
+    let _ = write!(text, ", in {}.", link(&lesson.meeting));
     let why = inline(&lesson.why);
     if !why.is_empty() {
         text.push(' ');

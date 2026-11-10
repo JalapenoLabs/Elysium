@@ -1092,45 +1092,37 @@ pub async fn settle(
                     marked.push(None);
                     continue;
                 }
-                let onto = match settled.text.as_deref() {
-                    Some(text) => {
-                        let texts: Vec<&str> = text.split_whitespace().collect();
-                        assert!(!texts.is_empty(), "a settled text writes at least one word");
-                        let replacing = plan_replacement(
-                            connection,
-                            &words,
-                            &texts,
-                            Origin::Correction,
-                            event_id,
-                        )
-                        .await?;
-                        let onto = replacing.onto();
-                        let mark = NewMark::new(
-                            meeting_id,
-                            MarkKind::Confidence,
-                            onto,
-                            settled.mark.clone(),
-                            author,
-                        );
-                        recorded.changes.push(replacing.change(vec![mark.id]));
-                        recorded.marks_added.push(mark.id);
-                        replacing.write(connection).await?;
-                        meeting_mark::insert(connection, mark).await?;
-                        onto
-                    }
-                    None => {
-                        let mark = NewMark::new(
-                            meeting_id,
-                            MarkKind::Confidence,
-                            ends,
-                            settled.mark.clone(),
-                            author,
-                        );
-                        recorded.marks_added.push(mark.id);
-                        meeting_mark::insert(connection, mark).await?;
-                        ends
-                    }
+                let Some(text) = settled.text.as_deref() else {
+                    // Its words stand as they are; only its mark is new.
+                    let mark = NewMark::new(
+                        meeting_id,
+                        MarkKind::Confidence,
+                        ends,
+                        settled.mark.clone(),
+                        author,
+                    );
+                    recorded.marks_added.push(mark.id);
+                    meeting_mark::insert(connection, mark).await?;
+                    marked.push(Some(ends));
+                    continue;
                 };
+                let texts: Vec<&str> = text.split_whitespace().collect();
+                assert!(!texts.is_empty(), "a settled text writes at least one word");
+                let replacing =
+                    plan_replacement(connection, &words, &texts, Origin::Correction, event_id)
+                        .await?;
+                let onto = replacing.onto();
+                let mark = NewMark::new(
+                    meeting_id,
+                    MarkKind::Confidence,
+                    onto,
+                    settled.mark.clone(),
+                    author,
+                );
+                recorded.changes.push(replacing.change(vec![mark.id]));
+                recorded.marks_added.push(mark.id);
+                replacing.write(connection).await?;
+                meeting_mark::insert(connection, mark).await?;
                 marked.push(Some(onto));
             }
 

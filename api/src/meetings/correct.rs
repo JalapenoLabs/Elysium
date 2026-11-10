@@ -445,7 +445,7 @@ impl CorrectTranscript {
             agent: None,
             at: Utc::now(),
         };
-        let proposer = Proposer::Elysia {
+        let as_elysia = Proposer::Elysia {
             workflow_run_id: Some(context.run_id),
         };
 
@@ -472,7 +472,7 @@ impl CorrectTranscript {
                 let lessons = lessons_of(heard, &applied);
                 let learned = transcription_doc::learn(connection, &lessons, author).await?;
                 let proposed =
-                    transcription_doc::propose_unknown(connection, &lessons, &people, proposer)
+                    transcription_doc::propose_unknown(connection, &lessons, &people, as_elysia)
                         .await?;
                 context.log.line(&format!(
                     "Settled {} ranges and passed over {} whose words changed since",

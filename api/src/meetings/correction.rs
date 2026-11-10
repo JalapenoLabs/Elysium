@@ -702,6 +702,17 @@ impl Changed {
     }
 }
 
+/// One run of a line whose words differ from what one capture heard over it.
+#[derive(Debug, Clone)]
+struct Differing {
+    /// As a range of the transcript's words.
+    words: Range<usize>,
+    /// The capture's version that heard it otherwise.
+    version: usize,
+    /// What that version heard there.
+    heard: String,
+}
+
 /// Every run of `transcript` whose words differ from what one of its captures heard over the same
 /// line, compared word by word as fixes are, that none of `flags` overlaps and no person's edit
 /// wrote. Runs that overlap, as two captures that heard a name differently give, are one, and each
@@ -709,10 +720,11 @@ impl Changed {
 pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Changed> {
     let mut changed = Vec::new();
     for (number, line) in transcript.lines.iter().enumerate() {
-        let said: Vec<&Word> = transcript.words[line.clone()].iter().collect();
-        let said_keys: Vec<String> = said.iter().map(|word| comparable(&word.text)).collect();
-        // Each capture's differing runs in this line: where in the line, and what it heard.
-        let mut differing: Vec<(Range<usize>, usize, String)> = Vec::new();
+        let said_keys: Vec<String> = transcript.words[line.clone()]
+            .iter()
+            .map(|word| comparable(&word.text))
+            .collect();
+        let mut differing = Vec::new();
         for version in 0..transcript.versions.len() {
             let heard = transcript.heard_over(version, number);
             if heard.is_empty() {
@@ -740,12 +752,16 @@ pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Cha
                 if flagged || edited {
                     continue;
                 }
-                let heard_text = heard[new_index..new_index + new_len]
+                let heard = heard[new_index..new_index + new_len]
                     .iter()
                     .map(|word| word.text.as_str())
                     .collect::<Vec<_>>()
                     .join(" ");
-                differing.push((words, version, heard_text));
+                differing.push(Differing {
+                    words,
+                    version,
+                    heard,
+                });
             }
         }
         changed.extend(merged(transcript, differing));
@@ -755,19 +771,16 @@ pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Cha
 
 /// `differing` runs of one line merged where they overlap, each merged run's alternatives the run as
 /// each capture heard it: the transcript's words with that capture's runs in place of its own.
-fn merged(
-    transcript: &Transcript<'_>,
-    mut differing: Vec<(Range<usize>, usize, String)>,
-) -> Vec<Changed> {
-    differing.sort_by_key(|(words, version, _heard)| (words.start, *version));
-    let mut groups: Vec<(Range<usize>, Vec<(Range<usize>, usize, String)>)> = Vec::new();
+fn merged(transcript: &Transcript<'_>, mut differing: Vec<Differing>) -> Vec<Changed> {
+    differing.sort_by_key(|run| (run.words.start, run.version));
+    let mut groups: Vec<(Range<usize>, Vec<Differing>)> = Vec::new();
     for run in differing {
         match groups.last_mut() {
-            Some((span, members)) if run.0.start < span.end => {
-                span.end = span.end.max(run.0.end);
+            Some((span, members)) if run.words.start < span.end => {
+                span.end = span.end.max(run.words.end);
                 members.push(run);
             }
-            _ => groups.push((run.0.clone(), vec![run])),
+            _ => groups.push((run.words.clone(), vec![run])),
         }
     }
     groups
@@ -776,32 +789,23 @@ fn merged(
             let said = words_text(&transcript.words[span.clone()]);
             let mut seen = HashSet::from([keys_text(&said)]);
             let mut alternatives = Vec::new();
-            let mut versions: Vec<usize> = members
-                .iter()
-                .map(|(_words, version, _heard)| *version)
-                .collect();
+            let mut versions: Vec<usize> = members.iter().map(|run| run.version).collect();
             versions.sort_unstable();
             versions.dedup();
             for version in versions {
+                let own: Vec<&Differing> = members
+                    .iter()
+                    .filter(|run| run.version == version)
+                    .collect();
                 let mut reading: Vec<String> = Vec::new();
                 let mut index = span.start;
-                let own: Vec<&(Range<usize>, usize, String)> = members
-                    .iter()
-                    .filter(|(_words, member, _heard)| *member == version)
-                    .collect();
                 while index < span.end {
-                    match own
-                        .iter()
-                        .find(|(words, _version, _heard)| words.start == index)
-                    {
-                        Some((words, _version, heard)) => {
-                            reading.push(heard.clone());
-                            index = words.end;
-                        }
-                        None => {
-                            reading.push(transcript.words[index].text.clone());
-                            index += 1;
-                        }
+                    if let Some(run) = own.iter().find(|run| run.words.start == index) {
+                        reading.push(run.heard.clone());
+                        index = run.words.end;
+                    } else {
+                        reading.push(transcript.words[index].text.clone());
+                        index += 1;
                     }
                 }
                 let reading = reading.join(" ");
@@ -907,11 +911,13 @@ pub fn places_in_lines(
     capture_id: Uuid,
     words: &[Word],
 ) -> HashMap<Uuid, (usize, usize)> {
+    /// A word as the capture's lines build it: its text and its times.
+    type Key = (String, i64, i64);
+
     let origin = match base.based_on {
         BasedOn::Source => Origin::Source,
         BasedOn::Whisper => Origin::Whisper,
     };
-    type Key = (String, i64, i64);
     let mut built: HashMap<Key, Option<(usize, usize)>> = HashMap::new();
     for (line_index, line) in base.lines.iter().enumerate() {
         let line_words = alignment::capture_words([(line, origin)], whisper, offset_ms);

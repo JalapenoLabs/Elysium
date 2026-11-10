@@ -208,12 +208,12 @@ pub async fn propose_unknown(
     }
     let sections = company_doc::sections(connection).await?;
     let pending = company_doc::proposals(connection, ProposalState::Pending, None).await?;
-    let mut named: Vec<String> = sections
+    let mut known: Vec<String> = sections
         .iter()
         .filter(|section| matches!(section.section, Section::People | Section::Glossary))
         .map(|section| phrase_key(&section.content))
         .collect();
-    named.extend(
+    known.extend(
         pending
             .iter()
             .filter(|proposal| {
@@ -222,15 +222,15 @@ pub async fn propose_unknown(
             })
             .map(|proposal| phrase_key(&proposal.content)),
     );
-    let names: Vec<String> = people.iter().map(|person| name_key(person)).collect();
+    let person_keys: Vec<String> = people.iter().map(|person| name_key(person)).collect();
 
-    let mut proposed = 0;
+    let mut created = 0;
     for lesson in lessons {
         let written = phrase_key(&lesson.written);
-        if written.is_empty() || named.iter().any(|text| holds_words(text, &written)) {
+        if written.is_empty() || known.iter().any(|text| holds_words(text, &written)) {
             continue;
         }
-        let section = if names.iter().any(|name| holds_words(name, &written)) {
+        let section = if person_keys.iter().any(|name| holds_words(name, &written)) {
             Section::People
         } else {
             Section::Glossary
@@ -256,8 +256,8 @@ pub async fn propose_unknown(
         };
         match company_doc::propose(connection, new, proposer, chrono::Utc::now()).await {
             Ok(stored) => {
-                proposed += usize::from(stored.created);
-                named.push(written);
+                created += usize::from(stored.created);
+                known.push(written);
             }
             Err(CompanyDocError::Database(error)) => return Err(error),
             Err(refused) => event!(
@@ -269,7 +269,7 @@ pub async fn propose_unknown(
             ),
         }
     }
-    Ok(proposed)
+    Ok(created)
 }
 
 /// A person as names are compared: an email's part before the `@`, its dots and underscores read
