@@ -330,6 +330,12 @@ Everything else follows these rules:
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
   Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
   app.
+- Comment threads sit on ranges as marks of kind `comment`, their comments in `meeting_comments`
+  (`meetings::comments`). Mentions are picked user ids, never parsed from text. Each change raises an inbox item for
+  each person it concerns but its maker: whoever is mentioned, and the thread's other people for a reply, a resolve,
+  or a reopen. A person mentioning Elysia queues her `meeting-comment` turn, which answers in the thread and may edit
+  the words or attribute the topics the range lies in. A thread is indexed with the segments its range overlaps. See
+  `docs/meetings.md`, Comments.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is

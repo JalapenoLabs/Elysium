@@ -4,7 +4,7 @@ import type { KeyboardEvent } from 'react'
 import type { User } from '../../../api/routes/userRoutes'
 
 // Core
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -15,6 +15,7 @@ import { selectAllUsers } from '../../../store/usersSlice'
 import { Description, Label, TextArea, TextField } from '@heroui/react'
 
 // Misc
+import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { mentionAt, mentionCandidates } from './meetingThreads'
 
 // Mirrors `BODY_MAX_CHARACTERS` in api/src/models/meeting_comment.rs.
@@ -60,12 +61,11 @@ export function MentionTextArea(props: Props) {
   const isOpen = Boolean(typing)
   const active = candidates[Math.min(highlighted, candidates.length - 1)]
 
-  // With a ref and an effect rather than `autoFocus`, which is unreliable as a lane animates in.
-  const { focusOnOpen } = props
-  useEffect(() => {
-    if (focusOnOpen) {
-      field.current?.focus()
-    }
+  // The field is both read for its caret and focused as it opens, with the app's one focus hook.
+  const focusOnOpen = useInitialFocus(props.focusOnOpen ?? false)
+  const attach = useCallback((element: HTMLTextAreaElement | null) => {
+    field.current = element
+    focusOnOpen(element)
   }, [ focusOnOpen ])
 
   useLayoutEffect(() => {
@@ -151,7 +151,7 @@ export function MentionTextArea(props: Props) {
     >
       <Label className='sr-only'>{props.label}</Label>
       <TextArea
-        ref={field}
+        ref={attach}
         rows={2}
         aria-controls={isOpen
           ? listId

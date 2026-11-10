@@ -784,7 +784,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, or `correction_approved`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `thread_resolved`, or `thread_reopened`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |
@@ -830,6 +830,47 @@ words that replace them.
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `meeting_events`                 |
 | `created_at`          | `TIMESTAMPTZ` | Set on insert                                                     |
 | `removed_by`          | `UUID`        | References `meeting_events`: the change that removed it; `NULL` while it stands |
+
+A comment mark is a thread, its data `{ resolved, resolution }`: whether it is resolved, and the history entry that
+last resolved or reopened it, which is the one an undo may reverse.
+
+### `meeting_comments`
+
+What is written in a meeting's comment threads; see `docs/meetings.md`, Comments. A thread is its comment mark, so
+a comment cascades with it; removing the mark keeps its comments, so an undo puts the thread back whole.
+`meeting_comments_of_thread` on `(mark_id, id)` reads one thread in order.
+
+| Column                | Type          | Notes                                                             |
+|-----------------------|---------------|-------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key; orders a thread's comments as they were written |
+| `mark_id`             | `UUID`        | References `meeting_marks`, cascading: its thread                 |
+| `body`                | `TEXT`        | Plain text as written, 1 to 20,000 characters, never blank        |
+| `created_by`          | `UUID`        | References `users`: a person, or Elysia answering in the thread   |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `meeting_marks`                  |
+| `created_at`          | `TIMESTAMPTZ` | Written by the API, the moment it was written                     |
+
+### `meeting_comment_mentions`
+
+Whom each comment mentions, primary key `(comment_id, user_id)`: each person is told with an inbox item, and Elysia
+answers in the thread. Its author is the comment's.
+
+| Column       | Type   | Notes                                              |
+|--------------|--------|----------------------------------------------------|
+| `comment_id` | `UUID` | References `meeting_comments`, cascading           |
+| `user_id`    | `UUID` | References `users`: an active person, or Elysia    |
+
+### `meeting_thread_items`
+
+The inbox items a thread raised, one per person a mention, a reply, a resolve, or a reopen told, so an item's page
+opens the thread it is about.
+
+| Column           | Type          | Notes                                                        |
+|------------------|---------------|--------------------------------------------------------------|
+| `action_item_id` | `UUID`        | Primary key; references `action_items`, cascading            |
+| `mark_id`        | `UUID`        | References `meeting_marks`, cascading: the thread            |
+| `person_id`      | `UUID`        | References `users`: who it tells                             |
+| `created_by`     | `UUID`        | References `users`: whose change raised it                   |
+| `created_at`     | `TIMESTAMPTZ` | Set on insert                                                |
 
 ### `mail_servers`
 

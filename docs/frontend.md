@@ -502,7 +502,7 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
-| E, Tab, Esc     | A meeting's page, outside fields     | Edit the words selected, move between the marks under the word clicked, clear what is picked (see Meetings) |
+| E, C, Tab, Esc  | A meeting's page, outside fields     | Edit the words selected, start a comment thread on them, move between the marks under the word clicked, clear what is picked (see Meetings) |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
 
 - **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
@@ -954,15 +954,18 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 `src/pages/Knowledge/Meetings/` is a meeting's page in the knowledge base (`docs/meetings.md`, In the web app, and
 `docs/meeting-review.md`, The meeting's page).
 
-- **Data.** The transcript (`useMeetingWords`) and the history (`useMeetingHistory`) are read through SWR alone, since
-  no other view shows them, and `meeting.changed` revalidates both. An edit or an undo answers what it did, which the
-  page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again.
+- **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
+  (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates
+  all three. An edit, an undo, or a change to a thread answers what it did, which the page applies at once
+  (`applyTranscriptChange`) rather than reading tens of thousands of words again. Where a thread lies and whether it
+  is resolved is its mark's; `meetingThreads.ts` gathers each thread's comments in one pass and reads mentions, purely.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
-- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc,
+- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, C, Tab, Esc,
   Ctrl+Z, and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a level over a selection. The
-  editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
+  editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`). In a comment's field (`MentionTextArea`), Esc first
+  closes the mention list, then puts a new thread away or leaves a reply's field, and never goes up a level.
 
 ### Markdown
 

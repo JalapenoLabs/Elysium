@@ -9,7 +9,8 @@ This doc is the design. Built so far: meetings and their captures, one clock wit
 capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
 in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned; and the
 meeting's page in the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in
-place, each change undoable, open to its owner alone until meetings are public by default. What is built
+place, each change undoable, and comment threads on ranges, with mentions, resolving, and Elysia answering in them,
+open to its owner alone until meetings are public by default. What is built
 is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
 issues in the Knowledge base milestone.
 
@@ -186,9 +187,11 @@ weekend?". Segmenting applies them on its own, and people add, change, and remov
 ## Comments
 
 Threads anchored to a range, read by everyone who can read the meeting: replies, resolving and reopening, and
-@mentions, each raising an inbox item for who was mentioned. @Elysia in a thread is answered there, and she can do what
-it asks, such as "this was Sharath" or "this belongs to the launch". Comments are indexed with the meeting, and an
-excerpt's comments travel with it to its projects.
+@mentions, each raising an inbox item for who it concerns: whoever a comment mentions, and everyone else taking part in
+the thread for a reply, a resolve, or a reopen. @Elysia in a thread is answered there, and she can do what it asks,
+such as "this was Sharath" or "this belongs to the launch". Comments are indexed with the meeting, and an excerpt's
+comments travel with it to its projects: today a meeting is indexed as its segments, and each thread with the segments
+its range overlaps, so the excerpts that replace segments carry the threads over them.
 
 ## Attachments and frames
 
