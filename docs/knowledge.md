@@ -808,7 +808,8 @@ checks on the answer, and each person's budget) are `api/src/knowledge/ask.rs`; 
   its citations can be checked against exactly what it was shown. The passages are told to it as evidence, never
   instructions, and a passage cannot close its own block.
 - **The prompt's size.** Ten documents of three passages are about 48,000 characters; the prompt stops adding
-  passages at 120,000 bytes, under the 128 KiB one argument may hold, and a passage left out is offered to nobody.
+  passages at 120,000 bytes, so an answer costs what a page of results costs, and a passage left out is offered to
+  nobody.
 - **The model.** The `knowledge_ask` agent's, resolved as each answer starts (`docs/engine.md`, Models). It is a
   triage agent: like deciding what a message asks for, it reads what was said across the workspace for no one
   project, and a person acts on what it says, so it runs on the kind's Opus 5.5 at high effort, which cites

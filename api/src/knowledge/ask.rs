@@ -24,11 +24,10 @@
 //!
 //! # Size
 //!
-//! The runner passes the prompt as one argument to `claude`, and Linux allows one argument 128
-//! KiB. The search offers at most [`ASK_DOCUMENTS`] documents with three passages each, about
-//! 48,000 characters, and [`prompt`] stops adding passages at [`PROMPT_BUDGET_BYTES`], so text in
-//! a script that takes several bytes a character still fits; a passage left out is offered to
-//! nobody.
+//! An answer reads a page of search results, not the knowledge base: the search offers at most
+//! [`ASK_DOCUMENTS`] documents with three passages each, about 48,000 characters, and [`prompt`]
+//! stops adding passages at [`PROMPT_BUDGET_BYTES`], so an answer's cost stays what a page of
+//! results costs, however long its passages run; a passage left out is offered to nobody.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -54,8 +53,8 @@ pub const ASK_WINDOW: TimeDelta = TimeDelta::hours(1);
 /// cannot hold everyone else's behind it.
 pub const WAITING_PER_PERSON: i64 = 3;
 
-/// The most bytes one prompt carries, leaving room under the 128 KiB argument limit for the
-/// system prompt and the CLI's own arguments.
+/// The most bytes one prompt carries: a page of results with room to spare for text in a script
+/// that takes several bytes a character, about 30,000 tokens at most.
 const PROMPT_BUDGET_BYTES: usize = 120_000;
 
 /// The most claims an answer keeps, and the most characters each keeps: an answer is a few
