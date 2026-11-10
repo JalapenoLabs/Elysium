@@ -9,10 +9,13 @@
 //! the person waits and the engine store them on its own time. Parts are named by their number,
 //! zero-padded, so a directory listing reads them in order.
 //!
-//! A part sent twice replaces itself. Only the parts its upload's row counts as received are ever
-//! read (`crate::models::meeting_upload`), and a part is counted only once it was written whole,
-//! so a part cut short is never read: the next attempt writes it again. Reading joins a file's
-//! parts into one stream, part after part, and never holds more than a chunk of one in memory.
+//! Each write lands under a name of its own and is moved into the part's name only once it holds
+//! every byte it should, so a part sent twice at once (a retry while the first send is still being
+//! written) never interleaves: the part is one whole send or the other. Only the parts its upload's
+//! row counts as received are ever read (`crate::models::meeting_upload`), and a part is counted
+//! only once it was written whole, so a part cut short is never read: the next attempt writes it
+//! again. Reading joins a file's parts into one stream, part after part, and never holds more than a
+//! chunk of one in memory.
 //!
 //! Tests stage in a directory of their own instead, since no Docker daemon serves them; both read
 //! and write through the same few calls.
@@ -26,10 +29,14 @@ use uuid::Uuid;
 use super::FileKind;
 use crate::runner::WorkspacePath;
 use crate::runner::files::FileError;
-use crate::runner::workspace::WorkspaceContainer;
+use crate::runner::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer};
 
 /// The workspace directory every upload stages under.
 const STAGING_DIRECTORY: &str = ".elysium/uploads";
+
+/// Moves a write into its part's name, replacing what was there in one step. `$1` is the staging
+/// directory, `$2` the write's path under it, `$3` the part's.
+const PLACE_SCRIPT: &str = r#"mv -f -- "$1/$2" "$1/$3""#;
 
 /// Why staging refused.
 #[derive(Debug, thiserror::Error)]
@@ -76,8 +83,8 @@ impl Staging {
     /// exactly `length` bytes, replacing the part if it arrived before.
     ///
     /// # Errors
-    /// [`StagingError::Length`] when the body carried more or fewer, and nothing is left under the
-    /// part's name; otherwise the workspace's refusal.
+    /// [`StagingError::Length`] when the body carried more or fewer, which leaves the part as it
+    /// was; otherwise the workspace's refusal.
     pub async fn write_part<Chunks, ChunkError>(
         &self,
         (upload_id, kind): (Uuid, FileKind),
@@ -89,24 +96,48 @@ impl Staging {
         Chunks: Stream<Item = Result<Bytes, ChunkError>> + Send,
         ChunkError: std::fmt::Display,
     {
+        let part = part_path(upload_id, kind, index);
+        // Hidden, and its own: a write that stops short leaves it behind under no part's name,
+        // until its upload's directory goes.
+        let write = format!(
+            "{upload_id}/{}/.{index:06}.{}",
+            kind.as_str(),
+            Uuid::now_v7().simple()
+        );
         let written = match &self.place {
-            Place::Workspace(workspace) => {
-                workspace
-                    .write_file(&root(), &part_path(upload_id, kind, index), body)
-                    .await?
-            }
+            Place::Workspace(workspace) => workspace.write_file(&root(), &write, body).await?,
             #[cfg(test)]
-            Place::Directory(directory) => {
-                write_in_directory(directory, &part_path(upload_id, kind, index), body).await?
-            }
+            Place::Directory(directory) => write_in_directory(directory, &write, body).await?,
         };
         if written != length {
-            // Its name holds the wrong bytes, which nothing reads: only the parts an upload's row
-            // counts as received are ever joined, and the next attempt replaces this one.
             return Err(StagingError::Length {
                 expected: length,
                 received: written,
             });
+        }
+        match &self.place {
+            Place::Workspace(workspace) => {
+                let placed = workspace
+                    .run_script(
+                        AGENT_USER,
+                        PLACE_SCRIPT,
+                        &[&root().absolute(), &write, &part],
+                        Vec::new(),
+                        SCRIPT_TIMEOUT,
+                    )
+                    .await
+                    .map_err(FileError::from)?;
+                if placed.exit_code != Some(0) {
+                    return Err(StagingError::Workspace(FileError::Failed(format!(
+                        "could not put part {index} in place: {}",
+                        placed.output.trim()
+                    ))));
+                }
+            }
+            #[cfg(test)]
+            Place::Directory(directory) => {
+                tokio::fs::rename(directory.join(&write), directory.join(&part)).await?;
+            }
         }
         Ok(())
     }
@@ -203,8 +234,7 @@ fn part_path(upload_id: Uuid, kind: FileKind, index: u64) -> String {
     format!("{upload_id}/{}/{index:06}", kind.as_str())
 }
 
-/// A test's write: the body into a partial file, renamed into place once whole, as the
-/// workspace's own write does.
+/// A test's write of `body` to `path`, creating its directories, answering the size written.
 #[cfg(test)]
 async fn write_in_directory<Chunks, ChunkError>(
     directory: &std::path::Path,
@@ -220,8 +250,7 @@ where
     let target = directory.join(path);
     let parent = target.parent().expect("a part's path has a directory");
     tokio::fs::create_dir_all(parent).await?;
-    let partial = target.with_extension("partial");
-    let mut file = tokio::fs::File::create(&partial).await?;
+    let mut file = tokio::fs::File::create(&target).await?;
     let mut written: u64 = 0;
     let mut body = std::pin::pin!(body);
     while let Some(chunk) = body.next().await {
@@ -230,7 +259,6 @@ where
         written += chunk.len() as u64;
     }
     file.flush().await?;
-    tokio::fs::rename(&partial, &target).await?;
     Ok(written)
 }
 
@@ -290,6 +318,36 @@ mod tests {
             .expect("removing nothing is fine");
     }
 
+    /// A part sent again while its first send is still being written: each write is its own until
+    /// it is whole, so the part is one send or the other, never the two interleaved.
+    #[tokio::test]
+    async fn two_sends_of_one_part_at_once_never_interleave() {
+        let directory = tempfile::tempdir().expect("a directory");
+        let staging = Staging::in_directory(directory.path());
+        let file = (Uuid::now_v7(), FileKind::Recording);
+        let slow = |byte: u8| {
+            stream::iter(0..64).then(move |_| async move {
+                tokio::task::yield_now().await;
+                Ok::<_, std::io::Error>(Bytes::from(vec![byte; 1024]))
+            })
+        };
+
+        let (first, second) = tokio::join!(
+            staging.write_part(file, 0, 64 * 1024, slow(b'a')),
+            staging.write_part(file, 0, 64 * 1024, slow(b'b')),
+        );
+        first.expect("stages");
+        second.expect("stages");
+
+        let joined: Vec<Bytes> = staging.read(file, 1).try_collect().await.expect("reads");
+        let part = joined.concat();
+        assert_eq!(part.len(), 64 * 1024);
+        assert!(
+            part.iter().all(|byte| *byte == b'a') || part.iter().all(|byte| *byte == b'b'),
+            "the part is one whole send"
+        );
+    }
+
     #[tokio::test]
     async fn a_part_that_arrives_short_is_refused() {
         let directory = tempfile::tempdir().expect("a directory");
@@ -305,5 +363,9 @@ mod tests {
                 received: 5
             })
         ));
+        assert!(
+            staging.sha256(file, 1).await.is_err(),
+            "nothing is under the part's name"
+        );
     }
 }

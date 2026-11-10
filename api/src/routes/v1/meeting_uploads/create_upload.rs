@@ -23,6 +23,7 @@ use crate::errors::ApiError;
 use crate::meeting_uploads::{FileKind, PART_BYTES, upload_name};
 use crate::meetings::workflow;
 use crate::models::meeting_upload::{self, NewMeetingUpload, NewUploadFile};
+use crate::models::workflow_run::{WorkflowRun, WorkflowRunState};
 use crate::models::{meeting, storage_location};
 use crate::state::AppState;
 
@@ -83,8 +84,8 @@ pub async fn handle(
     if let Some(meeting_id) = request.meeting_id {
         // Its own, and done with its run, as a capture is only added once it is (`finish_upload`).
         meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
-        if workflow::is_processing(&mut connection, meeting_id).await? {
-            return Err(meeting_processing());
+        if let Some(run) = workflow::live_run(&mut connection, meeting_id).await? {
+            return Err(meeting_busy(&run));
         }
     }
     let storage_location_id = if request.recording.is_some() {
@@ -128,8 +129,15 @@ pub async fn handle(
     ))
 }
 
-/// The refusal for a capture of a meeting whose run is still going, or waits for its person.
-pub fn meeting_processing() -> ApiError {
+/// The refusal for a capture of a meeting whose run is still its `run`: one that failed waits for
+/// its person to retry or skip it, and any other is still going or held.
+pub fn meeting_busy(run: &WorkflowRun) -> ApiError {
+    if run.state == WorkflowRunState::Failed {
+        return ApiError::CodedConflict {
+            code: "meeting_run_failed",
+            message: "this meeting's run failed; retry or skip it, then add to the meeting",
+        };
+    }
     ApiError::CodedConflict {
         code: "meeting_processing",
         message: "this meeting is still being processed; add to it once its run is done",

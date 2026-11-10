@@ -700,15 +700,28 @@ async fn a_capture_joins_a_meeting_once_its_run_is_done() {
     assert_eq!(busy.status, StatusCode::CONFLICT);
     assert_eq!(busy.body["code"], "meeting_processing");
 
+    // A run that failed waits for its person, and says so.
+    let set_run = async |connection: &mut AsyncPgConnection, state: WorkflowRunState| {
+        diesel::update(crate::database::schema::workflow_runs::table.find(started.settled.run.id))
+            .set((
+                crate::database::schema::workflow_runs::state.eq(state),
+                crate::database::schema::workflow_runs::finished_at.eq(Some(chrono::Utc::now())),
+                crate::database::schema::workflow_runs::error
+                    .eq((state == WorkflowRunState::Failed).then(|| "The fetch failed".to_owned())),
+            ))
+            .execute(connection)
+            .await
+            .expect("moves the run");
+    };
+    set_run(&mut fixture.connection, WorkflowRunState::Failed).await;
+    let failed = fixture
+        .json(Method::POST, "/api/v1/meeting-uploads", &capture_upload)
+        .await;
+    assert_eq!(failed.status, StatusCode::CONFLICT);
+    assert_eq!(failed.body["code"], "meeting_run_failed");
+
     // Its run done, the meeting takes the capture.
-    diesel::update(crate::database::schema::workflow_runs::table.find(started.settled.run.id))
-        .set((
-            crate::database::schema::workflow_runs::state.eq(WorkflowRunState::Succeeded),
-            crate::database::schema::workflow_runs::finished_at.eq(Some(chrono::Utc::now())),
-        ))
-        .execute(&mut fixture.connection)
-        .await
-        .expect("succeeds");
+    set_run(&mut fixture.connection, WorkflowRunState::Succeeded).await;
     let created = fixture
         .json(Method::POST, "/api/v1/meeting-uploads", &capture_upload)
         .await;

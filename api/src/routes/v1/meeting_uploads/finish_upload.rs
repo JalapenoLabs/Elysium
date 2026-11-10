@@ -24,7 +24,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::create_upload::meeting_processing;
+use super::create_upload::meeting_busy;
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
@@ -103,7 +103,7 @@ pub async fn handle(
             .await?;
             if !started.created {
                 // Another run became the meeting's since the upload began.
-                return Err(meeting_processing());
+                return Err(meeting_busy(&started.settled.run));
             }
             Ok::<_, ApiError>((made, started))
         })

@@ -495,14 +495,16 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   attachment's is (`crate::file_names`). The limits and the extensions are constants, served at
   `GET /api/v1/meeting-uploads/policy`, so the web app refuses a file before it is sent, and the API refuses again.
 - **A new meeting or a capture.** A new meeting names its title and when it started; a capture names a meeting its
-  person has, whose run must be done, since a meeting holds one run at a time (`409 meeting_processing`).
+  person has, whose run must be done, since a meeting holds one run at a time: `409 meeting_processing` while it is
+  going or held, and `409 meeting_run_failed` while it failed, until its person retries or skips it.
 - **Where the recording goes.** A storage location the person chooses, offered first as the one the owner already keeps
   meetings in: the meeting's first recording's for a capture, otherwise their oldest meeting source's. A transcript
   alone keeps nothing in storage.
 - **Parts.** Every file arrives in parts of 8 MiB (`PART_BYTES`), the last one shorter, each its own request, in order
   (`PUT .../{kind}/parts/{index}`). Each streams into the workspace, `.elysium/uploads/<upload>/<kind>/<part>`
-  (`meeting_uploads::staging`), where the engine reaches it too, and is counted only once it was written whole, by a
-  write that moves the count only from what it read, so a part sent twice counts once. A part already received is
+  (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own and moved
+  into the part's name once whole, so two sends of one part at once never mix, and it is counted only then, by a write
+  that moves the count only from what it read, so a part sent twice counts once. A part already received is
   answered as it is; one past the next is refused, saying how far the file got. Nothing holds more than a chunk of a
   part in memory.
 - **What is checked as it arrives.** A recording's first part must open as its format does (an MP3's ID3 tag or frame

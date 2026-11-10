@@ -119,7 +119,8 @@
       "nothingSaid": "Nothing said was found in this transcript. Choose another.",
       "tooManyLines": "This transcript is longer than a meeting can hold. Choose a shorter one.",
       "location": "Choose a storage location for the recording.",
-      "processing": "This meeting is still being processed. Add to it once it's done."
+      "processing": "This meeting is still being processed. Add to it once it's done.",
+      "runFailed": "This meeting's run failed. Retry or skip it from its page, then add to it."
     },
     "toasts": {
       "resumed": "Picking up where the upload stopped",

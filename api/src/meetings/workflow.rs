@@ -86,23 +86,22 @@ pub fn run_for_upload(meeting_id: Uuid, capture_id: Uuid, started_by: Uuid) -> N
     })
 }
 
-/// Whether meeting `meeting_id` has a run that is still its: one going, held, or failed and
-/// waiting for a person. A meeting holds one run at a time (`workflow_run::start`).
+/// Meeting `meeting_id`'s run that is still its, if it has one: going, held, or failed and waiting
+/// for a person. A meeting holds one run at a time (`workflow_run::start`).
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn is_processing(
+pub async fn live_run(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
-) -> diesel::QueryResult<bool> {
-    let live = workflow_run::find_live(
+) -> diesel::QueryResult<Option<WorkflowRun>> {
+    workflow_run::find_live(
         connection,
         workflow().name(),
         SOURCE_KIND,
         &meeting_id.to_string(),
     )
-    .await?;
-    Ok(live.is_some())
+    .await
 }
 
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with

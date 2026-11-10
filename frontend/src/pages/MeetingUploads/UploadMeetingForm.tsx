@@ -58,6 +58,7 @@ const refusalKeyByCode = new Map<string, ParseKeys<'meetings'>>([
   [ 'meeting_upload_too_many_lines', 'upload.refusals.tooManyLines' ],
   [ 'meeting_upload_location', 'upload.refusals.location' ],
   [ 'meeting_processing', 'upload.refusals.processing' ],
+  [ 'meeting_run_failed', 'upload.refusals.runFailed' ],
 ])
 
 // A transcript the API could not read: the upload cannot finish with it, so it is let go, and
