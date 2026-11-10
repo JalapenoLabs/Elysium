@@ -797,13 +797,34 @@ What coding sessions are grouped under.
 | `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
 | `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
 | `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
-| `manager_writes_directly` | `BOOLEAN` | Whether its Project Manager's changes apply as it makes them; defaults to false, proposing each |
 | `tools_setup_script` | `TEXT` | Nullable, 1 to 20,000 characters: bash run as root in every worker's container before its repositories are cloned |
+| `autonomy` | `project_autonomy` | Its trust dial: `approve_every_batch` (the default), `approve_found_work`, or `full_autonomy`; changed only through `project_autonomy::set` |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover. A removed cover is neither served nor reported:
 `Project::cover_updated_at` is the one that shows. It leaves `tools_setup_script` out too, which only workers and the
 project's Workers page read (`api/src/models/worker_setup.rs`).
+
+`autonomy` says what of the project's Project Manager's work waits for a person (`docs/autonomy.md`, The dial): a
+human-rooted batch is submitted `queued` above the default, its changes apply at once only at `full_autonomy`, and a
+found batch is proposed at every level. Every project starts at the default.
+
+### `project_autonomy_changes`
+
+Each turn of a project's trust dial, by the person who turned it (`api/src/models/project_autonomy.rs`). The newest is
+who set the level the project has; a project with none is still at the default. Written in the transaction that
+changes `projects.autonomy`, under the project's row lock.
+
+| Column              | Type               | Notes                                                       |
+|---------------------|--------------------|-------------------------------------------------------------|
+| `id`                | `UUID`             | UUIDv7, primary key, so a project's changes order by it     |
+| `project_id`        | `UUID`             | References `projects`, cascading                            |
+| `previous_autonomy` | `project_autonomy` | The level it moved from                                     |
+| `autonomy`          | `project_autonomy` | The level it moved to; differs from `previous_autonomy`     |
+| `created_by`        | `UUID`             | References `users`: the company member who turned it        |
+| `created_at`        | `TIMESTAMPTZ`      | Set on insert                                               |
+
+Indexed by `(project_id, id DESC)` for a project's newest change.
 
 ### `project_repositories`
 
@@ -1621,7 +1642,7 @@ API applies (`docs/engine.md`, Origins and generations), generation 0, and no pa
 | `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
 | `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
 | `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
-| `state`              | `work_batch_state`    | `proposed` (the default), `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`, or `rejected` |
+| `state`              | `work_batch_state`    | `proposed` (the default), `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`, or `rejected`; `work_batch::submit` names it, `queued` only for a human-rooted batch its project's level lets through |
 | `result`             | `TEXT`                | What its worker reported, or why it was cancelled or rejected     |
 | `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
 | `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
@@ -1656,7 +1677,7 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 | `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
 | `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
 | `kind`          | `TEXT`        | `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `requeued`, `waiting`, `answered`, or `finished` |
-| `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
+| `data`          | `JSONB`       | A JSON object shaped by `kind`; `submitted` holds `{ autonomy }` when the project's level let the batch queue without an approval |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
 

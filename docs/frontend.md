@@ -1446,8 +1446,14 @@ picks an image, shown in place until Save uploads it, with Keep the current cove
 single Add a cover image button. Beside Change cover, a Fit and Fill switch sets the project's `coverFit`, which every
 rendering of the cover follows. The controls show on hover or focus, and stay while a new cover waits. About, below
 the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
-Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
-uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
+Below the GitHub token, Autonomy (`ProjectAutonomyField`) is the project's trust dial (`docs/autonomy.md`, The dial):
+three cards in a `RadioGroup`, side by side and stacked on phones, each a level's name and what waits for the person
+at it, with a `help` saying found work waits in Findings at every level and a change applies to what comes next.
+Beneath it, who set the saved level and when, read from SWR alone (`getProjectAutonomyKey`) and revalidated by
+`project.upserted`, or that every project starts at Approve every batch. It is a field of the page's form like the
+others; a guest sees it disabled, saying only members change it. Save sends the changed fields first, then the level
+to its own route when it changed, then uploads the cover; a level or a cover that fails stays chosen, so the next Save
+sends it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
 to the models its agents run on (see Models), Workers, a link to how its workers' containers are readied (below),
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
@@ -1466,8 +1472,8 @@ shows it, by `ProjectLists` for the tab's count, and for members alone; `page.ch
 names no project.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
-waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): the "Write to trackers
-without review" switch, off by default, and the tracker its issues file in, named or followed from where the project's
+waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): whether they apply at
+once or wait for approval, as the project's Autonomy above says, with a `help` on why, and the tracker its issues file in, named or followed from where the project's
 issues already are, or why there is none, with Change tracker opening `TrackerModal` (a provider, the Jira credential
 or the person's own YouTrack account, GitHub using the project's token, and a place from
 `/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
@@ -1481,8 +1487,9 @@ queue's do. Findings (`ProjectFindings`, `ProjectFindingsTable`) lists the work 
 noticed that nobody asked for, waiting for the person's decision, its count accented while above zero: each finding's
 title, what was seen (clamped, a click on it opening its row in full), where (the place, and its repository linked in a new tab
 when a browser can open it, `repositoryHref`), its cost (Small, Medium, or Large, sorting in that order), how many
-times it was seen, and when it was first reported. A row's Accept makes its item, issue, and proposed batch, and its
-toast offers Review batch, or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
+times it was seen, and when it was first reported. A row's Accept makes its item, issue, and batch, and its toast says
+whether the batch waits for approval or is queued, as the project's level of autonomy decides, and offers Review batch,
+or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
 (no tracker, or a GitHub tracker with no token); a second press while it is in flight sends nothing. Its Dismiss,
 red, asks in the prompt gate for an optional reason the agents are told, saying in bold that it is never raised again,
 with Keep it beside it (`useFindingActions`). Someone deciding it first says so and reloads the list. The list and its

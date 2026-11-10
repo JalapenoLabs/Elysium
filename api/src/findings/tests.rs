@@ -17,9 +17,10 @@ use tower::ServiceExt as _;
 use super::*;
 use crate::action_items::links::tests::LinkFixture;
 use crate::action_items::watcher::pass;
-use crate::database::schema::work_batch_approval_items;
+use crate::database::schema::{work_batch_approval_items, work_batches};
 use crate::models::action_item_link::{self, LinkProvider};
 use crate::models::project::{self, NewProject};
+use crate::models::project_autonomy::{self, Autonomy};
 use crate::models::project_issue_tracker::{self, NewTracker};
 use crate::models::timeline_record;
 use crate::models::user::{self, CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
@@ -316,6 +317,48 @@ async fn accepting_files_its_issue_and_proposes_a_batch_rooted_in_the_person() {
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].external_key, "ELY-1");
     assert!(links[0].is_primary);
+}
+
+/// At Full autonomy found work still waits as a finding, and only a person's Accept roots it: the
+/// batch it makes then traces to that person, so it queues at once with no second approval.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn at_full_autonomy_a_finding_waits_until_a_person_accepts_it_then_its_batch_runs() {
+    let (_url, mut connection) = migrated_database().await;
+    let project_id = project_named(&mut connection, "Launch").await;
+    let events = EventBus::in_process();
+    let reporting_batch = approved(&mut connection, project_id).await;
+    let person = test_person(&mut connection).await;
+    project_autonomy::set(&mut connection, project_id, Autonomy::FullAutonomy, &person)
+        .await
+        .expect("turned up");
+
+    let reported = report(
+        &mut connection,
+        &events,
+        project_id,
+        Reporter::Worker {
+            batch_id: reporting_batch.id,
+        },
+        report_of("Retry forever", None),
+    )
+    .await
+    .expect("reported");
+    assert_eq!(reported.finding.state, FindingState::Open);
+    let batches: i64 = work_batches::table
+        .filter(work_batches::project_id.eq(project_id))
+        .count()
+        .get_result(&mut connection)
+        .await
+        .expect("counted");
+    assert_eq!(batches, 1, "reporting made no batch, only the finding");
+
+    let accepted = accept(&mut connection, reported.finding.id, &person, Utc::now())
+        .await
+        .expect("accepted");
+    let batch = accepted.batch.batch();
+    assert_eq!(batch.origin, Origin::HumanRooted);
+    assert_eq!(batch.state, BatchState::Queued);
 }
 
 #[tokio::test]

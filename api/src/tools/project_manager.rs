@@ -123,9 +123,10 @@ const TOOLS: [Tool; 13] = [
             decide; a batch naming none is refused. Its origin (human_rooted when anything named \
             traces to a person, found when all of it is an agent's) and its generation (how many \
             batches led to it) are worked out from them and from what woke this turn, and one past \
-            the generation limit is refused, saying why. It is put on the project's timeline and waits, proposed, \
-            until a person approves it; no worker starts it before then. Answers the stored \
-            batch.",
+            the generation limit is refused, saying why. It is put on the project's timeline. A \
+            found batch waits, proposed, until a person approves it; a human-rooted one waits too \
+            unless the project's level of autonomy lets it queue at once, as your prompt says. \
+            Answers the stored batch, with its state.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
     },

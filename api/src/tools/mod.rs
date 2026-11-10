@@ -467,6 +467,24 @@ mod tests {
         }
     }
 
+    /// Only a person turns a project's trust dial. The boundary is the type, as above:
+    /// `crate::models::project_autonomy::set` takes a `MemberUser`. This tripwire, by name, makes
+    /// a tool meant to turn it noticed in review, so neither Elysia nor a Project Manager is ever
+    /// handed one.
+    #[test]
+    fn no_agent_tool_turns_a_projects_dial() {
+        for server in SERVERS {
+            for tool in server.tools {
+                assert!(
+                    !tool.name.contains("autonomy") && !tool.name.contains("trust"),
+                    "{} on {} may not change a project's level of autonomy",
+                    tool.name,
+                    server.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_declared_tool_is_dispatched() {
         for server in SERVERS {

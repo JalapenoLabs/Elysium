@@ -71,6 +71,7 @@ describe('useFindingActions accept', () => {
       finding: { ...FINDING, state: 'accepted' },
       itemId: 'item',
       batchId: 'batch',
+      batchState: 'proposed',
       issue: { provider: 'jira', destination: 'ELY' },
       issueRefusal: null,
     })
@@ -85,12 +86,31 @@ describe('useFindingActions accept', () => {
     expect(options.action?.label).toBe('Review batch')
   })
 
+  it('says the batch is queued when the project runs work a person asked for at once', async () => {
+    routes.acceptFinding.mockResolvedValue({
+      finding: { ...FINDING, state: 'accepted' },
+      itemId: 'item',
+      batchId: 'batch',
+      batchState: 'queued',
+      issue: { provider: 'jira', destination: 'ELY' },
+      issueRefusal: null,
+    })
+    const actions = renderActions()
+
+    await act(() => actions.accept(FINDING))
+
+    const options: ToastOptions = toasts.success.mock.lastCall?.[1]
+    expect(options.description).toBe('Its issue files in Jira ELY, and its batch is queued for a worker.')
+    expect(options.action?.label).toBe('Review batch')
+  })
+
   it('warns with why no issue was filed, which differs between no tracker and no token', async () => {
     const refusal = 'this project files on GitHub, but its sessions get no GitHub token'
     routes.acceptFinding.mockResolvedValue({
       finding: { ...FINDING, state: 'accepted' },
       itemId: 'item',
       batchId: 'batch',
+      batchState: 'proposed',
       issue: null,
       issueRefusal: refusal,
     })
@@ -117,6 +137,7 @@ describe('useFindingActions accept', () => {
       finding: { ...FINDING, state: 'accepted' },
       itemId: 'item',
       batchId: 'batch',
+      batchState: 'proposed',
       issue: { provider: 'jira', destination: 'ELY' },
       issueRefusal: null,
     })

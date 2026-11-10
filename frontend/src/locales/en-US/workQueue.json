@@ -184,6 +184,7 @@
       "question": "Its worker asked a question, and looks again {{time}}"
     },
     "failed": "Its worker reported it failed",
+    "submittedQueued": "{{name}} submitted it, and it queued at once, as {{level}} lets work a person asked for run",
     "unknown": "It changed ({{kind}})",
     "scheduledFor": "{{priority}} for {{time}}"
   },

@@ -2,9 +2,10 @@
 
 //! `POST /api/v1/findings/{id}/accept`: a person accepts an open finding. It becomes an open action
 //! item in its project, as theirs, whose issue is owed in the project's tracker, filed as them, and
-//! a proposed batch for that item, human-rooted and generation 0, which still waits for a
-//! person's approval like every batch. Answers the finding, the item's and the batch's ids, and
-//! where the issue files, or `issue: null` with `issueRefusal` saying why it files nowhere.
+//! a batch for that item, human-rooted and generation 0, which waits for approval or queues at once
+//! as the project's level of autonomy says, like any batch that traces to a person. Answers the
+//! finding, the item's id, the batch's id and state, and where the issue files, or `issue: null`
+//! with `issueRefusal` saying why it files nowhere.
 //! `409` (`finding_decided`) once someone decided it.
 
 use anyhow::Context;
@@ -62,6 +63,7 @@ pub async fn handle(
         "finding": FindingResponse::from(finding),
         "itemId": item_id,
         "batchId": batch.id,
+        "batchState": batch.state,
         "issue": issue,
         "issueRefusal": issue_refusal,
     })))

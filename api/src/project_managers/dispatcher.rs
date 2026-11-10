@@ -406,7 +406,7 @@ async fn load_context(
 
     Ok(TurnContext {
         writes: Writes {
-            direct: project.manager_writes_directly,
+            autonomy: project.autonomy,
             tracker: tracker_brief(connection, turn.project_id).await?,
         },
         project: project_brief(connection, project).await?,

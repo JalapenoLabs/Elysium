@@ -4,8 +4,8 @@
 //!
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
-//! names the docs linked to it, says how its changes reach the work and where its issues file
-//! ([`Writes`]), and carries everything that woke it: the messages, the records newly on its
+//! names the docs linked to it, says which of its batches and changes wait for a person, as its
+//! project's level of autonomy decides, and where its issues file ([`Writes`]), and carries everything that woke it: the messages, the records newly on its
 //! timeline, the batches that finished, and the promises found on its project or whose work
 //! finished. Every turn also carries each promise still owed a follow-up, woken for or not, so a
 //! turn that failed never strands one. It is a plain function of its inputs, so it is tested
@@ -21,8 +21,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::models::action_item::ActionItemState;
+use crate::models::project_autonomy::Autonomy;
 use crate::models::promise::PromiseState;
 use crate::models::work_batch::BatchState;
+use crate::models::work_batch::lineage::Origin;
 
 /// Its standing instructions.
 pub const INSTRUCTIONS: &str = include_str!("instructions.md");
@@ -142,11 +144,11 @@ pub enum PromptWork {
     },
 }
 
-/// How a turn's changes reach the work, and where the issues it files go.
+/// How a turn's batches and changes reach the work, and where the issues it files go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Writes {
-    /// Whether its changes apply as it makes them, rather than waiting for a person to approve.
-    pub direct: bool,
+    /// Its project's level, which says which of its batches and changes wait for a person.
+    pub autonomy: Autonomy,
     /// Where its issues file, such as `Jira project ELY, which this project names`, or why it
     /// cannot file any.
     pub tracker: Result<String, String>,
@@ -292,9 +294,28 @@ fn render_pages(prompt: &mut String, pages: &[PromptPage]) {
     }
 }
 
-/// Whether its changes apply at once, and where its issues file.
+/// Which of its batches and changes wait for a person, as its project's level says, and where its
+/// issues file.
 fn render_writes(prompt: &mut String, writes: &Writes) {
-    if writes.direct {
+    let autonomy = writes.autonomy;
+    let level = match autonomy {
+        Autonomy::ApproveEveryBatch => "Approve every batch",
+        Autonomy::ApproveFoundWork => "Approve found work only",
+        Autonomy::FullAutonomy => "Full autonomy",
+    };
+    let _ = writeln!(
+        prompt,
+        "This project's level of autonomy is {level}, which only a person changes."
+    );
+    if autonomy.queues(Origin::HumanRooted) {
+        prompt.push_str(
+            "A human-rooted batch you submit goes straight to the queue for a worker, with no \
+             person approving it first. A found batch still waits for a person's approval.\n",
+        );
+    } else {
+        prompt.push_str("Every batch you submit waits for a person to approve it.\n");
+    }
+    if autonomy.writes_directly() {
         prompt.push_str(
             "The changes you make with manager_make_changes apply as you make them: this \
              project lets you write to its action items and trackers yourself.\n",
@@ -513,7 +534,7 @@ mod tests {
                 pages: Vec::new(),
             },
             writes: Writes {
-                direct: false,
+                autonomy: Autonomy::ApproveEveryBatch,
                 tracker: Ok("Jira project ELY, where this project's issues already are".to_owned()),
             },
             messages: Vec::new(),
@@ -576,13 +597,35 @@ mod tests {
     fn it_says_when_its_changes_apply_at_once_and_why_it_cannot_file() {
         let mut direct = context();
         direct.writes = Writes {
-            direct: true,
+            autonomy: Autonomy::FullAutonomy,
             tracker: Err("this project names no tracker".to_owned()),
         };
 
         let prompt = render(&direct, now());
+        assert!(prompt.contains("level of autonomy is Full autonomy"));
+        assert!(prompt.contains("A human-rooted batch you submit goes straight to the queue"));
+        assert!(prompt.contains("A found batch still waits for a person's approval."));
         assert!(prompt.contains("apply as you make them"));
         assert!(prompt.contains("You cannot file issues: this project names no tracker."));
+    }
+
+    #[test]
+    fn it_says_every_batch_waits_at_the_default() {
+        let prompt = render(&context(), now());
+        assert!(prompt.contains("level of autonomy is Approve every batch"));
+        assert!(prompt.contains("Every batch you submit waits for a person to approve it."));
+        assert!(!prompt.contains("goes straight to the queue"));
+    }
+
+    #[test]
+    fn it_says_its_human_rooted_batches_run_while_its_changes_wait() {
+        let mut found_only = context();
+        found_only.writes.autonomy = Autonomy::ApproveFoundWork;
+
+        let prompt = render(&found_only, now());
+        assert!(prompt.contains("level of autonomy is Approve found work only"));
+        assert!(prompt.contains("A human-rooted batch you submit goes straight to the queue"));
+        assert!(prompt.contains("wait for a person to approve them"));
     }
 
     #[test]

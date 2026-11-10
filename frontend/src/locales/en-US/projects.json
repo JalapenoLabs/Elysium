@@ -105,6 +105,26 @@
     "inheritNone": "Workspace default (none set)",
     "orphaned": "The token this project used was deleted. Pick another; until then its sessions use the workspace default."
   },
+  "autonomy": {
+    "heading": "Autonomy",
+    "label": "Level of autonomy",
+    "helpLabel": "About autonomy",
+    "help": "Work an agent noticed waits in Findings at every level, until you accept it. A change applies to what the Project Manager submits next; batches already waiting stay where they are.",
+    "levels": {
+      "approve_every_batch": "Approve every batch",
+      "approve_found_work": "Approve found work only",
+      "full_autonomy": "Full autonomy"
+    },
+    "descriptions": {
+      "approve_every_batch": "You approve every batch and every change to a tracker.",
+      "approve_found_work": "Work a person asked for runs. You approve found work and changes to trackers.",
+      "full_autonomy": "Work a person asked for runs, and changes to trackers apply at once. You approve found work."
+    },
+    "setBy": "Set by {{name}} on {{date}}",
+    "startedHere": "Every project starts at Approve every batch",
+    "membersOnly": "Only the company's members change this",
+    "saveFailed": "The level of autonomy could not be saved"
+  },
   "lists": {
     "label": "The project's lists"
   },
@@ -151,10 +171,10 @@
     "heldUntil": "Carries on {{time}}",
     "empty": "Nothing has woken the Project Manager yet.",
     "writes": {
-      "direct": "Write to trackers without review",
+      "direct": "Its changes to items and trackers apply as it makes them",
+      "reviewed": "Its changes to items and trackers wait for your approval",
       "directHelpLabel": "How the Project Manager writes",
-      "directHelp": "Off, each change the Project Manager makes (a new item, a comment, a status, an issue) waits as a changeset until you approve it. On, its changes apply as it makes them, and you can still undo each changeset. Every change is on the project's timeline beside what caused it.",
-      "saved": "Saved.",
+      "directHelp": "Each change the Project Manager makes (a new item, a comment, a status, an issue) waits as a changeset until you approve it. At Full autonomy, which the project's Autonomy sets, its changes apply as it makes them, and you can still undo each changeset. Every change is on the project's timeline beside what caused it.",
       "tracker": "Files issues in {{provider}} {{destination}} through {{credential}}",
       "sources": {
         "named": "This project names it",
@@ -268,8 +288,10 @@
     },
     "accepted": "Accepted {{title}}",
     "acceptedFiling": "Its issue files in {{provider}} {{destination}}, and its batch waits for your approval.",
+    "acceptedFilingQueued": "Its issue files in {{provider}} {{destination}}, and its batch is queued for a worker.",
     "acceptedNowhereToFile": "Accepted {{title}} without an issue",
     "nowhereToFile": "No issue was filed: {{reason}}. Its batch waits for your approval.",
+    "nowhereToFileQueued": "No issue was filed: {{reason}}. Its batch is queued for a worker.",
     "reviewBatch": "Review batch",
     "dismissed": "Dismissed {{title}}",
     "decidedElsewhere": "Someone already decided this finding.",

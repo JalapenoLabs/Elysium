@@ -2,8 +2,9 @@
 
 //! `/api/v1/projects/{id}/project-manager`: a project's Project Manager, as its page shows it:
 //! what it is doing, its latest turns with what woke each, its batches, its promises, and how its
-//! changes reach the work; one turn with its log; a person writing to it; and the project's
-//! settings for it: whether its changes apply at once, and the tracker its issues file in. Its
+//! changes reach the work; one turn with its log; a person writing to it; and the tracker its
+//! issues file in. Whether its changes apply at once is the project's level of autonomy
+//! (`super::autonomy`). Its
 //! turns quote what was ingested, so these answer the company's members alone, as the knowledge
 //! base does. See `docs/engine.md`, Project Managers.
 
@@ -13,7 +14,6 @@ pub mod get_turn;
 pub mod list_destinations;
 pub mod send_message;
 pub mod set_tracker;
-pub mod update_project_manager;
 
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
@@ -104,7 +104,8 @@ pub struct ProjectManagerResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WritesResponse {
-    /// Whether its changes apply as it makes them, rather than waiting for a person.
+    /// Whether its changes apply as it makes them, rather than waiting for a person: true at Full
+    /// autonomy, which only the project's dial changes (`PUT /api/v1/projects/{id}/autonomy`).
     direct: bool,
     /// Where its issues file; `null` when there is nowhere, and `trackerRefusal` says why.
     tracker: Option<TrackerResponse>,
