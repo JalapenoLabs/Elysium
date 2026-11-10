@@ -279,7 +279,8 @@ impl Meetings {
                     }
                     .as_str()
                     .to_owned(),
-                    cursor: account.cursor.clone(),
+                    // Nothing of the cursor changes; it is merged, not replaced.
+                    cursor: json!({}),
                     last_polled_at: Some(Utc::now()),
                     last_error: Some(error.to_string()),
                 }
@@ -487,8 +488,10 @@ fn listing_since(account: &Connector) -> DateTime<Utc> {
         )
 }
 
-/// The cursor after a listing whose newest meeting started at `newest`. It never moves
-/// backwards, and listings overlap by that one meeting, which the account already knows.
+/// The listing's keys of the cursor after a listing whose newest meeting started at `newest`,
+/// which `connector::record_poll` merges over the stored cursor: a connector another loop also
+/// reads, such as Teams' chats, keeps that loop's keys. It never moves backwards, and listings
+/// overlap by that one meeting, which the account already knows.
 fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
     let previous = cursor["since"]
         .as_str()
@@ -496,7 +499,7 @@ fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
         .map(|since| since.with_timezone(&Utc));
     match previous.max(newest) {
         Some(since) => json!({ "since": since.to_rfc3339() }),
-        None => cursor.clone(),
+        None => json!({}),
     }
 }
 
@@ -569,5 +572,22 @@ mod tests {
             json!({ "since": "2026-10-21T09:30:00+00:00" })
         );
         assert_eq!(next_cursor(&json!({}), None), json!({}));
+    }
+
+    #[test]
+    fn the_listing_writes_only_its_own_keys_of_the_cursor() {
+        // A Teams connector's cursor also holds its chat reader's keys, which the listing must
+        // neither drop nor put back as it read them.
+        let shared = json!({
+            "since": "2026-10-20T09:30:00+00:00",
+            "baselined": true,
+            "reader": { "since": 1_730_000_000_000_i64 },
+        });
+        let newer: DateTime<Utc> = "2026-10-21T09:30:00Z".parse().expect("a time");
+        assert_eq!(
+            next_cursor(&shared, Some(newer)),
+            json!({ "since": "2026-10-21T09:30:00+00:00" })
+        );
+        assert_eq!(next_cursor(&json!({ "baselined": true }), None), json!({}));
     }
 }

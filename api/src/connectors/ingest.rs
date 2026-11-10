@@ -226,7 +226,8 @@ impl Ingest {
                 ));
                 PollOutcome {
                     sign_in_state: SignInState::Unknown.as_str().to_owned(),
-                    cursor: connector.cursor.clone(),
+                    // Nothing of the cursor changes; it is merged, not replaced.
+                    cursor: json!({}),
                     last_polled_at: Some(Utc::now()),
                     last_error: Some(error.to_string()),
                 }
@@ -405,8 +406,10 @@ fn is_baselined(connector: &Connector) -> bool {
     connector.cursor["baselined"].as_bool().unwrap_or(false)
 }
 
-/// The cursor after a read: baselined once the connector has been read signed in, and the
-/// reader's own state for its next read.
+/// Ingest's keys of the cursor after a read: baselined once the connector has been read signed
+/// in, and the reader's own state for its next read. `connector::record_poll` merges them over
+/// the stored cursor, so the keys another loop keeps there, such as the meetings listing's
+/// `since` on a Teams connector, stay.
 fn next_cursor(
     baselined: bool,
     sign_in: SignInState,
