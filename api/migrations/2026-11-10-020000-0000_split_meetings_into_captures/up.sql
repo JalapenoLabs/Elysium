@@ -199,6 +199,12 @@ CREATE TEMPORARY TABLE final_lines (
     origin TEXT NOT NULL
 );
 
+-- Whitespace, as Rust's `char::is_whitespace` and so `str::trim` and `str::split_whitespace` read
+-- it: Unicode's White_Space property, which `\s` does not cover under glibc (no-break and
+-- ideographic spaces among them). Every split and trim below uses exactly this class.
+CREATE TEMPORARY TABLE whitespace AS
+SELECT '[\t\n\v\f\r \u0085   -     　]'::TEXT AS class;
+
 -- The lines a capture heard, as `crate::meetings::correction::base` reads them: the source's
 -- lines, or Whisper's segments that say something, trimmed, when the source sent none.
 CREATE TEMPORARY TABLE heard_lines AS
@@ -208,17 +214,25 @@ SELECT captures.id AS capture_id, 'source' AS heard_from, line.number AS line_nu
 FROM meeting_captures captures,
     jsonb_array_elements(captures.transcript) WITH ORDINALITY AS line (value, number)
 UNION ALL
-SELECT captures.id, 'whisper', row_number() OVER (
-        PARTITION BY captures.id ORDER BY segment.number
+SELECT segments.capture_id, 'whisper', row_number() OVER (
+        PARTITION BY segments.capture_id ORDER BY segments.number
     ),
-    (segment.value->>'startMs')::BIGINT, (segment.value->>'endMs')::BIGINT, '',
-    btrim(segment.value->>'text', E' \t\n\r')
-FROM meeting_captures captures
-JOIN meeting_transcriptions transcriptions ON transcriptions.capture_id = captures.id,
-    jsonb_array_elements(transcriptions.transcript->'segments')
+    segments.start_ms, segments.end_ms, '', segments.text
+FROM (
+    SELECT captures.id AS capture_id, segment.number,
+        (segment.value->>'startMs')::BIGINT AS start_ms,
+        (segment.value->>'endMs')::BIGINT AS end_ms,
+        regexp_replace(
+            segment.value->>'text',
+            '^' || whitespace.class || '+|' || whitespace.class || '+$', '', 'g'
+        ) AS text
+    FROM whitespace, meeting_captures captures
+    JOIN meeting_transcriptions transcriptions ON transcriptions.capture_id = captures.id
+    CROSS JOIN LATERAL jsonb_array_elements(transcriptions.transcript->'segments')
         WITH ORDINALITY AS segment (value, number)
-WHERE jsonb_array_length(captures.transcript) = 0
-    AND btrim(segment.value->>'text', E' \t\n\r') <> '';
+    WHERE jsonb_array_length(captures.transcript) = 0
+) AS segments
+WHERE segments.text <> '';
 
 INSERT INTO final_lines
 SELECT corrections.meeting_id, captures.id, 'correction', line.number,
@@ -254,13 +268,15 @@ SELECT lines.meeting_id, lines.capture_id, lines.built_from, lines.line_number,
     word.number AS word_number, word.count AS word_count, word.text, lines.speaker,
     GREATEST(lines.start_ms, 0) AS start_ms,
     GREATEST(lines.end_ms, lines.start_ms, 0) AS end_ms, lines.origin
-FROM final_lines lines,
-    LATERAL (
-        SELECT token AS text, row_number() OVER (ORDER BY token_number) AS number,
-            count(*) OVER () AS count
-        FROM regexp_split_to_table(lines.text, '\s+') WITH ORDINALITY AS split (token, token_number)
-        WHERE token <> ''
-    ) AS word;
+FROM final_lines lines
+CROSS JOIN whitespace
+CROSS JOIN LATERAL (
+    SELECT token AS text, row_number() OVER (ORDER BY token_number) AS number,
+        count(*) OVER () AS count
+    FROM regexp_split_to_table(lines.text, whitespace.class || '+')
+        WITH ORDINALITY AS split (token, token_number)
+    WHERE token <> ''
+) AS word;
 
 -- One history entry per meeting built: the build is the change its words name.
 CREATE TEMPORARY TABLE builds AS
@@ -285,11 +301,13 @@ SELECT uuidv7(), words.meeting_id,
     words.start_ms + (words.end_ms - words.start_ms) * words.word_number / words.word_count,
     words.origin, words.capture_id, builds.event_id
 FROM final_words words
-JOIN builds ON builds.meeting_id = words.meeting_id;
+JOIN builds ON builds.meeting_id = words.meeting_id
+    AND builds.capture_id = words.capture_id
+    AND builds.built_from = words.built_from;
 
 -- Dropped here rather than at commit: `diesel migration redo --all` runs every migration in one
 -- transaction.
-DROP TABLE builds, final_words, final_lines, heard_lines;
+DROP TABLE builds, final_words, final_lines, heard_lines, whitespace;
 
 -- What moved onto each meeting's capture leaves the meeting, which keeps the event's own fields.
 ALTER TABLE meetings

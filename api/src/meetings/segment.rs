@@ -62,7 +62,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::correct::{self, CorrectedMeeting};
-use super::correction;
+use super::correction::{self, Base};
 use super::final_transcript;
 use super::media;
 use super::segmentation::{self, ConversationSegment, MeetingContext, ProjectChoice, Segment};
@@ -283,9 +283,9 @@ impl SegmentMeeting {
             None => None,
         };
         let whisper = self.whisper_transcript(&capture).await?;
-        let transcript = self
-            .transcript_of(&input, &capture, whisper.as_ref(), log)
-            .await?;
+        let heard = self.heard(&input, &capture, whisper.as_ref()).await?;
+        self.ensure_final_transcript(&capture, &heard, log).await?;
+        let transcript = heard.into_lines(log);
         let segments = match stored_segments(&current)? {
             Some(segments) => {
                 log.line(&format!(
@@ -348,17 +348,14 @@ impl SegmentMeeting {
         })
     }
 
-    /// The transcript `capture` is segmented from: the corrected copy `input` names, or the
-    /// transcript a correction follows (the source's lines, or Whisper's segments when the source
-    /// sent none) when the run handed on none. Builds the meeting's final transcript from the
-    /// same when it has none, as for a meeting whose correction was skipped.
-    async fn transcript_of(
+    /// What `capture` heard, with Whisper's transcript `whisper`, and the corrected copy `input`
+    /// names, when it names one that is stored.
+    async fn heard(
         &self,
         input: &CorrectedMeeting,
         capture: &MeetingCapture,
         whisper: Option<&WhisperTranscript>,
-        log: &StepLog,
-    ) -> Result<Vec<TranscriptLine>, StepFailure> {
+    ) -> Result<Heard, StepFailure> {
         let mut connection = self.connection().await?;
         let corrected = correct::corrected_lines(&mut connection, input)
             .await
@@ -369,31 +366,39 @@ impl SegmentMeeting {
                     "The meeting's transcript is not in the stored shape: {error}"
                 ))
             })?;
-        let Some(heard) = correction::base(source, whisper) else {
-            log.line("Neither transcript holds a line");
-            return Ok(corrected.unwrap_or_default());
+        Ok(Heard {
+            base: correction::base(source, whisper),
+            corrected,
+        })
+    }
+
+    /// Builds the meeting's final transcript from what `capture` heard and its corrected copy,
+    /// unless it has one: a meeting whose correction was skipped has none yet.
+    async fn ensure_final_transcript(
+        &self,
+        capture: &MeetingCapture,
+        heard: &Heard,
+        log: &StepLog,
+    ) -> Result<(), StepFailure> {
+        let Some(base) = &heard.base else {
+            return Ok(());
         };
-        let built =
-            final_transcript::ensure_built(&mut connection, capture, &heard, corrected.as_deref())
-                .await
-                .map_err(StepFailure::retryable)?;
+        let mut connection = self.connection().await?;
+        let built = final_transcript::ensure_built(
+            &mut connection,
+            capture,
+            base,
+            heard.corrected.as_deref(),
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
         if let Some(built) = built {
             log.line(&format!(
                 "Built the final transcript: {} words",
                 built.data["words"]
             ));
         }
-        let (lines, which) = if let Some(lines) = corrected {
-            (lines, "the corrected transcript")
-        } else {
-            let which = match heard.based_on {
-                BasedOn::Source => "the source's transcript",
-                BasedOn::Whisper => "Whisper's transcript",
-            };
-            (heard.lines, which)
-        };
-        log.line(&format!("Reading {} lines of {which}", lines.len()));
-        Ok(lines)
+        Ok(())
     }
 
     /// One segmentation turn over `transcript`, its answer checked.
@@ -603,7 +608,7 @@ impl SegmentMeeting {
             media::upload(
                 kept,
                 &self.inner.workspace,
-                meeting_id,
+                &media::directory(meeting_id),
                 &clip_name,
                 &path,
                 &content_type,
@@ -995,6 +1000,34 @@ struct Published {
     record_ids: Vec<Option<Uuid>>,
 }
 
+/// What a meeting's capture heard, and its corrected copy when the run named one.
+struct Heard {
+    /// The transcript a correction follows: the source's lines, or Whisper's segments when the
+    /// source sent none. `None` when nothing was heard.
+    base: Option<Base>,
+    corrected: Option<Vec<TranscriptLine>>,
+}
+
+impl Heard {
+    /// The lines segmenting reads: the corrected copy, or, when the run handed on none, the
+    /// transcript its correction would have followed.
+    fn into_lines(self, log: &StepLog) -> Vec<TranscriptLine> {
+        let (lines, which) = match (self.corrected, self.base) {
+            (Some(lines), _) => (lines, "the corrected transcript"),
+            (None, Some(base)) => {
+                let which = match base.based_on {
+                    BasedOn::Source => "the source's transcript",
+                    BasedOn::Whisper => "Whisper's transcript",
+                };
+                (base.lines, which)
+            }
+            (None, None) => (Vec::new(), "either transcript"),
+        };
+        log.line(&format!("Reading {} lines of {which}", lines.len()));
+        lines
+    }
+}
+
 /// The segments stored on `current`, when it has them.
 fn stored_segments(current: &Meeting) -> Result<Option<Vec<Segment>>, StepFailure> {
     let Some(stored) = &current.segments else {
@@ -1109,8 +1142,13 @@ fn duration_of(current: &Meeting, transcript: &[TranscriptLine]) -> i64 {
 /// A segment of `capture`'s transcript as a timeline record: its title, its transcript excerpt,
 /// its speakers, and the span of the meeting it covers, with its clip when there is one. The
 /// segment and its clip are timed on the capture's clock; the record is on the meeting's, the
-/// capture's offset after it, as every time of a meeting is. A record is unique per connector and
-/// the capture's id at its source, with the segment's index.
+/// capture's offset after it, as every time of a meeting is.
+///
+/// A record is unique per connector and the capture's id at its source, with the segment's index.
+/// A capture with no id at its source, such as an upload, names its records by the meeting
+/// (`meeting:<id>#<index>`), and with no connector the unique key cannot hold them once: what
+/// does is that the meeting is marked done in the transaction that stores its records, and a
+/// meeting done publishes nothing again.
 fn segment_record(
     current: &Meeting,
     capture: &MeetingCapture,
@@ -1134,10 +1172,10 @@ fn segment_record(
         id: Uuid::now_v7(),
         source_kind: SEGMENT_SOURCE_KIND.to_owned(),
         connector_id: capture.connector_id,
-        external_id: capture
-            .external_id
-            .as_ref()
-            .map(|external_id| format!("{external_id}#{index}")),
+        external_id: Some(match &capture.external_id {
+            Some(external_id) => format!("{external_id}#{index}"),
+            None => format!("meeting:{}#{index}", current.id),
+        }),
         occurred_at: current.started_at
             + chrono::Duration::milliseconds(segment.start_ms + offset_ms),
         actor: speakers.chars().take(ACTOR_MAX_CHARACTERS).collect(),
@@ -1347,6 +1385,33 @@ mod tests {
             (json!(150_000), json!(390_000))
         );
         assert_eq!(media["clip"]["startMs"], json!(150_400));
+    }
+
+    #[test]
+    fn a_capture_with_no_id_at_its_source_names_its_records_by_the_meeting() {
+        let current = meeting();
+        let mut uploaded = capture(&current, 0);
+        uploaded.connector_id = None;
+        uploaded.external_id = None;
+        let record = segment_record(
+            &current,
+            &uploaded,
+            &[],
+            3,
+            &Segment {
+                start_ms: 0,
+                end_ms: 60_000,
+                title: "Intros".to_owned(),
+                summary: String::new(),
+                projects: Vec::new(),
+            },
+            None,
+        );
+        assert_eq!(record.connector_id, None);
+        assert_eq!(
+            record.external_id,
+            Some(format!("meeting:{}#3", current.id))
+        );
     }
 
     #[test]

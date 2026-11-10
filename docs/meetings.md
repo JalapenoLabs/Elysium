@@ -59,7 +59,9 @@ connector read are its connector's again, so resuming it reads none of them twic
 
 Every capture a source read belongs to a connector (`connectors`), the same table mailboxes use.
 `UNIQUE (connector_id, external_id)` on both `meeting_captures` and `timeline_records` is what keeps a meeting, and each
-of its segments, from being recorded twice. A listing that stored meetings, and a meeting whose segments were
+of its segments, from being recorded twice. A capture with no connector or no id at its source, such as an upload,
+names its segments' records by its meeting (`meeting:<id>#<index>`), and those are kept single by the meeting being
+marked done in the transaction that stores them: a meeting done publishes nothing again. A listing that stored meetings, and a meeting whose segments were
 published, is a run of its connector, and a connector is `syncing` while a meeting of its is fetched or its segments
 are cut and published.
 
@@ -138,10 +140,14 @@ takes reads as what it gives with no hash, a meeting not fetched, which is what 
 skips it. One step reads every source, through the capture's connector and `Sources::for_kind`, so a new source needs
 no step of its own. It fetches the meeting's capture, the one its source listed.
 
-- It fetches the transcript and a fresh recording address from the source, downloads the recording into the
-  workspace, hashing it as it streams, and uploads it to the connector's storage location at
-  `meetings/<meeting>/captures/<capture>.<ext>`. Without a recording, or with nowhere to keep it, the meeting goes on
-  from its transcript alone, and the log says which.
+- It fetches the transcript and a fresh recording address from the source, downloads the recording into a workspace
+  directory of the attempt's own, hashing it as it streams, and uploads it to the connector's storage location at
+  `meetings/<meeting>/captures/<capture>/<sha256>.<ext>`, named by its hash. Without a recording, or with nowhere to
+  keep it, the meeting goes on from its transcript alone, and the log says which.
+- Two attempts can run at once (one whose lease lapsed, and the next), and a source may answer each with other bytes.
+  Named by its hash, each attempt's recording lands at a path of its own, so the path the capture keeps holds exactly
+  the bytes its hash says. Only the attempt whose write the capture keeps moves its download to the capture's scratch
+  copy in the meeting's workspace directory, for segmenting to cut clips from; any other discards its own.
 - The transcript is stored on the capture as the source sent it, with its SHA-256 (`meeting_captures.transcript_hash`,
   the hash of its JSON as stored), and the recording's place with the SHA-256 of its bytes
   (`meeting_captures.recording_hash`), in one write that only a capture never fetched takes, which moves the meeting to
@@ -149,7 +155,8 @@ no step of its own. It fetches the meeting's capture, the one its source listed.
 - A capture is fetched once. Running the step again for the same meeting, a retried attempt or a later run, fetches
   from the source and compares hashes, but writes and uploads nothing: the first fetch is what every later step read.
   Its summary says whether the source's transcript is unchanged or has changed since. An attempt cut short after its
-  upload and before its write uploads the recording again on the next attempt, to the same path.
+  upload and before its write uploads the recording again on the next attempt, to the same path when the source
+  sends the same bytes.
 - A key the source refuses, a meeting it does not have, or a connector that was removed fails the step for good, for
   a person to fix and retry; anything else, such as a source that did not answer, is tried again with the run's
   backoff.
@@ -464,7 +471,7 @@ Each segment is a timeline record:
 |----------------|--------------------------------------------------------------------------------|
 | `source_kind`  | `meeting`                                                                      |
 | `connector_id` | The capture's connector                                                        |
-| `external_id`  | `<the capture's external id>#<segment index>`                                  |
+| `external_id`  | `<the capture's external id>#<segment index>`, or `meeting:<meeting id>#<segment index>` for a capture with none |
 | `occurred_at`  | The meeting's start plus the segment's start on the meeting's clock            |
 | `actor`        | The segment's speakers, in the order they first spoke                          |
 | `title`        | The segment's title                                                            |

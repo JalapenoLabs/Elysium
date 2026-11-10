@@ -3,6 +3,24 @@
 -- the meeting keeps (its corrected copy, or the transcript it was segmented from), and the code
 -- of before reads none of them. A meeting holds one capture until captures can be merged, so the
 -- first is the one there is.
+
+-- A meeting of before is one capture read from a source by its id. A meeting holding more or none,
+-- or a capture with no id at its source (an upload), has no place in that shape, so the revert
+-- refuses rather than drop what it cannot keep.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM meetings
+        LEFT JOIN meeting_captures captures ON captures.meeting_id = meetings.id
+        GROUP BY meetings.id
+        HAVING count(captures.id) <> 1 OR bool_or(captures.external_id IS NULL)
+    ) THEN
+        RAISE EXCEPTION 'a meeting holds other than one capture read from a source by its id';
+    END IF;
+END
+$$;
+
 ALTER TABLE meetings
     ADD COLUMN connector_id UUID REFERENCES connectors (id) ON DELETE SET NULL,
     ADD COLUMN source_kind TEXT CHECK (source_kind ~ '^[a-z][a-z0-9_]{0,31}$'),

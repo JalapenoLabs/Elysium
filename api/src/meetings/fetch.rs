@@ -23,8 +23,11 @@
 //! uploads nothing: the first fetch is what every later step has read. The log says whether the
 //! source still holds the same transcript.
 //!
-//! An attempt cut short after its upload but before its write uploads the recording again, to
-//! the same path, on the next attempt.
+//! An attempt cut short after its upload but before its write uploads the recording again on the
+//! next attempt, to the same path when the source sends the same bytes: a recording is stored at
+//! a path named by its hash, so two attempts running at once, each downloading into a workspace
+//! directory of its own, never write over each other, and the path the capture keeps holds
+//! exactly the bytes its hash says (`media`, Two attempts at once).
 //!
 //! # What it logs
 //!
@@ -209,9 +212,12 @@ impl FetchMeeting {
             return already_fetched(&capture, &fetched_hash, log);
         }
 
-        let recording = self
+        let kept = self
             .keep_recording(&capture, &account, fetched.recording.as_ref(), log)
             .await?;
+        let (recording, local) = kept.map_or((None, None), |(recording, local)| {
+            (Some(recording), Some(local))
+        });
         let first_fetch = Fetched {
             transcript: serde_json::to_value(&fetched.transcript)
                 .map_err(StepFailure::permanent)?,
@@ -235,6 +241,10 @@ impl FetchMeeting {
                 .await
                 .map_err(StepFailure::retryable)?
         };
+        if let Some(local) = &local {
+            self.settle_local(capture.meeting_id, local, written.is_some(), log)
+                .await;
+        }
         let Some((stored, recorded)) = written else {
             // Another attempt stored its fetch between this one's read and its write.
             let mut connection = self.connection().await?;
@@ -267,16 +277,40 @@ impl FetchMeeting {
         })
     }
 
+    /// Keeps `local`, this attempt's download, as the capture's scratch copy when its fetch is the
+    /// one the capture kept (`won`), and discards it otherwise (`media`, Two attempts at once). The
+    /// copy only spares segmenting a download from storage, so failing to keep it fails nothing.
+    async fn settle_local(
+        &self,
+        meeting_id: Uuid,
+        local: &media::LocalRecording,
+        won: bool,
+        log: &StepLog,
+    ) {
+        let settled = if won {
+            media::keep_local(&self.inner.workspace, meeting_id, local).await
+        } else {
+            media::discard(&self.inner.workspace, local).await
+        };
+        if let Err(error) = settled {
+            log.line(&format!(
+                "The workspace's copy of the recording could not be settled, so segmenting reads \
+                 it from storage: {error}"
+            ));
+        }
+    }
+
     /// Downloads the recording the source offered and uploads it to the connector's storage
-    /// location, answering where it was kept and the hash of its bytes, or `None` when there is
-    /// nothing to keep or nowhere to keep it.
+    /// location, at a path named by its hash, answering where it was kept and the hash of its
+    /// bytes with this attempt's own copy in the workspace, or `None` when there is nothing to
+    /// keep or nowhere to keep it.
     async fn keep_recording(
         &self,
         capture: &MeetingCapture,
         account: &Connector,
         offered: Option<&RecordingSource>,
         log: &StepLog,
-    ) -> Result<Option<KeptRecording>, StepFailure> {
+    ) -> Result<Option<(KeptRecording, media::LocalRecording)>, StepFailure> {
         let Some(offered) = offered else {
             log.line("The source keeps no recording of this meeting");
             return Ok(None);
@@ -316,6 +350,7 @@ impl FetchMeeting {
         let path = media::recording_path(
             capture.meeting_id,
             capture.id,
+            &local.hash,
             media::extension_of(&local.file_name),
         );
         let kept = media::Kept {
@@ -326,7 +361,7 @@ impl FetchMeeting {
         media::upload(
             kept,
             &self.inner.workspace,
-            capture.meeting_id,
+            &local.directory,
             &local.file_name,
             &path,
             &local.content_type,
@@ -337,14 +372,15 @@ impl FetchMeeting {
             "Kept the recording ({}) at {path}, SHA-256 {}",
             local.content_type, local.hash
         ));
-        Ok(Some(KeptRecording {
+        let recording = KeptRecording {
             stored: StoredRecording {
                 storage_location_id,
                 path,
-                content_type: Some(local.content_type),
+                content_type: Some(local.content_type.clone()),
             },
-            hash: local.hash,
-        }))
+            hash: local.hash.clone(),
+        };
+        Ok(Some((recording, local)))
     }
 
     /// The connector `capture` of meeting `current` was read through, which signs in to its

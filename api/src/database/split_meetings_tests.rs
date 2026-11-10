@@ -36,7 +36,8 @@ const SPLIT: &str = "2026-11-10-020000-0000_split_meetings_into_captures";
 /// Whisper transcript, and its segments on the timeline.
 const CORRECTED: Uuid = uuid!("00000000-0000-7000-8000-0000000e1001");
 /// Segmented before correction existed, from the source's lines, one of them oddly spaced, one
-/// empty, and one timed backwards.
+/// empty, one timed backwards, and one spaced with no-break and ideographic spaces, which Unicode
+/// counts as whitespace and Postgres's `\s` does not.
 const SEGMENTED_UNCORRECTED: Uuid = uuid!("00000000-0000-7000-8000-0000000e1002");
 /// A source that sent no lines: corrected from Whisper's segments, the second fixed.
 const WHISPER_CORRECTED: Uuid = uuid!("00000000-0000-7000-8000-0000000e1003");
@@ -86,7 +87,8 @@ VALUES
   'segmented', 'Standup', '2026-11-02T15:00:00Z', NULL, '', '[]', NULL,
   '[{"startMs": 0, "endMs": 1000, "speaker": "Ada", "text": "  Morning,\tall  "},
     {"startMs": 1000, "endMs": 2000, "speaker": "Grace", "text": "   "},
-    {"startMs": 3000, "endMs": 2500, "speaker": "Grace", "text": "Late again"}]',
+    {"startMs": 3000, "endMs": 2500, "speaker": "Grace", "text": "Late again"},
+    {"startMs": 4000, "endMs": 7000, "speaker": "Ada", "text": "Hello there　friend"}]',
   NULL, NULL, NULL, NULL, '[]', 'done', '0199a3c4-0000-7000-8000-00000000ada0',
   '2026-11-02T16:00:00Z', '2026-11-02T16:05:00Z'),
  ('00000000-0000-7000-8000-0000000e1003', '00000000-0000-7000-8000-0000000fc101', 'fireflies',
@@ -118,7 +120,7 @@ INSERT INTO meeting_transcriptions (meeting_id, transcript, transcript_hash, cre
  ('00000000-0000-7000-8000-0000000e1003',
   '{"model": "Whisper large-v3", "language": "en", "languageProbability": 0.99,
     "durationMs": 9000, "segments": [
-      {"startMs": 0, "endMs": 2000, "text": " Welcome back. ", "words": []},
+      {"startMs": 0, "endMs": 2000, "text": "  Welcome back. ", "words": []},
       {"startMs": 2000, "endMs": 3000, "text": "  ", "words": []},
       {"startMs": 3000, "endMs": 9000, "text": "Ely see um ships now", "words": []}]}',
   repeat('f', 64), '2026-11-03T16:10:00Z'),
@@ -450,6 +452,9 @@ async fn each_final_transcript_is_built_from_its_corrected_copy_or_what_it_was_s
             ("all", "source"),
             ("Late", "source"),
             ("again", "source"),
+            ("Hello", "source"),
+            ("there", "source"),
+            ("friend", "source"),
         ]
     );
     assert_eq!(
@@ -580,5 +585,34 @@ async fn down_hands_back_every_row_exactly_and_up_applies_again() {
         )
         .await,
         json!([{ "created_by": ADA }])
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn down_refuses_a_meeting_the_layout_before_cannot_hold() {
+    let (url, mut connection) = laid_out_as_production().await;
+    up(&url).await;
+    // An upload: a capture of the meeting's with no connector and no id at its source.
+    connection
+        .batch_execute(&format!(
+            "INSERT INTO meeting_captures (id, meeting_id, source_kind, created_by) \
+             VALUES (uuidv7(), '{CORRECTED}', 'upload', '{ADA}')"
+        ))
+        .await
+        .expect("a second capture");
+    let captured = rows_of(&mut connection, "SELECT * FROM meeting_captures").await;
+
+    let revert = MigrationCommand::Revert {
+        count: from_the_split(),
+    };
+    assert!(
+        migrations::execute(url.clone(), revert).await.is_err(),
+        "the revert refuses rather than drop the second capture"
+    );
+    assert_eq!(
+        rows_of(&mut connection, "SELECT * FROM meeting_captures").await,
+        captured,
+        "and changes nothing"
     );
 }

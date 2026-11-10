@@ -6,7 +6,7 @@
 //! A meeting is the event; its captures (`models::meeting_capture`) are the records of it, each
 //! with what its source gave. The meeting keeps the event's own fields (its title, when it started
 //! and for how long, who organized it and took part) and what Elysium made of it: its segments,
-//! its final transcript (`models::meeting_transcript`), and its history.
+//! its final transcript (`models::meeting_word`), and its history (`models::meeting_event`).
 //!
 //! A meeting belongs to whoever owns the account its first capture was read from, like every
 //! timeline record. It moves through `pending` (listed), `recorded` (its capture fetched by its
