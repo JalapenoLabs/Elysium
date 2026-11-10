@@ -9,7 +9,9 @@ This doc is the design. Built so far: meetings and their captures, one clock wit
 capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
 in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned; and the
 meeting's page in the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in
-place, each change undoable, open to its owner alone until meetings are public by default. What is built
+place, each change undoable, open to its owner alone until meetings are public by default; and meetings in the
+knowledge base's tree, each at home under the Meetings page and in the Meetings group of every project's brief it is
+about, with the Meetings page listing, searching, and filtering them, Settings keeping only their sources. What is built
 is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
 issues in the Knowledge base milestone.
 
@@ -248,11 +250,16 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
 - **Meetings**, a fixed page, lists every meeting the reader can see, newest first, with search, filters by source,
   state, and project, and how many wait for review. It is each meeting's home, unattributed ones included, and where
   uploads start.
-- **Projects**, a fixed page, has one child per project, made, renamed, and removed with its project. Under each, a
-  Meetings group lists every meeting with an excerpt on the project, newest first, as linked entries of the one
-  meeting page, so a meeting about three projects shows in three places and is one page.
+- **Each project's page is its brief**, under the fixed Project briefs page, made and renamed with its project
+  (`docs/autonomy.md`, The project brief). Under each, a Meetings group lists every meeting with an excerpt on the
+  project, newest first, as linked entries of the one meeting page, so a meeting about three projects shows in three
+  places and is one page. Deleting the project leaves its brief an ordinary page, and takes the group with it. Until
+  excerpts replace topics, a meeting is in a project's group when one of its topics is on the project.
 - The meeting's page is in the knowledge base, `/knowledge/meetings/:meetingId`, and its Settings address lands there.
-  Settings, Meetings keeps its Sources once the Meetings page lists the meetings.
+  Settings, Meetings keeps only its Sources.
+
+Built: the Meetings page, the groups under each brief, and the tree's rules for their entries (`docs/knowledge.md`,
+The tree, Linked entries), listing a person's own meetings until meetings are public by default.
 
 ## Roadmap
 
@@ -264,7 +271,7 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | 1     | #233  | Uploads: recordings and transcripts                                                   |
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
-| 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
+| 2     | #235  | The knowledge base tree: Meetings, and each project's meetings under its brief        |
 | 2     | #238  | Aligning captures, and asking before merging duplicates                               |
 | 2     | #239  | Settling the final transcript, and the Transcription doc                              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |

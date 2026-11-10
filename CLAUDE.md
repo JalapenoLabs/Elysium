@@ -330,6 +330,10 @@ Everything else follows these rules:
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
   Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
   app.
+- Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
+  one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
+  group under the brief of every project its topics are on, as linked entries that move nowhere. Settings, Meetings
+  keeps only their sources. See `docs/knowledge.md`, The tree, Linked entries.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is

@@ -538,20 +538,29 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 ## In the web app
 
-- **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section, `MeetingsPage`): the
-  person's recent meetings and their meeting sources, as two tabs with their counts, the open one in `?tab=`. The page
-  names no source itself; it finds them from the kinds whose definitions provide meetings (`GET /connectors/kinds`), so
-  a new source appears on it unchanged.
-  - **Sources.** Each of the person's meeting connectors, with its logo, account, and status, linking to its connector's
-    page, where it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the
-    kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the tab
-    shows each kind that provides meetings as a card opening its own form, and an empty Recent meetings tab links to
-    it.
-  - **Recent meetings.** A table (`MeetingTable`) whose search, Columns, and export sit in the page's titlebar: each
-    meeting's title, opening its page; the source it came from, linking to its connector while there is one; its
-    state (as its run says: failed with why, skipped, or how far it got), that its run waits for the person's
-    approval, or that a finished one was published from its transcript alone; when it started, how long it ran, and how
-    many topics Elysia found. A failed meeting's row has Retry, which retries its run's failed step at once.
+- **The Meetings page** (`/knowledge/meetings`, `KnowledgeMeetingsPage` in `src/pages/Knowledge/Meetings/`), the
+  knowledge base's fixed Meetings page, is every one of the person's meetings, newest first, each one's home, those on
+  no project included (`docs/knowledge.md`, The tree, Linked entries). `GET /meetings` answers them all, with no limit,
+  each naming the projects its topics are on (`projectIds`, from its segments' records). A table (`MeetingTable`)
+  whose search, filters, Columns, and export sit in the page's titlebar: each meeting's title, opening its page; the
+  source it came from, linking to its connector while there is one; its state (as its run says: failed with why,
+  skipped, or how far it got), that its run waits for the person's approval, or that a finished one was published from
+  its transcript alone; the projects its topics are on; when it started, how long it ran, and how many topics Elysia
+  found. A failed meeting's row has Retry, which retries its run's failed step at once. The filters (source, state,
+  project or none, and waiting for review) live in the address (`meetingFilters.ts`), so a project's Meetings group in
+  the tree opens the page narrowed to it (`?project=`). The header counts the meetings waiting for review, and its one
+  action opens Settings, Meetings. With no source connected, an empty page links there.
+- **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section as Meeting sources,
+  `MeetingsPage`): where the person's meetings come from, and nothing else, since meetings are daily work and live in
+  the knowledge base; its old `?tab=meetings` lands on the Meetings page. It names no source itself; it finds them from
+  the kinds whose definitions provide meetings (`GET /connectors/kinds`), so a new source appears on it unchanged. Each
+  of the person's meeting connectors shows with its logo, account, and status, linking to its connector's page, where
+  it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the kinds that
+  provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the page shows each kind
+  that provides meetings as a card opening its own form.
+- **In the tree**, each meeting is listed under the Meetings page and in the Meetings group under the brief of every
+  project its topics are on, all opening its one page. A topic moving between projects (`timelineRecord.changed`)
+  loads its meeting again, so the groups follow.
 - **A meeting's page** is a page of the knowledge base (`/knowledge/meetings/:meetingId`, `MeetingPage` in
   `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
   `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
