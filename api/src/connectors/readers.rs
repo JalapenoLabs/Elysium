@@ -13,6 +13,7 @@ use super::teams::{self, TEAMS_ORIGINS, Teams};
 use super::webmail::{Webmail, service};
 use super::{BrowserReader, ConnectorError, ConnectorKind, ReadInput, Reading};
 use crate::browser::devtools::Devtools;
+use crate::meetings::fireflies_browser;
 use crate::models::browser_session::BrowserSession;
 
 /// What a tab shows of a kind's service.
@@ -42,12 +43,16 @@ pub fn service_page(kind: ConnectorKind, url: &str) -> Option<ServicePage> {
         ),
         // The web client's own host is under slack.com too, so it is matched first.
         ConnectorKind::Slack => (starts_with_any(slack::APP_ORIGINS), slack::is_sign_in(url)),
+        // Its sign-in page is on the app's own host, so it counts as the app, which the daily
+        // refresh reloads; the app sends a signed-in person on from it.
+        ConnectorKind::FirefliesBrowser => (
+            url.starts_with(fireflies_browser::APP_ORIGIN),
+            starts_with_any(fireflies_browser::SIGN_IN_ORIGINS),
+        ),
         ConnectorKind::Jira
         | ConnectorKind::Confluence
         | ConnectorKind::Github
         | ConnectorKind::Fireflies
-        // Read by the meetings loop, whose source matches its own tabs, not by ingest.
-        | ConnectorKind::FirefliesBrowser
         | ConnectorKind::Youtrack => return None,
     };
     if on_app {
@@ -127,7 +132,7 @@ mod tests {
     // none does; a start page that did not count as the service would be opened again each day.
     #[test]
     fn every_browser_kinds_start_page_is_its_service() {
-        for kind in ConnectorKind::BROWSER_READ {
+        for kind in super::super::kinds::read_through_a_browser() {
             let start_url = super::super::kinds::definition(kind)
                 .start_url
                 .expect("a browser kind names its start page");
@@ -165,6 +170,16 @@ mod tests {
             (
                 ConnectorKind::Slack,
                 "https://mooreslab.slack.com/signin",
+                Some(ServicePage::SignIn),
+            ),
+            (
+                ConnectorKind::FirefliesBrowser,
+                "https://app.fireflies.ai/notebook/mine",
+                Some(ServicePage::App),
+            ),
+            (
+                ConnectorKind::FirefliesBrowser,
+                "https://accounts.google.com/o/oauth2/v2/auth",
                 Some(ServicePage::SignIn),
             ),
             (ConnectorKind::Outlook, "chrome://newtab/", None),

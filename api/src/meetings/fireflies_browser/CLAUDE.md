@@ -67,8 +67,10 @@ a meeting this account cannot open.
 - The web app shows the transcript after a cleanup that drops immediately repeated words ("sure, sure" as "sure").
   The source keeps Fireflies' raw words, which are what was heard; don't port the cleanup.
 - `durationMins` overstates the recording by a few percent; the recording's own length is the true one.
-- The app refreshes its own token when it is within a week of its two-week expiry, and only while a Fireflies tab is
-  open. The source never refreshes it. A browser left without a Fireflies tab for two weeks signs out.
+- The app refreshes its own token (`/api/auth/refresh-auth-token`) when it is within a week of its two-week expiry,
+  and only as it loads the signed-in user, so a tab that is never reloaded signs out after two weeks. The source never
+  refreshes it; the daily browser refresh (`crate::connectors::refresh`, which reaches every browser kind) reloads the
+  Fireflies tab, and the app refreshes it then.
 
 ## Not yet verified against a signed-in session
 

@@ -34,8 +34,9 @@ use crate::state::AppState;
 /// listing reaches (`crate::meetings`).
 const SAMPLE_DAYS: i64 = 14;
 
-/// How many meetings the listing check asks for.
-const SAMPLE_SIZE: u32 = 5;
+/// How many meetings the listing check asks for: the most one listing holds, so its count is
+/// the two weeks' meetings rather than the oldest few of them.
+const SAMPLE_SIZE: u32 = 150;
 
 pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::FirefliesBrowser,

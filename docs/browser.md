@@ -213,7 +213,9 @@ browser being created, checked, reset, and removed at once never races itself.
     a day before anything reloads under the person signing in. The refresh is recorded on the row
     (`refreshed_at`) before it is attempted, so a restart neither reloads every browser at once nor skips one, one that
     fails waits its day, and one a minute keeps every browser in its own minute. Only active connectors' browsers are
-    refreshed, as only they are read.
+    refreshed, as only they are read. That includes a kind another loop reads (`kinds::read_through_a_browser`):
+    Fireflies' web app renews its two-week session token only as it loads, so its browser is reloaded with the rest,
+    and the meetings loop's next listing records whether it is still signed in.
   - **How.** The tab showing the service, by the addresses its reader goes by (`readers::service_page`), is reloaded
     in place (`Page.reload`) and given 20 seconds after its load event to start before it is read. A reload renews the
     session exactly as a fresh tab would, keeps the person's tab where it is, steals no focus from a window they may be

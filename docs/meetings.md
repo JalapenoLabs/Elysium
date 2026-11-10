@@ -83,8 +83,8 @@ own that leave out every AI field; how to find them again is in that directory's
 - **Signed in** is the session token in the page, so the check asks nothing of Fireflies. No Fireflies tab opens one
   and reads as not open yet; a tab on Google's, Microsoft's, or Apple's sign-in reads as signed out, as does a session
   Fireflies answers `UNAUTHENTICATED`, which marks the connector `signed_out`.
-- The web app refreshes its own session, a two-week token, while a Fireflies tab is open, and Elysium never does, so
-  the browser stays signed in as long as its Fireflies tab stays open; every read opens one when none is.
+- The web app renews its own session, a two-week token, as it loads, and Elysium never renews it itself: the daily
+  browser refresh reloads the Fireflies tab (`docs/browser.md`, Refreshing), and every read opens one when none is.
 - Its storage location is optional (`docs/connectors.md`, Connectors): a meeting with nowhere to keep its recording
   goes on from its transcript alone.
 

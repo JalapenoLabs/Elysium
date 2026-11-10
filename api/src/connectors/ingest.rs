@@ -48,7 +48,7 @@ use uuid::Uuid;
 
 use super::activity::Activity;
 use super::{BrowserReader, ConnectorKind, Read, ReadInput, Reading, SignInState};
-use super::{readers, refresh};
+use super::{kinds, readers, refresh};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
 use crate::conversations::{self, Gathered};
@@ -159,6 +159,14 @@ impl Ingest {
             if let Some(browser) = refreshing {
                 self.refresh(&connector, browser).await;
             }
+            let read_here = ConnectorKind::parse(&connector.kind)
+                .is_some_and(|kind| ConnectorKind::BROWSER_READ.contains(&kind));
+            if !read_here {
+                // Another loop reads it, such as the meetings loop for Fireflies (browser); it
+                // is listed here only so its browser is refreshed, and that loop's next read
+                // records whether it is still signed in.
+                continue;
+            }
             match self.read_connector(&connector).await {
                 // The read straight after a refresh is its sign-in check.
                 Ok(read) if refreshing.is_some() => event!(
@@ -254,6 +262,8 @@ impl Ingest {
         }
     }
 
+    /// Every active connector read through a browser of its own: the kinds this pass reads, and
+    /// those another loop reads, whose browsers it refreshes all the same.
     async fn active_connectors(&self) -> anyhow::Result<Vec<Connector>> {
         let mut connection = self
             .inner
@@ -261,7 +271,10 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        let kinds = ConnectorKind::BROWSER_READ.map(ConnectorKind::as_str);
+        let kinds: Vec<&str> = kinds::read_through_a_browser()
+            .into_iter()
+            .map(ConnectorKind::as_str)
+            .collect();
         let mut connectors = connector::list_active(&mut connection, &kinds).await?;
         // One waiting for its browser has nothing to read until its person starts one.
         connectors.retain(|connector| connector.browser_session_id.is_some());

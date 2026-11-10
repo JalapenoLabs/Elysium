@@ -202,6 +202,18 @@ pub fn providing(what: Provides) -> Vec<ConnectorKind> {
         .collect()
 }
 
+/// Every kind read through a browser of its own, in the hub's order: those `ingest` reads
+/// (`ConnectorKind::BROWSER_READ`) and those another loop reads, such as Fireflies (browser),
+/// which the meetings loop does. Every one of their browsers is refreshed daily
+/// (`crate::connectors::refresh`).
+pub fn read_through_a_browser() -> Vec<ConnectorKind> {
+    DEFINITIONS
+        .into_iter()
+        .filter(|definition| definition.account == AccountKind::Browser)
+        .map(|definition| definition.kind)
+        .collect()
+}
+
 /// The link provider a kind's issues are read through, for every kind that provides issues and
 /// no other. Declaring [`Provides::Issues`] is all a kind does to have the link watcher bring in
 /// what is assigned to its person (`crate::action_items::assigned`); a test fails when a kind

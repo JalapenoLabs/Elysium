@@ -53,7 +53,7 @@ pub const APP_ORIGIN: &str = "https://app.fireflies.ai/";
 pub const START_URL: &str = "https://app.fireflies.ai/login";
 
 /// Where Fireflies sends its person to sign in with Google, Microsoft, or Apple.
-const SIGN_IN_ORIGINS: &[&str] = &[
+pub const SIGN_IN_ORIGINS: &[&str] = &[
     "https://accounts.google.com/",
     "https://login.microsoftonline.com/",
     "https://login.live.com/",
