@@ -660,7 +660,8 @@ the GitHub token that reads it (`GithubTokenSelect` without a level to follow), 
 to the workspace settings by the page's Save (see `docs/coding.md`, `~/.claude`). `AgentConfigurationStatus` beneath
 shows the last fetch as `workspaceSettings.updated` brings it: why agents wait, if they do
 (`ConfigurationHoldAlert`), the commit with its subject and when, linked on github.com, what the checkout left out
-(`ConfigurationSkippedList`), and Fetch now. The same alert shows on the work queue, a queued batch's page, and a
+(`ConfigurationSkippedList`), and Fetch now, which waits for Save while the page has unsaved changes, since a fetch
+reads the saved repository and token. The same alert shows on the work queue, a queued batch's page, and a
 Project Manager with waiting work; a batch's page shows the commit its worker runs on (`WorkBatchConfiguration`).
 The list's Add LLM menu sits in its header.
 
