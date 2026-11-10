@@ -15,6 +15,12 @@
 //! error, and publish what changed. A read that recorded
 //! something, or failed, is reported to `super::activity` as a run.
 //!
+//! # Refreshing
+//!
+//! Each pass also refreshes at most one browser, the one most overdue (`super::refresh`): it
+//! loads the browser's service again so its session renews, and that connector's read in the
+//! same pass then records whether it is still signed in.
+//!
 //! # The first read
 //!
 //! A connector's first signed-in read records what is already in the mailbox without raising
@@ -27,6 +33,7 @@
 //! its content: every client of the event stream hears it, and a person's mail is theirs. Its
 //! owner's pages, and Elysia's dispatcher, load the record by id.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,8 +47,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::activity::Activity;
-use super::readers;
 use super::{BrowserReader, ConnectorKind, Read, ReadInput, Reading, SignInState};
+use super::{readers, refresh};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
 use crate::conversations::{self, Gathered};
@@ -50,7 +57,7 @@ use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
 use crate::models::action_item_event::Recorded;
-use crate::models::browser_session;
+use crate::models::browser_session::{self, BrowserSession};
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
@@ -144,16 +151,106 @@ impl Ingest {
                 return;
             }
         };
+        let due = self.claim_refresh(&connectors).await;
         for connector in connectors {
-            if let Err(error) = self.read_connector(&connector).await {
-                event!(
+            let refreshing = due
+                .as_ref()
+                .filter(|browser| connector.browser_session_id == Some(browser.id));
+            if let Some(browser) = refreshing {
+                self.refresh(&connector, browser).await;
+            }
+            match self.read_connector(&connector).await {
+                // The read straight after a refresh is its sign-in check.
+                Ok(read) if refreshing.is_some() => event!(
+                    name: "browser.refresh.checked",
+                    Level::INFO,
+                    browser.session.id = ?connector.browser_session_id,
+                    connector.kind = %connector.kind,
+                    connector.sign_in = %read.sign_in_state,
+                    "read a connector after refreshing its browser",
+                ),
+                Ok(_read) => {}
+                Err(error) => event!(
                     name: "connectors.connector.failed",
                     Level::WARN,
                     connector.id = %connector.id,
                     error.message = %format!("{error:#}"),
                     "cannot record a connector's read",
-                );
+                ),
             }
+        }
+    }
+
+    /// Picks the browser due a refresh among those `connectors` read through, if one is, and
+    /// records the refresh before it is attempted, so one that fails waits its day like any
+    /// other rather than being retried every pass.
+    async fn claim_refresh(&self, connectors: &[Connector]) -> Option<BrowserSession> {
+        let claimed = async {
+            let mut connection = self
+                .inner
+                .database
+                .get()
+                .await
+                .context("no database connection available")?;
+            let read_through: HashSet<Uuid> = connectors
+                .iter()
+                .filter_map(|connector| connector.browser_session_id)
+                .collect();
+            let mut browsers = browser_session::list_all(&mut connection).await?;
+            browsers.retain(|browser| read_through.contains(&browser.id));
+            let now = Utc::now();
+            let Some(due) = refresh::due(&browsers, now) else {
+                return anyhow::Ok(None);
+            };
+            browser_session::record_refreshed(&mut connection, due.id, now)
+                .await
+                .context("cannot record the browser's refresh")?;
+            Ok(Some(due.clone()))
+        };
+        match claimed.await {
+            Ok(due) => due,
+            Err(error) => {
+                event!(
+                    name: "browser.refresh.unclaimed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot pick the browser due a refresh; trying again next pass",
+                );
+                None
+            }
+        }
+    }
+
+    /// Loads `connector`'s service again in `browser`, logging what came of it; the read that
+    /// follows records whether it is still signed in.
+    async fn refresh(&self, connector: &Connector, browser: &BrowserSession) {
+        let Some(kind) = ConnectorKind::parse(&connector.kind) else {
+            event!(
+                name: "browser.refresh.failed",
+                Level::WARN,
+                browser.session.id = %browser.id,
+                connector.kind = %connector.kind,
+                "cannot refresh a browser for a connector kind this release does not know",
+            );
+            return;
+        };
+        match refresh::refresh(&self.inner.devtools, kind, browser).await {
+            Ok(refreshed) => event!(
+                name: "browser.refresh.done",
+                Level::INFO,
+                browser.session.id = %browser.id,
+                connector.kind = kind.as_str(),
+                browser.refresh.outcome = refreshed.as_str(),
+                "refreshed a browser's service so its session renews",
+            ),
+            Err(error) => event!(
+                name: "browser.refresh.failed",
+                Level::WARN,
+                browser.session.id = %browser.id,
+                connector.kind = kind.as_str(),
+                error.message = %error,
+                "cannot refresh a browser's service; trying again in a day",
+            ),
         }
     }
 
@@ -171,8 +268,9 @@ impl Ingest {
         Ok(connectors)
     }
 
-    /// Reads one connector and records what came of it, a failed read included.
-    async fn read_connector(&self, connector: &Connector) -> anyhow::Result<()> {
+    /// Reads one connector and records what came of it, a failed read included. Answers the
+    /// connector as recorded.
+    async fn read_connector(&self, connector: &Connector) -> anyhow::Result<Connector> {
         let kind = ConnectorKind::parse(&connector.kind)
             .with_context(|| format!("unknown connector kind {:?}", connector.kind))?;
         let reader = readers::for_kind(kind, &self.inner.devtools)
@@ -250,7 +348,7 @@ impl Ingest {
             None if changed => self.inner.activity.changed(connector.id),
             None => {}
         }
-        Ok(())
+        Ok(updated)
     }
 
     /// Stores each new item, oldest first so the timeline reads in order, and raises an inbox

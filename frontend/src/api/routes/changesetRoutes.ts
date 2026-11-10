@@ -64,6 +64,8 @@ export type ChangesetOperationChange =
     item: OperationTarget
     tracker: IssueTracker
   }
+  // Elysia's suggestion: approving it assigns the item to its lead project's Project Manager.
+  | { kind: 'assign-item', item: OperationTarget }
 
 // Where an issue files: a Jira project key, a GitHub owner/name, or a YouTrack project's short
 // name, and the credential that files there.
@@ -94,6 +96,8 @@ export type OperationUndo = {
   stillClosed?: ProviderThing[]
   // The issue was already filed, and stays in its tracker; the item stops following it.
   stillFiled?: ProviderThing & { url: string }
+  // Its Project Manager already took the assignment up; what it planned stays for the person.
+  stillPlanned?: boolean
   // Why the records refused to reverse it, in the API's words.
   refusal?: string
 }

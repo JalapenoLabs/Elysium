@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { WorkBatchState } from './projectManagerRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -43,6 +45,8 @@ export type ActionItem = {
   projectAttributions: ProjectAttribution[]
   // The one of its projects whose Project Manager alone works it; set while it is in any.
   leadProjectId: string | null
+  // While a person has assigned it to its lead project's Project Manager, to plan.
+  managerAssignment: ManagerAssignment | null
   // The initiatives it is in now, leaving out deleted ones.
   initiativeIds: string[]
   createdAt: string
@@ -51,6 +55,13 @@ export type ActionItem = {
   updatedAt: string
   // The issue Elysium owes the item and has not filed yet, while it owes one.
   issueFiling: IssueFiling | null
+}
+
+// Mirrors `ManagerAssignmentResponse` in api/src/routes/v1/action_items/mod.rs.
+export type ManagerAssignment = {
+  assignedAt: string
+  // The person who assigned it, also when they accepted Elysia's suggestion.
+  assignedBy: string
 }
 
 // Mirrors `ProjectAttribution` in api/src/models/action_item.rs: one project an item is in.
@@ -112,6 +123,8 @@ export const HISTORY_KINDS = [
   'issue_filing_cancelled',
   'pull_request_closed',
   'unassigned',
+  'manager_assigned',
+  'manager_unassigned',
   'container_linked',
   'container_unlinked',
 ] as const
@@ -244,6 +257,9 @@ export type ActionItemBulkChange =
   | { kind: 'snooze', until: string | null }
   | { kind: 'join-initiative', initiativeId: string }
   | { kind: 'leave-initiative', initiativeId: string }
+  // Each to its lead project's Project Manager; an item no project leads is refused.
+  | { kind: 'assign-to-manager' }
+  | { kind: 'unassign-from-manager' }
   | { kind: 'delete' }
   | { kind: 'restore' }
 
@@ -340,6 +356,72 @@ export function setActionItemLeadProject(itemId: string, projectId: string) {
   return apiClient
     .put(`v1/action-items/${itemId}/lead-project`, { json: { projectId }})
     .json<ActionItemResponse>()
+}
+
+// Assigns the item to its lead project's Project Manager, which wakes to plan it. An item no
+// project leads, or one resolved or dismissed, answers 409; an inbox item is accepted as it is
+// assigned.
+export function assignActionItemToManager(itemId: string) {
+  return apiClient
+    .put(getManagerAssignmentKey(itemId))
+    .json<ActionItemResponse>()
+}
+
+// Takes the item back from its Project Manager. What it already planned stays.
+export function unassignActionItemFromManager(itemId: string) {
+  return apiClient
+    .delete(getManagerAssignmentKey(itemId))
+    .json<ActionItemResponse>()
+}
+
+export function getManagerAssignmentKey(itemId: string) {
+  return `v1/action-items/${itemId}/manager-assignment`
+}
+
+// Whether an SWR key is some item's plan, so an event that may move every plan reads again only
+// those a page holds.
+export function isManagerAssignmentKey(key: unknown) {
+  return typeof key === 'string'
+    && key.startsWith('v1/action-items/')
+    && key.endsWith('/manager-assignment')
+}
+
+// Mirrors `PlanStage` in api/src/models/action_item_assignment.rs: where the Project Manager is
+// with an item assigned to it.
+export const MANAGER_PLAN_STAGES = [ 'waiting', 'planning', 'planned', 'failed' ] as const
+export type ManagerPlanStage = typeof MANAGER_PLAN_STAGES[number]
+
+// Mirrors `PlanBatch` in api/src/models/action_item_assignment.rs: a batch naming the item.
+export type ManagerPlanBatch = {
+  id: string
+  title: string
+  state: WorkBatchState
+  createdAt: string
+}
+
+// Mirrors `PlanResponse` in api/src/routes/v1/action_items/get_manager_assignment.rs.
+export type ManagerPlan = {
+  // The lead project, whose Project Manager it is assigned to.
+  projectId: string
+  assignedAt: string
+  assignedBy: string
+  stage: ManagerPlanStage
+  // The turn that took the assignment, once one did.
+  turnId: string | null
+  // The lead project's batches naming the item, newest first.
+  batches: ManagerPlanBatch[]
+}
+
+type ManagerPlanResponse = {
+  // Null while the item is not assigned.
+  plan: ManagerPlan | null
+}
+
+// For the company's members, as batches are.
+export function getManagerPlan(itemId: string) {
+  return apiClient
+    .get(getManagerAssignmentKey(itemId))
+    .json<ManagerPlanResponse>()
 }
 
 // Undoes a change to an item's projects or its lead. One changed since answers 409.

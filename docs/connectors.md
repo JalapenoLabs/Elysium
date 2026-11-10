@@ -285,8 +285,13 @@ next read, such as a watermark. Ingest keeps that state in the connector's curso
 `{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. Every loop writes only its own
 keys of a cursor, merged over what is stored in the same statement (`connector::record_poll`), so a connector two loops
 read, as Teams is by ingest and the meetings listing (`{"since": ...}`), keeps both. A reader whose service has no
-tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its row in `for_kind`, and itself to
-`BROWSER_READ`, and a test fails when any of the three is missing.
+tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its rows in `for_kind` and
+`service_page` (which tabs show its app and which its sign-in), and itself to `BROWSER_READ`, and a test fails when any
+is missing or its start page is not its app.
+
+Each pass also refreshes at most one browser, the one longest without, once a day: it reloads the service's tab so its
+rolling session renews, and the connector's read in the same pass is its sign-in check (`docs/browser.md`,
+Refreshing).
 
 `api/src/connectors/webmail.rs` reads a mailbox through its browser. Each service is one row of `SERVICES`:
 
@@ -388,6 +393,13 @@ never posts and never marks a conversation read. Posting is a script of its own 
 conversation on screen and its markup changes freely, while the API answers every conversation, by id, with Slack's
 own timestamps, whatever the page shows.
 
+**Every call carries the web client's marker.** The page is on `app.slack.com` and each workspace's API on its own
+host, so every call is a credentialed cross-origin request. Slack answers one with `app.slack.com` as its allowed
+origin only when it carries `_x_gantry=true`, as the web client's own calls do; without it Slack answers
+`Access-Control-Allow-Origin: *`, which a browser refuses alongside cookies, and the call never reaches the script
+(`fetch_failed`, with the browser's own message). Each call's address is `api/<method>?_x_gantry=true&slack_route=<team>`
+on the workspace's host, the posting script's too, and `slack.test.mjs` models that rule.
+
 A read is up to three evaluations: `client.counts` for every workspace (each conversation's newest message, and
 whether the person's threads have unread replies); `conversations.history` for each conversation with something newer
 than the connector has read, and the threads view where threads have unread replies; then `users.info` and
@@ -411,8 +423,9 @@ active first; the rest keep their place and are read next time.
 The page script is tested in Node against a fixture of the web client, its stored session and a fake web API
 (`api/src/connectors/slack.test.mjs`, run with `node --test api/src/connectors/*.test.mjs`, in CI under
 `Frontend test`); the reading rules are tested in `slack/tests.rs` against answers shaped as Slack's web API gives
-them. Neither has yet read a signed-in Slack: `client.counts` and `subscriptions.thread.getView` are the web client's
-own methods, not Slack's published API, so their shapes are read defensively and are the first thing to confirm.
+them. `client.counts` and `conversations.history` are confirmed against a signed-in Slack; the threads view
+(`subscriptions.thread.getView`) is the web client's own method, not Slack's published API, and is not yet, so its
+shape is read defensively.
 
 ### On each read
 
@@ -648,7 +661,7 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
 - More kinds: Google Meet recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
-- Slack: confirming `client.counts` and the threads view against a signed-in Slack, and an Enterprise Grid org,
+- Slack: confirming the threads view against a signed-in Slack, and an Enterprise Grid org,
   whose workspaces the web client may keep differently in `localConfig_v2`.
 - Teams: how much of its store Teams keeps. The connector reads only what Teams has stored; if Teams stores a channel's
   messages only after showing that channel, a channel never opened in that browser is not read. Not yet confirmed

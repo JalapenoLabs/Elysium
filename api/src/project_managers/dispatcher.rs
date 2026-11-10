@@ -29,8 +29,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::prompt::{
-    self, PromptBatch, PromptBrief, PromptBriefEdit, PromptMessage, PromptPage, PromptProject,
-    PromptPromise, PromptRecord, PromptWork, TurnContext, Writes,
+    self, PromptAssignment, PromptBatch, PromptBrief, PromptBriefEdit, PromptMessage, PromptPage,
+    PromptProject, PromptPromise, PromptRecord, PromptWork, TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
@@ -48,7 +48,8 @@ use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::work_batch::worker::Wait;
 use crate::models::{
-    action_item, page_project, project, project_brief, timeline_record, work_batch, worker_setup,
+    action_item, action_item_assignment, action_item_link, page_project, project, project_brief,
+    timeline_record, work_batch, worker_setup,
 };
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -331,7 +332,9 @@ async fn load_context(
         record_ids,
         batch_ids,
         promise_ids,
+        assigned_ids,
     } = sort_wakes(wakes, &names);
+    let assignments = load_assignments(connection, turn.project_id, &assigned_ids, &names).await?;
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let mut records: Vec<PromptRecord> =
@@ -396,6 +399,7 @@ async fn load_context(
         },
         project: prompt_project(connection, project).await?,
         messages,
+        assignments,
         brief_edits,
         records,
         batches,
@@ -405,14 +409,60 @@ async fn load_context(
     })
 }
 
+/// The items a turn was woken to plan, each with who assigned it and what it is linked to. An item
+/// unassigned since, or whose lead moved to another project, is left out: it is no longer this
+/// Project Manager's to plan.
+async fn load_assignments(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    item_ids: &[Uuid],
+    names: &HashMap<Uuid, String>,
+) -> anyhow::Result<Vec<PromptAssignment>> {
+    let items = action_item_assignment::assigned_among(connection, project_id, item_ids).await?;
+    let mut assignments = Vec::with_capacity(items.len());
+    for item in items {
+        let links = action_item_link::list_for_item(connection, item.id)
+            .await?
+            .into_iter()
+            .map(|link| format!("{} ({})", link.external_key, link.url))
+            .collect();
+        let (Some(assigned_at), Some(assigned_by)) =
+            (item.manager_assigned_at, item.manager_assigned_by)
+        else {
+            event!(
+                name: "project_managers.assignment.unreadable",
+                Level::WARN,
+                project_id = %project_id,
+                item_id = %item.id,
+                "an item read as assigned to {{project_id}} holds no assignment; its turn leaves it out",
+            );
+            continue;
+        };
+        assignments.push(PromptAssignment {
+            item_id: item.id,
+            title: item.title,
+            notes: item.notes,
+            state: item.state,
+            assigned_by: names
+                .get(&assigned_by)
+                .cloned()
+                .unwrap_or_else(|| "Someone".to_owned()),
+            assigned_at,
+            links,
+        });
+    }
+    Ok(assignments)
+}
+
 /// A turn's wakes, sorted by kind: the messages and brief edits it is told whole, and the ids of
-/// the records, batches, and promises it reads as it starts.
+/// the records, batches, promises, and assigned items it reads as it starts.
 struct SortedWakes {
     messages: Vec<PromptMessage>,
     brief_edits: Vec<PromptBriefEdit>,
     record_ids: Vec<Uuid>,
     batch_ids: Vec<Uuid>,
     promise_ids: Vec<Uuid>,
+    assigned_ids: Vec<Uuid>,
 }
 
 /// Sorts `wakes` by kind in one pass, naming each message's and brief edit's author from `names`.
@@ -423,6 +473,7 @@ fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
         record_ids: Vec::new(),
         batch_ids: Vec::new(),
         promise_ids: Vec::new(),
+        assigned_ids: Vec::new(),
     };
     for wake in wakes {
         let author = || {
@@ -450,6 +501,7 @@ fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
                 });
                 sorted.brief_edits.extend(edit);
             }
+            WakeKind::Assignment => sorted.assigned_ids.extend(wake.action_item_id),
         }
     }
     sorted
