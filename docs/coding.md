@@ -104,8 +104,8 @@ holding her would silence the message. They run on whatever checkout the shared 
    Every agent's turn names both, as resolved for it (`docs/engine.md`, Models), so they override whatever the
    agents' configuration repository's settings name. Secrets travel only in the exec's environment: the
    credential as `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, and the MCP configuration, which the turn script
-   writes to a private file in the turn's directory. `claude` runs in its own process group, so stopping it stops
-   its tools too.
+   writes to a private file in the turn's directory. The prompt goes on its standard input (How a prompt reaches the
+   CLI, below). `claude` runs in its own process group, so stopping it stops its tools too.
 4. **Events.** Each line of `stream-json` becomes a `RunnerEvent` (`api/src/runner/events.rs`): `turnStarted`,
    `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `rateLimit`, `credentialRolledOver`, and
    `other` for any line it does not understand, which is kept rather than dropped. Claude's other `system` lines are
@@ -123,6 +123,27 @@ A turn runs in one of three modes (`TurnMode`):
 | `Agent`         | Every built-in tool, the workspace's `~/.claude`, and a session the next turn resumes            | Coding and Studio sessions, Elysia |
 | `Text`          | No built-in tools (`--tools=`), only the request's MCP servers (`--strict-mcp-config`), no settings (`--setting-sources=`), its own system prompt, and no session kept (`--no-session-persistence`) | Turn summaries, correction, segmenting, the company doc's review |
 | `ResumableText` | As `Text`, with its session kept for the next turn to resume; Claude Code finds a session by its working directory, so every turn of one runs in the same one | The agent handling a conversation (`docs/engine.md`, Conversations) |
+
+### How a prompt reaches the CLI
+
+Every turn's prompt goes to `claude -p` on standard input, never as an argument (`api/src/runner/command.rs`). Linux
+refuses any one argument or environment variable longer than 128 KiB, and a meeting's correction reads its whole
+transcript beside Whisper's in one prompt, several times that. Standard input has no such limit, so no caller cuts what
+it asks to fit; what bounds a prompt is the model's context. A prompt past it fails the turn with the CLI's reason,
+on the first credential, since another would read the same prompt, and `TurnOutcome::prompt_too_long` says so, so a
+caller that builds its prompt from what is stored fails for good rather than retrying.
+
+- The exec attaches standard input and writes the prompt while it reads the output, then closes it; `claude` reads to
+  that end before it starts, so a headless turn never waits on a terminal. A prompt that cannot be written whole to a
+  process that then exits successfully loses the attempt, so `claude` never answers part of a prompt as if it were all
+  of it. One that exits with an error reports why itself, and that report decides the turn, failover included.
+- The turn script hands `claude` its own standard input through a spare descriptor: a non-interactive shell gives a
+  command started with `&` `/dev/null` instead.
+- A slash command such as a worker's `/goal` is read from standard input as it is from an argument.
+- The system prompt (`--system-prompt`, `--append-system-prompt`) is still an argument, since the CLI takes it no
+  other way. It holds a caller's standing instructions from the code and, for a worker, its batch's brief, whose goal
+  is at most 20,000 characters. Anything that grows with what a turn reads belongs in the prompt.
+- A failed-over attempt is handed its prompt the same way: the original one, or the instruction to carry on.
 
 ### Credentials
 

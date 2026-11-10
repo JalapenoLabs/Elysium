@@ -13,8 +13,9 @@
 //!
 //! # Size
 //!
-//! The runner passes the prompt as one argument to `claude`, and Linux allows one argument 128
-//! KiB. The doc, at most 12,000 characters a section, goes whole, since the model edits what it
+//! One review reads a batch of what was ingested, not all of it at once: six hours of a busy
+//! company is more than one turn weighs well, and every turn costs the instance's shared Claude
+//! usage. The doc, at most 12,000 characters a section, goes whole, since the model edits what it
 //! reads; proposals go as compact diffs, each cut short; and records fill what is left of
 //! [`PROMPT_BUDGET_BYTES`], each body cut to [`RECORD_BODY_CHARACTERS`], oldest first, so the
 //! records that did not fit are read by the next turn.
@@ -28,8 +29,8 @@ use uuid::Uuid;
 use crate::models::company_doc::{DocSection, Edit, Proposal, Section};
 use crate::models::timeline_record::TimelineRecord;
 
-/// The most bytes one prompt carries, leaving room under the 128 KiB argument limit for the
-/// system prompt and the CLI's own arguments.
+/// The most bytes one prompt carries: the doc whole and a batch of records beside it, about
+/// 30,000 tokens, which keeps each review's turn quick and its cost known.
 pub const PROMPT_BUDGET_BYTES: usize = 120_000;
 
 /// The least room records must have for a turn to be worth running. A doc that leaves less is

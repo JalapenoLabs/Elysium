@@ -12,8 +12,8 @@
 //! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a
 //! plain function of its inputs, so it is tested without a runner.
 //!
-//! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
-//! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
+//! Its session is resumed for every turn and kept indefinitely, so what one turn brings stays in
+//! it: a record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
 //! [`PROMPT_MAX_BYTES`]; the Project Manager reads any record in full with `manager_record`.
 
 use std::fmt::Write as _;
@@ -42,8 +42,8 @@ const BRIEF_MAX_CHARACTERS: usize = 20_000;
 /// these fit however long they run; the rest are a `manager_pages` call away.
 const PAGES_MAX: usize = 50;
 
-/// The longest prompt, in bytes: under the 128 KiB Linux allows one argument, with room for the
-/// runner's own.
+/// The longest prompt, in bytes, about 25,000 tokens: one busy wake (a day of records, a
+/// batch's long report) must not crowd out the session it is added to.
 pub const PROMPT_MAX_BYTES: usize = 100_000;
 
 /// What the end of a prompt cut to fit says.
@@ -922,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_too_long_for_one_argument_is_cut_and_says_so() {
+    fn a_prompt_over_its_limit_is_cut_and_says_so() {
         let mut woken = context();
         for _ in 0..10 {
             woken.messages.push(PromptMessage {
