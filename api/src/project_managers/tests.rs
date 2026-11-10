@@ -17,12 +17,18 @@ use super::batches::{self, BatchError, Submission};
 use super::dispatcher::{self, DispatchContext};
 use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
+use crate::action_items::changesets::{
+    AssignItem, Existing, LinkReads, Operation, Proposal, ProposedOperation, Proposer, Target,
+};
+use crate::action_items::{Actor, Transition};
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::action_item_assignment::{self, Assigner};
 use crate::models::action_item_attribution;
 use crate::models::agent::{Agent, Author};
 use crate::models::attribution::{self, Attributor};
+use crate::models::changeset::{self, ChangesetDecision};
 use crate::models::page::{self, PageEdit, PageError};
 use crate::models::page_project;
 use crate::models::project::{self, NewProject};
@@ -699,6 +705,36 @@ async fn only_the_lead_projects_project_manager_submits_a_batch_for_an_item() {
         panic!("a refusal the Project Manager reads");
     };
     assert!(reason.contains("not one sent to this project's Project Manager"));
+
+    // Finished work is not planned until a person reopens it.
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Resolve,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("resolved");
+    let refused = batches::submit(&mut connection, &events, other, turn.id, for_item.clone())
+        .await
+        .expect_err("a resolved item");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    assert!(
+        reason.contains("is finished; a person reopens it"),
+        "{reason}"
+    );
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Reopen,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("reopened");
 
     let batch = batches::submit(&mut connection, &events, other, turn.id, for_item)
         .await
@@ -1397,4 +1433,179 @@ async fn a_rejected_batch_is_replaced_where_it_stood() {
     .expect("submitted");
     assert_eq!(replacement.generation, 0);
     assert_eq!(replacement.parents(), vec![first.id]);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_assigned_item_is_planned_in_one_turn_and_nothing_stale_is_named() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Planned it.\nSummary: Planned the pricing page.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let mut items = Vec::new();
+    for title in ["Annual pricing page", "Retired pricing table"] {
+        let item = action_item::create(
+            &mut connection,
+            NewActionItem {
+                title: title.to_owned(),
+                notes: "Ada asked for it.".to_owned(),
+                state: ActionItemState::Open,
+                priority: ActionItemPriority::Normal,
+                due_at: None,
+                owner: Owner::User,
+                project_ids: vec![launch],
+                initiative_ids: Vec::new(),
+            },
+            TEST_PERSON,
+            Utc::now(),
+        )
+        .await
+        .expect("created")
+        .record
+        .id;
+        action_item_assignment::assign(
+            &mut connection,
+            item,
+            Assigner::person(TEST_PERSON_ID),
+            Utc::now(),
+        )
+        .await
+        .expect("assigned");
+        items.push(item);
+    }
+    // One is deleted before the turn runs, which ends its assignment and drops its wake: no longer
+    // the Project Manager's to plan.
+    action_item::soft_delete(&mut connection, items[1], TEST_PERSON, Utc::now())
+        .await
+        .expect("deleted");
+    assert_eq!(
+        waiting_kinds(&mut connection, launch).await,
+        [WakeKind::Assignment]
+    );
+
+    // Assignments wait like records, so a selection is one turn.
+    dispatch_once(&context).await;
+    assert!(asked(&script).is_empty(), "not due at once");
+    go_quiet(&mut connection).await;
+    dispatch_once(&context).await;
+    let turns = asked(&script);
+    assert_eq!(turns.len(), 1);
+    let prompt = &turns[0].prompt;
+    assert!(prompt.contains("## Assigned to you (1)"), "{prompt}");
+    assert!(prompt.contains("Annual pricing page"), "{prompt}");
+    assert!(prompt.contains(&items[0].to_string()), "{prompt}");
+    assert!(prompt.contains("assigned by Tester"), "{prompt}");
+    assert!(!prompt.contains("Retired pricing table"), "{prompt}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_accepted_suggestion_roots_its_batch_in_the_person_and_starts_the_chain_again() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+
+    // Elysia raised the item from a conversation and nobody accepted it: her reading alone.
+    let raised = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Annual pricing".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: vec![launch],
+            initiative_ids: Vec::new(),
+        },
+        Actor::Elysia,
+        Utc::now(),
+    )
+    .await
+    .expect("raised")
+    .record
+    .id;
+
+    // A batch already ran for the project, and its result arrives beside the assignment.
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let earlier = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn.id,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+    worked_and_finished(&mut connection, earlier.id, "Done.").await;
+
+    // Elysia suggests assigning it, and the person accepts her suggestion.
+    let suggested = changeset::propose(
+        &mut connection,
+        Proposal {
+            proposer: Proposer::Elysia,
+            project_id: None,
+            summary: "Plan the pricing work".to_owned(),
+            operations: vec![ProposedOperation {
+                operation: Operation::AssignItem(AssignItem {
+                    item: Target::Existing(Existing { id: raised }),
+                }),
+                reason: "Ada asked for it and it is clear enough to plan.".to_owned(),
+                quote: None,
+                source: None,
+                cause_record_id: None,
+            }],
+        },
+        Utc::now(),
+    )
+    .await
+    .expect("proposed");
+    let changeset_id = suggested.changeset.id;
+    changeset::decide(
+        &mut connection,
+        changeset_id,
+        ChangesetDecision::Approved,
+        None,
+    )
+    .await
+    .expect("approved");
+    changeset::apply(
+        &mut connection,
+        changeset_id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("applied");
+    let assigned = action_item::find(&mut connection, raised)
+        .await
+        .expect("an item");
+    assert_eq!(
+        assigned.manager_assigned_by,
+        Some(TEST_PERSON_ID),
+        "the person who accepted assigned it"
+    );
+
+    // One turn takes the batch's result and the assignment. Planning the item answers the person,
+    // so it is human-rooted and nothing the turn's other wakes did leads to it.
+    let after = next_turn(&mut connection, launch, turn.id).await;
+    let mut for_the_item = submission(Vec::new());
+    for_the_item.action_item_ids = vec![raised];
+    let planned = batches::submit(&mut connection, &events, launch, after, for_the_item)
+        .await
+        .expect("submitted");
+    assert_eq!(planned.origin, Origin::HumanRooted);
+    assert_eq!(planned.generation, 0);
+    assert!(planned.parents().is_empty());
+    assert_eq!(planned.state, BatchState::Proposed, "no worker starts it");
 }

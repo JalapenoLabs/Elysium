@@ -7,11 +7,11 @@
 //! carries the project's brief whole (its goals, decisions, and what is out of scope, which every
 //! batch serves), names the docs linked to it, says which of its batches and changes wait for a
 //! person, as its project's level of autonomy decides, and where its issues file ([`Writes`]), and
-//! carries everything that woke it: the messages, someone else's edits to the brief, the records
-//! newly on its timeline, the batches that finished, and the promises found on its project or whose
-//! work finished. Every turn also carries each promise still owed a follow-up, woken for or not, so
-//! a turn that failed never strands one. It is a plain function of its inputs, so it is tested
-//! without a runner.
+//! carries everything that woke it: the messages, someone else's edits to the brief, the action
+//! items a person assigned it, the records newly on its timeline, the batches that finished, and
+//! the promises found on its project or whose work finished. Every turn also carries each promise
+//! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a plain
+//! function of its inputs, so it is tested without a runner.
 //!
 //! Its session is resumed for every turn and kept indefinitely, so what one turn brings stays in
 //! it: a record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -107,6 +107,21 @@ pub struct PromptMessage {
     pub sent_at: DateTime<Utc>,
 }
 
+/// An action item a person assigned it to plan, which its project leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptAssignment {
+    /// The item's id, which a batch planned for it names (`actionItemIds`).
+    pub item_id: Uuid,
+    pub title: String,
+    pub notes: String,
+    pub state: ActionItemState,
+    /// Who assigned it, by name.
+    pub assigned_by: String,
+    pub assigned_at: DateTime<Utc>,
+    /// The issues and pull requests it is linked to, each by its key and URL, the primary first.
+    pub links: Vec<String>,
+}
+
 /// A record newly on its project's timeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PromptRecord {
@@ -191,6 +206,7 @@ pub struct TurnContext {
     pub messages: Vec<PromptMessage>,
     /// Someone else's publishes of the brief, oldest first.
     pub brief_edits: Vec<PromptBriefEdit>,
+    pub assignments: Vec<PromptAssignment>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
     pub promises: Vec<PromptPromise>,
@@ -233,6 +249,19 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
             &context.brief_edits,
             context.project.brief.version,
         );
+    }
+
+    if !context.assignments.is_empty() {
+        let _ = write!(
+            prompt,
+            "\n## Assigned to you ({})\n\nA person chose these action items for you to plan. \
+             Plan each into the batch or batches it needs with manager_submit_batch, naming it in \
+             actionItemIds, or say in your reply why it cannot be planned yet.\n",
+            context.assignments.len()
+        );
+        for assignment in &context.assignments {
+            render_assignment(&mut prompt, assignment);
+        }
     }
 
     if !context.records.is_empty() {
@@ -491,6 +520,31 @@ fn render_batch(prompt: &mut String, batch: &PromptBatch, brief_version: i32) {
     }
 }
 
+fn render_assignment(prompt: &mut String, assignment: &PromptAssignment) {
+    let _ = write!(
+        prompt,
+        "\n- \"{}\" (item {}), {}, assigned by {} at {}.\n",
+        assignment.title,
+        assignment.item_id,
+        item_state_words(assignment.state),
+        assignment.assigned_by,
+        assignment.assigned_at.to_rfc3339(),
+    );
+    if !assignment.links.is_empty() {
+        let _ = writeln!(prompt, "  Linked to: {}", assignment.links.join(", "));
+    }
+    let notes = assignment.notes.trim();
+    if !notes.is_empty() {
+        let excerpt: String = notes.chars().take(EXCERPT_MAX_CHARACTERS).collect();
+        let more = if excerpt.len() < notes.len() {
+            " (more with work_item)"
+        } else {
+            ""
+        };
+        let _ = writeln!(prompt, "  {}{more}", excerpt.replace('\n', "\n  "));
+    }
+}
+
 fn render_record(prompt: &mut String, record: &PromptRecord) {
     let attributed = if record.attributed_by_person {
         "a person put it on the project".to_owned()
@@ -565,15 +619,10 @@ fn render_promise(prompt: &mut String, promise: &PromptPromise) {
                 batch_state_words(*state)
             )
         }
-        Some(PromptWork::Item { id, title, state }) => {
-            let state = match state {
-                ActionItemState::Inbox => "in the inbox",
-                ActionItemState::Open => "open",
-                ActionItemState::Resolved => "resolved",
-                ActionItemState::Dismissed => "dismissed",
-            };
-            format!("It waits on action item \"{title}\" (item {id}), which is {state}.")
-        }
+        Some(PromptWork::Item { id, title, state }) => format!(
+            "It waits on action item \"{title}\" (item {id}), which is {}.",
+            item_state_words(*state)
+        ),
     };
     let _ = writeln!(prompt, "  {work}");
     let next = match promise.state {
@@ -589,6 +638,16 @@ fn render_promise(prompt: &mut String, promise: &PromptPromise) {
         | PromiseState::Dismissed => "Nothing to do until its work finishes.",
     };
     let _ = writeln!(prompt, "  {next}");
+}
+
+/// How an item's state reads in a sentence.
+const fn item_state_words(state: ActionItemState) -> &'static str {
+    match state {
+        ActionItemState::Inbox => "in the inbox",
+        ActionItemState::Open => "open",
+        ActionItemState::Resolved => "resolved",
+        ActionItemState::Dismissed => "dismissed",
+    }
 }
 
 /// How a batch's state reads in a sentence.
@@ -653,6 +712,7 @@ mod tests {
             },
             messages: Vec::new(),
             brief_edits: Vec::new(),
+            assignments: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
             promises: Vec::new(),
@@ -847,6 +907,31 @@ mod tests {
         assert!(prompt.contains("failed."));
         assert!(prompt.contains("Its worker reported: The tests need a Stripe key."));
         assert!(!prompt.contains("did not finish"));
+    }
+
+    #[test]
+    fn an_assigned_item_is_named_with_who_assigned_it_and_how_to_plan_it() {
+        let mut assigned = context();
+        assert!(!render(&assigned, now()).contains("Assigned to you"));
+        assigned.assignments.push(PromptAssignment {
+            item_id: Uuid::nil(),
+            title: "Annual pricing".to_owned(),
+            notes: "Ada wants yearly plans on the pricing page.".to_owned(),
+            state: ActionItemState::Open,
+            assigned_by: "Alex".to_owned(),
+            assigned_at: now(),
+            links: vec!["ELY-12 (https://example.atlassian.net/browse/ELY-12)".to_owned()],
+        });
+
+        let prompt = render(&assigned, now());
+        assert!(prompt.contains("## Assigned to you (1)"));
+        assert!(prompt.contains("naming it in actionItemIds"));
+        assert!(prompt.contains(&format!(
+            "\"Annual pricing\" (item {}), open, assigned by Alex",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("Linked to: ELY-12 (https://example.atlassian.net/browse/ELY-12)"));
+        assert!(prompt.contains("Ada wants yearly plans on the pricing page."));
     }
 
     fn promise(state: PromiseState, work: Option<PromptWork>) -> PromptPromise {

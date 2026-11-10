@@ -29,6 +29,12 @@ async function evaluate(request, { teams, answer = () => ({ ok: true }) }) {
       : null),
   }
   const fetch = async (url, init) => {
+    // Slack's CORS rule for a workspace host: without the web client's `_x_gantry` marker a
+    // credentialed call is answered with a wildcard origin, which the browser refuses.
+    const address = new URL(String(url))
+    if (init.credentials === 'include' && address.searchParams.get('_x_gantry') !== 'true') {
+      throw new TypeError('Failed to fetch')
+    }
     const fields = Object.fromEntries(init.body.entries())
     calls.push({ url: String(url), fields, method: init.method, credentials: init.credentials })
     const body = await answer(String(url), fields)
@@ -55,7 +61,7 @@ test('a reply is one chat.postMessage, on the workspace host, with its session',
   })
 
   assert.deepEqual(calls, [{
-    url: 'https://mooreslab.slack.com/api/chat.postMessage',
+    url: 'https://mooreslab.slack.com/api/chat.postMessage?_x_gantry=true&slack_route=T1',
     method: 'POST',
     credentials: 'include',
     fields: {
