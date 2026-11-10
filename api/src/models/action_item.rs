@@ -33,7 +33,7 @@ use crate::database::schema::{action_item_projects, action_items, initiative_ite
 use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject, replaced,
 };
-use crate::models::{action_item_link_write, project, promise};
+use crate::models::{action_item_assignment, action_item_link_write, project, promise};
 use crate::search::{self, SearchTerms};
 
 /// Where an item stands. See `docs/action-items.md`.
@@ -139,6 +139,11 @@ pub struct ActionItem {
     pub created_by: Uuid,
     /// The one of its projects that leads it; set exactly while it is in any (module docs).
     pub lead_project_id: Option<Uuid>,
+    /// When a person assigned it to its lead project's Project Manager; `None` while it is not
+    /// (`crate::models::action_item_assignment`).
+    pub manager_assigned_at: Option<DateTime<Utc>>,
+    /// The person who assigned it, set exactly with `manager_assigned_at`.
+    pub manager_assigned_by: Option<Uuid>,
 }
 
 impl ActionItem {
@@ -1193,6 +1198,9 @@ pub enum LeadMove {
 /// (`because`). `to` is one of its projects, or `None` for an item left in none. Moving it where
 /// it already is changes nothing.
 ///
+/// An item assigned to its lead's Project Manager stops being assigned: nobody asked the new
+/// lead's Project Manager to plan it (`crate::models::action_item_assignment`).
+///
 /// # Errors
 /// Propagates any database error.
 pub async fn move_lead(
@@ -1209,8 +1217,13 @@ pub async fn move_lead(
             history: Vec::new(),
         });
     }
+    // The assignment ends in the same statement: it was the old lead's Project Manager's.
     let record = diesel::update(action_items::table.find(item.id))
-        .set(action_items::lead_project_id.eq(to))
+        .set((
+            action_items::lead_project_id.eq(to),
+            action_items::manager_assigned_at.eq(None::<DateTime<Utc>>),
+            action_items::manager_assigned_by.eq(None::<Uuid>),
+        ))
         .returning(ActionItem::as_returning())
         .get_result(connection)
         .await?;
@@ -1220,21 +1233,25 @@ pub async fn move_lead(
         LeadMove::Undo(undid) => data["undid"] = json!(undid),
         LeadMove::PassedOn => data["passedOn"] = json!(true),
     }
-    let entry = action_item_event::record(
-        connection,
-        Change {
-            subject: Subject::Item(item.id),
-            kind: HistoryKind::LeadProjectChanged,
-            actor,
-            data,
-            at: now,
-        },
-    )
-    .await?;
-    Ok(Recorded {
-        record,
-        history: vec![entry],
-    })
+    let mut history = vec![
+        action_item_event::record(
+            connection,
+            Change {
+                subject: Subject::Item(item.id),
+                kind: HistoryKind::LeadProjectChanged,
+                actor,
+                data,
+                at: now,
+            },
+        )
+        .await?,
+    ];
+    if let (Some(_), Some(from)) = (item.manager_assigned_at, item.lead_project_id) {
+        history.push(
+            action_item_assignment::ended_by_lead_move(connection, item, from, actor, now).await?,
+        );
+    }
+    Ok(Recorded { record, history })
 }
 
 /// The projects the item is in, each with how it got there, in the order the lead passes to them:

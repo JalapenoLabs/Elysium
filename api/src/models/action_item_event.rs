@@ -75,6 +75,13 @@ pub enum HistoryKind {
     /// changes nothing else about the item. `data` is `{ linkId, provider, key, url, assignee }`,
     /// `assignee` being who has it now as the provider names them, or null for nobody.
     Unassigned,
+    /// A person assigned the item to its lead project's Project Manager, to plan
+    /// (`crate::models::action_item_assignment`). `data` is `{ projectId }`, the lead then.
+    ManagerAssigned,
+    /// The item stopped being assigned to its lead project's Project Manager. `data` is
+    /// `{ projectId }`, and `leadMoved` when it ended because the lead moved to another project,
+    /// whose Project Manager nobody assigned it to.
+    ManagerUnassigned,
     /// An initiative was linked to a container. `data` is `{ linkId, provider, kind, key,
     /// url }`.
     ContainerLinked,
@@ -106,6 +113,8 @@ impl HistoryKind {
             Self::IssueFilingCancelled => "issue_filing_cancelled",
             Self::PullRequestClosed => "pull_request_closed",
             Self::Unassigned => "unassigned",
+            Self::ManagerAssigned => "manager_assigned",
+            Self::ManagerUnassigned => "manager_unassigned",
             Self::ContainerLinked => "container_linked",
             Self::ContainerUnlinked => "container_unlinked",
         }

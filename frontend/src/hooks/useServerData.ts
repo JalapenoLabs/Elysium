@@ -52,6 +52,8 @@ import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 // Misc
 import {
   getActionItem,
+  getManagerAssignmentKey,
+  getManagerPlan,
   listActionItemComments,
   listActionItemHistory,
   listActionItemLinks,
@@ -833,6 +835,23 @@ export function useActionItemLinksLoader(itemId: string): LoadStatus {
 // read from SWR rather than Redux: an item holds no provider field, and only the item's page
 // shows them. `actionItemLink.upserted` revalidates the key, so a change the watcher read
 // shows at once.
+// Where an item's plan stands while it is assigned to its Project Manager, read from SWR rather
+// than Redux: it is derived from batches and turns, and only the item's page shows it. A change to
+// the item, a batch, or a Project Manager revalidates the key (`realtime/eventStream.ts`). Null
+// while the item is not assigned; members alone may read it, so `isMember` false reads nothing.
+export function useManagerPlan(itemId: string, isMember: boolean) {
+  const { data, error } = useSWR(
+    isMember
+      ? getManagerAssignmentKey(itemId)
+      : null,
+    () => getManagerPlan(itemId),
+  )
+  return {
+    plan: data?.plan,
+    status: toLoadStatus(data !== undefined, error),
+  } as const
+}
+
 export function useActionItemLinkRemotes(itemId: string) {
   const { data, error } = useSWR(
     `v1/action-items/${itemId}/links/remote`,

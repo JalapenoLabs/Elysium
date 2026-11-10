@@ -15,10 +15,16 @@
 //!   merged pull requests, turn summaries) is a machine's.
 //! - A message to its Project Manager is a person's when a person wrote it. Elysia's are hers.
 //! - An action item is a person's when a person created it, a provider's watcher brought it in (an
-//!   issue assigned to the person, new mail), a person approved the changeset that created it, or
-//!   a person accepted it from the inbox. An item an agent raised that nobody accepted, such as
-//!   Elysia's from a conversation or one a Project Manager wrote directly, is an agent's reading of
-//!   something: the messages it came from are what root it, so the Project Manager names those.
+//!   issue assigned to the person, new mail), a person approved the changeset that created it, a
+//!   person accepted it from the inbox, or a person assigned it to its Project Manager, themselves
+//!   or by accepting Elysia's suggestion. An item an agent raised that nobody accepted or assigned,
+//!   such as Elysia's from a conversation or one a Project Manager wrote directly, is an agent's
+//!   reading of something: the messages it came from are what root it, so the Project Manager
+//!   names those.
+//!
+//! An assignment roots its batch through the item it names rather than a provenance kind of its
+//! own: a batch planned from an assignment names the item it works on, which it must name anyway,
+//! and the item's history already says who assigned it, as it says who accepted it.
 //!
 //! A batch that names nothing has no origin and is refused ([`Refusal::NoOrigin`]).
 //!
@@ -27,8 +33,9 @@
 //! Batch B **led to** batch C when C's Project Manager planned C from B ([`parents`]): the turn
 //! that submitted C was woken by B (its result, its worker's question, its rejection or
 //! cancellation) or by a record B made (its merged pull request), or C names a record B made as its
-//! cause. The turn's wakes lead to nothing when C answers a person's message that turn took, since
-//! wakes are debounced together and a person's new words are not a batch's follow-up. C's
+//! cause. The turn's wakes lead to nothing when C answers a person's message that turn took, or
+//! names an item a person assigned it in that turn, since wakes are debounced together and a
+//! person's new request is not a batch's follow-up. C's
 //! generation is the greatest, over the batches that led to it, of each one's generation
 //! plus one when a worker worked on it ([`decide`]). A batch no worker touched (one a person
 //! rejected, or one withdrawn) adds nothing: what replaces it stands where it stood, since nothing a
@@ -67,8 +74,8 @@ pub const MAX_GENERATION: i32 = 3;
 #[ExistingTypePath = "crate::database::schema::sql_types::WorkBatchOrigin"]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
-    /// It traces to a person: their message, an issue assigned to them, a meeting, or a
-    /// coworker's request.
+    /// It traces to a person: their message, an issue assigned to them, a meeting, a coworker's
+    /// request, or an item they assigned its Project Manager.
     HumanRooted,
     /// It traces only to what an agent noticed.
     Found,
@@ -245,7 +252,8 @@ struct ItemEvent {
 impl ItemEvent {
     /// Whether it shows a person stands behind its item, `people` being every person among those
     /// who decided a changeset: a person or a provider's watcher created it, a person approved the
-    /// changeset that created it, or a person accepted it from the inbox. Actors are written as
+    /// changeset that created it, a person accepted it from the inbox, or a person assigned it to
+    /// its Project Manager, themselves or by approving Elysia's suggestion. Actors are written as
     /// `crate::action_items::Actor` writes them; a bare `user` is a person's from before accounts.
     fn roots_in_a_person(&self, people: &HashSet<Uuid>) -> bool {
         let by_a_person = self.actor == "user" || self.actor.starts_with("user:");
@@ -253,6 +261,10 @@ impl ItemEvent {
             "created" => match self.decided_by {
                 Some(decider) => people.contains(&decider),
                 None => by_a_person || self.actor.starts_with("watcher:"),
+            },
+            "manager_assigned" => match self.decided_by {
+                Some(decider) => people.contains(&decider),
+                None => by_a_person,
             },
             "state_changed" => {
                 by_a_person
@@ -276,7 +288,7 @@ async fn item_events(
     action_item_events::table
         .left_join(changesets::table)
         .filter(action_item_events::action_item_id.eq_any(item_ids))
-        .filter(action_item_events::kind.eq_any(["created", "state_changed"]))
+        .filter(action_item_events::kind.eq_any(["created", "state_changed", "manager_assigned"]))
         .select((
             action_item_events::action_item_id.assume_not_null(),
             action_item_events::kind,
@@ -288,19 +300,25 @@ async fn item_events(
         .await
 }
 
-/// Whether any of `message_ids` is a person's message that turn `turn_id` took.
+/// Whether `provenance` answers a person's request that turn `turn_id` took: it names a person's
+/// message the turn took, or an item a person assigned in a wake the turn took.
 async fn asked_this_turn(
     connection: &mut AsyncPgConnection,
     turn_id: Uuid,
-    message_ids: &[Uuid],
+    provenance: Provenance<'_>,
 ) -> QueryResult<bool> {
-    if message_ids.is_empty() {
+    if provenance.messages.is_empty() && provenance.action_items.is_empty() {
         return Ok(false);
     }
+    let messages = project_manager_wakes::kind
+        .eq(WakeKind::Message)
+        .and(project_manager_wakes::id.eq_any(provenance.messages));
+    let assignments = project_manager_wakes::kind
+        .eq(WakeKind::Assignment)
+        .and(project_manager_wakes::action_item_id.eq_any(provenance.action_items));
     let authors: Vec<Uuid> = project_manager_wakes::table
-        .filter(project_manager_wakes::id.eq_any(message_ids))
         .filter(project_manager_wakes::turn_id.eq(turn_id))
-        .filter(project_manager_wakes::kind.eq(WakeKind::Message))
+        .filter(messages.or(assignments))
         .select(project_manager_wakes::created_by)
         .load(connection)
         .await?;
@@ -332,7 +350,8 @@ async fn people_among(
 /// A batch that names a person's message this very turn took answers that message, which is new
 /// words from a person, so what else woke the turn led to nothing: wakes are debounced into one
 /// turn, and a batch's result arriving beside a person's request must not hold the request to the
-/// batch's chain. A Project Manager cannot make such a message; records it names still count.
+/// batch's chain. A batch naming an item a person assigned in a wake this turn took answers that
+/// assignment the same way. A Project Manager can make neither; records it names still count.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -345,7 +364,7 @@ pub async fn parents(
     let mut batch_ids: Vec<Uuid> = Vec::new();
     let mut records: Vec<Uuid> = provenance.records.to_vec();
     let answered = match turn_id {
-        Some(turn_id) => asked_this_turn(connection, turn_id, provenance.messages).await?,
+        Some(turn_id) => asked_this_turn(connection, turn_id, provenance).await?,
         None => false,
     };
     if let Some(turn_id) = turn_id.filter(|_turn| !answered) {

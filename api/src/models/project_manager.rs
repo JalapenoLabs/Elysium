@@ -7,7 +7,8 @@
 //!
 //! Whatever should wake a Project Manager writes a wake (`project_manager_wakes`) in the same
 //! transaction as what caused it: a record attributed to its project, a batch of its finishing,
-//! a person's or Elysia's message, a promise found on its project or its work finishing. So nothing that should wake it is lost to a crash or a missed
+//! a person's or Elysia's message, a promise found on its project or its work finishing, an action
+//! item a person assigned it. So nothing that should wake it is lost to a crash or a missed
 //! signal. A wake waits until a turn takes it.
 //!
 //! A turn is created as it starts ([`start_turn`]), taking every wake waiting for its project in
@@ -57,6 +58,9 @@ pub enum WakeKind {
     /// A promise was found on its project, or the work it waits on finished
     /// (`crate::models::promise`).
     Promise,
+    /// A person assigned it an action item its project leads, to plan
+    /// (`crate::models::action_item_assignment`).
+    Assignment,
 }
 
 /// A project's Project Manager, once something has woken it.
@@ -100,6 +104,8 @@ pub struct Wake {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub promise_id: Option<Uuid>,
+    /// The action item an assignment is for.
+    pub action_item_id: Option<Uuid>,
 }
 
 /// What one waiting wake says about when its project's next turn is due: its project, its
@@ -122,6 +128,7 @@ struct NewWake<'a> {
     work_batch_id: Option<Uuid>,
     body: Option<&'a str>,
     promise_id: Option<Uuid>,
+    action_item_id: Option<Uuid>,
     created_by: Uuid,
 }
 
@@ -135,15 +142,16 @@ impl NewWake<'_> {
             work_batch_id: None,
             body: None,
             promise_id: None,
+            action_item_id: None,
             created_by,
         }
     }
 
     async fn insert(mut self, connection: &mut AsyncPgConnection) -> QueryResult<Option<Wake>> {
         self.id = Uuid::now_v7();
-        // A record or a promise already waiting for this project is not woken for twice
-        // (`project_manager_wakes_record_waits_once`, `..._promise_waits_once`); every other
-        // wake is new.
+        // A record, a promise, or an assigned item already waiting for this project is not woken
+        // for twice (`project_manager_wakes_record_waits_once`, `..._promise_waits_once`,
+        // `..._assignment_waits_once`); every other wake is new.
         diesel::insert_into(project_manager_wakes::table)
             .values(self)
             .on_conflict_do_nothing()
@@ -204,6 +212,23 @@ pub async fn wake_for_promise(
     wake.insert(connection).await.map(drop)
 }
 
+/// Wakes `project_id`'s Project Manager to plan action item `item_id`, which person `by` just
+/// assigned it. An item already waiting is not woken for twice. Call it in the transaction that
+/// assigns the item.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn wake_for_assignment(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    item_id: Uuid,
+    by: Uuid,
+) -> QueryResult<()> {
+    let mut wake = NewWake::new(project_id, WakeKind::Assignment, by);
+    wake.action_item_id = Some(item_id);
+    wake.insert(connection).await.map(drop)
+}
+
 /// Wakes `project_id`'s Project Manager with `body`, written by `by`: a person, or Elysia.
 ///
 /// # Errors
@@ -220,6 +245,24 @@ pub async fn wake_with_message(
     wake.insert(connection)
         .await?
         .ok_or(diesel::result::Error::NotFound)
+}
+
+/// Whether an assignment of item `item_id` waits for a turn no turn has taken yet.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn waiting_assignment(
+    connection: &mut AsyncPgConnection,
+    item_id: Uuid,
+) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        project_manager_wakes::table
+            .filter(project_manager_wakes::kind.eq(WakeKind::Assignment))
+            .filter(project_manager_wakes::action_item_id.eq(item_id))
+            .filter(project_manager_wakes::turn_id.is_null()),
+    ))
+    .get_result(connection)
+    .await
 }
 
 /// Every waiting wake, oldest first.

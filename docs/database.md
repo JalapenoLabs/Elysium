@@ -1130,11 +1130,16 @@ What the user owes attention to; see `docs/action-items.md`.
 | `created_at`    | `TIMESTAMPTZ`            | Written by the API, the moment of the create                 |
 | `updated_at`    | `TIMESTAMPTZ`            | Maintained by trigger                                        |
 | `lead_project_id` | `UUID`                 | The one of its projects that leads it; set exactly while it is in any |
+| `manager_assigned_at` | `TIMESTAMPTZ`      | When a person assigned it to its lead project's Project Manager; NULL while it is not |
+| `manager_assigned_by` | `UUID`             | References `users`: the person who assigned it, set exactly with `manager_assigned_at` |
 
 The partial index `action_items_live_state_idx` on `state` where `deleted_at` is NULL serves Next and the state
 filters. `action_items_lead_project_is_a_membership` makes `(id, lead_project_id)` reference `action_item_projects`,
 checked at commit so an item is created with its lead before its memberships, and set to NULL should a membership go
-without the code moving the lead first, which it always does, recording the move.
+without the code moving the lead first, which it always does, recording the move. Moving the lead clears the
+assignment in the same statement (`action_item::move_lead`), so an assignment is always its lead's; no check holds it
+to a lead, because taking an item out of its lead project nulls the lead at once, before the move in the same
+transaction ends the assignment. `action_items_manager_assignment_whole` keeps its two columns set together.
 
 ### `action_item_projects`
 
@@ -1565,14 +1570,16 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
-`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project, and
-`project_manager_wakes_promise_waits_once` one per promise and project.
+`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project,
+`project_manager_wakes_promise_waits_once` one per promise and project, and `project_manager_wakes_assignment_waits_once`
+one per assigned item and project. `project_manager_wakes_by_action_item` finds an item's newest assignment, for where
+its plan stands.
 
 | Column               | Type                        | Notes                                                       |
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, or `promise`                  |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, or `assignment`    |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
@@ -1580,6 +1587,7 @@ NULL; a turn takes every waiting wake of its project as it starts. Indexed for w
 | `created_by`         | `UUID`                      | References `users`: who wrote, who attributed the record, or the system user for a result |
 | `created_at`         | `TIMESTAMPTZ`               | Set on insert                                               |
 | `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
+| `action_item_id`     | `UUID`                      | Set exactly for `assignment`: the item a person assigned it; cascading |
 
 ### `promises`
 

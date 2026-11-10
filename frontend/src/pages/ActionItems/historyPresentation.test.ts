@@ -90,6 +90,21 @@ describe('describeHistoryEntry', () => {
     expect(describeHistoryEntry(cleared, context, t).summary).toBe('left it with no lead project')
   })
 
+  it<Context>('names whose Project Manager an item was assigned to, and why it ended', ({ t, context }) => {
+    const assigned = makeHistoryEntry({ id: 'e1', kind: 'manager_assigned', data: { projectId: 'p1' }})
+    const takenBack = makeHistoryEntry({ id: 'e2', kind: 'manager_unassigned', data: { projectId: 'p1' }})
+    const leadMoved = makeHistoryEntry({
+      id: 'e3',
+      kind: 'manager_unassigned',
+      data: { projectId: 'p1', leadMoved: true },
+    })
+
+    expect(describeHistoryEntry(assigned, context, t).summary).toBe('assigned it to Elysium\'s Project Manager')
+    expect(describeHistoryEntry(takenBack, context, t).summary).toBe('took it back from Elysium\'s Project Manager')
+    expect(describeHistoryEntry(leadMoved, context, t).summary)
+      .toBe('ended its assignment to Elysium\'s Project Manager, since Elysium no longer leads it')
+  })
+
   it<Context>('names the other side of a membership change for each history', ({ t, context }) => {
     const entry = makeHistoryEntry({
       id: 'e1',

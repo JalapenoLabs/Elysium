@@ -80,6 +80,7 @@ import {
   WORK_QUEUE_KEY,
 } from '../api/routes/workQueueRoutes'
 import { getProjectWorkerSetupKey } from '../api/routes/workerSetupRoutes'
+import { getManagerAssignmentKey, isManagerAssignmentKey } from '../api/routes/actionItemRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
 import {
@@ -132,7 +133,11 @@ const handlers: Handlers = {
     mustReloadOnHello = true
   },
   'resync': () => reloadEverything(),
-  'actionItem.upserted': (event) => store.dispatch(actionItemUpserted(event.data)),
+  // An item assigned or taken back moves where its plan stands, which its page reads again.
+  'actionItem.upserted': (event) => {
+    store.dispatch(actionItemUpserted(event.data))
+    void mutate(getManagerAssignmentKey(event.data.id))
+  },
   // The event carries only the id, so the deleted list and the item's own page reload, each
   // only if a view shows it; the page then shows the item as deleted rather than missing.
   'actionItem.deleted': (event) => {
@@ -329,6 +334,8 @@ const handlers: Handlers = {
     const key = getProjectManagerKey(event.data.projectId)
     void mutate((candidate) => typeof candidate === 'string'
       && (candidate.startsWith(key) || candidate.startsWith(PROMISES_KEY_PREFIX)))
+    // A turn taking or finishing an assignment moves an item's plan, whose page reads it again.
+    void mutate(isManagerAssignmentKey)
   },
   // The queue's order is the server's to derive, so a page showing it loads it again, and a
   // page showing the batch loads that and its worker's log; each only while a page holds it.
@@ -341,6 +348,8 @@ const handlers: Handlers = {
     void mutate(getWorkerLogKey(event.data.id))
     // Only the batch's page shows its pull requests, so their key refetches while it holds them.
     void mutate(getWorkBatchPullRequestsKey(event.data.id))
+    // A batch naming an item is part of that item's plan, which its page reads again.
+    void mutate(isManagerAssignmentKey)
   },
   'workerPool.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {

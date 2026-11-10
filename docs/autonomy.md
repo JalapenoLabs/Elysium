@@ -25,8 +25,15 @@ This doc is the design. What is built says so; the rest is the roadmap, the issu
 
 ## Assigning work
 
-A person assigns an action item to its lead project's Project Manager, one at a time or in bulk, and Elysia suggests
-which. Assigning wakes the Project Manager to plan. It starts no worker.
+Built: a person assigns an action item to its lead project's Project Manager, from the item's page or a selection of
+the item list, and Elysia suggests which. Assigning wakes the Project Manager to plan the item, and starts no worker:
+what it plans is a proposed batch the person approves. An item no project leads cannot be assigned, and its page says
+so; moving the lead ends the assignment, since nobody asked the new lead's Project Manager. Elysia suggests an item as
+an `assign-item` operation of a changeset, with why it is ready, and the person accepts each one, which is the person
+assigning it. A batch planned from an assignment is human-rooted, through the item: the item's history says a person
+assigned it. The item's page shows who assigned it, to which project's Project Manager, and where its plan stands:
+waiting for a turn, being planned, planned with the batches naming it, or a turn that failed. See
+`docs/action-items.md`, Assigning to a Project Manager.
 
 ## Proposed batches
 

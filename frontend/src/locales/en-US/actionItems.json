@@ -49,7 +49,8 @@
     "overdue": "Overdue since {{date}}",
     "snoozed": "Snoozed until {{date}}",
     "waiting": "Waiting on {{name}}",
-    "owner": "Owned by {{owner}}"
+    "owner": "Owned by {{owner}}",
+    "withManager": "With its Project Manager"
   },
   "memberships": {
     "none": "Not in any project or initiative.",
@@ -154,6 +155,9 @@
     "issueFilingCancelled": "stopped trying to file its issue in {{provider}} {{destination}}",
     "pullRequestClosed": "{{key}} closed without merging",
     "unassigned": "{{key}} is no longer assigned to you",
+    "managerAssigned": "assigned it to {{name}}'s Project Manager",
+    "managerUnassigned": "took it back from {{name}}'s Project Manager",
+    "managerUnassignedByLeadMove": "ended its assignment to {{name}}'s Project Manager, since {{name}} no longer leads it",
     "reassigned": "{{key}} was assigned to {{assignee}} instead of you",
     "containerLinked": "linked {{key}}",
     "containerUnlinked": "unlinked {{key}}",
@@ -267,6 +271,7 @@
     "priority": "Change priority",
     "joinInitiative": "Add to initiative",
     "leaveInitiative": "Remove from initiative",
+    "assignToManager": "Assign to Project Manager",
     "toasts": {
       "opened_one": "Opened {{count, compact}} item.",
       "opened_other": "Opened {{count, compact}} items.",
@@ -290,7 +295,12 @@
       "restored_other": "Restored {{count, compact}} items.",
       "refusedOne": "Left “{{title}}” as it is, since it cannot take that change.",
       "refusedMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since they cannot take that change.",
-      "refusedMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since they cannot take that change."
+      "refusedMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since they cannot take that change.",
+      "assigned_one": "Assigned {{count, compact}} item to its Project Manager.",
+      "assigned_other": "Assigned {{count, compact}} items to their Project Managers.",
+      "unassignableOne": "Left “{{title}}” unassigned, since no project leads it or it is finished.",
+      "unassignableMore_one": "Left “{{title}}” and {{count, compact}} more unassigned, since no project leads them or they are finished.",
+      "unassignableMore_other": "Left “{{title}}” and {{count, compact}} more unassigned, since no project leads them or they are finished."
     }
   },
   "filters": {
@@ -341,6 +351,31 @@
     "deletedTitle": "This item is deleted",
     "deletedBody": "Restore it to work on it again."
   },
+  "manager": {
+    "heading": "Project Manager",
+    "helpLabel": "About assigning",
+    "help": "Assigning wakes the lead project's Project Manager to plan this item. What it plans waits for your approval before any worker starts.",
+    "assign": "Assign to Project Manager",
+    "unassign": "Take back",
+    "noLead": "No project leads this item, so no Project Manager can plan it. Choose its lead project to assign it.",
+    "noLeadTooltip": "Choose a lead project first",
+    "notAssigned": "Not assigned yet.",
+    "assignedTo": "Assigned to {{project}}'s Project Manager",
+    "assignedBy": "Assigned by",
+    "assignedOn": "Assigned on",
+    "stage": "Plan",
+    "stages": {
+      "waiting": "Waiting for its next turn",
+      "planning": "Planning now",
+      "planned": "Planned",
+      "failed": "Its turn failed"
+    },
+    "noBatches": "No batch for this item yet; its reply on the Project Manager tab says why.",
+    "failedHint": "The Project Manager tab says why; take it back and assign it again to retry.",
+    "openManager": "Open the Project Manager",
+    "batches": "Batches for this item",
+    "loadError": "Its plan could not be loaded."
+  },
   "sessions": {
     "heading": "Coding sessions",
     "start": "Start a coding session",
@@ -384,6 +419,8 @@
     "created": "Created “{{title}}”.",
     "saved": "Saved “{{title}}”.",
     "accepted": "Accepted “{{title}}”.",
+    "assignedToManager": "Assigned “{{title}}” to its Project Manager.",
+    "unassignedFromManager": "Took “{{title}}” back from its Project Manager.",
     "resolved": "Resolved “{{title}}”.",
     "dismissed": "Dismissed “{{title}}”.",
     "reopened": "Reopened “{{title}}”.",

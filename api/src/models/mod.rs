@@ -3,6 +3,7 @@
 //! Database records and the queries that read and write them.
 
 pub mod action_item;
+pub mod action_item_assignment;
 pub mod action_item_attribution;
 pub mod action_item_bulk;
 pub mod action_item_comment;

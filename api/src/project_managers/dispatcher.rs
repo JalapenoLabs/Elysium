@@ -29,8 +29,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::prompt::{
-    self, ProjectBrief, PromptBatch, PromptMessage, PromptPage, PromptPromise, PromptRecord,
-    PromptWork, TurnContext, Writes,
+    self, ProjectBrief, PromptAssignment, PromptBatch, PromptMessage, PromptPage, PromptPromise,
+    PromptRecord, PromptWork, TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
@@ -48,7 +48,8 @@ use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::work_batch::worker::Wait;
 use crate::models::{
-    action_item, page_project, project, timeline_record, work_batch, worker_setup,
+    action_item, action_item_assignment, action_item_link, page_project, project, timeline_record,
+    work_batch, worker_setup,
 };
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -330,6 +331,7 @@ async fn load_context(
     let mut record_ids = Vec::new();
     let mut batch_ids = Vec::new();
     let mut promise_ids = Vec::new();
+    let mut assigned_ids = Vec::new();
     for wake in wakes {
         match wake.kind {
             WakeKind::Message => messages.push(PromptMessage {
@@ -345,8 +347,10 @@ async fn load_context(
             WakeKind::Record => record_ids.extend(wake.timeline_record_id),
             WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
             WakeKind::Promise => promise_ids.extend(wake.promise_id),
+            WakeKind::Assignment => assigned_ids.extend(wake.action_item_id),
         }
     }
+    let assignments = load_assignments(connection, turn.project_id, &assigned_ids, &names).await?;
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let mut records: Vec<PromptRecord> =
@@ -411,12 +415,51 @@ async fn load_context(
         },
         project: project_brief(connection, project).await?,
         messages,
+        assignments,
         records,
         batches,
         promises,
         retried,
         still_waiting: project_manager::waiting_count(connection, turn.project_id).await?,
     })
+}
+
+/// The items a turn was woken to plan, each with who assigned it and what it is linked to. An item
+/// unassigned since, or whose lead moved to another project, is left out: it is no longer this
+/// Project Manager's to plan.
+async fn load_assignments(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    item_ids: &[Uuid],
+    names: &HashMap<Uuid, String>,
+) -> anyhow::Result<Vec<PromptAssignment>> {
+    let items = action_item_assignment::assigned_among(connection, project_id, item_ids).await?;
+    let mut assignments = Vec::with_capacity(items.len());
+    for item in items {
+        let links = action_item_link::list_for_item(connection, item.id)
+            .await?
+            .into_iter()
+            .map(|link| format!("{} ({})", link.external_key, link.url))
+            .collect();
+        let (Some(assigned_at), Some(assigned_by)) =
+            (item.manager_assigned_at, item.manager_assigned_by)
+        else {
+            unreachable!("assigned_among selects assigned items alone");
+        };
+        assignments.push(PromptAssignment {
+            item_id: item.id,
+            title: item.title,
+            notes: item.notes,
+            state: item.state,
+            assigned_by: names
+                .get(&assigned_by)
+                .cloned()
+                .unwrap_or_else(|| "Someone".to_owned()),
+            assigned_at,
+            links,
+        });
+    }
+    Ok(assignments)
 }
 
 /// `project` as a turn is told it: what it is, the repositories it declares, and its docs.

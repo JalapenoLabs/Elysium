@@ -62,12 +62,12 @@ password and code it handed out before they are stored, as coding sessions' even
 
 | Tool                 | Does                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
-| `elysia_overview`    | Every item in the inbox or open, the active initiatives, the projects, and her own questions and work |
+| `elysia_overview`    | Every item in the inbox or open, each with its lead project and when a person assigned it to that project's Project Manager, the active initiatives, the projects, and her own questions and work |
 | `elysia_item`        | One item's notes and comments                                                 |
 | `elysia_ask`         | Asks a person a question with up to four suggested answers                    |
 | `elysia_work_start`  | Records work she takes on, with when she expects it ready                     |
 | `elysia_work_update` | Updates that record: where it stands, its status, its estimate                |
-| `elysia_propose_changes` | Proposes a changeset of changes to items and initiatives, for a person to approve |
+| `elysia_propose_changes` | Proposes a changeset of changes to items and initiatives, for a person to approve, including suggesting items for their Project Managers to plan (`assign-item`) |
 | `elysia_message_project_manager` | Writes to a project's Project Manager, which wakes at once and answers on its turn (`docs/engine.md`, Project Managers) |
 | `elysia_work_queue`  | The worker pool and its queue in order, then the batches proposed for a person's approval, with each batch's project (`docs/engine.md`, Workers and the pool) |
 | `elysia_change_batch` | Runs a waiting batch next or back in its place, changes its priority, or pauses or resumes it |
@@ -79,6 +79,13 @@ as hers, except that only a person approves or rejects a proposed batch: she lis
 changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
 proposed as `elysia`, which may name any live item, initiative, or project; what she creates joins the projects she
 names. Linking provider issues and pull requests stays a person's to do.
+
+She suggests which work is taken on. When an open item a project leads is ready to be worked and nobody assigned it,
+she proposes assigning it to that project's Project Manager, one `assign-item` operation per item, its reason saying
+why it is ready now, and the person accepts each one, which assigns it (`docs/action-items.md`, Assigning to a Project
+Manager). She never asks a Project Manager to plan an item through `elysia_message_project_manager`: that would take
+the choice from the person. Her standing instructions say both. She suggests as her turns read the workspace; nothing
+starts a turn of hers for an item getting its lead.
 
 ## Idle loop
 
@@ -162,6 +169,7 @@ What she may do without asking follows the tiers in `docs/vision.md`. Everything
 | Drafting (replies, documents), labelling, filing                   | Done and shown   |
 | Writing, moving, and labelling knowledge base pages, every version kept | Done and shown |
 | Any change to action items or initiatives                          | Waits for you, as a changeset |
+| Suggesting an item for its Project Manager to plan                 | Waits for you, as a changeset |
 | Anything sent in a person's name (a comment, a closed issue, mail) | Waits for you, as a changeset or a draft the person sends |
 | Deleting anything, payments                                        | Waits for you    |
 

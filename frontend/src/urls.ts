@@ -177,6 +177,8 @@ export const TAB_PARAM = 'tab'
 export const PAGE_HISTORY_TAB = 'history'
 // The project's tab listing the pages linked to it.
 export const PROJECT_DOCS_TAB = 'docs'
+// The project's tab holding its Project Manager's turns.
+export const PROJECT_MANAGER_TAB = 'manager'
 export const PAGE_VERSION_PARAM = 'version'
 export const PAGE_COMPARE_FROM_PARAM = 'from'
 export const PAGE_COMPARE_TO_PARAM = 'to'
@@ -230,6 +232,10 @@ export function getProjectViewUrl(projectId: string) {
 
 export function getProjectDocsUrl(projectId: string) {
   return `${getProjectViewUrl(projectId)}?${TAB_PARAM}=${PROJECT_DOCS_TAB}`
+}
+
+export function getProjectManagerUrl(projectId: string) {
+  return `${getProjectViewUrl(projectId)}?${TAB_PARAM}=${PROJECT_MANAGER_TAB}`
 }
 
 export function getProjectModelsUrl(projectId: string) {

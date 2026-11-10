@@ -69,6 +69,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/action-items/{id}/history`   | `200` `{ history: HistoryEntry[] }`, oldest first   |
 | POST   | `/api/v1/action-items/{id}/history/{entryId}/undo` | `200` `{ item }`; reverses a change to its projects or lead, `409` when it changed since |
 | PUT    | `/api/v1/action-items/{id}/lead-project` | `200` `{ item }`; `{ projectId }`, one of its projects |
+| GET    | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ plan }`, where its plan stands, or `null` while it is not assigned; members only |
+| PUT    | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ item }`; assigns it to its lead project's Project Manager, `409` with no lead; members only |
+| DELETE | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ item }`; takes it back; members only |
 | GET    | `/api/v1/action-items/{id}/comments`  | `200` `{ comments: Comment[] }`, oldest first       |
 | POST   | `/api/v1/action-items/{id}/comments`  | `201` `{ comment }`                                 |
 | PATCH  | `/api/v1/action-items/{id}/comments/{commentId}` | `200` `{ comment }`                      |
@@ -888,7 +891,9 @@ An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`
 `high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
 `projectIds`, `projectAttributions` (each of its projects as `{ projectId, confidence, attributedBy }`: how sure whoever
 put it there was, 1 for anyone but the attribution step, and the actor), `leadProjectId` (the one of its projects that
-leads it, set exactly while it is in any), `initiativeIds` (the initiatives it is in now, leaving out deleted ones),
+leads it, set exactly while it is in any), `managerAssignment` (`{ assignedAt, assignedBy }` while a person has it
+assigned to its lead project's Project Manager, or null), `initiativeIds` (the initiatives it is in now, leaving out
+deleted ones),
 `createdAt`, `updatedAt`, and
 `issueFiling`, the issue it is owed and not yet filed, `{ id, provider, destination, attempts, lastError,
 lastAttemptAt, createdAt }`, or null. `owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody"
@@ -910,7 +915,8 @@ answers `409`, as do deleting a deleted item and restoring one that is not.
 (repeats count once; `MAX_ITEMS` in `src/models/action_item_bulk.rs`) and `change` an object whose `kind` says what it
 does: `state` with `state` (`open`, `resolved`, or `dismissed`; each item takes the transition that leads there from its
 own state, and one already there is left as it is), `priority` with `priority`, `snooze` with `until` (as the item's
-own route), `join-initiative` or `leave-initiative` with `initiativeId`, `delete`, or `restore`. Each item goes through
+own route), `join-initiative` or `leave-initiative` with `initiativeId`, `assign-to-manager` or
+`unassign-from-manager` (for the company's members alone, as on one item), `delete`, or `restore`. Each item goes through
 the same write its own route makes, in one transaction, recording its own history with the person as the actor; there
 is no changeset, since the person acts directly. An item the records refuse (unknown, deleted, or in a state no
 transition leaves for the one asked) is left as it was and listed in `refused` as `{ itemId, message }`, while the rest
@@ -924,6 +930,16 @@ initiative `409`. Deleting a project takes its items and initiatives out of it, 
 first project leads it, and when its lead leaves, the surest of those left leads instead
 (`docs/action-items.md`, Projects and the lead). `PUT /lead-project` makes one of its projects its lead, and answers
 `400` for a project it is not in.
+
+`PUT /manager-assignment` assigns the item to its lead project's Project Manager, which wakes to plan it, as the
+person; an item in the inbox is accepted as it is assigned, and one already assigned answers unchanged. An item no
+project leads, or one resolved, dismissed, or deleted, answers `409`. `DELETE` takes it back, dropping the wake if no
+turn has taken it, and answers unchanged for an item not assigned. `GET` answers `{ plan }`: `{ projectId, assignedAt,
+assignedBy, stage, turnId, batches }`, where `stage` is `waiting`, `planning`, `planned`, or `failed`, `turnId` is the
+turn that took the assignment once one did, and `batches` are the lead project's latest ten naming the item, newest
+first, each `{ id, title, state, createdAt }`; `plan` is null while the item is not assigned. All three answer guests
+`403`, since Project Managers and batches are the company's members' (`docs/action-items.md`, Assigning to a Project
+Manager). Each write publishes the item and `projectManager.changed` for the lead project.
 
 `POST /history/{entryId}/undo` reverses one `project_added`, `project_removed`, or `lead_project_changed` entry as the
 person, recording an entry of its own that names the one it undid (`data.undid`). Only the latest change to that

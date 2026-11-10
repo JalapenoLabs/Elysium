@@ -34,12 +34,13 @@ use super::{
     Touched, Written, conclude, lock, operations_of, settle,
 };
 use crate::action_items::changesets::{
-    self, AddComment, AddLink, CreateInitiative, CreateItem, FileIssue, LinkReads, Membership,
-    Operation, Proposer, Target, UpdateItem,
+    self, AddComment, AddLink, AssignItem, CreateInitiative, CreateItem, FileIssue, LinkReads,
+    Membership, Operation, Proposer, Target, UpdateItem,
 };
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::models::action_item::{self, ActionItemChanges, ActionItemState, NewActionItem, Owner};
-use crate::models::action_item_event::{self, HistoryEntry};
+use crate::models::action_item_assignment::{self, Assigner};
+use crate::models::action_item_event::{self, HistoryEntry, HistoryKind};
 use crate::models::action_item_issue_filing::{self, NewFiling};
 use crate::models::action_item_link::Claim;
 use crate::models::initiative::{self, NewInitiative};
@@ -110,6 +111,9 @@ struct Run {
     proposer: Proposer,
     /// The proposer, whom applied changes record as their actor.
     actor: Actor,
+    /// Who decided the changeset: a person, or the proposer's own machine. A person accepting
+    /// Elysia's suggested assignment is who assigned the item.
+    decided_by: Uuid,
     /// Whether a person applied it, approving each operation, rather than the proposer's own
     /// machine applying a Project Manager's changes as they were made.
     reviewed: bool,
@@ -258,6 +262,7 @@ pub async fn apply(
                 changeset_id: id,
                 proposer,
                 actor: proposer.actor(),
+                decided_by,
                 reviewed: decided_by != proposer.actor().user_id(),
                 claim: if proposer == Proposer::Elysia {
                     Claim::Primary
@@ -324,7 +329,37 @@ async fn apply_one(
         }
         Operation::CreateInitiative(create) => create_initiative(connection, run, create).await,
         Operation::FileIssue(file) => file_issue(connection, run, operation_id, file).await,
+        Operation::AssignItem(assign) => assign_item(connection, run, assign).await,
     }
+}
+
+/// Assigns the item to its lead project's Project Manager as the proposer, for the person who
+/// approved it. Only Elysia proposes assignments, and only a person decides hers, so the decider is
+/// always a person here. Keeps whether it changed anything, so an undo takes back only an
+/// assignment it made.
+async fn assign_item(
+    connection: &mut AsyncPgConnection,
+    run: &Run,
+    assign: AssignItem,
+) -> Result<Done, Failure> {
+    let id = run.resolve(assign.item);
+    let assigner = Assigner {
+        actor: run.actor,
+        person: run.decided_by,
+    };
+    let written = action_item_assignment::assign(connection, id, assigner, run.now).await?;
+    let made = written
+        .history
+        .iter()
+        .any(|entry| entry.kind == HistoryKind::ManagerAssigned.as_str());
+    // When it applied, so an undo takes back this assignment and not one a person made since.
+    let result = json!({
+        "itemId": id,
+        "assigned": made,
+        "projectId": written.record.lead_project_id,
+        "assignedAt": written.record.manager_assigned_at,
+    });
+    Ok(Done::on_item(result, id, written.history))
 }
 
 /// Creates an item, the user's: open when a person approved it, which accepts it, and in the
@@ -646,6 +681,7 @@ async fn describe(
             file.tracker.provider.name(),
             file.tracker.destination
         ),
+        Operation::AssignItem(_) => format!("Assigned to its Project Manager: {item_title}"),
     };
     Ok(line.trim_end_matches([':', ' ']).to_owned())
 }

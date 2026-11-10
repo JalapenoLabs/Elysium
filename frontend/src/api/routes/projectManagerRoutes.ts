@@ -16,7 +16,7 @@ export const PROJECT_MANAGER_TURN_STATUSES = [ 'running', 'succeeded', 'failed' 
 export type ProjectManagerTurnStatus = typeof PROJECT_MANAGER_TURN_STATUSES[number]
 
 // Mirrors `WakeKind` in api/src/models/project_manager.rs.
-export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise' ] as const
+export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise', 'assignment' ] as const
 export type ProjectManagerWakeKind = typeof PROJECT_MANAGER_WAKE_KINDS[number]
 
 // Mirrors `Priority` in api/src/models/work_batch.rs.
@@ -49,13 +49,15 @@ export type WorkBatchWait = typeof WORK_BATCH_WAITS[number]
 export const WORK_BATCH_ORIGINS = [ 'human_rooted', 'found' ] as const
 export type WorkBatchOrigin = typeof WORK_BATCH_ORIGINS[number]
 
-// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
+// One thing that woke a turn: a message with its text, a record, a batch, a promise, or an action
+// item a person assigned it, by id.
 export type ProjectManagerWake = {
   id: string
   kind: ProjectManagerWakeKind
   timelineRecordId: string | null
   workBatchId: string | null
   promiseId: string | null
+  actionItemId: string | null
   body: string | null
   // Who caused it: the person or Elysia who wrote, or whoever attributed the record.
   createdBy: string

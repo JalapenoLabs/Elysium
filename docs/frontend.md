@@ -1151,8 +1151,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   written, so a filtered list survives opening an item and coming back. The page applies them itself, so a list that
   nothing matches says so while its tags stay to take a filter off. Selecting rows opens the floating selection bar
   (`useActionItemBulkActions`): Change state (Open, Resolved, Dismissed), Change priority, Snooze (the presets, Pick a
-  day, or End the snooze), Add to initiative, Remove from initiative, and Delete, at once with Undo; deleted items
-  Restore together. Each is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most
+  day, or End the snooze), Add to initiative, Remove from initiative, Assign to Project Manager (for the company's
+  members, a warning naming what no project leads), and Delete, at once with Undo; deleted items Restore together. Each is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most
   `ACTION_ITEM_BULK_MAX_ITEMS`; the answer lands in Redux at once (`actionItemsUpserted`), the toast counts what
   changed, and a warning that stays names, by title, an item the change was refused for.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
@@ -1160,7 +1160,13 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
   other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
   Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
-  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` holds priority, due date,
+  from the item, from the `codingSessions` slice, below its comments. `ActionItemManagerAssignment`, below its links and
+  for the company's members, assigns the item to its lead project's Project Manager or takes it back, says why an item
+  no project leads cannot be, and shows who assigned it and when, its stage, and the batches naming it, each opening its
+  page, with a link to the Project Manager tab (`getProjectManagerUrl`). Its plan is read through SWR
+  (`useManagerPlan`), never Redux, since only the item's page shows it, and `actionItem.upserted`,
+  `projectManager.changed`, and `workBatch.changed` read it again. An assigned item carries a "With its Project Manager"
+  badge (`ActionItemBadges`). `ActionItemDetailsPanel` holds priority, due date,
   projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
   routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
   each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them
