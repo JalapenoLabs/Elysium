@@ -417,8 +417,8 @@ What it gives (`Handled`) is the conversation, its turns and messages, and the i
 - **A turn.** Each turn is one text turn on the runner (`TurnMode::Text`: no tools, no settings) on the step's model
   setting, which it reads once there is something to read. Its prompt is the doc whole, the newest 30 pending and 30
   rejected proposals as compact diffs, and as many records as fit, each body cut to 1,500 characters, under 120,000
-  bytes, since the runner passes the prompt as one argument and Linux allows one argument 128 KiB. A doc that leaves
-  too little room fails the step for good, saying so. The prompt and the checks on the answer are
+  bytes, so one review reads a batch of what was ingested and the records past it are the next turn's. A doc that
+  leaves too little room fails the step for good, saying so. The prompt and the checks on the answer are
   `api/src/company_doc/review.rs`.
 - **Nothing in the answer is trusted.** Each proposal must name a section, hold edits and a reason, and be the first
   for its section; it cites a record only when that record was offered, and its source is written from the record.

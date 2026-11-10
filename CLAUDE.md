@@ -186,6 +186,8 @@ Everything else follows these rules:
   account's only refresher: turns get its access token alone, and the keeper in `api/src/claude_accounts/` refreshes
   it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
   `docs/coding.md`, Claude accounts.
+- A turn's prompt reaches the CLI on standard input, never as an argument, so no caller cuts what it asks to fit the
+  128 KiB Linux allows one argument. See `docs/coding.md`, How a prompt reaches the CLI.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
 - Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings, read with a
   GitHub token of its own chosen beside it, and adapted to the container that runs it. No worker or Project Manager
