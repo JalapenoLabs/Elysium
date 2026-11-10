@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Reads a signed-in page over the Chrome `DevTools` Protocol: finds the browser's tab for a
-//! service and evaluates a script in it, as the page itself.
+//! service and evaluates a script in it, as the page itself, or reloads it.
 //!
 //! Each browser's `DevTools` port is reached on its own network through the forwarder in
 //! `neko/cdp-forward.py`. Chromium refuses any `Host` header that is not an IP address or
@@ -15,9 +15,11 @@ use futures_util::{SinkExt, StreamExt};
 use reqwest::header::HOST;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use super::container::{DEVTOOLS_PORT, host_name};
@@ -25,6 +27,13 @@ use super::container::{DEVTOOLS_PORT, host_name};
 /// How long one evaluation may take, the script's own awaits included.
 const EVALUATE_TIMEOUT: Duration = Duration::from_secs(30);
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a reloaded page may take to fire its load event. Outlook, Teams, and Slack load in
+/// seconds on the host's connection; past this the reload is reported as failed, and the read
+/// after it says what the page shows.
+const RELOAD_TIMEOUT: Duration = Duration::from_mins(1);
+
+/// A tab's `DevTools` socket.
+type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// The page could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -137,6 +146,19 @@ impl Devtools {
             .await
             .map_err(|_elapsed| DevtoolsError::TimedOut(EVALUATE_TIMEOUT))?
     }
+
+    /// Reloads `tab` in the browser on `port`, as a person pressing F5 would, and waits for the
+    /// page to load.
+    ///
+    /// # Errors
+    /// [`DevtoolsError`] when the tab's socket does not answer, Chromium refuses the reload, or
+    /// the page does not load within [`RELOAD_TIMEOUT`].
+    pub async fn reload(&self, port: u16, tab: &Tab) -> Result<(), DevtoolsError> {
+        let socket_url = forwarded_socket_url(port, tab)?;
+        tokio::time::timeout(RELOAD_TIMEOUT, reload_on(&socket_url))
+            .await
+            .map_err(|_elapsed| DevtoolsError::TimedOut(RELOAD_TIMEOUT))?
+    }
 }
 
 /// The tab's WebSocket, at the forwarder's address rather than Chromium's loopback one.
@@ -152,7 +174,8 @@ fn forwarded_socket_url(port: u16, tab: &Tab) -> Result<Url, DevtoolsError> {
     Ok(url)
 }
 
-async fn evaluate_on(socket_url: &Url, expression: &str) -> Result<Value, DevtoolsError> {
+/// Opens the tab's `DevTools` socket, announcing itself as `localhost` as Chromium requires.
+async fn connect(socket_url: &Url) -> Result<Socket, DevtoolsError> {
     let mut request = socket_url
         .as_str()
         .into_client_request()
@@ -160,10 +183,52 @@ async fn evaluate_on(socket_url: &Url, expression: &str) -> Result<Value, Devtoo
     request
         .headers_mut()
         .insert("Host", HeaderValue::from_static("localhost"));
-    let (mut socket, _response) = tokio_tungstenite::connect_async(request)
+    let (socket, _response) = tokio_tungstenite::connect_async(request)
         .await
         .map_err(|error| DevtoolsError::Unreachable(error.to_string()))?;
+    Ok(socket)
+}
 
+async fn send(socket: &mut Socket, call: &Value) -> Result<(), DevtoolsError> {
+    socket
+        .send(Message::text(call.to_string()))
+        .await
+        .map_err(|error| DevtoolsError::Unreachable(error.to_string()))
+}
+
+/// Reloads the tab and waits for its load event. `Page.enable` is what makes Chromium send
+/// page events on this socket; the socket outlives the navigation, a redirect to another site
+/// included, because it belongs to the tab rather than to the document.
+async fn reload_on(socket_url: &Url) -> Result<(), DevtoolsError> {
+    let mut socket = connect(socket_url).await?;
+    send(&mut socket, &json!({ "id": 1, "method": "Page.enable" })).await?;
+    send(&mut socket, &json!({ "id": 2, "method": "Page.reload" })).await?;
+
+    while let Some(message) = socket.next().await {
+        let message = message.map_err(|error| DevtoolsError::Unreachable(error.to_string()))?;
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let answer: Value = serde_json::from_str(text.as_str())
+            .map_err(|error| DevtoolsError::Unreachable(error.to_string()))?;
+        if let Some(error) = answer.get("error") {
+            let _ = socket.close(None).await;
+            return Err(DevtoolsError::Script(
+                error["message"].as_str().unwrap_or("unknown").to_owned(),
+            ));
+        }
+        if answer["method"] == "Page.loadEventFired" {
+            let _ = socket.close(None).await;
+            return Ok(());
+        }
+    }
+    Err(DevtoolsError::Unreachable(
+        "the page closed its DevTools socket".to_owned(),
+    ))
+}
+
+async fn evaluate_on(socket_url: &Url, expression: &str) -> Result<Value, DevtoolsError> {
+    let mut socket = connect(socket_url).await?;
     let call = json!({
         "id": 1,
         "method": "Runtime.evaluate",
@@ -173,10 +238,7 @@ async fn evaluate_on(socket_url: &Url, expression: &str) -> Result<Value, Devtoo
             "returnByValue": true,
         },
     });
-    socket
-        .send(Message::text(call.to_string()))
-        .await
-        .map_err(|error| DevtoolsError::Unreachable(error.to_string()))?;
+    send(&mut socket, &call).await?;
 
     while let Some(message) = socket.next().await {
         let message = message.map_err(|error| DevtoolsError::Unreachable(error.to_string()))?;

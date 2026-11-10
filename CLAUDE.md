@@ -239,6 +239,9 @@ Everything else follows these rules:
 - A browser connector's page carries its sign-in panel, which speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- Once a day the engine's ingest pass reloads each browser's service tab in place, one browser a pass, so its
+  rolling session renews, then reads its connector, which records a lapsed session as signed out. The last refresh is
+  `browser_sessions.refreshed_at`; the interval is a code constant. See `docs/browser.md`, Refreshing.
 - A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
   removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
   says so, with the media ports behind its help, rather than spinning.

@@ -279,8 +279,13 @@ kind meets its reader (`for_kind`). A reader is given its browser, what it kept 
 content (`ReadInput`), and answers a reading: the sign-in state, the items it found, and optionally its state for the
 next read, such as a watermark. Ingest keeps that state in the connector's cursor beside the baseline,
 `{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. A reader whose service has no
-tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its row in `for_kind`, and itself to
-`BROWSER_READ`, and a test fails when any of the three is missing.
+tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its rows in `for_kind` and
+`service_page` (which tabs show its app and which its sign-in), and itself to `BROWSER_READ`, and a test fails when any
+is missing or its start page is not its app.
+
+Each pass also refreshes at most one browser, the one longest without, once a day: it reloads the service's tab so its
+rolling session renews, and the connector's read in the same pass is its sign-in check (`docs/browser.md`,
+Refreshing).
 
 `api/src/connectors/webmail.rs` reads a mailbox through its browser. Each service is one row of `SERVICES`:
 

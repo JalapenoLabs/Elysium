@@ -48,6 +48,9 @@ pub struct BrowserSession {
     pub state: BrowserState,
     /// Why it failed, exactly while it is failed.
     pub state_error: Option<String>,
+    /// When the engine last reloaded the service it is signed in to, so its session renews;
+    /// unset until the first time. See `crate::connectors::refresh`.
+    pub refreshed_at: Option<DateTime<Utc>>,
 }
 
 /// Fields for a new browser, with the password still in plaintext.
@@ -213,6 +216,23 @@ pub async fn clear_start_page_opened(
 ) -> QueryResult<()> {
     diesel::update(browser_sessions::table.find(id))
         .set(browser_sessions::start_page_opened_at.eq(None::<chrono::DateTime<chrono::Utc>>))
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
+/// Records that the engine refreshed browser `id` at `refreshed_at`, or began to: the claim is
+/// written before the reload, so one that fails waits its day like any other.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_refreshed(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    refreshed_at: DateTime<Utc>,
+) -> QueryResult<()> {
+    diesel::update(browser_sessions::table.find(id))
+        .set(browser_sessions::refreshed_at.eq(refreshed_at))
         .execute(connection)
         .await?;
     Ok(())

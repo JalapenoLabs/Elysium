@@ -447,6 +447,7 @@ diesel::table! {
         start_page_opened_at -> Nullable<Timestamptz>,
         state -> BrowserState,
         state_error -> Nullable<Text>,
+        refreshed_at -> Nullable<Timestamptz>,
     }
 }
 
