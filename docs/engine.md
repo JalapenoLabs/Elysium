@@ -264,20 +264,22 @@ the Runs page.
   word, with a local Whisper (faster-whisper with Whisper large-v3, pinned and checked) in a container of its own with
   no network, and stores it under the capture, beside its source's. Anthropic offers no transcription for recorded
   audio, and nothing leaves the host.
-  A meeting without audio skips the step, saying so. See `docs/meetings.md`, Transcription. Every transcript a meeting
-  has is an input to correction; more sources mean better corrections.
-- Built: correction, the run's `correct_transcript` step, is an agent that reconciles the transcripts against the
-  company doc and other meetings and writes a corrected copy beside the raw ones, which it never changes. Its text
-  turns' answers are checked word by word, so the copy keeps the transcript's every line, speaker, and time and only
-  fixes misheard names and terms. The web app shows the two as a diff on the meeting's page, and the person may
-  approve it. Approval is optional: every later step reads the corrected copy either way, told whether it was
-  approved (its output's `approved`). See `docs/meetings.md`, Correction.
+  Whisper is told the Transcription doc's names and the company doc's first, as its hint words. A meeting without
+  audio skips the step, saying so. See `docs/meetings.md`, Transcription. Every transcript a meeting has is an input
+  to correction; more sources mean better corrections.
+- Built: correction, the run's `correct_transcript` step, is an agent that settles the meeting's final transcript in
+  one turn, reading every capture's version of each line against the Transcription doc and the company doc. It flags
+  word ranges with the text it chose, a confidence, and alternatives, each checked word by word, and a range a capture
+  heard otherwise with no flag is marked at 50; settled words stand through every rebuild. The first capture's
+  corrected copy is stored beside the raw transcripts, which it never changes, and the Transcription doc learns what
+  it was sure of. The web app shows the copy as a diff on the meeting's page, and the person may approve it. Approval
+  is optional: every later step reads the corrected copy either way, told whether it was approved (its output's
+  `approved`). See `docs/meetings.md`, Correction, and The Transcription doc.
 - Built: before correction, the run's `align_meeting` step puts every capture of the meeting on its clock, by
   cross-correlating each recording's audio against the first capture's, or by matching words and their times, and
   lines their words up into the meeting's final transcript: a stream of words with stable ids on the meeting's clock,
   each saying where it came from, Whisper's timings anchoring and the sources' speakers naming who spoke, which every
-  mark (an edit, an excerpt, a comment, and the rest) anchors to as a range of word ids. Correction lines it up again
-  with its copy, keeping every edit. Every change to a meeting is in its history, undoable. See `docs/meetings.md`,
+  mark (an edit, an excerpt, a comment, and the rest) anchors to as a range of word ids. Every change to a meeting is in its history, undoable. See `docs/meetings.md`,
   Aligning, The final transcript, and History.
 - Built: a meeting that overlaps another of its person's, with participants in common, holds its run at aligning
   with an inbox item, "Same meeting as" the other, until its person merges it or says it is not the same; Elysium

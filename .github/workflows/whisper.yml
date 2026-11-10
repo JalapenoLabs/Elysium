@@ -46,12 +46,14 @@ jobs:
 
       # The engine runs it with no network and the recording on standard input
       # (api/src/whisper/), so the check does the same, on twelve seconds of public-domain
-      # speech, and reads the transcript back.
+      # speech, told the names to listen for as the engine tells it, and reads the transcript
+      # back.
       - name: Transcribe a recording with no network
         run: |
           set -euo pipefail
           docker run --rm --interactive --network none --cpus 4 --cap-drop ALL \
             --security-opt no-new-privileges "${IMAGE}" --threads 4 \
+            --hint-words "LibriVox, Elysium" \
             < whisper/fixtures/librivox-intro.opus > "${RUNNER_TEMP}/transcript.json"
           python3 - "${RUNNER_TEMP}/transcript.json" <<'EOF'
           import json, sys
@@ -60,6 +62,7 @@ jobs:
           words = [word for segment in transcript["segments"] for word in segment["words"]]
           assert transcript["language"] == "en", transcript["language"]
           assert "public domain" in text, text
+          assert "librivox" in text, text
           assert words and all(word["endMs"] >= word["startMs"] for word in words)
           print(f"heard {len(words)} words: {text}")
           EOF

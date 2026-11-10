@@ -44,6 +44,7 @@ pub mod duplicates;
 pub mod fetch;
 pub mod final_transcript;
 pub mod fireflies;
+pub mod fixes;
 pub mod history;
 pub mod media;
 pub mod segment;
@@ -504,6 +505,30 @@ pub async fn capture_of(
         return Err(diesel::result::Error::NotFound);
     }
     Ok(capture)
+}
+
+/// What a capture's source, its `source_kind`, is called in English, as the correction's prompt and
+/// the Transcription doc name the transcript that heard something: its connector's product, or the
+/// kind as stored, capitalized, for a source no connector reads, such as an upload.
+pub fn source_name(source_kind: &str) -> String {
+    let Some(kind) = ConnectorKind::parse(source_kind) else {
+        let mut characters = source_kind.chars();
+        return characters.next().map_or_else(String::new, |first| {
+            first.to_uppercase().chain(characters).collect()
+        });
+    };
+    let name = match kind {
+        ConnectorKind::Jira => "Jira",
+        ConnectorKind::Github => "GitHub",
+        ConnectorKind::Outlook => "Outlook",
+        ConnectorKind::Gmail => "Gmail",
+        ConnectorKind::Teams => "Teams",
+        ConnectorKind::Slack => "Slack",
+        ConnectorKind::Fireflies => "Fireflies",
+        ConnectorKind::Confluence => "Confluence",
+        ConnectorKind::Youtrack => "YouTrack",
+    };
+    name.to_owned()
 }
 
 /// Storage location `storage_location_id`, with the key that opens it.

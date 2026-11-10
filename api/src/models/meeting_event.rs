@@ -23,10 +23,13 @@ use crate::models::agent::Author;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventKind {
     /// Its final transcript was lined up from its captures (`models::meeting_word::Rebuilt`):
-    /// first built, or built again because its captures, their offsets, or its corrected copy
-    /// changed, keeping every edit. A transcript built before captures were aligned records
-    /// `{ captureId, builtFrom, words }` instead.
+    /// first built, or built again because its captures or their offsets changed, keeping every
+    /// edit and everything its correction settled. A transcript built before captures were
+    /// aligned records `{ captureId, builtFrom, words }` instead.
     Built,
+    /// Its correction settled its final transcript (`models::meeting_word::SettledChange`): the
+    /// ranges it changed, and the confidence marks it made.
+    Settled,
     /// A range of its words was replaced (`models::meeting_word::WordChange`).
     Edited,
     /// A mark was made, or put back: `{ markId, kind, startWordId, endWordId, data }`.
@@ -49,8 +52,9 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Built,
+        Self::Settled,
         Self::Edited,
         Self::Marked,
         Self::Unmarked,
@@ -64,6 +68,7 @@ impl EventKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Built => "built",
+            Self::Settled => "settled",
             Self::Edited => "edited",
             Self::Marked => "marked",
             Self::Unmarked => "unmarked",
@@ -175,6 +180,23 @@ pub async fn record(
         .returning(MeetingEvent::as_returning())
         .get_result(connection)
         .await
+}
+
+/// Fills in what entry `id` records, for a change recorded before its effects were written, since
+/// what it writes names it ([`Change::id`]).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_data(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    data: Value,
+) -> QueryResult<()> {
+    diesel::update(meeting_events::table.find(id))
+        .set(meeting_events::data.eq(data))
+        .execute(connection)
+        .await
+        .map(drop)
 }
 
 /// Entry `id` of meeting `meeting_id`'s history.

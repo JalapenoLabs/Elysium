@@ -16,6 +16,7 @@
 //! | `merged`              | Splits the captures back out (`super::duplicates::split`)        |
 //! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
+//! | `settled`             | None: a person edits what it settled, with its alternatives      |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
 //!
 //! A merge and a split are recorded in both meetings' histories, and undone from the history of
@@ -37,7 +38,7 @@ pub enum UndoError {
     /// The meeting has no such change.
     #[error("not found")]
     NotFound,
-    /// Its kind cannot be undone: a build, or an approval.
+    /// Its kind cannot be undone: a build, a settlement, or an approval.
     #[error("this change cannot be undone")]
     NotUndoable,
     /// What it changed moved on since, so undoing it would overwrite the later change.
@@ -95,7 +96,8 @@ pub async fn undo(
                 Some(EventKind::Split) => Some(
                     super::duplicates::merge_again(connection, &current, &undone, author).await?,
                 ),
-                Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
+                Some(EventKind::Built | EventKind::Settled | EventKind::CorrectionApproved)
+                | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };

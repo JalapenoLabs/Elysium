@@ -11,8 +11,10 @@ Meetings come from meeting sources. Today one exists, Fireflies.ai, read with th
 A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
 and captures, below). Every capture sits on the meeting's one clock, and their words are lined up into its final
 transcript, a stream of words with stable ids, every mark on it a range of those words (Aligning, and The final
-transcript, below). A meeting recorded twice is merged only when its person says so (The same meeting twice, below).
-Every change to a meeting is in its history, and undoable (History, below).
+transcript, below). One correcting agent settles that transcript, flagging what it is unsure of with a confidence and
+alternatives, and the Transcription doc teaches every correction and transcription how the company's speech is misheard
+(Correction, and The Transcription doc, below). A meeting recorded twice is merged only when its person says so (The
+same meeting twice, below). Every change to a meeting is in its history, and undoable (History, below).
 How meetings become reviewed documents of the knowledge base is designed in `docs/meeting-review.md`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
@@ -110,7 +112,7 @@ is fetched or its segments are cut and published.
 | `fetch_meeting`      | `pending` to `recorded` | Stores the capture's transcript and uploads its recording, each with its hash (Fetching, below) |
 | `transcribe_meeting` | No                      | Transcribes the capture's recording with the local Whisper and stores it beside the source's transcript (Transcription, below) |
 | `align_meeting`      | No                      | Places every capture on the meeting's clock, lines their words up into the final transcript, and holds the run while its person says whether it is the same meeting as another (Aligning, below) |
-| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, lines the final transcript up again with it, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
+| `correct_transcript` | No                      | Settles the final transcript with confidences and alternatives, stores the corrected copy beside the raw transcripts, teaches the Transcription doc, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
 | `segment_meeting`    | `segmented`, then `done` | Cuts the corrected copy into topics, cuts each one's clip, and publishes every topic as a timeline record attributed to its projects (Segmentation, below) |
 
 Each step's output names the capture it was about (`captureId`), and the step after reads that capture. A step
@@ -192,6 +194,10 @@ step and the next one still reads its input.
   as the segment. Whisper tells no speakers apart. Correction reads it against the source's transcript; segmenting
   cuts clips by its word timings.
 - Running the step again for a capture transcribed already answers the stored transcript and transcribes nothing.
+- **Told the names first.** Each transcription is given the Transcription doc's entries and the company doc's people
+  and glossary as Whisper's hint words (`transcription_doc::hint_words`, The Transcription doc, below): one argument to
+  the container, `--hint-words`, which faster-whisper reads as `hotwords`, the start of the model's own context. So a
+  name is heard right more often before anything corrects it. The log counts them.
 - As a running step, a transcription holds an activity, so auto-update waits for it rather than cutting it short.
 - A meeting without a recording (the source keeps none, or the connector names nowhere to keep it) skips the step,
   saying "No recording, so nothing to transcribe", and one whose recording has no audio stream skips it saying that.
@@ -274,63 +280,79 @@ whisper/measure.sh
 
 ### Correction
 
-Transcription mishears names, products, and jargon, and every source mishears them differently, so Elysium corrects
-each meeting's transcript against everything it knows before acting on it. `correct_transcript`
-(`api/src/meetings/correct.rs`; the prompt and the checks on the answer are `correction.rs`) takes what the
-transcription gives and gives it back with `correctedTranscriptHash`, naming the corrected copy, and `approved`, whether
-its person had approved it when the run went on, as segmenting's input (`TranscriptToSegment::Meeting`, whose JSON is
-`CorrectedMeeting`'s own). What the transcription gives reads as that with no copy, so a person may skip the step and
-the next one still reads its input. A meeting not fetched skips it, saying "Not fetched, so nothing to correct". The
-raw transcripts are never written.
+Transcription mishears names, products, and jargon, and every capture mishears them differently, so one correcting agent
+settles each meeting's final transcript against everything it knows before the meeting is acted on.
+`correct_transcript` (`api/src/meetings/correct.rs`; the prompt and the checks on the answer are `correction.rs`) takes
+what the transcription gives and gives it back with `correctedTranscriptHash`, naming the corrected copy, and
+`approved`, whether its person had approved it when the run went on, as segmenting's input
+(`TranscriptToSegment::Meeting`, whose JSON is `CorrectedMeeting`'s own). What the transcription gives reads as that
+with no copy, so a person may skip the step and the next one still reads its input. A meeting not fetched skips it,
+saying "Not fetched, so nothing to correct". The raw transcripts are never written.
 
-- **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
-  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`, `docs/knowledge.md`),
-  its sections in the order correction needs them (people, glossary, products, projects, stakeholders, leadership,
-  company), the lines a pending proposal would add marked as proposed. And the company's other meetings: the fixes
-  their 30 newest corrections made, those made in the most meetings first, approved corrections first, and the names
-  speakers went by in the 30 newest meetings' captures, as their sources labelled them, which is usually how people
-  spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
-  knowledge base is (`docs/knowledge.md`, Who sees what).
-- **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
-  Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
-  so nothing to correct".
+- **What it reads.** The meeting's whole final transcript, lined up from every capture (and lined up here first when a
+  person skipped aligning), as numbered lines of one speaker each, broken at a pause of two seconds and every sixty
+  words. Under each line, every capture's own transcript of the same moment that heard it otherwise, its source's lines
+  and its Whisper's alike, on the meeting's clock (`correction::Transcript`). Agreement is not trust: a name every
+  capture mishears the same way is still wrong, and Whisper is one capture among the others, never the source of truth.
+  Beside it, the Transcription doc whole (The Transcription doc, below); the company doc whole, with its pending
+  proposals (`company_doc::read`, `docs/knowledge.md`), its sections in the order correction needs them (people,
+  glossary, products, projects, stakeholders, leadership, company), the lines a pending proposal would add marked as
+  proposed; and the names speakers went by in the 30 newest meetings' captures, as their sources labelled them, which is
+  usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses
+  are its own, as its knowledge base is (`docs/knowledge.md`, Who sees what). A meeting whose first capture heard
+  nothing, or with no words, skips the step, saying "Nothing was said, so nothing to correct".
 - **The turn.** One text turn on the runner, however long the meeting, on the model resolved for the step, of the
   correction kind: Opus 5.5 at high effort unless an admin chose another for the step or the kind (`docs/engine.md`,
-  Models). Its prompt holds the meeting's title and participants, the doc and what other meetings taught, once, then
-  every one of the transcript's numbered lines, then every segment Whisper heard, timed on the same clock. The runner
-  hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI), so nothing is cut to
-  fit. A meeting too long for the model's context fails the step for good, giving the CLI's reason, since every
-  attempt would read the same prompt (`TurnOutcome::prompt_too_long`); skipping the step on the Runs page lets
-  segmenting go on from the transcript as heard.
-- **The answer** is `{ "edits": [{ "line", "text" }] }`: the whole corrected text of each line it changes.
-- **Nothing in the answer is trusted.** The copy is built from the transcript with only the edited lines' text
-  replaced, so it keeps every line, in order, with its speaker and times, whatever the model answers. An edit is kept
-  only for a line the transcript has, once per line, with text, and only when it fixes words: compared word by word,
-  without regard to case or the punctuation around a word, each change replaces at most four words with at most four
-  (a name heard as several words is one fix), none adds words where there were none or drops words without a
-  replacement, and the words replaced are at most half the line's (or four, on a short line). A refused edit leaves
-  its line as heard, and is logged by its line number and why. An answer with no JSON, or the wrong shape, fails the
-  attempt, which the run's backoff tries again.
+  Models). Its prompt holds the meeting's title and participants, both docs and the speakers' names, once, then every
+  line with what each capture heard otherwise. The runner hands the CLI its prompt on standard input (`docs/coding.md`,
+  How a prompt reaches the CLI), so nothing is cut to fit. A meeting too long for the model's context fails the step
+  for good, giving the CLI's reason, since every attempt would read the same prompt (`TurnOutcome::prompt_too_long`);
+  skipping the step on the Runs page lets segmenting go on from the transcript as heard.
+- **The answer** is `{ "flags": [{ "line", "heard", "text", "confidence", "alternatives", "why" }] }`: each flag names a
+  run of a line's words by copying them, the text it decided on, its confidence from 0 to 100, up to three other things
+  the run may have said, and why, in a sentence. A run it cannot make out is flagged at 0 with no alternatives, for a
+  person to listen to.
+- **Nothing in the answer is trusted.** A flag is kept only for a line the transcript has, over words found in that
+  line exactly once (compared without regard to case or the punctuation around a word), overlapping no flag kept before
+  it, and its text replaces only those words. Its text must only fix words: each change replaces at most four words
+  with at most four (a name heard as several words is one fix), none adds words where there were none or drops words
+  without a replacement, and the words replaced are at most half the run's (or four, on a short run). Its confidence is
+  rounded and clamped to 0 to 100; a flag that changes words without one is held at 50, and one that changes nothing
+  and says nothing is dropped. Its alternatives are kept when they are text, each once, none the text it decided on,
+  each only fixing words as its text must, and at most three. A refused flag leaves its words as they were, and is
+  logged by its line number and why. An answer with no JSON, or the wrong shape, fails the attempt, which the run's
+  backoff tries again.
+- **Settling.** In one transaction under the meeting's lock (`meeting_word::settle`): each flag whose text differs from
+  its words replaces them with words of the correction's own (origin `correction`, their capture the words'), sharing
+  their span, every mark over the old words covering the new ones; and every flag makes a confidence mark over its
+  words, `{ confidence, alternatives }`. A run whose words differ from what a capture heard over the same line, with no
+  flag over it and no person's edit in it, is marked changed at 50, its alternatives what the captures heard there
+  (`correction::unflagged_changes`), so nothing the transcript changed from a capture goes unseen. A run whose words
+  changed since the turn read them, by a person's edit meanwhile, is passed over. It is one `settled` change in the
+  meeting's history, by the system (History, below).
+- **The copy, and what it teaches.** In the same transaction, the corrected copy of its first capture's lines is
+  stored, each flag that lies inside one of those lines in place (The corrected copy, below), and the Transcription doc
+  learns each fix of every flag at 80 or more (The Transcription doc, below).
 - **Once.** The copy is stored in `meeting_corrections` (`docs/database.md`), once: an attempt that finds it answers
-  it without a turn, so an engine that stopped after storing it costs nothing more.
-- **The final transcript.** Every attempt that has a copy lines the meeting's final transcript up again with it (The
-  final transcript, below), which changes nothing once it has, so an engine that stopped between the two does it on
-  the next attempt. A meeting merged into another skips the step, saying "Merged into another meeting, so nothing to
-  correct".
-- **What it logs.** Line counts, line numbers, and hashes, never a word that was said.
+  it without a turn, and one that finds another attempt stored it first discards its own. A rebuild keeps what a
+  settlement wrote (The final transcript, below), so a hand-set offset, a merge, or a split lines the transcript up
+  again and never settles it again. A meeting merged into another skips the step, saying "Merged into another meeting,
+  so nothing to correct".
+- **What it logs.** Word, line, and flag counts, line numbers, and hashes, never a word that was said.
 
 #### The corrected copy
 
-What the steps after correction read, segmenting first. The step's output names it by its hash, and
-`correct::corrected_lines` reads the copy an output names.
+What the steps after correction read, segmenting first, until segmenting reads the final transcript's words
+(`docs/meeting-review.md`, Excerpts). The step's output names it by its hash, and `correct::corrected_lines` reads the
+copy an output names.
 
 | Field            | Holds                                                                                     |
 |------------------|-------------------------------------------------------------------------------------------|
-| `transcript`     | An array of `{ startMs, endMs, speaker, text }`, the shape of `meeting_captures.transcript`: one per line of the transcript it follows, in its order, with its speaker and times; only `text` differs |
+| `transcript`     | An array of `{ startMs, endMs, speaker, text }`, the shape of `meeting_captures.transcript`: one per line of the first capture's transcript it follows, in its order, with its speaker and times; only `text` differs, each flag that lies inside the line in place, so a flag over another capture's words or across two lines is in the final transcript alone |
 | `transcript_hash`| The SHA-256 of `transcript` as stored, which the output's `correctedTranscriptHash` names  |
 | `based_on`       | `source` or `whisper`: the transcript it follows                                          |
 | `changed_lines`  | How many lines it changed                                                                 |
-| `fixes`          | Each distinct fix, `{ heard, written }`, which later corrections learn from               |
+| `fixes`          | Each distinct fix its flags made, `{ heard, written }`                                   |
 | `approved_by`, `approved_at` | Who approved it, and when                                                     |
 
 Its times are milliseconds from the recording's start, as Whisper's words are (Transcription, above), so a stretch of
@@ -567,24 +589,23 @@ in the meeting's history that wrote it (`introduced_by`).
 
 - **Lined up from every capture.** A meeting's final transcript is lined up from its captures
   (`meetings::final_transcript::rebuild`, the arithmetic in `meetings::alignment`), each on the meeting's clock. Each
-  capture's words come from its lines: the first capture's corrected copy, when the meeting has one, a line that
-  differs from the one it follows being the correction's; otherwise its source's lines, or Whisper's segments when the
-  source sent none. Each word of a line takes Whisper's timing when Whisper heard the same word within two seconds of
+  capture's words come from its lines: its source's, or Whisper's segments when the source sent none. Each word of a line takes Whisper's timing when Whisper heard the same word within two seconds of
   the line, matched in order, since Whisper's timings are exact to the audio; the rest are spread evenly across the
   time left between the words Whisper anchored, or across the whole line (a line timed backwards gives its words no
   time). A word keeps its line's speaker, and one Whisper alone heard takes the speaker of a source's line at that
   moment, since Whisper tells nobody apart. Then the captures are laid out by time: every word of the first capture,
   and of each later one only the words where no capture before it heard anything within two seconds, so a moment two
   captures heard reads once and a stretch only one caught is still there. A capture Whisper never heard is built
-  exactly as the migration that split meetings into captures built every transcript, in SQL, and a test holds the two
-  to the same words.
-- **Lined up again.** It is lined up by the align step, again by the correction step once its copy is stored, again
-  by everything that moves a capture (a hand-set offset, a merge, a split), and by segmenting for a meeting whose
-  aligning was skipped, by the system or by the person whose change caused it, as a `built` change. Each compares the
-  words its captures give now with the words that stand and changes only what differs: a word that reads, sounds, and
-  sits the same keeps its id, so marks over it never move. Every edit's words stand through it, the captures' words at
-  the same moment staying out, and a mark over a word it replaced moves onto the new words at the same moment. A
-  rebuild is not undone on its own; what caused it is, and that lines the transcript up again.
+  exactly as the migration that split meetings into captures built every uncorrected transcript, in SQL, and a test
+  holds the two to the same words.
+- **Lined up again.** It is lined up by the align step, again by everything that moves a capture (a hand-set offset,
+  a merge, a split), and by correction and segmenting for a meeting whose aligning was skipped, by the system or by the
+  person whose change caused it, as a `built` change. Each compares the words its captures give now with the words
+  that stand and changes only what differs: a word that reads, sounds, and sits the same keeps its id, so marks over it
+  never move. Every edit's words stand through it, and so do the words its correction settled while their capture is
+  the meeting's, the captures' words at the same moment staying out; a settled word of a capture split back out goes
+  with its capture. A mark over a word it replaced moves onto the new words at the same moment. A rebuild is not undone
+  on its own; what caused it is, and that lines the transcript up again.
 - **Every word it ever held.** A word is never deleted or rewritten. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
   order of `position`. Positions order every word a meeting ever held in one sequence with gaps of 1024, and an edit
@@ -593,7 +614,8 @@ in the meeting's history that wrote it (`introduced_by`).
   one statement, keeping their order.
 - **Marks** (`meeting_marks`, `models::meeting_mark`) are rows anchored to a start and an end word: a confidence flag,
   an edit, an excerpt, a black-out, a comment, a pin, or a task (`docs/meeting-review.md`, Marks), each with its data
-  and who made it. A range runs between two standing words of the meeting, in order, so it is one word or the whole
+  and who made it. A confidence mark's data is `{ confidence, alternatives }`: its correction's flag, or 50 with what
+  the captures heard for a run the transcript changed from one of them (Correction, above). A range runs between two standing words of the meeting, in order, so it is one word or the whole
   meeting. A removed mark is kept, marked by the change that removed it, so an undo puts it back with whatever hangs
   from it.
 - **An edit** (`meeting_word::edit`) replaces a range of standing words with new ones, at most 20,000 characters and
@@ -612,7 +634,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Change                | What it records                                                  | Its undo |
 |-----------------------|------------------------------------------------------------------|----------|
-| `built`               | The captures it was lined up from with their offsets, whether the first capture's words are its corrected copy's, and how many words stand, were written, and were replaced, and how many marks moved | None: what caused it is undone, and lines it up again |
+| `built`               | The captures it was lined up from with their offsets, what the first capture's words were lined up from (`source` or `whisper`), and how many words stand, were written, and were replaced, and how many marks moved | None: what caused it is undone, and lines it up again |
+| `settled`             | Each range its correction changed, as an edit records its own, every confidence mark it made, and how many ranges it passed over because their words changed since it read them | None: a person edits what it settled, its alternatives offered on the meeting's page |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
 | `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
@@ -620,6 +643,36 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `offset_changed`      | A capture's offset and how it was found, before and after, set by hand | Puts the offset back, while nothing moved the capture since |
 | `merged`              | In both meetings: which meeting's captures went into which, and where each sat before and after | From the kept meeting's: splits them back out |
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
+
+## The Transcription doc
+
+One fixed page of the knowledge base, Transcription (`crate::transcription_doc`, at an id fixed in code, beside Learnings
+and the Company page), is the one source of truth for how the company's speech is misheard and what it is, such as
+"Sheriff" heard for "Sharath" in Teams. It is a page like any other: people edit it directly, every change a version
+(`docs/knowledge.md`, Pages), and it is indexed by its text, as every page Elysium seeds is.
+
+- **Its entries** are a table, `| Heard | Is | Sources | Speakers | Meetings |`: what was heard, what it is, the
+  transcripts that heard it so (a source such as Teams, or Whisper), who was speaking, and links to the ten newest
+  meetings it was heard in. Below it, **What it taught itself** lists each entry Elysium added or heard again, newest
+  first, each with when, where, and why, for a person to review and prune. The hundred newest stay on the page; every
+  older one is in its versions.
+- **It teaches itself, live at once.** A person's edit on a meeting's page that only fixes words, as a correction's text
+  must (`meetings::fixes::edit`), and each fix of a flag the correcting agent was sure of, at 80 or more
+  (`correct::TEACHING_CONFIDENCE`), add their entry or strengthen it with their source, speaker, and meeting, in the
+  transaction that made them, as one version of the page by whoever taught it: the person, or the system for a
+  correction. An edit that rewrites more than that, or only changes case and punctuation, teaches nothing, and undoing
+  an edit leaves what it taught.
+- **People's edits stay.** Elysium reads and writes only the table and the list, found by their header and heading,
+  and edits their lines in place, so a person's own rows, notes, and order stay as they wrote them. A row it cannot
+  read is passed over, and a table or heading a person removed comes back at the page's end the next time it learns.
+- **Every correction reads it** whole in its prompt (Correction, above), and **every transcription** is told what its
+  entries are, those heard in the most meetings first, then the names and terms the company doc's People and Glossary
+  sections spell (each line's text before its first colon, dash, bracket, or comma), each once, within 500 characters
+  (Transcription, above).
+- **The company doc.** A lesson naming someone or something the company doc's People and Glossary do not, nor any
+  proposal waiting for review, is proposed to it as one line, `- Sharath: often heard as "Sheriff"`: to People when it
+  names one of the meeting's participants or speakers, and to the Glossary otherwise, for a person to approve
+  (`docs/knowledge.md`, The company doc). A correction proposes as Elysia, naming its run, and a person's fix as them.
 
 ## In the web app
 
@@ -672,7 +725,9 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, or it was merged or split: its id, state, and owner, never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, or it was merged or split: its id, state, and owner, never its title or transcript |
+| `page.changed`              | The Transcription doc learned from a correction or a person's fix: its id alone |
+| `companyDoc.changed`        | A correction or a fix proposed a name to the company doc                 |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |

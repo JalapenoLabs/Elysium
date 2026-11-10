@@ -623,6 +623,61 @@ fn lock<Value>(mutex: &Mutex<Value>) -> std::sync::MutexGuard<'_, Value> {
 }
 
 #[cfg(test)]
+impl Runner {
+    /// A runner whose turns answer `answers` in order, each as Claude Code's final text, on a
+    /// credential of its own and with nothing reaching Docker: for a step whose turn a test
+    /// scripts, such as segmenting.
+    pub fn answering(answers: &[&str]) -> Self {
+        let scripts = answers
+            .iter()
+            .map(|answer| result_line(answer, false, 0))
+            .collect();
+        Self::scripted(scripts)
+    }
+
+    /// A runner whose one turn fails as Claude Code reports `error`, such as "Prompt is too long":
+    /// for a step whose failure a test drives.
+    pub fn failing_with(error: &str) -> Self {
+        Self::scripted(vec![result_line(error, true, 1)])
+    }
+
+    /// A runner whose attempts print `scripts` in order, on a credential of its own.
+    fn scripted(scripts: Vec<turn::fake::Script>) -> Self {
+        use self::command::CredentialSecret;
+        use self::turn::fake::FakeWorkspace;
+
+        let credential = ClaudeCredential {
+            id: Uuid::now_v7(),
+            name: "scripted".to_owned(),
+            secret: CredentialSecret::SubscriptionToken(SecretString::from("scripted-token")),
+        };
+        Self::with_parts(
+            Executor::Fake(FakeWorkspace::with_scripts(scripts)),
+            CredentialSource::Fixed(vec![credential]),
+            ConfigurationSource::None,
+            Activities::new(),
+            CancellationToken::new(),
+        )
+    }
+}
+
+/// One attempt printing Claude Code's result line, `result` its text, and exiting with
+/// `exit_code`.
+#[cfg(test)]
+fn result_line(result: &str, is_error: bool, exit_code: i64) -> turn::fake::Script {
+    let line = serde_json::json!({
+        "type": "result",
+        "subtype": "success",
+        "is_error": is_error,
+        "result": result,
+        "session_id": "scripted",
+        "total_cost_usd": 0,
+    })
+    .to_string();
+    turn::fake::Script::printing(&[line.as_str()], exit_code)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -351,12 +351,17 @@ Everything else follows these rules:
   timed, on standard output. It decodes on half the host's CPUs, at most 16, one transcription at a time, and is stored
   once per capture in `meeting_transcriptions`. A meeting without audio skips the step. See `docs/meetings.md`,
   Transcription.
-- Each meeting's run corrects its transcript (`correct_transcript`) against every transcript it has, the company doc,
-  and other meetings, into a copy beside the raw ones, which are never changed. The model only names lines and their
-  fixed text, each checked word by word, so the copy keeps every line, speaker, and time. A source's "Wait for my
-  approval before acting on meetings", or a meeting held by hand, holds the run with an inbox item until the person
-  approves the copy, and segmenting runs once it goes on. The step builds the final transcript from the copy, and
-  segmenting builds it for a meeting whose correction was skipped. See `docs/meetings.md`, Correction.
+- Each meeting's run settles its final transcript (`correct_transcript`): one turn reads every capture's version of
+  each line beside the Transcription doc and the company doc, and flags word ranges with the text it chose, a
+  confidence from 0 to 100, and up to three alternatives, each checked word by word; a range a capture heard otherwise
+  with no flag is marked at 50. Settled words stand through every rebuild, and the first capture's corrected copy is
+  stored beside the raw transcripts, which are never changed. A source's "Wait for my approval before acting on
+  meetings", or a meeting held by hand, holds the run with an inbox item until the person approves the copy, and
+  segmenting runs once it goes on. See `docs/meetings.md`, Correction.
+- The Transcription doc is one fixed page (`crate::transcription_doc`) of how the company's speech is misheard: every
+  correction reads it, Whisper is given its entries and the company doc's names as hint words, and a person's fix and
+  the agent's confident corrections teach it at once, as versions of the page; a name the company doc lacks is
+  proposed to it. See `docs/meetings.md`, The Transcription doc.
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting (or the conversation) in order,
   and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
   for the person to retry it from the Meetings page or the run's page.
@@ -450,8 +455,8 @@ Everything else follows these rules:
 ## The company doc
 
 - The doc is seven proposal-only pages under the Company page, each section's id fixed in code, with its history in
-  their versions and `page_events`. Those pages, the Company page, and the Learnings page are fixed: nobody moves,
-  deletes, or renames one. See `docs/knowledge.md`, Pages, Learnings and the company doc.
+  their versions and `page_events`. Those pages, the Company page, the Learnings page, and the Transcription page are
+  fixed: nobody moves, deletes, or renames one. See `docs/knowledge.md`, Pages, Learnings and the company doc.
 - One document per instance knows the company in seven fixed sections: company, leadership, people, stakeholders,
   products, projects, and glossary, the last two carrying how names and jargon are spelled. See `docs/knowledge.md`,
   The company doc.

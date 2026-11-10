@@ -204,6 +204,7 @@ impl Whisper {
     pub async fn transcribe<Open, Recording, Failure>(
         &self,
         key: Uuid,
+        hint_words: &[String],
         open: Open,
         progress: impl Fn(&str),
     ) -> Result<Transcribed, WhisperError>
@@ -232,7 +233,7 @@ impl Whisper {
         self.docker
             .create_container(
                 Some(CreateContainerOptionsBuilder::new().name(&name).build()),
-                container::spec(&self.image, self.threads),
+                container::spec(&self.image, self.threads, hint_words),
             )
             .await?;
         let running = Running {

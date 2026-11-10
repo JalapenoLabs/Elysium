@@ -39,14 +39,21 @@ pub(super) fn name(key: Uuid) -> String {
     format!("elysium-whisper-{key}")
 }
 
-/// A container of `image` that decodes on `threads` threads, with nothing to reach and nothing
-/// shared, reading the recording on its standard input.
-pub(super) fn spec(image: &str, threads: usize) -> ContainerCreateBody {
+/// A container of `image` that decodes on `threads` threads, listening for `hint_words` (names and
+/// terms, such as the Transcription doc's), with nothing to reach and nothing shared, reading the
+/// recording on its standard input.
+pub(super) fn spec(image: &str, threads: usize, hint_words: &[String]) -> ContainerCreateBody {
     // A thread count is a small number; it fits any integer type.
     let threads_i64 = i64::try_from(threads).expect("a thread count fits in i64");
+    let mut cmd = vec!["--threads".to_owned(), threads.to_string()];
+    if !hint_words.is_empty() {
+        // One argument, never a shell: Docker hands it to the transcriber as it is.
+        cmd.push("--hint-words".to_owned());
+        cmd.push(hint_words.join(", "));
+    }
     ContainerCreateBody {
         image: Some(image.to_owned()),
-        cmd: Some(vec!["--threads".to_owned(), threads.to_string()]),
+        cmd: Some(cmd),
         labels: Some(HashMap::from([(
             MANAGED_LABEL.0.to_owned(),
             MANAGED_LABEL.1.to_owned(),

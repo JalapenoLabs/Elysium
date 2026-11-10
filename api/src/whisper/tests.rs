@@ -21,10 +21,27 @@ fn a_transcription_takes_half_the_hosts_cpus_up_to_sixteen() {
 
 #[test]
 fn the_container_has_no_network_and_is_capped_at_its_threads() {
-    let spec = container::spec("elysium-whisper:dev", 16);
+    let spec = container::spec("elysium-whisper:dev", 16, &[]);
     assert_eq!(
         spec.cmd.as_deref(),
         Some(&["--threads".to_owned(), "16".to_owned()][..])
+    );
+    // Names to listen for go as one argument, joined as Whisper reads them.
+    let hinted = container::spec(
+        "elysium-whisper:dev",
+        16,
+        &["Sharath".to_owned(), "Elysium".to_owned()],
+    );
+    assert_eq!(
+        hinted.cmd.as_deref(),
+        Some(
+            &[
+                "--threads".to_owned(),
+                "16".to_owned(),
+                "--hint-words".to_owned(),
+                "Sharath, Elysium".to_owned(),
+            ][..]
+        )
     );
     // The recording arrives on standard input, closed when the attach closes its end.
     assert_eq!(
@@ -227,10 +244,17 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
         .collect::<Vec<_>>();
     let key = Uuid::now_v7();
     let heard = Mutex::new(Vec::new());
+    // Names to listen for reach the transcriber as its own argument.
+    let hint_words = ["Elysium".to_owned(), "Sharath".to_owned()];
     let transcribed = whisper
-        .transcribe(key, async { Ok(stream::iter(chunks)) }, |line| {
-            heard.lock().expect("lock").push(line.to_owned());
-        })
+        .transcribe(
+            key,
+            &hint_words,
+            async { Ok(stream::iter(chunks)) },
+            |line| {
+                heard.lock().expect("lock").push(line.to_owned());
+            },
+        )
         .await
         .expect("transcribes");
     let Transcribed::Transcript(transcript) = transcribed else {
@@ -271,6 +295,7 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
     let silent = whisper
         .transcribe(
             Uuid::now_v7(),
+            &[],
             async {
                 Ok(stream::iter([Ok::<_, std::io::Error>(Bytes::from(
                     picture,
@@ -285,6 +310,7 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
     let garbage = whisper
         .transcribe(
             Uuid::now_v7(),
+            &[],
             async {
                 Ok(stream::iter([Ok::<_, std::io::Error>(Bytes::from_static(
                     b"no recording at all",

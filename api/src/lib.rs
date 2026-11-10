@@ -67,6 +67,7 @@ mod studio;
 #[cfg(test)]
 mod test_support;
 mod tools;
+mod transcription_doc;
 mod updates;
 mod version;
 mod web_app;

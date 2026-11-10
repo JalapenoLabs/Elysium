@@ -6,7 +6,8 @@
 //!
 //! Up must give every meeting one capture holding what it was fetched with, move each Whisper
 //! transcript onto its capture, and build each corrected or segmented meeting's final transcript
-//! word for word as `crate::meetings::final_transcript` builds one. Down must hand every row back
+//! word for word as `crate::meetings::alignment` builds a capture's words, a corrected copy's
+//! changed lines as the correction's ([`as_the_migration_builds`]). Down must hand every row back
 //! exactly, and up must apply again.
 //!
 //! `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs it.
@@ -21,10 +22,11 @@ use serde_json::{Value, json};
 use uuid::{Uuid, uuid};
 
 use super::migrations::{self, MIGRATIONS, MigrationCommand};
-use crate::meetings::correction;
+use crate::meetings::alignment;
+use crate::meetings::correction::{self, Base};
 use crate::meetings::source::TranscriptLine;
-use crate::meetings::{alignment, final_transcript};
-use crate::models::meeting_word::{BuiltWord, POSITION_GAP};
+use crate::models::meeting_correction::BasedOn;
+use crate::models::meeting_word::{BuiltWord, Origin, POSITION_GAP};
 use crate::models::user::SYSTEM_USER_ID;
 use crate::test_support::empty_database;
 use crate::whisper::WhisperTranscript;
@@ -333,8 +335,39 @@ async fn built_in_rust(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> 
     let corrected: Option<Vec<TranscriptLine>> =
         serde_json::from_value(row["corrected"].clone()).expect("a corrected copy, or none");
     let heard = correction::base(source, whisper.as_ref()).expect("something was heard");
-    let (_built_from, lines) = final_transcript::lines_to_build(&heard, corrected.as_deref());
-    alignment::capture_words(lines, &[], 0)
+    alignment::capture_words(
+        as_the_migration_builds(&heard, corrected.as_deref()),
+        &[],
+        0,
+    )
+}
+
+/// The lines the migration builds a meeting's words from, each with where it came from: its
+/// corrected copy's lines when it has one, a line that differs from the one it follows being the
+/// correction's, or else `heard`'s own.
+fn as_the_migration_builds<'lines>(
+    heard: &'lines Base,
+    corrected: Option<&'lines [TranscriptLine]>,
+) -> Vec<(&'lines TranscriptLine, Origin)> {
+    let heard_from = match heard.based_on {
+        BasedOn::Source => Origin::Source,
+        BasedOn::Whisper => Origin::Whisper,
+    };
+    let Some(corrected) = corrected else {
+        return heard.lines.iter().map(|line| (line, heard_from)).collect();
+    };
+    corrected
+        .iter()
+        .zip(&heard.lines)
+        .map(|(line, heard_line)| {
+            let origin = if heard_line.text == line.text {
+                heard_from
+            } else {
+                Origin::Correction
+            };
+            (line, origin)
+        })
+        .collect()
 }
 
 #[tokio::test]
