@@ -22,16 +22,20 @@ doc is what is built and what comes next.
 - **The idle loop** brings her back to her own work when nothing is queued ([Idle loop](#idle-loop)).
 
 - **Her tools** let her read the workspace and keep her own record ([Tools](#tools)).
+- **Comment threads on meetings**: a person who mentions her in a thread on a range of a meeting's transcript queues a
+  turn she answers in the thread, doing what it asks of the meeting (`docs/meetings.md`, Comments).
 
-The code is `api/src/elysia/` (status, availability, intake, dispatcher, prompt, runner seam, trigger kinds),
+The code is `api/src/elysia/` (status, availability, intake, dispatcher, prompt, runner seam, trigger kinds, and the
+meeting thread she was asked in, `thread.rs`),
 `api/src/models/elysia.rs`, and `api/src/routes/v1/elysia/`. The frontend is `frontend/src/elysia/`.
 
 ## Turns
 
 The dispatcher (`api/src/elysia/dispatcher.rs`) and the intake run in the engine (`docs/engine.md`): the intake hears
 every event on the bus, so it runs in that one process. The dispatcher looks at the queue whenever something is queued
-or a hold changes, which the API's routes signal over the bus, and every minute. A turn starts when none is running and nothing holds her back, people first: a queued message or
-answer starts before any queued event. Every turn:
+or a hold changes, which the API's routes signal over the bus, and every minute. A turn starts when none is running
+and nothing holds her back, people first: a queued message, answer, or meeting comment starts before any queued event.
+Every turn:
 
 - runs as one runner conversation, so the runner never starts two of hers at once, in the workspace's `elysia/`
   directory, where her files persist;
@@ -39,10 +43,14 @@ answer starts before any queued event. Every turn:
 - appends her standing instructions, `api/src/elysia/instructions.md`, versioned with the code, to Claude Code's
   system prompt;
 - gets a prompt naming its trigger and carrying what it needs: every message since her last reply, the question and
-  its answer, the batched changes, or the work she is revisiting (`api/src/elysia/prompt.rs`).
+  its answer, the batched changes, the work she is revisiting, or the meeting thread she was asked in, with the
+  range's words and their ids, what was said around it, the topics it lies in, and the whole thread
+  (`api/src/elysia/prompt.rs`).
 
 Her final text ends with a `Summary:` line. For a message or an answer, the text before it is posted to the
-conversation as her reply; for every turn, the summary is stored for her activity log.
+conversation as her reply; for a meeting comment it is posted in the thread, as hers, which tells the thread's people
+as any reply does; for every turn, the summary is stored for her activity log. A meeting comment turn whose thread
+she already answered after the comment that asked her, or whose thread is gone, ends with nothing to do.
 
 When every Claude credential has reached its usage limit, the turn fails and an identical one is queued, and nothing
 starts before the limit resets: the time Claude's rate-limit report names, or an hour when it names none. A turn
@@ -73,6 +81,11 @@ password and code it handed out before they are stored, as coding sessions' even
 | `elysia_work_queue`  | The worker pool and its queue in order, then the batches proposed for a person's approval, with each batch's project (`docs/engine.md`, Workers and the pool) |
 | `elysia_change_batch` | Runs a waiting batch next or back in its place, changes its priority, or pauses or resumes it |
 | `elysia_cancel_batch` | Withdraws a batch no worker started on, with a reason its Project Manager is told |
+| `elysia_meeting_edit` | Replaces words of the meeting whose thread asked her, by their ids, as a person's edit does, in its history with Undo |
+| `elysia_meeting_add_to_project` | Puts the topics the thread's range lies in on a project, as her own attribution, which never replaces a person's |
+
+The two meeting tools act only in a turn a thread started, on that thread's meeting alone, read from the turn's
+trigger; any other turn is refused.
 
 What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
 the whole workspace. She changes the work queue directly, as a person may, each change recorded in the batch's history
@@ -129,6 +142,7 @@ A turn records what started it in `trigger_kind`, text so later sources add kind
 | `answer`  | A person answering her question   | No                  |
 | `event`   | The intake                        | Yes                 |
 | `idle`    | The idle loop                     | Yes                 |
+| `meeting-comment` | A person mentioning her in a meeting's comment thread (`docs/meetings.md`, Comments) | No |
 
 The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
 

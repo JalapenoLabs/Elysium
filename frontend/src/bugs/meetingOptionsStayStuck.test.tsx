@@ -36,6 +36,14 @@ function renderLane(isInDrawer: boolean) {
         selectedMark={null}
         history={{ rows: [], isLoading: false, hasFailed: false }}
         onUndo={async () => {}}
+        threads={{ open: [], resolved: [], isLoading: false, hasFailed: false }}
+        threadActions={{
+          onReply: async () => true,
+          onSetResolved: async () => {},
+          onRemove: async () => {},
+        }}
+        onSelectThread={() => {}}
+        composing={null}
         isInDrawer={isInDrawer}
       />
     </Provider>,

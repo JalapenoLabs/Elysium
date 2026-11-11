@@ -69,16 +69,11 @@ pub async fn handle(
         agent: None,
         at: Utc::now(),
     };
-    // Through `fixes`, so a fix of a misheard word teaches the Transcription doc as it is made.
-    let entry = fixes::edit(
-        &mut connection,
-        &state.events,
-        found.id,
-        replacement,
-        author,
-    )
-    .await
-    .map_err(refusal)?;
+    // Through `fixes`, so a fix of a misheard word teaches the Transcription doc as it is made,
+    // and the segments holding a thread that quotes the words are indexed again.
+    let entry = fixes::edit(&mut connection, &state.events, &found, replacement, author)
+        .await
+        .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
     announce(&state.events, &found, &entry);
     Ok(Json(json!({

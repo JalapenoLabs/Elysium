@@ -43,6 +43,7 @@ type Props = {
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
   onEdit: () => void
+  onComment: () => void
   onClear: () => void
   onApplyEdit: (text: string) => Promise<boolean>
   onCancelEdit: () => void
@@ -221,6 +222,7 @@ export function FinalTranscript(props: Props) {
       onSelectMark={props.onSelectMark}
       hasSelection={Boolean(props.selection)}
       onEdit={props.onEdit}
+      onComment={props.onComment}
       onClear={props.onClear}
       onSelectFromHere={props.onSelectFromHere}
       isExtending={props.isExtending}

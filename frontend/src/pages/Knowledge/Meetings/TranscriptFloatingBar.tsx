@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Kbd, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
-import { LuPencil, LuPlay, LuTextSelect, LuX } from 'react-icons/lu'
+import { LuMessageSquarePlus, LuPencil, LuPlay, LuTextSelect, LuX } from 'react-icons/lu'
 
 export type MarkPill = {
   markId: string
@@ -23,9 +23,10 @@ type Props = {
   pills: MarkPill[]
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
-  // Whether words are selected, which Edit acts on.
+  // Whether words are selected, which Edit and Comment act on.
   hasSelection: boolean
   onEdit: () => void
+  onComment: () => void
   onClear: () => void
   // On a touch screen, which has no Shift: a moment picked offers to start a selection there,
   // which the next tap ends.
@@ -78,8 +79,8 @@ function measure(container: HTMLDivElement, anchorIndex: number, barWidth: numbe
 // The bar beside what is picked in a meeting's transcript (docs/meeting-review.md, Clicking,
 // selecting, and acting): the marks under the word clicked as pills, which Tab moves between, then
 // what can be done to the words selected, each with its key, and Play from here while the meeting
-// has a recording. Actions whose features are not built yet (Comment, Assign to a project, Black
-// out, Pin a frame) join it with them.
+// has a recording. Actions whose features are not built yet (Assign to a project, Black out, Pin
+// a frame) join it with them.
 export function TranscriptFloatingBar(props: Props) {
   const { t } = useTranslation('meetings')
   const [ position, setPosition ] = useState<Position | null>(null)
@@ -170,6 +171,13 @@ export function TranscriptFloatingBar(props: Props) {
         <span>{t('review.bar.edit')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>E</Kbd.Content>
+        </Kbd>
+      </Button>
+      <Button size='sm' variant='ghost' onPress={props.onComment}>
+        <LuMessageSquarePlus className='size-4' aria-hidden />
+        <span>{t('review.bar.comment')}</span>
+        <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+          <Kbd.Content>C</Kbd.Content>
         </Kbd>
       </Button>
       <Tooltip delay={300}>

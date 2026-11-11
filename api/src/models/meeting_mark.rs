@@ -228,13 +228,6 @@ pub async fn find(
 /// [`MarkError::NotStanding`] or [`MarkError::OutOfOrder`] for a range that is not one of the
 /// transcript as it reads, [`MarkError::EditsOwn`] for an edit's mark, and
 /// [`MarkError::NotAnObject`] for data that is not an object; any database error.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "people and agents mark ranges from the page (#239, #241)"
-    )
-)]
 pub async fn add(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -266,10 +259,6 @@ pub async fn add(
 /// # Errors
 /// [`MarkError::NotFound`] when the meeting has no such mark, [`MarkError::Removed`] when it was
 /// removed already, and [`MarkError::EditsOwn`] for an edit's mark; any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "people remove marks from the page (#241)")
-)]
 pub async fn remove(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -353,6 +342,20 @@ pub(crate) async fn anchored_in(
         .order(meeting_marks::id.asc())
         .select(Mark::as_select())
         .load(connection)
+        .await
+}
+
+/// Replaces mark `id`'s data with `data`, for a kind whose state changes in place, such as a
+/// comment thread being resolved. The caller holds the meeting's lock and records the change.
+pub(crate) async fn set_data(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    data: &Value,
+) -> QueryResult<Mark> {
+    diesel::update(meeting_marks::table.find(id))
+        .set(meeting_marks::data.eq(data))
+        .returning(Mark::as_returning())
+        .get_result(connection)
         .await
 }
 
@@ -603,7 +606,8 @@ mod tests {
         // Undoing the removal puts it back, and undoing that removes it again.
         let put_back = history::undo(&mut connection, meeting_id, unmarked.id, person())
             .await
-            .expect("puts back");
+            .expect("puts back")
+            .entry;
         assert_eq!(put_back.kind(), Some(EventKind::Marked));
         assert_eq!(put_back.undid(), Some(unmarked.id));
         assert_eq!(

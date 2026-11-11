@@ -13,37 +13,37 @@
 //! person prunes from the doc as any entry.
 
 use diesel_async::{AsyncConnection, AsyncPgConnection};
-use uuid::Uuid;
 
-use super::correction;
+use super::{comments, correction};
 use crate::models::agent::Author;
+use crate::models::meeting::Meeting;
 use crate::models::meeting_event::MeetingEvent;
 use crate::models::meeting_word::{self, EditError, Origin, Replacement, WordChange};
-use crate::models::{meeting, meeting_capture, user};
+use crate::models::{meeting_capture, user};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::pages;
 use crate::transcription_doc::{self, Lesson, MeetingLink};
 
-/// Replaces the words of `replacement.range` in meeting `meeting_id` with its text as `author`
-/// (`meeting_word::edit`), and teaches the Transcription doc what it fixed, in one transaction;
-/// then announces the doc's change and any suggestion to the company doc. Answers the edit's history
-/// entry.
+/// Replaces the words of `replacement.range` in `meeting` with its text as `author`
+/// (`comments::edit_words`, which indexes again the segments holding a thread that quotes them),
+/// and teaches the Transcription doc what it fixed, in one transaction; then announces the doc's
+/// change and any suggestion to the company doc. Answers the edit's history entry.
 ///
 /// # Errors
 /// Every refusal of `meeting_word::edit`, and any database error.
 pub async fn edit(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
-    meeting_id: Uuid,
+    meeting: &Meeting,
     replacement: Replacement<'_>,
     author: Author<'_>,
 ) -> Result<MeetingEvent, EditError> {
     let (entry, learned, suggested) = connection
         .transaction(async |connection| {
-            let entry = meeting_word::edit(connection, meeting_id, replacement, author).await?;
-            let lessons = lessons_of(connection, &entry, author).await?;
+            let entry = comments::edit_words(connection, meeting, replacement, author).await?;
+            let lessons = lessons_of(connection, &entry, meeting, author).await?;
             let learned = transcription_doc::learn(connection, &lessons, author).await?;
-            let people = people_of(connection, meeting_id).await?;
+            let people = people_of(connection, meeting).await?;
             let suggested =
                 transcription_doc::suggest_unknown(connection, &lessons, &people, (author, None))
                     .await?;
@@ -61,11 +61,13 @@ pub async fn edit(
     Ok(entry)
 }
 
-/// What `entry`, an edit `author` made, teaches the Transcription doc: each of its fixes, heard by
-/// the transcript and speaker of the first word it replaced. None when it is no fix.
+/// What `entry`, an edit `author` made in `meeting`, teaches the Transcription doc: each of its
+/// fixes, heard by the transcript and speaker of the first word it replaced. None when it is no
+/// fix.
 async fn lessons_of(
     connection: &mut AsyncPgConnection,
     entry: &MeetingEvent,
+    meeting: &Meeting,
     author: Author<'_>,
 ) -> diesel::QueryResult<Vec<Lesson>> {
     let change: WordChange = serde_json::from_value(entry.data.clone())
@@ -93,7 +95,6 @@ async fn lessons_of(
         }
     };
     let speaker = Some(first.speaker.clone()).filter(|speaker| !speaker.is_empty());
-    let current = meeting::find(connection, entry.meeting_id).await?;
     let person = user::find(connection, author.user_id).await?;
     let name = Some(person.name.trim())
         .filter(|name| !name.is_empty())
@@ -107,23 +108,23 @@ async fn lessons_of(
             source: source.clone(),
             speaker: speaker.clone(),
             meeting: MeetingLink {
-                id: current.id,
-                title: current.title.clone(),
+                id: meeting.id,
+                title: meeting.title.clone(),
             },
             why: why.clone(),
         })
         .collect())
 }
 
-/// Who took part in meeting `meeting_id`: its participants and the speakers of its words, as the
-/// company doc's People are told apart from its Glossary.
+/// Who took part in `meeting`: its participants and the speakers of its words, as the company
+/// doc's People are told apart from its Glossary.
 async fn people_of(
     connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
+    meeting: &Meeting,
 ) -> diesel::QueryResult<Vec<String>> {
-    let current = meeting::find(connection, meeting_id).await?;
-    let mut people: Vec<String> = serde_json::from_value(current.participants).unwrap_or_default();
-    let words = meeting_word::standing(connection, meeting_id).await?;
+    let mut people: Vec<String> =
+        serde_json::from_value(meeting.participants.clone()).unwrap_or_default();
+    let words = meeting_word::standing(connection, meeting.id).await?;
     people.extend(words.into_iter().map(|word| word.speaker));
     people.retain(|person| !person.trim().is_empty());
     people.sort();
@@ -152,6 +153,9 @@ mod tests {
             ],
         )
         .await;
+        let found = crate::models::meeting::find(&mut connection, capture.meeting_id)
+            .await
+            .expect("the meeting");
         let sheriff = word(&words, "Sheriff");
         let one_word = Range {
             start_word_id: sheriff.id,
@@ -161,7 +165,7 @@ mod tests {
         edit(
             &mut connection,
             &events,
-            capture.meeting_id,
+            &found,
             Replacement {
                 range: one_word,
                 text: "Sharath",
@@ -204,7 +208,7 @@ mod tests {
         edit(
             &mut connection,
             &events,
-            capture.meeting_id,
+            &found,
             Replacement {
                 range: sentence,
                 text: "After all that, everyone agreed to ship it on Friday",

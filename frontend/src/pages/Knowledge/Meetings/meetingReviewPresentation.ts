@@ -60,6 +60,8 @@ export const historySentenceKeys = {
   addedRecordingAndTranscript: 'review.history.sentences.addedRecordingAndTranscript',
   addedRecording: 'review.history.sentences.addedRecording',
   addedTranscript: 'review.history.sentences.addedTranscript',
+  threadResolved: 'review.history.sentences.threadResolved',
+  threadReopened: 'review.history.sentences.threadReopened',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -81,7 +83,15 @@ const QUOTE_MAX_CHARACTERS = 60
 
 // A merge and a split are in both meetings' histories, and undone from the one the recordings went
 // into, by splitting them back out, so the list offers no Undo for either.
-const UNDOABLE_KINDS = new Set([ 'edited', 'marked', 'unmarked', 'hold_changed', 'offset_changed' ])
+const UNDOABLE_KINDS = new Set([
+  'edited',
+  'marked',
+  'unmarked',
+  'hold_changed',
+  'offset_changed',
+  'thread_resolved',
+  'thread_reopened',
+])
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
 // build reads. A build from a corrected copy's lines says `correction`.
@@ -182,6 +192,12 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
         return row
       case 'capture_added':
         row.sentence = addedCaptureSentence(entry.data)
+        return row
+      case 'thread_resolved':
+        row.sentence = 'threadResolved'
+        return row
+      case 'thread_reopened':
+        row.sentence = 'threadReopened'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

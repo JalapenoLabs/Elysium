@@ -14,6 +14,7 @@
 //! Each tool's database work is a function of a connection, so it is tested against Postgres
 //! without a turn; the `run_*` wrappers only parse, connect, and announce.
 
+mod meetings;
 mod propose;
 mod work_queue;
 
@@ -66,12 +67,14 @@ pub const SERVER: ToolServer = ToolServer {
         Workers and Project Managers report work nobody asked for as findings, which wait on each \
         project's Findings list for a person to accept or dismiss; elysia_overview counts them \
         per project. Tell the person how many wait when it matters, and never make an item or a \
-        batch for one.",
+        batch for one. When a person asks you in a comment thread on a meeting, do what they ask \
+        of its words with elysia_meeting_edit, or put the topics the range lies in on a project \
+        with elysia_meeting_add_to_project; both act on that thread's meeting alone.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 10] = [
+const TOOLS: [Tool; 12] = [
     Tool {
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
@@ -157,6 +160,25 @@ const TOOLS: [Tool; 10] = [
             Manager is told at once, so say what it should know.",
         input_schema: work_queue::cancel_schema,
         run: |context, scope, arguments| work_queue::run_cancel(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "elysia_meeting_edit",
+        description: "Replaces words of the meeting whose comment thread asked you, such as a \
+            name it misheard (\"this was Sharath\"), by the word ids the thread's prompt gives. \
+            It is in the meeting's history as yours, with Undo. Only in a turn a thread started.",
+        input_schema: meetings::edit_schema,
+        run: |context, scope, arguments| meetings::run_edit(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "elysia_meeting_add_to_project",
+        description: "Puts the topics the thread's range lies in on a project (\"this belongs \
+            to the launch\"), as your attribution, which a person confirms or undoes and which \
+            never replaces theirs. Answers what happened to each topic. Only in a turn a thread \
+            started.",
+        input_schema: meetings::add_to_project_schema,
+        run: |context, scope, arguments| {
+            meetings::run_add_to_project(context, scope, arguments).boxed()
+        },
     },
 ];
 

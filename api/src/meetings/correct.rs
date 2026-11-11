@@ -452,6 +452,9 @@ impl CorrectTranscript {
                     return anyhow::Ok(Stored::ByAnother(stored));
                 }
                 let settled = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
+                // Settling rewrites words a comment thread may quote, as an edit does, so the
+                // segments that index the threads over them are indexed again.
+                super::comments::reindex_meeting(connection, &heard.meeting).await?;
                 // The flags are the first ranges (`settled_ranges`), so the first answers are
                 // theirs. A flag whose words changed since the turn read them was passed over, and
                 // so is left out of the copy as of the words.

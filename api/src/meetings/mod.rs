@@ -37,6 +37,7 @@
 pub mod align;
 pub mod alignment;
 pub mod clock;
+pub mod comments;
 pub mod conversation;
 pub mod correct;
 pub mod correction;
