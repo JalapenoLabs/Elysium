@@ -1898,7 +1898,8 @@ pub(crate) mod tests {
         // Undoing the second puts its words and marks back exactly.
         let undone = history::undo(&mut connection, meeting_id, reworded.id, person())
             .await
-            .expect("undoes");
+            .expect("undoes")
+            .entry;
         assert_eq!(undone.kind(), Some(EventKind::Edited));
         assert_eq!(undone.undid(), Some(reworded.id));
         assert_eq!(

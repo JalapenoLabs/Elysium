@@ -771,8 +771,8 @@ Its projects are attributed by `elysia` with her confidence; a person's attribut
 it back, and every change is in the record's history, undoable (`docs/connectors.md`, The timeline).
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
 streams the clip from storage to the record's owner alone, a range at a time (Playing media, below). Each segment is a
-document of the knowledge index, stored
-with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
+document of the knowledge index, stored with its record: its title, its summary, its excerpt, and the comment threads
+over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records).
 
 ## The final transcript
 
@@ -846,6 +846,49 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `merged`              | In both meetings: which meeting's captures went into which, and where each sat before and after | From the kept meeting's: splits them back out |
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
 | `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
+| `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
+
+## Comments
+
+A comment thread is a mark of kind `comment` over its range (`meetings::comments`, `models::meeting_comment`): the mark
+draws it, moves with an edit as every mark does, and is made, removed, resolved, and reopened by entries of the
+meeting's history, so each has Undo. Its data is `{ resolved, resolution }`, whether it is resolved and the entry that
+last resolved or reopened it, which is the one an undo may reverse. What is written in it is `meeting_comments`,
+oldest first, plain text up to 20,000 characters, each naming whom it mentions (`meeting_comment_mentions`). A thread
+removed keeps its comments, so an undo puts it back whole. A resolved thread still takes replies, so an answer under
+way when it was resolved lands.
+
+- **Who reads it.** On the meeting's page, everyone who can read the meeting: today its owner alone, as every meeting
+  route answers, until meetings are public by default (`docs/meeting-review.md`, Who sees a meeting). Its text is
+  in the knowledge index for every member, as the segments it lies in are (The index, below), as every timeline
+  record's text is (`docs/knowledge.md`, Who sees what).
+- **Mentions are picked, not parsed.** A comment names the user ids it mentions beside its text, chosen as `@` is
+  typed, so a name written twice or shared by two people is never a guess. Only an active person or Elysia can be
+  mentioned.
+- **Who is told.** Every change raises an inbox item for each person it concerns, never for whoever made it and never
+  for a machine: a comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking part
+  in the thread, who wrote in it or was mentioned in it. Undoing a resolve or a reopen tells them too, as the reopen
+  or resolve it is, so nobody is left believing a change they heard of still stands. Someone mentioned in a reply
+  hears of it once, as a mention. Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is
+  raised by the system, says whom it is for in its notes, and carries the meeting's title and nothing written in the
+  thread. `meeting_thread_items` keeps the thread that raised each, so the item's page opens it
+  (`GET /meetings/thread-items/{itemId}`).
+- **Elysia.** A person's comment mentioning Elysia queues a `meeting-comment` turn of hers (`docs/elysia.md`,
+  Triggers). She answers in the thread as herself, which tells its author, and may do what it asks: fix the words
+  ("this was Sharath" over a name it misheard), or put the topics the range lies in on a project ("this belongs to
+  the launch") as her own attribution, which never replaces a person's. A machine's comment never starts her, so she
+  cannot set herself going. Changing who spoke is not a change a meeting takes yet, and she says so.
+- **The index.** A meeting is in the knowledge index as its segments, so a thread is indexed with each segment whose
+  span its range overlaps: its first 40 words quoted, then each comment by its author's name, after the segment's own
+  text, so a later comment re-embeds only the passages at the end, up to 50,000 characters of threads a segment. It
+  goes wherever its segment goes: the segment's projects, their searches, and the agents reading them. A thread
+  written before its meeting is segmented is indexed as the segments are stored. A change to a thread indexes again
+  the segments its range overlaps, and an edit or its undo the segments over its words and those holding a thread
+  that quotes them, and lining the transcript up again from its captures (an offset set, a merge, a split) every
+  segment of the meeting, each in its own transaction; nothing else is indexed again. No backfill is owed: no segment
+  held a thread before threads existed. A meeting whose segmenting was skipped or failed has no segments, and so no
+  indexed comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`,
+  Excerpts).
 
 ## Playing media
 
@@ -925,9 +968,9 @@ segment's clip for its record's owner.
     says, such as how sure a confidence is and what else it might be, or what an edit replaced with its Undo. A drag,
     or a click then Shift+click, selects whole words; a touch screen has Select from here, then a tap where it ends.
     What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
-    offers Edit (E), and Play from here (Space) while the meeting has a recording, and clears with its X or Esc; the
-    browser's own text selection is off, and Ctrl+C copies the words selected. Comment, Assign to a project, Black out,
-    and Pin a frame join the bar with the issues that build them.
+    offers Edit (E), Comment (C), and Play from here (Space) while the meeting has a recording, and clears with its X or
+    Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Assign to a project, Black
+    out, and Pin a frame join the bar with the issues that build them.
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
@@ -937,6 +980,15 @@ segment's clip for its record's owner.
     Save. The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last
     of them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list
     every change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
+  - **Comments** (`MeetingThreads`, `CommentThread`, `GET /meetings/{id}/threads`, read through SWR alone). Comment
+    (C) on the words selected opens a new thread's form in the lane, in the drawer below `lg`; typing `@` offers the
+    people who can be mentioned and Elysia (`MentionTextArea`), and Ctrl+Enter posts. What is written is kept for the
+    tab until it is posted. The lane lists the open threads under the options in the order their ranges start, each
+    its words and first comment, then the resolved ones folded away; choosing one selects its range and brings it into
+    view. A thread selected opens in the lane: its comments, a reply, Resolve or Reopen, and Remove, each change with
+    Undo in its toast. A thread that asked Elysia says she answers there until she does. A resolved thread draws no
+    outline. `?thread=` opens the page at a thread, which is how an item a thread raised links to it
+    (`MeetingThreadLink`).
 - **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and the actions in a
   meeting's options hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for
   a capture. A recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a
@@ -972,7 +1024,7 @@ segment's clip for its record's owner.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, it was merged or split, or a person edited its words or undid a change: its id, state, and owner, and the history entry of an edit or undo (`entryId`), never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words or undid a change, or one of its threads was written in, resolved, reopened, or removed: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |

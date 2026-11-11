@@ -1,8 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { MeetingWord } from '../../../api/routes/meetingRoutes'
+import type { ThreadActions } from './CommentThread'
 import type { HistoryRow } from './meetingReviewPresentation'
 import type { PlacedMark } from './meetingTranscript'
+import type { Thread } from './meetingThreads'
 
 // Core
 import { useState } from 'react'
@@ -16,6 +18,7 @@ import { selectUserEntities } from '../../../store/usersSlice'
 // User interface
 import { Button } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
+import { CommentThread } from './CommentThread'
 
 // Misc
 import { DateText } from '../../../format/DateText'
@@ -30,12 +33,15 @@ type Props = {
   // The meeting's history, newest first, which says what an edit replaced.
   history: HistoryRow[]
   onUndo: (entryId: string) => Promise<void>
+  // A comment mark's thread, and what can be done in it.
+  thread: Thread | null
+  threadActions: ThreadActions
 }
 
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
 // Clicking, selecting, and acting): what kind it is, who made it, a mark an agent made saying so,
 // the words it covers, and what its kind says: how sure a confidence is and what else it might
-// be, what an edit replaced with its Undo, and an excerpt's projects.
+// be, what an edit replaced with its Undo, an excerpt's projects, and a comment's thread.
 export function MarkDetail(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const users = useAppSelector(selectUserEntities)
@@ -113,5 +119,7 @@ export function MarkDetail(props: Props) {
       <LuUndo2 className='size-4' aria-hidden />
       <span>{t('review.undoEdit')}</span>
     </Button>}
+
+    {props.thread && <CommentThread thread={props.thread} {...props.threadActions} />}
   </section>
 }

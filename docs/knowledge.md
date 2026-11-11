@@ -215,7 +215,9 @@ code is
   and it is attributed to the record's owner (`created_by`), whose timeline it is on.
 - **Its text** is the record's title, `From <actor>`, and its body, in that order, cut into passages as every source
   is. A meeting segment names its speakers on every line of its excerpt, so it gives its summary in place of the
-  actor. A record with no title, actor, or body has no document.
+  actor, and its body is followed by the comment threads whose range overlaps its span, each quoted and then its
+  comments by their authors' names, so a meeting's comments are indexed with it (`docs/meetings.md`, Comments). A
+  record with no title, actor, or body has no document.
 - **Content, never metadata.** A record's `metadata` and `media` are never indexed: they hold the provider's ids, where
   a reply goes, and where a clip is kept, not what was said. Nothing a connector signs in with is on a record.
 - **Size.** Sources keep their own limits: Confluence and sent mail 20,000 characters, Slack 4,000, webmail previews

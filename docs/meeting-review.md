@@ -10,9 +10,10 @@ capture, the final transcript as words with stable ids, marks anchored to ranges
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
 transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
 knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
-undoable, and its player, open to its owner alone until meetings are public by default; and uploads of recordings and
-transcripts as new meetings or captures of one. What is built is described in `docs/meetings.md`, which this design
-changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
+undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to
+its owner alone until meetings are public by default; and uploads of recordings and transcripts as new meetings or
+captures of one. What is built is described in `docs/meetings.md`, which this design changes where it says so; the
+rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -192,9 +193,11 @@ weekend?". Segmenting applies them on its own, and people add, change, and remov
 ## Comments
 
 Threads anchored to a range, read by everyone who can read the meeting: replies, resolving and reopening, and
-@mentions, each raising an inbox item for who was mentioned. @Elysia in a thread is answered there, and she can do what
-it asks, such as "this was Sharath" or "this belongs to the launch". Comments are indexed with the meeting, and an
-excerpt's comments travel with it to its projects.
+@mentions, each raising an inbox item for who it concerns: whoever a comment mentions, and everyone else taking part in
+the thread for a reply, a resolve, or a reopen. @Elysia in a thread is answered there, and she can do what it asks,
+such as "this was Sharath" or "this belongs to the launch". Comments are indexed with the meeting, and an excerpt's
+comments travel with it to its projects: today a meeting is indexed as its segments, and each thread with the segments
+its range overlaps, so the excerpts that replace segments carry the threads over them.
 
 ## Attachments and frames
 
