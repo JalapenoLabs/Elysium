@@ -1007,6 +1007,11 @@ web app, and `docs/meeting-review.md`, The meeting's page).
 - **Captures.** A capture's start opens in a `NumberField` (`CaptureOffsetEditor`), whose form leaves Enter to the
   browser's own submit: the field takes the number typed as Enter reaches it, after a form's `submitOnEnter` would
   already have submitted the number it held before.
+- **A meeting merged away.** The knowledge base loads the meetings list around every page, and the list leaves such a
+  meeting out, so `meetingsLoaded` replaces what the list names and keeps a merged-away meeting its page loaded by id;
+  otherwise a list answering after the page's own load would take the meeting from under it. Its page is read only
+  (`isReadOnly` in `MeetingWorkspace`): the bar's Edit and Comment, a thread's actions, and history's Undo are `null`
+  or off, and `MeetingActions` says why.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
