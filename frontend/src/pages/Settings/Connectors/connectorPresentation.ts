@@ -158,13 +158,16 @@ export function pickedIds(value: unknown): string[] {
 }
 
 // What a new connector of a kind read through a browser starts reading: everything each of its
-// selections can pick, since nothing can be listed until its person signs in. It is narrowed on
-// the connector's page afterwards.
+// selections can pick, since nothing can be listed until its person signs in, and each toggle at
+// its kind's default. It is narrowed on the connector's page afterwards.
 export function startingContent(definition: Pick<ConnectorKindDefinition, 'content'>) {
   const content: Record<string, unknown> = {}
   for (const field of definition.content) {
     if (field.field.type === 'selection') {
       content[field.id] = '*'
+    }
+    if (field.field.type === 'toggle') {
+      content[field.id] = field.field.onByDefault
     }
   }
   return content

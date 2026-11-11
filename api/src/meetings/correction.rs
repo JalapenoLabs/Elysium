@@ -3,10 +3,10 @@
 //! Correcting a meeting's transcript: what the model reads, and the checks its answer has to
 //! pass. Pure; the step that runs it is `super::correct`.
 //!
-//! Correction is a text turn on the runner (`crate::runner::TurnMode::Text`), or a few for a long
+//! Correction is one text turn on the runner (`crate::runner::TurnMode::Text`), however long the
 //! meeting: no tools, no settings, only the company doc, what other meetings taught, and the
-//! transcript's numbered lines beside what Whisper heard over the same stretch, and a JSON
-//! answer back naming the lines it would change.
+//! transcript's numbered lines beside everything Whisper heard, and a JSON answer back naming
+//! the lines it would change.
 //!
 //! # The corrected copy keeps the transcript's structure
 //!
@@ -22,21 +22,22 @@
 //! word by word, without regard to case or the punctuation around a word, every change must
 //! replace at most [`FIX_WORDS_MAX`] words with at most as many (a name heard as several words
 //! is one fix), never add words where there were none or drop words without a replacement, and
-//! leave at least half of a longer line as it was. An edit for a line that was not offered, a
-//! second edit for one line, or an empty text is refused too. A refused edit leaves its line as
-//! it was, and the step logs why, by line number alone.
+//! leave at least half of a longer line as it was. An edit for a line the transcript does not
+//! have, a second edit for one line, or an empty text is refused too. A refused edit leaves its
+//! line as it was, and the step logs why, by line number alone.
 //!
-//! # Size
+//! # One turn
 //!
-//! The runner passes the prompt as one argument to `claude`, and Linux allows one argument
-//! 128 KiB. Each prompt carries the background ([`background`]: the company doc's sections,
-//! most useful first, within [`DOC_BUDGET_BYTES`], then what other meetings taught) and as many
-//! lines as fit beside it with Whisper's text for their stretch ([`plan_turns`]), so a long
-//! meeting is corrected in several turns, each with the background again.
+//! The runner hands `claude` its prompt on standard input, which no argument limit bounds, so
+//! the prompt is the whole meeting: the background once ([`background`]: the company doc whole,
+//! the sections that spell names first, then what other meetings taught), every line of the
+//! transcript, and every segment Whisper heard ([`prompt`]). Nothing is cut to fit. A meeting
+//! too long for the model's context fails the step for good, with the CLI's reason, since every
+//! attempt would read the same prompt; skipping the step lets segmenting go on from the
+//! transcript as heard.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,27 +49,16 @@ use super::source::TranscriptLine;
 use crate::company_doc::{CompanyDocResponse, SectionResponse};
 use crate::models::company_doc::Section;
 use crate::models::meeting_correction::BasedOn;
-use crate::whisper::{WhisperSegment, WhisperTranscript};
+use crate::whisper::WhisperTranscript;
 
-/// The most bytes one prompt carries, leaving room under the 128 KiB argument limit for the
-/// CLI's own arguments. The system prompt is an argument of its own.
-pub const PROMPT_BUDGET_BYTES: usize = 120_000;
-
-/// The most bytes of the company doc one prompt carries, so at least two thirds of every prompt
-/// is the transcript. The doc's sections are 12,000 characters at most each; the ones that
-/// spell names (people, the glossary) go first and are seldom cut.
-pub const DOC_BUDGET_BYTES: usize = 40_000;
-
-/// The most bytes of what other meetings taught one prompt carries.
+/// The most bytes of what other meetings taught one prompt carries. They come most often made
+/// and most often heard first, so the tail past this is the rare fix and the passing name, which
+/// would only crowd the doc and the meeting itself.
 const OTHER_MEETINGS_BUDGET_BYTES: usize = 8_000;
 
 /// The most bytes of the meeting's participants one prompt carries: a meeting with hundreds of
 /// invitees names them all, and the transcript names who spoke.
 const PARTICIPANTS_BUDGET_BYTES: usize = 2_000;
-
-/// The least of a section worth showing when the doc's budget cuts it; less than this is left
-/// out whole.
-const MIN_SECTION_BYTES: usize = 1_000;
 
 /// The doc's sections in the order a correction needs them: how people's names are spelled,
 /// then the company's terms, then what its products, projects, and stakeholders are called.
@@ -82,14 +72,6 @@ const SECTION_ORDER: [Section; 7] = [
     Section::Company,
 ];
 
-/// How far either side of a turn's lines Whisper's text is shown. Two transcribers seldom cut
-/// a sentence at the same instant, so a few seconds of overlap keeps a line's words in view.
-const WHISPER_MARGIN_MS: i64 = 5_000;
-
-/// The most turns one correction takes. At the budget above that is several hours of meeting;
-/// what is left past it stays as it was heard, and the step says so.
-pub const TURNS_MAX: usize = 8;
-
 /// The most words one fix replaces, and the most it replaces them with: a name heard as
 /// several words ("Ely see um" for "Elysium") is one fix, a clause rewritten is not.
 pub const FIX_WORDS_MAX: usize = 4;
@@ -99,8 +81,9 @@ You correct the transcript of a company's meeting. Transcription mishears names,
 jargon, and you fix those words and nothing else. You are given the company's reference doc, \
 which spells its people, products, projects, and terms; corrections made to its other meetings; \
 the names its meetings' speakers go by; and the transcript's numbered lines, beside a second, \
-independent transcript of the same stretch of audio when there is one. Where the two transcripts \
-disagree on a name or a term, prefer the spelling the doc or the other meetings support. \
+independent transcript of the same audio when there is one, timed the same way. Where the two \
+transcripts disagree on a name or a term, prefer the spelling the doc or the other meetings \
+support. \
 Fix a line only by replacing a misheard or misspelled word, or the few words a name was heard \
 as, with the right one, keeping every other word as it is. Never add or drop words, reword, \
 summarize, or correct grammar; never fill in what nobody said; never change who spoke. When you \
@@ -154,7 +137,7 @@ pub struct Fix {
     pub written: String,
 }
 
-/// What every prompt of one meeting's correction shares.
+/// What the correction reads besides the meeting's transcripts.
 #[derive(Debug, Clone, Copy)]
 pub struct Background<'context> {
     pub title: &'context str,
@@ -166,16 +149,9 @@ pub struct Background<'context> {
     pub speakers: &'context [String],
 }
 
-/// The background as the prompts carry it, and which of the doc's sections did not fit whole.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackgroundText {
-    pub text: String,
-    /// The sections cut short or left out for room, by key, for the step's log.
-    pub sections_cut: Vec<&'static str>,
-}
-
-/// The part of every prompt that is not the transcript.
-pub fn background(background: Background<'_>) -> BackgroundText {
+/// The part of the prompt that is not the transcript: the meeting, the company doc whole with
+/// the sections that spell names first, and what other meetings taught.
+pub fn background(background: Background<'_>) -> String {
     let mut text = format!("The meeting: {}\n", background.title);
     if !background.participants.is_empty() {
         let participants = background.participants.join(", ");
@@ -187,32 +163,15 @@ pub fn background(background: Background<'_>) -> BackgroundText {
     }
 
     text.push_str("\nThe company doc, the sections that spell names first:\n");
-    let mut sections_cut = Vec::new();
-    let mut doc_bytes = 0;
     for key in SECTION_ORDER {
-        let Some(section) = background
+        let section = background
             .doc
             .sections
             .iter()
-            .find(|section| section.section == key)
-        else {
-            continue;
-        };
-        let rendered = section_text(section);
-        let room = DOC_BUDGET_BYTES.saturating_sub(doc_bytes);
-        if rendered.len() <= room {
-            doc_bytes += rendered.len();
-            text.push_str(&rendered);
-            continue;
+            .find(|section| section.section == key);
+        if let Some(section) = section {
+            text.push_str(&section_text(section));
         }
-        sections_cut.push(key.as_str());
-        if room < MIN_SECTION_BYTES {
-            continue;
-        }
-        let cut = cut_at_line(&rendered, room);
-        doc_bytes += cut.len();
-        text.push_str(cut);
-        text.push_str("(the rest of this section did not fit)\n");
     }
 
     text.push_str("\nCorrections made to the company's other meetings, as heard → as written:\n");
@@ -247,8 +206,7 @@ pub fn background(background: Background<'_>) -> BackgroundText {
     }
     text.push_str(&names);
     text.push('\n');
-
-    BackgroundText { text, sections_cut }
+    text
 }
 
 /// One section as the prompt shows it: its heading and what belongs there, its text, and the
@@ -276,20 +234,6 @@ fn section_text(section: &SectionResponse) -> String {
     text
 }
 
-/// The longest start of `text` that ends a line and fits in `limit` bytes.
-fn cut_at_line(text: &str, limit: usize) -> &str {
-    let mut end = 0;
-    for (index, character) in text.char_indices() {
-        if index + character.len_utf8() > limit {
-            break;
-        }
-        if character == '\n' {
-            end = index + 1;
-        }
-    }
-    &text[..end]
-}
-
 /// `text` cut to at most `limit` bytes, at a character's boundary.
 fn cut_to_bytes(text: &str, limit: usize) -> &str {
     if text.len() <= limit {
@@ -315,141 +259,36 @@ fn line_text(index: usize, line: &TranscriptLine) -> String {
     )
 }
 
-fn whisper_text(segment: &WhisperSegment) -> String {
-    format!("[{}] {}\n", clock(segment.start_ms), segment.text.trim())
-}
-
-/// Whisper's segments, with the bytes each takes in a prompt summed as they run, so the
-/// segments a stretch of the meeting overlaps, and their size, are found without rendering
-/// them again for every line a turn considers.
-struct WhisperIndex<'transcript> {
-    segments: &'transcript [WhisperSegment],
-    /// `bytes_before[index]` is the size of every segment before `index`.
-    bytes_before: Vec<usize>,
-}
-
-impl<'transcript> WhisperIndex<'transcript> {
-    fn new(whisper: Option<&'transcript WhisperTranscript>) -> Self {
-        let segments = whisper.map_or(&[][..], |whisper| whisper.segments.as_slice());
-        let mut bytes_before = Vec::with_capacity(segments.len() + 1);
-        let mut total = 0;
-        bytes_before.push(0);
-        for segment in segments {
-            total += whisper_text(segment).len();
-            bytes_before.push(total);
-        }
-        Self {
-            segments,
-            bytes_before,
-        }
-    }
-
-    /// The segments that overlap `from_ms` to `to_ms`, widened by [`WHISPER_MARGIN_MS`].
-    /// Whisper's segments run in order without overlapping, so they are one run of indexes.
-    fn overlapping(&self, from_ms: i64, to_ms: i64) -> Range<usize> {
-        let from_ms = from_ms - WHISPER_MARGIN_MS;
-        let to_ms = to_ms + WHISPER_MARGIN_MS;
-        let first = self
-            .segments
-            .partition_point(|segment| segment.end_ms < from_ms);
-        let end = self
-            .segments
-            .partition_point(|segment| segment.start_ms <= to_ms);
-        first..end.max(first)
-    }
-
-    fn bytes(&self, range: Range<usize>) -> usize {
-        self.bytes_before[range.end] - self.bytes_before[range.start]
-    }
-}
-
-/// How the transcript's `lines` are split into turns, given `room` bytes beside the background
-/// in each prompt: each turn takes as many lines as fit with Whisper's text for their stretch,
-/// and at least one.
-pub fn plan_turns(
-    room: usize,
-    lines: &[TranscriptLine],
-    whisper: Option<&WhisperTranscript>,
-) -> Vec<Range<usize>> {
-    let index = WhisperIndex::new(whisper);
-    let mut turns = Vec::new();
-    let mut start = 0;
-    while start < lines.len() {
-        let mut end = start;
-        let mut taken_bytes = 0;
-        let mut from_ms = i64::MAX;
-        let mut to_ms = i64::MIN;
-        while end < lines.len() {
-            let line = &lines[end];
-            let next_bytes = line_text(end, line).len();
-            let widened_from = from_ms.min(line.start_ms);
-            let widened_to = to_ms.max(line.end_ms);
-            let whisper_bytes = index.bytes(index.overlapping(widened_from, widened_to));
-            let fits = taken_bytes + next_bytes + whisper_bytes <= room;
-            if !fits && end > start {
-                break;
-            }
-            taken_bytes += next_bytes;
-            from_ms = widened_from;
-            to_ms = widened_to;
-            end += 1;
-            if !fits {
-                // A line too long for a turn of its own still gets one; the prompt cuts it.
-                break;
-            }
-        }
-        turns.push(start..end);
-        start = end;
-    }
-    turns
-}
-
-/// What heads the transcript's lines in a prompt, and Whisper's text after them.
+/// What heads the transcript's lines in the prompt, and Whisper's text after them.
 const LINES_HEADING: &str =
     "\nThe transcript's lines to correct, each [number] [minutes:seconds]:\n";
 const WHISPER_HEADING: &str =
-    "\nWhat a second transcription heard over the same stretch, for comparison only:\n";
+    "\nWhat a second transcription heard, each [minutes:seconds], for comparison only:\n";
 
-/// The bytes each prompt has for the transcript beside `background`, for [`plan_turns`].
-pub fn transcript_room(background: &str) -> usize {
-    PROMPT_BUDGET_BYTES
-        .saturating_sub(background.len() + LINES_HEADING.len() + WHISPER_HEADING.len())
-}
-
-/// The prompt for the turn over `lines[range]`, after `background`, with what Whisper heard
-/// over the same stretch. Never longer than [`PROMPT_BUDGET_BYTES`]: past it Whisper's text is
-/// cut, then the lines'.
+/// The prompt: `background`, then every line of the transcript, numbered, then every segment
+/// Whisper heard, timed on the same clock so the model can set the two side by side. Nothing is
+/// cut to fit.
 pub fn prompt(
     background: &str,
     lines: &[TranscriptLine],
-    range: Range<usize>,
     whisper: Option<&WhisperTranscript>,
 ) -> String {
     let mut text = background.to_owned();
     text.push_str(LINES_HEADING);
-    let mut transcript = String::new();
-    let mut from_ms = i64::MAX;
-    let mut to_ms = i64::MIN;
-    for (index, line) in lines.iter().enumerate().take(range.end).skip(range.start) {
-        transcript.push_str(&line_text(index, line));
-        from_ms = from_ms.min(line.start_ms);
-        to_ms = to_ms.max(line.end_ms);
+    for (index, line) in lines.iter().enumerate() {
+        text.push_str(&line_text(index, line));
     }
-    let room = PROMPT_BUDGET_BYTES.saturating_sub(text.len() + WHISPER_HEADING.len());
-    text.push_str(cut_to_bytes(&transcript, room));
-
-    let index = WhisperIndex::new(whisper);
-    let overlapping = index.overlapping(from_ms, to_ms);
-    if overlapping.is_empty() {
+    let Some(whisper) = whisper.filter(|whisper| !whisper.segments.is_empty()) else {
         return text;
-    }
+    };
     text.push_str(WHISPER_HEADING);
-    for segment in &index.segments[overlapping] {
-        let rendered = whisper_text(segment);
-        if text.len() + rendered.len() > PROMPT_BUDGET_BYTES {
-            break;
-        }
-        text.push_str(&rendered);
+    for segment in &whisper.segments {
+        let _ = writeln!(
+            text,
+            "[{}] {}",
+            clock(segment.start_ms),
+            segment.text.trim()
+        );
     }
     text
 }
@@ -467,7 +306,7 @@ pub enum AnswerError {
 /// every member reads the step's log and a meeting is its owner's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
-    #[error("it names a line this turn did not offer")]
+    #[error("it names a line the transcript does not have")]
     UnknownLine,
     #[error("an earlier edit changed the same line")]
     Repeated,
@@ -511,17 +350,13 @@ struct AnswerEdit {
     text: String,
 }
 
-/// The edits in the model's answer to the turn over `lines[offered]` that hold up: each for a
-/// line it was offered, the first for that line, and only fixing words ([`check_fix`]). An edit
-/// whose text is the line as it is changes nothing and is dropped without a word.
+/// The edits in the model's answer that hold up: each for one of `lines`, the first for that
+/// line, and only fixing words ([`check_fix`]). An edit whose text is the line as it is changes
+/// nothing and is dropped without a word.
 ///
 /// # Errors
 /// [`AnswerError`] when the answer holds no JSON object or is not the asked-for shape.
-pub fn parse_answer(
-    answer: &str,
-    lines: &[TranscriptLine],
-    offered: Range<usize>,
-) -> Result<Checked, AnswerError> {
+pub fn parse_answer(answer: &str, lines: &[TranscriptLine]) -> Result<Checked, AnswerError> {
     let json = json_object(answer).ok_or(AnswerError::NoJson)?;
     let parsed: Answer =
         serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
@@ -534,7 +369,7 @@ pub fn parse_answer(
             .line
             .as_u64()
             .and_then(|line| usize::try_from(line).ok())
-            .filter(|line| offered.contains(line));
+            .filter(|line| *line < lines.len());
         let Some(index) = index else {
             checked.refused.push((named, Refusal::UnknownLine));
             continue;
@@ -700,7 +535,7 @@ mod tests {
 
     use super::*;
     use crate::company_doc::ProposalResponse;
-    use crate::whisper::WhisperWord;
+    use crate::whisper::{WhisperSegment, WhisperWord};
 
     fn line(start_ms: i64, speaker: &str, text: &str) -> TranscriptLine {
         TranscriptLine {
@@ -749,7 +584,7 @@ mod tests {
         }
     }
 
-    fn background_of(doc: &CompanyDocResponse) -> BackgroundText {
+    fn background_of(doc: &CompanyDocResponse) -> String {
         background(Background {
             title: "Weekly sync",
             participants: &["ada@example.com".to_owned()],
@@ -836,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn the_answer_keeps_only_edits_to_offered_lines_once_each() {
+    fn the_answer_keeps_only_edits_to_lines_the_transcript_has_once_each() {
         let lines = vec![
             line(0, "Ada", "Jon is here"),
             line(3_000, "Grace", "Ship it"),
@@ -847,12 +682,12 @@ mod tests {
             {"line": 0, "text": "Johnny is here"},
             {"line": 1, "text": "Ship it"},
             {"line": 2, "text": "Later on"},
-            {"line": 7, "text": "Invented"},
+            {"line": 3, "text": "Invented"},
             {"line": "one", "text": "Jon"},
             {"line": 1, "text": "  "}
         ]}"#;
 
-        let checked = parse_answer(answer, &lines, 0..2).expect("parses");
+        let checked = parse_answer(answer, &lines).expect("parses");
 
         assert_eq!(checked.edits.len(), 1);
         assert_eq!(checked.edits[0].line, 0);
@@ -864,20 +699,20 @@ mod tests {
             .map(|(_, refusal)| *refusal)
             .collect();
         // Line 1 given back as it is changes nothing, and is dropped without a word; line 2
-        // was not offered to this turn.
+        // adds a word; there is no line 3.
         assert_eq!(
             refusals,
             vec![
                 Refusal::Repeated,
-                Refusal::UnknownLine,
+                Refusal::AddsWords,
                 Refusal::UnknownLine,
                 Refusal::UnknownLine,
                 Refusal::Repeated,
             ]
         );
-        assert_eq!(parse_answer("no", &lines, 0..2), Err(AnswerError::NoJson));
+        assert_eq!(parse_answer("no", &lines), Err(AnswerError::NoJson));
         assert!(matches!(
-            parse_answer("{\"lines\": []}", &lines, 0..2),
+            parse_answer("{\"lines\": []}", &lines),
             Err(AnswerError::Shape(_))
         ));
     }
@@ -886,7 +721,7 @@ mod tests {
     fn an_edit_with_no_text_is_refused() {
         let lines = vec![line(0, "Ada", "Jon is here")];
         let checked =
-            parse_answer(r#"{"edits": [{"line": 0, "text": " "}]}"#, &lines, 0..1).expect("parses");
+            parse_answer(r#"{"edits": [{"line": 0, "text": " "}]}"#, &lines).expect("parses");
         assert_eq!(checked.edits, Vec::new());
         assert_eq!(checked.refused, vec![("0".to_owned(), Refusal::Empty)]);
     }
@@ -922,69 +757,76 @@ mod tests {
     }
 
     #[test]
-    fn a_long_meeting_is_split_into_turns_that_each_fit_one_argument() {
-        let lines: Vec<TranscriptLine> = (0..3_000)
-            .map(|index| line(index * 3_000, "Ada", &"word ".repeat(20)))
+    fn a_long_meeting_is_one_prompt_with_every_line_and_everything_whisper_heard() {
+        // Three hours of meeting, several times what one argument could carry.
+        let lines: Vec<TranscriptLine> = (0..3_600)
+            .map(|index| {
+                line(
+                    index * 3_000,
+                    "Ada",
+                    &format!("line {index} {}", "word ".repeat(20)),
+                )
+            })
             .collect();
-        let texts: Vec<(i64, String)> = (0..3_000)
-            .map(|index| (index * 3_000, "word ".repeat(20)))
+        let texts: Vec<(i64, String)> = (0..3_600)
+            .map(|index| {
+                (
+                    index * 3_000,
+                    format!("heard {index} {}", "word ".repeat(20)),
+                )
+            })
             .collect();
         let segments: Vec<(i64, &str)> = texts
             .iter()
             .map(|(start_ms, text)| (*start_ms, text.as_str()))
             .collect();
         let heard = whisper(&segments);
-        let shared = background_of(&doc("- Ada Lovelace"));
-        let room = transcript_room(&shared.text);
+        let background = background_of(&doc("- Ada Lovelace"));
 
-        let turns = plan_turns(room, &lines, Some(&heard));
+        let text = prompt(&background, &lines, Some(&heard));
 
-        assert!(turns.len() > 1, "{} turns", turns.len());
-        let mut next = 0;
-        for turn in &turns {
-            assert_eq!(turn.start, next, "turns cover every line once, in order");
-            next = turn.end;
-            let text = prompt(&shared.text, &lines, turn.clone(), Some(&heard));
-            assert!(text.len() <= PROMPT_BUDGET_BYTES);
-            assert!(text.contains(&format!("[{}] ", turn.start)));
+        assert!(text.len() > 3 * 128 * 1024, "{} bytes", text.len());
+        assert_eq!(
+            text.matches("## People").count(),
+            1,
+            "the doc is read once, however long the meeting"
+        );
+        for (index, line) in lines.iter().enumerate() {
             assert!(
-                text.contains(&format!("[{}] ", turn.end - 1)),
-                "every line fits whole"
+                text.contains(&format!(
+                    "[{index}] [{}] Ada: {}\n",
+                    clock(line.start_ms),
+                    line.text
+                )),
+                "line {index} is whole"
             );
         }
-        assert_eq!(next, lines.len());
+        for (start_ms, said) in &texts {
+            assert!(text.contains(&format!("[{}] {}\n", clock(*start_ms), said.trim())));
+        }
+        let lines_at = text.find("[0] [0:00] Ada").expect("the lines");
+        let whisper_at = text
+            .find("What a second transcription heard")
+            .expect("Whisper's");
+        assert!(
+            lines_at < whisper_at,
+            "the transcript to correct comes first"
+        );
     }
 
     #[test]
-    fn a_line_too_long_for_any_turn_gets_one_of_its_own_and_still_fits() {
-        let lines = vec![
-            line(0, "Ada", "Short"),
-            line(3_000, "Ada", &"word ".repeat(40_000)),
-            line(6_000, "Grace", "Short"),
-        ];
-        let shared = background_of(&doc(""));
-        let room = transcript_room(&shared.text);
+    fn a_meeting_with_no_whisper_transcript_is_its_lines_alone() {
+        let lines = vec![line(0, "Ada", "Jon is here"), line(3_000, "", "Ship it")];
 
-        let turns = plan_turns(room, &lines, None);
+        let text = prompt("Background\n", &lines, None);
 
-        assert_eq!(turns, vec![0..1, 1..2, 2..3]);
-        assert!(prompt(&shared.text, &lines, 1..2, None).len() <= PROMPT_BUDGET_BYTES);
-    }
-
-    #[test]
-    fn whispers_text_for_the_turns_stretch_alone_is_shown() {
-        let lines = vec![line(60_000, "Ada", "Jon is here")];
-        let heard = whisper(&[
-            (1_000, "Long before"),
-            (59_000, "John is here"),
-            (500_000, "Much later"),
-        ]);
-
-        let text = prompt("", &lines, 0..1, Some(&heard));
-
-        assert!(text.contains("John is here"));
-        assert!(!text.contains("Long before"));
-        assert!(!text.contains("Much later"));
+        assert!(text.starts_with("Background\n"));
+        assert!(text.contains("[0] [0:00] Ada: Jon is here\n"));
+        assert!(
+            text.contains("[1] [0:03] Ship it\n"),
+            "a line nobody is named for"
+        );
+        assert!(!text.contains("second transcription"));
     }
 
     #[test]
@@ -1015,33 +857,28 @@ mod tests {
 
         let shared = background_of(&current);
 
-        let people = shared.text.find("## People").expect("people");
-        let glossary = shared.text.find("## Glossary").expect("glossary");
-        let company = shared.text.find("## Company").expect("company");
+        let people = shared.find("## People").expect("people");
+        let glossary = shared.find("## Glossary").expect("glossary");
+        let company = shared.find("## Company").expect("company");
         assert!(people < glossary && glossary < company);
-        assert!(
-            shared
-                .text
-                .contains("(proposed, waiting for review) - Elysium")
-        );
-        assert!(
-            !shared
-                .text
-                .contains("(proposed, waiting for review) - Entry")
-        );
-        assert!(shared.sections_cut.is_empty());
+        assert!(shared.contains("(proposed, waiting for review) - Elysium"));
+        assert!(!shared.contains("(proposed, waiting for review) - Entry"));
     }
 
     #[test]
-    fn a_doc_too_long_for_the_prompt_is_cut_from_its_least_useful_sections() {
-        let long = doc(&"- A name spelled out at length\n".repeat(500));
+    fn a_long_doc_goes_whole() {
+        let long = doc(&"- A name spelled out at length\n".repeat(400));
 
         let shared = background_of(&long);
 
-        assert!(shared.text.len() < DOC_BUDGET_BYTES + OTHER_MEETINGS_BUDGET_BYTES + 3_000);
-        assert!(shared.text.contains("## People"));
-        assert!(!shared.sections_cut.contains(&"people"));
-        assert!(shared.sections_cut.contains(&"company"));
+        for section in &long.sections {
+            assert!(
+                shared.contains(section.content.trim_end()),
+                "{} is whole",
+                section.section.as_str()
+            );
+        }
+        assert!(!shared.contains("did not fit"));
     }
 
     #[test]

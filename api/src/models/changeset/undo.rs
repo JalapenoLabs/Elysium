@@ -16,11 +16,13 @@
 //! | remove from one        | Puts it back, if the operation took it out                    |
 //! | create an initiative   | Deletes it softly                                             |
 //! | file an issue          | Drops the filing, or unlinks the issue once it was filed      |
+//! | assign an item         | Takes it back from its Project Manager, if still so assigned  |
 //!
 //! Some effects have already left Elysium and cannot be reversed from here: a comment the
 //! watcher already posted to the provider stays there, an issue the watcher already closed
-//! stays closed when its item returns, and an issue the watcher already filed stays in its
-//! tracker. Each operation's `undo` records what was not
+//! stays closed when its item returns, an issue the watcher already filed stays in its
+//! tracker, and what a Project Manager already planned for an item it was assigned stays planned.
+//! Each operation's `undo` records what was not
 //! reversed so the review says so. Changes the user made after the changeset are never
 //! overwritten: a field edited since keeps the user's value, and an item moved since stays
 //! where the user put it.
@@ -50,7 +52,8 @@ use crate::models::action_item_event;
 use crate::models::action_item_link::{self, LinkKind, LinkState};
 use crate::models::action_item_link_write::LinkWriteKind;
 use crate::models::{
-    action_item_comment, action_item_issue_filing, action_item_link_write, initiative,
+    action_item_assignment, action_item_comment, action_item_issue_filing, action_item_link_write,
+    initiative, project_manager,
 };
 
 /// Why one operation could not be reversed.
@@ -238,7 +241,49 @@ async fn reverse(
         }
         Operation::CreateInitiative(_) => delete_initiative(connection, result, actor, now).await,
         Operation::FileIssue(_) => withdraw_filing(connection, result, actor, now).await,
+        Operation::AssignItem(_) => take_back_assignment(connection, result, actor, now).await,
     }
+}
+
+/// Takes the item back from its Project Manager, when the assignment this operation made still
+/// stands: the same lead, assigned at the moment it applied. One taken back or assigned again since
+/// was the person's doing and stays (`movedSince`). Once a turn took the assignment, what it
+/// planned stays planned (`stillPlanned`): each batch is the person's to decide.
+async fn take_back_assignment(
+    connection: &mut AsyncPgConnection,
+    result: &Value,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Reversed, Failure> {
+    if result["assigned"] != json!(true) {
+        return Ok(Reversed::done());
+    }
+    let item_id = result_id(result, "itemId");
+    let project_id = result_id(result, "projectId");
+    let assigned_at: DateTime<Utc> = serde_json::from_value(result["assignedAt"].clone())
+        .expect("an applied assignment's result names when it applied");
+    let item = action_item::find(connection, item_id).await?;
+    let stands =
+        item.lead_project_id == Some(project_id) && item.manager_assigned_at == Some(assigned_at);
+    if !stands {
+        let mut reversed = Reversed::default();
+        reversed
+            .details
+            .insert("movedSince".to_owned(), json!(true));
+        return Ok(reversed);
+    }
+
+    let waiting = project_manager::waiting_assignment(connection, item_id).await?;
+    let unassigned = action_item_assignment::unassign(connection, item_id, actor, now).await?;
+    let mut reversed = Reversed::done();
+    if !waiting {
+        reversed
+            .details
+            .insert("stillPlanned".to_owned(), json!(true));
+    }
+    reversed.touched.history.extend(unassigned.history);
+    reversed.touched.item_ids.insert(item_id);
+    Ok(reversed)
 }
 
 /// Withdraws an issue the changeset asked for. One not filed yet is dropped. One the watcher

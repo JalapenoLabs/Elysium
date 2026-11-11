@@ -314,6 +314,35 @@ const describeByKind = {
       details: [],
     }
   },
+  manager_assigned: (entry, context, t) => ({
+    summary: t('history.managerAssigned', {
+      name: lookupName(
+        context.projectNames,
+        readString(entry.data, 'projectId'),
+        t('history.values.deletedProject'),
+      ),
+    }),
+    details: [],
+  }),
+  // An assignment ends when a person takes the item back, when its lead moves, since nobody asked
+  // the new lead's Project Manager to plan it, or when the item is finished.
+  manager_unassigned: (entry, context, t) => {
+    const name = lookupName(
+      context.projectNames,
+      readString(entry.data, 'projectId'),
+      t('history.values.deletedProject'),
+    )
+    const data = isRecord(entry.data)
+      ? entry.data
+      : {}
+    if (data.leadMoved === true) {
+      return { summary: t('history.managerUnassignedByLeadMove', { name }), details: []}
+    }
+    if (data.finished === true) {
+      return { summary: t('history.managerUnassignedByFinish', { name }), details: []}
+    }
+    return { summary: t('history.managerUnassigned', { name }), details: []}
+  },
   container_linked: (entry, _context, t) => ({
     summary: t('history.containerLinked', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
     details: [],

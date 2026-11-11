@@ -83,23 +83,61 @@ pub fn looks_like(meeting: &Meeting, other: &Meeting) -> bool {
     if !close_starts && !overlap {
         return false;
     }
-    let taking_part = participants(meeting);
-    participants(other)
+    let taking_part = identities(meeting);
+    identities(other)
         .iter()
-        .any(|participant| taking_part.contains(participant))
+        .any(|identity| taking_part.contains(identity))
 }
 
-/// Who took part in `meeting`, as their names or addresses compare: trimmed and in lowercase.
-fn participants(meeting: &Meeting) -> HashSet<String> {
-    meeting
+/// Every way `meeting`'s participants may be named by another source, compared in lowercase.
+/// Sources name people differently: Fireflies by address (`ada.lovelace@example.com`), Teams and
+/// Slack by name (`Ada Lovelace`). So a participant is known by what it says, and also by the
+/// forms an address is commonly made from a name: the name's words run together
+/// (`adalovelace`), and its first initial before its last word (`alovelace`), against an
+/// address's local part with its separators taken out. A one-word name is known by that word,
+/// which is also how `ada@example.com` is known.
+fn identities(meeting: &Meeting) -> HashSet<String> {
+    let mut known = HashSet::new();
+    let named = meeting
         .participants
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(Value::as_str)
-        .map(|participant| participant.trim().to_lowercase())
-        .filter(|participant| !participant.is_empty())
-        .collect()
+        .filter_map(Value::as_str);
+    for participant in named {
+        let participant = participant.trim().to_lowercase();
+        if participant.is_empty() {
+            continue;
+        }
+        if let Some((local, _domain)) = participant.split_once('@') {
+            let joined: String = local
+                .chars()
+                .filter(|character| character.is_alphabetic())
+                .collect();
+            if !joined.is_empty() {
+                known.insert(joined);
+            }
+            known.insert(participant);
+            continue;
+        }
+        let words: Vec<&str> = participant
+            .split(|character: char| !character.is_alphabetic())
+            .filter(|word| !word.is_empty())
+            .collect();
+        match words.as_slice() {
+            [] => {}
+            [only] => {
+                known.insert((*only).to_owned());
+            }
+            [first, .., last] => {
+                known.insert(words.concat());
+                let initial: String = first.chars().take(1).collect();
+                known.insert(format!("{initial}{last}"));
+            }
+        }
+        known.insert(participant);
+    }
+    known
 }
 
 /// Whether `meeting` was found after `other`, and so is the one of the two that asks.
@@ -820,6 +858,31 @@ mod tests {
         // A source that kept no length still matches one starting within ten minutes.
         let unknown_length = meeting("2026-11-10T15:08:00Z", None, &["grace"]);
         assert!(looks_like(&teams, &unknown_length));
+    }
+
+    #[test]
+    fn a_name_one_source_gives_matches_the_address_another_gives() {
+        // Teams names people; Fireflies gives their addresses.
+        let teams = meeting(
+            "2026-11-10T15:00:00Z",
+            Some(60),
+            &["Ada Lovelace", "Grace Hopper"],
+        );
+        let fireflies = meeting(
+            "2026-11-10T15:00:00Z",
+            Some(60),
+            &["ada.lovelace@example.com"],
+        );
+        assert!(looks_like(&teams, &fireflies));
+        let initial = meeting("2026-11-10T15:00:00Z", Some(60), &["ghopper@example.com"]);
+        assert!(looks_like(&teams, &initial));
+        let first_name = meeting("2026-11-10T15:00:00Z", Some(60), &["Linus"]);
+        let first_name_address = meeting("2026-11-10T15:00:00Z", Some(60), &["linus@example.com"]);
+        assert!(looks_like(&first_name, &first_name_address));
+
+        // A shared first name alone is not the same person.
+        let someone_else = meeting("2026-11-10T15:00:00Z", Some(60), &["ada@example.com"]);
+        assert!(!looks_like(&teams, &someone_else));
     }
 
     #[test]

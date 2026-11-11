@@ -5,7 +5,7 @@
 //! the company doc, and the company's other meetings, beside the raw ones it was made from.
 //!
 //! The prompt and the checks on the model's answer are `super::correction`; this module runs
-//! the turns, stores the copy, lines the meeting's final transcript up again with it
+//! the turn, stores the copy, lines the meeting's final transcript up again with it
 //! (`super::final_transcript`), and decides whether the run waits for its person's approval.
 //!
 //! # Doing it once
@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::correction::{self, Background, Base, Edit};
+use super::correction::{self, Background, Base};
 use super::final_transcript;
 use super::segment::TranscriptToSegment;
 use super::source::TranscriptLine;
@@ -234,8 +234,8 @@ impl CorrectTranscript {
         read.await.map_err(StepFailure::retryable)
     }
 
-    /// Corrects `heard` in as many turns as it takes, and stores the copy. Answers the copy
-    /// stored, which is another attempt's when one stored it first.
+    /// Corrects `heard` in one turn over the whole meeting, and stores the copy. Answers the
+    /// copy stored, which is another attempt's when one stored it first.
     async fn correct(
         &self,
         heard: &Heard,
@@ -252,16 +252,9 @@ impl CorrectTranscript {
             fixes: &heard.fixes,
             speakers: &heard.speakers,
         });
-        for section in &background.sections_cut {
-            context.log.line(&format!(
-                "The company doc's {section} section did not fit whole beside the transcript"
-            ));
-        }
         let lines = &heard.base.lines;
-        let room = correction::transcript_room(&background.text);
-        let mut turns = correction::plan_turns(room, lines, heard.whisper.as_ref());
         context.log.line(&format!(
-            "Correcting {} lines of the {} transcript{}, in {} turns",
+            "Correcting {} lines of the {} transcript{}, in one turn",
             lines.len(),
             heard.base.based_on.as_str(),
             if heard.whisper.is_some() {
@@ -269,45 +262,24 @@ impl CorrectTranscript {
             } else {
                 ""
             },
-            turns.len().min(correction::TURNS_MAX)
         ));
-        if turns.len() > correction::TURNS_MAX {
-            let left_from = turns[correction::TURNS_MAX].start;
-            context.log.line(&format!(
-                "Lines from {left_from} on are left as heard: the meeting takes more than {} turns",
-                correction::TURNS_MAX
-            ));
-            turns.truncate(correction::TURNS_MAX);
-        }
 
         let model = context.model().await?;
-        let mut edits: Vec<Edit> = Vec::new();
-        for turn in turns {
-            let prompt = correction::prompt(
-                &background.text,
-                lines,
-                turn.clone(),
-                heard.whisper.as_ref(),
-            );
-            let answer = self.ask(heard.meeting.id, prompt, &model).await?;
-            let checked =
-                correction::parse_answer(&answer, lines, turn.clone()).map_err(|error| {
-                    StepFailure::retryable(format!("The correction's answer: {error}"))
-                })?;
-            context.log.line(&format!(
-                "Lines {} to {}: {} corrected, {} edits refused",
-                turn.start,
-                turn.end - 1,
-                checked.edits.len(),
-                checked.refused.len()
-            ));
-            for (line, refusal) in &checked.refused {
-                context
-                    .log
-                    .line(&format!("Refused the edit to line {line}: {refusal}"));
-            }
-            edits.extend(checked.edits);
+        let prompt = correction::prompt(&background, lines, heard.whisper.as_ref());
+        let answer = self.ask(heard.meeting.id, prompt, &model).await?;
+        let checked = correction::parse_answer(&answer, lines)
+            .map_err(|error| StepFailure::retryable(format!("The correction's answer: {error}")))?;
+        context.log.line(&format!(
+            "{} lines corrected, {} edits refused",
+            checked.edits.len(),
+            checked.refused.len()
+        ));
+        for (line, refusal) in &checked.refused {
+            context
+                .log
+                .line(&format!("Refused the edit to line {line}: {refusal}"));
         }
+        let edits = checked.edits;
 
         let corrected = correction::apply(lines, &edits);
         let hash = correction::transcript_hash(&corrected);
@@ -384,6 +356,14 @@ impl CorrectTranscript {
                 }
             }
         };
+        if outcome.prompt_too_long() {
+            // The prompt is the meeting itself, so every attempt would fail the same way. A
+            // person who skips the step lets segmenting go on from the transcript as heard.
+            return Err(StepFailure::permanent(format!(
+                "The meeting is too long for the model to read in one turn: {}",
+                outcome.error.unwrap_or_default()
+            )));
+        }
         if outcome.status != TurnStatus::Completed {
             return Err(StepFailure::retryable(anyhow!(
                 "The correction turn ended {:?}: {}",
@@ -478,7 +458,7 @@ impl CorrectTranscript {
 
 impl Step for CorrectTranscript {
     const NAME: &'static str = "correct_transcript";
-    /// It reads the transcripts and corrects them in agent turns.
+    /// It reads the transcripts and corrects them in an agent turn.
     const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Correction);
     type Input = TranscribedMeeting;
     type Output = TranscriptToSegment;

@@ -95,7 +95,8 @@ Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored 
 restore refuses a deleted item, and a deleted item counts toward no initiative's progress.
 
 A person can change many items at once from the item list: move them to a state, set a priority, snooze them, add
-them to or take them out of an initiative, delete, or restore them (`POST /api/v1/action-items/bulk`, `docs/api.md`).
+them to or take them out of an initiative, assign them to their Project Managers or take them back, delete, or restore
+them (`POST /api/v1/action-items/bulk`, `docs/api.md`).
 A state is named as where the items should end up, and each item takes the transition that leads there from its own
 state, so a selection of inbox and open items can be resolved together. Every item goes through the write it would take
 alone, in one transaction, each in a savepoint of its own: an item the rules refuse is left as it was and reported,
@@ -153,10 +154,48 @@ project, and only that project's Project Manager works it: it alone may submit a
   came with its first project is changed by choosing another rather than undone.
 - **Nothing starts.** Attributing an item wakes no Project Manager and starts no worker. The wake for a record newly on
   a project (`docs/connectors.md`, The timeline) is a timeline record's, and an item is not one; assigning an item to
-  its lead project's Project Manager is what will start planning (`docs/autonomy.md`, Assigning work).
+  its lead project's Project Manager is what starts planning ([Assigning to a Project
+  Manager](#assigning-to-a-project-manager)).
 
 The rules are `api/src/models/action_item_attribution.rs`, with the memberships and the lead in
 `api/src/models/action_item.rs`.
+
+## Assigning to a Project Manager
+
+A person picks which work is taken on: assigning an item to its lead project's Project Manager wakes it to plan the
+item. Attribution decides where an item belongs; assigning decides it is to be worked. The code is
+`api/src/models/action_item_assignment.rs`.
+
+- **Who assigns.** A person, from the item's page (`PUT /api/v1/action-items/{id}/manager-assignment`) or a selection of
+  the item list (`assign-to-manager` in the bulk route), and only the company's members, who alone see Project Managers.
+  The model holds this too (`require_member`), so a guest approving Elysia's suggestion, or undoing it, is refused like
+  one calling the route. Elysia suggests: an `assign-item` operation in a changeset, with why the item is ready, which
+  the person approves or rejects like any other ([Changesets](#changesets)). Approving it is the person assigning the
+  item: the item records the person as who assigned it, and its history names Elysia's changeset. No coding agent or
+  Project Manager may propose one, since that would be work assigning itself work.
+- **To its lead's Project Manager.** Only the lead project's Project Manager may submit work for an item, so an item is
+  assigned to that one and no other, and the assignment names no project of its own
+  (`action_items.manager_assigned_at` and `manager_assigned_by`). An item no project leads cannot be assigned, and its
+  page says so; neither can one resolved, dismissed, or deleted. An item in the inbox is accepted as it is assigned,
+  since assigning it is taking it on. Assigning an item already assigned changes nothing.
+- **What it starts.** The assignment writes an `assignment` wake for the lead project's Project Manager in the same
+  transaction, naming the item and the person (`docs/engine.md`, Project Managers). Its next turn reads the item, its
+  notes, its links, and who assigned it, and plans it into the batch or batches it needs, or says in its reply why it
+  cannot yet; an item resolved or dismissed before that turn runs is left out of it. It starts no worker: every batch it plans is proposed, for the person to approve (`docs/engine.md`,
+  Proposed batches). A batch planned for the item is human-rooted, through the item, since its history says a person
+  assigned it (`docs/engine.md`, Origins and generations).
+- **When it ends.** A person takes the item back (`DELETE .../manager-assignment`), which drops the wake if no turn has
+  taken it; what the Project Manager already planned stays, each batch the person's to decide. Moving the item's lead
+  to another project, or taking it out of its last one, ends the assignment too, recorded as `manager_unassigned` with
+  `leadMoved`: nobody asked the new lead's Project Manager to plan it, so the person assigns it again if they want it
+  planned there. Undoing the lead's move does not bring the assignment back. Resolving, dismissing, or deleting the item
+  ends it as well (`finished` for the first two), whoever does it, the watcher included, so an item reopened or
+  restored is not shown as planned when nothing planned it.
+- **Where its plan stands.** `GET .../manager-assignment` answers, while the item is assigned, the lead project, who
+  assigned it and when, the stage (`waiting` for its Project Manager's next turn, `planning` while that turn runs,
+  `planned` once it finished, or `failed`), the turn that took it, and the lead project's latest ten batches naming the
+  item with their states. It is read when asked, from the assignment's wake and the batches, so nothing stored can
+  disagree with them, and members alone read it, as they do batches.
 
 ## History
 
@@ -178,6 +217,8 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `lead_project_changed` | `{ from, to }`, each a project id or null, and `passedOn` when it followed a change of projects |
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 | `unassigned`         | `{ linkId, provider, key, url, assignee }`: a linked issue the user was assigned is no longer theirs; `assignee` is who has it now, or null |
+| `manager_assigned`   | `{ projectId }`: a person assigned the item to that project's Project Manager, its lead then |
+| `manager_unassigned` | `{ projectId }`, null for an assignment a stray delete left without a lead; `leadMoved` when it ended because the lead moved to another project, `finished` when the item was resolved or dismissed |
 
 An entry that undoes another, from the item's history, also names it (`undid`). Kinds and actors are stored as text
 rather than enums, so later stages add kinds without an enum migration. Only a
@@ -472,12 +513,13 @@ approved and applied as they are made (`docs/engine.md`, Its writes).
 - Approving applies the approved operations in order: Elysium's own data first, then the provider writes. A provider
   write that fails leaves its operation and link `pending`, retried as above, and the rest still apply.
 - Operations: create an item, update an item, resolve or dismiss an item, comment, link, add to or remove from an
-  initiative, create an initiative, file an item's issue.
+  initiative, create an initiative, file an item's issue, assign an item to its Project Manager.
 - Applied operations are recorded in each item's history with the changeset as their source, so one changeset can be
   undone as a whole.
 
-A project's switch for its Project Manager is the one rule that applies changes without review today; rules for other
-proposers and trusted kinds of operations are on the roadmap.
+A project's Full autonomy, the top of its trust dial (`docs/autonomy.md`, The dial), is the one rule that applies a
+Project Manager's changes without review today; rules for other proposers and trusted kinds of operations are on the
+roadmap.
 
 The rules are `api/src/action_items/changesets.rs`, and the queries that store, apply, and undo changesets are
 `api/src/models/changeset.rs` with `apply.rs` and `undo.rs` beside it.
@@ -499,6 +541,7 @@ operations. Each operation is an object whose
 | `add-to-initiative`, `remove-from-initiative` | `item`, `initiative`                                    |
 | `create-initiative`      | `name`, and optional `description`, `targetAt`, `projectIds`                 |
 | `file-issue`             | `item`, `tracker`: `{ provider, credentialId, destination }`, the project's tracker when proposed |
+| `assign-item`            | `item`: assigns it to its lead project's Project Manager; Elysia's alone ([Assigning to a Project Manager](#assigning-to-a-project-manager)) |
 
 An operation may also name the timeline record that caused it (`causeRecordId`); every Project Manager's does, and its
 write is recorded on the project's timeline with it when it applies.
@@ -561,12 +604,15 @@ and the history entries the undo records name the changeset too:
 | Add to or remove from an initiative | Reverses the membership, if the operation changed it                |
 | Create an initiative | Deletes it softly                                                                  |
 | File an issue        | Drops the filing, or once it was filed, removes the link to the issue              |
+| Assign an item       | Takes it back from its Project Manager, if the assignment it made still stands; an inbox item it accepted stays open |
 
 What undo cannot reverse, and says so on the operation (`undo`) for the review to show:
 
 - A comment the watcher already posted to Jira or GitHub stays there (`stillPosted`). One not posted yet is dropped.
 - An issue the watcher already filed stays in its tracker (`stillFiled`), and the item stops following it; one not filed
   yet is dropped.
+- What a Project Manager already planned for an item it was assigned stays planned (`stillPlanned`): each batch is the
+  person's to decide. An item the person took back or assigned again since keeps the person's choice (`movedSince`).
 - An issue the watcher already closed stays closed when its item returns (`stillClosed`); a pull request was never
   touched. A close not landed yet is dropped, as for any item no longer resolved.
 - A field the user changed after the changeset keeps the user's value (`kept`), and an item the user moved since stays
@@ -596,7 +642,7 @@ Every call is scoped to the session's project and re-checked against the databas
 | Tool               | Arguments                                                  | Answers                                                     |
 |--------------------|------------------------------------------------------------|-------------------------------------------------------------|
 | `work_project`     | none                                                       | The project, its active initiatives, its items in the inbox or open, and `sessionItemId` |
-| `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes, each with its `leadProjectId` |
+| `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes, each with its `leadProjectId` and `assignedToManagerAt` |
 | `work_item`        | `itemId`                                                   | The item with its notes, comments, latest 50 history entries, projects (the lead marked), and initiatives |
 | `work_initiatives` | optional `states`                                          | `{ initiatives }` with progress, by name                    |
 | `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |

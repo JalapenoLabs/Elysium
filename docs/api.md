@@ -74,6 +74,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/action-items/{id}/history`   | `200` `{ history: HistoryEntry[] }`, oldest first   |
 | POST   | `/api/v1/action-items/{id}/history/{entryId}/undo` | `200` `{ item }`; reverses a change to its projects or lead, `409` when it changed since |
 | PUT    | `/api/v1/action-items/{id}/lead-project` | `200` `{ item }`; `{ projectId }`, one of its projects |
+| GET    | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ plan }`, where its plan stands, or `null` while it is not assigned; members only |
+| PUT    | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ item }`; assigns it to its lead project's Project Manager, `409` with no lead; members only |
+| DELETE | `/api/v1/action-items/{id}/manager-assignment` | `200` `{ item }`; takes it back; members only |
 | GET    | `/api/v1/action-items/{id}/comments`  | `200` `{ comments: Comment[] }`, oldest first       |
 | POST   | `/api/v1/action-items/{id}/comments`  | `201` `{ comment }`                                 |
 | PATCH  | `/api/v1/action-items/{id}/comments/{commentId}` | `200` `{ comment }`                      |
@@ -246,8 +249,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
 | PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
 | DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
+| GET    | `/api/v1/projects/{id}/autonomy`      | `200` `{ autonomy: { autonomy, setBy, setAt } }` |
+| PUT    | `/api/v1/projects/{id}/autonomy`      | `200` `{ project, autonomy }`; `{ autonomy }`; members only |
 | GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
-| PATCH  | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; `{ writesDirectly }`; members only |
 | PUT    | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; `{ provider, credentialId?, destination }`; members only |
 | DELETE | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; follows the precedent again; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/destinations?provider=&credentialId=` | `200` `{ destinations: [{ reference, name }] }`; members only |
@@ -490,9 +494,12 @@ A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpd
 `coverFit` (`fit` or `fill`, how clients frame the cover), and `github`: `{ access, credentialId }`, how the project
 picks its sessions' GitHub token. `access` is `default` (the workspace default), `none`, or `specific` with the token's
 `credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
-`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
-accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected. A `github` whose
-`credentialId` is missing for `specific`, present for another access, or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
+`autonomy` is its trust dial (`docs/autonomy.md`, The dial): `approve_every_batch`, the default, `approve_found_work`,
+or `full_autonomy`. `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000,
+default empty), and creates the project's brief with it, announced as `page.changed` (`docs/autonomy.md`, The project
+brief). `PATCH` accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected, and a new
+`name` renames the brief too. A `github` whose `credentialId` is missing for `specific`, present for another access,
+or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,
@@ -501,6 +508,13 @@ to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at 
 dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
+
+`GET /{id}/autonomy` answers `{ autonomy: { autonomy, setBy, setAt } }`: the project's level, with the person who set
+it and when, both `null` while it is at the default it started with. `PUT /{id}/autonomy` takes `{ autonomy }` and
+nothing else, records the change as the caller, and answers `{ project, autonomy }`; choosing the level the project has
+changes nothing. It takes a company member, so a guest is refused `403` and no agent's tool reaches it (`members_only`).
+A change publishes `project.upserted` and `projectManager.changed`, and applies to what the Project Manager submits and
+changes from then on.
 
 `GET /{id}/worker-setup` answers `{ workerSetup: { toolsSetupScript, repositories } }`: how the project readies its
 workers' containers (`docs/engine.md`, Workers). `toolsSetupScript` is bash run as root in every worker's container
@@ -519,8 +533,10 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
 first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
-timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, `message`, or
-`promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
+timelineRecordId, workBatchId, promiseId, pageVersion, body, createdBy, createdAt }`, `kind` being `record`, `batch`,
+`message`, `promise`, or `brief` (someone else published the project's brief, as version `pageVersion`). A batch has
+`id`, `title`, `goal`, `serves` (the goal in the project's brief it serves, `null` for a batch from before briefs or
+one a person made by accepting a finding), `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
 `scheduled`), `scheduledFor`, `state` (`proposed`, `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`,
 `cancelled`, `rejected`),
 `result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `sourceMessageIds` (the messages to its Project Manager that
@@ -532,9 +548,9 @@ recordId, sourceKind, title, url, occurredAt, personId }`, the message it was ma
 null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
 `draftId` (its follow-up's draft, which only its person may read), and `createdAt`; `/api/v1/promises` answers the same
 shape (`docs/engine.md`, Follow-ups). `writes` says how its changes reach the work (`docs/engine.md`, Its writes):
-`direct`, whether they apply at once; `tracker`, where its issues file, `{ source, provider, credentialId,
-credentialName, destination }` with `source` `named` or `precedent`, or null with `trackerRefusal` saying why. A project
-nothing woke yet answers `idle` with none. `PATCH /{id}/project-manager` takes `{ writesDirectly }`. `PUT
+`direct`, whether they apply at once, true at the project's Full autonomy; `tracker`, where its issues file, `{ source,
+provider, credentialId, credentialName, destination }` with `source` `named` or `precedent`, or null with
+`trackerRefusal` saying why. A project nothing woke yet answers `idle` with none. `PUT
 /{id}/project-manager/tracker` names the tracker: `provider`, `destination` as the destinations listing names it, and
 `credentialId`, a Jira credential or a YouTrack account the caller owns, left out for GitHub, which files with the
 project's token; the place is read through that credential before it is stored, and a GitHub tracker on a project
@@ -562,16 +578,19 @@ has looked, when `size` is `null` too unless an admin chose one), and `usageHeld
 at its usage limit. `inSlots` lists the batches holding slots, in the order they got them; `next` every batch the pool
 may hand a slot now, first first; `scheduled` the scheduled batches not yet due, soonest first; `paused` the paused
 ones; and `proposed` those waiting for a person's approval, oldest first, which the pool hands nothing. Each entry is
-`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt, origin, generation
-}`, without its goal;
+`{ id, projectId, title, priority, scheduledFor, state, pinnedAt, assignedAt, createdAt, startedAt, origin, generation,
+cause }`, without its goal, `cause` being the head of its chain (the first link of `why.chain` below that is neither the
+batch nor a pull request), or `null` for a batch that names nothing;
 at most the 1,000 oldest waiting batches are read, and apart from them at most the 1,000 oldest proposed.
 
 `GET /work-batches/{id}` answers `{ batch, why, history }`: the batch whole, as `GET /projects/{id}/project-manager`
-lists it; `why`, `{ records, messages, actionItems, parents }`, the timeline records its Project Manager named as its
-cause, each `{ id, sourceKind, title, occurredAt, documentId }` with `documentId` the knowledge base's document a member
-opens it by (`null` before it is indexed), the messages sent to its Project Manager that called for it, each `{ id,
-authorId, author, body, sentAt }`, the action items it works on, each `{ id, title, state }`, in the order it named
-them, leaving out any gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
+lists it; `why`, `{ chain, parents }`, its chain from what asked for it to its pull requests (`docs/engine.md`, Why a
+batch exists), each link tagged by `kind`: `finding` `{ id, title, acceptedById, acceptedBy, acceptedAt }`, `message`
+`{ id, authorId, author, body, sentAt }`, `record` `{ id, sourceKind, title, occurredAt, excerpt, meetingTitle,
+documentId }` with `excerpt` its first 600 characters and `documentId` the knowledge base's document a member opens it
+by (`null` before it is indexed), `issue` `{ actionItemId, provider, key, url, title }`, `item` `{ id, title, state }`,
+`batch` `{ id, projectId, title }`, and `pullRequest` `{ id, repository, number, url, title, state }`, leaving out
+anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
 history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
 (`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
@@ -607,9 +626,10 @@ lastReportedAt, decidedBy, decidedAt, dismissalReason, actionItemId, acceptedBat
 being `small`, `medium`, or `large` and `state` `open`, `accepted`, or `dismissed`.
 
 `POST /findings/{id}/accept` takes no body. In one transaction it makes an open action item in the finding's project as
-the person, owes its issue in the project's tracker, filed as them, when the project has one, proposes a batch for the
-item, human-rooted and generation 0, and records the finding accepted. It answers the finding, the item's and the
-batch's ids, and `issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
+the person, owes its issue in the project's tracker, filed as them, when the project has one, submits a batch for the
+item, human-rooted and generation 0, proposed or queued as the project's level of autonomy says, and records the
+finding accepted. It answers the finding, the item's and the batch's ids, `batchState` (`proposed` or `queued`), and
+`issue`, `{ provider, destination }` where the issue files, or `null` with `issueRefusal` saying why it
 files nowhere. `POST /findings/{id}/dismiss` takes an optional `reason`, up to 2,000 characters, which agents that
 report the finding again are told, and answers the finding. Both answer `404` for an unknown finding and `409` `code`
 `finding_decided` once someone decided it.
@@ -779,10 +799,11 @@ and members, and a guest `403 members_only`. `page.changed` carries an id alone,
 load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
-`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `labels` (in order),
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `briefProjectId` (the
+project whose brief it is, `null` on any other page), `labels` (in order),
 `attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest
 version), `createdBy`, `createdAt`, `updatedAt`, `deletedAt`, and `projectIds`, the projects it is linked to, oldest link
-first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`,
+first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, `briefProjectId`,
 `labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
 the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move, a label, or a
@@ -816,7 +837,8 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
 | `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
-| `page_fixed`          | A move, a deletion, or a new title on the Learnings or Company page or a section  |
+| `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, or Project briefs page, a section, or a project's brief |
+| `page_brief_linked`   | Taking a project's brief off that project, which only deleting the project does   |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
 | `page_not_a_learning` | A publish named a category and evidence for a page that is no learning           |
 | `page_parent_gone`    | The parent named does not exist or is deleted, or a deleted page's parent still is |
@@ -916,7 +938,9 @@ An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`
 `high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
 `projectIds`, `projectAttributions` (each of its projects as `{ projectId, confidence, attributedBy }`: how sure whoever
 put it there was, 1 for anyone but the attribution step, and the actor), `leadProjectId` (the one of its projects that
-leads it, set exactly while it is in any), `initiativeIds` (the initiatives it is in now, leaving out deleted ones),
+leads it, set exactly while it is in any), `managerAssignment` (`{ assignedAt, assignedBy }` while a person has it
+assigned to its lead project's Project Manager, or null), `initiativeIds` (the initiatives it is in now, leaving out
+deleted ones),
 `createdAt`, `updatedAt`, and
 `issueFiling`, the issue it is owed and not yet filed, `{ id, provider, destination, attempts, lastError,
 lastAttemptAt, createdAt }`, or null. `owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody"
@@ -937,14 +961,15 @@ answers `409`, as do deleting a deleted item and restoring one that is not.
 `POST /bulk` applies one change to many items, as a multi-select asks: `{ itemIds, change }`, with 1 to 1,000 ids
 (repeats count once; `MAX_ITEMS` in `src/models/action_item_bulk.rs`) and `change` an object whose `kind` says what it
 does: `state` with `state` (`open`, `resolved`, or `dismissed`; each item takes the transition that leads there from its
-own state, and one already there is left as it is), `priority` with `priority`, `snooze` with `until` (as the item's
-own route), `join-initiative` or `leave-initiative` with `initiativeId`, `delete`, or `restore`. Each item goes through
-the same write its own route makes, in one transaction, recording its own history with the person as the actor; there
-is no changeset, since the person acts directly. An item the records refuse (unknown, deleted, or in a state no
-transition leaves for the one asked) is left as it was and listed in `refused` as `{ itemId, message }`, while the rest
-apply, so the answer is `200` with `items`, every item the change applied to as it stands now. An unknown initiative to
-join answers `404` and a deleted one `409`, for the whole change. Items are written in the order of their ids, so two
-changes over the same items never deadlock. Events go out as for each item's own route, each initiative once.
+own state, and one already there is left as it is), `priority` with `priority`, `snooze` with `until` (as the item's own
+route), `join-initiative` or `leave-initiative` with `initiativeId`, `assign-to-manager` or `unassign-from-manager` (for
+the company's members alone, as on one item), `delete`, or `restore`. Each item goes through the same write its own
+route makes, in one transaction, recording its own history with the person as the actor; there is no changeset, since
+the person acts directly. An item the records refuse (unknown, deleted, or in a state no transition leaves for the one
+asked) is left as it was and listed in `refused` as `{ itemId, message }`, while the rest apply, so the answer is `200`
+with `items`, every item the change applied to as it stands now. An unknown initiative to join answers `404` and a
+deleted one `409`, for the whole change. Items are written in the order of their ids, so two changes over the same items
+never deadlock. Events go out as for each item's own route, each initiative once.
 
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
@@ -952,6 +977,16 @@ initiative `409`. Deleting a project takes its items and initiatives out of it, 
 first project leads it, and when its lead leaves, the surest of those left leads instead
 (`docs/action-items.md`, Projects and the lead). `PUT /lead-project` makes one of its projects its lead, and answers
 `400` for a project it is not in.
+
+`PUT /manager-assignment` assigns the item to its lead project's Project Manager, which wakes to plan it, as the
+person; an item in the inbox is accepted as it is assigned, and one already assigned answers unchanged. An item no
+project leads, or one resolved, dismissed, or deleted, answers `409`. `DELETE` takes it back, dropping the wake if no
+turn has taken it, and answers unchanged for an item not assigned. `GET` answers `{ plan }`: `{ projectId, assignedAt,
+assignedBy, stage, turnId, batches }`, where `stage` is `waiting`, `planning`, `planned`, or `failed`, `turnId` is the
+turn that took the assignment once one did, and `batches` are the lead project's latest ten naming the item, newest
+first, each `{ id, title, state, createdAt }`; `plan` is null while the item is not assigned. All three answer guests
+`403`, since Project Managers and batches are the company's members' (`docs/action-items.md`, Assigning to a Project
+Manager). Each write publishes the item and `projectManager.changed` for the lead project.
 
 `POST /history/{entryId}/undo` reverses one `project_added`, `project_removed`, or `lead_project_changed` entry as the
 person, recording an entry of its own that names the one it undid (`data.undid`). Only the latest change to that

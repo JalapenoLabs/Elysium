@@ -45,7 +45,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::media;
-use super::source::{MeetingSource, RecordingSource, SourceError, TranscriptLine};
+use super::source::{RecordingSource, SourceError, TranscriptLine};
 use super::sources::Sources;
 use crate::agent_models::AgentKind;
 use crate::connectors::activity::Activity;
@@ -187,21 +187,18 @@ impl FetchMeeting {
                 "The meeting's capture names nothing at its source to fetch",
             ));
         };
-        let source =
-            super::source_of(&self.inner.sources, &account).map_err(StepFailure::permanent)?;
-        let credential = {
+        let source = {
             let mut connection = self.connection().await?;
-            super::key_of(&mut connection, &self.inner.cipher, &account)
+            self.inner
+                .sources
+                .signed_in(&mut connection, &self.inner.cipher, &account)
                 .await
                 .map_err(StepFailure::retryable)?
         };
         let _syncing = self.inner.activity.begin(account.id).await;
 
         log.line(&format!("Fetching the meeting from {}", account.kind));
-        let fetched = source
-            .fetch(&credential, &external_id)
-            .await
-            .map_err(source_failure)?;
+        let fetched = source.fetch(&external_id).await.map_err(source_failure)?;
         let fetched_hash = transcript_hash(&fetched.transcript);
         log.line(&format!(
             "The source sent {} transcript lines, SHA-256 {fetched_hash}",

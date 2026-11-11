@@ -164,7 +164,8 @@ fn teams_whisper() -> WhisperTranscript {
 }
 
 /// Stores a meeting of the test person's as `source_kind` listed it, starting `started_at`, with
-/// its capture fetched as `lines`, and Whisper's transcript of it when there is one.
+/// its capture fetched as `lines`, and Whisper's transcript of it when there is one. Teams names
+/// who took part; Fireflies gives their addresses, as the two sources do.
 async fn listed_and_fetched(
     connection: &mut AsyncPgConnection,
     source_kind: &str,
@@ -181,7 +182,11 @@ async fn listed_and_fetched(
             started_at,
             duration_ms: Some(1_800_000),
             organizer: "ada@example.com".to_owned(),
-            participants: json!(["ada@example.com", "grace@example.com"]),
+            participants: if source_kind == "teams" {
+                json!(["Ada Lovelace", "Grace Hopper"])
+            } else {
+                json!(["ada.lovelace@example.com", "grace@example.com"])
+            },
             created_by: TEST_PERSON_ID,
         },
         NewMeetingCapture {

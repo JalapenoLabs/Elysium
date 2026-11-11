@@ -16,7 +16,14 @@ export const PROJECT_MANAGER_TURN_STATUSES = [ 'running', 'succeeded', 'failed' 
 export type ProjectManagerTurnStatus = typeof PROJECT_MANAGER_TURN_STATUSES[number]
 
 // Mirrors `WakeKind` in api/src/models/project_manager.rs.
-export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise' ] as const
+export const PROJECT_MANAGER_WAKE_KINDS = [
+  'record',
+  'batch',
+  'message',
+  'promise',
+  'brief',
+  'assignment',
+] as const
 export type ProjectManagerWakeKind = typeof PROJECT_MANAGER_WAKE_KINDS[number]
 
 // Mirrors `Priority` in api/src/models/work_batch.rs.
@@ -49,13 +56,16 @@ export type WorkBatchWait = typeof WORK_BATCH_WAITS[number]
 export const WORK_BATCH_ORIGINS = [ 'human_rooted', 'found' ] as const
 export type WorkBatchOrigin = typeof WORK_BATCH_ORIGINS[number]
 
-// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
+// One thing that woke a turn: a message with its text, a record, a batch, a promise, or an action
+// item a person assigned it, by id, or someone else's publish of the project's brief, by its version.
 export type ProjectManagerWake = {
   id: string
   kind: ProjectManagerWakeKind
   timelineRecordId: string | null
   workBatchId: string | null
   promiseId: string | null
+  pageVersion: number | null
+  actionItemId: string | null
   body: string | null
   // Who caused it: the person or Elysia who wrote, or whoever attributed the record.
   createdBy: string
@@ -87,6 +97,9 @@ export type WorkBatch = {
   projectId: string
   title: string
   goal: string
+  // The goal in its project's brief it serves, as the brief spells it; null for a batch from
+  // before briefs.
+  serves: string | null
   repositories: WorkBatchRepository[]
   priority: WorkBatchPriority
   // When a scheduled batch is due.
@@ -160,8 +173,8 @@ export type ProjectTracker = {
   destination: string
 }
 
-// Mirrors `WritesResponse`: whether its changes apply as it makes them, and where its issues
-// file, or why there is nowhere.
+// Mirrors `WritesResponse`: whether its changes apply as it makes them, which the project's level
+// of autonomy decides, and where its issues file, or why there is nowhere.
 export type ProjectManagerWrites = {
   direct: boolean
   tracker: ProjectTracker | null
@@ -202,13 +215,6 @@ export function getProjectManagerTurn(projectId: string, turnId: string) {
   return apiClient
     .get(getProjectManagerTurnKey(projectId, turnId))
     .json<ProjectManagerTurnResponse>()
-}
-
-// Whether its changes apply as it makes them, rather than waiting for a person's approval.
-export function setProjectManagerWritesDirectly(projectId: string, writesDirectly: boolean) {
-  return apiClient
-    .patch(getProjectManagerKey(projectId), { json: { writesDirectly }})
-    .json<ProjectManagerResponse>()
 }
 
 type SetProjectTrackerRequest = {

@@ -72,6 +72,8 @@ const planned = turn({
       timelineRecordId: null,
       workBatchId: null,
       promiseId: null,
+      pageVersion: null,
+      actionItemId: null,
       body: 'Leadership wants annual pricing live this week.',
       createdBy: ELYSIA_USER_ID,
       createdAt: '2026-11-04T14:59:00Z',
@@ -82,6 +84,8 @@ const planned = turn({
       timelineRecordId: 'record-1',
       workBatchId: null,
       promiseId: null,
+      pageVersion: null,
+      actionItemId: null,
       body: null,
       createdBy: ELYSIA_USER_ID,
       createdAt: '2026-11-04T14:58:00Z',
@@ -158,8 +162,8 @@ describe('ProjectManagerPanel', () => {
       writes: PROPOSING,
     }
     const store = renderPanel(idle)
-    const writesDirectly = screen.getByRole('switch', { name: 'Write to trackers without review' })
-    expect(writesDirectly).toHaveProperty('checked', false)
+    expect(screen.getByText('Its changes to items and trackers wait for your approval')).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
     expect(screen.getByText('Files issues in Jira ELY through Work')).toBeTruthy()
     expect(screen.getByText('Where this project\'s issues already are')).toBeTruthy()
 
@@ -169,7 +173,7 @@ describe('ProjectManagerPanel', () => {
         writes: { direct: true, tracker: null, trackerRefusal: 'this project names no tracker' },
       }))
     })
-    expect(screen.getByRole('switch', { name: 'Write to trackers without review' })).toHaveProperty('checked', true)
+    expect(screen.getByText('Its changes to items and trackers apply as it makes them')).toBeTruthy()
     expect(screen.getByText('this project names no tracker')).toBeTruthy()
   })
 })

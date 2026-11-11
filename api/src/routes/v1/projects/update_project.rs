@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `PATCH /api/v1/projects/{id}`: rename or redescribe a project, or change how it picks its
-//! GitHub token.
+//! GitHub token. Renaming it renames its brief too.
 
 use anyhow::Context;
 use axum::Json;
@@ -15,7 +15,9 @@ use validator::Validate;
 
 use super::{ProjectGithub, ProjectResponse, validate_not_blank};
 use crate::errors::ApiError;
+use crate::models::page::PageError;
 use crate::models::project::{self, GithubAccess, ProjectChanges, ProjectCoverFit};
+use crate::models::project_brief;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -59,7 +61,6 @@ pub async fn handle(
         cover_fit: body.cover_fit,
         github_access: body.github.map(|github| github.access),
         github_credential_id: body.github.map(|github| github.credential_id),
-        ..ProjectChanges::default()
     };
     if changes.is_empty() {
         return Err(ApiError::BadRequest(
@@ -75,11 +76,12 @@ pub async fn handle(
     let project = project::update(&mut connection, id, &changes)
         .await
         .map_err(|error| match error {
-            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {
-                ApiError::BadRequest(
-                    "github.credentialId names a token that does not exist".to_owned(),
-                )
-            }
+            PageError::Database(DieselError::DatabaseError(
+                DatabaseErrorKind::ForeignKeyViolation,
+                _,
+            )) => ApiError::BadRequest(
+                "github.credentialId names a token that does not exist".to_owned(),
+            ),
             other => other.into(),
         })?;
 
@@ -88,6 +90,12 @@ pub async fn handle(
         .publish(&ServerEvent::ProjectUpserted(ProjectResponse::from(
             project.clone(),
         )));
+    if changes.name.is_some() {
+        let brief = project_brief::find(&mut connection, project.id).await?;
+        state
+            .events
+            .publish(&ServerEvent::PageChanged { id: brief.id });
+    }
 
     Ok(Json(json!({ "project": ProjectResponse::from(project) })))
 }

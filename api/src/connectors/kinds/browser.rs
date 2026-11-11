@@ -113,7 +113,8 @@ async fn discard(state: &AppState, browser: &BrowserSession) {
     }
 }
 
-/// Creates a connector of `kind` for `current`, reading `content`, with a browser of its own.
+/// Creates a connector of `kind` for `current`, reading `content`, with a browser of its own,
+/// keeping what it saves in `storage_location_id` for a kind that saves files.
 ///
 /// # Errors
 /// As [`start`], and any database error, after which the browser is removed again.
@@ -122,11 +123,13 @@ pub(super) async fn create(
     current: &CurrentUser,
     kind: ConnectorKind,
     content: Value,
+    storage_location_id: Option<Uuid>,
 ) -> Result<Connector, ApiError> {
     let browser = start(state, current.id(), kind).await?;
     let mut new_connector =
         NewConnector::new(kind.as_str(), AccountRef::Browser(browser.id), current.id());
     new_connector.content = content;
+    new_connector.storage_location_id = storage_location_id;
     let stored = async {
         let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
         Ok::<_, ApiError>(connector::create(&mut connection, new_connector).await?)

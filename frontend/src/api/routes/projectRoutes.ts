@@ -27,6 +27,15 @@ export type ProjectGithub = {
   credentialId: string | null
 }
 
+// Mirrors `Autonomy` in api/src/models/project_autonomy.rs: a project's trust dial, what of its
+// Project Manager's work waits for a person. Found work waits at every level.
+export const PROJECT_AUTONOMY_LEVELS = [
+  'approve_every_batch',
+  'approve_found_work',
+  'full_autonomy',
+] as const
+export type ProjectAutonomy = typeof PROJECT_AUTONOMY_LEVELS[number]
+
 // Mirrors `ProjectResponse` in api/src/routes/v1/projects/mod.rs.
 export type Project = {
   id: string
@@ -40,6 +49,8 @@ export type Project = {
   coverUpdatedAt: string | null
   coverFit: ProjectCoverFit
   github: ProjectGithub
+  // Who set it and when is `getProjectAutonomy`.
+  autonomy: ProjectAutonomy
 }
 
 type ListProjectsResponse = {
@@ -83,6 +94,41 @@ export function updateProject(projectId: string, body: UpdateProjectRequest) {
   return apiClient
     .patch(`v1/projects/${projectId}`, { json: body })
     .json<UpdateProjectResponse>()
+}
+
+// Mirrors `AutonomyResponse` in api/src/routes/v1/projects/autonomy.rs. `setBy` and `setAt` are
+// null while the project is at the default it started with.
+export type ProjectAutonomySetting = {
+  autonomy: ProjectAutonomy
+  setBy: string | null
+  setAt: string | null
+}
+
+export function getProjectAutonomyKey(projectId: string) {
+  return `v1/projects/${projectId}/autonomy`
+}
+
+type GetProjectAutonomyResponse = {
+  autonomy: ProjectAutonomySetting
+}
+
+export function getProjectAutonomy(projectId: string) {
+  return apiClient
+    .get(getProjectAutonomyKey(projectId))
+    .json<GetProjectAutonomyResponse>()
+}
+
+type SetProjectAutonomyResponse = {
+  project: Project
+  autonomy: ProjectAutonomySetting
+}
+
+// Members alone: a guest is refused, and no agent can turn it. It applies to what the Project
+// Manager submits and changes from then on.
+export function setProjectAutonomy(projectId: string, autonomy: ProjectAutonomy) {
+  return apiClient
+    .put(getProjectAutonomyKey(projectId), { json: { autonomy }})
+    .json<SetProjectAutonomyResponse>()
 }
 
 type ProjectCoverResponse = {

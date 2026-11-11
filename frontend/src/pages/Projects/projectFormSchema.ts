@@ -6,7 +6,7 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 // Misc
-import { PROJECT_COVER_FITS } from '../../api/routes/projectRoutes'
+import { PROJECT_AUTONOMY_LEVELS, PROJECT_COVER_FITS } from '../../api/routes/projectRoutes'
 
 // Mirrors the API's limits so most mistakes are caught before a round trip.
 export const NAME_MAX_CHARACTERS = 120
@@ -28,12 +28,13 @@ export function createProjectFormSchema(t: TFunction<'projects'>) {
 
 export type ProjectFormValues = z.infer<ReturnType<typeof createProjectFormSchema>>
 
-// A project's own page also sets how its cover fits and which GitHub token its sessions start
-// with, as the token picker's key (`toGithubKey`).
+// A project's own page also sets how its cover fits, which GitHub token its sessions start
+// with, as the token picker's key (`toGithubKey`), and its level of autonomy.
 export function createProjectEditSchema(t: TFunction<'projects'>) {
   return createProjectFormSchema(t).extend({
     coverFit: z.enum(PROJECT_COVER_FITS),
     githubKey: z.string(),
+    autonomy: z.enum(PROJECT_AUTONOMY_LEVELS),
   })
 }
 

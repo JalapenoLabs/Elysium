@@ -16,6 +16,10 @@
     'client.counts',
     'conversations.history',
     'conversations.info',
+    // A huddle's transcript, which Slack keeps as a file of its own beside its AI notes.
+    'files.info',
+    'huddles.get',
+    'huddles.history',
     'subscriptions.thread.getView',
     'users.conversations',
     'users.info',
@@ -46,6 +50,17 @@
     return { signedIn: false, teams: [], results: [] }
   }
 
+  // The page is on app.slack.com and each workspace's API on its own host, so every call is
+  // a credentialed cross-origin request. Slack answers one with this origin, rather than the
+  // `*` a browser refuses alongside cookies, only when the request carries the web client's
+  // own marker (`_x_gantry`); `slack_route` names the workspace, as the web client does.
+  const addressOf = (team, method) => {
+    const address = new URL(`api/${method}`, team.url)
+    address.searchParams.set('_x_gantry', 'true')
+    address.searchParams.set('slack_route', team.id)
+    return address
+  }
+
   const call = async (team, method, params) => {
     if (!READ_METHODS.has(method)) {
       return { ok: false, error: 'method_not_allowed' }
@@ -56,7 +71,7 @@
       body.append(key, String(value))
     }
     try {
-      const response = await fetch(new URL(`api/${method}`, team.url), {
+      const response = await fetch(addressOf(team, method), {
         method: 'POST',
         body,
         credentials: 'include',

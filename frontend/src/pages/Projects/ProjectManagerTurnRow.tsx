@@ -116,6 +116,12 @@ export function ProjectManagerTurnRow(props: Props) {
         {woken.promises > 0 && <li className='opacity-80'>{
           t('manager.turn.promises', { count: woken.promises })
         }</li>}
+        {woken.briefEdits > 0 && <li className='opacity-80'>{
+          t('manager.turn.briefEdits', { count: woken.briefEdits })
+        }</li>}
+        {woken.assignments > 0 && <li className='opacity-80'>{
+          t('manager.turn.assignments', { count: woken.assignments })
+        }</li>}
       </ul>
 
       {turn.reply && <div className='relaxed'>

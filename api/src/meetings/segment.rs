@@ -968,6 +968,14 @@ impl SegmentMeeting {
                 }
             }
         };
+        if outcome.prompt_too_long() {
+            // The prompt is the transcript, conversation, or item itself, so every attempt would
+            // fail the same way.
+            return Err(StepFailure::permanent(format!(
+                "Too long for the model to read in one turn: {}",
+                outcome.error.unwrap_or_default()
+            )));
+        }
         if outcome.status != TurnStatus::Completed {
             return Err(StepFailure::retryable(anyhow!(
                 "The segmentation turn ended {:?}: {}",
