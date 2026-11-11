@@ -80,8 +80,10 @@ redo, concurrent migrators, the pending-migration refusal, the rebuild for a cha
 index's cascades and columns, timeline records indexed as they are stored with a page's newest version alone, the
 backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
 the knowledge search's two rankings, filters, folding, documents, refusal of guests, and budget through the router,
-learnings saved, revised, undone, deleted, and indexed with them, pages' labels and the search's filter by them, the move of learnings and the company doc onto pages
-against data laid out as production's, up, down to the row, and up again, with no passage re-embedded, the split of
+learnings saved, revised, undone, deleted, and indexed with them, pages' labels and the search's filter by them, edits
+suggested to pages, accepted wholly and in part, merged, refused, and dismissed, with each page's one inbox item, the move
+of learnings and the company doc onto pages against data laid out as production's, up, down to the row, and up again,
+with no passage re-embedded, the company doc's proposals becoming suggestions the same way, the split of
 meetings into captures the same way, each final transcript built word for word as the code builds one, meetings'
 edits and marks moved and undone over their words, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
@@ -423,28 +425,46 @@ The history of what records are attributed to, one row per change, shaped like `
 | `data`               | `JSONB`       | `{ before, after }`, each `{ confidence, attributedBy }` or `null`, and `undid` for an undo |
 | `created_at`         | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
-### `company_doc_proposals`
+### `page_suggestions`
 
-Changes proposed to one section of the company doc, whose sections are pages (`docs/knowledge.md`, Pages, Learnings and
-the company doc), each waiting for a person to approve or reject it. The partial unique index
-`company_doc_proposals_pending_once` on `(section, md5(content))` while `pending` keeps the same change pending once;
-`company_doc_proposals_by_state` on `(state, id)` reads what waits and what was rejected.
+Edits agents suggested to a page, each waiting for a person to accept, wholly or in part, or dismiss with a reason
+(`docs/knowledge.md`, Pages, Suggestions). The company doc's suggestions are those to its sections' pages. The partial
+unique index `page_suggestions_pending_once` on `(page_id, md5(body))` while `pending` keeps the same edit pending once
+on a page; `page_suggestions_pending` on `(page_id, id)` while `pending` reads what waits on a page and counts it for
+the tree and search; `page_suggestions_by_state` on `(state, id)` reads the latest dismissed for the company doc's
+review.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
-| `id`                 | `UUID`        | UUIDv7, primary key                                                    |
-| `section`            | `TEXT`        | The section's key: `company`, `leadership`, `people`, `stakeholders`, `products`, `projects`, or `glossary` |
-| `base_content`       | `TEXT`        | The section as it read when the change was proposed                    |
-| `content`            | `TEXT`        | The section as the change would leave it; never `base_content`         |
+| `id`                 | `UUID`        | UUIDv7, primary key; a suggestion to the company doc keeps the id it had as a proposal |
+| `page_id`            | `UUID`        | References `pages`, cascading                                          |
+| `base_version`       | `INTEGER`     | With `page_id`, references `page_versions`: the version it was written from |
+| `base_body`          | `TEXT`        | That version's text, which its edits were applied to and which accepting merges from |
+| `body`               | `TEXT`        | The page's text as it would leave it; never `base_body`; at most 100,000 characters |
 | `reason`             | `TEXT`        | 1 to 2,000 characters                                                  |
 | `quote`, `source`    | `TEXT`        | Where it was read; at most 2,000 and 500 characters                    |
-| `timeline_record_id` | `UUID`        | References `timeline_records`, `SET NULL`: the record the review cited |
-| `workflow_run_id`    | `UUID`        | References `workflow_runs`, `SET NULL`: the review's run that proposed it |
-| `state`              | `TEXT`        | `pending`, `approved`, or `rejected`                                   |
+| `timeline_record_id` | `UUID`        | References `timeline_records`, `SET NULL`: the record the company doc's review cited |
+| `workflow_run_id`    | `UUID`        | References `workflow_runs`, `SET NULL`: the review's run that suggested it |
+| `state`              | `TEXT`        | `pending`, `accepted`, or `dismissed`                                  |
+| `accepted_changes`   | `INTEGER[]`   | On an accepted suggestion, the changes taken by their place from 0; `NULL` for all of them |
+| `dismissal_reason`   | `TEXT`        | Why it was dismissed, 1 to 2,000 characters, which every dismissal through the API gives; only on a dismissed one |
 | `decided_by`, `decided_at` | `UUID`, `TIMESTAMPTZ` | Who decided and when; set exactly once it is not `pending` |
-| `created_by`         | `UUID`        | References `users`: the person, or Elysia's or the coding agent's machine user |
+| `created_by`         | `UUID`        | References `users`: the person, or Elysia's or a Project Manager's machine user |
 | `agent`, `agent_name` | `TEXT`       | The agent acting for them: `mcp:<client id>` with the name it registered, `session:<number>`, or `project_manager:<project id>` |
 | `created_at`         | `TIMESTAMPTZ` | Written by the API                                                     |
+
+### `page_suggestion_items`
+
+The one inbox item per page that asks a person to review its suggestions (`docs/knowledge.md`, Pages, Suggestions,
+Telling people). A page has at most one at a time; when its person resolved or dismissed it by hand, the next
+suggestion raises a new one and the row names it instead.
+
+| Column           | Type          | Notes                                                                 |
+|------------------|---------------|-----------------------------------------------------------------------|
+| `page_id`        | `UUID`        | Primary key; references `pages`, cascading                            |
+| `action_item_id` | `UUID`        | References `action_items`, cascading: the item that counts its suggestions |
+| `created_by`     | `UUID`        | References `users`: the system user, since Elysium raises it          |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | `updated_at` moves when another item replaces a closed one |
 
 ### `agent_guidance_versions`
 
@@ -586,7 +606,7 @@ never reorders the Learnings list.
 | `category`        | `TEXT`        | References `learning_categories (key)`, on a page that is a learning; `pages_category` counts and moves them |
 | `evidence`        | `TEXT`        | 1 to 20,000 characters, set with `category`; indexed after the body    |
 | `current_version` | `INTEGER`     | The newest of its versions                                            |
-| `proposal_only`   | `BOOLEAN`     | Agents may only propose to it; people edit it directly. The Company page and the doc's sections |
+| `proposal_only`   | `BOOLEAN`     | Agents may only suggest edits to it; people edit it directly. The Company page and the doc's sections |
 | `deleted_at`      | `TIMESTAMPTZ` | Soft delete; NULL while the page is live. Descendants deleted with it share the instant, which is how restoring it finds them |
 | `created_by`      | `UUID`        | References `users`: who created it                                    |
 | `created_at`      | `TIMESTAMPTZ` | Written by the API, the moment it was created                         |
@@ -771,6 +791,41 @@ inbox item asking. A decision, who made it, and when are set together (`meeting_
 | `created_by`      | `UUID`        | References `users`; the system user, which asks                              |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                   |
 
+### `meeting_uploads`
+
+Meetings people upload, while their parts arrive and once they became a capture; see `docs/meetings.md`, Uploads. A new
+meeting's upload names its title and start, and a capture's names its meeting (`meeting_uploads_new_meeting`); a
+finished one names the capture it became (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
+updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep, and
+`meeting_uploads_parts_kept` on `finished_at`, partial on finished uploads whose parts were not removed, the finished
+ones to sweep.
+
+| Column                | Type          | Notes                                                                       |
+|-----------------------|---------------|-----------------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                         |
+| `meeting_id`          | `UUID`        | References `meetings`, cascading: the meeting a capture is added to; `NULL` for a new meeting |
+| `title`, `started_at` | `TEXT`, `TIMESTAMPTZ` | A new meeting's title and when it started                           |
+| `storage_location_id` | `UUID`        | References `storage_locations`: where the recording is kept; `NULL` for a transcript alone |
+| `part_bytes`          | `INTEGER`     | How many bytes each part carries but the last, fixed when it starts         |
+| `transcript`          | `JSONB`       | The lines its transcript was read as, `{ startMs, endMs, speaker, text }` each, set when it finishes |
+| `capture_id`          | `UUID`        | References `meeting_captures`, cascading, unique: the capture it became     |
+| `finished_at`         | `TIMESTAMPTZ` | When it finished                                                            |
+| `parts_removed_at`    | `TIMESTAMPTZ` | When its staged parts were removed from the workspace; `NULL` while they may be there |
+| `created_by`          | `UUID`        | References `users`: who uploads it                                          |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger, and moved by every part, which the sweep reads |
+
+### `meeting_upload_files`
+
+An upload's files, a recording, a transcript, or one of each; a child of its upload, so it has no `created_by`.
+
+| Column           | Type          | Notes                                                                            |
+|------------------|---------------|----------------------------------------------------------------------------------|
+| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording` or `transcript`         |
+| `file_name`      | `TEXT`        | Its name, cleaned, at most 200 characters                                        |
+| `size_bytes`     | `BIGINT`      | Above zero                                                                       |
+| `modified_at`    | `TIMESTAMPTZ` | When the file last changed, as the browser read it, to resume it                 |
+| `received_bytes` | `BIGINT`      | How much of it arrived, in whole parts from its start; at most its size          |
+
 ### `meeting_transcriptions`
 
 What Elysium's own Whisper heard in a capture's recording, one per capture, written once by the meeting workflow's
@@ -814,7 +869,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, or `split`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, or `capture_added`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |

@@ -20,7 +20,8 @@ describe('toRecordResults', () => {
       { kind: 'project', id: 'p1', title: 'Sign-in service' },
       { kind: 'codingSession', id: 42, title: 'Sign-in redirect' },
       { kind: 'initiative', id: 'n1', title: 'Sign-in revamp', state: 'achieved' },
-      { kind: 'page', id: 'g1', title: 'Sign-in runbook' },
+      { kind: 'page', id: 'g1', title: 'Sign-in runbook', pendingSuggestions: 0 },
+      { kind: 'page', id: 'g2', title: 'Sign-in glossary', pendingSuggestions: 2 },
     ]
 
     const results = toRecordResults(hits, 'sign', t)
@@ -30,6 +31,7 @@ describe('toRecordResults', () => {
       [ 'codingSessions', { kind: 'link', href: '/coding/42' }, '#42' ],
       [ 'initiatives', { kind: 'link', href: '/action-items/initiatives/n1' }, 'Achieved' ],
       [ 'knowledge', { kind: 'link', href: '/knowledge/pages/g1' }, 'Pages' ],
+      [ 'knowledge', { kind: 'link', href: '/knowledge/pages/g2' }, 'Pages · 2 suggested edits wait' ],
     ])
     expect(new Set(results.map((result) => result.id)).size).toBe(hits.length)
   })

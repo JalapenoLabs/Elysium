@@ -4,6 +4,7 @@ import type { ParseKeys } from 'i18next'
 import type { PageAction } from '../../../layout/page/pageActions'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useParams, useSearchParams } from 'react-router'
 
@@ -13,7 +14,7 @@ import { selectOpenedPage, selectPageTree } from '../../../store/pagesSlice'
 
 // User interface
 import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
-import { LuHistory, LuMessagesSquare, LuPencil } from 'react-icons/lu'
+import { LuHistory, LuPencil, LuSparkles } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { ChildPageList } from './ChildPageList'
@@ -24,17 +25,23 @@ import { PageByline } from './PageByline'
 import { PageHistory } from './PageHistory'
 import { PageLabels } from './PageLabels'
 import { PageProjects } from './PageProjects'
+import { PageSuggestions } from './PageSuggestions'
 import { RestorePageButton } from './RestorePageButton'
 
 // Misc
+import { getApiErrorMessage } from '../../../api/errors'
+import { startCompanyDocReview } from '../../../api/routes/companyDocRoutes'
 import { usePageLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
+import { toast } from '../../../toast/toast'
 import {
   getKnowledgePageEditUrl,
   getKnowledgePageUrl,
   getLearningEditUrl,
+  getRunViewUrl,
   pageAddressById,
   PAGE_HISTORY_TAB,
+  PAGE_SUGGESTIONS_TAB,
   TAB_PARAM,
   UrlTree,
 } from '../../../urls'
@@ -43,11 +50,12 @@ import { findPageAncestors } from './pageTree'
 import { usePassageRange } from './usePassageRange'
 import { usePageAttachmentUpload } from './usePageAttachments'
 
-const TABS = [ 'read', PAGE_HISTORY_TAB ] as const
+const TABS = [ 'read', PAGE_SUGGESTIONS_TAB, PAGE_HISTORY_TAB ] as const
 type Tab = typeof TABS[number]
 
 const tabLabelKeys = {
   read: 'pages.tabs.read',
+  [PAGE_SUGGESTIONS_TAB]: 'pages.tabs.suggestions',
   [PAGE_HISTORY_TAB]: 'pages.tabs.history',
 } as const satisfies Record<Tab, ParseKeys<'knowledge'>>
 
@@ -59,7 +67,7 @@ type Props = {
 // already knows the title and path, so they show at once, and the text follows. A deleted page reads
 // on with a chip, off the tree, as a link to it may outlive it.
 function KnowledgePageReader(props: Props) {
-  const { t } = useTranslation('knowledge')
+  const { t } = useTranslation([ 'knowledge', 'common' ])
   const status = usePageLoader(props.pageId)
   const page = useAppSelector((state) => selectOpenedPage(state, props.pageId))
   const tree = useAppSelector(selectPageTree)
@@ -71,6 +79,29 @@ function KnowledgePageReader(props: Props) {
   // Only Read shows the text, so History asks for nothing, and coming back opens at the passage.
   const markedRange = usePassageRange(page, selectedTab === 'read' ? passagePosition : null)
   const upload = usePageAttachmentUpload(props.pageId)
+  const [ isStartingReview, setIsStartingReview ] = useState(false)
+
+  // The company doc's review runs every few hours; Look for updates starts one now and says so,
+  // linking to its run.
+  async function startReview() {
+    setIsStartingReview(true)
+    try {
+      const response = await startCompanyDocReview()
+      const message = response.started
+        ? t('pages.review.started')
+        : t('pages.review.running')
+      toast.success(message, {
+        link: { label: t('pages.review.openRun'), href: getRunViewUrl(response.run.id) },
+      })
+    }
+    catch (error) {
+      console.debug('KnowledgePageReader could not start a company doc review', { error })
+      toast.danger(t('common:errors.unexpected'), { description: getApiErrorMessage(error) ?? undefined })
+    }
+    finally {
+      setIsStartingReview(false)
+    }
+  }
 
   const parents = [
     { label: t('title'), href: UrlTree.knowledge },
@@ -86,7 +117,7 @@ function KnowledgePageReader(props: Props) {
 
   const actions: PageAction[] = []
   if (page && !page.deletedAt) {
-    // A learning's undo and the company doc's proposals stay on their own pages.
+    // A learning's undo stays on its own page.
     if (page.category) {
       actions.push({
         id: 'learningHistory',
@@ -95,12 +126,13 @@ function KnowledgePageReader(props: Props) {
         href: getLearningEditUrl(page.id),
       })
     }
-    else if (page.proposalOnly) {
+    if (page.companyDoc) {
       actions.push({
-        id: 'companyDocProposals',
-        label: t('pages.companyDocProposals'),
-        icon: LuMessagesSquare,
-        href: UrlTree.settingsCompanyDoc,
+        id: 'lookForUpdates',
+        label: t('pages.lookForUpdates'),
+        icon: LuSparkles,
+        isPending: isStartingReview,
+        onAction: () => void startReview(),
       })
     }
   }
@@ -124,10 +156,9 @@ function KnowledgePageReader(props: Props) {
       tabs={TABS.map((tab) => ({
         id: tab,
         label: t(tabLabelKeys[tab]),
-        // Versions number from one, so the count needs no load and a page's text never waits on it.
-        count: tab === PAGE_HISTORY_TAB
-          ? page.currentVersion
-          : null,
+        // Both counts come with the page, so neither needs a load and its text never waits on one:
+        // versions number from one, and the page counts what waits for review.
+        count: tabCount(tab, page.currentVersion, page.pendingSuggestions),
       }))}
     >
       <Tabs.Panel id='read' className='mt-0 p-0'>
@@ -147,6 +178,9 @@ function KnowledgePageReader(props: Props) {
             : undefined}
         />
       </Tabs.Panel>
+      <Tabs.Panel id={PAGE_SUGGESTIONS_TAB} className='mt-0 p-0'>
+        <PageSuggestions page={page} />
+      </Tabs.Panel>
       <Tabs.Panel id={PAGE_HISTORY_TAB} className='mt-0 p-0'>
         <PageHistory page={page} />
       </Tabs.Panel>
@@ -159,6 +193,18 @@ function KnowledgePageReader(props: Props) {
       <Link href={UrlTree.knowledge} className='text-link'>{t('pages.backToKnowledge')}</Link>
     </div>}
   </Page>
+}
+
+// What a tab counts: a page's versions, and the suggestions waiting on it, which shows no count
+// while none wait.
+function tabCount(tab: Tab, versions: number, pendingSuggestions: number) {
+  if (tab === PAGE_HISTORY_TAB) {
+    return versions
+  }
+  if (tab === PAGE_SUGGESTIONS_TAB && pendingSuggestions) {
+    return pendingSuggestions
+  }
+  return null
 }
 
 // `/knowledge/pages/:pageId`. Keyed by the page, so moving between pages starts a fresh `Page` and

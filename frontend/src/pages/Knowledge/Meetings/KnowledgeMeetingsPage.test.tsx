@@ -76,6 +76,9 @@ describe('KnowledgeMeetingsPage', () => {
     expect(screen.getByText('1 waiting for review')).toBeDefined()
     const sources = screen.getByRole('link', { name: 'Meeting sources' })
     expect(sources.getAttribute('href')).toBe(UrlTree.settingsMeetings)
+    // Uploads start where every meeting has its home.
+    const upload = screen.getByRole('link', { name: 'Upload a meeting' })
+    expect(upload.getAttribute('href')).toBe('/knowledge/meetings/new')
   })
 
   it('lists a project\'s meetings alone, as its Meetings group in the tree opens it', () => {

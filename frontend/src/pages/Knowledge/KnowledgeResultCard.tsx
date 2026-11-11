@@ -10,7 +10,7 @@ import { useAppSelector } from '../../store/hooks'
 import { selectPageTree } from '../../store/pagesSlice'
 
 // User interface
-import { Card, Link } from '@heroui/react'
+import { Card, Chip, Link } from '@heroui/react'
 
 // Misc
 import { DateText } from '../../format/DateText'
@@ -38,7 +38,7 @@ const PASSAGE_LINK_CLASS = [
 // matched; the document shows it whole. Pages can share a title, so a page says where it sits.
 export function KnowledgeResultCard(props: Props) {
   const { t } = useTranslation('knowledge')
-  const { citation, passages, alsoRecordedBy } = props.result
+  const { citation, passages, alsoRecordedBy, pendingSuggestions } = props.result
   const source = presentKnowledgeSource(citation.source, t)
   const SourceIcon = source.icon
   const bestPosition = passages[0]?.position
@@ -63,6 +63,9 @@ export function KnowledgeResultCard(props: Props) {
           <span>{citation.person.name}</span>
           <span aria-hidden>·</span>
           <DateText value={citation.occurredAt} isFocusable={false} />
+          {pendingSuggestions > 0 && <Chip size='sm' variant='soft' color='accent'>{
+            t('result.pendingSuggestions', { count: pendingSuggestions })
+          }</Chip>}
         </div>
         {Boolean(pagePath.length) && <p className='truncate text-xs opacity-70'>{
           t('result.pagePath', { path: pagePath.join(' / ') })

@@ -3,13 +3,13 @@
 import type { SearchEntry } from '../../../search/searchTypes'
 
 // User interface
-import { LuVideo } from 'react-icons/lu'
+import { LuUpload, LuVideo } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../../../urls'
 
-// The knowledge base's Meetings page, for its members. Each meeting is found by the knowledge search
-// as its topics. See src/search/searchRegistry.ts.
+// The knowledge base's Meetings page and uploading a meeting from it, for its members. Each meeting
+// is found by the knowledge search as its topics. See src/search/searchRegistry.ts.
 export const searchEntries: SearchEntry[] = [
   {
     id: 'knowledgeMeetings',
@@ -20,5 +20,15 @@ export const searchEntries: SearchEntry[] = [
     icon: LuVideo,
     audience: 'members',
     href: UrlTree.knowledgeMeetings,
+  },
+  {
+    id: 'uploadMeeting',
+    group: 'actions',
+    title: 'meetings:upload.action',
+    parent: 'meetings:title',
+    tags: 'search:tags.meetingUpload',
+    icon: LuUpload,
+    audience: 'members',
+    href: UrlTree.meetingUploadNew,
   },
 ]

@@ -162,6 +162,13 @@ export const MEETINGS_TREE_BRANCH_SIZE = 50
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300
 
+// The Company page, seeded by the API at this id (`page::COMPANY_PAGE_ID`), under which the company
+// doc's sections sit.
+export const COMPANY_PAGE_ID = '00000000-0000-0000-0001-000000000002'
+
+// The longest reason a suggestion is dismissed with, as `page_suggestions.dismissal_reason` allows.
+export const PAGE_SUGGESTION_REASON_MAX_CHARACTERS = 2_000
+
 // How many messages one page of Elysia's conversation holds, as the API pages them by default.
 export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 
@@ -232,3 +239,12 @@ export const KNOWLEDGE_SEARCH_PAGE_LIMIT = 50
 // api/src/meetings/mod.rs names it: whether its meetings wait for their person to approve each
 // corrected transcript before Elysium acts on them.
 export const WAIT_FOR_APPROVAL_FIELD = 'waitForApproval'
+
+// How many times one part of a meeting's upload is sent before the upload stops to say why: a
+// dropped connection or a busy API is waited out, and the person resumes from the same part.
+export const MEETING_UPLOAD_PART_ATTEMPTS = 8
+
+// How long a part of a meeting's upload waits before it is sent again, doubling each time from
+// the first to the most, so seven waits cover about a minute and a half of an API away.
+export const MEETING_UPLOAD_FIRST_RETRY_DELAY_MS = 1_000
+export const MEETING_UPLOAD_MAX_RETRY_DELAY_MS = 30_000

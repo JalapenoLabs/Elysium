@@ -94,7 +94,7 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
           : <span aria-hidden className='size-6 shrink-0' />}
         {/* The row's real link: `NavigationTreeItem` hands it the address and `aria-current`. */}
         <Link onPress={onNavigate} className={[
-          'min-w-0 flex-1 truncate py-1 outline-none',
+          'flex min-w-0 flex-1 items-center gap-1.5 py-1 outline-none',
           // Makes room for the controls while they show.
           'group-hover/page-row:pr-12 group-focus-within/page-row:pr-12 pointer-coarse:pr-8',
           tree.contextIds?.has(page.id)
@@ -102,7 +102,16 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
             : '',
         ].join(' ')}>
           {/* Cut to the panel's width, so the whole title shows on hover. */}
-          <span title={page.title}>{page.title}</span>
+          <span title={page.title} className='min-w-0 truncate'>{page.title}</span>
+          {/* What waits for review, counted beside the title: part of the link's name, so a screen
+              reader hears it, and named in full on hover. */}
+          {page.pendingSuggestions > 0 && <span
+            title={t('pages.suggestions.waiting', { count: page.pendingSuggestions })}
+            className='shrink-0 rounded-full bg-accent-soft px-1.5 text-xs leading-5 text-accent-soft-foreground'
+          >
+            <span aria-hidden>{t('pages.suggestions.count', { count: page.pendingSuggestions })}</span>
+            <span className='sr-only'>{t('pages.suggestions.waiting', { count: page.pendingSuggestions })}</span>
+          </span>}
         </Link>
         <div className={ROW_CONTROLS_CLASS_NAME}>
           {hasControls && page.fixed && <Tooltip delay={300}>

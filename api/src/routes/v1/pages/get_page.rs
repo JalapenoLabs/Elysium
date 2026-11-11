@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{PageResponse, response};
+use super::{PageResponse, SuggestionResponse, pending_suggestions, response};
 use crate::auth::MemberUser;
 use crate::database::Pool;
 use crate::errors::ApiError;
@@ -47,4 +47,31 @@ pub async fn read(database: &Pool, id: Uuid) -> Result<PageResponse, ApiError> {
         .context("no database connection available")?;
     let page = page::find(&mut connection, id).await?;
     response(&mut connection, page).await
+}
+
+/// The most suggestions `page_read` answers beside a page, the oldest first. Claude Code refuses a
+/// tool's result past about 25,000 tokens, and each suggestion carries its changes with their lines
+/// around them; the page's `pendingSuggestions` says how many wait in all, and the same edit is
+/// pending once, so an agent rarely meets the bound.
+const READ_SUGGESTIONS_MAX: usize = 20;
+
+/// Page `id` as an agent's `page_read` reads it: the page whole and the oldest
+/// [`READ_SUGGESTIONS_MAX`] suggestions waiting on it, so an agent knows what a person may still
+/// accept and need not suggest it again.
+///
+/// # Errors
+/// `404` for an unknown page.
+pub async fn read_with_suggestions(
+    database: &Pool,
+    id: Uuid,
+) -> Result<(PageResponse, Vec<SuggestionResponse>), ApiError> {
+    let mut connection = database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let page = page::find(&mut connection, id).await?;
+    let page = response(&mut connection, page).await?;
+    let mut suggestions = pending_suggestions(&mut connection, id).await?;
+    suggestions.truncate(READ_SUGGESTIONS_MAX);
+    Ok((page, suggestions))
 }

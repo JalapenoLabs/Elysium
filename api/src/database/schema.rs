@@ -541,29 +541,6 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    company_doc_proposals (id) {
-        id -> Uuid,
-        section -> Text,
-        base_content -> Text,
-        content -> Text,
-        reason -> Text,
-        quote -> Nullable<Text>,
-        source -> Nullable<Text>,
-        timeline_record_id -> Nullable<Uuid>,
-        workflow_run_id -> Nullable<Uuid>,
-        state -> Text,
-        decided_by -> Nullable<Uuid>,
-        decided_at -> Nullable<Timestamptz>,
-        created_by -> Uuid,
-        agent -> Nullable<Text>,
-        agent_name -> Nullable<Text>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
     company_doc_review_cursor (singleton) {
         singleton -> Bool,
         reviewed_through_at -> Nullable<Timestamptz>,
@@ -1285,6 +1262,39 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_upload_files (upload_id, kind) {
+        upload_id -> Uuid,
+        kind -> Text,
+        file_name -> Text,
+        size_bytes -> Int8,
+        modified_at -> Nullable<Timestamptz>,
+        received_bytes -> Int8,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_uploads (id) {
+        id -> Uuid,
+        meeting_id -> Nullable<Uuid>,
+        title -> Nullable<Text>,
+        started_at -> Nullable<Timestamptz>,
+        storage_location_id -> Nullable<Uuid>,
+        part_bytes -> Int4,
+        transcript -> Nullable<Jsonb>,
+        capture_id -> Nullable<Uuid>,
+        finished_at -> Nullable<Timestamptz>,
+        parts_removed_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_words (id) {
         id -> Uuid,
         meeting_id -> Uuid,
@@ -1386,6 +1396,44 @@ diesel::table! {
         page_id -> Uuid,
         project_id -> Uuid,
         created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    page_suggestion_items (page_id) {
+        page_id -> Uuid,
+        action_item_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    page_suggestions (id) {
+        id -> Uuid,
+        page_id -> Uuid,
+        base_version -> Int4,
+        base_body -> Text,
+        body -> Text,
+        reason -> Text,
+        quote -> Nullable<Text>,
+        source -> Nullable<Text>,
+        timeline_record_id -> Nullable<Uuid>,
+        workflow_run_id -> Nullable<Uuid>,
+        state -> Text,
+        accepted_changes -> Nullable<Array<Nullable<Int4>>>,
+        dismissal_reason -> Nullable<Text>,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
         created_at -> Timestamptz,
     }
 }
@@ -2095,8 +2143,6 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
-diesel::joinable!(company_doc_proposals -> timeline_records (timeline_record_id));
-diesel::joinable!(company_doc_proposals -> workflow_runs (workflow_run_id));
 diesel::joinable!(company_doc_review_cursor -> users (created_by));
 diesel::joinable!(connector_check_results -> connectors (connector_id));
 diesel::joinable!(connector_runs -> connectors (connector_id));
@@ -2175,6 +2221,11 @@ diesel::joinable!(meeting_marks -> meeting_events (removed_by));
 diesel::joinable!(meeting_marks -> meetings (meeting_id));
 diesel::joinable!(meeting_marks -> users (created_by));
 diesel::joinable!(meeting_transcriptions -> meeting_captures (capture_id));
+diesel::joinable!(meeting_upload_files -> meeting_uploads (upload_id));
+diesel::joinable!(meeting_uploads -> meeting_captures (capture_id));
+diesel::joinable!(meeting_uploads -> meetings (meeting_id));
+diesel::joinable!(meeting_uploads -> storage_locations (storage_location_id));
+diesel::joinable!(meeting_uploads -> users (created_by));
 diesel::joinable!(meeting_words -> meeting_captures (capture_id));
 diesel::joinable!(meeting_words -> meetings (meeting_id));
 diesel::joinable!(meetings -> users (created_by));
@@ -2189,6 +2240,12 @@ diesel::joinable!(page_labels -> users (created_by));
 diesel::joinable!(page_projects -> pages (page_id));
 diesel::joinable!(page_projects -> projects (project_id));
 diesel::joinable!(page_projects -> users (created_by));
+diesel::joinable!(page_suggestion_items -> action_items (action_item_id));
+diesel::joinable!(page_suggestion_items -> pages (page_id));
+diesel::joinable!(page_suggestion_items -> users (created_by));
+diesel::joinable!(page_suggestions -> pages (page_id));
+diesel::joinable!(page_suggestions -> timeline_records (timeline_record_id));
+diesel::joinable!(page_suggestions -> workflow_runs (workflow_run_id));
 diesel::joinable!(page_versions -> pages (page_id));
 diesel::joinable!(page_versions -> users (created_by));
 diesel::joinable!(pages -> learning_categories (category));
@@ -2288,7 +2345,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     changesets,
     claude_accounts,
     coding_sessions,
-    company_doc_proposals,
     company_doc_review_cursor,
     connector_check_results,
     connector_runs,
@@ -2332,6 +2388,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_events,
     meeting_marks,
     meeting_transcriptions,
+    meeting_upload_files,
+    meeting_uploads,
     meeting_words,
     meetings,
     model_settings,
@@ -2339,6 +2397,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     page_events,
     page_labels,
     page_projects,
+    page_suggestion_items,
+    page_suggestions,
     page_versions,
     pages,
     password_vault,

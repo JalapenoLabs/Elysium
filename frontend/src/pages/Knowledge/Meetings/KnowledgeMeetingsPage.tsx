@@ -6,7 +6,7 @@ import type { Meeting } from '../../../api/routes/meetingRoutes'
 // Core
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 
 // Redux
 import { selectAllConnectors } from '../../../store/connectorsSlice'
@@ -15,8 +15,8 @@ import { selectAllMeetings } from '../../../store/meetingsSlice'
 import { selectAllProjects } from '../../../store/projectsSlice'
 
 // User interface
-import { Chip } from '@heroui/react'
-import { LuSettings } from 'react-icons/lu'
+import { buttonVariants, Chip } from '@heroui/react'
+import { LuSettings, LuUpload } from 'react-icons/lu'
 import { Page } from '../../../layout/page/Page'
 import { MeetingList } from './MeetingList'
 
@@ -44,9 +44,10 @@ import {
 
 // `/knowledge/meetings`: the knowledge base's Meetings page, every meeting the person can see,
 // newest first, with its search, filters by source, state, and project, and how many wait for their
-// review. It is each meeting's home, those on no project included (`docs/meeting-review.md`, In the
-// knowledge base). Where meetings come from is set up under Settings, Meetings, which its one
-// action opens. The filters live in the address, so a project's Meetings group links here.
+// review. It is each meeting's home, those on no project included, and where uploads start
+// (`docs/meeting-review.md`, In the knowledge base). Where meetings come from is set up under
+// Settings, Meetings, which its one action opens. The filters live in the address, so a project's
+// Meetings group links here.
 export function KnowledgeMeetingsPage() {
   const { t } = useTranslation([ 'meetings', 'knowledge', 'connectors' ])
   const [ searchParams, setSearchParams ] = useSearchParams()
@@ -102,6 +103,10 @@ export function KnowledgeMeetingsPage() {
     badges={waitingCount > 0 && <Chip size='sm' variant='soft' color='warning'>{
       t('list.waitingCount', { count: waitingCount, formattedCount: formatNumber(waitingCount) })
     }</Chip>}
+    primaryAction={<Link to={UrlTree.meetingUploadNew} className={buttonVariants({ variant: 'primary' })}>
+      <LuUpload className='size-4' aria-hidden />
+      <span>{t('upload.action')}</span>
+    </Link>}
     actions={[{
       id: 'sources',
       label: t('sources.title'),

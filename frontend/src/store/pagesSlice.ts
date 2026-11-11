@@ -51,6 +51,7 @@ export const pagesSlice = createSlice({
         fixed: page.fixed,
         briefProjectId: page.briefProjectId,
         labels: page.labels,
+        pendingSuggestions: page.pendingSuggestions,
         updatedAt: page.updatedAt,
         deletedAt: page.deletedAt,
       })

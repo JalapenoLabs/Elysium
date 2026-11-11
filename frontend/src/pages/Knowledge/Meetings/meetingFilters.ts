@@ -5,7 +5,7 @@ import type { ConnectorKindDefinition } from '../../../api/routes/connectorRoute
 import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 
 // Misc
-import { MEETING_STATES } from '../../../api/routes/meetingRoutes'
+import { MEETING_STATES, UPLOAD_SOURCE_KIND } from '../../../api/routes/meetingRoutes'
 import { MEETINGS_PROJECT_PARAM } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
 
@@ -106,8 +106,8 @@ export function fromMeetingFilterValues(values: SmartTableFilterValues): Meeting
 }
 
 // The sources the filter offers: every kind whose definition provides meetings, in the hub's order,
-// so a source is offered before it has read anything, then any other source a meeting came from,
-// such as an upload, in the order the meetings first name it.
+// then uploads, which anyone can make, so a source is offered before it has read anything; then any
+// other source a meeting came from, in the order the meetings first name it.
 export function listMeetingSourceKinds(definitions: ConnectorKindDefinition[], meetings: Meeting[]) {
   const kinds = new Set<string>()
   for (const definition of definitions) {
@@ -115,6 +115,7 @@ export function listMeetingSourceKinds(definitions: ConnectorKindDefinition[], m
       kinds.add(definition.kind)
     }
   }
+  kinds.add(UPLOAD_SOURCE_KIND)
   for (const meeting of meetings) {
     kinds.add(meeting.sourceKind)
   }

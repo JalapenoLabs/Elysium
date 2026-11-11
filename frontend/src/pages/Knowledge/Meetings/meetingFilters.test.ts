@@ -78,7 +78,7 @@ describe('listMeetingSourceKinds', () => {
     }
   }
 
-  it('offers every kind that provides meetings, read or not, then any other source a meeting names', () => {
+  it('offers every kind that provides meetings and uploads, read or not, then any other source a meeting names', () => {
     const definitions = [
       makeDefinition('jira', [ 'issues' ]),
       makeDefinition('teams', [ 'messages', 'meetings' ]),
@@ -86,14 +86,15 @@ describe('listMeetingSourceKinds', () => {
       makeDefinition('fireflies', [ 'meetings' ]),
       makeDefinition('fireflies_browser', [ 'meetings' ]),
     ]
+    // A source a later build adds, which this one has no connector kind for.
     const meetings = [
-      makeMeeting({ id: 'uploaded', sourceKind: 'upload' }),
+      makeMeeting({ id: 'recorded', sourceKind: 'zoom' }),
       makeMeeting({ id: 'standup', sourceKind: 'fireflies' }),
-      makeMeeting({ id: 'retro', sourceKind: 'upload' }),
+      makeMeeting({ id: 'uploaded', sourceKind: 'upload' }),
     ]
 
     expect(listMeetingSourceKinds(definitions, meetings))
-      .toEqual([ 'teams', 'slack', 'fireflies', 'fireflies_browser', 'upload' ])
+      .toEqual([ 'teams', 'slack', 'fireflies', 'fireflies_browser', 'upload', 'zoom' ])
   })
 })
 

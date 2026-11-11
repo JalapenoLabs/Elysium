@@ -84,6 +84,7 @@ use crate::database::Pool;
 use crate::embeddings::{Embedding, Embeddings, MODEL};
 use crate::middleware::rate_limit::{Decision, Limiter, Rate};
 use crate::models::knowledge_document::{Citation, Copy, Passage, Person};
+use crate::models::page_suggestion;
 
 /// The longest query searched, in characters: a search box's few words, or an agent's
 /// question in a sentence or two.
@@ -170,6 +171,9 @@ pub struct SearchResult {
     pub also_recorded_by: Vec<Copy>,
     /// Its fused score: higher ranks first. Comparable within one answer only.
     pub score: f64,
+    /// How many edits agents suggested to the page it was indexed from wait for a person, so a
+    /// result says so; 0 for anything that is no page.
+    pub pending_suggestions: i64,
 }
 
 /// What a search found, best first.
@@ -429,11 +433,24 @@ impl KnowledgeSearch {
             })
             .await
             .context("cannot search the knowledge index")?;
-        drop(connection);
 
         let found_by_words = by_words.len();
         let found_by_meaning = by_meaning.len();
-        let results = fuse(by_words, by_meaning, request.limit);
+        let mut results = fuse(by_words, by_meaning, request.limit);
+        let page_ids: Vec<Uuid> = results
+            .iter()
+            .filter_map(|result| result.citation.page_id)
+            .collect();
+        let waiting = page_suggestion::pending_counts(&mut connection, Some(&page_ids))
+            .await
+            .context("cannot count the suggestions waiting on the pages found")?;
+        drop(connection);
+        for result in &mut results {
+            let page_id = result.citation.page_id;
+            result.pending_suggestions = page_id
+                .and_then(|id| waiting.get(&id).copied())
+                .unwrap_or_default();
+        }
         event!(
             name: "knowledge.search.answered",
             Level::DEBUG,
@@ -608,6 +625,7 @@ fn into_result(mut gathered: Gathered) -> SearchResult {
         passages,
         also_recorded_by,
         score: gathered.score,
+        pending_suggestions: 0,
     }
 }
 

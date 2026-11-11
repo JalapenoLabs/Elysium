@@ -32,6 +32,7 @@ function result(
     ],
     alsoRecordedBy: [],
     score: 0.03,
+    pendingSuggestions: 0,
   }
 }
 
@@ -53,6 +54,16 @@ describe('toKnowledgeResults', () => {
 
     expect(found.id).toBe('page:p1')
     expect(found.target).toEqual({ kind: 'link', href: '/knowledge/pages/p1?passage=2' })
+  })
+
+  it('says how many suggested edits wait on a page it found', () => {
+    const [ found ] = toKnowledgeResults(
+      [{ ...result('d1', 'Glossary', 'company_doc', 'p1'), pendingSuggestions: 3 }],
+      'acme',
+      t,
+    )
+
+    expect(found.detail).toBe('Company doc · Maya Chen · 3 suggested edits wait')
   })
 
   it('names a document without a title by its source', () => {

@@ -6,6 +6,7 @@ import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 
 // Misc
 import { CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
+import { UPLOAD_SOURCE_KIND } from '../../../api/routes/meetingRoutes'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
@@ -81,9 +82,12 @@ export function connectorKindOf(sourceKind: string) {
   return CONNECTOR_KINDS.find((kind) => kind === sourceKind) ?? null
 }
 
-// What a meeting's source is called: its connector kind's name, or a plain name for any source
-// that is no connector this build knows.
+// What a meeting's source is called: its connector kind's name, Uploaded for a person's upload, or
+// a plain name for any other source that is no connector this build knows.
 export function meetingSourceNameKey(sourceKind: string): ParseKeys<[ 'meetings', 'connectors' ]> {
+  if (sourceKind === UPLOAD_SOURCE_KIND) {
+    return 'meetings:upload.sourceName'
+  }
   const kind = connectorKindOf(sourceKind)
   if (!kind) {
     console.debug('meetingSourceNameKey found a source that is no connector kind', { sourceKind })
