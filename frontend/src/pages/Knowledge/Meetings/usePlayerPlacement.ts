@@ -1,9 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { PlayerPlacement } from './meetingPlayer'
+import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import type { PlayerPlacement, Room } from './meetingPlayer'
 
 // Core
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Redux
 import { selectMe } from '../../../store/authSlice'
@@ -14,12 +15,19 @@ import { z } from 'zod'
 
 // Misc
 import { MEETING_PLAYER_STORAGE_KEY } from '../../../constants'
-import { DEFAULT_PLAYER_PLACEMENT } from './meetingPlayer'
+import { DEFAULT_PLAYER_PLACEMENT, placementAt } from './meetingPlayer'
 
 const placementSchema = z.object({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
 })
+
+type Drag = {
+  pointerId: number
+  // Where in the player the pointer took hold of it.
+  offsetX: number
+  offsetY: number
+}
 
 export function readPlayerPlacement(storageKey: string): PlayerPlacement {
   try {
@@ -37,13 +45,16 @@ export function readPlayerPlacement(storageKey: string): PlayerPlacement {
   }
 }
 
-// Where one viewer left a meeting's floating player, the same for every meeting. A viewer is a
-// person on a browser, as the page tree's memory is, so the key ends in their id. A drag moves it
-// as it goes and is saved once it ends (`save`), and a place saved in another tab is followed.
-export function usePlayerPlacement() {
+// Where one viewer left a meeting's floating player, the same for every meeting, and the drag that
+// moves it there by its grip. A viewer is a person on a browser, as the page tree's memory is, so
+// the key ends in their id. A drag moves the player as it goes and is saved once it ends, and a
+// place saved in another tab is followed. `box` is the floating player and `room` the space it
+// moves in, measured while it floats.
+export function usePlayerPlacement(box: RefObject<HTMLDivElement | null>, room: Room | null) {
   const personId = useAppSelector(selectMe)?.user.id
   const storageKey = `${MEETING_PLAYER_STORAGE_KEY}.${personId}`
   const [ placement, setPlacement ] = useState(() => readPlayerPlacement(storageKey))
+  const drag = useRef<Drag | null>(null)
 
   useEffect(() => {
     function followOtherTab(event: StorageEvent) {
@@ -66,5 +77,49 @@ export function usePlayerPlacement() {
     }
   }, [ storageKey ])
 
-  return { placement, move: setPlacement, save } as const
+  // Where the pointer has the player now, kept inside the window.
+  function placeAt(event: ReactPointerEvent<HTMLElement>) {
+    const current = drag.current
+    if (!current || current.pointerId !== event.pointerId || !room) {
+      return null
+    }
+    return placementAt(event.clientX - current.offsetX, event.clientY - current.offsetY, room)
+  }
+
+  function endDrag(event: ReactPointerEvent<HTMLElement>) {
+    const next = placeAt(event)
+    drag.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    if (next) {
+      save(next)
+    }
+  }
+
+  const gripHandlers = {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      const rect = box.current?.getBoundingClientRect()
+      if (!rect || event.button !== 0) {
+        return
+      }
+      drag.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+      }
+      event.currentTarget.setPointerCapture(event.pointerId)
+      event.preventDefault()
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const next = placeAt(event)
+      if (next) {
+        setPlacement(next)
+      }
+    },
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+  }
+
+  return { placement, gripHandlers } as const
 }

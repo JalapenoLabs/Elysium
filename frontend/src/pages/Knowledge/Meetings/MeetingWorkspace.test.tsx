@@ -9,7 +9,8 @@ import type {
 } from '../../../api/routes/meetingRoutes'
 
 // Core
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { Provider } from 'react-redux'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { SWRConfig } from 'swr'
@@ -108,24 +109,47 @@ type Context = {
   applyChange: Mock<(change: MeetingTranscriptChange) => void>
 }
 
+type HarnessProps = {
+  context: Context
+  initial: MeetingWords
+  // Hands the test a way to read the transcript again, as `meeting.changed` does.
+  onReady: (show: (next: MeetingWords) => void) => void
+}
+
+function Harness(props: HarnessProps) {
+  const [ shown, setShown ] = useState(props.initial)
+  props.onReady(setShown)
+  return <MeetingWorkspace
+    meeting={makeMeeting({ id: 'meeting' })}
+    transcript={shown}
+    applyChange={props.context.applyChange}
+    reload={() => {}}
+  />
+}
+
+// Renders the workspace on `shown`, and answers a way to show it another transcript in the same
+// session.
 function renderWorkspace(context: Context, shown: MeetingWords = transcript) {
   const store = createAppStore()
+  let show: (next: MeetingWords) => void = () => {}
   const router = createMemoryRouter([{
     path: '*',
     element: <Provider store={store}>
       <SWRConfig value={{ provider: () => new Map() }}>
         <TestAriaRouter>
-          <MeetingWorkspace
-            meeting={makeMeeting({ id: 'meeting' })}
-            transcript={shown}
-            applyChange={context.applyChange}
-            reload={() => {}}
+          <Harness
+            context={context}
+            initial={shown}
+            onReady={(setShown) => {
+              show = setShown
+            }}
           />
         </TestAriaRouter>
       </SWRConfig>
     </Provider>,
   }])
   render(<RouterProvider router={router} />)
+  return (next: MeetingWords) => act(() => show(next))
 }
 
 // The word as the transcript draws it, by what it says.
@@ -533,5 +557,77 @@ describe('MeetingWorkspace player', () => {
     act(() => report([{ isIntersecting: true, boundingClientRect: { top: 100 }, rootBounds: { bottom: 800 }}]))
     expect(region.className).not.toContain('fixed')
     expect(playerMedia()).toBe(media)
+  })
+
+  // A meeting opened while its recording is still being fetched: `meeting.changed` reads the
+  // captures again once it is stored, and the player that then appears must watch its place.
+  it<Context>('watches its place once a recording arrives in a meeting already open, and floats', (context) => {
+    type Seen = {
+      isIntersecting: boolean
+      boundingClientRect: { top: number }
+      rootBounds: { bottom: number } | null
+    }
+    const watched: Element[] = []
+    let report: (entries: Seen[]) => void = () => {}
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: (entries: Seen[]) => void) {
+        report = callback
+      }
+      observe(element: Element) {
+        watched.push(element)
+      }
+      disconnect() {}
+    })
+    const fetching: MeetingWords = {
+      ...recorded,
+      captures: recorded.captures.map((capture) => ({ ...capture, hasRecording: false, recordingContentType: null })),
+    }
+    const show = renderWorkspace(context, fetching)
+    expect(document.querySelector('video')).toBeNull()
+
+    show(recorded)
+
+    expect(watched).toHaveLength(1)
+    act(() => report([{ isIntersecting: false, boundingClientRect: { top: -400 }, rootBounds: { bottom: 800 }}]))
+    expect(screen.getByRole('region', { name: 'Meeting recording' }).className).toContain('fixed')
+  })
+
+  it<Context>('listens to audio alone only once it plays, and closes its graph as the page goes', (context) => {
+    const contexts: { resume: Mock, close: Mock }[] = []
+    const node = { connect: vi.fn(), fftSize: 0 }
+    vi.stubGlobal('AudioContext', class {
+      resume = vi.fn().mockResolvedValue(undefined)
+      close = vi.fn().mockResolvedValue(undefined)
+      destination = {}
+      constructor() {
+        contexts.push(this)
+      }
+      createAnalyser() {
+        return node
+      }
+      createMediaElementSource() {
+        return node
+      }
+    })
+    const audioOnly: MeetingWords = { ...recorded, captures: [ recorded.captures[0] ]}
+    renderWorkspace(context, audioOnly)
+    const media = playerMedia()
+
+    // Loaded and seeking, nothing is routed through Web Audio, so nothing can be left suspended.
+    fireEvent.loadedMetadata(media)
+    expect(contexts).toHaveLength(0)
+
+    fireEvent.play(media)
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0].resume).toHaveBeenCalledTimes(1)
+
+    // Played again, the same graph is resumed rather than another made.
+    fireEvent.pause(media)
+    fireEvent.play(media)
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0].resume).toHaveBeenCalledTimes(2)
+
+    cleanup()
+    expect(contexts[0].close).toHaveBeenCalledTimes(1)
   })
 })

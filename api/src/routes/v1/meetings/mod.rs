@@ -2,7 +2,8 @@
 
 //! `/api/v1/meetings`: the signed-in person's meetings, how far each one's processing got, and
 //! the review of each on its page: its final transcript with its marks, each capture as it came
-//! and its recording for the player, edits, and its history with undo. See `crate::meetings` and `docs/meetings.md`.
+//! and its recording for the player, edits, and its history with undo. See `crate::meetings`
+//! and `docs/meetings.md`.
 //!
 //! A meeting belongs to whoever owns the account it was read from, and every route answers
 //! them alone, until meetings are public by default (`docs/meeting-review.md`, Who sees a

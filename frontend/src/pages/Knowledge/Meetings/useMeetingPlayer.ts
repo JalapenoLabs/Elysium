@@ -36,6 +36,31 @@ type Loaded = {
   hasFailed: boolean
 }
 
+// The Web Audio graph between the media element and the speakers, which the waveform listens to.
+type AudioGraph = {
+  context: AudioContext
+  analyser: AnalyserNode
+}
+
+// Routes `media`'s sound through an analyser on its way to the speakers, or answers null where Web
+// Audio cannot, in which case the recording still plays, over black.
+function listenTo(media: HTMLMediaElement): AudioGraph | null {
+  let context: AudioContext | null = null
+  try {
+    context = new AudioContext()
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 2048
+    context.createMediaElementSource(media).connect(analyser)
+    analyser.connect(context.destination)
+    return { context, analyser }
+  }
+  catch (error) {
+    console.debug('The meeting player could not listen to its recording for a waveform', { error })
+    void context?.close()
+    return null
+  }
+}
+
 // A meeting's player (docs/meeting-review.md, The player): one media element, playing one capture
 // at a time, which the page seeks from the words and its keys. Everything it is asked for is on
 // the meeting's clock, and moved onto the capture's own by the capture's offset, so a switch of
@@ -51,6 +76,8 @@ export function useMeetingPlayer(options: Options) {
   const [ isPlaying, setIsPlaying ] = useState(false)
   const [ spokenIndex, setSpokenIndex ] = useState<number | null>(null)
   const [ loaded, setLoaded ] = useState<Loaded | null>(null)
+  const graph = useRef<AudioGraph | null>(null)
+  const [ analyser, setAnalyser ] = useState<AnalyserNode | null>(null)
 
   const offsetMs = capture?.offsetMs ?? 0
   const isLoaded = Boolean(capture) && loaded?.captureId === capture?.id
@@ -58,6 +85,37 @@ export function useMeetingPlayer(options: Options) {
   const isAudioOnly = isLoaded
     ? Boolean(loaded?.isAudioOnly)
     : !isVideo(capture?.recordingContentType ?? null)
+
+  // The media element's ref. An element's sound can be handed to Web Audio once in its life, and
+  // then plays only through that graph, so the graph lives exactly as long as the element: it is
+  // closed as the element goes, and never outlives it to hold a context and its audio thread.
+  const attachMedia = useCallback((media: HTMLVideoElement | null) => {
+    mediaRef.current = media
+    return () => {
+      mediaRef.current = null
+      const listened = graph.current
+      graph.current = null
+      setAnalyser(null)
+      void listened?.context.close()
+    }
+  }, [])
+
+  // The waveform listens only once audio alone is playing, after a press the browser counts as the
+  // person's, so the graph starts running rather than suspended. Once made, it is resumed whenever
+  // anything plays, since the element's sound goes nowhere else from then on.
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!isPlaying || !media) {
+      return
+    }
+    if (!graph.current && isAudioOnly) {
+      graph.current = listenTo(media)
+      setAnalyser(graph.current?.analyser ?? null)
+    }
+    graph.current?.context.resume().catch((error: unknown) => {
+      console.debug('The meeting player could not resume its audio', { error })
+    })
+  }, [ isPlaying, isAudioOnly ])
 
   // Nothing is spoken on a page just opened; once the player has played or sought, its position
   // is the word being spoken, paused or not.
@@ -195,8 +253,9 @@ export function useMeetingPlayer(options: Options) {
     src: capture
       ? getCaptureMediaUrl(options.meetingId, capture.id)
       : null,
-    mediaRef,
+    attachMedia,
     mediaHandlers,
+    analyser,
     isPlaying,
     isAudioOnly,
     hasFailed: isLoaded && Boolean(loaded?.hasFailed),

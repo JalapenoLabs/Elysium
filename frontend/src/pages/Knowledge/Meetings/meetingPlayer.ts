@@ -82,8 +82,8 @@ export function meetingMsAt(captureSeconds: number, offsetMs: number) {
   return Math.round(captureSeconds * 1000) + offsetMs
 }
 
-type Room = {
-  // The window's size, and the floating player's.
+// The window's size and the floating player's, which where it may go depends on.
+export type Room = {
   viewportWidth: number
   viewportHeight: number
   width: number

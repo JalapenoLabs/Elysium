@@ -1,74 +1,33 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { RefObject } from 'react'
-
 // Core
 import { useEffect, useRef } from 'react'
 
-type AudioGraph = {
-  context: AudioContext
-  analyser: AnalyserNode
-}
-
-// A media element's sound passes through Web Audio once it is listened to, and it can be given a
-// source node only once in its life, so the graph is kept per element for as long as it lives.
-const graphByMedia = new WeakMap<HTMLMediaElement, AudioGraph>()
-
-// The analyser between `media` and the speakers, made the first time it is asked for. Its sound
-// still reaches the speakers through it, since a source node takes it from the element.
-function graphOf(media: HTMLMediaElement): AudioGraph | null {
-  const known = graphByMedia.get(media)
-  if (known) {
-    return known
-  }
-  try {
-    const context = new AudioContext()
-    const analyser = context.createAnalyser()
-    analyser.fftSize = 2048
-    context.createMediaElementSource(media).connect(analyser)
-    analyser.connect(context.destination)
-    const graph = { context, analyser }
-    graphByMedia.set(media, graph)
-    return graph
-  }
-  catch (error) {
-    // Without Web Audio the recording still plays, over black.
-    console.debug('The meeting player could not listen to its recording for a waveform', { error })
-    return null
-  }
-}
-
 type Props = {
-  mediaRef: RefObject<HTMLVideoElement | null>
+  // What is being heard, from the player's audio graph (`useMeetingPlayer`), which owns it for as
+  // long as its media element lives; null until audio alone first plays.
+  analyser: AnalyserNode | null
   isPlaying: boolean
 }
 
 // The waveform a recording with audio alone plays over (docs/meeting-review.md, The player): what
-// is being heard, drawn live as it plays, so it needs nothing of the recording but what the
-// player already streams. Paused, it lies flat. It draws in the text's color of its box.
+// is being heard, drawn live as it plays, so it needs nothing of the recording but what the player
+// already streams. Paused, or before it first plays, it lies flat through the middle. It draws in
+// its box's text color, one point per device pixel, and again whenever its box changes size, as
+// the player docks and floats.
 export function PlayerWaveform(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const { mediaRef, isPlaying } = props
+  const { analyser, isPlaying } = props
 
   useEffect(() => {
-    const media = mediaRef.current
     const canvas = canvasRef.current
     const drawing = canvas?.getContext('2d')
-    if (!media || !canvas || !drawing) {
+    if (!canvas || !drawing) {
+      console.debug('The meeting player\'s waveform has nothing to draw on')
       return undefined
     }
-    const graph = graphOf(media)
-    if (!graph) {
-      return undefined
-    }
-    // A browser starts Web Audio suspended until someone has pressed something on the page;
-    // playing is that press.
-    if (isPlaying) {
-      graph.context.resume().catch((error: unknown) => {
-        console.debug('The meeting player\'s waveform could not resume its audio', { error })
-      })
-    }
-    const samples = new Uint8Array(graph.analyser.fftSize)
+    const isLive = isPlaying && analyser !== null
+    const samples = new Uint8Array(analyser?.fftSize ?? 1)
     let frame = 0
 
     const draw = () => {
@@ -79,36 +38,47 @@ export function PlayerWaveform(props: Props) {
         canvas.width = width
         canvas.height = height
       }
-      if (isPlaying) {
-        graph.analyser.getByteTimeDomainData(samples)
+      if (isLive) {
+        analyser.getByteTimeDomainData(samples)
       }
       else {
         // 128 is silence in a byte waveform.
         samples.fill(128)
       }
+      const middle = height / 2
       drawing.clearRect(0, 0, width, height)
       drawing.lineWidth = 2 * scale
       drawing.strokeStyle = getComputedStyle(canvas).color
       drawing.beginPath()
-      const step = width / (samples.length - 1)
-      for (let index = 0; index < samples.length; index += 1) {
-        const y = (samples[index] / 255) * height
-        if (index) {
-          drawing.lineTo(index * step, y)
+      for (let x = 0; x <= width; x += 1) {
+        const sample = samples[Math.min(samples.length - 1, Math.floor((x / width) * samples.length))]
+        const y = middle + ((sample - 128) / 128) * middle
+        if (x) {
+          drawing.lineTo(x, y)
         }
         else {
           drawing.moveTo(0, y)
         }
       }
       drawing.stroke()
-      if (isPlaying) {
+      if (isLive) {
         frame = requestAnimationFrame(draw)
       }
     }
 
     draw()
-    return () => cancelAnimationFrame(frame)
-  }, [ mediaRef, isPlaying ])
+    // Live, every frame redraws at the new size anyway.
+    const observer = new ResizeObserver(() => {
+      if (!isLive) {
+        draw()
+      }
+    })
+    observer.observe(canvas)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [ analyser, isPlaying ])
 
   return <canvas
     ref={canvasRef}

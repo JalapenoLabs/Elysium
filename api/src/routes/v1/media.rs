@@ -21,6 +21,10 @@ use crate::storage::{Download, RangedDownload};
 
 /// A recording and a clip are each written once, at a path that names them, and never again, so
 /// what a browser holds of one is right for as long as it keeps it, privately.
+///
+/// Write-once is also why [`stream`] can ignore `If-Range`: the parts a browser put together
+/// always come from the same bytes. A file that could change under its address would need a
+/// validator (an `ETag`) and `If-Range` honored before its ranges could be served.
 const CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
 /// What a browser is told the file is. Only audio and video are named as themselves: anything

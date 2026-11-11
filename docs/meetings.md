@@ -722,10 +722,10 @@ segment's clip for its record's owner.
     excerpt as a blue bar in the gutter, one lane per overlap (`excerptLanes`), naming its projects over it. A space is
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
-  - **The player** (`MeetingPlayer`, `useMeetingPlayer`), along the top while the meeting has a recording, plays one
-    capture's recording at a time with the browser's own controls, starting on the first that is a video, since a
-    picture says who is speaking, and a switcher between them when there are several, which plays on from the same
-    moment on the meeting's clock. A recording with audio alone plays over black with its waveform (`PlayerWaveform`),
+  - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
+    recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
+    a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on
+    from the same moment on the meeting's clock. A recording with audio alone plays over black with its waveform (`PlayerWaveform`),
     drawn live from what is heard, so it needs nothing the player does not already stream. Once the page scrolls past
     its place, which keeps its height so nothing jumps, the same media element floats in the bottom right corner and
     plays on; dragged by its grip it goes anywhere in the window, and stays where it was left, as a share of the room
