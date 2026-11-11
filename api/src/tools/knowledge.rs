@@ -11,14 +11,14 @@
 //!   functions (`routes::v1::knowledge`), with the same arguments and schemas the MCP server
 //!   takes, so a turn finds exactly what a member would. A search spends the budget of whoever
 //!   the turn reads for ([`reader`]).
-//! - `company_doc_read` answers what the Company doc page reads, every section with its pending
-//!   proposals; `company_doc_propose` proposes through `crate::company_doc::propose`, as the
-//!   session's coding agent, as Elysia, or as the Project Manager, and nothing changes until a
-//!   person approves it.
-//! - `page_read`, `page_list`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`,
-//!   `page_project_link`, and `page_project_unlink` call the page routes' own functions (`routes::v1::pages`) with the arguments the MCP server
-//!   takes. A change is made by whoever the turn acts for and names its agent ([`writer`]), so it
-//!   is recorded like any other. A pool worker reads pages and changes none.
+//! - `company_doc_read` answers every section with the suggestions waiting on it, as its
+//!   proposals; `company_doc_propose` is `page_suggest` for one section, through
+//!   `crate::company_doc::propose`, and nothing changes until a person accepts it.
+//! - `page_read`, `page_list`, `page_save`, `page_suggest`, `page_move`, `page_label_add`,
+//!   `page_label_remove`, `page_project_link`, and `page_project_unlink` call the page routes' own
+//!   functions (`routes::v1::pages`) with the arguments the MCP server takes. A change or a
+//!   suggestion is made by whoever the turn acts for and names its agent ([`writer`]), so it is
+//!   recorded like any other. A pool worker reads pages and changes or suggests nothing.
 //!
 //! Every call first checks, in the database, that the turn may read the knowledge base at all
 //! ([`reader`]), as the routes check every request.
@@ -43,17 +43,19 @@ use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRI
 use crate::mcp::pages::{
     LABEL_ADD_DESCRIPTION, LABEL_REMOVE_DESCRIPTION, LIST_DESCRIPTION, MOVE_DESCRIPTION,
     PROJECT_LINK_DESCRIPTION, PROJECT_UNLINK_DESCRIPTION, READ_DESCRIPTION, SAVE_DESCRIPTION,
+    SUGGEST_DESCRIPTION,
 };
 use crate::models::agent::{Agent, Author};
 use crate::models::coding_session;
-use crate::models::company_doc::{CompanyDocError, Proposer, Section};
+use crate::models::company_doc::Section;
+use crate::models::page_suggestion;
 use crate::models::user::{self, CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::routes::v1::knowledge::{
     self, DocumentArguments, ListMeetingsRequest, SearchKnowledgeRequest,
 };
 use crate::routes::v1::pages::{
     self, ListPagesArguments, MovePageArguments, PAGE_IS_A_LEARNING, PageArguments,
-    PageLabelArguments, PageProjectArguments, SavePageRequest,
+    PageLabelArguments, PageProjectArguments, SavePageRequest, SuggestPageRequest,
 };
 
 /// Its instructions are the company's agent guidance, so an admin's edit reaches every turn as it
@@ -64,7 +66,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 13] = [
+const TOOLS: [Tool; 14] = [
     Tool {
         name: "knowledge_search",
         description: SEARCH_DESCRIPTION,
@@ -86,16 +88,17 @@ const TOOLS: [Tool; 13] = [
     Tool {
         name: "company_doc_read",
         description: "Reads the company doc, every section in order, each with what belongs \
-            there and the proposed changes still waiting for a person's review.",
+            there and the suggested edits still waiting for a person's review, as its proposals.",
         input_schema: read_schema,
         run: |context, scope, arguments| run_read(context, scope, arguments).boxed(),
     },
     Tool {
         name: "company_doc_propose",
-        description: "Proposes a change to one section of the company doc for a person to \
-            approve or reject; nothing changes until they approve it. Give edits against the \
-            section as company_doc_read answers it now. A change already waiting for review is \
-            answered rather than proposed twice.",
+        description: "Suggests an edit to one section of the company doc for a person to \
+            accept or dismiss on the section's page; nothing changes until they accept it. It is \
+            page_suggest for a section named by its key. Give edits against the section as \
+            company_doc_read answers it now. An edit already waiting for review is answered \
+            rather than suggested twice.",
         input_schema: propose_schema,
         run: |context, scope, arguments| run_propose(context, scope, arguments).boxed(),
     },
@@ -116,6 +119,12 @@ const TOOLS: [Tool; 13] = [
         description: SAVE_DESCRIPTION,
         input_schema: schema_of::<SavePageRequest>,
         run: |context, scope, arguments| run_page_save(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "page_suggest",
+        description: SUGGEST_DESCRIPTION,
+        input_schema: schema_of::<SuggestPageRequest>,
+        run: |context, scope, arguments| run_page_suggest(context, scope, arguments).boxed(),
     },
     Tool {
         name: "page_move",
@@ -183,7 +192,7 @@ fn propose_schema() -> Value {
             "edits": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": company_doc::EDITS_MAX,
+                "maxItems": page_suggestion::EDITS_MAX,
                 "description": "The changes, applied in order, as Claude Code's Edit tool takes \
                     them: find is text the section holds exactly once, copied exactly, and \
                     replace takes its place. An empty find adds replace at the end of the \
@@ -201,18 +210,18 @@ fn propose_schema() -> Value {
             "reason": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": company_doc::REASON_MAX_CHARACTERS,
+                "maxLength": page_suggestion::REASON_MAX_CHARACTERS,
                 "description": "Why the doc should say this, in a sentence or two the person \
                     reviewing it reads first.",
             },
             "quote": {
                 "type": "string",
-                "maxLength": company_doc::QUOTE_MAX_CHARACTERS,
+                "maxLength": page_suggestion::QUOTE_MAX_CHARACTERS,
                 "description": "The words that show it, quoted exactly.",
             },
             "source": {
                 "type": "string",
-                "maxLength": company_doc::SOURCE_MAX_CHARACTERS,
+                "maxLength": page_suggestion::SOURCE_MAX_CHARACTERS,
                 "description": "Where the quote is from, such as a meeting's title or a \
                     channel and its date.",
             },
@@ -416,31 +425,20 @@ async fn run_propose(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let request: ProposeRequest = parse_arguments(arguments)?;
-    reader(context, scope).await?;
-    let proposer = match scope {
-        CallScope::Session(session) => Proposer::Session(session.session_id),
-        CallScope::Elysia(_) => Proposer::Elysia {
-            workflow_run_id: None,
-        },
-        CallScope::ProjectManager(manager) => Proposer::ProjectManager(manager.project_id),
-        CallScope::Worker(_) => {
-            return Err(ToolError::WrongAgent(
-                "coding sessions, Project Managers, and Elysia; tell your Project Manager \
-                 what the company doc should say in your worker_finish result",
-            ));
-        }
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
     };
     let mut connection = context
         .database
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    let stored = company_doc::propose(&mut connection, &context.events, request, proposer)
+    let stored = company_doc::propose(&mut connection, &context.events, request, author)
         .await
-        .map_err(|error| match error {
-            CompanyDocError::Database(error) => internal(scope, "company_doc.propose", &error),
-            refused => ToolError::Invalid(refused.to_string()),
-        })?;
+        .map_err(|error| page_tool_error(scope, "company_doc.propose", error))?;
     Ok(json!(stored))
 }
 
@@ -451,10 +449,28 @@ async fn run_page_read(
 ) -> Result<Value, ToolError> {
     let arguments: PageArguments = parse_arguments(arguments)?;
     reader(context, scope).await?;
-    let page = pages::read(&context.database, arguments.id)
+    let (page, suggestions) = pages::read_with_suggestions(&context.database, arguments.id)
         .await
         .map_err(|error| page_tool_error(scope, "pages.read", error))?;
-    Ok(json!({ "page": page }))
+    Ok(json!({ "page": page, "suggestions": suggestions }))
+}
+
+async fn run_page_suggest(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let request: SuggestPageRequest = parse_arguments(arguments)?;
+    let (user_id, agent) = writer(context, scope).await?;
+    let author = Author {
+        user_id,
+        agent: agent.as_ref(),
+        at: Utc::now(),
+    };
+    let suggested = pages::suggest(&context.database, &context.events, author, request)
+        .await
+        .map_err(|error| page_tool_error(scope, "pages.suggest", error))?;
+    Ok(json!(suggested))
 }
 
 async fn run_page_list(

@@ -13,7 +13,8 @@ export type RecordSearchHit =
   | { kind: 'project', id: string, title: string }
   | { kind: 'codingSession', id: number, title: string }
   | { kind: 'initiative', id: string, title: string, state: InitiativeState }
-  | { kind: 'page', id: string, title: string }
+  // How many edits agents suggested to the page wait for a person.
+  | { kind: 'page', id: string, title: string, pendingSuggestions: number }
 
 export type RecordSearchKind = RecordSearchHit['kind']
 

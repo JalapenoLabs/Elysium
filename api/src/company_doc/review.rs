@@ -4,19 +4,19 @@
 //! Pure; the step that runs it is `super::workflow`.
 //!
 //! The review is a text turn on the runner (`crate::runner::TurnMode::Text`): no tools, no
-//! settings, only the doc, the proposals already made to it, and what was ingested since the
+//! settings, only the doc, the edits already suggested to it, and what was ingested since the
 //! last review, and a JSON answer back. Nothing the answer says is taken on trust: [`parse_answer`]
 //! keeps a proposal only for a section the doc has, with edits and a reason, at most one per
-//! section, and cites a record only when it was one offered. Each kept proposal is then proposed
-//! like any agent's (`crate::models::company_doc::propose`), whose edits must apply to the
-//! section as it stands.
+//! section, and cites a record only when it was one offered. Each kept proposal is then suggested
+//! like any agent's edit (`crate::models::page_suggestion::suggest`), whose edits must apply to
+//! the section as it stands. The answer's JSON names them proposals, as the prompt asks.
 //!
 //! # Size
 //!
 //! One review reads a batch of what was ingested, not all of it at once: six hours of a busy
 //! company is more than one turn weighs well, and every turn costs the instance's shared Claude
 //! usage. The doc, at most 12,000 characters a section, goes whole, since the model edits what it
-//! reads; proposals go as compact diffs, each cut short; and records fill what is left of
+//! reads; suggestions go as compact diffs, each cut short; and records fill what is left of
 //! [`PROMPT_BUDGET_BYTES`], each body cut to [`RECORD_BODY_CHARACTERS`], oldest first, so the
 //! records that did not fit are read by the next turn.
 
@@ -26,7 +26,8 @@ use std::fmt::Write as _;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::models::company_doc::{DocSection, Edit, Proposal, Section};
+use crate::models::company_doc::{DocSection, Section, SectionSuggestion};
+use crate::models::page_suggestion::Edit;
 use crate::models::timeline_record::TimelineRecord;
 
 /// The most bytes one prompt carries: the doc whole and a batch of records beside it, about
@@ -41,21 +42,21 @@ const MIN_RECORDS_BYTES: usize = 8_000;
 /// opening, where names and terms are introduced.
 pub const RECORD_BODY_CHARACTERS: usize = 1_500;
 
-/// How much of each proposal's diff the prompt shows.
+/// How much of each suggestion's diff the prompt shows.
 const PROPOSAL_DIFF_CHARACTERS: usize = 1_500;
 
-/// The most proposals the prompt lists, pending and rejected each, the newest kept.
+/// The most suggestions the prompt lists, pending and dismissed each, the newest kept.
 pub const PROPOSALS_SHOWN: i64 = 30;
 
-/// The longest source kept for a cited record, as `company_doc_proposals.source` allows.
+/// The longest source kept for a cited record, as `page_suggestions.source` allows.
 const SOURCE_CHARACTERS: usize = 500;
 
-/// The longest reason and quote kept, as `company_doc_proposals` allows.
+/// The longest reason and quote kept, as `page_suggestions` allows.
 const REASON_CHARACTERS: usize = 2_000;
 const QUOTE_CHARACTERS: usize = 2_000;
 
-/// The most edits a proposal holds, as an agent's proposal may.
-const EDITS_MAX: usize = super::EDITS_MAX;
+/// The most edits a proposal holds, as an agent's suggestion may.
+const EDITS_MAX: usize = crate::models::page_suggestion::EDITS_MAX;
 
 pub const SYSTEM_PROMPT: &str = "\
 You keep a company's reference doc current. It has fixed sections: company, leadership, people, \
@@ -63,10 +64,10 @@ stakeholders, products, projects, and glossary. Transcripts of the company's mee
 corrected against it, so the spelling of names and jargon matters most: spell a person's name as \
 they write it themselves, in their own messages and signatures, over how a transcript heard it. \
 You are given the doc, the changes already proposed and waiting for review, the changes people \
-rejected, and messages, meetings, pages, and issues ingested since the last review. Propose only \
-what those records show: a new person, stakeholder, product, project, or term; a corrected \
-spelling; a changed role or owner. Never propose what a waiting proposal already says, or what \
-people rejected. Keep each section's style; list sections hold one entry per line, and the \
+dismissed and why, and messages, meetings, pages, and issues ingested since the last review. \
+Propose only what those records show: a new person, stakeholder, product, project, or term; a \
+corrected spelling; a changed role or owner. Never propose what a waiting proposal already says, \
+or what people dismissed. Keep each section's style; list sections hold one entry per line, and the \
 glossary is in alphabetical order. \
 Answer with one JSON object and nothing else: \
 {\"proposals\": [{\"section\": string, \"edits\": [{\"find\": string, \"replace\": string}], \
@@ -98,15 +99,15 @@ pub enum PromptError {
 }
 
 /// The prompt for one turn over `records`, oldest first, beside the doc's `sections` and the
-/// `pending` and `rejected` proposals made to it.
+/// `pending` and `dismissed` suggestions made to it.
 ///
 /// # Errors
-/// [`PromptError::DocTooLong`] when the doc and its proposals leave too little room for records,
+/// [`PromptError::DocTooLong`] when the doc and its suggestions leave too little room for records,
 /// and [`PromptError::NoRecords`] when even the first record does not fit or there is none.
 pub fn prompt(
     sections: &[DocSection],
-    pending: &[Proposal],
-    rejected: &[Proposal],
+    pending: &[SectionSuggestion],
+    dismissed: &[SectionSuggestion],
     records: &[TimelineRecord],
 ) -> Result<Prompt, PromptError> {
     let mut text = String::from("The company doc, section by section:\n");
@@ -125,8 +126,12 @@ pub fn prompt(
         }
     }
 
-    write_proposals(&mut text, "Proposals waiting for review", pending);
-    write_proposals(&mut text, "Proposals people rejected", rejected);
+    write_suggestions(&mut text, "Proposals waiting for review", pending);
+    write_suggestions(
+        &mut text,
+        "Proposals people dismissed, each with why",
+        dismissed,
+    );
 
     text.push_str("\nRecords ingested since the last review, oldest first:\n");
     let Some(room) = PROMPT_BUDGET_BYTES.checked_sub(text.len()) else {
@@ -156,22 +161,27 @@ pub fn prompt(
     })
 }
 
-/// Lists `proposals` under `heading`, each as its section, reason, and a diff of its change.
-fn write_proposals(text: &mut String, heading: &str, proposals: &[Proposal]) {
+/// Lists `suggestions` under `heading`, each as its section, reason, why it was dismissed when it
+/// was, and a diff of its change.
+fn write_suggestions(text: &mut String, heading: &str, suggestions: &[SectionSuggestion]) {
     let _ = writeln!(text, "\n{heading}:");
-    if proposals.is_empty() {
+    if suggestions.is_empty() {
         text.push_str("(none)\n");
         return;
     }
-    for proposal in proposals {
-        let patch = diffy::create_patch(&proposal.base_content, &proposal.content).to_string();
-        let _ = writeln!(
+    for suggested in suggestions {
+        let suggestion = &suggested.suggestion;
+        let patch = diffy::create_patch(&suggestion.base_body, &suggestion.body).to_string();
+        let _ = write!(
             text,
-            "- {}: {}\n{}",
-            proposal.section,
-            proposal.reason,
-            truncated(&patch, PROPOSAL_DIFF_CHARACTERS)
+            "- {}: {}",
+            suggested.section.as_str(),
+            suggestion.reason
         );
+        if let Some(why) = &suggestion.dismissal_reason {
+            let _ = write!(text, " (dismissed: {why})");
+        }
+        let _ = writeln!(text, "\n{}", truncated(&patch, PROPOSAL_DIFF_CHARACTERS));
     }
 }
 

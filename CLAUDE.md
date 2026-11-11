@@ -155,16 +155,22 @@ Everything else follows these rules:
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
   validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), coding
   sessions, searching, opening, and listing the meetings of the knowledge base, saving and deleting learnings, reading
-  and proposing to the company doc, and reading and editing pages; Studio items, action items, and initiatives are on
-  the roadmap.
+  and suggesting to the company doc, and reading, editing, and suggesting edits to pages; Studio items, action items,
+  and initiatives are on the roadmap.
 - The knowledge base's reading tools are also on the `elysium_knowledge` server every turn gets, under the same names
   and schemas. A turn reads for whoever started its session, checked on every call, and spends their search budget.
   See `docs/knowledge.md`, MCP.
 - Agents edit pages directly (`page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`,
   `page_project_unlink`), every change naming the
   person and their agent: an MCP client as its person, a session as whoever started it, a Project Manager and Elysia as
-  themselves. A pool worker only reads. Company doc pages refuse edits, pointing at `company_doc_propose`, and learnings
+  themselves. A pool worker only reads. Company doc pages refuse edits, pointing at `page_suggest`, and learnings
   refuse them, pointing at `learning_save`; both still take labels. See `docs/knowledge.md`, Who changes pages.
+- Any agent suggests an edit to any page but a learning with `page_suggest` (`company_doc_propose` is its name for a
+  company doc section), recorded as every write is. A suggestion names the version it was written from and changes
+  nothing until a person accepts it on the page's Suggestions tab, wholly or in part, merged three ways with what
+  changed since and refusing overlapping lines, or dismisses it with a reason. Whoever may edit the page decides: every
+  member, alone, never an agent. Each page with suggestions waiting has one inbox item, and the tree and search count
+  them. See `docs/knowledge.md`, Pages, Suggestions.
 - Every client, and every turn's `elysium_knowledge`, is told the company's agent guidance as it connects, so a change
   reaches its next session. Admins edit it under Settings, Agent guidance, every version kept; Elysium's rules (results
   stay in the company, where a citation opens) follow every version, and no edit removes them. See
@@ -476,13 +482,14 @@ Everything else follows these rules:
 - One document per instance knows the company in seven fixed sections: company, leadership, people, stakeholders,
   products, projects, and glossary, the last two carrying how names and jargon are spelled. See `docs/knowledge.md`,
   The company doc.
-- People edit it directly; everyone else (the scheduled review, Elysia, coding agents, MCP clients) proposes a change
-  to one section, and nothing changes until a person approves each one. Proposals are the doc's own, not changesets.
-  Approving merges with what changed since, three ways, and refuses overlapping lines.
-- Every change is recorded in its history with before and after, and undone section by section. Each section is a
-  source of the knowledge index.
+- People edit it directly, each section on its page; everyone else (the scheduled review, Elysia, coding agents,
+  Project Managers, MCP clients) suggests an edit to one section, through the framework every page shares, and nothing
+  changes until a person accepts it on the section's page. Suggestions are not changesets.
+- It lives in the knowledge base alone: the Company page lists its sections, each section's history is its page's,
+  restored as any page's, and Look for updates on those pages starts the review. `/settings/company-doc` opens the
+  Company page. Each section is a source of the knowledge index.
 - The review is the engine workflow `company_doc_review`, every six hours while something new was ingested
-  (`docs/engine.md`, The company doc). Agents read and propose through `company_doc_read` and `company_doc_propose`,
+  (`docs/engine.md`, The company doc). Agents read and suggest through `company_doc_read` and `company_doc_propose`,
   over MCP and on the `elysium_knowledge` server every turn gets.
 
 ## Action items
@@ -744,6 +751,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   lock, and gapped positions mean a reorder writes one row. A `proposal_only` page refuses everything but a person
   acting alone. Every write takes an `Author` (`models::agent`), so agents' tools call what the routes call. See
   `docs/knowledge.md`, Pages.
+- Edits suggested to pages are `page_suggestions`, each naming its page's version and holding its text, pending once per
+  page, with one inbox item per page in `page_suggestion_items` (`crate::models::page_suggestion`). See
+  `docs/knowledge.md`, Pages, Suggestions.
 
 ## CI
 

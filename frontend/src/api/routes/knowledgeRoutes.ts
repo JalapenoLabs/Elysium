@@ -42,6 +42,9 @@ export type KnowledgeResult = {
   passages: KnowledgePassage[]
   alsoRecordedBy: KnowledgeCopy[]
   score: number
+  // How many edits agents suggested to the page it was indexed from wait for a person; 0 for
+  // anything that is no page.
+  pendingSuggestions: number
 }
 
 export type KnowledgeSearchAnswer = {

@@ -183,6 +183,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/pages/{id}/versions/{version}` | `200` `{ version: PageVersion }`; members         |
 | GET    | `/api/v1/pages/{id}/passages/{position}` | `200` `{ passage: { position, content } }`, `404` when the index holds none there; members |
 | POST   | `/api/v1/pages/{id}/versions/{version}/restore` | `200` `{ page, outcome }`, `published` or `unchanged`; members |
+| GET    | `/api/v1/pages/{id}/suggestions`      | `200` `{ suggestions: PageSuggestion[] }`, waiting, oldest first; members |
+| POST   | `/api/v1/pages/{id}/suggestions/{suggestionId}/accept` | `200` `{ suggestion, page }`; all its changes, or `changes`; members |
+| POST   | `/api/v1/pages/{id}/suggestions/{suggestionId}/dismiss` | `200` `{ suggestion, page }`; takes `reason`; members |
 | PUT    | `/api/v1/pages/{id}/projects/{projectId}` | `200` `{ page }`, linked to the project; members  |
 | DELETE | `/api/v1/pages/{id}/projects/{projectId}` | `200` `{ page }`, off the project; members        |
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&label=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
@@ -743,32 +746,15 @@ visible without sending its `value` answers `400`. A duplicate key answers `409`
 
 ### `/api/v1/company-doc`
 
-Every route answers admins and members, and a guest `403 members_only`. See `docs/knowledge.md`, The company doc.
+The company doc's sections are pages (`docs/knowledge.md`, The company doc): people read, edit, and restore them, and
+accept or dismiss what agents suggested to them, through `/api/v1/pages`. What is the doc's own is starting its review.
 
 | Method and path                                   | Does                                                         |
 |---------------------------------------------------|--------------------------------------------------------------|
-| `GET /company-doc`                                | Every section in order, each with its pending proposals      |
-| `PATCH /company-doc`                              | Writes `sections`, a map of section keys to Markdown, as one change |
-| `GET /company-doc/history`                        | Every change, oldest first                                   |
-| `POST /company-doc/history/{entryId}/undo`        | Reverses one change, section by section                      |
-| `POST /company-doc/proposals/{id}/approve`        | Writes a proposal into its section, merged with what changed since |
-| `POST /company-doc/proposals/{id}/reject`         | Turns a proposal down; the doc is left as it is              |
 | `POST /company-doc/review`                        | Starts the review now, or answers the one under way          |
 
-The doc answers `sections`, each with `section`, `purpose` (what belongs there, in English, for agents), `content`,
-`updatedAt`, and `proposals`. A `CompanyDocProposal` has `id`, `section`, `baseContent`, `content`, `reason`, `quote`,
-`source`, `timelineRecordId`, `workflowRunId`, `state`, `decidedBy`, `decidedAt`, `createdBy`, `agent` (`{ id, name }`
-or `null`), and `createdAt`; a history entry has `id`, `kind`, `createdBy`, `proposalId`, `data`, and `createdAt`.
-
-The doc's sections are pages (`docs/knowledge.md`, Pages, Learnings and the company doc), which these routes read and
-write in the shapes above. `PATCH` trims each section and answers `400` for one past 12,000 characters or a key that is
-not a section; sections left out keep their text. Approving and rejecting answer `{ proposal, doc }`, and `409` for a proposal already decided;
-approving one whose lines changed since answers `409 proposal_overlaps` and leaves it pending. Undo answers the doc,
-and `409` when the change has nothing left to reverse. Review answers `{ run: { id, state }, started }`: `201` with a
-new run, `200` with the one already live.
-
-Nothing creates a proposal over HTTP: the review, the MCP server's `company_doc_propose`, and agents' tool of the same
-name call `crate::company_doc::propose` in-process.
+It answers admins and members, and a guest `403 members_only`, with `{ run: { id, state }, started }`: `201` with a new
+run, `200` with the one already live.
 
 ### `/api/v1/agent-guidance`
 
@@ -814,12 +800,13 @@ and members, and a guest `403 members_only`. `page.changed` carries an id alone,
 load it with `GET /{id}`, which answers a deleted page too.
 
 A `Page` has `id`, `parentId` (`null` at the top of the tree), `position`, `title`, `body` (Markdown), `category` and
-`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `briefProjectId` (the
-project whose brief it is, `null` on any other page), `labels` (in order),
+`evidence` (a learning's, `null` on any other page), `currentVersion`, `proposalOnly`, `fixed`, `companyDoc` (the
+Company page or one of its sections, whose review a person can start), `pendingSuggestions` (how many suggested edits
+wait for a person), `briefProjectId` (the project whose brief it is, `null` on any other page), `labels` (in order),
 `attachments` (the oldest first), `publishedBy`, `publishedAt`, `agent` (`{ id, name }` or `null`, for the newest
 version), `createdBy`, `createdAt`, `updatedAt`, `deletedAt`, and `projectIds`, the projects it is linked to, oldest link
 first. A `PageSummary` has `id`, `parentId`, `position`, `title`, `currentVersion`, `fixed`, `briefProjectId`,
-`labels`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
+`labels`, `pendingSuggestions`, `updatedAt`, and `deletedAt`: the list builds the tree by `parentId`, only the order of `position` among
 siblings means anything, and its `labels` are all a client needs to filter the tree, list a label's pages, and suggest
 the labels in use. `updatedAt` moves when a page is published, deleted, or restored, and not with a move, a label, or a
 link. A `ProjectPage` is a `PageSummary` with `publishedBy`, `publishedAt`, `linkedBy`, and `linkedAt`. A
@@ -845,13 +832,29 @@ as asked, records nothing and announces nothing; a publish answers `unchanged`. 
 among its siblings, each move recorded in that child's history as part of the deletion, and `POST /{id}/restore` moves
 back those still where it left them.
 
+A `PageSuggestion` (`docs/knowledge.md`, Pages, Suggestions) has `id`, `pageId`, `baseVersion` (the version it was
+written from), `changes`, `reason`, `quote`, `source`, `workflowRunId` (the company doc review's run that made it, while
+it exists), `state` (`pending`, `accepted`, or `dismissed`), `acceptedChanges` (the changes an acceptance took, `null`
+for all of them), `dismissalReason`, `decidedBy`, `decidedAt`, `createdBy`, `agent` (`{ id, name }` or `null`), and
+`createdAt`. Each change has `index` (from 0), `line` (its first line in that version, from 1), `before` and `after`
+(the lines it changes, with two unchanged ones on either side), and `applies`, whether accepting it alone would still
+merge with the page. `POST .../accept` takes `changes`, the indexes to take, or nothing for all of them, as the person
+acting alone: an empty list or an index the suggestion lacks answers `400`, and a chosen change whose lines the page
+changed since answers `409 suggestion_overlaps`, leaving it pending. `POST .../dismiss` takes `reason`, 1 to 2,000
+characters once trimmed (`400` otherwise). A suggestion already decided answers `409 suggestion_decided`, and accepting
+on a deleted page `409 page_deleted`. Each announces `page.changed` for its page.
+
+Nothing creates a suggestion over HTTP: a person edits a page directly. Agents suggest with `page_suggest`, and with
+`company_doc_propose` for a section, over MCP and in a turn, which call `routes::v1::pages::suggest` and
+`crate::company_doc::propose` in-process; the company doc's review calls `page_suggestion::suggest` itself.
+
 Refusals are `409` with a `code` the web app explains in its own words:
 
 | `code`                | When                                                                            |
 |-----------------------|---------------------------------------------------------------------------------|
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
-| `page_proposal_only`  | An agent wrote a page agents only propose to, or would delete one with its parent |
+| `page_proposal_only`  | An agent wrote a page agents only suggest edits to, or would delete one with its parent |
 | `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, or Project briefs page, a section, or a project's brief |
 | `page_brief_linked`   | Taking a project's brief off that project, which only deleting the project does   |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
@@ -860,7 +863,9 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_placement_gone` | `after` is not a live child of the parent named; load the tree again             |
 | `page_under_itself`   | A move named the page itself, or a page under it, as its parent                  |
 | `page_label_limit`    | The page already carries 50 labels, as many as a page may                        |
-| `page_is_a_learning`  | An agent's `page_save` named a learning, or a new page directly under Learnings  |
+| `page_is_a_learning`  | An agent's `page_save` or `page_suggest` named a learning, or a new page directly under Learnings |
+| `suggestion_overlaps` | A chosen change of a suggestion touches lines the page changed since              |
+| `suggestion_decided`  | A suggestion was already accepted or dismissed                                   |
 | `page_attachment_limit` | The page already holds 200 attachments, as many as a page may                  |
 | `attachment_no_location` | Nothing can be attached until an admin chooses a storage location           |
 
@@ -1128,7 +1133,7 @@ The global search's records (`docs/frontend.md`, Global search). `GET` takes `q`
 `limit` (1 to 50, default 5), and answers the closest `limit` action items, projects, coding sessions, initiatives,
 and pages whose titles match, each kind in its own order. A `SearchHit` is `{ kind, id, title }` with `kind` one of
 `actionItem`, `project`, `codingSession` (its `id` the session's number), `initiative`, or `page`; items and
-initiatives add their `state`. Nothing more is returned: a result is a row, and its page loads the rest.
+initiatives add their `state`, and pages `pendingSuggestions`, how many suggested edits wait. Nothing more is returned: a result is a row, and its page loads the rest.
 
 - **Matching.** Every word typed must begin a word of the title, case ignored; a word is a run of letters and digits,
   so `way 123` finds `WAY-123`, and a query of only punctuation finds nothing. Accents must match as typed.
@@ -1157,11 +1162,12 @@ source names, up to 32, each a lowercase letter then letters, digits, or undersc
 `from` before `to`), and `limit` (1 to 50, default 10). Anything else is `400`, a value out of bounds `422`. It answers the documents found best first, and whether the query was searched by
 meaning as well as by words.
 
-A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Citation` (`documentId`, `source`,
+A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score, pendingSuggestions }`: the `Citation` (`documentId`, `source`,
 `title`, `url` or `null`, `pageId`, the page it was indexed from or `null`, `occurredAt`, and `person`, `{ id, name
 }`), up to three `{ position, content }` passages
-best first, the other documents holding the same text (`{ documentId, person }`, earliest first), and its fused score,
-comparable within one answer only.
+best first, the other documents holding the same text (`{ documentId, person }`, earliest first), its fused score,
+comparable within one answer only, and how many suggested edits wait on the page it was indexed from (0 for anything
+that is no page).
 
 A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, labels, alsoRecordedBy }`: every passage
 in order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after

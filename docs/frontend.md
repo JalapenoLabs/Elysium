@@ -275,7 +275,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/work-queue/:batchId`        | `WorkBatchPage`          | One batch whole, with its history and what may still be done to it; members only |
 | `/knowledge`                  | `KnowledgeHome`          | Opens the first page; with a query, goes on to the search; members only |
 | `/knowledge/pages/new`        | `NewKnowledgePage`       | A new page; `?parent=` chooses where it goes             |
-| `/knowledge/pages/:pageId`    | `KnowledgePageView`      | One page, live or deleted, as it reads                   |
+| `/knowledge/pages/:pageId`    | `KnowledgePageView`      | One page, live or deleted, as it reads, its suggested edits, and its history, as tabs in `?tab=` |
 | `/knowledge/pages/:pageId/edit` | `EditKnowledgePage`    | One page in the rich editor, published from its header   |
 | `/knowledge/search`           | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
 | `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
@@ -329,7 +329,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
 | `/settings/meetings/:meetingId` | redirect             | To `/knowledge/meetings/:meetingId`, keeping its query   |
-| `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
+| `/settings/company-doc`       | redirect                 | To the Company page in the knowledge base, where the company doc lives |
 | `/settings/agent-guidance`    | `AgentGuidancePage`      | What every connected agent reads, edited by admins, with its rules, CLAUDE.md block, and versions; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
 | `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from their rows; admins |
@@ -908,7 +908,21 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   refused. The upload sends the file as its body, past ky's timeout and the slow request notice, since its row says it
   is on its way. A row's name downloads it, and a link to a file in a page's text does too (`file` in `markdownUrls.ts`):
   no route of the app's can show a path under `/api`, and `download` keeps it out of the router.
-- **History** (`PageHistory`) is a page's second tab, and what it shows lives in the address (`getPageVersionUrl`,
+- **Suggestions** (`PageSuggestions`) is a page's second tab, counting what waits (`pendingSuggestions`, which the
+  page answers, so the count needs no load). It reads `GET /pages/{id}/suggestions` through SWR, which `page.changed`
+  revalidates (`reloadChangedPage`), and shows each as a `PageSuggestionCard`: who suggested it and through which agent
+  (`pageAgentName`), when, the review's run it came from, its reason, quote, and source, and each change as a
+  `TextDiff` of the lines around it. With several changes each has a checkbox, ticked at first unless the page changed
+  in its lines since (`applies`), which says so and cannot be ticked; Accept reads "Accept 1 of 2" when only some are
+  (`pageSuggestionPresentation.ts`, tested beside it), and its tooltip says why it waits: nothing ticked, or a deleted
+  page. One written against an earlier version says that accepting merges both. Accept and Dismiss act at once with a
+  toast and dispatch the page they answer; Dismiss asks for the reason through `usePrompt`. A `409
+  suggestion_overlaps` or `suggestion_decided` is a warning toast in the app's words, and the list loads again. A card
+  is keyed by the page's version too, so a publish starts its choice over.
+- **In the tree and search.** A row whose page has suggestions waiting shows their count beside its title, part of the
+  link's name and spelled out on hover. The topbar's page results (`recordSearch.ts`) and the knowledge search's
+  (`knowledgeSearch.ts`, and a chip on `KnowledgeResultCard`) say how many wait, from the counts the API answers.
+- **History** (`PageHistory`) is a page's third tab, and what it shows lives in the address (`getPageVersionUrl`,
   `getPageCompareUrl`), so Back leaves a comparison and a link opens one. `swapsWhatPageEdits` leaves those parameters
   out, as it does the tab: looking through versions never asks about unsaved edits. The list is one read of
   `GET /pages/{id}/history` through SWR, which holds no text, so `page.changed` revalidates it and a long history costs
@@ -1101,28 +1115,11 @@ in the header:
 
 ### Company doc
 
-`src/pages/Settings/CompanyDoc/` is the company doc (`docs/knowledge.md`, The company doc), in the settings frame, for
-the company's members; anyone else is told the knowledge base is for members.
-
-- **The page** (`CompanyDocPage`) loads the doc for members, counts the proposals waiting in a chip beside the title,
-  explains itself behind `help`, and has Look for updates as its one action, which starts the review and says so in a
-  toast linking to its run. The history follows the form.
-- **The form** (`CompanyDocForm`) is every section in order, one text area each (`company-doc-<section>`, the first
-  focused), saved by the page's Save, which sends only the sections that changed. A section the person has not
-  touched follows the doc as it changes, so an approval made here or in another tab shows at once; one they edited
-  keeps their text.
-- **Proposals** (`ProposalCard`) sit beside the section they would change, from `lg` up, and below it on narrower
-  screens: who proposed and through which agent, when, the review's run it came from, its reason, the change as a
-  `TextDiff` from the text it was made against, and its quote and source. One made against an earlier version of the
-  section says that approving merges both. Approve and Reject act at once with a toast; Approve waits, with a tooltip,
-  while the section has unsaved edits, and a `409 proposal_overlaps` says the section changed in the same lines.
-- **History** (`CompanyDocHistory`) lists every change newest first, each a sentence naming who and which sections,
-  with Undo. It is read from SWR alone, since no other view shows it.
-- **Data.** The doc flows through SWR (`useCompanyDocLoader`), then `companyDocSlice`, then `companyDoc.changed`,
-  which carries nothing, so the stream revalidates the doc's key and the history's for members. Every write answers
-  the doc whole, which replaces the slice's.
-- `companyDocPresentation.ts` holds the section labels and hints, the history sentences, and how an agent is named,
-  tested beside it.
+The company doc lives in the knowledge base (`docs/knowledge.md`, The company doc): its sections are the Company page's
+child pages, read, edited, restored, and reviewed as every page is (Pages, above). A page the API marks `companyDoc`
+(the Company page and each section) has Look for updates among its actions, which starts the review
+(`startCompanyDocReview`) and says so in a toast linking to its run. `/settings/company-doc` redirects to the Company
+page (`getCompanyDocUrl`, `COMPANY_PAGE_ID` in `src/constants.ts`).
 
 ### Agent guidance
 
@@ -1711,7 +1708,6 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useLearningsLoader`, `useDeletedLearningsLoader`, `useLearningLoader`,
    `usePagesLoader`, `usePageLoader`,
-   `useCompanyDocLoader`,
    `useCodingSessionsLoader`, `useModelSettingsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,

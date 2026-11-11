@@ -22,9 +22,11 @@
 //! restoring it moves them back.
 //!
 //! A learning is a page with a category and evidence (`crate::models::learning`), and the company
-//! doc is seven pages under one (`crate::models::company_doc`). Both are written through
-//! [`publish_content`] and [`undo_version`], so they keep their own rules over the versions, history,
+//! doc is seven pages under one (`crate::models::company_doc`). A learning is written through
+//! [`publish_content`] and [`undo_version`], so it keeps its own rules over the versions, history,
 //! and index every page has. The pages they rely on are fixed: nobody moves, deletes, or renames one.
+//! An accepted suggestion (`crate::models::page_suggestion`) is published through [`publish_content`]
+//! too, on any page.
 //!
 //! A project's brief is a page too (`crate::models::project_brief`), fixed while its project exists,
 //! and publishing it as anyone but its own Project Manager or the system user wakes that Project
@@ -122,8 +124,8 @@ pub struct Provenance {
     pub restored_from: Option<i32>,
     /// The entry this one reverses, for an undo.
     pub undid: Option<Uuid>,
-    /// The company doc proposal it applied.
-    pub proposal_id: Option<Uuid>,
+    /// The suggestion it accepted (`crate::models::page_suggestion`).
+    pub suggestion_id: Option<Uuid>,
     /// The id of the one change this is part of, when a change reaches several pages. A change that
     /// reaches one page takes an id of its own.
     pub change: Option<Uuid>,
@@ -179,7 +181,7 @@ pub struct Page {
     pub category: Option<String>,
     pub evidence: Option<String>,
     pub current_version: i32,
-    /// Agents may only propose changes to it (`docs/knowledge.md`, Pages).
+    /// Agents may only suggest edits to it (`docs/knowledge.md`, Pages, Suggestions).
     pub proposal_only: bool,
     pub deleted_at: Option<DateTime<Utc>>,
     /// Who created it. Who changed it since is in its versions and history.
@@ -294,7 +296,7 @@ pub enum HistoryKind {
     /// The page was created. `data` is `{ parentId, version }`.
     Created,
     /// A version was published. `data` is `{ version }`, with `restoredFrom` for a restore, `undid`
-    /// for an undo, and `proposalId` for an approved company doc proposal.
+    /// for an undo, and `suggestionId` for an accepted suggestion.
     Published,
     /// It moved, or changed place among its siblings. `data` is `{ from, to }`, each
     /// `{ parentId, after }`: the two values a move takes, so putting a page back is a move.
@@ -532,8 +534,8 @@ pub enum PageError {
     Changed,
     #[error("this page is deleted; restore it to change it")]
     Deleted,
-    /// An agent tried to write a page agents only propose to.
-    #[error("people edit this page directly; agents propose changes with company_doc_propose")]
+    /// An agent tried to write a page agents only suggest edits to.
+    #[error("people edit this page directly; agents suggest edits with page_suggest")]
     ProposalOnly,
     /// The parent named does not exist or is deleted.
     #[error("the page it would go under does not exist or is deleted")]
@@ -656,7 +658,7 @@ pub async fn create(
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::Deleted`] for a deleted one,
-/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to,
+/// [`PageError::ProposalOnly`] for an agent writing a page agents only suggest edits to,
 /// [`PageError::Changed`] when a version was published since `base_version`, [`PageError::Fixed`]
 /// for a new title on a fixed page, [`PageError::NotALearning`] for a category and evidence on a page
 /// that is no learning, and the refusals of [`publish_content`].
@@ -692,7 +694,7 @@ pub async fn publish(
 /// Publishes `content` over `page` as its next version, recording `provenance` in its history.
 ///
 /// This is what every publish comes down to, for the writes with rules of their own over a page:
-/// saving a learning and changing the company doc. `page` must be locked ([`lock`]) in the caller's
+/// saving a learning and accepting a suggestion. `page` must be locked ([`lock`]) in the caller's
 /// transaction, and whether the author may write it is the caller's to decide. A deleted page takes
 /// the version and stays out of the index, which is how removing a category moves a deleted learning.
 /// A project's brief is locked with its project held first ([`lock_to_publish`]), since publishing
@@ -747,8 +749,8 @@ pub async fn publish_content(
     if let Some(undid) = provenance.undid {
         data["undid"] = json!(undid);
     }
-    if let Some(proposal_id) = provenance.proposal_id {
-        data["proposalId"] = json!(proposal_id);
+    if let Some(suggestion_id) = provenance.suggestion_id {
+        data["suggestionId"] = json!(suggestion_id);
     }
     let entry = record(
         connection,
@@ -782,7 +784,7 @@ pub async fn publish_content(
 ///
 /// # Errors
 /// `NotFound` for an unknown page or version, [`PageError::Deleted`] for a deleted page,
-/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to, and
+/// [`PageError::ProposalOnly`] for an agent writing a page agents only suggest edits to, and
 /// [`PageError::TitleTaken`] for a learning's version whose title another learning has now.
 pub async fn restore_version(
     connection: &mut AsyncPgConnection,
@@ -849,7 +851,7 @@ pub async fn undo_version(
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::Deleted`] for a deleted one,
-/// [`PageError::ProposalOnly`] for an agent writing a page agents only propose to,
+/// [`PageError::ProposalOnly`] for an agent writing a page agents only suggest edits to,
 /// [`PageError::Fixed`] for a fixed page, [`PageError::ParentGone`] for a parent that does not exist
 /// or is deleted, [`PageError::UnderItself`] for a parent that is the page or a descendant of it,
 /// and [`PageError::PlacementGone`] when `after` is not a live child of the parent.
@@ -903,7 +905,7 @@ pub async fn move_page(
 ///
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::ProposalOnly`] for an agent when any of them is a
-/// page agents only propose to, and [`PageError::Fixed`] when any of them is a fixed page, in which
+/// page agents only suggest edits to, and [`PageError::Fixed`] when any of them is a fixed page, in which
 /// cases none is deleted.
 pub async fn delete(
     connection: &mut AsyncPgConnection,
@@ -1136,7 +1138,7 @@ async fn return_children(
 /// # Errors
 /// `NotFound` for an unknown page, [`PageError::ParentGone`] while its parent is deleted, since a
 /// live page's parent is always live, and [`PageError::ProposalOnly`] for an agent when any of them
-/// is a page agents only propose to, in which case none is restored.
+/// is a page agents only suggest edits to, in which case none is restored.
 pub async fn restore(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -1388,7 +1390,7 @@ pub async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<P
 /// project before the page, the order every write that reaches both takes (`page_project`), keeps
 /// the two from waiting on each other. A project deleted in between holds nothing, and its brief
 /// is then an ordinary page.
-async fn lock_to_publish(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
+pub async fn lock_to_publish(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Page> {
     let brief_of: Option<Uuid> = pages::table
         .find(id)
         .select(pages::brief_project_id)
@@ -1433,7 +1435,7 @@ pub(super) async fn require_writable(
     refuse_agents(connection, page, author).await
 }
 
-/// Refuses an agent writing a page agents only propose to.
+/// Refuses an agent writing a page agents only suggest edits to.
 ///
 /// Anything but a person acting alone counts. Elysia writes as her machine user with no agent named,
 /// so the user is read too, and a caller that forgets to name its agent is refused all the same.

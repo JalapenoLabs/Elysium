@@ -167,11 +167,6 @@ pub enum ServerEvent {
     /// Nothing more: a guest hears every event and reaches no knowledge base; members load it again.
     #[serde(rename = "pageAttachments.changed")]
     PageAttachmentsChanged,
-    /// The company doc changed, or a change to it was proposed or decided. Nothing more: the
-    /// doc is one, and a guest hears every event and reaches no knowledge base; members load it
-    /// again.
-    #[serde(rename = "companyDoc.changed")]
-    CompanyDocChanged,
     /// An admin saved or restored a version of the agent guidance. Nothing more: members load it
     /// again, and agents read it as their next session starts.
     #[serde(rename = "agentGuidance.changed")]
