@@ -9,13 +9,13 @@
 //! the person waits and the engine store them on its own time. Parts are named by their number,
 //! zero-padded, so a directory listing reads them in order.
 //!
-//! Each write lands under a name of its own and is moved into the part's name only once it holds
-//! every byte it should, so a part sent twice at once (a retry while the first send is still being
-//! written) never interleaves: the part is one whole send or the other. Only the parts its upload's
-//! row counts as received are ever read (`crate::models::meeting_upload`), and a part is counted
-//! only once it was written whole, so a part cut short is never read: the next attempt writes it
-//! again. Reading joins a file's parts into one stream, part after part, and never holds more than a
-//! chunk of one in memory.
+//! Each send of a part lands under a name of its own ([`Staging::write_part`]), and a send that
+//! fails takes what it wrote with it. A whole send is put under the part's name ([`Staging::place`])
+//! by the request that counts it, under the lock on its file's row, so of two sends of one part at
+//! once the one counted is the one kept, and the other is let go ([`Staging::discard`]). Only the
+//! parts its upload's row counts as received are ever read (`crate::models::meeting_upload`).
+//! Reading joins a file's parts into one stream, part after part, and never holds more than a chunk
+//! of one in memory.
 //!
 //! Tests stage in a directory of their own instead, since no Docker daemon serves them; both read
 //! and write through the same few calls.
@@ -37,6 +37,17 @@ const STAGING_DIRECTORY: &str = ".elysium/uploads";
 /// Moves a write into its part's name, replacing what was there in one step. `$1` is the staging
 /// directory, `$2` the write's path under it, `$3` the part's.
 const PLACE_SCRIPT: &str = r#"mv -f -- "$1/$2" "$1/$3""#;
+
+/// Removes a write that is not wanted. `$1` is the staging directory, `$2` the write's path under
+/// it; one already gone is not an error.
+const DISCARD_SCRIPT: &str = r#"rm -f -- "$1/$2""#;
+
+/// One send of a part, written whole under a name of its own, waiting to be put in place or let go.
+#[derive(Debug)]
+pub struct StagedPart {
+    write: String,
+    part: String,
+}
 
 /// Why staging refused.
 #[derive(Debug, thiserror::Error)]
@@ -79,67 +90,126 @@ impl Staging {
         }
     }
 
-    /// Writes part `index` of upload `upload_id`'s file of `kind` from `body`, which must carry
-    /// exactly `length` bytes, replacing the part if it arrived before.
+    /// Writes a send of part `index` of upload `upload_id`'s file of `kind` from `body`, which
+    /// must carry exactly `length` bytes, under a name of its own. Nothing is under the part's name
+    /// until the caller puts it there ([`Self::place`]) or lets it go ([`Self::discard`]).
     ///
     /// # Errors
-    /// [`StagingError::Length`] when the body carried more or fewer, which leaves the part as it
-    /// was; otherwise the workspace's refusal.
+    /// [`StagingError::Length`] when the body carried more or fewer, and the workspace's refusal;
+    /// either way nothing of the send is left behind.
     pub async fn write_part<Chunks, ChunkError>(
         &self,
         (upload_id, kind): (Uuid, FileKind),
         index: u64,
         length: u64,
         body: Chunks,
-    ) -> Result<(), StagingError>
+    ) -> Result<StagedPart, StagingError>
     where
         Chunks: Stream<Item = Result<Bytes, ChunkError>> + Send,
         ChunkError: std::fmt::Display,
     {
-        let part = part_path(upload_id, kind, index);
-        // Hidden, and its own: a write that stops short leaves it behind under no part's name,
-        // until its upload's directory goes.
-        let write = format!(
-            "{upload_id}/{}/.{index:06}.{}",
-            kind.as_str(),
-            Uuid::now_v7().simple()
-        );
-        let written = match &self.place {
-            Place::Workspace(workspace) => workspace.write_file(&root(), &write, body).await?,
-            #[cfg(test)]
-            Place::Directory(directory) => write_in_directory(directory, &write, body).await?,
+        let staged = StagedPart {
+            // Hidden, and the send's own, so two sends of one part never write the same file.
+            write: format!(
+                "{upload_id}/{}/.{index:06}.{}",
+                kind.as_str(),
+                Uuid::now_v7().simple()
+            ),
+            part: part_path(upload_id, kind, index),
         };
-        if written != length {
-            return Err(StagingError::Length {
+        let written = match &self.place {
+            Place::Workspace(workspace) => workspace
+                .write_file(&root(), &staged.write, body)
+                .await
+                .map_err(StagingError::from),
+            #[cfg(test)]
+            Place::Directory(directory) => write_in_directory(directory, &staged.write, body).await,
+        };
+        let failure = match written {
+            Ok(written) if written == length => return Ok(staged),
+            Ok(written) => StagingError::Length {
                 expected: length,
                 received: written,
-            });
-        }
+            },
+            Err(error) => error,
+        };
+        // Whatever of the send reached the workspace goes with it, so sends that keep failing
+        // never fill it.
+        self.discard(staged).await;
+        Err(failure)
+    }
+
+    /// Puts `staged`, a whole send, under its part's name, replacing what was there in one step.
+    ///
+    /// # Errors
+    /// The workspace's refusal, which leaves the part as it was.
+    pub async fn place(&self, staged: StagedPart) -> Result<(), StagingError> {
         match &self.place {
             Place::Workspace(workspace) => {
                 let placed = workspace
                     .run_script(
                         AGENT_USER,
                         PLACE_SCRIPT,
-                        &[&root().absolute(), &write, &part],
+                        &[&root().absolute(), &staged.write, &staged.part],
                         Vec::new(),
                         SCRIPT_TIMEOUT,
                     )
                     .await
                     .map_err(FileError::from)?;
                 if placed.exit_code != Some(0) {
+                    let output = placed.output.trim().to_owned();
+                    self.discard(staged).await;
                     return Err(StagingError::Workspace(FileError::Failed(format!(
-                        "could not put part {index} in place: {}",
-                        placed.output.trim()
+                        "could not put a part in place: {output}"
                     ))));
                 }
             }
             #[cfg(test)]
             Place::Directory(directory) => {
-                tokio::fs::rename(directory.join(&write), directory.join(&part)).await?;
+                tokio::fs::rename(directory.join(&staged.write), directory.join(&staged.part))
+                    .await?;
             }
         }
         Ok(())
+    }
+
+    /// Lets `staged` go: a send that is not wanted, because another one of its part was counted
+    /// first or it failed. Failing to only leaves a file under no part's name, which its upload's
+    /// directory takes with it, so it is logged and nothing more.
+    pub async fn discard(&self, staged: StagedPart) {
+        let removed = match &self.place {
+            Place::Workspace(workspace) => workspace
+                .run_script(
+                    AGENT_USER,
+                    DISCARD_SCRIPT,
+                    &[&root().absolute(), &staged.write],
+                    Vec::new(),
+                    SCRIPT_TIMEOUT,
+                )
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|output| match output.exit_code {
+                    Some(0) => Ok(()),
+                    _ => Err(output.output.trim().to_owned()),
+                }),
+            #[cfg(test)]
+            Place::Directory(directory) => {
+                match tokio::fs::remove_file(directory.join(&staged.write)).await {
+                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                        Err(error.to_string())
+                    }
+                    _removed => Ok(()),
+                }
+            }
+        };
+        if let Err(error) = removed {
+            tracing::event!(
+                name: "meeting_uploads.send.undiscarded",
+                tracing::Level::WARN,
+                error.message = %error,
+                "a part's send that is not wanted could not be removed from the workspace",
+            );
+        }
     }
 
     /// Upload `upload_id`'s file of `kind`, its `parts` parts joined in order, as one stream.
@@ -290,18 +360,14 @@ mod tests {
         let file = (Uuid::now_v7(), FileKind::Recording);
 
         // Out of order, and one sent twice: what is read is each part once, in its place.
-        staging
-            .write_part(file, 1, 6, chunks(b"second"))
-            .await
-            .expect("stages");
-        staging
-            .write_part(file, 0, 5, chunks(b"first"))
-            .await
-            .expect("stages");
-        staging
-            .write_part(file, 1, 6, chunks(b"second"))
-            .await
-            .expect("stages again");
+        for (index, length, bytes) in [(1, 6, &b"second"[..]), (0, 5, b"first"), (1, 6, b"second")]
+        {
+            let staged = staging
+                .write_part(file, index, length, chunks(bytes))
+                .await
+                .expect("stages");
+            staging.place(staged).await.expect("places");
+        }
 
         let joined: Vec<Bytes> = staging.read(file, 2).try_collect().await.expect("reads");
         assert_eq!(joined.concat(), b"firstsecond");
@@ -318,10 +384,10 @@ mod tests {
             .expect("removing nothing is fine");
     }
 
-    /// A part sent again while its first send is still being written: each write is its own until
-    /// it is whole, so the part is one send or the other, never the two interleaved.
+    /// Two sends of one part at once each write a file of their own, so whichever is put in place
+    /// is one whole send, and the one let go leaves nothing behind.
     #[tokio::test]
-    async fn two_sends_of_one_part_at_once_never_interleave() {
+    async fn two_sends_of_one_part_at_once_never_mix() {
         let directory = tempfile::tempdir().expect("a directory");
         let staging = Staging::in_directory(directory.path());
         let file = (Uuid::now_v7(), FileKind::Recording);
@@ -336,16 +402,15 @@ mod tests {
             staging.write_part(file, 0, 64 * 1024, slow(b'a')),
             staging.write_part(file, 0, 64 * 1024, slow(b'b')),
         );
-        first.expect("stages");
-        second.expect("stages");
+        staging.place(first.expect("stages")).await.expect("places");
+        staging.discard(second.expect("stages")).await;
 
         let joined: Vec<Bytes> = staging.read(file, 1).try_collect().await.expect("reads");
-        let part = joined.concat();
-        assert_eq!(part.len(), 64 * 1024);
-        assert!(
-            part.iter().all(|byte| *byte == b'a') || part.iter().all(|byte| *byte == b'b'),
-            "the part is one whole send"
-        );
+        assert_eq!(joined.concat(), vec![b'a'; 64 * 1024]);
+        let left = std::fs::read_dir(directory.path().join(file.0.to_string()).join("recording"))
+            .expect("the file's directory")
+            .count();
+        assert_eq!(left, 1, "only the part itself is left");
     }
 
     #[tokio::test]
@@ -367,5 +432,8 @@ mod tests {
             staging.sha256(file, 1).await.is_err(),
             "nothing is under the part's name"
         );
+        let left = std::fs::read_dir(directory.path().join(file.0.to_string()).join("transcript"))
+            .map_or(0, Iterator::count);
+        assert_eq!(left, 0, "and nothing of the send is left");
     }
 }

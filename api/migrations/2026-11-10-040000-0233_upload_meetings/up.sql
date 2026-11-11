@@ -23,12 +23,18 @@ CREATE TABLE meeting_uploads (
     -- The capture it became, once it finished. Unique, since one upload is one capture.
     capture_id UUID UNIQUE REFERENCES meeting_captures (id) ON DELETE CASCADE,
     finished_at TIMESTAMPTZ,
+    -- When its staged parts were removed from the workspace: by the fetch that stored them, or by
+    -- the sweep. NULL while they may still be there.
+    parts_removed_at TIMESTAMPTZ,
     -- Who uploads it: the meeting's owner.
     created_by UUID NOT NULL REFERENCES users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT meeting_uploads_new_meeting
-        CHECK ((meeting_id IS NULL) = (title IS NOT NULL AND started_at IS NOT NULL)),
+    -- A new meeting's upload names its title and start; a capture's names neither.
+    CONSTRAINT meeting_uploads_new_meeting CHECK (
+        (meeting_id IS NULL AND title IS NOT NULL AND started_at IS NOT NULL)
+        OR (meeting_id IS NOT NULL AND title IS NULL AND started_at IS NULL)
+    ),
     CONSTRAINT meeting_uploads_finished
         CHECK ((finished_at IS NULL) = (capture_id IS NULL))
 );
@@ -38,6 +44,10 @@ SELECT diesel_manage_updated_at('meeting_uploads');
 -- A person's unfinished uploads, which the upload page resumes and the engine sweeps once stale.
 CREATE INDEX meeting_uploads_unfinished ON meeting_uploads (created_by, updated_at)
     WHERE finished_at IS NULL;
+
+-- Finished uploads whose parts may still be in the workspace, which the engine's sweep reads.
+CREATE INDEX meeting_uploads_parts_kept ON meeting_uploads (finished_at)
+    WHERE finished_at IS NOT NULL AND parts_removed_at IS NULL;
 
 -- The files of an upload: a recording, a transcript, or one of each. A child of its upload, so
 -- it has no `created_by`.

@@ -5,9 +5,11 @@
 //! upload's staging directory (`crate::meeting_uploads::staging`), so nothing holds it in memory.
 //!
 //! Parts arrive in order, each [`MeetingUpload::part_bytes`] long but the last. The part the API
-//! needs next is written and counted; one it has already is acknowledged without being written,
-//! so a part resent after its answer was lost changes nothing; one past the next is refused with
-//! how far the file got, for the page to resume from. A recording's first part must open as its
+//! needs next is written under a name of its own, then put in place and counted under the lock on
+//! its file's row, so of two sends of one part at once only the one counted is kept; one it has
+//! already is acknowledged without being written, so a part resent after its answer was lost
+//! changes nothing; one past the next is refused with how far the file got, for the page to resume
+//! from. A recording's first part must open as its
 //! format does before any of it is kept, and a transcript's last part is counted only once the
 //! whole transcript reads as one (`super::read_transcript`).
 //!
@@ -22,6 +24,7 @@ use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, Request, State};
 use axum::http::header;
 use bytes::{Bytes, BytesMut};
+use diesel_async::AsyncConnection;
 use futures_util::stream::{self, Stream, StreamExt as _};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -97,15 +100,10 @@ pub async fn handle(
         Bytes::new()
     };
     let whole = stream::once(async move { Ok(head) }).chain(chunks);
-    state
+    let sent = state
         .upload_staging
         .write_part((id, kind), index, expected, whole)
         .await?;
-    if kind == FileKind::Transcript && received + expected == file.size_bytes() {
-        // The transcript's last part: one that cannot be read is refused now, before a recording
-        // sent after it, rather than when the upload finishes. The part stays uncounted.
-        read_transcript(&state.upload_staging, &staged).await?;
-    }
 
     let mut connection = state
         .database
@@ -114,8 +112,28 @@ pub async fn handle(
         .context("no database connection available")?;
     let from = i64::try_from(received).context("a file's size fits a bigint")?;
     let to = i64::try_from(received + expected).context("a file's size fits a bigint")?;
-    // `false` when a send of the same part counted it first, which leaves it counted once.
-    meeting_upload::record_part(&mut connection, (id, kind), from, to).await?;
+    let is_last_of_transcript = kind == FileKind::Transcript && to == file.size_bytes;
+    let staging = state.upload_staging.clone();
+    connection
+        .transaction(async move |connection| {
+            // One request at a time decides, so the send counted is the send kept.
+            let locked = meeting_upload::lock_file(connection, (id, kind)).await?;
+            if locked.received_bytes != from {
+                // Another send of this part was counted first; this one is not needed.
+                staging.discard(sent).await;
+                return Ok(());
+            }
+            staging.place(sent).await?;
+            if is_last_of_transcript {
+                // The transcript's last part: one that cannot be read is refused now, before a
+                // recording sent after it, rather than when the upload finishes. It stays
+                // uncounted, and the next send of it replaces it.
+                read_transcript(&staging, &staged).await?;
+            }
+            meeting_upload::record_part(connection, (id, kind), from, to).await?;
+            Ok::<_, ApiError>(())
+        })
+        .await?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     Ok(Json(json!({ "upload": UploadResponse::from(staged) })))
 }

@@ -228,7 +228,8 @@ is fetched or its segments are cut and published.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
   by the system user (`workflow::run_to_start`). An upload's run is started by its person, as the upload finishes, in
   the transaction that stores its meeting, so the loop never starts one of its own for it (Uploads, below). The same
-  pass removes every upload no part reached for a week (`meeting_uploads::STALE_AFTER`), and what of it arrived.
+  pass removes every upload no part reached for a week (`meeting_uploads::STALE_AFTER`), and what of it arrived, and
+  the parts of finished uploads that no longer need them (Uploads, below).
 
 | Step                 | Moves the meeting       | What happens                                                    |
 |----------------------|-------------------------|-----------------------------------------------------------------|
@@ -421,7 +422,8 @@ raw transcripts are never written.
   them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
   knowledge base is (`docs/knowledge.md`, Who sees what).
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
-  Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
+  Whisper's segments when the source sent no lines, or sent lines with no times at all, such as a transcript uploaded
+  beside its recording, since Whisper's carry the recording's clock (`correction::base`). A meeting with neither skips the step, saying "Nothing was said,
   so nothing to correct".
 - **The turn.** One text turn on the runner, however long the meeting, on the model resolved for the step, of the
   correction kind: Opus 5.5 at high effort unless an admin chose another for the step or the kind (`docs/engine.md`,
@@ -506,7 +508,8 @@ transaction (`docs/engine.md`, Project Managers), so a meeting's or a conversati
 are about with nothing more for a workflow to do.
 
 **A meeting in words alone**, a transcript uploaded with no times and no recording, has no clock to answer in: every
-line is at `0` (`meeting_uploads::transcript::is_untimed`). Its prompt numbers the lines, with no times, and its answer
+line is at `0` (`meeting_uploads::transcript::is_untimed`). One uploaded with a recording is read on Whisper's clock
+instead (Correction, above). Its prompt numbers the lines, with no times, and its answer
 names each segment by its first and last line (`segmentation::parse_lines_answer`), kept as a conversation's runs are.
 Each segment keeps its run of lines (`Segment.lines`), which its excerpt and speakers read, and carries no clip; its
 record's span is `0` to `0`, which the web app reads as no place in the meeting.
@@ -630,11 +633,11 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   alone keeps nothing in storage.
 - **Parts.** Every file arrives in parts of 8 MiB (`PART_BYTES`), the last one shorter, each its own request, in order
   (`PUT .../{kind}/parts/{index}`). Each streams into the workspace, `.elysium/uploads/<upload>/<kind>/<part>`
-  (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own and moved
-  into the part's name once whole, so two sends of one part at once never mix, and it is counted only then, by a write
-  that moves the count only from what it read, so a part sent twice counts once. A part already received is
-  answered as it is; one past the next is refused, saying how far the file got. Nothing holds more than a chunk of a
-  part in memory.
+  (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own, and
+  one that fails takes what it wrote with it. A whole send is put under the part's name and counted under the lock on
+  its file's row, so of two sends of one part at once the one counted is the one kept and the other is let go. A part
+  already received is answered as it is; one past the next is refused, saying how far the file got. Nothing holds
+  more than a chunk of a part in memory.
 - **What is checked as it arrives.** A recording's first part must open as its format does (an MP3's ID3 tag or frame
   sync, WAV's `RIFF ... WAVE`, an MP4's or QuickTime's opening box), since it is later played on Elysium's origin. A
   transcript's last part is counted only once the whole transcript reads: UTF-8 or UTF-16 text, at most 100,000 lines,
@@ -642,13 +645,17 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   recording is sent after it.
 - **Resuming.** An upload keeps how much of each file arrived, and its files' names, sizes, and when they last changed.
   The upload page reads the person's unfinished uploads, and choosing the same files for the same meeting again carries
-  on from the first part the API lacks, after a dropped connection or a reload. A part that fails on the way is sent
-  again, waiting longer each time, up to eight times. An upload no part reached for a week is removed with its parts.
+  on from the first part the API lacks, after a dropped connection, a reload, or Upload pressed again once an upload
+  stopped. A part that fails on the way is sent again, waiting longer each time, up to eight times. An upload no part
+  reached for a week is removed with its parts.
+- **Parts are removed once.** The fetch removes an upload's parts once it stored them. Whatever it could not remove, and
+  the parts of an upload finished a week ago whose capture was never stored (its fetch skipped by a person), the
+  meetings loop's sweep removes, recording it (`meeting_uploads.parts_removed_at`) so it happens once.
 - **Finishing.** Once every part arrived, finishing stores the meeting with its capture (or the capture of its meeting),
   marks the upload finished with the lines its transcript was read as, and starts the meeting's run from its fetch, as
   its person, all in one transaction; the fetch then stores the recording (Fetching, above). A new meeting's duration is
   where its transcript's last line ends, when it has times, and its participants are the speakers its transcript names.
-  Finishing again answers the same meeting.
+  Finishing again, or twice at once, answers the same meeting.
 
 ### Reading a transcript
 

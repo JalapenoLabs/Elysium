@@ -385,11 +385,18 @@ impl FetchMeeting {
                 summary: Some("Already stored from its upload".to_owned()),
             });
         };
-        // Stored: the parts are read again by nothing, and left behind only cost space.
-        if let Err(error) = self.inner.staging.remove(staged.upload.id).await {
-            log.line(&format!(
-                "The upload's parts could not be removed from the workspace: {error}"
-            ));
+        // Stored: the parts are read again by nothing. Parts that could not be removed now are
+        // the meetings loop's sweep's to remove.
+        match self.inner.staging.remove(staged.upload.id).await {
+            Ok(()) => {
+                let mut connection = self.connection().await?;
+                meeting_upload::record_parts_removed(&mut connection, staged.upload.id)
+                    .await
+                    .map_err(StepFailure::retryable)?;
+            }
+            Err(error) => log.line(&format!(
+                "The upload's parts could not be removed from the workspace yet: {error}"
+            )),
         }
         let summary = if stored.recording_path.is_some() {
             format!(

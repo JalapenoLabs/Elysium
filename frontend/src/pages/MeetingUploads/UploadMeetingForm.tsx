@@ -39,6 +39,7 @@ import {
   cancelMeetingUpload,
   createMeetingUpload,
   finishMeetingUpload,
+  getMeetingUpload,
 } from '../../api/routes/meetingUploadRoutes'
 import { useFormDraft } from '../../drafts/useFormDraft'
 import { formatBytes } from '../../format/numbers'
@@ -92,6 +93,9 @@ export function UploadMeetingForm(props: Props) {
   const [ progress, setProgress ] = useState<{ received: number, total: number } | null>(null)
   const [ isFinishing, setIsFinishing ] = useState(false)
   const sendingRef = useRef<AbortController | null>(null)
+  // The uploads this visit started, which the list read as the page opened does not hold yet, so
+  // Upload after one stopped carries it on rather than starting another.
+  const startedRef = useRef<MeetingUpload[]>([])
   const meetingId = props.meeting?.id ?? null
   const isNewMeeting = meetingId === null
   const hasRecording = files.recording !== null
@@ -194,8 +198,10 @@ export function UploadMeetingForm(props: Props) {
     if (code && TRANSCRIPT_REFUSALS.has(code)) {
       setFileErrors((errors) => ({ ...errors, transcript: message }))
       if (upload) {
-        await cancelMeetingUpload(upload.id).catch((cancelError: unknown) => {
-          console.debug('UploadMeetingForm could not let a refused upload go', { cancelError, uploadId: upload.id })
+        const refused = upload.id
+        startedRef.current = startedRef.current.filter((started) => started.id !== refused)
+        await cancelMeetingUpload(refused).catch((cancelError: unknown) => {
+          console.debug('UploadMeetingForm could not let a refused upload go', { cancelError, uploadId: refused })
         })
       }
       return
@@ -204,18 +210,39 @@ export function UploadMeetingForm(props: Props) {
     toast.danger(message)
   }
 
+  // The upload these same files began, this visit or an earlier one, as the API has it now, so it
+  // carries on from the first part it lacks; null when there is none to carry on, or it was let go
+  // meanwhile.
+  async function resume(details: UploadDetails) {
+    const found = findResumable([ ...startedRef.current, ...props.unfinished ], details, files)
+    if (!found) {
+      return null
+    }
+    try {
+      const { upload } = await getMeetingUpload(found.id)
+      return upload.finishedAt
+        ? null
+        : upload
+    }
+    catch (error) {
+      console.debug('UploadMeetingForm found no upload to carry on, and starts another', { error, uploadId: found.id })
+      return null
+    }
+  }
+
   const save = saveForm(form, async (values) => {
     const sending = new AbortController()
     sendingRef.current = sending
     let upload: MeetingUpload | null = null
     try {
       const details = detailsOf(values)
-      upload = findResumable(props.unfinished, details, files)
+      upload = await resume(details)
       if (upload) {
         toast(t('upload.toasts.resumed'))
       }
       else {
         upload = (await createMeetingUpload(requestOf(details))).upload
+        startedRef.current = [ upload, ...startedRef.current ]
       }
       setProgress(uploadProgress(upload))
       upload = await sendMeetingFiles({

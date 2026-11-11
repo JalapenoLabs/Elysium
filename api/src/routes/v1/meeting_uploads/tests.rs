@@ -1035,3 +1035,142 @@ async fn an_upload_left_for_a_week_is_swept_and_a_finished_one_stays() {
         .await
         .expect("an upload still arriving stays");
 }
+
+/// Two sends of one part at once, with different bytes: one is counted, and the part kept is the one
+/// counted, whole, with nothing of the other left behind. Two finishes at once answer one meeting.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn two_sends_of_a_part_or_two_finishes_at_once_keep_one() {
+    let fixture = fixture().await;
+    let length = 4_096;
+    let created = fixture
+        .json(
+            Method::POST,
+            "/api/v1/meeting-uploads",
+            &json!({
+                "title": "Call",
+                "startedAt": "2026-11-09T15:00:00Z",
+                "storageLocationId": fixture.location.id,
+                "recording": { "name": "call.mp4", "sizeBytes": length },
+            }),
+        )
+        .await;
+    let upload = id_of(&created, "upload");
+    let first = recording_bytes(length);
+    let mut other = first.to_vec();
+    other[length - 1] ^= 0xFF;
+    let other = Bytes::from(other);
+
+    let (one, two) = tokio::join!(
+        fixture.put_part(&upload, "recording", 0, first.clone()),
+        fixture.put_part(&upload, "recording", 0, other.clone()),
+    );
+    assert_eq!((one.status, two.status), (StatusCode::OK, StatusCode::OK));
+    let after = fixture
+        .get(&format!("/api/v1/meeting-uploads/{upload}"))
+        .await;
+    assert_eq!(received(&after, "recording"), length as u64, "counted once");
+    let directory = fixture.staging.path().join(&upload).join("recording");
+    let kept = std::fs::read(directory.join("000000")).expect("the part");
+    assert!(
+        kept == first.as_ref() || kept == other.as_ref(),
+        "the part is one whole send"
+    );
+    assert_eq!(
+        std::fs::read_dir(&directory)
+            .expect("the directory")
+            .count(),
+        1,
+        "the send not counted is let go"
+    );
+
+    let finish_path = format!("/api/v1/meeting-uploads/{upload}/finish");
+    let finish = || fixture.send(Method::POST, &finish_path, Body::empty(), None);
+    let (one, two) = tokio::join!(finish(), finish());
+    let mut statuses = [one.status, two.status];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::CREATED]);
+    assert_eq!(one.body["meeting"]["id"], two.body["meeting"]["id"]);
+}
+
+/// A finished upload's parts go once its capture is stored, whether the fetch removed them or not,
+/// and once it is a week old even if its fetch never ran, such as one a person skipped.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_finished_uploads_parts_are_swept_once_they_are_not_needed() {
+    use crate::models::meeting_capture::Fetched;
+
+    let (_url, mut connection) = migrated_database().await;
+    let finished = async |connection: &mut AsyncPgConnection, fetched: bool| {
+        let (made, capture) = crate::models::meeting::tests::stored(connection).await;
+        if fetched {
+            meeting_capture::record_fetched(
+                connection,
+                capture.id,
+                Fetched {
+                    transcript: json!([]),
+                    transcript_hash: "a".repeat(64),
+                    recording: None,
+                },
+            )
+            .await
+            .expect("records")
+            .expect("the first fetch");
+        }
+        let staged = meeting_upload::create(
+            connection,
+            meeting_upload::NewMeetingUpload {
+                id: Uuid::now_v7(),
+                meeting_id: Some(made.id),
+                title: None,
+                started_at: None,
+                storage_location_id: None,
+                part_bytes: 8,
+                created_by: TEST_PERSON_ID,
+            },
+            vec![meeting_upload::NewUploadFile {
+                kind: crate::meeting_uploads::FileKind::Transcript,
+                file_name: "a.txt".to_owned(),
+                size_bytes: 3,
+                modified_at: None,
+            }],
+        )
+        .await
+        .expect("created");
+        meeting_upload::record_finished(connection, staged.upload.id, capture.id, None)
+            .await
+            .expect("finishes")
+            .expect("unfinished before");
+        staged.upload.id
+    };
+    let stored = finished(&mut connection, true).await;
+    let waiting = finished(&mut connection, false).await;
+    let now = chrono::Utc::now();
+    let week_ago = now - crate::meeting_uploads::STALE_AFTER;
+
+    let due = meeting_upload::finished_with_parts(&mut connection, week_ago, 20)
+        .await
+        .expect("reads");
+    assert_eq!(
+        due,
+        vec![stored],
+        "a capture not stored yet keeps its parts"
+    );
+    meeting_upload::record_parts_removed(&mut connection, stored)
+        .await
+        .expect("records");
+    let due = meeting_upload::finished_with_parts(&mut connection, week_ago, 20)
+        .await
+        .expect("reads");
+    assert!(due.is_empty(), "parts removed are not removed again");
+
+    // A week on, the capture never fetched gives its parts up too.
+    let due = meeting_upload::finished_with_parts(
+        &mut connection,
+        now + chrono::TimeDelta::minutes(1),
+        20,
+    )
+    .await
+    .expect("reads");
+    assert_eq!(due, vec![waiting]);
+}

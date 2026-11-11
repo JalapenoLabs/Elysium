@@ -750,7 +750,9 @@ hash only with its path (`meeting_captures_recording_hash`).
 Meetings people upload, while their parts arrive and once they became a capture; see `docs/meetings.md`, Uploads. A new
 meeting's upload names its title and start, and a capture's names its meeting (`meeting_uploads_new_meeting`); a
 finished one names the capture it became (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
-updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep.
+updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep, and
+`meeting_uploads_parts_kept` on `finished_at`, partial on finished uploads whose parts were not removed, the finished
+ones to sweep.
 
 | Column                | Type          | Notes                                                                       |
 |-----------------------|---------------|-----------------------------------------------------------------------------|
@@ -762,6 +764,7 @@ updated_at)`, partial on what has not finished, reads a person's uploads to resu
 | `transcript`          | `JSONB`       | The lines its transcript was read as, `{ startMs, endMs, speaker, text }` each, set when it finishes |
 | `capture_id`          | `UUID`        | References `meeting_captures`, cascading, unique: the capture it became     |
 | `finished_at`         | `TIMESTAMPTZ` | When it finished                                                            |
+| `parts_removed_at`    | `TIMESTAMPTZ` | When its staged parts were removed from the workspace; `NULL` while they may be there |
 | `created_by`          | `UUID`        | References `users`: who uploads it                                          |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger, and moved by every part, which the sweep reads |
 

@@ -1289,6 +1289,7 @@ diesel::table! {
         transcript -> Nullable<Jsonb>,
         capture_id -> Nullable<Uuid>,
         finished_at -> Nullable<Timestamptz>,
+        parts_removed_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,

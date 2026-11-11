@@ -57,10 +57,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     if let Some(capture_id) = staged.upload.capture_id {
-        let capture = meeting_capture::find(&mut connection, capture_id).await?;
-        let made = meeting::find(&mut connection, capture.meeting_id).await?;
-        let answered = meetings::response(&mut connection, made).await?;
-        return Ok((StatusCode::OK, Json(json!({ "meeting": answered }))));
+        return finished_before(&mut connection, capture_id).await;
     }
     if !staged.files.iter().all(MeetingUploadFile::is_received) {
         return Err(ApiError::CodedConflict {
@@ -82,7 +79,7 @@ pub async fn handle(
         .email
         .unwrap_or_default();
     let owner = current.id();
-    let (made, started) = connection
+    let finished = connection
         .transaction(async move |connection| {
             let staged = meeting_upload::lock_unfinished(connection, id, owner).await?;
             let (made, capture_id) =
@@ -107,7 +104,17 @@ pub async fn handle(
             }
             Ok::<_, ApiError>((made, started))
         })
-        .await?;
+        .await;
+    let (made, started) = match finished {
+        Ok(finished) => finished,
+        Err(ApiError::NotFound) => {
+            // Finished by another request while this one read its transcript: answer what it made.
+            let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
+            let capture_id = staged.upload.capture_id.ok_or(ApiError::NotFound)?;
+            return finished_before(&mut connection, capture_id).await;
+        }
+        Err(error) => return Err(error),
+    };
 
     workflows::announce(&state.events, &started.settled);
     state.events.signal(&Signal::Workflows);
@@ -118,6 +125,17 @@ pub async fn handle(
     });
     let answered = meetings::response(&mut connection, made).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))
+}
+
+/// The answer for an upload finished before, as capture `capture_id`: the meeting it became.
+async fn finished_before(
+    connection: &mut AsyncPgConnection,
+    capture_id: Uuid,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let capture = meeting_capture::find(connection, capture_id).await?;
+    let made = meeting::find(connection, capture.meeting_id).await?;
+    let answered = meetings::response(connection, made).await?;
+    Ok((StatusCode::OK, Json(json!({ "meeting": answered }))))
 }
 
 /// Stores what `staged` becomes: a new meeting with it as its first capture, or a capture of the

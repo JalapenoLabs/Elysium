@@ -17,7 +17,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::database::schema::{meeting_upload_files, meeting_uploads};
+use crate::database::schema::{meeting_captures, meeting_upload_files, meeting_uploads};
 use crate::meeting_uploads::FileKind;
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -40,6 +40,8 @@ pub struct MeetingUpload {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// When its staged parts were removed from the workspace; `None` while they may be there.
+    pub parts_removed_at: Option<DateTime<Utc>>,
 }
 
 impl MeetingUpload {
@@ -271,6 +273,24 @@ pub async fn of_capture(
     Ok(Some(Staged { upload, files }))
 }
 
+/// Upload `upload_id`'s file of `kind`, locked until the transaction ends, so one request at a time
+/// decides whether a send of its next part is the one counted.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when the upload has no such file.
+pub async fn lock_file(
+    connection: &mut AsyncPgConnection,
+    (upload_id, kind): (Uuid, FileKind),
+) -> QueryResult<MeetingUploadFile> {
+    meeting_upload_files::table
+        .filter(meeting_upload_files::upload_id.eq(upload_id))
+        .filter(meeting_upload_files::kind.eq(kind.as_str()))
+        .for_update()
+        .select(MeetingUploadFile::as_select())
+        .first(connection)
+        .await
+}
+
 /// Counts a part of upload `upload_id`'s file of `kind` as arrived, moving its received bytes
 /// from `from` to `to`, and marks the upload as moved. Answers `false`, changing nothing, when
 /// another request counted it first.
@@ -349,6 +369,49 @@ pub async fn delete_unfinished(
     .execute(connection)
     .await?;
     Ok(deleted > 0)
+}
+
+/// The finished uploads whose parts may still be in the workspace and are no longer needed: those
+/// whose capture was stored, and any finished before `before`, such as one whose fetch a person
+/// skipped. At most `limit`, oldest first.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn finished_with_parts(
+    connection: &mut AsyncPgConnection,
+    before: DateTime<Utc>,
+    limit: i64,
+) -> QueryResult<Vec<Uuid>> {
+    meeting_uploads::table
+        .inner_join(
+            meeting_captures::table.on(meeting_captures::id
+                .nullable()
+                .eq(meeting_uploads::capture_id)),
+        )
+        .filter(meeting_uploads::finished_at.is_not_null())
+        .filter(meeting_uploads::parts_removed_at.is_null())
+        .filter(
+            meeting_captures::transcript_hash
+                .is_not_null()
+                .or(meeting_uploads::finished_at.lt(before)),
+        )
+        .order(meeting_uploads::finished_at.asc())
+        .limit(limit)
+        .select(meeting_uploads::id)
+        .load(connection)
+        .await
+}
+
+/// Records that upload `id`'s staged parts were removed.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_parts_removed(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
+    diesel::update(meeting_uploads::table.find(id))
+        .set(meeting_uploads::parts_removed_at.eq(Some(Utc::now())))
+        .execute(connection)
+        .await?;
+    Ok(())
 }
 
 /// Deletes every unfinished upload nothing moved since `before`, answering their ids, so their

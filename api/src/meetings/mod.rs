@@ -94,6 +94,10 @@ const LISTING_SIZE: u32 = 50;
 /// How often unfinished meetings get the runs they need.
 pub const PROCESS_INTERVAL: Duration = Duration::from_mins(1);
 
+/// The most finished uploads one pass removes the parts of, so a backlog clears over a few passes
+/// rather than holding one.
+const UPLOAD_SWEEP_BATCH: i64 = 20;
+
 /// How far back an account's first listing reaches, so a newly connected account brings its
 /// recent meetings with it, but not its whole history.
 const FIRST_LISTING_DAYS: i64 = 14;
@@ -418,6 +422,7 @@ impl Meetings {
                 return;
             }
         };
+        self.sweep_finished_uploads(before).await;
         for upload_id in swept {
             if let Err(error) = self.inner.staging.remove(upload_id).await {
                 event!(
@@ -433,6 +438,54 @@ impl Meetings {
                     Level::INFO,
                     meeting_upload.id = %upload_id,
                     "removed an upload nothing reached for a week",
+                );
+            }
+        }
+    }
+
+    /// Removes the parts of finished uploads that no longer need them: each whose capture was
+    /// stored, whose fetch could not remove them, and each finished before `before`, such as one
+    /// whose fetch a person skipped. Each removal is recorded, so it happens once.
+    async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
+        let finished = match self.connection().await {
+            Ok(mut connection) => {
+                meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
+                    .await
+                    .map_err(anyhow::Error::from)
+            }
+            Err(error) => Err(error),
+        };
+        let finished = match finished {
+            Ok(finished) => finished,
+            Err(error) => {
+                event!(
+                    name: "meetings.uploads.sweep_failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot read which finished uploads keep parts; the next pass tries again",
+                );
+                return;
+            }
+        };
+        for upload_id in finished {
+            let removed = match self.inner.staging.remove(upload_id).await {
+                Ok(()) => match self.connection().await {
+                    Ok(mut connection) => {
+                        meeting_upload::record_parts_removed(&mut connection, upload_id)
+                            .await
+                            .map_err(anyhow::Error::from)
+                    }
+                    Err(error) => Err(error),
+                },
+                Err(error) => Err(anyhow::Error::from(error)),
+            };
+            if let Err(error) = removed {
+                event!(
+                    name: "meetings.uploads.parts_unremoved",
+                    Level::WARN,
+                    meeting_upload.id = %upload_id,
+                    error.message = %format!("{error:#}"),
+                    "a finished upload's parts could not be removed; the next pass tries again",
                 );
             }
         }
