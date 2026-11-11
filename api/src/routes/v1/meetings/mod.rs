@@ -116,6 +116,10 @@ pub struct MeetingResponse {
     /// The projects its topics are on, in the order of their ids: where the knowledge base lists it
     /// beside its home under Meetings, and what its Meetings page filters it by.
     project_ids: Vec<Uuid>,
+    /// The meeting its person merged its captures into, or `null`. A merged meeting lives on in
+    /// that one, so the listing leaves it out, and a client that loads it by id, as an event names
+    /// it, keeps it out of every list too.
+    merged_into: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -175,6 +179,7 @@ impl MeetingResponse {
             awaiting_approval: run.is_some_and(|run| run.state == WorkflowRunState::Held),
             hold_for_approval: meeting.hold_for_approval,
             project_ids,
+            merged_into: meeting.merged_into,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
             source_kind: capture

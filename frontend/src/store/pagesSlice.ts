@@ -8,7 +8,7 @@ import type { RootState } from './index'
 import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
 // Redux
-import { selectAllMeetings } from './meetingsSlice'
+import { selectListedMeetings } from './meetingsSlice'
 
 // Misc
 import { buildPageTree, collectLabelsInUse, withMeetingEntries } from '../pages/Knowledge/Pages/pageTree'
@@ -69,7 +69,7 @@ export const selectPageTree = createSelector([ selectPageSummaries ], buildPageT
 
 // The tree as the Knowledge area's panel draws it, with the reader's meetings in it. Everything that
 // only reads pages, a breadcrumb or a picker, keeps `selectPageTree`.
-export const selectKnowledgeTree = createSelector([ selectPageTree, selectAllMeetings ], withMeetingEntries)
+export const selectKnowledgeTree = createSelector([ selectPageTree, selectListedMeetings ], withMeetingEntries)
 
 // Every label on a live page, which suggestions and filters offer.
 export const selectLabelsInUse = createSelector([ selectPageSummaries ], collectLabelsInUse)

@@ -945,7 +945,9 @@ whose effect still stands is undone; one moved on since answers that it changed 
   meeting's run, which reloads
   the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
   reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
-  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings).
+  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings). An event can name a meeting merged into
+  another, which a load by id answers with its `mergedInto`; the store keeps it for its own page, and every list reads
+  the meetings not merged away (`selectListedMeetings`), as `GET /meetings` answers them.
 
 ## What is published
 

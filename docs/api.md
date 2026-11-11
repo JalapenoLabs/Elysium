@@ -444,7 +444,8 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 `hasRecording`, `segmentCount`, `holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its topics are on,
-in the order of their ids), `createdAt`, and `updatedAt`. `sourceKind` is
+in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
+leaves such a meeting out), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
 connector was removed.
 

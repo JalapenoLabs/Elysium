@@ -11,7 +11,7 @@ import { Link, useSearchParams } from 'react-router'
 // Redux
 import { selectAllConnectors } from '../../../store/connectorsSlice'
 import { useAppSelector } from '../../../store/hooks'
-import { selectAllMeetings } from '../../../store/meetingsSlice'
+import { selectListedMeetings } from '../../../store/meetingsSlice'
 import { selectAllProjects } from '../../../store/projectsSlice'
 
 // User interface
@@ -53,7 +53,7 @@ export function KnowledgeMeetingsPage() {
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readMeetingFilters(searchParams)
   const status = useMeetingsLoader()
-  const meetings = useAppSelector(selectAllMeetings)
+  const meetings = useAppSelector(selectListedMeetings)
   useProjectsLoader()
   const projects = useAppSelector(selectAllProjects)
   const definitions = useConnectorKinds()

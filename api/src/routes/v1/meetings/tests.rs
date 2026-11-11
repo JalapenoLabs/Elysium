@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
+use crate::models::meeting;
 use crate::models::meeting_word::tests::{built_meeting, word};
 use crate::models::project::{self, NewProject};
 use crate::models::user::SYSTEM_USER_ID;
@@ -371,6 +372,40 @@ async fn the_list_names_the_projects_each_meetings_topics_are_on() {
     };
     assert_eq!(projects_of(discussed.meeting_id), json!(project_ids));
     assert_eq!(projects_of(unattributed.meeting_id), json!([]));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (kept, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    let (merged, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    meeting::set_merged_into(&mut connection, merged.meeting_id, Some(kept.meeting_id))
+        .await
+        .expect("the meeting is merged");
+
+    let (status, listed) = send(&state, Method::GET, "/api/v1/meetings", None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let listed_ids: Vec<&Value> = listed["meetings"]
+        .as_array()
+        .expect("a list of meetings")
+        .iter()
+        .map(|meeting| &meeting["id"])
+        .collect();
+    assert_eq!(listed_ids, vec![&json!(kept.meeting_id)]);
+    assert_eq!(listed["meetings"][0]["mergedInto"], Value::Null);
+
+    // An event can still name it, so a client loading it by id learns where it went.
+    let (status, found) = send(
+        &state,
+        Method::GET,
+        &format!("/api/v1/meetings/{}", merged.meeting_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(found["meeting"]["mergedInto"], json!(kept.meeting_id));
 }
 
 #[tokio::test]
