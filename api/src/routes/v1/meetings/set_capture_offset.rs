@@ -15,12 +15,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use super::announce_lined_up;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::clock::{self, NudgeError};
 use crate::models::agent::Author;
 use crate::models::{meeting, meeting_capture};
-use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -48,7 +48,7 @@ pub async fn handle(
         agent: None,
         at: Utc::now(),
     };
-    clock::nudge(
+    let nudged = clock::nudge(
         &mut connection,
         owned.id,
         capture_id,
@@ -65,11 +65,7 @@ pub async fn handle(
         NudgeError::Database(database) => database.into(),
         NudgeError::Transcript(other) => other.into(),
     })?;
-    state.events.publish(&ServerEvent::MeetingChanged {
-        id: owned.id,
-        state: owned.state.clone(),
-        created_by: owned.created_by,
-    });
+    announce_lined_up(&state.events, &mut connection, &nudged).await?;
     let capture = meeting_capture::find(&mut connection, capture_id).await?;
     Ok(Json(json!({
         "capture": {

@@ -14,7 +14,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::response;
+use super::{announce_lined_up, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::duplicates::Moved;
@@ -22,7 +22,6 @@ use crate::meetings::history::{self, UndoError};
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_event::{self, EventKind};
-use crate::realtime::{ServerEvent, Signal};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -55,14 +54,12 @@ pub async fn handle(
             message: "No merge brought this capture into the meeting.",
         });
     };
-    let moved: Moved = serde_json::from_value(brought_it.data.clone())
-        .context("the merge's history entry was read a moment ago")?;
     let author = Author {
         user_id: current.id(),
         agent: None,
         at: Utc::now(),
     };
-    history::undo(&mut connection, owned.id, brought_it.id, author)
+    let split = history::undo(&mut connection, owned.id, brought_it.id, author)
         .await
         .map_err(|error| match error {
             UndoError::NotFound => ApiError::NotFound,
@@ -76,16 +73,7 @@ pub async fn handle(
             UndoError::Transcript(other) => other.into(),
         })?;
 
-    // The split started runs that align both meetings again.
-    state.events.signal(&Signal::Workflows);
-    for changed_id in [moved.into, moved.from] {
-        let changed = meeting::find(&mut connection, changed_id).await?;
-        state.events.publish(&ServerEvent::MeetingChanged {
-            id: changed.id,
-            state: changed.state.clone(),
-            created_by: changed.created_by,
-        });
-    }
+    announce_lined_up(&state.events, &mut connection, &split).await?;
     let kept = meeting::find(&mut connection, owned.id).await?;
     let answered = response(&mut connection, kept).await?;
     Ok(Json(json!({ "meeting": answered })))

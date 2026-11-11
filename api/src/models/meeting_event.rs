@@ -104,13 +104,6 @@ impl MeetingEvent {
     }
 
     /// The change it undid, when it is an undo.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the meeting's page shows what each undo undid (#234)"
-        )
-    )]
     pub fn undid(&self) -> Option<Uuid> {
         self.data
             .get("undid")

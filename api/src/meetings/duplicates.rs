@@ -312,6 +312,7 @@ pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, dec
             id: changed.id,
             state: changed.state.clone(),
             created_by: changed.created_by,
+            entry_id: None,
         });
     }
     for settled in &decided.runs {

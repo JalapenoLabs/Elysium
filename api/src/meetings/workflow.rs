@@ -300,6 +300,7 @@ pub async fn retry(
         id: retried.id,
         state: retried.state.clone(),
         created_by: retried.created_by,
+        entry_id: None,
     });
     Ok(retried)
 }

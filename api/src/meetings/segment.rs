@@ -769,6 +769,7 @@ impl SegmentMeeting {
             id: current.id,
             state: MeetingState::Done.as_str().to_owned(),
             created_by: current.created_by,
+            entry_id: None,
         });
     }
 
@@ -777,6 +778,7 @@ impl SegmentMeeting {
             id: changed.id,
             state: changed.state.clone(),
             created_by: changed.created_by,
+            entry_id: None,
         });
     }
 
