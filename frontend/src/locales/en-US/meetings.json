@@ -57,6 +57,7 @@
     "mergedInto": "Its recordings are in “{{title}}” now. Split them out there to make this meeting its own again.",
     "mergedIntoUntitled": "Its recordings are in another meeting now. Split them out there to make this meeting its own again.",
     "openMergedInto": "Open that meeting",
+    "mergedReadOnly": "Edits, comments, and approval happen in the meeting it was merged into.",
     "tabs": {
       "label": "Its review and topics",
       "review": "Review",

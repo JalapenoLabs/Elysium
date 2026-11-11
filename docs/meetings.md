@@ -964,7 +964,11 @@ segment's clip for its record's owner.
     undoes; each lines the transcript up again, so the page reads it again on the meeting's announcement rather than
     applying a change.
   - **A meeting merged away** opens as its own page, saying its recordings are in the meeting it went into, named and
-    linked (`MergedIntoNotice`), which is where they are split out.
+    linked (`MergedIntoNotice`), which is where they are split out. The page reads as the meeting stood, read only: its
+    words select and copy, but the bar offers no Edit or Comment, E and C do nothing, its threads read without a reply,
+    Resolve, or Remove, its history offers no Undo, and its actions keep its run alone, saying that edits, comments, and
+    approval happen in the meeting it was merged into (`isReadOnly` in `MeetingWorkspace`). It holds no capture, so it
+    lists none. The routes themselves do not refuse changes to it yet; that is on the roadmap below.
   - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
     at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
     paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
@@ -1068,3 +1072,5 @@ segment's clip for its record's owner.
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
   meetings whose chats the person's Teams has not stored.
+- A meeting merged into another refusing changes on its routes, under its lock, as uploads already do: edits, comments,
+  approving, holding, and undoing. Its page offers none of them today.

@@ -36,7 +36,8 @@ type Props = ComponentProps<typeof MeetingOptions> & {
     isLoading: boolean
     hasFailed: boolean
   }
-  threadActions: ThreadActions
+  // Null where the meeting takes no change, as one merged into another does.
+  threadActions: ThreadActions | null
   onSelectThread: (threadId: string) => void
   // The words a new thread is being started on, while one is.
   composing: {

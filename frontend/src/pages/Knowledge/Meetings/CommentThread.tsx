@@ -28,8 +28,10 @@ export type ThreadActions = {
   onRemove: (threadId: string) => Promise<void>
 }
 
-type Props = ThreadActions & {
+type Props = {
   thread: Thread
+  // What can be done in it; null where the meeting takes no change, which reads it alone.
+  actions: ThreadActions | null
 }
 
 type CommentProps = {
@@ -60,21 +62,22 @@ function Comment(props: CommentProps) {
 
 // A comment thread, open in its lane as the mark selected (docs/meeting-review.md, Comments):
 // every comment oldest first, a reply, and Resolve or Reopen and Remove, each with Undo in its
-// toast. A thread that asked Elysia says she answers here until she does.
+// toast. A thread that asked Elysia says she answers here until she does. Without actions it is
+// read alone.
 export function CommentThread(props: Props) {
   const { t } = useTranslation('meetings')
   const [ pending, setPending ] = useState<'resolve' | 'remove' | null>(null)
-  const { thread } = props
+  const { thread, actions } = props
   const threadId = thread.placed.mark.id
 
-  async function act(action: 'resolve' | 'remove') {
+  async function act(threadActions: ThreadActions, action: 'resolve' | 'remove') {
     setPending(action)
     try {
       if (action === 'remove') {
-        await props.onRemove(threadId)
+        await threadActions.onRemove(threadId)
         return
       }
-      await props.onSetResolved(threadId, !thread.isResolved)
+      await threadActions.onSetResolved(threadId, !thread.isResolved)
     }
     finally {
       setPending(null)
@@ -87,20 +90,20 @@ export function CommentThread(props: Props) {
     }</ol>
     {awaitsElysia(thread.comments) && <p className='text-xs opacity-70'>{t('review.comments.elysiaAsked')}</p>}
 
-    {!thread.isResolved && <CommentForm
+    {actions && !thread.isResolved && <CommentForm
       draftName={`meeting-thread-reply.${threadId}`}
       label={t('review.comments.replyLabel')}
       submitLabel={t('review.comments.reply')}
-      onSubmit={(body, mentions) => props.onReply(threadId, body, mentions)}
+      onSubmit={(body, mentions) => actions.onReply(threadId, body, mentions)}
     />}
 
-    <div className='level gap-2'>
+    {actions && <div className='level gap-2'>
       <Button
         size='sm'
         variant='outline'
         isPending={pending === 'resolve'}
         isDisabled={pending === 'remove'}
-        onPress={() => void act('resolve')}
+        onPress={() => void act(actions, 'resolve')}
       >
         {thread.isResolved
           ? <LuRotateCcw className='size-4' aria-hidden />
@@ -118,12 +121,12 @@ export function CommentThread(props: Props) {
           aria-label={t('review.comments.remove')}
           isPending={pending === 'remove'}
           isDisabled={pending === 'resolve'}
-          onPress={() => void act('remove')}
+          onPress={() => void act(actions, 'remove')}
         >
           <LuTrash2 className='size-4' aria-hidden />
         </Button>
         <Tooltip.Content>{t('review.comments.remove')}</Tooltip.Content>
       </Tooltip>
-    </div>
+    </div>}
   </div>
 }
