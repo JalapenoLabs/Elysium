@@ -371,6 +371,14 @@ pub async fn studio_item(
     .expect("item")
 }
 
+/// [`TEST_PERSON_ID`] as a company member, for what only a person may do.
+pub async fn test_member(connection: &mut AsyncPgConnection) -> crate::auth::MemberUser {
+    let person = crate::models::user::find(connection, TEST_PERSON_ID)
+        .await
+        .expect("the test person");
+    crate::auth::MemberUser::check(person).expect("the test person is a member")
+}
+
 /// The lineage of a batch a person asked for directly and nothing led to: human-rooted, generation
 /// 0. Tests about anything but lineage build their batches with it.
 pub fn person_rooted() -> crate::models::work_batch::lineage::Lineage {

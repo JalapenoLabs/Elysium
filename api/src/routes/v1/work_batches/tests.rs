@@ -65,6 +65,7 @@ fn new_batch(project_id: Uuid, title: &str) -> NewWorkBatch {
         turn_id: None,
         source_record_ids: json!([]),
         action_item_ids: json!([]),
+        serves: None,
         source_message_ids: json!([]),
         lineage: crate::test_support::person_rooted(),
         created_by: PROJECT_MANAGER_USER_ID,
@@ -257,7 +258,21 @@ async fn a_member_approves_a_proposal_as_it_is_or_edited() {
     assert_eq!(approved["batch"]["priority"], "asap");
     assert_eq!(
         approved["why"],
-        json!({ "records": [], "messages": [], "actionItems": [], "parents": [] })
+        json!({
+            "chain": [{
+                "kind": "batch",
+                "id": pricing,
+                "projectId": launch,
+                "title": "Annual pricing page",
+            }],
+            "parents": [],
+        }),
+        "a batch that names nothing is its chain alone"
+    );
+    assert_eq!(
+        queue["workQueue"]["proposed"][0]["cause"],
+        json!(null),
+        "and starts from nothing"
     );
     let kinds: Vec<&str> = approved["history"]
         .as_array()

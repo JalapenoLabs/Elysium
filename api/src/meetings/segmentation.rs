@@ -23,10 +23,12 @@
 //!
 //! # Size
 //!
-//! The runner passes the prompt as one argument to `claude`, and Linux allows one argument
-//! 128 KiB. [`transcript_text`] therefore merges each speaker's consecutive lines and, past
-//! [`TRANSCRIPT_BUDGET_BYTES`], shortens every line evenly, so a long meeting still reaches
-//! the model whole, only in less detail. A conversation's messages are shortened the same way.
+//! The runner hands `claude` its prompt on standard input, which no argument limit bounds, so
+//! a meeting's transcript goes whole, one line per line as its source cut them
+//! ([`transcript_text`]), and a conversation's messages go whole too ([`messages_text`]), as do
+//! the projects they may be about. Nothing is merged or shortened to fit. A transcript too long
+//! for the model's context fails the step for good, with the CLI's reason, since every attempt
+//! would read the same prompt.
 //!
 //! # Clips
 //!
@@ -44,18 +46,9 @@ use super::source::TranscriptLine;
 use crate::models::promise::{RECIPIENT_MAX_CHARACTERS, SUMMARY_MAX_CHARACTERS};
 use crate::whisper::WhisperWord;
 
-/// The most bytes of transcript one prompt carries, leaving room under the 128 KiB argument
-/// limit for the instructions and the projects.
-pub const TRANSCRIPT_BUDGET_BYTES: usize = 100_000;
-
-/// The most bytes of projects one prompt carries: names, and descriptions cut short.
-const PROJECTS_BUDGET_BYTES: usize = 12_000;
-
-/// How much of a project's description the prompt shows.
+/// How much of a project's description the prompt shows: its start says what the project is,
+/// which is all placing a topic on it needs.
 const DESCRIPTION_CHARACTERS: usize = 200;
-
-/// The shortest a line is cut to when a transcript is over budget.
-const MIN_LINE_CHARACTERS: usize = 40;
 
 /// The most segments one meeting is cut into. A segment is a topic, not a sentence.
 pub const MAX_SEGMENTS: usize = 40;
@@ -237,7 +230,7 @@ pub fn prompt(
     }
     push_projects(&mut prompt, projects);
     prompt.push_str("\nTranscript, each line starting at [minutes:seconds]:\n");
-    prompt.push_str(&transcript_text(transcript, TRANSCRIPT_BUDGET_BYTES));
+    prompt.push_str(&transcript_text(transcript));
     prompt
 }
 
@@ -256,7 +249,7 @@ pub fn lines_prompt(
     }
     push_projects(&mut prompt, projects);
     prompt.push_str("\nTranscript, each line numbered:\n");
-    prompt.push_str(&numbered_text(transcript, TRANSCRIPT_BUDGET_BYTES, false));
+    prompt.push_str(&numbered_text(transcript, false));
     prompt
 }
 
@@ -289,27 +282,21 @@ pub fn conversation_prompt(
     push_projects(&mut prompt, projects);
     prompt
         .push_str("\nMessages, each numbered and starting at [minutes:seconds] after the first:\n");
-    prompt.push_str(&messages_text(messages, TRANSCRIPT_BUDGET_BYTES));
+    prompt.push_str(&messages_text(messages));
     prompt
 }
 
-/// The projects a segment may be attributed to, each as its id, name, and the start of its
-/// description, within [`PROJECTS_BUDGET_BYTES`].
+/// Every project a segment may be attributed to, each as its id, name, and the start of its
+/// description. A project left off the list could never be attributed anything.
 fn push_projects(prompt: &mut String, projects: &[ProjectChoice]) {
     prompt.push_str("\nProjects:\n");
-    let mut projects_bytes = 0;
     for project in projects {
         let description = truncated(project.description.trim(), DESCRIPTION_CHARACTERS);
-        let line = if description.is_empty() {
-            format!("- {}: {}\n", project.id, project.name)
+        let _ = if description.is_empty() {
+            writeln!(prompt, "- {}: {}", project.id, project.name)
         } else {
-            format!("- {}: {} ({description})\n", project.id, project.name)
+            writeln!(prompt, "- {}: {} ({description})", project.id, project.name)
         };
-        projects_bytes += line.len();
-        if projects_bytes > PROJECTS_BUDGET_BYTES {
-            break;
-        }
-        prompt.push_str(&line);
     }
     if projects.is_empty() {
         prompt.push_str("(none)\n");
@@ -317,124 +304,52 @@ fn push_projects(prompt: &mut String, projects: &[ProjectChoice]) {
 }
 
 /// A conversation's messages as `[n] [m:ss] Speaker: text` lines, numbered from 1 and never
-/// merged, since an answer names them by number. Past `budget` bytes every message is shortened
-/// evenly; a conversation too long for even that keeps its start and says where it was cut, and
-/// its answer may still only name the messages shown.
-pub fn messages_text(messages: &[TranscriptLine], budget: usize) -> String {
-    numbered_text(messages, budget, true)
+/// merged, since an answer names them by number, each whole on one line.
+pub fn messages_text(messages: &[TranscriptLine]) -> String {
+    numbered_text(messages, true)
 }
 
-/// Lines as `[n] [m:ss] Speaker: text`, numbered from 1 and never merged, shortened as
-/// [`messages_text`] says; without the `[m:ss]` when `with_clock` is false, for a meeting in words
-/// alone.
-fn numbered_text(messages: &[TranscriptLine], budget: usize, with_clock: bool) -> String {
-    let prefixes: Vec<String> = messages
-        .iter()
-        .zip(1..)
-        .map(|(message, number)| {
-            let speaker = if message.speaker.is_empty() {
-                "Someone"
-            } else {
-                message.speaker.as_str()
-            };
-            if with_clock {
-                format!("[{number}] [{}] {speaker}: ", clock(message.start_ms))
-            } else {
-                format!("[{number}] {speaker}: ")
-            }
-        })
-        .collect();
-    let render = |limit: Option<usize>| {
-        let mut rendered = String::new();
-        for (message, prefix) in messages.iter().zip(&prefixes) {
-            rendered.push_str(prefix);
-            let text = message
-                .text
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            match limit {
-                Some(limit) => rendered.push_str(&truncated(&text, limit)),
-                None => rendered.push_str(&text),
-            }
-            rendered.push('\n');
-        }
-        rendered
-    };
-    fit_to_budget(render, &prefixes, budget)
+/// Lines as `[n] [m:ss] Speaker: text`, numbered from 1, never merged, and each whole on one line;
+/// without the `[m:ss]` when `with_clock` is false, for a meeting in words alone.
+fn numbered_text(messages: &[TranscriptLine], with_clock: bool) -> String {
+    let mut text = String::new();
+    for (message, number) in messages.iter().zip(1..) {
+        let speaker = if message.speaker.is_empty() {
+            "Someone"
+        } else {
+            message.speaker.as_str()
+        };
+        // A message's own line breaks would read as lines of the conversation.
+        let body = message
+            .text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = if with_clock {
+            writeln!(
+                text,
+                "[{number}] [{}] {speaker}: {body}",
+                clock(message.start_ms)
+            )
+        } else {
+            writeln!(text, "[{number}] {speaker}: {body}")
+        };
+    }
+    text
 }
 
-/// The transcript as `[mm:ss] Speaker: text` lines, one per run of a speaker's consecutive
-/// lines, shortened evenly to fit `budget` bytes.
-pub fn transcript_text(transcript: &[TranscriptLine], budget: usize) -> String {
-    let mut turns: Vec<(i64, &str, String)> = Vec::new();
+/// The transcript as `[m:ss] Speaker: text` lines, one for every line of it, whole and in order.
+pub fn transcript_text(transcript: &[TranscriptLine]) -> String {
+    let mut text = String::new();
     for line in transcript {
-        match turns.last_mut() {
-            Some((_, speaker, text)) if *speaker == line.speaker => {
-                text.push(' ');
-                text.push_str(&line.text);
-            }
-            _ => turns.push((line.start_ms, line.speaker.as_str(), line.text.clone())),
-        }
+        let speaker = if line.speaker.is_empty() {
+            "Someone"
+        } else {
+            line.speaker.as_str()
+        };
+        let _ = writeln!(text, "[{}] {speaker}: {}", clock(line.start_ms), line.text);
     }
-
-    // Each turn's `[m:ss] Speaker: ` prefix, which is never shortened.
-    let prefixes: Vec<String> = turns
-        .iter()
-        .map(|(start_ms, speaker, _)| {
-            let speaker = if speaker.is_empty() {
-                "Someone"
-            } else {
-                speaker
-            };
-            format!("[{}] {speaker}: ", clock(*start_ms))
-        })
-        .collect();
-    let render = |limit: Option<usize>| {
-        let mut rendered = String::new();
-        for ((_, _, text), prefix) in turns.iter().zip(&prefixes) {
-            rendered.push_str(prefix);
-            match limit {
-                Some(limit) => rendered.push_str(&truncated(text, limit)),
-                None => rendered.push_str(text),
-            }
-            rendered.push('\n');
-        }
-        rendered
-    };
-    fit_to_budget(render, &prefixes, budget)
-}
-
-/// Lines rendered by `render` within `budget` bytes: whole when they fit, otherwise each line's
-/// text cut to the same share of what its `prefixes` leave (`render(Some(share))`), and when even
-/// that is too long, the start kept and a note saying where the rest was cut.
-fn fit_to_budget(
-    render: impl Fn(Option<usize>) -> String,
-    prefixes: &[String],
-    budget: usize,
-) -> String {
-    let whole = render(None);
-    if whole.len() <= budget || prefixes.is_empty() {
-        return whole;
-    }
-    // Every line's text gets the same share of what the prefixes leave, never less than a
-    // short line. Each line also carries a newline and, once cut, a three byte ellipsis.
-    let overhead: usize = prefixes.iter().map(|prefix| prefix.len() + 4).sum();
-    let share = (budget.saturating_sub(overhead) / prefixes.len()).max(MIN_LINE_CHARACTERS);
-    let mut shortened = render(Some(share));
-    if shortened.len() > budget {
-        // Too many lines for even a short one each: keep the start in full detail and say that
-        // the rest was cut, rather than exceed the argument limit.
-        let cut = shortened
-            .char_indices()
-            .take_while(|(index, _)| *index < budget)
-            .last()
-            .map_or(0, |(index, _)| index);
-        let line_end = shortened[..cut].rfind('\n').map_or(0, |end| end + 1);
-        shortened.truncate(line_end);
-        shortened.push_str("[the rest of the transcript did not fit]\n");
-    }
-    shortened
+    text
 }
 
 /// How much of an action item's notes its prompt shows. An item's notes are the person's or a
@@ -522,8 +437,6 @@ pub fn item_prompt(
     }
     push_projects(&mut prompt, projects);
 
-    // A budget of its own the size of the project list's, so the two together stay well under the
-    // argument limit.
     let mut work_lines = String::new();
     for project in work {
         let mut whereabouts: Vec<String> = Vec::new();
@@ -536,11 +449,12 @@ pub fn item_prompt(
         if whereabouts.is_empty() {
             continue;
         }
-        let line = format!("- {}: {}\n", project.project_id, whereabouts.join("; "));
-        if work_lines.len() + line.len() > PROJECTS_BUDGET_BYTES {
-            break;
-        }
-        work_lines.push_str(&line);
+        let _ = writeln!(
+            work_lines,
+            "- {}: {}",
+            project.project_id,
+            whereabouts.join("; ")
+        );
     }
     if !work_lines.is_empty() {
         prompt.push_str("\nWhere each project's work is:\n");
@@ -1064,43 +978,77 @@ mod tests {
     }
 
     #[test]
-    fn a_speakers_consecutive_lines_merge_into_one() {
-        let text = transcript_text(
-            &[
-                line(0, "Ada", "First."),
-                line(3, "Ada", "Second."),
-                line(6, "Grace", "Third."),
-            ],
-            TRANSCRIPT_BUDGET_BYTES,
+    fn every_line_of_a_transcript_is_its_own_even_when_one_speaker_runs_on() {
+        let text = transcript_text(&[
+            line(0, "Ada", "First."),
+            line(3, "Ada", "Second."),
+            line(6, "", "Third."),
+        ]);
+        assert_eq!(
+            text,
+            "[0:00] Ada: First.\n[0:03] Ada: Second.\n[0:06] Someone: Third.\n"
         );
-        assert_eq!(text, "[0:00] Ada: First. Second.\n[0:06] Grace: Third.\n");
     }
 
     #[test]
-    fn a_transcript_over_budget_is_shortened_to_fit() {
-        let transcript: Vec<TranscriptLine> = (0..400)
+    fn a_long_meetings_transcript_goes_whole() {
+        // Two hours, every line long: several times what one argument could carry.
+        let transcript: Vec<TranscriptLine> = (0..2_400)
             .zip(["Ada", "Grace"].iter().cycle())
-            .map(|(index, speaker)| line(index * 10, speaker, &"word ".repeat(200)))
+            .map(|(index, speaker)| {
+                line(
+                    index * 3,
+                    speaker,
+                    &format!("{index} {}", "word ".repeat(40)),
+                )
+            })
             .collect();
-        let budget = 50_000;
-        let text = transcript_text(&transcript, budget);
 
-        assert!(text.len() <= budget + 100, "{} bytes", text.len());
-        // Every turn is still there, only shorter.
-        assert_eq!(text.lines().count(), 400);
+        let prompt = prompt(
+            MeetingContext {
+                title: "All hands",
+                duration_ms: 7_200_000,
+                participants: &[],
+            },
+            &transcript,
+            &[project("Launch")],
+        );
+
+        assert!(prompt.len() > 3 * 128 * 1024, "{} bytes", prompt.len());
+        for line in &transcript {
+            assert!(
+                prompt.contains(&format!(
+                    "[{}] {}: {}\n",
+                    clock(line.start_ms),
+                    line.speaker,
+                    line.text
+                )),
+                "the line at {} is whole",
+                clock(line.start_ms)
+            );
+        }
+        assert!(!prompt.contains("did not fit"));
     }
 
     #[test]
-    fn a_transcript_too_long_for_short_lines_says_where_it_was_cut() {
-        let transcript: Vec<TranscriptLine> = (0..5_000)
-            .zip(["Ada", "Grace"].iter().cycle())
-            .map(|(index, speaker)| line(index, speaker, &"word ".repeat(30)))
+    fn every_project_is_offered_however_many_there_are() {
+        let projects: Vec<ProjectChoice> = (0..300)
+            .map(|index| project(&format!("Project {index}")))
             .collect();
-        let text = transcript_text(&transcript, 20_000);
 
-        assert!(text.len() <= 20_100);
-        assert!(text.ends_with("[the rest of the transcript did not fit]\n"));
-        assert!(text.starts_with("[0:00] Ada:"));
+        let prompt = prompt(
+            MeetingContext {
+                title: "Planning",
+                duration_ms: 60_000,
+                participants: &[],
+            },
+            &[line(0, "Ada", "Hi.")],
+            &projects,
+        );
+
+        for project in &projects {
+            assert!(prompt.contains(&project.id.to_string()), "{}", project.name);
+        }
     }
 
     #[test]
@@ -1239,6 +1187,27 @@ mod tests {
         assert!(prompt.contains("[1] [0:00] Ada: Can we ship Friday?\n"));
         assert!(prompt.contains("[2] [0:40] Ada: Or Monday.\n"));
         assert!(prompt.contains("[3] [1:35] Grace: Friday works.\n"));
+    }
+
+    #[test]
+    fn a_long_conversations_messages_go_whole() {
+        let messages: Vec<TranscriptLine> = (0..1_000)
+            .map(|index| line(index, "Ada", &format!("{index} {}", "word ".repeat(80))))
+            .collect();
+
+        let text = messages_text(&messages);
+
+        assert!(text.len() > 3 * 128 * 1024, "{} bytes", text.len());
+        for (message, number) in messages.iter().zip(1..) {
+            let body = message.text.trim_end();
+            assert!(
+                text.contains(&format!(
+                    "[{number}] [{}] Ada: {body}\n",
+                    clock(message.start_ms)
+                )),
+                "message {number} is whole"
+            );
+        }
     }
 
     #[test]

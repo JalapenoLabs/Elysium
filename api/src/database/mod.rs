@@ -10,6 +10,8 @@
 mod adopt_fireflies_keys_tests;
 pub mod advisory;
 #[cfg(test)]
+mod connector_cursor_tests;
+#[cfg(test)]
 mod knowledge_index_tests;
 pub mod migrations;
 #[cfg(test)]

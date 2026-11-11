@@ -1,12 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/projects`: what coding sessions are grouped under, the models a project's own agents
+//! `/api/v1/projects`: what coding sessions are grouped under, its level of autonomy
+//! (`/{id}/autonomy`, `crate::models::project_autonomy`), the models a project's own agents
 //! run on (`/{id}/model-settings`, `docs/engine.md`, Models), its Project Manager
 //! (`/{id}/project-manager`, [`project_manager`]), how its workers' containers are readied
 //! (`/{id}/worker-setup`, `docs/engine.md`, Workers), the knowledge base pages linked to it
 //! (`/{id}/pages`, `docs/knowledge.md`, Pages), and its open findings (`/{id}/findings`,
 //! `crate::routes::v1::findings`).
 
+mod autonomy;
 mod create_project;
 mod delete_cover;
 mod delete_project;
@@ -34,6 +36,7 @@ use validator::ValidationError;
 
 use crate::images::MAX_UPLOAD_BYTES;
 use crate::models::project::{GithubAccess, Project, ProjectCoverFit};
+use crate::models::project_autonomy::Autonomy;
 use crate::routes::v1::findings::list_findings;
 use crate::state::AppState;
 
@@ -61,10 +64,10 @@ pub fn router() -> Router<AppState> {
             "/{id}/model-settings/{kind}",
             put(set_model_setting::handle).delete(reset_model_setting::handle),
         )
+        .route("/{id}/autonomy", get(autonomy::get).put(autonomy::put))
         .route(
             "/{id}/project-manager",
-            get(project_manager::get_project_manager::handle)
-                .patch(project_manager::update_project_manager::handle),
+            get(project_manager::get_project_manager::handle),
         )
         .route(
             "/{id}/project-manager/tracker",
@@ -106,6 +109,9 @@ pub struct ProjectResponse {
     cover_updated_at: Option<DateTime<Utc>>,
     cover_fit: ProjectCoverFit,
     github: ProjectGithub,
+    /// What of its Project Manager's work waits for a person. Who set it and when is
+    /// `GET /{id}/autonomy`, for members.
+    autonomy: Autonomy,
 }
 
 /// How a project picks the GitHub token its sessions start with.
@@ -136,6 +142,7 @@ impl From<Project> for ProjectResponse {
                 access: project.github_access,
                 credential_id: project.github_credential_id,
             },
+            autonomy: project.autonomy,
         }
     }
 }

@@ -23,6 +23,7 @@ use crate::action_items::{Actor, Transition, WorkError};
 use crate::models::action_item::{
     self, ActionItem, ActionItemChanges, ActionItemPriority, ActionItemState,
 };
+use crate::models::action_item_assignment::{self, Assigner};
 use crate::models::action_item_event::Recorded;
 use crate::models::initiative;
 
@@ -63,6 +64,18 @@ pub enum BulkChange {
     LeaveInitiative {
         initiative_id: Uuid,
     },
+    /// Assigns each item to its lead project's Project Manager, which wakes to plan it
+    /// (`crate::models::action_item_assignment`). An item no project leads is refused.
+    #[expect(
+        clippy::empty_enum_variants_with_brackets,
+        reason = "serde refuses unknown fields only on a struct variant, as on every other body"
+    )]
+    AssignToManager {},
+    #[expect(
+        clippy::empty_enum_variants_with_brackets,
+        reason = "serde refuses unknown fields only on a struct variant, as on every other body"
+    )]
+    UnassignFromManager {},
     /// Deletes softly, so every item can be restored.
     #[expect(
         clippy::empty_enum_variants_with_brackets,
@@ -177,6 +190,17 @@ async fn change_one(
         BulkChange::LeaveInitiative { initiative_id } => {
             action_item::leave_initiative(connection, item_id, initiative_id, actor, now).await
         }
+        BulkChange::AssignToManager {} => {
+            // A selection is a person's own, so the actor is who assigns.
+            let assigner = Assigner {
+                actor,
+                person: actor.user_id(),
+            };
+            action_item_assignment::assign(connection, item_id, assigner, now).await
+        }
+        BulkChange::UnassignFromManager {} => {
+            action_item_assignment::unassign(connection, item_id, actor, now).await
+        }
         BulkChange::Delete {} => action_item::soft_delete(connection, item_id, actor, now).await,
         BulkChange::Restore {} => action_item::restore(connection, item_id, actor, now).await,
     }
@@ -226,6 +250,10 @@ mod tests {
         let delete: BulkChange =
             serde_json::from_value(json!({ "kind": "delete" })).expect("parses");
         assert_eq!(delete, BulkChange::Delete {});
+
+        let assign: BulkChange =
+            serde_json::from_value(json!({ "kind": "assign-to-manager" })).expect("parses");
+        assert_eq!(assign, BulkChange::AssignToManager {});
     }
 
     #[test]
@@ -420,6 +448,78 @@ mod tests {
         assert_eq!(
             history_kinds(&mut connection, first).await,
             ["created", "deleted", "restored"]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_selection_is_assigned_to_its_project_managers_save_what_no_project_leads() {
+        let (_url, mut connection) = migrated_database().await;
+        let launch = crate::models::project::create(
+            &mut connection,
+            &crate::models::project::NewProject {
+                name: "Launch".to_owned(),
+                description: String::new(),
+                created_by: crate::test_support::TEST_PERSON_ID,
+            },
+        )
+        .await
+        .expect("a project")
+        .id;
+        let loose = create(&mut connection, "loose", ActionItemState::Inbox).await;
+        let led = create(&mut connection, "led", ActionItemState::Inbox).await;
+        action_item::add_project(&mut connection, led, launch, TEST_PERSON, minute(0))
+            .await
+            .expect("joins Launch");
+        let ids = sorted(vec![loose, led]);
+
+        let assigned = change_many(
+            &mut connection,
+            &ids,
+            BulkChange::AssignToManager {},
+            TEST_PERSON,
+            minute(1),
+        )
+        .await
+        .expect("change");
+        assert_eq!(assigned.written.len(), 1);
+        let written = &assigned.written[0].record;
+        assert_eq!(written.id, led);
+        assert_eq!(written.state, ActionItemState::Open);
+        assert_eq!(written.manager_assigned_at, Some(minute(1)));
+        assert_eq!(assigned.refused.len(), 1);
+        assert_eq!(assigned.refused[0].item_id, loose);
+        assert!(
+            assigned.refused[0]
+                .message
+                .contains("no project leads this item"),
+            "{}",
+            assigned.refused[0].message
+        );
+
+        let taken_back = change_many(
+            &mut connection,
+            &ids,
+            BulkChange::UnassignFromManager {},
+            TEST_PERSON,
+            minute(2),
+        )
+        .await
+        .expect("change");
+        assert!(
+            taken_back.refused.is_empty(),
+            "nothing to take back is no refusal"
+        );
+        assert_eq!(
+            history_kinds(&mut connection, led).await,
+            [
+                "created",
+                "project_added",
+                "lead_project_changed",
+                "state_changed",
+                "manager_assigned",
+                "manager_unassigned"
+            ]
         );
     }
 

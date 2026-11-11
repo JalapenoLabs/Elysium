@@ -74,6 +74,7 @@ export const operationKindLabelKeys = {
   'remove-from-initiative': 'kinds.remove-from-initiative',
   'create-initiative': 'kinds.create-initiative',
   'file-issue': 'kinds.file-issue',
+  'assign-item': 'kinds.assign-item',
 } as const satisfies Record<ChangesetOperationKind, ParseKeys<'changesets'>>
 
 // The fields an update can change, with their names as history spells them.
@@ -362,6 +363,26 @@ const describeByKind: { [Kind in ChangesetOperationKind]: Describe<Kind> } = {
     }),
     details: [],
   }),
+  // The item's lead names whose Project Manager it goes to: the one it went to once applied, and
+  // before then the one that leads it now.
+  'assign-item': (change, operation, context, t) => {
+    const item = describeTarget(change.item, 'item', context, t)
+    const current = 'id' in change.item
+      ? context.itemsById[change.item.id]
+      : undefined
+    const projectId = typeof operation.result.projectId === 'string'
+      ? operation.result.projectId
+      : current?.leadProjectId
+    const project = projectId
+      ? context.projectNames[projectId]
+      : undefined
+    return {
+      summary: project
+        ? t('describe.assignItemTo', { item, project })
+        : t('describe.assignItem', { item }),
+      details: [],
+    }
+  },
 }
 
 // Calls the describer of the change's own kind. Taking the kind as its own argument lets
@@ -408,6 +429,9 @@ export function describeUndo(undo: OperationUndo, t: ChangesetTranslate) {
   }
   if (undo.movedSince) {
     lines.push(t('undo.movedSince'))
+  }
+  if (undo.stillPlanned) {
+    lines.push(t('undo.stillPlanned'))
   }
   if (undo.stillPosted) {
     lines.push(t('undo.stillPosted', {

@@ -52,6 +52,8 @@ import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 // Misc
 import {
   getActionItem,
+  getManagerAssignmentKey,
+  getManagerPlan,
   listActionItemComments,
   listActionItemHistory,
   listActionItemLinks,
@@ -827,6 +829,24 @@ export function useActionItemLinksLoader(itemId: string): LoadStatus {
     return response
   })
   return toLoadStatus(data !== undefined, error)
+}
+
+// Where an item's plan stands while it is assigned to its Project Manager, read from SWR rather
+// than Redux: it is derived from batches and turns, and only the item's page shows it. A change to
+// the item, a batch, or a Project Manager revalidates the key (`realtime/eventStream.ts`). Null
+// while the item is not assigned. Members alone may read it, so the page reads it only for a member
+// and an assigned item (`shouldLoad`).
+export function useManagerPlan(itemId: string, shouldLoad: boolean) {
+  const { data, error } = useSWR(
+    shouldLoad
+      ? getManagerAssignmentKey(itemId)
+      : null,
+    () => getManagerPlan(itemId),
+  )
+  return {
+    plan: data?.plan,
+    status: toLoadStatus(data !== undefined, error),
+  } as const
 }
 
 // What each linked thing looks like in its provider now, read live. Like the burnup, it is

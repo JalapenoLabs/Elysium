@@ -5,9 +5,11 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources and from uploads. Today one source exists, Fireflies.ai, read with the person's own
-API key, and a person uploads their own recordings and transcripts (Uploads, below). The code is `api/src/meetings/`,
-and the uploads' rules are `api/src/meeting_uploads/`.
+Meetings come from meeting sources and from uploads. The sources are Fireflies.ai, read with the person's own API key
+on a paid plan or through Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams
+and Slack's huddles, each read through the browser the person's connector signed in to. A person also uploads their
+own recordings and transcripts (Uploads, below). The code is `api/src/meetings/`, and the uploads' rules are
+`api/src/meeting_uploads/`.
 
 A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
 and captures, below). Its final transcript is a stream of words with stable ids, and every mark on it is a range of
@@ -16,8 +18,11 @@ How meetings become reviewed documents of the knowledge base is designed in `doc
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
-used, since the model behind it is unknown. Fireflies' queries name each field they read, and a test fails if one asks
-for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
+used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails
+if one asks for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`); Teams' page script reads the recording
+and its transcript alone, never the meeting recap or notes Microsoft's AI writes, and a test fails if it names them
+(`api/src/connectors/teams/meetings.rs`); Slack's huddles are read from their transcript file alone, never Slack's AI
+notes beside it (`api/src/connectors/slack/meetings.rs`).
 
 ## Meeting sources
 
@@ -26,24 +31,141 @@ A meeting source is a connector whose kind provides meetings: its definition say
 organization. Like every connector, it is added, edited, checked, paused, and removed under Settings, Connectors alone.
 
 Every source fills one trait, `MeetingSource` in `api/src/meetings/source.rs`: it lists the meetings that started
-since a time, and fetches one meeting's transcript with a fresh address to download its recording from.
-`api/src/meetings/sources.rs` is the one place a kind meets its source (`Sources::for_kind`), so the loop below lists
-and fetches every source the same way, and a test fails when a kind that provides meetings has no source. A new source
-adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and adds its client and its row
-in `for_kind`; the meetings page and the loop pick it up unchanged.
+since a time, and fetches one meeting's transcript with a fresh address to download its recording from, each as its
+person, signed in the way its connector signs in (`MeetingSource::SignIn`). `api/src/meetings/sources.rs` is the one
+place a kind meets its source (`Sources::for_kind`), and where each source's sign-in is resolved from its connector
+(`Source::sign_in`): a key-based source opens the token account it reads through, and a browser source finds its
+connector's browser. The loop below and the fetch step hold the signed-in source (`SignedIn`) and never handle a
+credential, so they list and fetch every source the same way, and a test fails when a kind that provides meetings has
+no source. A new source adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and
+adds its client, its sign-in, and its row in `for_kind`; the meetings page and the loop pick it up unchanged.
 
-| Source    | Signs in with                                  | Reads                                                    |
-|-----------|------------------------------------------------|----------------------------------------------------------|
-| Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, video or audio |
+A source may read meetings only some of the time (`Source::reads`): Fireflies reads nothing else, so always, either
+way it signs in, while a Teams connector also reads chats, and reads meetings only while its person leaves them on and
+once it names a storage location, and a Slack connector reads huddles while its person leaves them on, with no storage
+location, since a huddle keeps no recording. The loop lists no meetings for a connector that reads none, and records nothing on it.
 
-A Fireflies key reads what its own user can see. Recordings need a Pro plan or higher, and video needs the "record
-meeting video" setting in Fireflies; without them a meeting is processed from its transcript alone and its segments
-carry no clip. Recording addresses expire after a day, so each is asked for right before its download. Fireflies
-allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each meeting once stays far
-inside that.
+| Source              | Signs in with                                  | Reads                                                    |
+|---------------------|------------------------------------------------|----------------------------------------------------------|
+| Fireflies           | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
+| Fireflies (browser) | The connector's own browser, signed in to `app.fireflies.ai` | The web app's `/api/v4/hive`, from its tab: the notebook's listing, then each meeting's captions and, apart, its video or audio |
+| Teams               | The Teams connector's own browser, signed in to Microsoft | Teams' own store for the listing, then the recording's drive item on the organizer's `SharePoint`: its download and its transcript |
+| Slack               | The Slack connector's own browser, signed in to `app.slack.com` | The web client's own methods in the signed-in tab: `huddles.history`, then each huddle's transcript file (`huddles.get`, `files.info`) |
+
+A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
+recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
+in Fireflies. On the free plan Fireflies answers the second call with its `paid_required` error code, which Elysium
+reads as a meeting without a recording, logging `meetings.fireflies.recording.paid_plan_required` with the plan tier
+Fireflies names: the meeting is processed from its transcript alone and its segments carry no clip. Any refusal of
+the sentences still fails the fetch. Recording addresses expire after a day, so each is asked for right before its
+download. Fireflies allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each
+meeting once, in two calls, stays far inside that.
 
 A sentence's start and end are read as seconds, sent either as a number or a numeric string. That is checked against
 the documented schema and a fixture, not yet against a live account.
+
+### Fireflies through a browser
+
+Fireflies' free plan refuses transcripts and recordings to its API, but its web app reads every meeting, on any plan,
+from its own GraphQL endpoint, `POST /api/v4/hive` on `app.fireflies.ai`, signed in by the session in the page. The
+`fireflies_browser` kind reads that endpoint from its own browser (`docs/browser.md`), started at Fireflies' sign-in
+page; its person signs in once on the connector's page. `api/src/meetings/fireflies_browser/` is the source:
+`hive.js` runs as the page over DevTools and asks the endpoint the queries the source hands it, refusing anything
+that is not a query, and the web app's session token (`localStorage.AUTHORIZATION`) never leaves the page; only
+Fireflies' answers do. The queries are the web app's own, read from its public JavaScript, with selections of Elysium's
+own that leave out every AI field; how to find them again is in that directory's `CLAUDE.md`.
+
+- **Listing** asks `getFilteredMeetings` for the meetings the person is part of (the notebook's "My Meetings",
+  `USER_PART_OF`) that started since the cursor, oldest first, at most 50, so a listing that cannot hold them all
+  leaves the rest for the next one. Fireflies lists a meeting before its words exist, and a meeting is fetched once,
+  so a listing stops at the first meeting still being transcribed and the cursor waits before it; one that has said so
+  for a day (`TRANSCRIBING_PATIENCE`) is taken as it is, so it never holds the rest back. Each meeting links to its page,
+  `app.fireflies.ai/view/<id>`.
+- **Fetching** asks `meetingNote` twice in one evaluation: its captions, each with a speaker and start and end in
+  seconds, then its video and audio addresses, so a refusal of the recording costs only the recording. The edits its
+  people saved in Fireflies are applied as Fireflies shows them: a rewritten sentence in place of what was heard, a
+  deleted one left out, one reassigned under its new speaker, and captions with neither a letter nor a digit hidden.
+  A speaker is named from `speakerMeta`, or `Speaker <n>` as the web app shows one nobody named. A meeting still being
+  transcribed is refused for the run's backoff to try again.
+- **Signed in** is the session token in the page, so the check asks nothing of Fireflies. No Fireflies tab opens one
+  and reads as not open yet; a tab on Google's, Microsoft's, or Apple's sign-in reads as signed out, as does a session
+  Fireflies answers `UNAUTHENTICATED`, which marks the connector `signed_out`.
+- The web app renews its own session, a two-week token, as it loads, and Elysium never renews it itself: the daily
+  browser refresh reloads the Fireflies tab (`docs/browser.md`, Refreshing), and every read opens one when none is.
+- Its storage location is optional (`docs/connectors.md`, Connectors): a meeting with nowhere to keep its recording
+  goes on from its transcript alone.
+
+All three queries were checked against a free-plan account's signed-in tab, production's connector browser among
+them: the listing, full transcripts, and a recording query that answers audio alone (`video_url` is `null`,
+`audio_url` a signed address on `cdn.fireflies.ai`), which downloads whole from the host, outside the browser, so a
+free-plan meeting keeps its recording, its clips, and its Whisper transcript.
+
+### Teams
+
+A Teams connector (`docs/connectors.md`, Teams) reads its person's recorded meetings unless they turn off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), and only once they pick the storage location its
+recordings are kept in: a browser connector is made before its person can choose one, and a meeting is fetched once, so
+reading before then would keep none of those recordings. `api/src/connectors/teams/meetings.rs` reads through
+`api/src/connectors/teams_meetings.js`, which runs in the browser's Teams tab as the page, over DevTools, and does only
+GETs:
+
+- **Listing** reads the store Teams keeps in IndexedDB (`Teams:replychain-manager:...`), as the chat reader does, and
+  calls nothing. Once a meeting's recording is ready, Teams posts a message in the meeting's chat
+  (`RichText/Media_CallRecording`, its `RecordingStatus` `Success`, earlier versions `Initial` and `ChunkFinished`):
+  the recording's title, start (`RecordingContent timestamp`), length (`duration`, `H:MM:SS.ff`), the call it belongs
+  to, and its drive item in the organizer's OneDrive (`item type="onedriveForBusinessVideo"`, with its sharing link,
+  `driveId`, and `driveItemId`). The call's ended message (`Event/Call`, matched by `callId`) names the organizer's
+  UPN and who took part. So the meetings listed are the recorded ones whose chats this person's Teams has stored. Each
+  is known by its drive item's address on SharePoint's API,
+  `https://<tenant>-my.sharepoint.com/_api/v2.1/drives/<drive>/items/<item>`, its external id; its link is the sharing
+  link, which opens it in Stream. The markup is read with patterns, never a parser, which Teams' Trusted Types policy
+  refuses.
+- **Fetching** reads that drive item with the access token Teams keeps for the SharePoint host in its MSAL cache
+  (localStorage), which never leaves the page: `?select=...,@content.downloadUrl` for the recording's
+  pre-authenticated download address (`/_layouts/15/download.aspx?...&tempauth=...`, good for about an hour), then
+  `/media/transcripts` for the transcript Teams marks default, then its
+  `/media/transcripts/<id>/content?format=json`, whose entries carry `speakerDisplayName`, `startOffset`, `endOffset`
+  (`HH:MM:SS.fffffff`), and `text`. The WebVTT the same address serves carries no speakers (`<v>` tags), so the JSON
+  is read. The fetch step downloads the recording from the address the page handed over, as it does Fireflies', and
+  accepts only `https` on a `*.sharepoint.com` host.
+
+Transcript offsets count from the start of the transcript, which starts with the recording to within a few seconds;
+clips are cut on the words Whisper heard (Clips), so that drift never reaches a clip. A recording whose organizer
+blocked downloads has no download address, and its meeting is processed from its transcript alone, as a source without
+a recording is; the `sample_transcript` check says so (`recording_not_downloadable`). A drive item the person cannot
+see, or one removed, answers `403` or `404` and fails its fetch for good. Teams renews its SharePoint token as it is
+used; one that has expired, or none yet, fails the fetch with its attempts and backoff and says so. Both were read
+against a signed-in Teams: its listing found every recorded meeting its chats held, and a fetch read a 40 minute
+meeting's 273 transcript entries from seven speakers, and its recording's address, which answered a ranged download
+from outside the browser as `video/mp4`.
+
+### Slack huddles
+
+A Slack connector (`docs/connectors.md`, Slack) reads its huddles as meetings unless its person turns off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), from the same workspaces and conversations its messages
+come from. `api/src/connectors/slack/meetings.rs` reads through the connector's page script
+(`api/src/connectors/slack.js`), so the session never leaves the browser, with the web client's own methods, which are
+not Slack's published API:
+
+- **Listing** is `huddles.history` in each workspace, newest first, 50 a page and at most four pages a listing. A huddle
+  that ended with a `transcript_file_id` is a meeting, its id `team/huddle`; one still going, or never transcribed, is
+  not listed yet. Whether a huddle is new goes by when it ended, not when it started, since the listing cursor is the
+  newest start seen: a long huddle that started before a shorter one still arrives once its transcript is there. Its
+  title is `Huddle in #channel`, or `Huddle with` who joined for a direct or group huddle; its people are named with
+  `users.info` and `conversations.info`, and its link opens its thread in Slack.
+- **Fetching** asks `huddles.get` (`huddle_id`) for the huddle's transcript file, then `files.info` with
+  `include_transcription`. Where the workspace keeps Slack's AI notes, that file is the notes canvas ("Huddle AI notes
+  & transcript"); only its metadata is read, which names the transcript file beside it (`huddle_transcript_file_id`, a
+  file of type `huddle_transcript`), and that is read instead. Nothing of the notes is read.
+- **A transcript** is `huddle_transcription.lines`: a speaker's user id, a start in milliseconds from the huddle's start
+  (`date_start`, seconds), and the words. Slack gives no end, so a line ends where the next begins and the last where
+  the huddle ended. Speakers are named with `users.info`; one not found keeps their id.
+- **No recording.** Slack keeps none of a huddle, so each is a meeting in words alone: the fetch offers no recording,
+  transcription has nothing to transcribe, and its segments carry no clip. A Slack connector names no storage location.
+
+The shapes were read from a signed-in Slack on a plan with huddle notes, where 65 of 144 huddles had a transcript and
+each fetch read one transcript file of 200 to 390 lines. A workspace that transcribes huddles without notes, whose
+`transcript_file_id` would name the transcript itself, is read the same way but not yet seen.
 
 ### Accounts
 
@@ -99,7 +221,10 @@ is fetched or its segments are cut and published.
   at most 50 at a time (`LISTING_SIZE`). A new connector's first listing reaches back two weeks
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
   has not seen is stored `pending`, with its first capture naming the connector, its kind as `source_kind`, and the
-  source's id. A key its source refuses marks the connector `signed_out` with the reason in `last_error`.
+  source's id. A key its source refuses, or a browser signed out, marks the connector `signed_out` with the reason
+  in `last_error`. The listing writes only its own `since` into the cursor, merged over what is stored
+  (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
+  connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
   by the system user (`workflow::run_to_start`). An upload's run is started by its person, as the upload finishes, in
   the transaction that stores its meeting, so the loop never starts one of its own for it (Uploads, below). The same
@@ -150,7 +275,9 @@ no step of its own. It fetches the meeting's capture, the one its source listed.
 - It fetches the transcript and a fresh recording address from the source, downloads the recording into a workspace
   directory of the attempt's own, hashing it as it streams, and uploads it to the connector's storage location at
   `meetings/<meeting>/captures/<capture>/<sha256>.<ext>`, named by its hash. Without a recording, or with nowhere to
-  keep it, the meeting goes on from its transcript alone, and the log says which.
+  keep it, the meeting goes on from its transcript alone, and the log says which. A source whose plan keeps no
+  recording, such as Fireflies' free plan, offers none, so its meetings are fetched from their transcripts alone
+  rather than failing.
 - Two attempts can run at once (one whose lease lapsed, and the next), and a source may answer each with other bytes.
   Named by its hash, each attempt's recording lands at a path of its own, so the path the capture keeps holds exactly
   the bytes its hash says. Only the attempt whose write the capture keeps moves its download to the capture's scratch
@@ -286,26 +413,28 @@ the next one still reads its input. A meeting not fetched skips it, saying "Not 
 raw transcripts are never written.
 
 - **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
-  transcribed, Whisper's. The company doc, with its pending proposals (`company_doc::read`, `docs/knowledge.md`), its
-  sections in the order correction needs them (people, glossary, products, projects, stakeholders, leadership,
-  company) within 40,000 bytes, the lines a pending proposal would add marked as proposed. And the company's other
-  meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved corrections
-  first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled them, which is
-  usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
+  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`,
+  `docs/knowledge.md`), its sections in the order correction needs them (people, glossary, products, projects,
+  stakeholders, leadership, company), the lines a pending proposal would add marked as proposed. And the company's
+  other meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved
+  corrections first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled
+  them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
   knowledge base is (`docs/knowledge.md`, Who sees what).
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
   Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
   so nothing to correct".
-- **Turns.** Each is a text turn on the runner on the model resolved for the step, of the correction kind: Opus 5.5
-  at high effort unless an admin chose another for the step or the kind (`docs/engine.md`, Models). Its prompt holds the meeting's title and participants, the doc, what
-  other meetings taught, and as many of the transcript's numbered lines as fit under 120,000 bytes, beside Whisper's
-  text over the same stretch, five seconds either side. A long meeting takes several turns, each with the doc again,
-  since the runner passes the prompt as one argument; at most eight, and lines past them stay as heard, the log says
-  from which.
+- **The turn.** One text turn on the runner, however long the meeting, on the model resolved for the step, of the
+  correction kind: Opus 5.5 at high effort unless an admin chose another for the step or the kind (`docs/engine.md`,
+  Models). Its prompt holds the meeting's title and participants, the doc and what other meetings taught, once, then
+  every one of the transcript's numbered lines, then every segment Whisper heard, timed on the same clock. The runner
+  hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI), so nothing is cut to
+  fit. A meeting too long for the model's context fails the step for good, giving the CLI's reason, since every
+  attempt would read the same prompt (`TurnOutcome::prompt_too_long`); skipping the step on the Runs page lets
+  segmenting go on from the transcript as heard.
 - **The answer** is `{ "edits": [{ "line", "text" }] }`: the whole corrected text of each line it changes.
 - **Nothing in the answer is trusted.** The copy is built from the transcript with only the edited lines' text
   replaced, so it keeps every line, in order, with its speaker and times, whatever the model answers. An edit is kept
-  only for a line its turn offered, once per line, with text, and only when it fixes words: compared word by word,
+  only for a line the transcript has, once per line, with text, and only when it fixes words: compared word by word,
   without regard to case or the punctuation around a word, each change replaces at most four words with at most four
   (a name heard as several words is one fix), none adds words where there were none or drops words without a
   replacement, and the words replaced are at most half the line's (or four, on a short line). A refused edit leaves
@@ -316,8 +445,7 @@ raw transcripts are never written.
 - **The final transcript.** Every attempt that has a copy builds the meeting's final transcript from it, unless the
   meeting has one already (The final transcript, below), so an engine that stopped between the two builds it on the
   next attempt.
-- **What it logs.** Line counts, line numbers, the doc's sections that did not fit whole, and hashes, never a word
-  that was said.
+- **What it logs.** Line counts, line numbers, and hashes, never a word that was said.
 
 #### The corrected copy
 
@@ -411,10 +539,10 @@ as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow
   naming none still reads.
 - An answer with no JSON, the wrong shape, or no segment left fails the attempt, which the run's backoff tries again.
 
-The runner passes a prompt as one argument to `claude`, and Linux allows one argument 128 KiB. A transcript therefore
-merges each speaker's consecutive lines and, past 100 KB, shortens every line evenly; a transcript too long for even
-that keeps its start and says where it was cut. A conversation's messages are never merged, since the answer names
-them by number, and are shortened the same way.
+The prompt holds the transcript whole, one line for each of its lines, every message of a conversation whole, and
+every project: the runner hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt reaches the CLI),
+so nothing is merged or shortened to fit. A transcript too long for the model's context fails the step for good,
+giving the CLI's reason, since every attempt would read the same prompt.
 
 **A meeting**, step by step:
 
@@ -677,11 +805,9 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 - Meetings as reviewed documents in the knowledge base: captures from several sources aligned onto one clock, one final
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
-  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
-- Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
-  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
-  signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
-  `sources.rs` instead.
-- Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument,
-  and a long meeting's correction reads the company doc once rather than in every turn.
+  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources.
+- Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
+  they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
+- Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
+  meetings whose chats the person's Teams has not stored.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.

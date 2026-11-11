@@ -13,7 +13,9 @@
 //!
 //! A batch starts `proposed` and waits for a person to approve it, edit and approve it, or
 //! reject it with a reason ([`approval`]); the pool never gives a proposed batch a slot, since
-//! [`assign`] takes only what is queued. Approved, it waits `queued` until the pool gives it a slot
+//! [`assign`] takes only what is queued. One that traces to a person starts `queued` instead when
+//! its project's level of autonomy says so ([`submit`], `crate::models::project_autonomy`); a
+//! found one never does. Approved, it waits `queued` until the pool gives it a slot
 //! (`assigned`, [`assign`]), and a worker starts on it (`running`, [`start`]) and ends it
 //! `succeeded` or `failed` ([`finish`]), which wakes its project's Project Manager in the same
 //! transaction, and on success makes the promises waiting on it due. While it waits for a worker
@@ -55,6 +57,7 @@ use crate::action_items::Actor;
 use crate::database::schema::{work_batch_events, work_batches};
 use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
+use crate::models::project_autonomy;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::{project_manager, promise};
 use crate::runner::configuration::Checkout;
@@ -174,6 +177,9 @@ pub struct WorkBatch {
     pub waiting_on: Option<worker::Wait>,
     pub waiting_detail: Option<String>,
     pub waiting_until: Option<DateTime<Utc>>,
+    /// The goal in its project's brief it serves, as the brief spelled it when it was submitted;
+    /// `None` for a batch from before briefs.
+    pub serves: Option<String>,
     /// The configuration its worker ran on, as stored ([`Checkout`]); set as its container
     /// fetched it.
     pub configuration: Option<Value>,
@@ -262,7 +268,8 @@ pub struct Slot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
-    /// Its Project Manager submitted it, proposed. No data.
+    /// Its Project Manager submitted it, or a person accepting a finding did. No data when it was
+    /// proposed; `{ autonomy }`, its project's level, when that level let it queue at once.
     Submitted,
     /// It was waiting for a slot when proposals began, and went back for a person's approval:
     /// `{ from }`, the state it left. Only the migration that began them writes it.
@@ -382,6 +389,8 @@ pub struct NewWorkBatch {
     pub project_id: Uuid,
     pub title: String,
     pub goal: String,
+    /// The goal in its project's brief it serves (`crate::project_managers::batches`).
+    pub serves: Option<String>,
     pub repositories: Value,
     pub priority: Priority,
     pub scheduled_for: Option<DateTime<Utc>>,
@@ -429,8 +438,14 @@ pub struct Written {
     pub approval_item: Option<Recorded<ActionItem>>,
 }
 
-/// Stores a new batch, proposed, begins its history, and raises or updates its project's approval
-/// item, in one transaction.
+/// Stores a new batch, begins its history, and, when it waits for a person, raises or updates its
+/// project's approval item, in one transaction.
+///
+/// Whether it waits is its project's level of autonomy and its origin
+/// ([`project_autonomy::Autonomy::queues`]): a batch that traces to a person goes straight to the
+/// queue when its project trusts its Project Manager with that, and its `submitted` entry names the
+/// level that let it (`{ autonomy }`). Everything else starts `proposed`, a found batch at every
+/// level, so no setting lets work an agent noticed queue itself (`docs/autonomy.md`, The dial).
 ///
 /// # Errors
 /// Propagates any database error, including a field outside its column's checks.
@@ -441,23 +456,35 @@ pub async fn submit(
     connection
         .transaction(async |connection| {
             let by = batch.created_by;
-            // Named rather than left to the column's default: nothing a Project Manager submits
-            // may reach the queue without a person. A trust dial that lets human-rooted work run
-            // must still propose every found batch (`batch.lineage.origin()`): no setting lets
-            // work an agent noticed queue itself (`docs/autonomy.md`, The dial).
+            // Share-locked, so a person turning the dial waits for this submission, and the batch
+            // is decided by the level it was submitted under.
+            let autonomy = project_autonomy::for_share(connection, batch.project_id).await?;
+            let queues = autonomy.queues(batch.lineage.origin());
+            // Named rather than left to the column's default, so the decision above is the one
+            // way a submitted batch reaches the queue without a person.
+            let state = if queues {
+                BatchState::Queued
+            } else {
+                BatchState::Proposed
+            };
             let submitted = diesel::insert_into(work_batches::table)
-                .values((batch, work_batches::state.eq(BatchState::Proposed)))
+                .values((batch, work_batches::state.eq(state)))
                 .returning(WorkBatch::as_returning())
                 .get_result(connection)
                 .await?;
-            record(
-                connection,
-                submitted.id,
-                EventKind::Submitted,
-                json!({}),
-                by,
-            )
-            .await?;
+            let data = if queues {
+                json!({ "autonomy": autonomy })
+            } else {
+                json!({})
+            };
+            record(connection, submitted.id, EventKind::Submitted, data, by).await?;
+            if queues {
+                return Ok(Written {
+                    batch: submitted,
+                    approval_item: None,
+                });
+            }
+
             // The project's approval item is raised and kept by its Project Manager whoever
             // submitted the batch. A person accepting a finding submits one too, and an item a
             // person raised would read as theirs, accepted, rather than as one asking them.

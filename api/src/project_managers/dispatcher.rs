@@ -29,8 +29,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::prompt::{
-    self, ProjectBrief, PromptBatch, PromptMessage, PromptPage, PromptPromise, PromptRecord,
-    PromptWork, TurnContext, Writes,
+    self, PromptAssignment, PromptBatch, PromptBrief, PromptBriefEdit, PromptMessage, PromptPage,
+    PromptProject, PromptPromise, PromptRecord, PromptWork, TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
@@ -48,7 +48,8 @@ use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
 use crate::models::work_batch::worker::Wait;
 use crate::models::{
-    action_item, page_project, project, timeline_record, work_batch, worker_setup,
+    action_item, action_item_assignment, action_item_link, page_project, project, project_brief,
+    timeline_record, work_batch, worker_setup,
 };
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -325,28 +326,15 @@ async fn load_context(
 ) -> anyhow::Result<TurnContext> {
     let project = project::find(connection, turn.project_id).await?;
     let names = user::names(connection).await?;
-
-    let mut messages = Vec::new();
-    let mut record_ids = Vec::new();
-    let mut batch_ids = Vec::new();
-    let mut promise_ids = Vec::new();
-    for wake in wakes {
-        match wake.kind {
-            WakeKind::Message => messages.push(PromptMessage {
-                id: wake.id,
-                author: names
-                    .get(&wake.created_by)
-                    .cloned()
-                    .unwrap_or_else(|| "Someone".to_owned()),
-                from_elysia: wake.created_by == ELYSIA_USER_ID,
-                body: wake.body.clone().unwrap_or_default(),
-                sent_at: wake.created_at,
-            }),
-            WakeKind::Record => record_ids.extend(wake.timeline_record_id),
-            WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
-            WakeKind::Promise => promise_ids.extend(wake.promise_id),
-        }
-    }
+    let SortedWakes {
+        messages,
+        brief_edits,
+        record_ids,
+        batch_ids,
+        promise_ids,
+        assigned_ids,
+    } = sort_wakes(wakes, &names);
+    let assignments = load_assignments(connection, turn.project_id, &assigned_ids, &names).await?;
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let mut records: Vec<PromptRecord> =
@@ -406,11 +394,13 @@ async fn load_context(
 
     Ok(TurnContext {
         writes: Writes {
-            direct: project.manager_writes_directly,
+            autonomy: project.autonomy,
             tracker: tracker_brief(connection, turn.project_id).await?,
         },
-        project: project_brief(connection, project).await?,
+        project: prompt_project(connection, project).await?,
         messages,
+        assignments,
+        brief_edits,
         records,
         batches,
         promises,
@@ -419,31 +409,139 @@ async fn load_context(
     })
 }
 
-/// `project` as a turn is told it: what it is, the repositories it declares, and its docs.
-async fn project_brief(
+/// The items a turn was woken to plan, each with who assigned it and what it is linked to. An item
+/// unassigned since, or whose lead moved to another project, is left out: it is no longer this
+/// Project Manager's to plan.
+async fn load_assignments(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    item_ids: &[Uuid],
+    names: &HashMap<Uuid, String>,
+) -> anyhow::Result<Vec<PromptAssignment>> {
+    let items = action_item_assignment::assigned_among(connection, project_id, item_ids).await?;
+    let mut assignments = Vec::with_capacity(items.len());
+    for item in items {
+        let links = action_item_link::list_for_item(connection, item.id)
+            .await?
+            .into_iter()
+            .map(|link| format!("{} ({})", link.external_key, link.url))
+            .collect();
+        let (Some(assigned_at), Some(assigned_by)) =
+            (item.manager_assigned_at, item.manager_assigned_by)
+        else {
+            event!(
+                name: "project_managers.assignment.unreadable",
+                Level::WARN,
+                project_id = %project_id,
+                item_id = %item.id,
+                "an item read as assigned to {{project_id}} holds no assignment; its turn leaves it out",
+            );
+            continue;
+        };
+        assignments.push(PromptAssignment {
+            item_id: item.id,
+            title: item.title,
+            notes: item.notes,
+            state: item.state,
+            assigned_by: names
+                .get(&assigned_by)
+                .cloned()
+                .unwrap_or_else(|| "Someone".to_owned()),
+            assigned_at,
+            links,
+        });
+    }
+    Ok(assignments)
+}
+
+/// A turn's wakes, sorted by kind: the messages and brief edits it is told whole, and the ids of
+/// the records, batches, promises, and assigned items it reads as it starts.
+struct SortedWakes {
+    messages: Vec<PromptMessage>,
+    brief_edits: Vec<PromptBriefEdit>,
+    record_ids: Vec<Uuid>,
+    batch_ids: Vec<Uuid>,
+    promise_ids: Vec<Uuid>,
+    assigned_ids: Vec<Uuid>,
+}
+
+/// Sorts `wakes` by kind in one pass, naming each message's and brief edit's author from `names`.
+fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
+    let mut sorted = SortedWakes {
+        messages: Vec::new(),
+        brief_edits: Vec::new(),
+        record_ids: Vec::new(),
+        batch_ids: Vec::new(),
+        promise_ids: Vec::new(),
+        assigned_ids: Vec::new(),
+    };
+    for wake in wakes {
+        let author = || {
+            names
+                .get(&wake.created_by)
+                .cloned()
+                .unwrap_or_else(|| "Someone".to_owned())
+        };
+        match wake.kind {
+            WakeKind::Message => sorted.messages.push(PromptMessage {
+                id: wake.id,
+                author: author(),
+                from_elysia: wake.created_by == ELYSIA_USER_ID,
+                body: wake.body.clone().unwrap_or_default(),
+                sent_at: wake.created_at,
+            }),
+            WakeKind::Record => sorted.record_ids.extend(wake.timeline_record_id),
+            WakeKind::Batch => sorted.batch_ids.extend(wake.work_batch_id),
+            WakeKind::Promise => sorted.promise_ids.extend(wake.promise_id),
+            WakeKind::Brief => {
+                let edit = wake.page_version.map(|version| PromptBriefEdit {
+                    author: author(),
+                    version,
+                    published_at: wake.created_at,
+                });
+                sorted.brief_edits.extend(edit);
+            }
+            WakeKind::Assignment => sorted.assigned_ids.extend(wake.action_item_id),
+        }
+    }
+    sorted
+}
+
+/// `project` as a turn is told it: what it is, the repositories it declares, its brief, and its
+/// other docs.
+async fn prompt_project(
     connection: &mut AsyncPgConnection,
     project: Project,
-) -> anyhow::Result<ProjectBrief> {
+) -> anyhow::Result<PromptProject> {
     let repositories = worker_setup::find(connection, project.id)
         .await?
         .repositories
         .into_iter()
         .map(|repository| repository.url)
         .collect();
+    let brief = project_brief::find(connection, project.id).await?;
+    // The brief is carried whole, so it is not listed again among the docs.
     let pages = page_project::pages_of(connection, project.id)
         .await?
         .into_iter()
+        .filter(|linked| linked.page.id != brief.id)
         .map(|linked| PromptPage {
             id: linked.page.id,
             title: linked.page.title,
             published_at: linked.published_at,
         })
         .collect();
-    Ok(ProjectBrief {
+    Ok(PromptProject {
         id: project.id,
         name: project.name,
         description: project.description,
         repositories,
+        brief: PromptBrief {
+            page_id: brief.id,
+            version: brief.current_version,
+            goals: project_brief::goals(&brief.body),
+            body: brief.body,
+        },
         pages,
     })
 }

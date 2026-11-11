@@ -5,12 +5,16 @@
   directory over HTTP, load it in Chromium, wait for `window.seeded`, then evaluate teams.js
   applied to `{ "since": 1730000000000, "maxMessages": 200 }`. Its answer is teams_page.json,
   which the Rust tests in teams.rs read. See docs/connectors.md.
+
+  It enforces Trusted Types the way Teams does, naming a policy that is not Elysium's, so a
+  script that hands markup to a parser fails here as it would on Teams.
 -->
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="require-trusted-types-for 'script'; trusted-types dompurify">
 <title>Teams fixture</title>
 <script>
 const me = 'aaaa-1111'
-const suffix = `react-web-client:${me}:tttt:en-us`
+const suffix = `react-web-client:tttt:${me}:en-us`
 const iso = (ms) => new Date(ms).toISOString()
 
 const conversations = [

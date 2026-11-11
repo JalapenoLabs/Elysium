@@ -2,6 +2,9 @@
 
 //! Projects: what coding sessions are grouped under.
 //!
+//! Every project has a brief, a knowledge base page created with it and renamed with it
+//! (`crate::models::project_brief`), so [`create`] and [`update`] write pages too.
+//!
 //! A project may have a cover image, stored compressed in `cover_image`. [`Project`]
 //! leaves the bytes out, so listing projects never loads images; [`find_cover`] reads
 //! them for the one request that serves a cover.
@@ -11,11 +14,14 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
+use super::project_autonomy::Autonomy;
 use crate::database::schema::projects;
+use crate::models::page::{self, PageError};
+use crate::models::project_brief;
 use crate::search::{self, SearchTerms};
 
 /// Which projects something applies to: every project, including ones added later, or
@@ -116,9 +122,9 @@ pub struct Project {
     pub github_credential_id: Option<Uuid>,
     /// Who created it.
     pub created_by: Uuid,
-    /// Whether its Project Manager's changes apply as it makes them. Off, the default, it
-    /// proposes each as a changeset a person approves first.
-    pub manager_writes_directly: bool,
+    /// What of its Project Manager's work waits for a person, which only a person changes
+    /// (`super::project_autonomy`).
+    pub autonomy: Autonomy,
 }
 
 impl Project {
@@ -166,7 +172,6 @@ pub struct ProjectChanges {
         reason = "Diesel's changeset encoding: outer None skips, Some(None) writes NULL"
     )]
     pub github_credential_id: Option<Option<Uuid>>,
-    pub manager_writes_directly: Option<bool>,
 }
 
 impl ProjectChanges {
@@ -176,7 +181,6 @@ impl ProjectChanges {
             && self.description.is_none()
             && self.cover_fit.is_none()
             && self.github_access.is_none()
-            && self.manager_writes_directly.is_none()
     }
 }
 
@@ -285,14 +289,14 @@ pub async fn lock_for_delete(connection: &mut AsyncPgConnection, id: Uuid) -> Qu
         .await
 }
 
-/// Inserts a project with a new `UUIDv7` id.
+/// Inserts a project with a new `UUIDv7` id, and its brief, in one transaction.
 ///
 /// # Errors
 /// Propagates database errors, including a unique violation on `name`.
 pub async fn create(
     connection: &mut AsyncPgConnection,
     new_project: &NewProject,
-) -> QueryResult<Project> {
+) -> Result<Project, PageError> {
     let row = ProjectRow {
         id: Uuid::now_v7(),
         name: &new_project.name,
@@ -300,14 +304,20 @@ pub async fn create(
         created_by: new_project.created_by,
     };
 
-    diesel::insert_into(projects::table)
-        .values(row)
-        .returning(Project::as_returning())
-        .get_result(connection)
+    connection
+        .transaction(async move |connection| {
+            let project = diesel::insert_into(projects::table)
+                .values(row)
+                .returning(Project::as_returning())
+                .get_result(connection)
+                .await?;
+            project_brief::create(connection, &project).await?;
+            Ok(project)
+        })
         .await
 }
 
-/// Applies `changes`.
+/// Applies `changes`, renaming the project's brief with it in the same transaction.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown id,
@@ -317,11 +327,19 @@ pub async fn update(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     changes: &ProjectChanges,
-) -> QueryResult<Project> {
-    diesel::update(projects::table.find(id))
-        .set(changes)
-        .returning(Project::as_returning())
-        .get_result(connection)
+) -> Result<Project, PageError> {
+    connection
+        .transaction(async move |connection| {
+            let project = diesel::update(projects::table.find(id))
+                .set(changes)
+                .returning(Project::as_returning())
+                .get_result(connection)
+                .await?;
+            if changes.name.is_some() {
+                project_brief::retitle(connection, &project).await?;
+            }
+            Ok(project)
+        })
         .await
 }
 
@@ -413,19 +431,30 @@ pub async fn restore_cover(connection: &mut AsyncPgConnection, id: Uuid) -> Quer
         .await
 }
 
-/// Deletes one project.
+/// Deletes one project. Its brief stays, an ordinary page from then on, indexed as one.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id, and a foreign
 /// key violation while any coding session still belongs to it.
 pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
-    let deleted = diesel::delete(projects::table.find(id))
-        .execute(connection)
-        .await?;
-    if deleted == 0 {
-        return Err(diesel::result::Error::NotFound);
-    }
-    Ok(())
+    connection
+        .transaction(async |connection| {
+            let brief = project_brief::find(connection, id).await.optional()?;
+            let deleted = diesel::delete(projects::table.find(id))
+                .execute(connection)
+                .await?;
+            if deleted == 0 {
+                return Err(diesel::result::Error::NotFound);
+            }
+            // Deleting the project cleared the page's `brief_project_id`, so a brief that held only
+            // the skeleton, which no index holds, now reads as any page does.
+            if let Some(brief) = brief {
+                let page = page::find(connection, brief.id).await?;
+                page::reindex(connection, &page).await?;
+            }
+            Ok(())
+        })
+        .await
 }
 
 #[cfg(test)]

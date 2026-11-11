@@ -139,6 +139,8 @@ export function ProjectPagesTable(props: Props) {
     id: 'unlink',
     label: t('docs.unlink'),
     icon: <LuUnlink className='size-4' aria-hidden />,
+    // A project's brief stays linked to it for as long as the project exists.
+    isVisible: (row) => row.original.briefProjectId !== projectId,
     onPress: (row) => links.unlink({
       pageId: row.original.id,
       pageTitle: row.original.title,
