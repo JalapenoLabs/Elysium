@@ -911,8 +911,9 @@ meetings its reader can see (`GET /api/v1/meetings`, today a person's own); no t
   under a brief, among its own children. The panel's filters narrow pages alone; the Meetings page searches meetings.
 - **A branch lists its newest 50.** Under Meetings and in each group, the tree lists the 50 newest meetings
   (`MEETINGS_TREE_BRANCH_SIZE`), then a row naming how many there are in all, which opens the page listing every one, as
-  the group's own row does. A tree row costs about 1.5ms to draw, and opening a meeting opens the Meetings branch to
-  show where it sits, so the branch never costs more than a person can read.
+  the group's own row does. A tree row costs about 1.5ms to draw, so a branch never costs more than a person can read.
+  Opening a meeting opens the Meetings branch to show where it sits while the branch lists it; an older meeting leaves
+  the branch as it was, since none of its rows would be the meeting.
 
 ### Versions
 

@@ -35,7 +35,7 @@ export function KnowledgeFrame() {
   const [ treeFilter, setTreeFilter ] = useState(NO_PAGE_TREE_FILTER)
   const treeStatus = usePagesLoader()
   // The tree lists the reader's meetings under Meetings and each brief, so it loads them too.
-  useMeetingsLoader()
+  const meetingsStatus = useMeetingsLoader()
   const tree = useAppSelector(selectKnowledgeTree)
   const currentPageId = useMatch(UrlTree.knowledgePage)?.params.pageId
   const currentMeetingId = useMatch(UrlTree.knowledgeMeeting)?.params.meetingId
@@ -47,20 +47,23 @@ export function KnowledgeFrame() {
     scrollerRef.current?.scrollTo({ top: 0 })
   }, [ pathname ])
 
-  // A page opened from a link shows where it sits, and a meeting shows at its home, under Meetings.
-  // Once per page, so a branch closed afterwards stays closed.
+  // A page opened from a link shows where it sits, and a meeting at its home under Meetings while
+  // that branch lists it: an older one than the branch's newest leaves it closed, since opening it
+  // would show rows that are not the meeting. Once per page, so a branch closed afterwards stays
+  // closed.
   const openBranchesToCurrentPage = useEffectEvent(() => {
     if (currentPageId) {
       memory.openBranches(findPageAncestors(tree, currentPageId).map((page) => page.id))
     }
-    if (currentMeetingId) {
+    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID)
+    if (currentMeetingId && homes?.entries.some((entry) => entry.meetingId === currentMeetingId)) {
       const above = findPageAncestors(tree, MEETINGS_PAGE_ID).map((page) => page.id)
       memory.openBranches([ ...above, MEETINGS_PAGE_ID ])
     }
   })
   useEffect(() => {
     openBranchesToCurrentPage()
-  }, [ currentPageId, currentMeetingId, treeStatus ])
+  }, [ currentPageId, currentMeetingId, treeStatus, meetingsStatus ])
 
   return <div className='flex h-full'>
     <aside className={[

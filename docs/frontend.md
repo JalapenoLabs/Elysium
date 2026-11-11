@@ -970,7 +970,8 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   more ends in `AllMeetingsTreeItem`, a row to the page listing them all. `MeetingTreeItem`, `MeetingGroupTreeItem`, and
   that row are rows of their own, with no menu and a disabled drag button, and `PageTree` refuses any drop onto one
   (`getDropOperation`), since a drop names a page.
-  Every row a meeting has opens its one page, so each is current there, and opening one opens the Meetings branch.
+  Every row a meeting has opens its one page, so each is current there, and opening one opens the Meetings branch
+  while that branch lists it.
   `pageAddressById` sends the Meetings page's own row and address to the list. A filter narrows pages alone, so the
   filtered tree holds no meeting.
 
