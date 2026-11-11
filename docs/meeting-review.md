@@ -241,8 +241,8 @@ The `meeting` workflow becomes:
   gigabytes.
 - An upload is a capture like any other: transcribed, aligned, corrected, and segmented. A transcript with no times
   and no media is a meeting in words alone: reviewed, excerpted, and commented, with no player.
-- How it works today is `docs/meetings.md`, Uploads. A capture's upload is among the actions in the meeting's options;
-  when the knowledge base's own Meetings page is built (#235), a new meeting's upload moves there.
+- How it works today is `docs/meetings.md`, Uploads. A new meeting's upload starts from the knowledge base's Meetings
+  page, and a capture's is among the actions in the meeting's options.
 
 ## Teams and Slack huddles
 
