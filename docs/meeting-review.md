@@ -6,12 +6,13 @@ what it changed, what each part was taken into, and what was said about it. Anyo
 recording, and what is relevant, and only that, flows on to projects, their Project Managers, and workers.
 
 This doc is the design. Built so far: meetings and their captures, one clock with each capture's offset, Whisper per
-capture, and the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change
-in a meeting's history, undoable, each built from the meeting's one capture until captures are aligned; and the
-meeting's page in the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in
-place, each change undoable, and its player, open to its owner alone until meetings are public by default. What is built
-is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
-issues in the Knowledge base milestone.
+capture, the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change in a
+meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
+transcript, and asking before merging a meeting recorded twice, with merging and splitting; and the meeting's page in
+the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
+undoable, and its player, open to its owner alone until meetings are public by default. What is built is described in
+`docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
+Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -30,9 +31,11 @@ issues in the Knowledge base milestone.
 
 Teams and Fireflies often record the same meeting, and two people's Fireflies may each record it. Elysium never merges
 captures on its own. A capture whose time overlaps another meeting's, with participants in common, raises an action
-item for its owner: "Same meeting as" the other's title, with Merge and Not the same. Merging moves its captures into
-the other meeting and builds the final transcript again; Not the same is remembered, so the pair is never raised twice.
-A merge is undone by splitting the capture back out, and both are in the meeting's history.
+item for its owner: "Same meeting as" the other's title, with Merge and Not the same, and its meeting's run waits at
+aligning for the answer, so a duplicate never publishes segments of its own. Merging moves its captures into the other
+meeting and builds the final transcript again; Not the same is remembered, so the pair is never raised twice. A merge
+is undone by splitting the capture back out, and both are in the meeting's history. Until meetings are public by
+default (Who sees a meeting, below), only a person's own meetings are compared.
 
 ## Who sees a meeting
 
@@ -266,7 +269,7 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
 | 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
-| 2     | #238  | Aligning captures, and asking before merging duplicates                               |
+
 | 2     | #239  | Settling the final transcript, and the Transcription doc                              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |

@@ -13,6 +13,10 @@
 //! run of the meeting workflow), `segmented`, and `done`, each written by a step of that run. How
 //! far it got is all it keeps of its processing: whether it failed, and why, is its run's
 //! (`crate::meetings::workflow`). Its segments are written once ([`record_segments`]).
+//!
+//! A meeting whose captures its person merged into another one names it (`merged_into`). It
+//! holds no captures while it does, and is listed nowhere and processed no further; splitting
+//! the captures back out clears it (`crate::meetings::duplicates`).
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -75,6 +79,8 @@ pub struct Meeting {
     /// Whether its person asked to approve its corrected transcript before it is acted on,
     /// whatever its source's setting (`crate::meetings::correct`).
     pub hold_for_approval: bool,
+    /// The meeting its captures were merged into, while they are.
+    pub merged_into: Option<Uuid>,
 }
 
 impl Meeting {
@@ -141,13 +147,15 @@ pub async fn insert_new(
 pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Meeting>> {
     meetings::table
         .filter(meetings::state.ne(MeetingState::Done.as_str()))
+        // A meeting merged into another has nothing of its own left to process.
+        .filter(meetings::merged_into.is_null())
         .select(Meeting::as_select())
         .order(meetings::created_at.asc())
         .load(connection)
         .await
 }
 
-/// `owner`'s meetings, newest first.
+/// `owner`'s meetings, newest first, but for those merged into another, which live on in it.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -158,6 +166,7 @@ pub async fn list_owned(
 ) -> QueryResult<Vec<Meeting>> {
     meetings::table
         .filter(meetings::created_by.eq(owner))
+        .filter(meetings::merged_into.is_null())
         .select(Meeting::as_select())
         .order((meetings::started_at.desc(), meetings::id.desc()))
         .limit(limit)
@@ -222,6 +231,45 @@ pub async fn set_hold_for_approval(
         .set(meetings::hold_for_approval.eq(hold))
         .returning(Meeting::as_returning())
         .get_result(connection)
+        .await
+}
+
+/// Records meeting `id`'s captures as merged into meeting `into`, or, given `None`, as split back
+/// out into it again.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_merged_into(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    into: Option<Uuid>,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set(meetings::merged_into.eq(into))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// `owner`'s meetings other than `except`, not merged into another, that started between `from`
+/// and `to`, oldest first: where a meeting looks for one it may be the same as.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn started_between(
+    connection: &mut AsyncPgConnection,
+    owner: Uuid,
+    except: Uuid,
+    (from, to): (DateTime<Utc>, DateTime<Utc>),
+) -> QueryResult<Vec<Meeting>> {
+    meetings::table
+        .filter(meetings::created_by.eq(owner))
+        .filter(meetings::id.ne(except))
+        .filter(meetings::merged_into.is_null())
+        .filter(meetings::started_at.between(from, to))
+        .select(Meeting::as_select())
+        .order((meetings::started_at.asc(), meetings::id.asc()))
+        .load(connection)
         .await
 }
 

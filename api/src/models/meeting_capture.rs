@@ -14,8 +14,10 @@
 //! `offset_ms` places that clock on the meeting's: a moment `t` of the capture is
 //! `t + offset_ms` on the meeting's clock, which is the clock the final transcript is on.
 //!
-//! A meeting holds one capture until captures can be merged (#238); [`first_of`] is the one the
-//! steps read until then.
+//! A meeting's captures are in the order they joined it ([`list_of`]): the one it was listed with
+//! first, which is the clock every other capture is aligned against (`crate::meetings::align`),
+//! then each merged into it. A capture's `offset_source` says how its offset was found, and an
+//! offset a person set by hand is one aligning never changes.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -55,6 +57,44 @@ pub struct MeetingCapture {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// When it joined its meeting: its place among the meeting's captures.
+    pub joined_at: DateTime<Utc>,
+    /// An [`OffsetSource`] name: how `offset_ms` was found.
+    pub offset_source: String,
+}
+
+/// How a capture's offset onto its meeting's clock was found. Stored as
+/// `meeting_captures.offset_source`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OffsetSource {
+    /// From when its source said it started, against when the meeting started: the first
+    /// capture's is zero, the meeting's clock starting with it.
+    Listed,
+    /// By cross-correlating its audio against the first capture's.
+    Audio,
+    /// By matching its words and their times against the first capture's.
+    Words,
+    /// Set by a person. Aligning never changes it.
+    Hand,
+}
+
+impl OffsetSource {
+    const ALL: [Self; 4] = [Self::Listed, Self::Audio, Self::Words, Self::Hand];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Listed => "listed",
+            Self::Audio => "audio",
+            Self::Words => "words",
+            Self::Hand => "hand",
+        }
+    }
+
+    /// The source stored as `text`, if this build knows it.
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|source| source.as_str() == text)
+    }
 }
 
 impl MeetingCapture {
@@ -70,6 +110,12 @@ impl MeetingCapture {
     /// Whether its fetch stored what its source gave.
     pub const fn is_fetched(&self) -> bool {
         self.transcript_hash.is_some()
+    }
+
+    /// How its offset was found. A source this build does not know reads as a person's, so
+    /// aligning leaves an offset it cannot account for as it is.
+    pub fn offset_source(&self) -> OffsetSource {
+        OffsetSource::parse(&self.offset_source).unwrap_or(OffsetSource::Hand)
     }
 }
 
@@ -162,7 +208,7 @@ pub async fn first_of_each(
         .distinct_on(meeting_captures::meeting_id)
         .order((
             meeting_captures::meeting_id,
-            meeting_captures::created_at.asc(),
+            meeting_captures::joined_at.asc(),
             meeting_captures::id.asc(),
         ))
         .select(MeetingCapture::as_select())
@@ -170,11 +216,12 @@ pub async fn first_of_each(
         .await
 }
 
-/// Meeting `meeting_id`'s first capture: the one a meeting holds until captures can be merged.
+/// Meeting `meeting_id`'s first capture: the one it was listed with, whose clock every other
+/// capture is aligned against, and whose source is the one the meeting is shown as from.
 ///
 /// # Errors
-/// [`diesel::result::Error::NotFound`] when the meeting has none, which only a meeting that does
-/// not exist can have: a meeting is stored with its first capture.
+/// [`diesel::result::Error::NotFound`] when the meeting has none: it does not exist, or its
+/// captures were merged into another meeting.
 pub async fn first_of(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -182,11 +229,30 @@ pub async fn first_of(
     meeting_captures::table
         .filter(meeting_captures::meeting_id.eq(meeting_id))
         .order((
-            meeting_captures::created_at.asc(),
+            meeting_captures::joined_at.asc(),
             meeting_captures::id.asc(),
         ))
         .select(MeetingCapture::as_select())
         .first(connection)
+        .await
+}
+
+/// Every capture of meeting `meeting_id`, in the order they joined it, the first first.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> QueryResult<Vec<MeetingCapture>> {
+    meeting_captures::table
+        .filter(meeting_captures::meeting_id.eq(meeting_id))
+        .order((
+            meeting_captures::joined_at.asc(),
+            meeting_captures::id.asc(),
+        ))
+        .select(MeetingCapture::as_select())
+        .load(connection)
         .await
 }
 
@@ -204,7 +270,7 @@ pub struct CaptureSummary {
     pub recording_content_type: Option<String>,
 }
 
-/// Every capture of meeting `meeting_id`, first first.
+/// Every capture of meeting `meeting_id`, in the order they joined it, the first first.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -215,11 +281,75 @@ pub async fn summaries_of(
     meeting_captures::table
         .filter(meeting_captures::meeting_id.eq(meeting_id))
         .order((
-            meeting_captures::created_at.asc(),
+            meeting_captures::joined_at.asc(),
             meeting_captures::id.asc(),
         ))
         .select(CaptureSummary::as_select())
         .load(connection)
+        .await
+}
+
+/// Places capture `id` `offset_ms` from its meeting's clock, found as `source` says.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_offset(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    offset_ms: i64,
+    source: OffsetSource,
+) -> QueryResult<MeetingCapture> {
+    diesel::update(meeting_captures::table.find(id))
+        .set((
+            meeting_captures::offset_ms.eq(offset_ms),
+            meeting_captures::offset_source.eq(source.as_str()),
+        ))
+        .returning(MeetingCapture::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Where a capture sits: its meeting, when it joined it, and its offset onto the meeting's clock,
+/// as a merge moves it and a split puts it back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Placement {
+    pub meeting_id: Uuid,
+    pub joined_at: DateTime<Utc>,
+    pub offset_ms: i64,
+    pub offset_source: OffsetSource,
+}
+
+impl MeetingCapture {
+    /// Where it sits now.
+    pub fn placement(&self) -> Placement {
+        Placement {
+            meeting_id: self.meeting_id,
+            joined_at: self.joined_at,
+            offset_ms: self.offset_ms,
+            offset_source: self.offset_source(),
+        }
+    }
+}
+
+/// Moves capture `id` to where `placement` says.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn place(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    placement: Placement,
+) -> QueryResult<MeetingCapture> {
+    diesel::update(meeting_captures::table.find(id))
+        .set((
+            meeting_captures::meeting_id.eq(placement.meeting_id),
+            meeting_captures::joined_at.eq(placement.joined_at),
+            meeting_captures::offset_ms.eq(placement.offset_ms),
+            meeting_captures::offset_source.eq(placement.offset_source.as_str()),
+        ))
+        .returning(MeetingCapture::as_returning())
+        .get_result(connection)
         .await
 }
 

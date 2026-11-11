@@ -21,6 +21,7 @@ import { ActionItemManagerAssignment } from './ActionItemManagerAssignment'
 import { ActionItemSessions } from './ActionItemSessions'
 import { MeetingReviewLink } from './MeetingReviewLink'
 import { RestoreActionItemButton } from './RestoreActionItemButton'
+import { SameMeetingPanel } from './SameMeetingPanel'
 import { SnoozeDateModal } from './SnoozeDateModal'
 
 // Misc
@@ -114,6 +115,7 @@ export function ActionItemView(props: Props) {
         <ActionItemLinks item={item} />
         <ActionItemManagerAssignment item={item} />
         {!isDeleted && <MeetingReviewLink itemId={item.id} />}
+        {!isDeleted && <SameMeetingPanel itemId={item.id} />}
         {!isDeleted && <ActionItemReply itemId={item.id} />}
         {!isDeleted && <ActionItemFollowUp item={item} />}
         <section className='relaxed'>

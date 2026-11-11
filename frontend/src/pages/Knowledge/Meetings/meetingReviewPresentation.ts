@@ -53,6 +53,9 @@ export const historySentenceKeys = {
   held: 'review.history.sentences.held',
   released: 'review.history.sentences.released',
   approved: 'review.history.sentences.approved',
+  offsetChanged: 'review.history.sentences.offsetChanged',
+  merged: 'review.history.sentences.merged',
+  split: 'review.history.sentences.split',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -72,7 +75,9 @@ export type HistoryRow = {
 // Long enough to recognize a phrase, short enough for a narrow lane.
 const QUOTE_MAX_CHARACTERS = 60
 
-const UNDOABLE_KINDS = new Set([ 'edited', 'marked', 'unmarked', 'hold_changed' ])
+// A merge and a split are in both meetings' histories, and undone from the one the recordings went
+// into, by splitting them back out, so the list offers no Undo for either.
+const UNDOABLE_KINDS = new Set([ 'edited', 'marked', 'unmarked', 'hold_changed', 'offset_changed' ])
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
 // build reads.
@@ -142,6 +147,13 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
         return row
       case 'correction_approved':
         row.sentence = 'approved'
+        return row
+      case 'offset_changed':
+        row.sentence = 'offsetChanged'
+        return row
+      case 'merged':
+      case 'split':
+        row.sentence = entry.kind
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

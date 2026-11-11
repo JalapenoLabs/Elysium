@@ -28,14 +28,6 @@ use crate::models::meeting_word;
 
 /// What a mark is. Stored as text, so a later kind needs no migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each kind is made by the issue that builds it: confidence (#239), excerpts and \
-                  black-outs (#241), tasks (#243), comments (#245), pins (#250)"
-    )
-)]
 pub enum MarkKind {
     /// How sure the transcript is of its words: a flag of the correcting agent's, or a range that
     /// changed.
