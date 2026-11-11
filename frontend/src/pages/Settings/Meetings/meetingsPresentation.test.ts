@@ -15,7 +15,6 @@ import {
   meetingSourcesOf,
   meetingStateChipColors,
   meetingStateLabelKeys,
-  transcriptText,
 } from './meetingsPresentation'
 
 describe('meeting states', () => {
@@ -103,13 +102,3 @@ describe('correctionStatusOf', () => {
   })
 })
 
-describe('transcriptText', () => {
-  it('reads one line per transcript line, at its time, with its speaker when it names one', () => {
-    const text = transcriptText([
-      { startMs: 61_000, endMs: 64_000, speaker: 'Ada', text: 'Launch is\nFriday.' },
-      { startMs: 3_723_000, endMs: 3_725_000, speaker: '', text: '  Heard by Whisper ' },
-    ])
-
-    expect(text).toBe('[1:01] Ada: Launch is Friday.\n[1:02:03] Heard by Whisper')
-  })
-})

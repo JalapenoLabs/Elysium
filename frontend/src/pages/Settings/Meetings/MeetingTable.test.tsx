@@ -90,7 +90,7 @@ describe('MeetingTable', () => {
     renderTable([ makeMeeting({ id: 'linked', title: 'Design review', url: 'https://app.fireflies.ai/view/1' }) ])
 
     const title = screen.getByText('Design review').closest('a')
-    expect(title?.getAttribute('href')).toBe('/settings/meetings/linked')
+    expect(title?.getAttribute('href')).toBe('/knowledge/meetings/linked')
     expect(title?.getAttribute('target')).toBeNull()
     const source = screen.getByRole('link', { name: 'Fireflies' })
     expect(source.getAttribute('href')).toBe('/settings/connectors/connector-1')

@@ -87,13 +87,6 @@ impl MeetingEvent {
     }
 
     /// The change it undid, when it is an undo.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the meeting's page shows what each undo undid (#234)"
-        )
-    )]
     pub fn undid(&self) -> Option<Uuid> {
         self.data
             .get("undid")
@@ -181,10 +174,6 @@ pub async fn find(
 ///
 /// # Errors
 /// Propagates any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the meeting's page lists its history (#234)")
-)]
 pub async fn history(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
