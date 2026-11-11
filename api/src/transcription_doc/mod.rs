@@ -134,7 +134,7 @@ pub async fn hint_words(connection: &mut AsyncPgConnection) -> QueryResult<Vec<S
 fn hints(entries: &[Entry], people: &str, glossary: &str) -> Vec<String> {
     let mut by_strength: Vec<&Entry> = entries.iter().collect();
     // A stable sort keeps the doc's own order among entries heard as often.
-    by_strength.sort_by_key(|entry| std::cmp::Reverse(entry.meetings.len()));
+    by_strength.sort_by_key(|entry| std::cmp::Reverse(entry.heard_in));
     let terms = by_strength
         .into_iter()
         .map(|entry| entry.written.trim().to_owned())
@@ -315,6 +315,7 @@ mod tests {
                     title: "Standup".to_owned(),
                 })
                 .collect(),
+            heard_in: meetings,
         }
     }
 

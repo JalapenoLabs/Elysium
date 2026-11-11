@@ -886,7 +886,8 @@ and the Company page), is the one source of truth for how the company's speech i
 
 - **Its entries** are a table, `| Heard | Is | Sources | Speakers | Meetings |`: what was heard, what it is, the
   transcripts that heard it so (a source such as Teams, or Whisper), who was speaking, and links to the ten newest
-  meetings it was heard in. Below it, **What it taught itself** lists each entry Elysium added or heard again, newest
+  meetings it was heard in, then how many more ("and 42 more"), which is what its entries are ordered by wherever they
+  are read. A meeting taught again after its link fell off counts again, since the doc keeps no longer list. Below it, **What it taught itself** lists each entry Elysium added or heard again, newest
   first, each with when, where, and why, for a person to review and prune. The hundred newest stay on the page; every
   older one is in its versions.
 - **It teaches itself, live at once.** A person's edit on a meeting's page that only fixes words, as a correction's text

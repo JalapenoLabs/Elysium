@@ -268,7 +268,7 @@ fn transcription_text(entries: &[Entry]) -> String {
     }
     let mut by_strength: Vec<&Entry> = entries.iter().collect();
     // A stable sort keeps the doc's own order among entries heard as often.
-    by_strength.sort_by_key(|entry| std::cmp::Reverse(entry.meetings.len()));
+    by_strength.sort_by_key(|entry| std::cmp::Reverse(entry.heard_in));
     let mut text = String::new();
     let mut shown = 0;
     for entry in &by_strength {
@@ -279,7 +279,7 @@ fn transcription_text(entries: &[Entry]) -> String {
         if !entry.speakers.is_empty() {
             let _ = write!(line, ", when {} spoke", entry.speakers.join(" or "));
         }
-        let _ = writeln!(line, ", in {} meetings", entry.meetings.len());
+        let _ = writeln!(line, ", in {} meetings", entry.heard_in);
         if text.len() + line.len() > TRANSCRIPTION_BUDGET_BYTES {
             break;
         }

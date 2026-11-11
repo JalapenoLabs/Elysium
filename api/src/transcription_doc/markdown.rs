@@ -10,7 +10,8 @@
 //!
 //! - **The entries**, a table whose header starts `| Heard | Is |`: one row per misheard word or
 //!   phrase, `| Heard | Is | Sources | Speakers | Meetings |`. Sources and speakers are lists
-//!   separated by commas; meetings are links to each meeting's page, newest first.
+//!   separated by commas; meetings are links to the newest meetings' pages, newest first, then how
+//!   many more it was heard in, as "and 42 more", so how often it is heard outlives the links.
 //! - **What it taught itself**, the bullets under the heading `## What it taught itself`, newest
 //!   first: one for each entry Elysium added or heard again, with when, where, and why.
 //!
@@ -35,8 +36,8 @@ const ENTRIES_HEADING: &str = "## Entries";
 const TABLE_HEADER: &str = "| Heard | Is | Sources | Speakers | Meetings |";
 const TABLE_DIVIDER: &str = "| --- | --- | --- | --- | --- |";
 
-/// The most meetings one entry links, newest first: enough to show it is heard often and to open a
-/// few, few enough that a name heard in every meeting keeps a readable row.
+/// The most meetings one entry links, newest first: enough to open a few, few enough that a name
+/// heard in every meeting keeps a readable row. Older ones are counted, not linked.
 const MEETINGS_SHOWN: usize = 10;
 
 /// The most bullets the self-taught list keeps, newest first. Every change is also a version of the
@@ -58,8 +59,12 @@ pub struct Entry {
     pub sources: Vec<String>,
     /// Who was speaking when it was heard so.
     pub speakers: Vec<String>,
-    /// The meetings it was heard in, newest first.
+    /// The newest meetings it was heard in, newest first, at most [`MEETINGS_SHOWN`] of them.
     pub meetings: Vec<MeetingLink>,
+    /// How many meetings it was heard in: those linked, and the older ones its cell counts. What
+    /// the doc's readers sort its entries by, since the links stop at [`MEETINGS_SHOWN`]. A meeting
+    /// taught again once its link has fallen off counts again, as the doc keeps no longer list.
+    pub heard_in: usize,
 }
 
 /// A meeting an entry was heard in, as its Meetings cell links it.
@@ -130,6 +135,7 @@ pub fn teach(body: &str, lessons: &[Lesson], day: NaiveDate) -> String {
             sources: Vec::new(),
             speakers: Vec::new(),
             meetings: Vec::new(),
+            heard_in: 0,
         };
         strengthen(&mut entry, lesson);
         let at = sorted_place(&lines, rows, &written_key);
@@ -218,8 +224,8 @@ fn sorted_place(lines: &[String], rows: Range<usize>, written_key: &str) -> usiz
         .unwrap_or(rows.end)
 }
 
-/// Adds what `entry` lacks of `lesson`: its source, its speaker, and its meeting, first. Answers
-/// whether it added anything.
+/// Adds what `entry` lacks of `lesson`: its source, its speaker, and its meeting, first, counted in
+/// [`Entry::heard_in`]. Answers whether it added anything.
 fn strengthen(entry: &mut Entry, lesson: &Lesson) -> bool {
     let mut changed = false;
     for (list, value) in [
@@ -245,6 +251,7 @@ fn strengthen(entry: &mut Entry, lesson: &Lesson) -> bool {
     {
         entry.meetings.insert(0, lesson.meeting.clone());
         entry.meetings.truncate(MEETINGS_SHOWN);
+        entry.heard_in += 1;
         changed = true;
     }
     changed
@@ -391,13 +398,36 @@ fn parse_row(line: &str) -> Option<Entry> {
             })
             .unwrap_or_default()
     };
+    let meetings_cell = cells.get(4).map_or("", String::as_str);
+    let meetings = links_in(meetings_cell);
+    let heard_in = meetings.len() + counted_in(meetings_cell);
     Some(Entry {
         heard: heard.clone(),
         written: written.clone(),
         sources: list(2),
         speakers: list(3),
-        meetings: cells.get(4).map(|cell| links_in(cell)).unwrap_or_default(),
+        meetings,
+        heard_in,
     })
+}
+
+/// How many meetings past its links `cell` counts: the number of its "and 42 more", or none.
+fn counted_in(cell: &str) -> usize {
+    // Only what follows the last link, so a number in a meeting's title is never read as one.
+    let after_links = cell.rfind(')').map_or(cell, |close| &cell[close + 1..]);
+    let words: Vec<&str> = after_links
+        .split(|character: char| character.is_whitespace() || character == ',')
+        .filter(|word| !word.is_empty())
+        .collect();
+    words
+        .windows(2)
+        .find_map(|pair| {
+            if !pair[1].eq_ignore_ascii_case("more") {
+                return None;
+            }
+            pair[0].parse::<usize>().ok()
+        })
+        .unwrap_or(0)
 }
 
 /// Every link to a meeting's page in `cell`, in order, each meeting once.
@@ -455,12 +485,16 @@ fn render_row(entry: &Entry) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let meetings = entry
+    let mut meetings = entry
         .meetings
         .iter()
         .map(link)
         .collect::<Vec<_>>()
         .join(", ");
+    let more = entry.heard_in.saturating_sub(entry.meetings.len());
+    if more > 0 {
+        let _ = write!(meetings, ", and {more} more");
+    }
     format!(
         "| {} | {} | {} | {} | {} |",
         cell(&entry.heard),
@@ -543,6 +577,7 @@ mod tests {
                 sources: vec!["Teams".to_owned()],
                 speakers: vec!["Ada Lovelace".to_owned()],
                 meetings: vec![sync.clone()],
+                heard_in: 1,
             }]
         );
         assert!(
@@ -708,11 +743,30 @@ mod tests {
             );
         }
         newest.truncate(MEETINGS_SHOWN);
-        assert_eq!(
-            entries(&body)[0].meetings,
-            newest,
-            "titles keep their brackets"
+        let entry = &entries(&body)[0];
+        assert_eq!(entry.meetings, newest, "titles keep their brackets");
+        // #269 review: the meetings past the links are counted, so how often it is heard outlives
+        // them.
+        assert_eq!(entry.heard_in, MEETINGS_SHOWN + 2);
+        assert!(body.contains(", and 2 more |"), "{body}");
+    }
+
+    #[test]
+    fn a_meetings_count_reads_only_past_the_links_and_never_falls_below_them() {
+        let link = format!(
+            "[Q3 and 7 more plans]({MEETING_PAGE_PATH}{})",
+            Uuid::now_v7()
         );
+        let row = |meetings: &str| format!("| Sheriff | Sharath | Teams | Ada | {meetings} |");
+
+        let counted = parse_row(&row(&format!("{link}, and 41 more"))).expect("a row");
+        assert_eq!(counted.heard_in, 42);
+        let titled = parse_row(&row(&link)).expect("a row");
+        assert_eq!(titled.heard_in, 1, "a title's number is no count");
+        let unlinked = parse_row(&row("and 5 more")).expect("a row");
+        assert_eq!(unlinked.heard_in, 5);
+        let empty = parse_row(&row("")).expect("a row");
+        assert_eq!(empty.heard_in, 0);
     }
 
     #[test]

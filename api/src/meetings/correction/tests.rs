@@ -67,6 +67,7 @@ fn entry(heard: &str, written: &str, meetings: usize) -> Entry {
                 title: "Standup".to_owned(),
             })
             .collect(),
+        heard_in: meetings,
     }
 }
 
