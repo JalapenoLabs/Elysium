@@ -4,6 +4,9 @@ import type { ParseKeys } from 'i18next'
 import type { Connector, ConnectorKind, ConnectorKindDefinition } from '../../../api/routes/connectorRoutes'
 import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 
+// Misc
+import { CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
+
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
 // Where a meeting's corrected transcript stands: not corrected yet, its run held for the
@@ -70,4 +73,21 @@ export function meetingSourcesOf(definitions: ConnectorKindDefinition[], connect
 
   const connected = connectors.filter((connector) => kinds.includes(connector.kind))
   return { kinds, connectors: connected } as const
+}
+
+// The connector kind a meeting's source is, when it is one. A source that is no connector, such
+// as an upload, or a kind this build does not know yet, is none.
+export function connectorKindOf(sourceKind: string) {
+  return CONNECTOR_KINDS.find((kind) => kind === sourceKind) ?? null
+}
+
+// What a meeting's source is called: its connector kind's name, or a plain name for any source
+// that is no connector this build knows.
+export function meetingSourceNameKey(sourceKind: string): ParseKeys<[ 'meetings', 'connectors' ]> {
+  const kind = connectorKindOf(sourceKind)
+  if (!kind) {
+    console.debug('meetingSourceNameKey found a source that is no connector kind', { sourceKind })
+    return 'meetings:sources.other'
+  }
+  return `connectors:kinds.${kind}.name`
 }

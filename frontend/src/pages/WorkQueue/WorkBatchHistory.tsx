@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { formatShortDateTime } from '../../format/dates'
 import { listFormat } from '../../format/intl'
 import { useUserNames } from '../../hooks/useUserNames'
+import { autonomyLabelKeys } from '../Projects/projectAutonomyPresentation'
 import { batchPriorityLabelKeys } from '../Projects/projectManagerPresentation'
 import { describeHistoryEntry, editedFieldLabelKeys } from './workQueuePresentation'
 
@@ -17,7 +18,8 @@ type Props = {
   history: WorkBatchHistoryEntry[]
 }
 
-// Everything that happened to a batch, oldest first: who submitted it, who approved it and what
+// Everything that happened to a batch, oldest first: who submitted it, and the level of autonomy
+// that let it queue at once when one did, who approved it and what
 // they changed first, or who rejected it, every change a person, Elysia, or its Project Manager
 // made while it waited, and each move the pool and its worker made, with the words that came with
 // it beneath its line: why it was cancelled or rejected, what its worker waits for, or the answer
@@ -55,6 +57,9 @@ export function WorkBatchHistory(props: Props) {
           fields: listFormat({ type: 'conjunction' }).format(
             described.edited.map((field) => t(editedFieldLabelKeys[field])),
           ),
+          level: described.queuedAt
+            ? projectsTranslation.t(autonomyLabelKeys[described.queuedAt])
+            : '',
         })
       }
       if (entry.kind === 'finished' && described.succeeded === false) {

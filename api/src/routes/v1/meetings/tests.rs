@@ -22,6 +22,7 @@ use crate::models::storage_location::{
     self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
 };
 use crate::models::user::SYSTEM_USER_ID;
+use crate::realtime::EventBus;
 use crate::routes;
 use crate::storage::tests::{Files, PASSWORD, StoredFile, fake_storage};
 use crate::test_support::{
@@ -80,7 +81,9 @@ async fn execute(connection: &mut AsyncPgConnection, statement: String) {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn an_edit_answers_what_it_did_and_its_undo_puts_the_words_back() {
     let (url, mut connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    state.events = EventBus::in_process();
+    let mut heard = state.events.subscribe();
     let (capture, words) = built_meeting(
         &mut connection,
         &[("Ada", "Launch is Fryday."), ("Grace", "Agreed.")],
@@ -128,6 +131,18 @@ async fn an_edit_answers_what_it_did_and_its_undo_puts_the_words_back() {
     assert_eq!(marks.len(), 1, "the edit's own mark: {marks:?}");
     assert_eq!(marks[0]["kind"], "edit");
     assert_eq!(marks[0]["agent"], Value::Null);
+
+    // Announced with the entry it recorded, so the page that made it skips reading it again, and
+    // never with what the meeting says.
+    let payload = heard.try_recv().expect("the edit is announced");
+    assert!(
+        !payload.contains("Friday"),
+        "never what a meeting says: {payload}"
+    );
+    let event: Value = serde_json::from_str(&payload).expect("JSON");
+    assert_eq!(event["type"], "meeting.changed");
+    assert_eq!(event["data"]["id"], json!(meeting_id));
+    assert_eq!(event["data"]["entryId"], edited["entry"]["id"]);
 
     let (_, read) = send(
         &state,

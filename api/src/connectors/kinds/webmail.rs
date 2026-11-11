@@ -193,5 +193,5 @@ pub async fn create(
             kind.as_str()
         )));
     }
-    super::browser::create(state, current, kind, content).await
+    super::browser::create(state, current, kind, content, None).await
 }

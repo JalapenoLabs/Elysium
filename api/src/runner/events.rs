@@ -226,6 +226,29 @@ const REJECTED_PHRASES: &[&str] = &[
     "please run /login",
 ];
 
+/// Phrases for a prompt past the model's context, matched lowercase: the CLI's own "Prompt is
+/// too long", and the API's wording for the same, which the CLI recognizes as well.
+const PROMPT_TOO_LONG_PHRASES: &[&str] = &[
+    "prompt is too long",
+    "input is too long for requested model",
+];
+
+impl TurnOutcome {
+    /// Whether the turn failed because its prompt is past the model's context. Another attempt at
+    /// the same prompt fails the same way, so a caller that builds its prompt from what is stored
+    /// fails for good rather than retrying.
+    pub fn prompt_too_long(&self) -> bool {
+        let Some(error) = self.error.as_deref() else {
+            return false;
+        };
+        let lowered = error.to_lowercase();
+        self.status == TurnStatus::Failed
+            && PROMPT_TOO_LONG_PHRASES
+                .iter()
+                .any(|phrase| lowered.contains(phrase))
+    }
+}
+
 /// Reads one turn attempt's output line by line.
 #[derive(Debug, Default)]
 pub struct StreamParser {

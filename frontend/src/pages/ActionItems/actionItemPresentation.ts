@@ -6,6 +6,7 @@ import type {
   ActionItemPriority,
   ActionItemState,
   ActionItemTransition,
+  ManagerPlanStage,
 } from '../../api/routes/actionItemRoutes'
 import type { IconType } from 'react-icons'
 import type { SnoozePreset } from './actionItemDates'
@@ -28,6 +29,21 @@ export const stateChipColors = {
   resolved: 'success',
   dismissed: 'default',
 } as const satisfies Record<ActionItemState, ChipColor>
+
+// Where the Project Manager is with an item assigned to it.
+export const managerStageLabelKeys = {
+  waiting: 'manager.stages.waiting',
+  planning: 'manager.stages.planning',
+  planned: 'manager.stages.planned',
+  failed: 'manager.stages.failed',
+} as const satisfies Record<ManagerPlanStage, ParseKeys<'actionItems'>>
+
+export const managerStageChipColors = {
+  waiting: 'default',
+  planning: 'accent',
+  planned: 'success',
+  failed: 'danger',
+} as const satisfies Record<ManagerPlanStage, ChipColor>
 
 export const priorityLabelKeys = {
   urgent: 'priorities.urgent',

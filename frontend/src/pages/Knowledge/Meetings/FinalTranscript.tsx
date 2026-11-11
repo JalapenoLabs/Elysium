@@ -92,6 +92,12 @@ export function FinalTranscript(props: Props) {
   // too. Captured, that click lands on the transcript rather than a word, so it is let pass.
   const isAnswered = useRef(false)
 
+  // A press on a word gives the transcript focus, which a canceled press never moves on its own,
+  // so its keys (`useReviewHotkeys`) answer for it and for nothing else on the page.
+  function focusTranscript() {
+    containerRef.current?.focus({ preventScroll: true })
+  }
+
   function startDrag(event: ReactPointerEvent<HTMLDivElement>) {
     isAnswered.current = false
     // A finger scrolls; it picks with a tap instead, and Shift+click extends with a click.
@@ -103,6 +109,7 @@ export function FinalTranscript(props: Props) {
       return
     }
     event.preventDefault()
+    focusTranscript()
     drag.current = { pointerId: event.pointerId, anchor: index, focus: index }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -152,7 +159,11 @@ export function FinalTranscript(props: Props) {
     ref={containerRef}
     role='document'
     aria-label={t('review.transcriptLabel')}
-    className='relative select-none'
+    // Where its keys apply (`useReviewHotkeys`). Its floating bar is inside it, so a pill pressed
+    // there still moves on with Tab. It takes focus from a press, never from Tab.
+    data-review-keys=''
+    tabIndex={-1}
+    className='relative select-none outline-none'
     onPointerDown={startDrag}
     onPointerMove={moveDrag}
     onPointerUp={endDrag}
@@ -166,6 +177,7 @@ export function FinalTranscript(props: Props) {
       if (index === null || props.isEditing) {
         return
       }
+      focusTranscript()
       props.onPick(index, event.shiftKey)
     }}
   >

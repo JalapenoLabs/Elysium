@@ -14,6 +14,7 @@ import { OptionSelect } from '../../../components/OptionSelect'
 import { PlayerWaveform } from './PlayerWaveform'
 
 // Misc
+import { meetingSourceNameKey } from '../../Settings/Meetings/meetingsPresentation'
 import { pixelsOf, placementAt } from './meetingPlayer'
 import { usePlayerPlacement } from './usePlayerPlacement'
 
@@ -172,7 +173,7 @@ export function MeetingPlayer(props: Props) {
 
   const options = captureLabels(
     player.playable,
-    (capture) => t(`connectors:kinds.${capture.sourceKind}.name`),
+    (capture) => t(meetingSourceNameKey(capture.sourceKind)),
   )
 
   return <div
@@ -186,9 +187,13 @@ export function MeetingPlayer(props: Props) {
       ref={boxRef}
       role='region'
       aria-label={t('review.player.label')}
+      // Where Space and the arrows play, as on the transcript (`useReviewHotkeys`). It takes focus
+      // from a press on its controls, never from Tab.
+      data-player-keys=''
+      tabIndex={-1}
       className={isFloating
-        ? 'fixed z-30 w-72 rounded-xl border border-border bg-overlay p-1.5 shadow-2xl sm:w-80'
-        : 'w-full'}
+        ? 'fixed z-30 w-72 rounded-xl border border-border bg-overlay p-1.5 shadow-2xl outline-none sm:w-80'
+        : 'w-full outline-none'}
       style={floatingStyle}
     >
       {isFloating && <div
@@ -220,11 +225,12 @@ export function MeetingPlayer(props: Props) {
           className='absolute inset-0 size-full'
           {...player.mediaHandlers}
           // Focused, a browser's own controls keep every key, and every press, from the page, so
-          // the arrows would stop jumping. A mouse that focuses them hands focus back; a keyboard
-          // that tabs into them, which shows its focus, keeps them.
+          // the arrows would stop jumping. A mouse that focuses them hands focus to the player
+          // around them, where Space and the arrows play (`useReviewHotkeys`); a keyboard that tabs
+          // into them, which shows its focus, keeps them.
           onFocus={(event) => {
             if (!event.currentTarget.matches(':focus-visible')) {
-              event.currentTarget.blur()
+              boxRef.current?.focus({ preventScroll: true })
             }
           }}
         />

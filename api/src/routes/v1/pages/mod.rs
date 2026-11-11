@@ -73,7 +73,7 @@ use crate::models::page_attachment::{self, PageAttachment};
 use crate::models::page_label;
 use crate::models::page_project;
 use crate::page_attachments::{self, MAX_ATTACHMENT_BYTES};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
@@ -143,6 +143,8 @@ pub struct PageResponse {
     proposal_only: bool,
     /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
     fixed: bool,
+    /// The project whose brief it is, which it stays linked to; `null` for every other page.
+    brief_project_id: Option<Uuid>,
     /// The labels it carries, in order. No part of a version.
     labels: Vec<String>,
     /// The files it holds, the oldest first. No part of a version.
@@ -176,7 +178,8 @@ impl PageResponse {
             id: page.id,
             parent_id: page.parent_id,
             position: page.position,
-            fixed: page::is_fixed(page.id),
+            fixed: page.is_fixed(),
+            brief_project_id: page.brief_project_id,
             title: page.title,
             body: page.body,
             category: page.category,
@@ -247,6 +250,8 @@ pub struct PageSummaryResponse {
     current_version: i32,
     /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
     fixed: bool,
+    /// The project whose brief it is, which it stays linked to; `null` for every other page.
+    brief_project_id: Option<Uuid>,
     /// The labels it carries, in order: all a client needs to filter the tree, list a label's
     /// pages, and suggest the labels in use.
     labels: Vec<String>,
@@ -257,7 +262,8 @@ pub struct PageSummaryResponse {
 impl PageSummaryResponse {
     pub fn new(page: PageSummary, labels: Vec<String>) -> Self {
         Self {
-            fixed: page::is_fixed(page.id),
+            fixed: page.is_fixed(),
+            brief_project_id: page.brief_project_id,
             id: page.id,
             parent_id: page.parent_id,
             position: page.position,
@@ -491,13 +497,18 @@ pub fn announce(events: &EventBus, changed: &[Uuid], learnings: &[Uuid]) {
     }
 }
 
-/// Announces every page a write changed, and answers the page it left.
+/// Announces every page a write changed, and the Project Manager it woke, and answers the page it
+/// left.
 async fn answer(
     events: &EventBus,
     connection: &mut AsyncPgConnection,
     recorded: Recorded,
 ) -> Result<PageResponse, ApiError> {
     announce(events, &recorded.changed, &recorded.learnings);
+    if let Some(project_id) = recorded.woke {
+        events.publish(&ServerEvent::ProjectManagerChanged { project_id });
+        events.signal(&Signal::ProjectManagers);
+    }
     response(connection, recorded.page).await
 }
 

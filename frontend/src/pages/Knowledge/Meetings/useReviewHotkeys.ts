@@ -69,13 +69,28 @@ function ownsKeys(target: EventTarget | null) {
   return isWithin(target, OWNS_KEYS_SELECTOR)
 }
 
+// Where the transcript's own keys apply: the transcript and its floating bar, which carry
+// `data-review-keys`. A press on a word gives the transcript focus (`FinalTranscript`), so a key
+// pressed after it lands there. Anywhere else (a button in the lane, the topbar, the page before
+// any word was pressed) Tab moves focus, E is a letter, and Ctrl+C copies, as everywhere.
+function isOnTranscript(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('[data-review-keys]'))
+}
+
+// Where Space and the arrows play the meeting: the transcript, and the player, which carries
+// `data-player-keys` and takes focus from a press on its own controls (`MeetingPlayer`). A press on
+// the player is not a press on the transcript, so E, Tab, and Ctrl+C keep their usual meaning there.
+function isOnPlayback(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('[data-review-keys], [data-player-keys]'))
+}
+
 // The keys of a meeting's page (docs/frontend.md, Hotkeys), outside a text field and while no
-// dialog or menu is open: Esc clears what is picked, E edits the words selected, Tab moves between
-// the marks under the word clicked, Space plays and pauses, the left and right arrows jump back
-// and forward, Ctrl+Z (Cmd+Z) undoes the page's last change, and Ctrl+C copies the words selected.
-// They listen as the key travels down, so Esc is used here before the page's own Esc goes up a
-// level, which a used key never does (`readPageShortcut`), and Space and the arrows before the
-// player's own controls take them, so they mean the same wherever focus is.
+// dialog or menu is open: Esc clears what is picked and Ctrl+Z (Cmd+Z) undoes the page's last
+// change; on the transcript or the player (`isOnPlayback`), Space plays and pauses and the left and
+// right arrows jump back and forward; and on the transcript alone (`isOnTranscript`), E edits the
+// words selected, Tab moves between the marks under the word clicked, and Ctrl+C copies the words
+// selected. They listen as the key travels down, so Esc is used here before the page's own Esc goes
+// up a level, which a used key never does (`readPageShortcut`).
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {
@@ -95,12 +110,7 @@ export function useReviewHotkeys(handlers: Handlers) {
       event.preventDefault()
       return
     }
-    if (event.key === 'Tab' && handlers.onCycleMark(event.shiftKey ? -1 : 1)) {
-      event.preventDefault()
-      return
-    }
-    if (event.key.toLowerCase() === 'e' && !event.shiftKey && !event.repeat && handlers.onEdit()) {
-      event.preventDefault()
+    if (!isOnPlayback(event.target)) {
       return
     }
     if (event.key === ' ' && !event.shiftKey && !isWithin(event.target, PRESSES_SPACE_SELECTOR)) {
@@ -112,11 +122,25 @@ export function useReviewHotkeys(handlers: Handlers) {
     const step = jumpStepByKey[event.key]
     if (step && !event.shiftKey && !isWithin(event.target, MOVES_ON_ARROWS_SELECTOR) && handlers.onJump(step)) {
       event.preventDefault()
+      return
+    }
+    if (!isOnTranscript(event.target)) {
+      return
+    }
+    if (event.key === 'Tab' && handlers.onCycleMark(event.shiftKey ? -1 : 1)) {
+      event.preventDefault()
+      return
+    }
+    if (event.key.toLowerCase() === 'e' && !event.shiftKey && !event.repeat && handlers.onEdit()) {
+      event.preventDefault()
     }
   })
 
   const onCopy = useEffectEvent((event: ClipboardEvent) => {
-    if (ownsKeys(event.target) || !event.clipboardData) {
+    // A copy is aimed at the selection, which the transcript never holds (it draws its own), so
+    // whose copy it is is read from focus: one meant for text in the lane copies that text.
+    const focused = document.activeElement
+    if (ownsKeys(focused) || !isOnTranscript(focused) || !event.clipboardData) {
       return
     }
     const text = handlers.selectedText()

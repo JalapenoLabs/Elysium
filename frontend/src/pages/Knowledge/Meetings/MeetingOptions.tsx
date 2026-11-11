@@ -14,6 +14,7 @@ import { MeetingActions } from './MeetingActions'
 // Misc
 import { formatDuration, formatMediaPosition } from '../../../format/durations'
 import { formatNumber } from '../../../format/numbers'
+import { meetingSourceNameKey } from '../../Settings/Meetings/meetingsPresentation'
 import { markKindLabelKeys } from './meetingReviewPresentation'
 import { DRAWN_MARK_KINDS } from './meetingTranscript'
 
@@ -80,7 +81,7 @@ export function MeetingOptions(props: Props) {
         </ToggleButton>
         {props.captures.map((capture) => <ToggleButton key={capture.id} id={capture.id}>
           <ToggleButtonGroup.Separator />
-          <span>{t(`connectors:kinds.${capture.sourceKind}.name`)}</span>
+          <span>{t(meetingSourceNameKey(capture.sourceKind))}</span>
         </ToggleButton>)}
       </ToggleButtonGroup>
     </div>

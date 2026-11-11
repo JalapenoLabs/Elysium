@@ -19,6 +19,17 @@ const MOORESLAB = {
   user_id: 'U0ME',
 }
 
+// Slack's CORS rule for a workspace host, as the browser applies it: a credentialed call from
+// app.slack.com is answered with `Access-Control-Allow-Origin: *` unless it carries the web
+// client's `_x_gantry` marker, and the browser refuses `*` alongside cookies, which the page
+// sees as `fetch` throwing.
+function refuseAsSlackDoes(url, init) {
+  const address = new URL(String(url))
+  if (init.credentials === 'include' && address.searchParams.get('_x_gantry') !== 'true') {
+    throw new TypeError('Failed to fetch')
+  }
+}
+
 // Runs slack.js as the page would, with `request` in place of its argument. `answer` is the
 // fake web API: given the address and form fields of a call, it answers Slack's JSON.
 async function evaluate(request, { teams, answer = () => ({ ok: true }) }) {
@@ -29,6 +40,7 @@ async function evaluate(request, { teams, answer = () => ({ ok: true }) }) {
       : null),
   }
   const fetch = async (url, init) => {
+    refuseAsSlackDoes(url, init)
     const fields = Object.fromEntries(init.body.entries())
     calls.push({ url: String(url), fields, credentials: init.credentials })
     const body = await answer(String(url), fields)
@@ -57,8 +69,8 @@ test('counts are asked of every workspace, with its own session, at its own host
 
   assert.equal(result.signedIn, true)
   assert.deepEqual(result.teams.map((team) => [ team.id, team.userId, team.counts.asked ]), [
-    [ 'T1', 'U0ME', 'https://mooreslab.slack.com/api/client.counts' ],
-    [ 'T2', 'U0ME', 'https://jalapeno.slack.com/api/client.counts' ],
+    [ 'T1', 'U0ME', 'https://mooreslab.slack.com/api/client.counts?_x_gantry=true&slack_route=T1' ],
+    [ 'T2', 'U0ME', 'https://jalapeno.slack.com/api/client.counts?_x_gantry=true&slack_route=T2' ],
   ])
   assert.deepEqual(calls.map((call) => call.fields.token), [ 'xoxc-mooreslab', 'xoxc-j' ])
   assert.ok(calls.every((call) => call.credentials === 'include'))
@@ -88,7 +100,10 @@ test('calls carry their parameters, and only read methods are made', async () =>
   }, { teams: { T1: MOORESLAB }, answer: () => ({ ok: true, messages: [] }) })
 
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].url, 'https://mooreslab.slack.com/api/conversations.history')
+  assert.equal(
+    calls[0].url,
+    'https://mooreslab.slack.com/api/conversations.history?_x_gantry=true&slack_route=T1',
+  )
   assert.deepEqual(calls[0].fields, { token: 'xoxc-mooreslab', channel: 'C1', oldest: '1730000000.000100', limit: '100' })
   assert.deepEqual(result.results, [
     { ok: true, messages: [] },
@@ -111,4 +126,23 @@ test('a call the network refuses is answered as a failure, not thrown', async ()
   })
   assert.equal(result.results[0].ok, false)
   assert.equal(result.results[0].error, 'fetch_failed')
+})
+
+// Slack answered every credentialed call from app.slack.com with a wildcard origin, which the
+// browser refuses, so client.counts read as fetch_failed for every workspace. The calls carry
+// the web client's own marker, which Slack answers with app.slack.com's origin.
+test('every call is one Slack answers a credentialed cross-origin request for', async () => {
+  const { result, calls } = await evaluate({
+    counts: true,
+    calls: [ { team: 'T1', method: 'users.info', params: { user: 'U1' } } ],
+  }, { teams: { T1: MOORESLAB }, answer: () => ({ ok: true, channels: [] }) })
+
+  assert.equal(result.teams[0].counts.ok, true)
+  assert.equal(result.results[0].ok, true)
+  assert.equal(calls.length, 2)
+  for (const call of calls) {
+    const address = new URL(call.url)
+    assert.equal(address.searchParams.get('_x_gantry'), 'true')
+    assert.equal(address.searchParams.get('slack_route'), 'T1')
+  }
 })

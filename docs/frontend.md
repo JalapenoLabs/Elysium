@@ -502,10 +502,11 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
-| E, Tab, Esc     | A meeting's page, outside fields     | Edit the words selected, move between the marks under the word clicked, clear what is picked (see Meetings) |
-| Space           | A meeting's page with a recording, outside fields and controls | Plays and pauses, or plays the words selected |
-| Left, Right     | A meeting's page with a recording, outside fields, tabs, and sliders | Jumps ten seconds back or forward |
+| E, Tab, Ctrl+C  | A meeting's transcript, once pressed | Edit the words selected, move between the marks under the word clicked, copy them (see Meetings) |
+| Space           | A meeting's transcript or player, once pressed, with a recording | Plays and pauses, or plays the words selected |
+| Left, Right     | A meeting's transcript or player, once pressed, with a recording | Jumps ten seconds back or forward |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
+| Esc             | A meeting's page, with words picked  | Clears what is picked, before going up a level                  |
 
 - **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
   default), or, for a list that is not only a table, `ListSearchField`, whose table hides its own search
@@ -665,7 +666,8 @@ the GitHub token that reads it (`GithubTokenSelect` without a level to follow), 
 to the workspace settings by the page's Save (see `docs/coding.md`, `~/.claude`). `AgentConfigurationStatus` beneath
 shows the last fetch as `workspaceSettings.updated` brings it: why agents wait, if they do
 (`ConfigurationHoldAlert`), the commit with its subject and when, linked on github.com, what the checkout left out
-(`ConfigurationSkippedList`), and Fetch now. The same alert shows on the work queue, a queued batch's page, and a
+(`ConfigurationSkippedList`), and Fetch now, which waits for Save while the page has unsaved changes, since a fetch
+reads the saved repository and token. The same alert shows on the work queue, a queued batch's page, and a
 Project Manager with waiting work; a batch's page shows the commit its worker runs on (`WorkBatchConfiguration`).
 The list's Add LLM menu sits in its header.
 
@@ -958,25 +960,31 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 
 - **Data.** The transcript (`useMeetingWords`) and the history (`useMeetingHistory`) are read through SWR alone, since
   no other view shows them, and `meeting.changed` revalidates both. An edit or an undo answers what it did, which the
-  page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again.
+  page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
+  announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
+  nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
+  tab knows no such entry and reads the change as news.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
-- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: E, Tab, Esc,
-  Space, the left and right arrows, Ctrl+Z, and Ctrl+C. A key it uses is marked, so the page's own Esc never goes up a
-  level over a selection, and the player's own controls never take Space or an arrow too. Space is left to a button,
-  link, switch, or other control that has focus, which it presses, and the arrows to tabs, sliders, and radio groups
-  such as the pills, which they move through. Without a recording neither is used, so Space scrolls the page as ever.
-  The editor's Esc and Ctrl+Enter are its form's (`submitOnEnter`).
+- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: Esc and Ctrl+Z
+  anywhere on the page; Space and the left and right arrows while focus is in the transcript or the player
+  (`data-review-keys`, `data-player-keys`); and E, Tab, and Ctrl+C only while focus is in the transcript
+  (`data-review-keys`, which holds its floating bar). A press on a word gives the transcript focus (`tabIndex={-1}`,
+  never a Tab stop), since a press it cancels to drag moves no focus on its own; elsewhere Tab moves focus, E is a
+  letter, Space scrolls, and Ctrl+C copies, as always. Space is left to a button, link, switch, or other control that
+  has focus, which it presses, and the arrows to tabs, sliders, and radio groups such as the pills, which they move
+  through; without a recording neither is used. A key it uses is marked, so the page's own Esc never goes up a level
+  over a selection, and the player's own controls never take Space or an arrow too. The editor's Esc and Ctrl+Enter
+  are its form's (`submitOnEnter`).
 - **The player** (`MeetingPlayer`) is one `<video>` with the browser's own controls, kept mounted while it floats, so
   it never stops; floating is a class and a position, never a second element or a portal. A browser's own controls,
-  focused, keep every key and press from the page, so a mouse that focuses them hands focus back at once (one that is
-  not `:focus-visible`), and Space and the arrows mean the same after a click on them; a keyboard that tabs into them
-  keeps them, with the browser's own keys. Its media streams from the
+  focused, keep every key and press from the page, so a mouse that focuses them hands focus to the player around them
+  (`tabIndex={-1}`, never a Tab stop) when it is not `:focus-visible`, where Space and the arrows mean what they mean
+  on the transcript; a keyboard that tabs into them keeps them, with the browser's own keys. Its media streams from the
   API on Elysium's own origin, which the app's `default-src 'self'` allows with no `media-src` of its own. The waveform
-  listens through Web Audio
-  (`createMediaElementSource`), once per element for its life, and resumes its audio as playing starts, since a browser
-  starts Web Audio suspended until the page has been pressed.
+  listens through Web Audio (`createMediaElementSource`), once per element for its life, and resumes its audio as
+  playing starts, since a browser starts Web Audio suspended until the page has been pressed.
 
 ### Markdown
 
@@ -1183,16 +1191,23 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   written, so a filtered list survives opening an item and coming back. The page applies them itself, so a list that
   nothing matches says so while its tags stay to take a filter off. Selecting rows opens the floating selection bar
   (`useActionItemBulkActions`): Change state (Open, Resolved, Dismissed), Change priority, Snooze (the presets, Pick a
-  day, or End the snooze), Add to initiative, Remove from initiative, and Delete, at once with Undo; deleted items
-  Restore together. Each is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most
-  `ACTION_ITEM_BULK_MAX_ITEMS`; the answer lands in Redux at once (`actionItemsUpserted`), the toast counts what
-  changed, and a warning that stays names, by title, an item the change was refused for.
+  day, or End the snooze), Add to initiative, Remove from initiative, Assign to Project Manager (for the company's
+  members, a warning naming what no project leads), and Delete, at once with Undo; deleted items Restore together. Each
+  is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most `ACTION_ITEM_BULK_MAX_ITEMS`; the
+  answer lands in Redux at once (`actionItemsUpserted`), the toast counts what changed, and a warning that stays names,
+  by title, an item the change was refused for.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
   notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
   other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
   Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
-  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` holds priority, due date,
+  from the item, from the `codingSessions` slice, below its comments. `ActionItemManagerAssignment`, below its links and
+  for the company's members, assigns the item to its lead project's Project Manager or takes it back, says why an item
+  no project leads cannot be, and shows who assigned it and when, its stage, and the batches naming it, each opening its
+  page, with a link to the Project Manager tab (`getProjectManagerUrl`). Its plan is read through SWR
+  (`useManagerPlan`), never Redux, since only the item's page shows it, and `actionItem.upserted`,
+  `projectManager.changed`, and `workBatch.changed` read it again. An assigned item carries a "With its Project Manager"
+  badge (`ActionItemBadges`). `ActionItemDetailsPanel` holds priority, due date,
   projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
   routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
   each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them
@@ -1416,7 +1431,9 @@ start.
   its count, are Proposed (what waits for the person's approval, first because it is theirs to do, its count accented
   while above zero), Queued (in the order slots are handed out, each row with its place), Running (the batches holding
   slots, one waiting for its worker reading so), Scheduled (not yet due), and Paused. Each is a `WorkQueueTable`:
-  the title, linking to the batch's page, with Runs next on a batch asked to; its project, linking to the project; its
+  the title, linking to the batch's page, with Runs next on a batch asked to; Why, where its chain starts (the meeting,
+  mail, message, or issue that asked for it, or its first item), opening where it lives, with what kind it is beneath,
+  or Nothing named; its project, linking to the project; its
   priority with a scheduled one's time; its state; its origin, From a person or Found by an agent, the second in
   warning so found work stands out; its generation, how many batches led to it; and when it was submitted. Admins get
   Pool size in the header, linking to Settings, Worker pool.
@@ -1430,9 +1447,11 @@ start.
   Reject and Cancel are red.
 - **A batch.** `WorkBatchPage` shows its state, project, priority, origin, generation, the batches it was planned from
   (each linking to its page, once any led to it), when it was submitted, started, and finished, what its worker
-  reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`: the
-  messages sent to its Project Manager that called for it, each with who wrote it and when, the records that did,
-  each opening its knowledge base document, and the action items it works on), its
+  reported or why it was cancelled or rejected, its goal, its repositories, why it exists (`WorkBatchWhy`: its chain
+  as one list read top to bottom, each link with its kind and icon above and opening where it lives through
+  `ChainLinkTitle`, a record its knowledge base document, an issue its tracker and a pull request GitHub in a new tab,
+  a message the Project Manager tab; a record shows its quote and when, a message who sent it and when, a finding who
+  accepted it and when, and the batch itself reads as this batch; `chainPresentation.ts`, pure and tested beside), its
   history (`WorkBatchHistory`), each line naming who did it, an edit naming the fields it changed, and its worker's
   log; its header's Actions are the row's. A proposal leads with Approve as its primary action, with Edit and Reject
   in its Actions. A project's Work batches and Proposed tabs link each title here.
@@ -1478,8 +1497,14 @@ picks an image, shown in place until Save uploads it, with Keep the current cove
 single Add a cover image button. Beside Change cover, a Fit and Fill switch sets the project's `coverFit`, which every
 rendering of the cover follows. The controls show on hover or focus, and stay while a new cover waits. About, below
 the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
-Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
-uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
+Below the GitHub token, Autonomy (`ProjectAutonomyField`) is the project's trust dial (`docs/autonomy.md`, The dial):
+three cards in a `RadioGroup`, side by side and stacked on phones, each a level's name and what waits for the person
+at it, with a `help` saying found work waits in Findings at every level and a change applies to what comes next.
+Beneath it, who set the saved level and when, read from SWR alone (`getProjectAutonomyKey`) and revalidated by
+`project.upserted`, or that every project starts at Approve every batch. It is a field of the page's form like the
+others; a guest sees it, and who set it, disabled, saying only members change it. Save sends the changed fields
+first, then the level to its own route when it changed, then uploads the cover; a level or a cover that fails stays
+chosen, so the next Save sends it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
 to the models its agents run on (see Models), Workers, a link to how its workers' containers are readied (below),
 Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
 remain. Below,
@@ -1498,11 +1523,11 @@ shows it, by `ProjectLists` for the tab's count, and for members alone; `page.ch
 names no project.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
-waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): the "Write to trackers
-without review" switch, off by default, and the tracker its issues file in, named or followed from where the project's
-issues already are, or why there is none, with Change tracker opening `TrackerModal` (a provider, the Jira credential
-or the person's own YouTrack account, GitHub using the project's token, and a place from
-`/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
+waits for it, and a usage hold's end; how its changes reach the work (`ProjectManagerWrites`): whether they apply at
+once or wait for approval, as the project's Autonomy above says, with a `help` on why, and the tracker its issues
+file in, named or followed from where the project's issues already are, or why there is none, with Change tracker
+opening `TrackerModal` (a provider, the Jira credential or the person's own YouTrack account, GitHub using the
+project's token, and a place from `/project-manager/destinations`; Follow the project's issues clears a named one); a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
 the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
 that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
@@ -1513,8 +1538,9 @@ queue's do. Findings (`ProjectFindings`, `ProjectFindingsTable`) lists the work 
 noticed that nobody asked for, waiting for the person's decision, its count accented while above zero: each finding's
 title, what was seen (clamped, a click on it opening its row in full), where (the place, and its repository linked in a new tab
 when a browser can open it, `repositoryHref`), its cost (Small, Medium, or Large, sorting in that order), how many
-times it was seen, and when it was first reported. A row's Accept makes its item, issue, and proposed batch, and its
-toast offers Review batch, or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
+times it was seen, and when it was first reported. A row's Accept makes its item, issue, and batch, and its toast says
+whether the batch waits for approval or is queued, as the project's level of autonomy decides, and offers Review batch,
+or warns, staying until dismissed, with the API's `issueRefusal` when no issue could be owed
 (no tracker, or a GitHub tracker with no token); a second press while it is in flight sends nothing. Its Dismiss,
 red, asks in the prompt gate for an optional reason the agents are told, saying in bold that it is never raised again,
 with Keep it beside it (`useFindingActions`). Someone deciding it first says so and reloads the list. The list and its

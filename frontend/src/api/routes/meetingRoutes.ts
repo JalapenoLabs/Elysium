@@ -1,6 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ConnectorKind } from './connectorRoutes'
 import type { LearningAgent } from './learningRoutes'
 
 // Misc
@@ -29,8 +28,9 @@ export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
   connectorId: string | null
-  // The kind of connector it came from, which outlives the connector.
-  sourceKind: ConnectorKind
+  // Where it came from: a connector kind, which outlives its connector, or a source that is none,
+  // such as an upload; `meetingSourceNameKey` names either.
+  sourceKind: string
   title: string
   startedAt: string
   durationMs: number | null
@@ -108,7 +108,7 @@ export type MeetingMark = {
 export type MeetingCapture = {
   id: string
   connectorId: string | null
-  sourceKind: ConnectorKind
+  sourceKind: string
   url: string | null
   // Where its clock sits on the meeting's.
   offsetMs: number

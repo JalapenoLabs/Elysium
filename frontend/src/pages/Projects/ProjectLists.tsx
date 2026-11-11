@@ -35,7 +35,7 @@ import {
   useProjectTimelineLoader,
 } from '../../hooks/useServerData'
 import { useTabParam } from '../../hooks/useTabParam'
-import { PROJECT_DOCS_TAB } from '../../urls'
+import { PROJECT_DOCS_TAB, PROJECT_FINDINGS_TAB, PROJECT_MANAGER_TAB } from '../../urls'
 import { DEFAULT_STATES } from '../ActionItems/actionItemFilters'
 import { useProjectFindings } from './useProjectFindings'
 import { useProjectPages } from './useProjectPages'
@@ -45,9 +45,9 @@ const MEMBER_TABS = [
   'initiatives',
   'timeline',
   PROJECT_DOCS_TAB,
-  'manager',
+  PROJECT_MANAGER_TAB,
   'proposed',
-  'findings',
+  PROJECT_FINDINGS_TAB,
   'batches',
   'promises',
   'sessions',
@@ -117,7 +117,7 @@ export function ProjectLists(props: Props) {
       ...isMember
         ? [
           { id: PROJECT_DOCS_TAB, label: t('docs.tab'), count: docs.pages?.length ?? null },
-          { id: 'manager', label: t('manager.tab'), count: null },
+          { id: PROJECT_MANAGER_TAB, label: t('manager.tab'), count: null },
           {
             id: 'proposed',
             label: t('batches.proposedTab'),
@@ -125,7 +125,7 @@ export function ProjectLists(props: Props) {
             isWaiting: true,
           },
           {
-            id: 'findings',
+            id: PROJECT_FINDINGS_TAB,
             label: t('findings.tab'),
             count: findings.total ?? null,
             isWaiting: true,
@@ -164,7 +164,7 @@ export function ProjectLists(props: Props) {
     {isMember && <Tabs.Panel id={PROJECT_DOCS_TAB}>
       <ProjectPages projectId={props.projectId} status={docs.status} pages={docs.pages ?? []} />
     </Tabs.Panel>}
-    {isMember && <Tabs.Panel id='manager'>
+    {isMember && <Tabs.Panel id={PROJECT_MANAGER_TAB}>
       <ProjectManagerPanel projectId={props.projectId} status={managerStatus} />
     </Tabs.Panel>}
     {isMember && <Tabs.Panel id='proposed'>{
@@ -174,7 +174,7 @@ export function ProjectLists(props: Props) {
           <Spinner />
         </div>
     }</Tabs.Panel>}
-    {isMember && <Tabs.Panel id='findings'>
+    {isMember && <Tabs.Panel id={PROJECT_FINDINGS_TAB}>
       <ProjectFindings status={findings.status} findings={findings.findings ?? []} />
     </Tabs.Panel>}
     {isMember && <Tabs.Panel id='batches'>{

@@ -111,7 +111,7 @@ export type ServerEvent =
   // alone, since its text is theirs.
   | { type: 'draft.changed', data: { id: string, createdBy: string } }
   // A meeting was read, or its processing moved on. Never its title, which its owner loads.
-  | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string } }
+  | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string, entryId: string | null } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.
