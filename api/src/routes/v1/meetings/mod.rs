@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/meetings`: the signed-in person's meetings, how far each one's processing got, and
-//! the review of each on its page: its final transcript with its marks, each capture as it came,
-//! edits, and its history with undo. See `crate::meetings` and `docs/meetings.md`.
+//! the review of each on its page: its final transcript with its marks, each capture as it came
+//! and its recording for the player, edits, and its history with undo. See `crate::meetings`
+//! and `docs/meetings.md`.
 //!
 //! A meeting belongs to whoever owns the account it was read from, and every route answers
 //! them alone, until meetings are public by default (`docs/meeting-review.md`, Who sees a
@@ -21,6 +22,7 @@ mod list_meetings;
 mod retry_meeting;
 mod set_capture_offset;
 mod split_capture;
+mod stream_capture_media;
 #[cfg(test)]
 mod tests;
 
@@ -59,6 +61,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/captures/{capture_id}/transcript",
             get(get_capture_transcript::handle),
+        )
+        .route(
+            "/{id}/captures/{capture_id}/media",
+            get(stream_capture_media::handle),
         )
         .route("/{id}/history", get(history::list))
         .route("/{id}/history/{entry_id}/undo", post(history::undo))

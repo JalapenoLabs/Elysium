@@ -20,9 +20,11 @@ import { CaptureTranscript } from './CaptureTranscript'
 import { FinalTranscript } from './FinalTranscript'
 import { MeetingLane } from './MeetingLane'
 import { FINAL_VIEW } from './MeetingOptions'
+import { MeetingPlayer } from './MeetingPlayer'
 
 // Misc
 import { useProjectsLoader, useUsersLoader } from '../../../hooks/useServerData'
+import { PLAYER_JUMP_MS } from './meetingPlayer'
 import { markKindLabelKeys } from './meetingReviewPresentation'
 import {
   alternativesFor,
@@ -39,6 +41,7 @@ import {
 } from './meetingTranscript'
 import { useMeetingChanges } from './useMeetingChanges'
 import { useMeetingHistory } from './useMeetingHistory'
+import { useMeetingPlayer } from './useMeetingPlayer'
 import { useReviewHotkeys } from './useReviewHotkeys'
 
 type Props = {
@@ -72,9 +75,10 @@ const NOTHING_PICKED: Review = {
 }
 
 // A meeting's review (docs/meeting-review.md, The meeting's page): the transcript, three quarters
-// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's tasks
-// (#243) and its player (#236) as they are built; the moment a click picks is what the player will
-// seek. Every change applies at once with Undo in its toast, and Ctrl+Z undoes the page's last.
+// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
+// and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
+// the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
+// toast, and Ctrl+Z undoes the page's last.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
@@ -89,6 +93,7 @@ export function MeetingWorkspace(props: Props) {
     applyChange: props.applyChange,
     reload: props.reload,
   })
+  const player = useMeetingPlayer({ meetingId: meeting.id, captures: transcript.captures, words })
   // Read once: a phone does not become a mouse while its page is open.
   const [ isTouch ] = useState(() => window.matchMedia('(pointer: coarse)').matches)
 
@@ -192,9 +197,9 @@ export function MeetingWorkspace(props: Props) {
     })
   }, [ placed, indexById, words ])
 
-  // A click picks a moment, and selects the shortest mark under it (docs/meeting-review.md, A
-  // click picks a moment). With Shift, or a tap after Select from here, it extends what is picked
-  // to the word instead.
+  // A click picks a moment, which the player seeks, and selects the shortest mark under it
+  // (docs/meeting-review.md, A click picks a moment). With Shift, or a tap after Select from here,
+  // it extends what is picked to the word instead.
   function onPick(index: number, shiftKey: boolean) {
     // From the word clicked, even when that click selected the mark around it; else from where a
     // drag started.
@@ -202,6 +207,9 @@ export function MeetingWorkspace(props: Props) {
     if ((shiftKey || review.isExtending) && from !== undefined && from !== null) {
       pickRange(from, index)
       return
+    }
+    if (player.capture) {
+      player.seek(words[index].startMs)
     }
     const [ shortest ] = marksUnder(placed, index, shown)
     if (shortest) {
@@ -212,6 +220,12 @@ export function MeetingWorkspace(props: Props) {
   }
 
   const clear = () => setReview(NOTHING_PICKED)
+
+  // Where Play from here starts: the words selected, else the word clicked.
+  const playStart = selection?.start ?? moment
+  const playFromHere = player.capture && playStart !== null
+    ? () => player.playFrom(words[playStart].startMs)
+    : null
 
   async function applyEdit(text: string) {
     if (!selection) {
@@ -246,6 +260,33 @@ export function MeetingWorkspace(props: Props) {
       const current = under.findIndex((placedMark) => placedMark.mark.id === review.markId)
       const next = under[(current + step + under.length) % under.length]
       selectMarkById(next.mark.id)
+      return true
+    },
+    // Space pauses what plays; otherwise it plays the words selected, as Play from here does, or
+    // plays on from where the player is.
+    onPlayPause: (isRepeat) => {
+      if (!player.capture) {
+        return false
+      }
+      if (isRepeat) {
+        return true
+      }
+      if (player.isPlaying) {
+        player.toggle()
+      }
+      else if (selection) {
+        player.playFrom(words[selection.start].startMs)
+      }
+      else {
+        player.play()
+      }
+      return true
+    },
+    onJump: (step) => {
+      if (!player.capture) {
+        return false
+      }
+      player.jump(step * PLAYER_JUMP_MS)
       return true
     },
     onUndo: () => void changes.undoLast(),
@@ -310,6 +351,7 @@ export function MeetingWorkspace(props: Props) {
       focus={focus ?? null}
       selectedMark={selectedMark}
       moment={moment}
+      spoken={player.spokenIndex}
       pills={pills}
       isEditing={review.isEditing && Boolean(selection)}
       isExtending={review.isExtending}
@@ -326,10 +368,13 @@ export function MeetingWorkspace(props: Props) {
       onSelectFromHere={isTouch && moment !== null
         ? () => pickRange(moment, moment, { isExtending: true })
         : null}
+      onPlayFromHere={playFromHere}
     />
   }
 
   return <>
+    <MeetingPlayer player={player} />
+
     <div className='lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(15rem,1fr)] lg:gap-8'>
       <div className='min-w-0'>
         <div className='relaxed lg:hidden'>

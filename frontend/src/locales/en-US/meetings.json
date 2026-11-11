@@ -104,8 +104,16 @@
       "selectFromHere": "Select from here",
       "tapToEnd": "Tap where it ends",
       "edit": "Edit",
+      "playFromHere": "Play from here",
+      "spaceKey": "Space",
       "clear": "Clear the selection",
       "clearHint": "Clear the selection (Esc)"
+    },
+    "player": {
+      "label": "Meeting recording",
+      "move": "Drag to move the player",
+      "capture": "Recording",
+      "failed": "This recording can't be played right now."
     },
     "editor": {
       "alternatives": "It might be:",
