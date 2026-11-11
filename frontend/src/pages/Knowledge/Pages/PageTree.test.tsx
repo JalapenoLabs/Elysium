@@ -17,7 +17,7 @@ import { createAppStore } from '../../../store'
 import { PageTree } from './PageTree'
 
 // Misc
-import { MEETINGS_PAGE_ID } from '../../../constants'
+import { MEETINGS_PAGE_ID, MEETINGS_TREE_BRANCH_SIZE } from '../../../constants'
 import { makeMeeting, makePageSummary } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { getKnowledgePageUrl, getMeetingUrl, getNewChildPageUrl, getProjectMeetingsUrl, UrlTree } from '../../../urls'
@@ -224,5 +224,24 @@ describe('meetings in the tree', () => {
     for (const drag of screen.getAllByRole('button', { name: 'Drag Standup', hidden: true })) {
       expect(drag.hasAttribute('disabled')).toBe(true)
     }
+  })
+
+  it('ends a branch holding more than it lists with a row to the page listing them all', () => {
+    const total = MEETINGS_TREE_BRANCH_SIZE + 3
+    const crowded = withMeetingEntries(
+      meetingsTree,
+      Array.from({ length: total }, (_, index) => makeMeeting({
+        id: `meeting-${index}`,
+        title: `Meeting ${index}`,
+        projectIds: [ 'launch' ],
+      })),
+    )
+    renderAt(getKnowledgePageUrl('briefs'), crowded, [ MEETINGS_PAGE_ID, 'briefs', 'launch-brief', 'meetings:launch' ])
+
+    // In the tree's order: Meetings comes before Project briefs here.
+    const allRows = screen.getAllByRole('link', { name: `All ${total} meetings` })
+    expect(allRows.map((row) => row.getAttribute('href')))
+      .toEqual([ UrlTree.knowledgeMeetings, getProjectMeetingsUrl('launch') ])
+    expect(screen.queryAllByRole('link', { name: `Meeting ${total - 1}` })).toHaveLength(0)
   })
 })

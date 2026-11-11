@@ -178,7 +178,9 @@
       "seeAgain": "See what changed",
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
     },
-    "meetingsGroup": "Meetings"
+    "meetingsGroup": "Meetings",
+    "allMeetings_one": "All {{formattedCount}} meeting",
+    "allMeetings_other": "All {{formattedCount}} meetings"
   },
   "projectLinks": {
     "label": "Projects",

@@ -4,7 +4,7 @@ import type { Meeting } from '../../../api/routes/meetingRoutes'
 import type { KnowledgePageSummary, PagePlacement } from '../../../api/routes/pageRoutes'
 
 // Misc
-import { MEETINGS_PAGE_ID } from '../../../constants'
+import { MEETINGS_PAGE_ID, MEETINGS_TREE_BRANCH_SIZE } from '../../../constants'
 import { scoreSearchMatch, toSearchWords } from '../../../search/searchMatch'
 
 // A meeting where the tree lists it. Meetings are no pages: each has its home under the Meetings
@@ -18,11 +18,17 @@ export type MeetingTreeEntry = {
   title: string
 }
 
+// The newest meetings a branch lists, at most `MEETINGS_TREE_BRANCH_SIZE`, and how many it holds in
+// all, which the page it opens lists whole.
+export type MeetingTreeBranch = {
+  entries: MeetingTreeEntry[]
+  total: number
+}
+
 // A project's meetings, newest first, as one group under the project's brief.
-export type MeetingTreeGroup = {
+export type MeetingTreeGroup = MeetingTreeBranch & {
   key: string
   projectId: string
-  entries: MeetingTreeEntry[]
 }
 
 export type PageTree = {
@@ -32,7 +38,7 @@ export type PageTree = {
   childrenByParent: Map<string | null, KnowledgePageSummary[]>
   // The meetings listed under a page, after its child pages: every meeting's home entry under the
   // Meetings page, newest first.
-  meetingsByPage: Map<string, MeetingTreeEntry[]>
+  meetingsByPage: Map<string, MeetingTreeBranch>
   // The Meetings group under a project's brief, after its child pages.
   meetingGroupsByPage: Map<string, MeetingTreeGroup>
   // On a filtered tree, the pages kept only to show where a match sits.
@@ -59,10 +65,19 @@ export function buildPageTree(summaries: KnowledgePageSummary[]): PageTree {
   return { byId, childrenByParent, meetingsByPage: new Map(), meetingGroupsByPage: new Map() }
 }
 
+// Counts `entry` into `branch`, listing it while the branch has room.
+function addToBranch(branch: MeetingTreeBranch, entry: MeetingTreeEntry) {
+  branch.total += 1
+  if (branch.entries.length < MEETINGS_TREE_BRANCH_SIZE) {
+    branch.entries.push(entry)
+  }
+}
+
 // The tree with the reader's meetings in it: each one's home under the Meetings page, and a linked
 // entry in a Meetings group under the brief of every project it has a topic on, in the order
-// `meetings` holds them, newest first. Entries are never pages, so nothing moves, deletes, or drops
-// onto one, and a page keeps its own children first.
+// `meetings` holds them, newest first. Each branch lists its newest few and counts the rest, which
+// the page it opens lists whole. Entries are never pages, so nothing moves, deletes, or drops onto
+// one, and a page keeps its own children first.
 export function withMeetingEntries(tree: PageTree, meetings: Meeting[]): PageTree {
   const briefIdByProject = new Map<string, string>()
   for (const page of tree.byId.values()) {
@@ -71,11 +86,11 @@ export function withMeetingEntries(tree: PageTree, meetings: Meeting[]): PageTre
     }
   }
 
-  const homes: MeetingTreeEntry[] = []
+  const homes: MeetingTreeBranch = { entries: [], total: 0 }
   const meetingGroupsByPage = new Map<string, MeetingTreeGroup>()
   const unplacedProjectIds = new Set<string>()
   for (const meeting of meetings) {
-    homes.push({ key: `meeting:${meeting.id}`, meetingId: meeting.id, title: meeting.title })
+    addToBranch(homes, { key: `meeting:${meeting.id}`, meetingId: meeting.id, title: meeting.title })
 
     for (const projectId of meeting.projectIds) {
       const briefId = briefIdByProject.get(projectId)
@@ -83,13 +98,12 @@ export function withMeetingEntries(tree: PageTree, meetings: Meeting[]): PageTre
         unplacedProjectIds.add(projectId)
         continue
       }
-      const entry = { key: `meeting:${projectId}:${meeting.id}`, meetingId: meeting.id, title: meeting.title }
-      const group = meetingGroupsByPage.get(briefId)
-      if (group) {
-        group.entries.push(entry)
-        continue
+      let group = meetingGroupsByPage.get(briefId)
+      if (!group) {
+        group = { key: `meetings:${projectId}`, projectId, entries: [], total: 0 }
+        meetingGroupsByPage.set(briefId, group)
       }
-      meetingGroupsByPage.set(briefId, { key: `meetings:${projectId}`, projectId, entries: [ entry ]})
+      addToBranch(group, { key: `meeting:${projectId}:${meeting.id}`, meetingId: meeting.id, title: meeting.title })
     }
   }
   // A project deleted since its meetings loaded, or a tree loaded before the project was made.
@@ -99,8 +113,8 @@ export function withMeetingEntries(tree: PageTree, meetings: Meeting[]): PageTre
     })
   }
 
-  const meetingsByPage = new Map<string, MeetingTreeEntry[]>()
-  if (homes.length && tree.byId.has(MEETINGS_PAGE_ID)) {
+  const meetingsByPage = new Map<string, MeetingTreeBranch>()
+  if (homes.total && tree.byId.has(MEETINGS_PAGE_ID)) {
     meetingsByPage.set(MEETINGS_PAGE_ID, homes)
   }
   return { ...tree, meetingsByPage, meetingGroupsByPage }

@@ -18,7 +18,6 @@ import { selectAllProjects } from '../../../store/projectsSlice'
 import { Chip } from '@heroui/react'
 import { LuSettings } from 'react-icons/lu'
 import { Page } from '../../../layout/page/Page'
-import { useConnectorKinds } from '../../Settings/Connectors/useConnectorKinds'
 import { MeetingList } from './MeetingList'
 
 // Misc
@@ -27,6 +26,7 @@ import { formatNumber } from '../../../format/numbers'
 import { useConnectorsLoader, useMeetingsLoader, useProjectsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
+import { useConnectorKinds } from '../../Settings/Connectors/useConnectorKinds'
 import {
   meetingSourceNameKey,
   meetingSourcesOf,
@@ -104,7 +104,7 @@ export function KnowledgeMeetingsPage() {
     }</Chip>}
     actions={[{
       id: 'sources',
-      label: t('sources.manage'),
+      label: t('sources.title'),
       icon: LuSettings,
       href: UrlTree.settingsMeetings,
     }]}

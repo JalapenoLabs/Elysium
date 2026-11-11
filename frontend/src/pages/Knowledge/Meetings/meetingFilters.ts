@@ -8,7 +8,6 @@ import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 import { MEETING_STATES } from '../../../api/routes/meetingRoutes'
 import { MEETINGS_PROJECT_PARAM } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
-import { meetingSourcesOf } from '../../Settings/Meetings/meetingsPresentation'
 
 // The Meetings page's filters, kept in the address as the item list keeps its own, edited in the
 // table's filters drawer and shown as its tags. Elysium applies them itself (`filterMeetings`), so
@@ -110,7 +109,12 @@ export function fromMeetingFilterValues(values: SmartTableFilterValues): Meeting
 // so a source is offered before it has read anything, then any other source a meeting came from,
 // such as an upload, in the order the meetings first name it.
 export function listMeetingSourceKinds(definitions: ConnectorKindDefinition[], meetings: Meeting[]) {
-  const kinds = new Set<string>(meetingSourcesOf(definitions, []).kinds)
+  const kinds = new Set<string>()
+  for (const definition of definitions) {
+    if (definition.provides.includes('meetings')) {
+      kinds.add(definition.kind)
+    }
+  }
   for (const meeting of meetings) {
     kinds.add(meeting.sourceKind)
   }

@@ -22,6 +22,7 @@ import {
   useDragAndDrop,
 } from 'react-aria-components'
 import { LuGripVertical, LuLock } from 'react-icons/lu'
+import { AllMeetingsTreeItem } from './AllMeetingsTreeItem'
 import { MeetingGroupTreeItem } from './MeetingGroupTreeItem'
 import { MeetingTreeItem } from './MeetingTreeItem'
 import { MovePageModal } from './MovePageModal'
@@ -30,7 +31,7 @@ import { PageTreeChevron } from './PageTreeChevron'
 
 // Misc
 import { PAGE_DRAG_TYPE } from '../../../constants'
-import { getKnowledgePageUrl, pageAddressById } from '../../../urls'
+import { getKnowledgePageUrl, pageAddressById, UrlTree } from '../../../urls'
 import { findDropPlacement } from './pageTree'
 import { TREE_ROW_CLASS_NAME, TREE_ROW_CONTENT_CLASS_NAME } from './pageTreeRow'
 import { usePageActions } from './usePageActions'
@@ -76,6 +77,7 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
   // Never in the event itself. Tab out of the tree focuses its last control so the browser moves on
   // from there, and a menu mounted in that focus would be where the browser moved on to.
   const showControls = () => startTransition(() => setHasControls(true))
+  const meetings = tree.meetingsByPage.get(page.id)
   const meetingGroup = tree.meetingGroupsByPage.get(page.id)
 
   return <NavigationTreeItem
@@ -148,11 +150,17 @@ const PageTreeItem = memo(function PageTreeItem(props: ItemProps) {
       onMove={onMove}
       onDelete={onDelete}
     />)}
-    {tree.meetingsByPage.get(page.id)?.map((entry) => <MeetingTreeItem
+    {meetings?.entries.map((entry) => <MeetingTreeItem
       key={entry.key}
       entry={entry}
       onNavigate={onNavigate}
     />)}
+    {meetings && meetings.total > meetings.entries.length && <AllMeetingsTreeItem
+      itemKey={`meetings-all:${page.id}`}
+      href={UrlTree.knowledgeMeetings}
+      total={meetings.total}
+      onNavigate={onNavigate}
+    />}
     {meetingGroup && <MeetingGroupTreeItem group={meetingGroup} onNavigate={onNavigate} />}
   </NavigationTreeItem>
 })

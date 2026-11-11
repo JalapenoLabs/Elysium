@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { MEETINGS_PAGE_ID } from '../../../constants'
+import { MEETINGS_PAGE_ID, MEETINGS_TREE_BRANCH_SIZE } from '../../../constants'
 import { makeMeeting, makePageSummary } from '../../../testFixtures'
 import {
   buildPageTree,
@@ -38,8 +38,25 @@ describe('withMeetingEntries', () => {
   it('lists every meeting at its home under Meetings, on a project or not, in their order', () => {
     const tree = withMeetingEntries(pages, meetings)
 
-    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID) ?? []
-    expect(homes.map((entry) => entry.meetingId)).toEqual([ 'standup', 'one-to-one', 'retro' ])
+    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID)
+    expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'standup', 'one-to-one', 'retro' ])
+    expect(homes?.total).toBe(3)
+  })
+
+  it('lists a branch\'s newest meetings alone, counting every one', () => {
+    const many = Array.from(
+      { length: MEETINGS_TREE_BRANCH_SIZE + 2 },
+      (_, index) => makeMeeting({ id: `meeting-${index}`, projectIds: [ 'launch' ]}),
+    )
+    const tree = withMeetingEntries(pages, many)
+
+    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID)
+    expect(homes?.entries).toHaveLength(MEETINGS_TREE_BRANCH_SIZE)
+    expect(homes?.entries[0].meetingId).toBe('meeting-0')
+    expect(homes?.total).toBe(MEETINGS_TREE_BRANCH_SIZE + 2)
+    const launch = tree.meetingGroupsByPage.get('launch-brief')
+    expect(launch?.entries).toHaveLength(MEETINGS_TREE_BRANCH_SIZE)
+    expect(launch?.total).toBe(MEETINGS_TREE_BRANCH_SIZE + 2)
   })
 
   it('groups each project\'s meetings under its brief, a meeting on two projects in both', () => {
@@ -52,7 +69,7 @@ describe('withMeetingEntries', () => {
     expect(billing?.entries.map((entry) => entry.meetingId)).toEqual([ 'standup' ])
     // The same meeting is several rows of one tree, so no two share a key.
     const keys = [
-      ...(tree.meetingsByPage.get(MEETINGS_PAGE_ID) ?? []),
+      ...(tree.meetingsByPage.get(MEETINGS_PAGE_ID)?.entries ?? []),
       ...(launch?.entries ?? []),
       ...(billing?.entries ?? []),
     ].map((entry) => entry.key)

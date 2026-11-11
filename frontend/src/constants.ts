@@ -154,6 +154,11 @@ export const PAGE_DRAG_TYPE = 'application/vnd.elysium.page'
 // page itself opens as the Meetings list.
 export const MEETINGS_PAGE_ID = '00000000-0000-0000-0001-000000000004'
 
+// The most meetings one branch of the tree lists: the newest, under Meetings or a project's group,
+// ending in a row to the page that lists them all. A tree row costs about 1.5ms to draw, and opening
+// a meeting opens the Meetings branch, so a person with thousands of meetings never pays for them all.
+export const MEETINGS_TREE_BRANCH_SIZE = 50
+
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300
 

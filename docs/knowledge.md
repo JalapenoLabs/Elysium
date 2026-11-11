@@ -909,6 +909,10 @@ meetings its reader can see (`GET /api/v1/meetings`, today a person's own); no t
 - **They move with their meeting, never by hand.** Nothing drags, moves, deletes, or drops onto an entry or a group,
   and neither has a row menu, since where a page goes is named by a page. People still put pages under Meetings and
   under a brief, among its own children. The panel's filters narrow pages alone; the Meetings page searches meetings.
+- **A branch lists its newest 50.** Under Meetings and in each group, the tree lists the 50 newest meetings
+  (`MEETINGS_TREE_BRANCH_SIZE`), then a row naming how many there are in all, which opens the page listing every one, as
+  the group's own row does. A tree row costs about 1.5ms to draw, and opening a meeting opens the Meetings branch to
+  show where it sits, so the branch never costs more than a person can read.
 
 ### Versions
 
@@ -1269,7 +1273,9 @@ page's history restores it afterwards.
 
 - **Meetings.** Meetings are listed in the tree today, their own only, under the fixed Meetings page and each brief.
   They become public by default, with private ones found only by their readers, and a fixed Transcription page joins
-  them. The design is `docs/meeting-review.md`.
+  them. The design is `docs/meeting-review.md`. `GET /meetings` answers every meeting in one list, which the tree, the
+  Meetings page, and its in-browser search and filters all read; once meetings are the whole company's, that list is
+  paged and searched on the server, and the tree asks for each branch's newest alone.
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call

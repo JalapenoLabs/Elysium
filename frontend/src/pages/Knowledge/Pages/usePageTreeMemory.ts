@@ -16,7 +16,9 @@ import { z } from 'zod'
 import { PAGE_TREE_STORAGE_KEY } from '../../../constants'
 
 const pageTreeMemorySchema = z.object({
-  // The branches open, by page id.
+  // The branches open, by row key: a page's id, or a project's Meetings group (`meetings:<id>`). A
+  // key whose row is gone, such as a deleted project's group, is ignored by the tree, so none is
+  // pruned.
   openIds: z.array(z.string()),
   // The panel hidden to its edge, from `lg` up; the phone's drawer always shows it.
   isCollapsed: z.boolean(),

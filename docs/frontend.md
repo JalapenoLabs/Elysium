@@ -966,8 +966,10 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   (`usePageToolsContainer`), and `MeetingList` says why it is empty: the filters, no meeting yet, or no source.
 - **In the tree.** `withMeetingEntries` (`pageTree.ts`) adds the meetings to the tree the panel draws
   (`selectKnowledgeTree`): every one under the Meetings page (`MEETINGS_PAGE_ID`), and a group per project under its
-  brief, found by `briefProjectId`. `MeetingTreeItem` and `MeetingGroupTreeItem` are rows of their own, with no menu and
-  a disabled drag button, and `PageTree` refuses any drop onto one (`getDropOperation`), since a drop names a page.
+  brief, found by `briefProjectId`. Each branch holds its newest `MEETINGS_TREE_BRANCH_SIZE` and a total, and one holding
+  more ends in `AllMeetingsTreeItem`, a row to the page listing them all. `MeetingTreeItem`, `MeetingGroupTreeItem`, and
+  that row are rows of their own, with no menu and a disabled drag button, and `PageTree` refuses any drop onto one
+  (`getDropOperation`), since a drop names a page.
   Every row a meeting has opens its one page, so each is current there, and opening one opens the Meetings branch.
   `pageAddressById` sends the Meetings page's own row and address to the list. A filter narrows pages alone, so the
   filtered tree holds no meeting.

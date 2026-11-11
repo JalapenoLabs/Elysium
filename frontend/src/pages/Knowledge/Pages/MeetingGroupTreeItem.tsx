@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Link, NavigationTreeItem, NavigationTreeItemContent } from 'react-aria-components'
+import { AllMeetingsTreeItem } from './AllMeetingsTreeItem'
 import { MeetingTreeItem } from './MeetingTreeItem'
 import { PageTreeChevron } from './PageTreeChevron'
 
@@ -22,15 +23,17 @@ type Props = {
 }
 
 // A project's Meetings group, under its brief: the Meetings page narrowed to the project, with its
-// count, and every meeting with a topic on the project under it, newest first, each a linked entry
-// of the meeting's one page. Like its entries it is no page, so it has no menu and moves nowhere.
+// count, and the newest meetings with a topic on the project under it, each a linked entry of the
+// meeting's one page, then a row to the rest when there are more. Like its entries it is no page,
+// so it has no menu and moves nowhere.
 export const MeetingGroupTreeItem = memo(function MeetingGroupTreeItem(props: Props) {
   const { t } = useTranslation('knowledge')
   const label = t('pages.meetingsGroup')
+  const href = getProjectMeetingsUrl(props.group.projectId)
 
   return <NavigationTreeItem
     id={props.group.key}
-    href={getProjectMeetingsUrl(props.group.projectId)}
+    href={href}
     textValue={label}
     className={TREE_ROW_CLASS_NAME}
   >
@@ -39,7 +42,7 @@ export const MeetingGroupTreeItem = memo(function MeetingGroupTreeItem(props: Pr
         <PageTreeChevron isExpanded={row.isExpanded} />
         <Link onPress={props.onNavigate} className='flex min-w-0 flex-1 items-center gap-2 py-1 outline-none'>
           <span className='flex-1 truncate'>{label}</span>
-          <span className='text-xs opacity-70'>{formatNumber(props.group.entries.length)}</span>
+          <span className='text-xs opacity-70'>{formatNumber(props.group.total)}</span>
         </Link>
         <Button
           slot='drag'
@@ -54,5 +57,11 @@ export const MeetingGroupTreeItem = memo(function MeetingGroupTreeItem(props: Pr
       entry={entry}
       onNavigate={props.onNavigate}
     />)}
+    {props.group.total > props.group.entries.length && <AllMeetingsTreeItem
+      itemKey={`meetings-all:${props.group.projectId}`}
+      href={href}
+      total={props.group.total}
+      onNavigate={props.onNavigate}
+    />}
   </NavigationTreeItem>
 })
