@@ -13,7 +13,6 @@ import { backupsSlice } from './backupsSlice'
 import { browserSessionsSlice } from './browserSessionsSlice'
 import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
-import { companyDocSlice } from './companyDocSlice'
 import { connectorsSlice } from './connectorsSlice'
 import { elysiaSlice } from './elysiaSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
@@ -74,7 +73,6 @@ export function createAppStore() {
       [browserSessionsSlice.name]: browserSessionsSlice.reducer,
       [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
-      [companyDocSlice.name]: companyDocSlice.reducer,
       [connectorsSlice.name]: connectorsSlice.reducer,
       [elysiaSlice.name]: elysiaSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,

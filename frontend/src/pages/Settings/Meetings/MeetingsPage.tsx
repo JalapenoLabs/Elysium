@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { PageAction } from '../../../layout/page/pageActions'
+
 // Core
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
@@ -11,6 +13,7 @@ import { selectListedMeetings } from '../../../store/meetingsSlice'
 
 // User interface
 import { Spinner, Tabs, buttonVariants } from '@heroui/react'
+import { LuPlus, LuUpload } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
 import { useConnectorKinds } from '../Connectors/useConnectorKinds'
 import { SettingsPage } from '../SettingsPage'
@@ -20,7 +23,7 @@ import { MeetingSources } from './MeetingSources'
 // Misc
 import { useConnectorsLoader, useMeetingsLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
-import { getConnectorPickerUrl } from '../../../urls'
+import { UrlTree, getConnectorPickerUrl } from '../../../urls'
 import { meetingSourcesOf } from './meetingsPresentation'
 
 const TABS = [ 'meetings', 'sources' ] as const
@@ -43,14 +46,21 @@ export function MeetingsPage() {
   const isLoading = definitions.isLoading || connectorsStatus === 'loading'
   const hasFailed = Boolean(definitions.error) || connectorsStatus === 'failed'
 
+  // Uploading is what this page does on its own; adding a source is setting one up.
+  const actions: PageAction[] = hasSources
+    ? [{ id: 'addSource', label: t('sources.add'), icon: LuPlus, href: getConnectorPickerUrl('meetings') }]
+    : []
+
   return <SettingsPage
     title={t('title')}
-    primaryAction={hasSources && <Link
-      to={getConnectorPickerUrl('meetings')}
-      className={buttonVariants({ variant: 'outline' })}
+    primaryAction={<Link
+      to={UrlTree.meetingUploadNew}
+      className={buttonVariants({ variant: 'primary' })}
     >
-      <span>{t('sources.add')}</span>
+      <LuUpload className='size-4' aria-hidden />
+      <span>{t('upload.action')}</span>
     </Link>}
+    actions={actions}
   >
     <PageTabs
       label={t('tabs.label')}

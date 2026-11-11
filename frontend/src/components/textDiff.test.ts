@@ -17,6 +17,20 @@ describe('diffRows', () => {
     ])
   })
 
+  it('keeps a last line that gains a line after it as unchanged', () => {
+    const rows = diffRows('- Falcon\n- WAY', '- Falcon\n- WAY\n- Zephyr')
+
+    expect(rows).toEqual([
+      { kind: 'unchanged', text: '- Falcon' },
+      { kind: 'unchanged', text: '- WAY' },
+      { kind: 'added', text: '- Zephyr' },
+    ])
+  })
+
+  it('shows what an empty text gains as added lines alone', () => {
+    expect(diffRows('', '- ACME')).toEqual([{ kind: 'added', text: '- ACME' }])
+  })
+
   it('shows a changed line as the line removed and the line added', () => {
     const rows = diffRows('- Priya Ramen', '- Priya Raman')
 

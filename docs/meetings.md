@@ -5,9 +5,11 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources: Fireflies.ai, read with the person's own API key on a paid plan or through
-Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams and Slack's huddles, each
-read through the browser the person's connector signed in to. The code is `api/src/meetings/`.
+Meetings come from meeting sources and from uploads. The sources are Fireflies.ai, read with the person's own API key
+on a paid plan or through Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams
+and Slack's huddles, each read through the browser the person's connector signed in to. A person also uploads their
+own recordings and transcripts (Uploads, below). The code is `api/src/meetings/`, and the uploads' rules are
+`api/src/meeting_uploads/`.
 
 A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
 and captures, below). Every capture sits on the meeting's one clock, and their words are lined up into its final
@@ -193,14 +195,13 @@ is fetched or its segments are cut and published.
 
 - **A meeting** (`meetings`, `models::meeting`) is the event: its title, when it started and for how long, who
   organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
-  connector read its first capture. A meeting whose captures were merged into another names it (`merged_into`, answered
-  as `mergedInto`), holds none, and is listed nowhere and processed no further until they are split back out; its own
-  page still opens, saying where they went.
+  connector read its first capture, or who uploaded it. A meeting whose captures were merged into another names it
+  (`merged_into`, answered as `mergedInto`), holds none, is listed nowhere, takes no upload, and is processed no
+  further until they are split back out; its own page still opens, saying where they went.
 - **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
-  Fireflies meeting, a Teams recording, a Slack huddle), and an upload on the roadmap (`docs/meeting-review.md`). It
-  keeps what its source gave, as it came: its connector, its source and the source's id for it, its page there, the
-  transcript with its SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch,
-  and never again.
+  Fireflies meeting, a Teams recording, a Slack huddle), or a person's upload (Uploads, below). It keeps what its source
+  gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
+  SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch, and never again.
 - **One clock.** A capture runs on its own clock, the one its transcript and recording are timed by. Its `offset_ms`
   places that clock on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock, which starts at the
   meeting's `started_at`. Every time of the final transcript and of a segment's record is on the meeting's clock. How
@@ -208,10 +209,11 @@ is fetched or its segments are cut and published.
 - A listing stores a meeting and its first capture together, in one transaction, so a capture its connector recorded
   before leaves no meeting behind (`meeting::insert_new`).
 - **Its captures in order.** A meeting's captures are in the order they joined it (`joined_at`,
-  `meeting_capture::list_of`): the one it was listed with first, then each merged into it. The first is the clock
-  every other is aligned against, its corrected copy is the one correction made, and everything shown of a meeting's
-  source (its connector, its source, its page there, and whether a recording is kept) is its. The steps that fetch,
-  transcribe, and segment read the capture the run names: the meeting's own first one.
+  `meeting_capture::list_of`): the one it was listed with first, then each uploaded to it or merged into it. The first
+  is the clock every other is aligned against, its corrected copy is the one correction made, and everything shown of a
+  meeting's source (its connector, its source, its page there, and whether a recording is kept) is its. The steps that
+  fetch, transcribe, and segment read the capture the run names: the meeting's own first one, or the capture an upload
+  added, whose run places it on the clock and lines the transcript up again from every capture (Aligning, below).
 - A recording kept before captures were hashed has no `recording_hash`; it is never downloaded again to hash it.
 
 ## Processing
@@ -229,7 +231,10 @@ is fetched or its segments are cut and published.
   (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
   connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
-  by the system user (`workflow::run_to_start`).
+  by the system user (`workflow::run_to_start`). An upload's run is started by its person, as the upload finishes, in
+  the transaction that stores its meeting, so the loop never starts one of its own for it (Uploads, below). The same
+  pass removes every upload no part reached for a week (`meeting_uploads::STALE_AFTER`), and what of it arrived, and
+  the parts of finished uploads that no longer need them (Uploads, below).
 
 | Step                 | Moves the meeting       | What happens                                                    |
 |----------------------|-------------------------|-----------------------------------------------------------------|
@@ -300,6 +305,13 @@ no step of its own. It fetches the meeting's capture, the one its source listed.
 - A key the source refuses, a meeting it does not have, or a connector that was removed fails the step for good, for
   a person to fix and retry; anything else, such as a source that did not answer, is tried again with the run's
   backoff.
+- **An upload** is fetched from where its parts arrived rather than from a source: the step takes the capture its
+  input names (`captureId`), finds the upload it was made from (`meeting_uploads.capture_id`), and stores the lines its
+  transcript was read as with their SHA-256, and its recording, joined from its parts as they stream and uploaded to
+  the storage location the upload chose at `meetings/<meeting>/captures/<capture>/<sha256>.<ext>`, the hash read from
+  the parts first. Once the write is kept, the parts are removed. Parts no longer in the workspace fail the step for
+  good, since only the person can send them again; a workspace or a provider that does not answer is tried again. Its
+  log names counts, hashes, and paths, never a file's name.
 - Every company member can read a run's log, while meetings are their owner's alone, so the log names the source,
   counts, the hash, and storage paths, never a title, a participant, or anything said.
 
@@ -412,15 +424,16 @@ the next one still reads its input. A meeting not fetched skips it, saying "Not 
 raw transcripts are never written.
 
 - **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
-  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`,
+  transcribed, Whisper's. The company doc whole, with the suggestions pending on its sections (`company_doc::read`,
   `docs/knowledge.md`), its sections in the order correction needs them (people, glossary, products, projects,
-  stakeholders, leadership, company), the lines a pending proposal would add marked as proposed. And the company's
+  stakeholders, leadership, company), the lines a pending suggestion would add marked as proposed. And the company's
   other meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved
   corrections first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled
   them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
   knowledge base is (`docs/knowledge.md`, Who sees what).
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
-  Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
+  Whisper's segments when the source sent no lines, or sent lines with no times at all, such as a transcript uploaded
+  beside its recording, since Whisper's carry the recording's clock (`correction::base`). A meeting with neither skips the step, saying "Nothing was said,
   so nothing to correct".
 - **The turn.** One text turn on the runner, however long the meeting, on the model resolved for the step, of the
   correction kind: Opus 5.5 at high effort unless an admin chose another for the step or the kind (`docs/engine.md`,
@@ -504,6 +517,13 @@ step hands on, reads as a `Segmented` with no topics and still names its message
 landed on which project. Every record it puts on a project wakes that project's Project Manager in the same
 transaction (`docs/engine.md`, Project Managers), so a meeting's or a conversation's topics reach the projects they
 are about with nothing more for a workflow to do.
+
+**A meeting in words alone**, a transcript uploaded with no times and no recording, has no clock to answer in: every
+line is at `0` (`meeting_uploads::transcript::is_untimed`). One uploaded with a recording is read on Whisper's clock
+instead (Correction, above). Its prompt numbers the lines, with no times, and its answer
+names each segment by its first and last line (`segmentation::parse_lines_answer`), kept as a conversation's runs are.
+Each segment keeps its run of lines (`Segment.lines`), which its excerpt and speakers read, and carries no clip; its
+record's span is `0` to `0`, which the web app reads as no place in the meeting.
 
 **The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
 segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in
@@ -671,6 +691,66 @@ them on its own (`api/src/meetings/duplicates.rs`).
 - **On the item's page** (`SameMeetingPanel`, reading `GET /api/v1/meetings/duplicates?itemId=`): both meetings,
   each linking to its page, with Merge and Not the same until the person answers, and what they answered after.
 
+## Uploads
+
+A person uploads their own meetings: an OBS recording, an audio file, an old transcript. An upload is a capture like any
+other, transcribed, corrected, and segmented by the meeting's run. The rules are `api/src/meeting_uploads/`, the rows
+`models::meeting_upload`, and the routes `/api/v1/meeting-uploads` (`docs/api.md`).
+
+- **What a meeting takes.** A recording as `.mp3`, `.wav`, `.mp4`, or `.mov`, up to 5 GiB (what storage takes in one
+  upload), a transcript as WebVTT, SRT, plain text, or Markdown, up to 10 MB, or one of each, which is one capture. What
+  a file is comes from its extension; nothing the browser says about it is believed. Its name is cleaned as a page
+  attachment's is (`crate::file_names`). The limits and the extensions are constants, served at
+  `GET /api/v1/meeting-uploads/policy`, so the web app refuses a file before it is sent, and the API refuses again.
+- **A new meeting or a capture.** A new meeting names its title and when it started; a capture names a meeting its
+  person has, whose run must be done, since a meeting holds one run at a time: `409 meeting_processing` while it is
+  going or held, and `409 meeting_run_failed` while it failed, until its person retries or skips it.
+- **Where the recording goes.** A storage location the person chooses, offered first as the one the owner already keeps
+  meetings in: the meeting's first recording's for a capture, otherwise their oldest meeting source's. A transcript
+  alone keeps nothing in storage.
+- **Parts.** Every file arrives in parts of 8 MiB (`PART_BYTES`), the last one shorter, each its own request, in order
+  (`PUT .../{kind}/parts/{index}`). Each streams into the workspace, `.elysium/uploads/<upload>/<kind>/<part>`
+  (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own, and
+  one that fails takes what it wrote with it. A whole send is put under the part's name and counted under the lock on
+  its file's row, so of two sends of one part at once the one counted is the one kept and the other is let go. A part
+  already received is answered as it is; one past the next is refused, saying how far the file got. Nothing holds
+  more than a chunk of a part in memory.
+- **What is checked as it arrives.** A recording's first part must open as its format does (an MP3's ID3 tag or frame
+  sync, WAV's `RIFF ... WAVE`, an MP4's or QuickTime's opening box), since it is later played on Elysium's origin. A
+  transcript's last part is counted only once the whole transcript reads: UTF-8 or UTF-16 text, at most 100,000 lines,
+  with something said in it. The web app sends the transcript first, so one that cannot be read is refused before a
+  recording is sent after it.
+- **Resuming.** An upload keeps how much of each file arrived, and its files' names, sizes, and when they last changed.
+  The upload page reads the person's unfinished uploads, and choosing the same files for the same meeting again carries
+  on from the first part the API lacks, after a dropped connection, a reload, or Upload pressed again once an upload
+  stopped. A part that fails on the way is sent again, waiting longer each time, up to eight times. An upload no part
+  reached for a week is removed with its parts.
+- **Parts are removed once.** The fetch removes an upload's parts once it stored them. Whatever it could not remove, and
+  the parts of an upload finished a week ago whose capture was never stored and whose meeting's run settled (its fetch
+  skipped by a person), the meetings loop's sweep removes, recording it (`meeting_uploads.parts_removed_at`) so it
+  happens once. A fetch that failed keeps its parts however long it waits for a person to retry it; a fetch that finds
+  them removed fails for good, asking for the recording again.
+- **Finishing.** Once every part arrived, finishing stores the meeting with its capture (or the capture of its meeting),
+  marks the upload finished with the lines its transcript was read as, and starts the meeting's run from its fetch, as
+  its person, all in one transaction; the fetch then stores the recording (Fetching, above). A new meeting's duration is
+  where its transcript's last line ends, when it has times, and its participants are the speakers its transcript names.
+  Finishing again, or twice at once, answers the same meeting.
+
+### Reading a transcript
+
+`meeting_uploads::transcript` reads an uploaded transcript into the lines every source's transcript is stored as.
+
+- **WebVTT and SRT** are cues: each cue's times, then what was said. A WebVTT voice tag (`<v Ada Lovelace>`, as Teams
+  writes them) names the speaker, or else a leading `Speaker:` (as Zoom writes them); every other tag and WebVTT's
+  entities are read past, and comments, styles, and regions are skipped.
+- **Plain text and Markdown** are one line said per line. `[00:01:23]`, `(1:23)`, or a bare `00:01:23` at a line's
+  start times it, and `Speaker:` names who said it; a line with no speaker of its own was said by the last one named.
+  A line that is only a speaker, a time, or both (`Ada Lovelace (00:01:23)`) heads the lines that follow. Markdown's
+  headings, lists, quotes, and emphasis are read past, and a heading that names nobody is a title.
+- A line with no time of its own starts when the line before it did, and each ends when a later line starts later. A
+  transcript with no time anywhere is **a meeting in words alone**: every line at `0`, reviewed, edited, and segmented
+  by its lines (Segmentation, above), with no player.
+
 ## Segment records
 
 Each segment is a timeline record:
@@ -765,11 +845,13 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `offset_changed`      | A capture's offset and how it was found, before and after, set by hand | Puts the offset back, while nothing moved the capture since |
 | `merged`              | In both meetings: which meeting's captures went into which, and where each sat before and after | From the kept meeting's: splits them back out |
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
+| `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
 
 ## In the web app
 
 - **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section, `MeetingsPage`): the
-  person's recent meetings and their meeting sources, as two tabs with their counts, the open one in `?tab=`. The page
+  person's recent meetings and their meeting sources, as two tabs with their counts, the open one in `?tab=`, with
+  Upload a meeting in the titlebar. The page
   names no source itself; it finds them from the kinds whose definitions provide meetings (`GET /connectors/kinds`), so
   a new source appears on it unchanged.
   - **Sources.** Each of the person's meeting connectors, with its logo, account, and status, linking to its connector's
@@ -795,7 +877,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
     own (`CaptureTranscript`, `GET /meetings/{id}/captures/{captureId}/transcript`, as it came, with no marks), turn
     each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, list the
     captures, and hold the meeting's actions: where its correction stands, Approve while the copy waits for one,
-    holding it for approval by hand until it is corrected unless its source already waits, and its run.
+    holding it for approval by hand until it is corrected unless its source already waits, its run, and Add a
+    recording or transcript (Uploading, below).
   - **Captures** (`MeetingCaptures`, under Recordings in the options). Each capture names its source, where it starts
     on the meeting's clock (with the meeting, so long into it, or so long before it), and how that was found: as its
     source listed it, lined up by its audio or its words, or set by hand. Move (`CaptureOffsetEditor`) opens its start
@@ -839,6 +922,15 @@ whose effect still stands is undone; one moved on since answers that it changed 
     A merge or a split reads from the side of the meeting it is listed on (merged in, or merged into another; split
     out, or its own again), and offers Undo only in the meeting the recordings went into, which splits or merges them
     again (`describeHistory`).
+- **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and the actions in a
+  meeting's options hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for
+  a capture. A recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a
+  size the policy does not take in their own words; a new meeting's title and when it started follow its first file (its
+  name, and when it last changed) until the person changes them, and a recording asks where it is kept. Upload, the
+  page's one save, starts the upload or resumes the one the same files began (`findResumable`), sends its parts with the
+  progress beside the fields (`sendMeetingFiles`), and once it is whole opens the meeting. A transcript the API cannot
+  read is let go and marked on its field. Leaving while it runs asks first, and stops it where it is, for the same files
+  to resume. The source of an uploaded meeting reads Uploaded (`MeetingSourceLogo`, `meetingSourceNameKey`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **An item asking whether two meetings are one** shows both, each linking to its page, with Merge and Not the same
@@ -872,7 +964,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 ## Roadmap
 
-- Meetings as reviewed documents in the knowledge base: captures from several sources and uploads, one final
+- Meetings as reviewed documents in the knowledge base: captures from several sources aligned onto one clock, one final
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
   is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources.
 - Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):

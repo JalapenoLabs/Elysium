@@ -319,7 +319,8 @@ impl From<Mark> for MarkResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MeetingEventResponse {
     id: Uuid,
-    /// `built`, `edited`, `marked`, `unmarked`, `hold_changed`, or `correction_approved`.
+    /// `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, or
+    /// `capture_added`.
     kind: String,
     created_by: Uuid,
     agent: Option<AgentResponse>,

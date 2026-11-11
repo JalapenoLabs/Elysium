@@ -176,7 +176,7 @@ async fn finds_each_kind_by_words_that_begin_its_title() {
         json!([
             { "kind": "project", "id": project_id, "title": "Platform" },
             { "kind": "initiative", "id": initiative_id, "title": "Launch the platform", "state": "active" },
-            { "kind": "page", "id": brief_id, "title": "Platform brief" },
+            { "kind": "page", "id": brief_id, "title": "Platform brief", "pendingSuggestions": 0 },
         ]),
         "case is ignored"
     );

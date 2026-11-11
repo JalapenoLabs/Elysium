@@ -22,6 +22,7 @@ use crate::issue_reports::IssueReports;
 use crate::jira::Jira;
 use crate::knowledge::search::KnowledgeSearch;
 use crate::mail::Mail;
+use crate::meeting_uploads::staging::Staging;
 use crate::meetings::sources::Sources;
 use crate::middleware::rate_limit::Limiter;
 use crate::passwords::remote::RemoteVault;
@@ -72,6 +73,9 @@ pub struct AppState {
     pub mail: Mail,
     /// Every meeting source's client, for a meeting connector's checks.
     pub meeting_sources: Sources,
+    /// Where the parts of meetings people upload wait for their meeting's fetch. See
+    /// `crate::meeting_uploads`.
+    pub upload_staging: Staging,
     /// The password vault agents sign in to things with, which the engine runs. See
     /// `crate::passwords`.
     pub passwords: RemoteVault,

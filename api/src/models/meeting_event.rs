@@ -46,10 +46,13 @@ pub enum EventKind {
     /// Captures merged in were split back out into their meeting, recorded in both, as a merge's
     /// undo or the undo of one.
     Split,
+    /// A person added a capture to it by uploading a recording, a transcript, or both:
+    /// `{ captureId, sourceKind, recording, transcript }`, the last two saying which it holds.
+    CaptureAdded,
 }
 
 impl EventKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
@@ -59,6 +62,7 @@ impl EventKind {
         Self::OffsetChanged,
         Self::Merged,
         Self::Split,
+        Self::CaptureAdded,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -72,6 +76,7 @@ impl EventKind {
             Self::OffsetChanged => "offset_changed",
             Self::Merged => "merged",
             Self::Split => "split",
+            Self::CaptureAdded => "capture_added",
         }
     }
 

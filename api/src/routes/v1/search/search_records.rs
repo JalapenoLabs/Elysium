@@ -32,8 +32,8 @@ use crate::middleware::rate_limit::{Decision, whole_seconds};
 use crate::models::action_item::{self, ActionItemState};
 use crate::models::coding_session;
 use crate::models::initiative::{self, InitiativeState};
-use crate::models::page;
 use crate::models::project;
+use crate::models::{page, page_suggestion};
 use crate::search::{self, SearchTerms};
 use crate::state::AppState;
 
@@ -71,6 +71,9 @@ enum SearchHit {
     Page {
         id: Uuid,
         title: String,
+        /// How many edits agents suggested to it wait for a person, which a result shows.
+        #[serde(rename = "pendingSuggestions")]
+        pending_suggestions: i64,
     },
 }
 
@@ -124,8 +127,16 @@ pub async fn handle(
         results.push(SearchHit::Initiative { id, title, state });
     }
     if user.0.is_company_member() {
-        for (id, title) in page::search(&mut connection, &terms, limit).await? {
-            results.push(SearchHit::Page { id, title });
+        let found = page::search(&mut connection, &terms, limit).await?;
+        let ids: Vec<Uuid> = found.iter().map(|(id, _)| *id).collect();
+        let mut waiting = page_suggestion::pending_counts(&mut connection, Some(&ids)).await?;
+        for (id, title) in found {
+            let pending_suggestions = waiting.remove(&id).unwrap_or_default();
+            results.push(SearchHit::Page {
+                id,
+                title,
+                pending_suggestions,
+            });
         }
     }
 

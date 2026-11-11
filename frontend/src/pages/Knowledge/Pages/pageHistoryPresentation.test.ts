@@ -52,8 +52,8 @@ describe('describePageHistory', () => {
     expect(row).toMatchObject({ sentence: 'undidEarlier', otherVersion: null })
   })
 
-  it('says a version came from an approved proposal', () => {
-    expect(describeOne({ data: { version: 3, proposalId: 'proposal' }}).sentence).toBe('approved')
+  it('says a version came from an accepted suggestion', () => {
+    expect(describeOne({ data: { version: 3, suggestionId: 'suggestion' }}).sentence).toBe('accepted')
   })
 
   it('reads a move as where the page went', () => {
