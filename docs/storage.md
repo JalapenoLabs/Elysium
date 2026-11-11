@@ -135,6 +135,7 @@ back named the same way, so a listed path can be passed straight to another oper
 | `list`     | A page of entries directly inside a directory  | `GET` with trailing slash | `ListObjectsV2`, delimiter `/`     |
 | `stat`     | One entry, or nothing                          | `DESCRIBE`                | `HeadObject`, then a 1-key listing |
 | `download` | The file as a stream, with its length and type | `GET`                     | `GetObject`                        |
+| `download_range` | The part of the file one range covers (Ranges, below) | `GET` with `Range` | `GetObject` with `Range` |
 | `upload`   | The written file's entry                       | `PUT`                     | `PutObject`                        |
 | `delete`   | Nothing                                        | `DESCRIBE`, then `DELETE` | `HeadObject`, then `DeleteObject`  |
 
@@ -157,6 +158,22 @@ S3 pages hold up to 1,000 entries, and `nextCursor` is the continuation token fo
 exist yet is empty on both. An S3 key equal to the directory itself (a marker some tools create) is not listed.
 
 On S3, `stat` reports a key with no object as a directory when any key sits beneath it.
+
+### Ranges
+
+A player seeking inside a recording asks for part of the file, so `download_range` takes one range of bytes
+(`api/src/storage/range.rs`: from a byte to another or to the end, or the last so many) and sends it to the provider as
+`Range`. Its answer is one of three (`RangedDownload`): the part, with which bytes it holds and the file's length when
+the provider says; the whole file, when the provider sent it whole without its length; or that the range covers none of
+the file.
+
+- **S3** answers `206` with the part and its `Content-Range`, and `416` for a range past the file; presigned URLs sign
+  only the host, so `Range` travels as a plain header.
+- **Bunny's storage API** documents no ranges, so its answer is read as either: a `206` as S3's, or a `200` with the
+  whole file, from which the part is cut as it streams (`transfer::slice`), the bytes before it read and dropped and
+  nothing after it read at all. Either way the caller receives only the part.
+- Several ranges at once, or a header that is not one range of bytes, are answered with the whole file, as HTTP lets a
+  server do. The media routes are its callers (`docs/meetings.md`, Playing media).
 
 ### Uploads
 

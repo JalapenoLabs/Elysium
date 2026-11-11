@@ -78,6 +78,40 @@ pub fn body_of(response: Response, provider: &'static str) -> ByteStream {
     .boxed()
 }
 
+/// The `length` bytes of `body` that follow its first `skip`, for a provider that answered a
+/// range with the whole file. What comes after them is never read, so the provider's answer is
+/// dropped as soon as the part is sent.
+pub fn slice(body: ByteStream, skip: u64, length: u64) -> ByteStream {
+    stream::unfold(
+        (body, skip, length),
+        |(mut body, mut skip, remaining)| async move {
+            loop {
+                if remaining == 0 {
+                    return None;
+                }
+                let mut chunk = match body.next().await? {
+                    Ok(chunk) => chunk,
+                    Err(error) => return Some((Err(error), (body, 0, 0))),
+                };
+                if skip > 0 {
+                    let skipped =
+                        usize::try_from(skip).map_or(chunk.len(), |skip| skip.min(chunk.len()));
+                    skip -= skipped as u64;
+                    chunk = chunk.slice(skipped..);
+                    if chunk.is_empty() {
+                        continue;
+                    }
+                }
+                let kept = usize::try_from(remaining)
+                    .map_or(chunk.len(), |remaining| remaining.min(chunk.len()));
+                let part = chunk.slice(..kept);
+                return Some((Ok(part), (body, 0, remaining - kept as u64)));
+            }
+        },
+    )
+    .boxed()
+}
+
 /// An upload's body as it is handed to the provider, counted against its declared length.
 struct CountedBody<Chunks> {
     chunks: std::pin::Pin<Box<Chunks>>,

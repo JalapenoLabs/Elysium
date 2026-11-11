@@ -10,9 +10,9 @@ capture, the final transcript as words with stable ids, marks anchored to ranges
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
 transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
 knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
-undoable, open to its owner alone until meetings are public by default; and uploads of recordings and transcripts
-as new meetings or captures of one. What is built is described in `docs/meetings.md`, which this design changes
-where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
+undoable, and its player, open to its owner alone until meetings are public by default; and uploads of recordings and
+transcripts as new meetings or captures of one. What is built is described in `docs/meetings.md`, which this design
+changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
