@@ -20,7 +20,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
 use super::SuggestionState;
@@ -30,7 +30,7 @@ use crate::models::action_item::{
     self, ActionItem, ActionItemChanges, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
 use crate::models::action_item_event::Recorded;
-use crate::models::page::Page;
+use crate::models::page::{self, Page};
 
 /// Serializes every refresh of one page's item, in whichever process makes it, so two writes at
 /// once never both raise one. Hashed with the page's id.
@@ -106,6 +106,52 @@ pub async fn refresh(
         }
     };
     written.map(Some).map_err(database_only)
+}
+
+/// Raises the item of every page with suggestions waiting that never had one, at `now`, each in its
+/// own transaction: suggestions that became pending without a suggestion being made, such as the
+/// company doc's proposals the migration carried over. A page whose person closed its item by hand
+/// has a row, so it is left alone, and once raised, a page's item is kept by [`refresh`] alone, so
+/// running this again raises nothing. The engine runs it as it starts. A page whose item cannot be
+/// raised is logged and left for the next start. Answers the items it raised, for the caller to
+/// announce.
+///
+/// # Errors
+/// Propagates a database error reading which pages need one.
+pub async fn reconcile(
+    connection: &mut AsyncPgConnection,
+    now: DateTime<Utc>,
+) -> QueryResult<Vec<Recorded<ActionItem>>> {
+    let never_told: Vec<Uuid> = page_suggestions::table
+        .filter(page_suggestions::state.eq(SuggestionState::Pending.as_str()))
+        .filter(diesel::dsl::not(page_suggestions::page_id.eq_any(
+            page_suggestion_items::table.select(page_suggestion_items::page_id),
+        )))
+        .select(page_suggestions::page_id)
+        .distinct()
+        .load(connection)
+        .await?;
+    let mut raised = Vec::with_capacity(never_told.len());
+    for page_id in never_told {
+        let item = connection
+            .transaction(async |connection| {
+                let page = page::find(connection, page_id).await?;
+                refresh(connection, &page, Cause::Suggested, now).await
+            })
+            .await;
+        // One page that fails waits for the next start; the rest are still told.
+        match item {
+            Ok(item) => raised.extend(item),
+            Err(error) => tracing::event!(
+                name: "page_suggestion.review_item.reconcile_failure",
+                tracing::Level::WARN,
+                page.id = %page_id,
+                error.message = %error,
+                "could not raise a page's review item; the next start tries again",
+            ),
+        }
+    }
+    Ok(raised)
 }
 
 /// `page_id`'s item while it is still open to act on: in the inbox or accepted, and not deleted,

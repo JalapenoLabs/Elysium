@@ -117,6 +117,7 @@
       "accept": "Accept",
       "acceptSome": "Accept {{taken, compact}} of {{count, compact}}",
       "chooseOne": "Choose at least one change to accept",
+      "nothingApplies": "The page changed in these lines since; dismiss it, or make the change yourself",
       "deletedPage": "Restore the page to accept a suggestion",
       "dismiss": "Dismiss",
       "dismissPrompt": {

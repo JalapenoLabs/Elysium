@@ -23,7 +23,7 @@ use super::migrations::{self, MIGRATIONS, MigrationCommand};
 use crate::models::agent::Author;
 use crate::models::company_doc::{self, Section};
 use crate::models::page::{self, PageEdit};
-use crate::models::page_suggestion::{self, Edit, NewSuggestion, SuggestionState};
+use crate::models::page_suggestion::{self, Edit, NewSuggestion, SuggestionState, review_item};
 use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::test_support::{TEST_PERSON_ID, empty_database};
 
@@ -276,6 +276,33 @@ async fn every_proposal_becomes_a_suggestion_to_its_sections_page_naming_its_ver
         .await
         .expect("reads");
     assert_eq!(dismissed[0].section, Section::People);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_pages_carried_over_with_suggestions_waiting_are_told_once_as_the_engine_starts() {
+    let (url, mut connection) = laid_out_as_production().await;
+    up(&url).await;
+
+    let raised = review_item::reconcile(&mut connection, Utc::now())
+        .await
+        .expect("reconciled");
+    let mut told: Vec<String> = raised
+        .iter()
+        .map(|item| item.record.title.clone())
+        .collect();
+    told.sort();
+    assert_eq!(
+        told,
+        [
+            "Review 2 suggested edits to Glossary",
+            "Review a suggested edit to People",
+        ]
+    );
+    let again = review_item::reconcile(&mut connection, Utc::now())
+        .await
+        .expect("reconciled");
+    assert!(again.is_empty(), "a page told is not told twice");
 }
 
 #[tokio::test]

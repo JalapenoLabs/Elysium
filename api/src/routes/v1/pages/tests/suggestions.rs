@@ -524,20 +524,12 @@ async fn the_company_doc_takes_suggestions_through_the_same_framework() {
     assert!(waiting.is_empty());
 }
 
-#[tokio::test]
-#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn members_review_suggestions_over_the_routes() {
-    let (url, mut connection) = migrated_database().await;
-    let mut state = app_state(&url).await;
-    state.events = EventBus::in_process();
-    let mut heard = state.events.subscribe();
-    let id = create(&mut connection, None, "Runbook").await;
-    publish(
-        &mut connection,
-        id,
-        "- Stop the service\n- Rebuild\n- Start it",
-    )
-    .await;
+/// A runbook with two suggestions waiting: one of two changes, and one of one.
+async fn runbook_with_two_suggestions(
+    connection: &mut AsyncPgConnection,
+) -> (Uuid, Suggested, Suggested) {
+    let id = create(connection, None, "Runbook").await;
+    publish(connection, id, "- Stop the service\n- Rebuild\n- Start it").await;
     let edits = vec![
         Edit {
             find: "- Stop the service".to_owned(),
@@ -548,30 +540,23 @@ async fn members_review_suggestions_over_the_routes() {
             replace: "- Check the logs".to_owned(),
         },
     ];
-    let suggested = suggest(&mut connection, id, None, edits, elysia())
+    let suggested = suggest(connection, id, None, edits, elysia())
         .await
         .expect("suggested");
-    let other = suggest(
-        &mut connection,
-        id,
-        None,
-        adding("- Tell the team"),
-        elysia(),
-    )
-    .await
-    .expect("suggested");
+    let other = suggest(connection, id, None, adding("- Tell the team"), elysia())
+        .await
+        .expect("suggested");
+    (id, suggested, other)
+}
 
-    let (status, tree) = call(&state, Method::GET, "/api/v1/pages", None).await;
-    assert_eq!(status, StatusCode::OK);
-    let listed = tree["pages"]
-        .as_array()
-        .expect("pages")
-        .iter()
-        .find(|listed| listed["id"] == json!(id))
-        .expect("listed");
-    assert_eq!(listed["pendingSuggestions"], 2, "the tree says what waits");
-    let (_, read) = call(&state, Method::GET, &format!("/api/v1/pages/{id}"), None).await;
-    assert_eq!(read["page"]["pendingSuggestions"], 2);
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn members_review_suggestions_over_the_routes() {
+    let (url, mut connection) = migrated_database().await;
+    let mut state = app_state(&url).await;
+    state.events = EventBus::in_process();
+    let mut heard = state.events.subscribe();
+    let (id, suggested, other) = runbook_with_two_suggestions(&mut connection).await;
 
     let (status, listed) = call(
         &state,
@@ -684,4 +669,55 @@ async fn a_guest_reviews_no_suggestion_and_starts_no_review() {
         .await
         .expect("read");
     assert_eq!(still.len(), 1, "nothing a guest sent was decided");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn the_tree_the_page_and_the_topbars_search_count_what_waits() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let id = create(&mut connection, None, "Ingest runbook").await;
+    for line in ["- Stop the service", "- Tell the team"] {
+        suggest(&mut connection, id, None, adding(line), elysia())
+            .await
+            .expect("suggested");
+    }
+
+    let (status, tree) = call(&state, Method::GET, "/api/v1/pages", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = tree["pages"]
+        .as_array()
+        .expect("pages")
+        .iter()
+        .find(|listed| listed["id"] == json!(id))
+        .expect("listed");
+    assert_eq!(listed["pendingSuggestions"], 2, "the tree says what waits");
+    let (_, read) = call(&state, Method::GET, &format!("/api/v1/pages/{id}"), None).await;
+    assert_eq!(read["page"]["pendingSuggestions"], 2);
+    assert_eq!(read["page"]["companyDoc"], false);
+
+    let (status, found) = call(&state, Method::GET, "/api/v1/search?q=ingest", None).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    let hit = found["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .find(|hit| hit["kind"] == "page" && hit["id"] == json!(id))
+        .expect("found");
+    assert_eq!(hit["pendingSuggestions"], 2);
+
+    let (_, section) = call(
+        &state,
+        Method::GET,
+        &format!("/api/v1/pages/{}", Section::Glossary.page_id()),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (
+            &section["page"]["companyDoc"],
+            &section["page"]["pendingSuggestions"]
+        ),
+        (&json!(true), &json!(0))
+    );
 }

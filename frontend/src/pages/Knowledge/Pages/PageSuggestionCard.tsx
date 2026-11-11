@@ -43,9 +43,14 @@ export function PageSuggestionCard(props: Props) {
     ? t('pages.suggestions.suggestedByAgent', { who, agent: pageAgentName(suggestion.agent, t) })
     : t('pages.suggestions.suggestedBy', { who })
   const label = acceptLabel(chosen, suggestion.changes.length)
+  // Why Accept waits, most fundamental first: nothing can be taken from a deleted page, nor a change
+  // whose lines the page changed since, and nothing is taken while nothing is ticked.
   let blockedReason: string | null = null
   if (page.deletedAt) {
     blockedReason = t('pages.suggestions.deletedPage')
+  }
+  else if (!suggestion.changes.some((change) => change.applies)) {
+    blockedReason = t('pages.suggestions.nothingApplies')
   }
   else if (!chosen.size) {
     blockedReason = t('pages.suggestions.chooseOne')
