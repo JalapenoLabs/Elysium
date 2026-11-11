@@ -342,6 +342,18 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<U
         .await
 }
 
+/// The users among `ids` that exist, in no particular order.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_many(connection: &mut AsyncPgConnection, ids: &[Uuid]) -> QueryResult<Vec<User>> {
+    users::table
+        .filter(users::id.eq_any(ids))
+        .select(User::as_select())
+        .load(connection)
+        .await
+}
+
 /// Every user, machines included, people by name. Lists show machines as creators too.
 ///
 /// # Errors

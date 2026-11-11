@@ -4,6 +4,7 @@ import type { ConnectorKind } from './connectorRoutes'
 import type { LearningAgent } from './learningRoutes'
 
 // Misc
+import { API_BASE_PATH } from '../../constants'
 import { apiClient } from '../index'
 
 // What a capture a person uploaded names as its source, as `SOURCE_KIND` in
@@ -127,6 +128,8 @@ export type MeetingCapture = {
   // How that was found; a source a later API adds arrives as its stored name.
   offsetSource: string
   hasRecording: boolean
+  // What its recording is, such as `video/mp4`; null without one.
+  recordingContentType: string | null
   // The meeting a merge brought it from, while that merge stands; null for the meeting's own.
   // Splitting it out makes that meeting its own again, with every capture the merge brought.
   mergedFrom: {
@@ -155,7 +158,7 @@ export type MeetingTranscriptChange = {
 export type MeetingHistoryEntry = {
   id: string
   // `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-  // `offset_changed`, `merged`, `split`, or `capture_added`.
+  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -179,6 +182,19 @@ export type CaptureTranscript = {
 export type MeetingChangeResponse = {
   entry: MeetingHistoryEntry
   change: MeetingTranscriptChange
+}
+
+// Mirrors `CommentResponse`: one comment in a thread on a range of the final transcript. A thread
+// is a mark of kind `comment`, named by the mark's id.
+export type MeetingComment = {
+  id: string
+  threadId: string
+  body: string
+  // Whom it mentions, by user id, in the order they were named.
+  mentions: string[]
+  createdBy: string
+  agent: LearningAgent | null
+  createdAt: string
 }
 
 type ListMeetingsResponse = {
@@ -226,10 +242,19 @@ export function meetingHistoryKey(meetingId: string) {
   return `v1/meetings/${meetingId}/history`
 }
 
+export function meetingThreadsKey(meetingId: string) {
+  return `v1/meetings/${meetingId}/threads`
+}
+
 export function getMeetingWords(meetingId: string) {
   return apiClient
     .get(meetingWordsKey(meetingId))
     .json<MeetingWords>()
+}
+
+// A capture's recording, which the player streams a range at a time from Elysium's own origin.
+export function getCaptureMediaUrl(meetingId: string, captureId: string) {
+  return `${API_BASE_PATH}/v1/meetings/${meetingId}/captures/${captureId}/media`
 }
 
 export function getCaptureTranscript(meetingId: string, captureId: string) {
@@ -269,6 +294,83 @@ export function undoMeetingChange(meetingId: string, entryId: string) {
   return apiClient
     .post(`v1/meetings/${meetingId}/history/${entryId}/undo`)
     .json<MeetingChangeResponse>()
+}
+
+type MeetingThreadsResponse = {
+  comments: MeetingComment[]
+}
+
+// Every comment in the meeting's standing threads, each thread's oldest first.
+export function getMeetingThreads(meetingId: string) {
+  return apiClient
+    .get(meetingThreadsKey(meetingId))
+    .json<MeetingThreadsResponse>()
+}
+
+type CommentRequest = {
+  body: string
+  // Whom it mentions, by user id: active people, and Elysia, who answers in the thread.
+  mentions: string[]
+}
+
+type StartMeetingThreadRequest = CommentRequest & {
+  startWordId: string
+  endWordId: string
+}
+
+// Starting a thread is a change in the meeting's history, so it answers the entry, what it did to
+// the marks, and its first comment.
+export type StartMeetingThreadResponse = MeetingChangeResponse & {
+  comment: MeetingComment
+}
+
+// `409 meeting_words_changed` when a word of the range was replaced meanwhile; `400
+// meeting_comment_mention` for a mention of anyone but an active person or Elysia.
+export function startMeetingThread(meetingId: string, body: StartMeetingThreadRequest) {
+  return apiClient
+    .post(meetingThreadsKey(meetingId), { json: body })
+    .json<StartMeetingThreadResponse>()
+}
+
+type ReplyResponse = {
+  comment: MeetingComment
+}
+
+// `409 meeting_thread_removed` for a thread removed meanwhile.
+export function replyInMeetingThread(meetingId: string, threadId: string, body: CommentRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/threads/${threadId}/comments`, { json: body })
+    .json<ReplyResponse>()
+}
+
+// Resolves a thread, or opens it again; `409 meeting_thread_unchanged` when it is so already.
+export function setMeetingThreadResolved(meetingId: string, threadId: string, resolved: boolean) {
+  const path = `v1/meetings/${meetingId}/threads/${threadId}/resolved`
+  const request = resolved
+    ? apiClient.post(path)
+    : apiClient.delete(path)
+  return request.json<MeetingChangeResponse>()
+}
+
+// Removes a thread, comments and all; its Undo puts it back whole.
+export function removeMeetingThread(meetingId: string, threadId: string) {
+  return apiClient
+    .delete(`v1/meetings/${meetingId}/threads/${threadId}`)
+    .json<MeetingChangeResponse>()
+}
+
+type ThreadOfItemResponse = {
+  thread: {
+    meetingId: string
+    threadId: string
+  } | null
+}
+
+// The thread an inbox item was raised by, when one of the signed-in person's meetings raised it.
+export function getThreadOfItem(itemId: string) {
+  return apiClient
+    .get(`v1/meetings/thread-items/${itemId}`)
+    .json<ThreadOfItemResponse>()
 }
 
 // Approves the corrected transcript, and lets a run held for it go on.

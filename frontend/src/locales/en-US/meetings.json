@@ -103,8 +103,17 @@
       "selectFromHere": "Select from here",
       "tapToEnd": "Tap where it ends",
       "edit": "Edit",
+      "comment": "Comment",
+      "playFromHere": "Play from here",
+      "spaceKey": "Space",
       "clear": "Clear the selection",
       "clearHint": "Clear the selection (Esc)"
+    },
+    "player": {
+      "label": "Meeting recording",
+      "move": "Drag to move the player",
+      "capture": "Recording",
+      "failed": "This recording can't be played right now."
     },
     "editor": {
       "alternatives": "It might be:",
@@ -164,6 +173,33 @@
       "unknownProject": "A project you cannot see",
       "replaced": "Replaced “{{before}}”"
     },
+    "comments": {
+      "title": "Comments",
+      "empty": "No comments yet",
+      "loadError": "Its comments could not be loaded.",
+      "new": "New comment",
+      "label": "Comment",
+      "replyLabel": "Reply",
+      "hint": "@ mentions someone. Ctrl+Enter, or Cmd+Enter on a Mac, posts.",
+      "mentionsLabel": "People to mention",
+      "noOneToMention": "Nobody by that name",
+      "post": "Comment",
+      "reply": "Reply",
+      "cancel": "Cancel",
+      "resolve": "Resolve",
+      "reopen": "Reopen",
+      "remove": "Remove thread",
+      "started": "Comment added",
+      "resolved": "Thread resolved",
+      "reopened": "Thread reopened",
+      "removed": "Thread removed",
+      "threadRemoved": "That thread was removed meanwhile.",
+      "elysiaAsked": "Elysia answers here shortly.",
+      "replies_one": "{{count, compact}} reply",
+      "replies_other": "{{count, compact}} replies",
+      "resolvedCount_one": "{{count, compact}} resolved",
+      "resolvedCount_other": "{{count, compact}} resolved"
+    },
     "history": {
       "title": "Changes",
       "loadError": "Its changes could not be loaded.",
@@ -191,6 +227,8 @@
         "addedRecordingAndTranscript": "Added a recording and its transcript",
         "addedRecording": "Added a recording",
         "addedTranscript": "Added a transcript",
+        "threadResolved": "Resolved a comment thread",
+        "threadReopened": "Reopened a comment thread",
         "changed": "Changed the meeting"
       }
     }
@@ -205,6 +243,10 @@
     "mergedToast": "Merged",
     "keptApartToast": "Kept apart",
     "decidedMeanwhile": "This was decided already."
+  },
+  "threadLink": {
+    "heading": "Comment thread",
+    "open": "Open the thread"
   },
   "upload": {
     "action": "Upload a meeting",

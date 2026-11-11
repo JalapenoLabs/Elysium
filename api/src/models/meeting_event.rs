@@ -49,10 +49,14 @@ pub enum EventKind {
     /// A person added a capture to it by uploading a recording, a transcript, or both:
     /// `{ captureId, sourceKind, recording, transcript }`, the last two saying which it holds.
     CaptureAdded,
+    /// A comment thread was resolved: `{ markId }`.
+    ThreadResolved,
+    /// A resolved comment thread was opened again: `{ markId }`.
+    ThreadReopened,
 }
 
 impl EventKind {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 12] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
@@ -63,6 +67,8 @@ impl EventKind {
         Self::Merged,
         Self::Split,
         Self::CaptureAdded,
+        Self::ThreadResolved,
+        Self::ThreadReopened,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -77,6 +83,8 @@ impl EventKind {
             Self::Merged => "merged",
             Self::Split => "split",
             Self::CaptureAdded => "capture_added",
+            Self::ThreadResolved => "thread_resolved",
+            Self::ThreadReopened => "thread_reopened",
         }
     }
 

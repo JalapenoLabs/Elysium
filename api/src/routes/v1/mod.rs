@@ -28,6 +28,7 @@ pub mod learnings;
 pub mod llms;
 pub mod mail;
 mod me;
+mod media;
 mod meeting_uploads;
 pub mod meetings;
 mod model_settings;

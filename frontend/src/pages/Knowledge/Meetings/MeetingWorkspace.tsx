@@ -5,8 +5,9 @@ import type { MarkPill } from './TranscriptFloatingBar'
 import type { DrawnMarkKind, WordRange } from './meetingTranscript'
 
 // Core
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
@@ -20,9 +21,11 @@ import { CaptureTranscript } from './CaptureTranscript'
 import { FinalTranscript } from './FinalTranscript'
 import { MeetingLane } from './MeetingLane'
 import { FINAL_VIEW } from './MeetingOptions'
+import { MeetingPlayer } from './MeetingPlayer'
 
 // Misc
 import { useProjectsLoader, useUsersLoader } from '../../../hooks/useServerData'
+import { PLAYER_JUMP_MS } from './meetingPlayer'
 import { markKindLabelKeys } from './meetingReviewPresentation'
 import {
   alternativesFor,
@@ -38,7 +41,10 @@ import {
   textOfRange,
 } from './meetingTranscript'
 import { useMeetingChanges } from './useMeetingChanges'
+import { isResolvedThread, threadsOf } from './meetingThreads'
 import { useMeetingHistory } from './useMeetingHistory'
+import { useMeetingPlayer } from './useMeetingPlayer'
+import { useMeetingThreads } from './useMeetingThreads'
 import { useReviewHotkeys } from './useReviewHotkeys'
 
 type Props = {
@@ -58,6 +64,8 @@ type Review = {
   markId: string | null
   momentId: string | null
   isEditing: boolean
+  // A new comment thread is being written on the words selected, in the lane.
+  isCommenting: boolean
   // On a touch screen, which has no Shift, the next tap ends a selection started at the moment.
   isExtending: boolean
 }
@@ -68,13 +76,26 @@ const NOTHING_PICKED: Review = {
   markId: null,
   momentId: null,
   isEditing: false,
+  isCommenting: false,
   isExtending: false,
 }
 
+// Where the lane stands beside the transcript rather than in a drawer: Tailwind's `lg`, which the
+// layout below switches at.
+const LANE_BESIDE_QUERY = '(min-width: 64rem)'
+
+// Brings word `index` of the transcript into view, for a thread opened from the lane or a link.
+function revealWord(index: number) {
+  document
+    .querySelector(`[data-word-index="${index}"]`)
+    ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
 // A meeting's review (docs/meeting-review.md, The meeting's page): the transcript, three quarters
-// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's tasks
-// (#243) and its player (#236) as they are built; the moment a click picks is what the player will
-// seek. Every change applies at once with Undo in its toast, and Ctrl+Z undoes the page's last.
+// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
+// and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
+// the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
+// toast, and Ctrl+Z undoes the page's last.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
@@ -84,11 +105,17 @@ export function MeetingWorkspace(props: Props) {
   const projects = useAppSelector(selectProjectEntities)
   const drawer = useOverlayState()
   const history = useMeetingHistory(meeting.id)
+  const threadComments = useMeetingThreads(meeting.id)
+  // A link to a thread, such as from the inbox item a mention raised, opens it once its words load.
+  const [ searchParams ] = useSearchParams()
+  const linkedThreadId = searchParams.get('thread')
+  const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
     applyChange: props.applyChange,
     reload: props.reload,
   })
+  const player = useMeetingPlayer({ meetingId: meeting.id, captures: transcript.captures, words })
   // Read once: a phone does not become a mouse while its page is open.
   const [ isTouch ] = useState(() => window.matchMedia('(pointer: coarse)').matches)
 
@@ -100,8 +127,17 @@ export function MeetingWorkspace(props: Props) {
   // selection redraws only the paragraphs it reaches.
   const indexById = useMemo(() => new Map(words.map((word, index) => [ word.id, index ])), [ words ])
   const placed = useMemo(() => placeMarks(words, transcript.marks), [ words, transcript.marks ])
+  // A resolved thread is done with: it stays in the lane, and its words draw no outline.
+  const drawn = useMemo(
+    () => placed.filter((placedMark) => placedMark.kind !== 'comment' || !isResolvedThread(placedMark.mark)),
+    [ placed ],
+  )
+  const threads = useMemo(
+    () => threadsOf(placed, threadComments.comments ?? []),
+    [ placed, threadComments.comments ],
+  )
   const paragraphs = useMemo(() => paragraphsOf(words), [ words ])
-  const decorations = useMemo(() => decorateWords(words.length, placed, shown), [ words.length, placed, shown ])
+  const decorations = useMemo(() => decorateWords(words.length, drawn, shown), [ words.length, drawn, shown ])
   const excerpts = useMemo(() => {
     const lanes = shown.has('excerpt')
       ? excerptLanes(placed)
@@ -151,7 +187,7 @@ export function MeetingWorkspace(props: Props) {
     : null
   const under = moment === null
     ? []
-    : marksUnder(placed, moment, shown)
+    : marksUnder(drawn, moment, shown)
   const pills: MarkPill[] = under.map((placedMark) => ({
     markId: placedMark.mark.id,
     label: t(markKindLabelKeys[placedMark.kind]),
@@ -192,9 +228,9 @@ export function MeetingWorkspace(props: Props) {
     })
   }, [ placed, indexById, words ])
 
-  // A click picks a moment, and selects the shortest mark under it (docs/meeting-review.md, A
-  // click picks a moment). With Shift, or a tap after Select from here, it extends what is picked
-  // to the word instead.
+  // A click picks a moment, which the player seeks, and selects the shortest mark under it
+  // (docs/meeting-review.md, A click picks a moment). With Shift, or a tap after Select from here,
+  // it extends what is picked to the word instead.
   function onPick(index: number, shiftKey: boolean) {
     // From the word clicked, even when that click selected the mark around it; else from where a
     // drag started.
@@ -203,7 +239,10 @@ export function MeetingWorkspace(props: Props) {
       pickRange(from, index)
       return
     }
-    const [ shortest ] = marksUnder(placed, index, shown)
+    if (player.capture) {
+      player.seek(words[index].startMs)
+    }
+    const [ shortest ] = marksUnder(drawn, index, shown)
     if (shortest) {
       pickRange(shortest.start, shortest.end, { markId: shortest.mark.id, momentId: words[index].id })
       return
@@ -212,6 +251,68 @@ export function MeetingWorkspace(props: Props) {
   }
 
   const clear = () => setReview(NOTHING_PICKED)
+
+  // A thread chosen from the lane, or from a link, selects its range and brings it into view.
+  const openThread = useCallback((threadId: string) => {
+    const thread = placed.find((placedMark) => placedMark.mark.id === threadId)
+    if (!thread) {
+      console.debug('MeetingWorkspace was asked to open a thread it does not hold', { threadId })
+      return
+    }
+    selectMarkById(threadId)
+    revealWord(thread.start)
+  }, [ placed, selectMarkById ])
+
+  // The thread a link names opens where it can be read: beside the transcript, or in the drawer
+  // where the lane is one.
+  const { open: openDrawer } = drawer
+  useEffect(() => {
+    if (!linkedThreadId || hasOpenedLink.current || !words.length) {
+      return
+    }
+    hasOpenedLink.current = true
+    openThread(linkedThreadId)
+    if (!window.matchMedia(LANE_BESIDE_QUERY).matches) {
+      openDrawer()
+    }
+  }, [ linkedThreadId, words.length, openThread, openDrawer ])
+
+  // Starts writing a thread on the words selected; the lane holds it, so a phone opens its drawer.
+  function startComment() {
+    if (view !== FINAL_VIEW || !selection || review.isEditing) {
+      return false
+    }
+    setReview({ ...review, isCommenting: true })
+    if (!window.matchMedia(LANE_BESIDE_QUERY).matches) {
+      drawer.open()
+    }
+    return true
+  }
+
+  async function postThread(body: string, mentions: string[]) {
+    if (!selection) {
+      console.debug('MeetingWorkspace was asked to post a thread with nothing selected')
+      return false
+    }
+    const threadId = await changes.startThread(words[selection.start].id, words[selection.end].id, body, mentions)
+    if (threadId === null) {
+      return false
+    }
+    // The new thread opens where it was written.
+    setReview({
+      ...NOTHING_PICKED,
+      anchorId: words[selection.start].id,
+      focusId: words[selection.end].id,
+      markId: threadId,
+    })
+    return true
+  }
+
+  // Where Play from here starts: the words selected, else the word clicked.
+  const playStart = selection?.start ?? moment
+  const playFromHere = player.capture && playStart !== null
+    ? () => player.playFrom(words[playStart].startMs)
+    : null
 
   async function applyEdit(text: string) {
     if (!selection) {
@@ -236,9 +337,10 @@ export function MeetingWorkspace(props: Props) {
       if (view !== FINAL_VIEW || !selection || review.isEditing) {
         return false
       }
-      setReview({ ...review, isEditing: true })
+      setReview({ ...review, isEditing: true, isCommenting: false })
       return true
     },
+    onComment: startComment,
     onCycleMark: (step) => {
       if (under.length < 2) {
         return false
@@ -246,6 +348,33 @@ export function MeetingWorkspace(props: Props) {
       const current = under.findIndex((placedMark) => placedMark.mark.id === review.markId)
       const next = under[(current + step + under.length) % under.length]
       selectMarkById(next.mark.id)
+      return true
+    },
+    // Space pauses what plays; otherwise it plays the words selected, as Play from here does, or
+    // plays on from where the player is.
+    onPlayPause: (isRepeat) => {
+      if (!player.capture) {
+        return false
+      }
+      if (isRepeat) {
+        return true
+      }
+      if (player.isPlaying) {
+        player.toggle()
+      }
+      else if (selection) {
+        player.playFrom(words[selection.start].startMs)
+      }
+      else {
+        player.play()
+      }
+      return true
+    },
+    onJump: (step) => {
+      if (!player.capture) {
+        return false
+      }
+      player.jump(step * PLAYER_JUMP_MS)
       return true
     },
     onUndo: () => void changes.undoLast(),
@@ -293,6 +422,25 @@ export function MeetingWorkspace(props: Props) {
       hasFailed: history.hasFailed,
     }}
     onUndo={changes.undo}
+    threads={{
+      open: threads.open,
+      resolved: threads.resolved,
+      isLoading: !threadComments.comments && !threadComments.hasFailed,
+      hasFailed: threadComments.hasFailed,
+    }}
+    threadActions={{
+      onReply: changes.reply,
+      onSetResolved: changes.setResolved,
+      onRemove: changes.removeThread,
+    }}
+    onSelectThread={openThread}
+    composing={review.isCommenting && selection
+      ? {
+        range: selection,
+        onPost: postThread,
+        onCancel: () => setReview({ ...review, isCommenting: false }),
+      }
+      : null}
     isInDrawer={isInDrawer}
   />
 
@@ -312,6 +460,7 @@ export function MeetingWorkspace(props: Props) {
       focus={focus ?? null}
       selectedMark={selectedMark}
       moment={moment}
+      spoken={player.spokenIndex}
       pills={pills}
       isEditing={review.isEditing && Boolean(selection)}
       isExtending={review.isExtending}
@@ -321,17 +470,21 @@ export function MeetingWorkspace(props: Props) {
       onPick={onPick}
       onDrag={(start, end) => pickRange(start, end)}
       onSelectMark={selectMarkById}
-      onEdit={() => setReview({ ...review, isEditing: true })}
+      onEdit={() => setReview({ ...review, isEditing: true, isCommenting: false })}
+      onComment={startComment}
       onClear={clear}
       onApplyEdit={applyEdit}
       onCancelEdit={() => setReview({ ...review, isEditing: false })}
       onSelectFromHere={isTouch && moment !== null
         ? () => pickRange(moment, moment, { isExtending: true })
         : null}
+      onPlayFromHere={playFromHere}
     />
   }
 
   return <>
+    <MeetingPlayer player={player} />
+
     <div className='lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(15rem,1fr)] lg:gap-8'>
       <div className='min-w-0'>
         <div className='relaxed lg:hidden'>

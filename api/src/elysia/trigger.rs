@@ -18,7 +18,11 @@ pub const EVENT: &str = "event";
 /// Nothing was queued, so she revisits her own work.
 pub const IDLE: &str = "idle";
 
+/// A person mentioned her in a comment thread on a meeting (`crate::meetings::comments`); she
+/// answers in the thread.
+pub const MEETING_COMMENT: &str = "meeting-comment";
+
 /// Whether a turn of `kind` was started by a person.
 pub fn is_from_person(kind: &str) -> bool {
-    kind == MESSAGE || kind == ANSWER
+    kind == MESSAGE || kind == ANSWER || kind == MEETING_COMMENT
 }

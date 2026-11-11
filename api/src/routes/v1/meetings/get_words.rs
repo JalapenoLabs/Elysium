@@ -2,9 +2,10 @@
 
 //! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
 //! it reads, for its page: its standing words in order, every standing mark over them, and its
-//! captures, each of which opens as it came (`captures/{captureId}/transcript`), saying where it
-//! sits on the meeting's clock and how that was found, and which meeting it came from when a merge
-//! brought it, which splitting it makes its own again.
+//! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
+//! recording (`captures/{captureId}/media`), saying where it sits on the meeting's clock and how
+//! that was found, and which meeting it came from when a merge brought it, which splitting it makes
+//! its own again.
 //!
 //! `words` is empty until the transcript is built, which its correction does
 //! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.
@@ -23,6 +24,7 @@ use super::{MarkResponse, WordResponse};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::duplicates;
+use crate::meetings::media::media_type_of;
 use crate::models::meeting_capture::{self, CaptureSummary};
 use crate::models::meeting_event::{self, EventKind};
 use crate::models::{meeting, meeting_mark, meeting_word};
@@ -43,6 +45,9 @@ struct CaptureResponse {
     /// How that was found: `listed`, `audio`, `words`, or `hand`, which aligning never moves.
     offset_source: &'static str,
     has_recording: bool,
+    /// What its recording is, such as `video/mp4`, which the player's switcher starts on the best
+    /// video by; `null` without a recording, or one of a kind Elysium never writes.
+    recording_content_type: Option<String>,
     /// The meeting a merge brought it from, while that merge stands; `null` for a capture of the
     /// meeting's own.
     merged_from: Option<MergedFrom>,
@@ -58,6 +63,14 @@ struct MergedFrom {
 
 impl CaptureResponse {
     fn new(capture: CaptureSummary, merged_from: Option<MergedFrom>) -> Self {
+        // A recording kept before its type was recorded is named by its extension, as its media
+        // route serves it.
+        let recording_content_type = capture.recording_path.as_deref().and_then(|path| {
+            capture
+                .recording_content_type
+                .clone()
+                .or_else(|| media_type_of(path).map(ToOwned::to_owned))
+        });
         Self {
             offset_source: capture.offset_source().as_str(),
             id: capture.id,
@@ -66,6 +79,7 @@ impl CaptureResponse {
             url: capture.url,
             offset_ms: capture.offset_ms,
             has_recording: capture.recording_path.is_some(),
+            recording_content_type,
             merged_from,
         }
     }

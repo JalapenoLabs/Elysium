@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/meetings`: the signed-in person's meetings, how far each one's processing got, and
-//! the review of each on its page: its final transcript with its marks, each capture as it came,
-//! edits, and its history with undo. See `crate::meetings` and `docs/meetings.md`.
+//! the review of each on its page: its final transcript with its marks, each capture as it came
+//! and its recording for the player, edits, comment threads on its ranges, and its history with
+//! undo. See `crate::meetings` and `docs/meetings.md`.
 //!
 //! A meeting belongs to whoever owns the account it was read from, and every route answers
 //! them alone, until meetings are public by default (`docs/meeting-review.md`, Who sees a
@@ -21,13 +22,15 @@ mod list_meetings;
 mod retry_meeting;
 mod set_capture_offset;
 mod split_capture;
+mod stream_capture_media;
 #[cfg(test)]
 mod tests;
+mod threads;
 
 use std::collections::HashMap;
 
 use axum::Router;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use chrono::{DateTime, Utc};
 use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
@@ -39,6 +42,7 @@ use crate::meetings::duplicates::Moved;
 use crate::meetings::workflow;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_capture::{self, MeetingCapture};
+use crate::models::meeting_comment::WrittenComment;
 use crate::models::meeting_correction::{self, MeetingCorrection};
 use crate::models::meeting_event::{EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark};
@@ -59,8 +63,20 @@ pub fn router() -> Router<AppState> {
             "/{id}/captures/{capture_id}/transcript",
             get(get_capture_transcript::handle),
         )
+        .route(
+            "/{id}/captures/{capture_id}/media",
+            get(stream_capture_media::handle),
+        )
         .route("/{id}/history", get(history::list))
         .route("/{id}/history/{entry_id}/undo", post(history::undo))
+        .route("/{id}/threads", get(threads::list).post(threads::start))
+        .route("/{id}/threads/{thread_id}", delete(threads::remove))
+        .route("/{id}/threads/{thread_id}/comments", post(threads::reply))
+        .route(
+            "/{id}/threads/{thread_id}/resolved",
+            post(threads::resolve).delete(threads::reopen),
+        )
+        .route("/thread-items/{item_id}", get(threads::of_item))
         .route("/{id}/correction/approve", post(approve_correction::handle))
         .route(
             "/{id}/hold",
@@ -314,13 +330,45 @@ impl From<Mark> for MarkResponse {
     }
 }
 
+/// One comment in a thread on a meeting's range.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentResponse {
+    id: Uuid,
+    /// Its thread: the comment mark over the range it is on.
+    thread_id: Uuid,
+    body: String,
+    /// Whom it mentions, by user id, in the order they were named.
+    mentions: Vec<Uuid>,
+    /// Who wrote it, and the agent that acted for them, if one did.
+    created_by: Uuid,
+    agent: Option<AgentResponse>,
+    created_at: DateTime<Utc>,
+}
+
+impl From<WrittenComment> for CommentResponse {
+    fn from(written: WrittenComment) -> Self {
+        let WrittenComment { comment, mentions } = written;
+        Self {
+            id: comment.id,
+            thread_id: comment.mark_id,
+            body: comment.body,
+            mentions,
+            created_by: comment.created_by,
+            agent: AgentResponse::new(comment.agent, comment.agent_name),
+            created_at: comment.created_at,
+        }
+    }
+}
+
 /// One entry of a meeting's history as its page lists it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingEventResponse {
     id: Uuid,
-    /// `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, or
-    /// `capture_added`.
+    /// `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
+    /// `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or
+    /// `thread_reopened`.
     kind: String,
     created_by: Uuid,
     agent: Option<AgentResponse>,

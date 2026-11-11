@@ -64,7 +64,12 @@ pub async fn handle(
             }
             UndoError::Database(database) => database.into(),
             UndoError::Transcript(other) => other.into(),
-        })?;
+            UndoError::Thread(error) => {
+                anyhow::anyhow!("undoing the merge could not tell a thread's people: {error}")
+                    .into()
+            }
+        })?
+        .entry;
 
     announce_lined_up(&state.events, &mut connection, &split).await?;
     let kept = meeting::find(&mut connection, owned.id).await?;

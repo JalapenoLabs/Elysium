@@ -17,6 +17,7 @@ function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCa
     offsetMs: 0,
     offsetSource: 'listed',
     hasRecording: true,
+    recordingContentType: 'audio/mpeg',
     mergedFrom: null,
     ...overrides,
   }

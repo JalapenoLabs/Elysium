@@ -313,6 +313,18 @@ pub async fn insert_turn(connection: &mut AsyncPgConnection, turn: NewTurn) -> Q
         .await
 }
 
+/// Turn `id`.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when there is no such turn.
+pub async fn find_turn(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Turn> {
+    elysia_turns::table
+        .find(id)
+        .select(Turn::as_select())
+        .first(connection)
+        .await
+}
+
 /// The latest turns, newest first.
 ///
 /// # Errors

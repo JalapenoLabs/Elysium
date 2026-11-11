@@ -267,6 +267,7 @@ pub struct CaptureSummary {
     pub url: Option<String>,
     pub offset_ms: i64,
     pub recording_path: Option<String>,
+    pub recording_content_type: Option<String>,
     /// An [`OffsetSource`] name: how `offset_ms` was found.
     pub offset_source: String,
 }

@@ -62,6 +62,8 @@ export const historySentenceKeys = {
   addedRecordingAndTranscript: 'review.history.sentences.addedRecordingAndTranscript',
   addedRecording: 'review.history.sentences.addedRecording',
   addedTranscript: 'review.history.sentences.addedTranscript',
+  threadResolved: 'review.history.sentences.threadResolved',
+  threadReopened: 'review.history.sentences.threadReopened',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -83,7 +85,15 @@ const QUOTE_MAX_CHARACTERS = 60
 
 // Kinds undone wherever they are listed. A merge and a split are undone only from the meeting the
 // recordings went into (`sideOf`).
-const UNDOABLE_KINDS = new Set([ 'edited', 'marked', 'unmarked', 'hold_changed', 'offset_changed' ])
+const UNDOABLE_KINDS = new Set([
+  'edited',
+  'marked',
+  'unmarked',
+  'hold_changed',
+  'offset_changed',
+  'thread_resolved',
+  'thread_reopened',
+])
 
 // Which side of a merge or split a meeting's entry was written for (`Moved` in
 // api/src/meetings/duplicates.rs): the meeting the recordings went into, or the one they came from.
@@ -213,6 +223,12 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
       }
       case 'capture_added':
         row.sentence = addedCaptureSentence(entry.data)
+        return row
+      case 'thread_resolved':
+        row.sentence = 'threadResolved'
+        return row
+      case 'thread_reopened':
+        row.sentence = 'threadReopened'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

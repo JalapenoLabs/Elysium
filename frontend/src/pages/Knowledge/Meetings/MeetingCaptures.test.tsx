@@ -28,6 +28,7 @@ function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCa
     offsetMs: 0,
     offsetSource: 'listed',
     hasRecording: true,
+    recordingContentType: 'video/mp4',
     mergedFrom: null,
     ...overrides,
   }

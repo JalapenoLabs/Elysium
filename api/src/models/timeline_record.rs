@@ -28,6 +28,7 @@ use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::meetings::segmentation::MAX_SEGMENTS;
 use crate::models::knowledge_document::{self, KnowledgeSource};
+use crate::models::meeting_comment;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// The owners whose records every reader of a timeline reads besides their own: Elysium's own
@@ -180,7 +181,11 @@ pub async fn upsert_turn_summary(
 /// so the index holds what the page says now. Two transactions indexing versions of one page
 /// wait for each other, so whichever commits last still leaves the newest one alone indexed.
 ///
-/// Call it inside the transaction that stores or changes the record.
+/// A meeting segment is indexed with the comment threads over its span, read as they stand
+/// (`models::meeting_comment::indexed_over`), so a thread written before its meeting was
+/// segmented is indexed as the segments are stored.
+///
+/// Call it inside the transaction that stores or changes the record, or one of its threads.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -195,12 +200,42 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
             return knowledge_document::remove(connection, &source).await;
         }
     }
-    let Some(document) = records::document(record) else {
+    let threads = match segment_span(record) {
+        Some((meeting_id, start_ms, end_ms)) => {
+            meeting_comment::indexed_over(connection, meeting_id, start_ms, end_ms).await?
+        }
+        None => Vec::new(),
+    };
+    let Some(document) = records::document(record, &threads) else {
         return knowledge_document::remove(connection, &source).await;
     };
     knowledge_document::upsert(connection, &document)
         .await
         .map(drop)
+}
+
+/// The meeting a segment record is of, and its span on the meeting's clock (`media`'s
+/// `meetingId`, `startMs`, and `endMs`); `None` for any other record.
+pub(crate) fn segment_span(record: &TimelineRecord) -> Option<(Uuid, i64, i64)> {
+    if record.source_kind != SEGMENT_SOURCE_KIND {
+        return None;
+    }
+    let media = record.media.as_ref()?;
+    let span = media["meetingId"]
+        .as_str()
+        .and_then(|meeting_id| meeting_id.parse::<Uuid>().ok())
+        .zip(media["startMs"].as_i64())
+        .zip(media["endMs"].as_i64())
+        .map(|((meeting_id, start_ms), end_ms)| (meeting_id, start_ms, end_ms));
+    if span.is_none() {
+        tracing::event!(
+            name: "knowledge.segment.unplaced",
+            tracing::Level::WARN,
+            record.id = %record.id,
+            "a meeting segment's media names no meeting or span; indexing it without its comments",
+        );
+    }
+    span
 }
 
 /// Takes every version of `revision`'s page out of the index but its newest, and answers the

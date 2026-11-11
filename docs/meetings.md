@@ -771,8 +771,9 @@ Each segment is a timeline record:
 Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, Elysia never changes
 it back, and every change is in the record's history, undoable (`docs/connectors.md`, The timeline).
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
-streams the clip from storage to the record's owner alone. Each segment is a document of the knowledge index, stored
-with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
+streams the clip from storage to the record's owner alone, a range at a time (Playing media, below). Each segment is a
+document of the knowledge index, stored with its record: its title, its summary, its excerpt, and the comment threads
+over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records).
 
 ## The final transcript
 
@@ -846,6 +847,68 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `merged`              | In both meetings: which meeting's captures went into which, and where each sat before and after | From the kept meeting's: splits them back out |
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
 | `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
+| `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
+
+## Comments
+
+A comment thread is a mark of kind `comment` over its range (`meetings::comments`, `models::meeting_comment`): the mark
+draws it, moves with an edit as every mark does, and is made, removed, resolved, and reopened by entries of the
+meeting's history, so each has Undo. Its data is `{ resolved, resolution }`, whether it is resolved and the entry that
+last resolved or reopened it, which is the one an undo may reverse. What is written in it is `meeting_comments`,
+oldest first, plain text up to 20,000 characters, each naming whom it mentions (`meeting_comment_mentions`). A thread
+removed keeps its comments, so an undo puts it back whole. A resolved thread still takes replies, so an answer under
+way when it was resolved lands.
+
+- **Who reads it.** On the meeting's page, everyone who can read the meeting: today its owner alone, as every meeting
+  route answers, until meetings are public by default (`docs/meeting-review.md`, Who sees a meeting). Its text is
+  in the knowledge index for every member, as the segments it lies in are (The index, below), as every timeline
+  record's text is (`docs/knowledge.md`, Who sees what).
+- **Mentions are picked, not parsed.** A comment names the user ids it mentions beside its text, chosen as `@` is
+  typed, so a name written twice or shared by two people is never a guess. Only an active person or Elysia can be
+  mentioned.
+- **Who is told.** Every change raises an inbox item for each person it concerns, never for whoever made it and never
+  for a machine: a comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking part
+  in the thread, who wrote in it or was mentioned in it. Undoing a resolve or a reopen tells them too, as the reopen
+  or resolve it is, so nobody is left believing a change they heard of still stands. Someone mentioned in a reply
+  hears of it once, as a mention. Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is
+  raised by the system, says whom it is for in its notes, and carries the meeting's title and nothing written in the
+  thread. `meeting_thread_items` keeps the thread that raised each, so the item's page opens it
+  (`GET /meetings/thread-items/{itemId}`).
+- **Elysia.** A person's comment mentioning Elysia queues a `meeting-comment` turn of hers (`docs/elysia.md`,
+  Triggers). She answers in the thread as herself, which tells its author, and may do what it asks: fix the words
+  ("this was Sharath" over a name it misheard), or put the topics the range lies in on a project ("this belongs to
+  the launch") as her own attribution, which never replaces a person's. A machine's comment never starts her, so she
+  cannot set herself going. Changing who spoke is not a change a meeting takes yet, and she says so.
+- **The index.** A meeting is in the knowledge index as its segments, so a thread is indexed with each segment whose
+  span its range overlaps: its first 40 words quoted, then each comment by its author's name, after the segment's own
+  text, so a later comment re-embeds only the passages at the end, up to 50,000 characters of threads a segment. It
+  goes wherever its segment goes: the segment's projects, their searches, and the agents reading them. A thread
+  written before its meeting is segmented is indexed as the segments are stored. A change to a thread indexes again
+  the segments its range overlaps, and an edit or its undo the segments over its words and those holding a thread
+  that quotes them, and lining the transcript up again from its captures (an offset set, a merge, a split) every
+  segment of the meeting, each in its own transaction; nothing else is indexed again. No backfill is owed: no segment
+  held a thread before threads existed. A meeting whose segmenting was skipped or failed has no segments, and so no
+  indexed comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`,
+  Excerpts).
+
+## Playing media
+
+A capture's recording and a segment's clip stream from their storage location through the API, from Elysium's own
+origin, so no provider address or key reaches a browser (`routes::v1::media`). `GET
+/api/v1/meetings/{id}/captures/{captureId}/media` plays a capture's recording for its meeting's owner alone, `404` for
+anyone else, a capture of another meeting, or one with no recording kept; `GET /api/v1/timeline/{id}/media` plays a
+segment's clip for its record's owner.
+
+- **A range at a time.** Both answer a `Range` of one span of bytes with `206 Partial Content` and its `Content-Range`,
+  one that covers none of the file with `416`, and anything else with the whole file, each saying `Accept-Ranges:
+  bytes`. A player asks for the part it needs, so a two hour recording seeks without being downloaded whole.
+- **From the provider, a part alone.** The range goes on to the provider (`Storage::download_range`,
+  `docs/storage.md`, Ranges), so the API reads only the part asked for, and nginx is told not to buffer the answer
+  (`X-Accel-Buffering: no`), so it reads only as fast as the browser plays rather than a whole recording ahead for
+  every seek.
+- **What it says it is.** A recording's type is what its fetch stored, or its extension's for one kept without it.
+  Only audio and video types are sent as themselves; anything else is sent as bytes, under the `/api` sandbox
+  (`docs/security.md`). Each is written once at a path that names it, so a browser keeps what it read, privately.
 
 ## In the web app
 
@@ -901,15 +964,27 @@ whose effect still stands is undone; one moved on since answers that it changed 
     excerpt as a blue bar in the gutter, one lane per overlap (`excerptLanes`), naming its projects over it. A space is
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
-  - **Clicking and selecting.** A click picks a moment, underlined, which the player will seek; with marks under the
+  - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
+    recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
+    a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on
+    from the same moment on the meeting's clock. A recording with audio alone plays over black with its waveform (`PlayerWaveform`),
+    drawn live from what is heard, so it needs nothing the player does not already stream. Once the page scrolls past
+    its place, which keeps its height so nothing jumps, the same media element floats in the bottom right corner and
+    plays on; dragged by its grip it goes anywhere in the window, and stays where it was left, as a share of the room
+    the window leaves, for that person on that browser (`usePlayerPlacement`). A meeting in words alone, such as a
+    Slack huddle, has no player. Clicking a word seeks to it; once the transcript or the player has been pressed, Space
+    plays and pauses, or plays the words selected, and the left and right arrows jump ten seconds; and the word being
+    spoken is underlined in the text's own color as it plays, found every frame by a binary search over the words
+    (`spokenWordAt`, `meetingPlayer.ts`), so only the paragraphs it moves between redraw.
+  - **Clicking and selecting.** A click picks a moment, underlined, which the player seeks; with marks under the
     word, the shortest is selected and every one there shows as a pill in the floating bar, which Tab moves between,
     and the selected one opens in the lane: its kind, who made it (an agent's saying so), its words, and what its kind
     says, such as how sure a confidence is and what else it might be, or what an edit replaced with its Undo. A drag,
     or a click then Shift+click, selects whole words; a touch screen has Select from here, then a tap where it ends.
     What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
-    offers Edit (E) and clears with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words
-    selected. Comment, Assign to a project, Black out, Pin a frame, and Play from here join the bar with the issues that
-    build them.
+    offers Edit (E), Comment (C), and Play from here (Space) while the meeting has a recording, and clears with its X or
+    Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Assign to a project, Black
+    out, and Pin a frame join the bar with the issues that build them.
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
@@ -922,6 +997,15 @@ whose effect still stands is undone; one moved on since answers that it changed 
     A merge or a split reads from the side of the meeting it is listed on (merged in, or merged into another; split
     out, or its own again), and offers Undo only in the meeting the recordings went into, which splits or merges them
     again (`describeHistory`).
+  - **Comments** (`MeetingThreads`, `CommentThread`, `GET /meetings/{id}/threads`, read through SWR alone). Comment
+    (C) on the words selected opens a new thread's form in the lane, in the drawer below `lg`; typing `@` offers the
+    people who can be mentioned and Elysia (`MentionTextArea`), and Ctrl+Enter posts. What is written is kept for the
+    tab until it is posted. The lane lists the open threads under the options in the order their ranges start, each
+    its words and first comment, then the resolved ones folded away; choosing one selects its range and brings it into
+    view. A thread selected opens in the lane: its comments, a reply, Resolve or Reopen, and Remove, each change with
+    Undo in its toast. A thread that asked Elysia says she answers there until she does. A resolved thread draws no
+    outline. `?thread=` opens the page at a thread, which is how an item a thread raised links to it
+    (`MeetingThreadLink`).
 - **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and the actions in a
   meeting's options hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for
   a capture. A recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a
@@ -957,7 +1041,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, it was merged or split, or a person edited its words or undid a change: its id, state, and owner, and the history entry of an edit or undo (`entryId`), never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words or undid a change, or one of its threads was written in, resolved, reopened, or removed: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |
@@ -971,4 +1055,3 @@ whose effect still stands is undone; one moved on since answers that it changed 
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
   meetings whose chats the person's Teams has not stored.
-- Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
