@@ -418,7 +418,6 @@ type ListProjectPagesResponse = {
   pages: ProjectPage[]
 }
 
-// The live pages linked to a project, its docs, newest published first; members alone.
 type PageSuggestionsResponse = {
   suggestions: PageSuggestion[]
 }
@@ -449,6 +448,7 @@ export function dismissPageSuggestion(pageId: string, suggestionId: string, reas
     .json<DecidedSuggestionResponse>()
 }
 
+// The live pages linked to a project, its docs, newest published first; members alone.
 export function listProjectPages(projectId: string) {
   return apiClient
     .get(projectPagesKey(projectId))

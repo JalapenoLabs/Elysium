@@ -35,8 +35,8 @@ use crate::state::AppState;
 pub const READ_DESCRIPTION: &str = "Reads one page of the company's knowledge base whole: its \
     title, its text in Markdown, its parentId, its labels, the projectIds it is linked to, and \
     its currentVersion, which page_save and page_suggest need, with who published that version and \
-    the agent acting for them, and the suggestions waiting for a person, each as the changes it \
-    makes, so you need not suggest them again. Find an id with page_list, or as the pageId of a \
+    the agent acting for them, and the oldest 20 suggestions waiting for a person (pendingSuggestions \
+    counts them all), each as the changes it makes, so you need not suggest them again. Find an id with page_list, or as the pageId of a \
     citation that names one. proposalOnly means a company doc page, which takes suggestions alone, \
     and a category with evidence means a learning; page_save changes neither.";
 

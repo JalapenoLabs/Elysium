@@ -620,7 +620,7 @@ under the same names, descriptions, and argument schemas.
 | `company_doc_propose` | Yes | Yes  | `page_suggest` for one section, named by its key                      |
 | `learning_save`       | Yes | No   | Saves or revises a learning (Learnings, above)                        |
 | `learning_delete`     | Yes | No   | Deletes a learning softly                                             |
-| `page_read`           | Yes | Yes  | One page whole, with its `currentVersion` and the suggestions waiting |
+| `page_read`           | Yes | Yes  | One page whole, with its `currentVersion` and the oldest 20 suggestions waiting |
 | `page_list`           | Yes | Yes  | One branch of the tree, 200 pages at a time, each with its `childCount` |
 | `page_save`           | Yes | Yes  | Creates a page or publishes its next version (Who changes pages, below) |
 | `page_suggest`        | Yes | Yes  | Suggests an edit to a page, for a person to accept (Suggestions, below) |
@@ -988,7 +988,9 @@ among them, so a suggestion is made, reviewed, merged, and recorded the same way
   that runs twice, or two agents reading the same message, make one.
 - **Not on a learning, nor a deleted page.** A learning is changed through `learning_save`, with its evidence, so
   `page_suggest` refuses one with `409 page_is_a_learning`, as `page_save` does. A deleted page changes no further
-  (`409 page_deleted`).
+  (`409 page_deleted`). It keeps the suggestions that waited on it, as it keeps its labels and files: they can be
+  dismissed, its inbox item stays until they are decided or a person closes it, and restoring the page brings them
+  back to be accepted.
 - **Who suggested** is recorded as every write of a page records its author (Who changes pages, above): an MCP
   client's person, naming the client; a session's starter, naming the session; a Project Manager's machine user,
   naming its project; and Elysia as herself, for her turns and for the review, which also names its run.

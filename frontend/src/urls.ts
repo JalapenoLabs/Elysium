@@ -319,10 +319,6 @@ export function getKnowledgePageUrl(pageId: string, passage?: number) {
   return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
 }
 
-export function getPageSuggestionsUrl(pageId: string) {
-  return `${getKnowledgePageUrl(pageId)}?${TAB_PARAM}=${PAGE_SUGGESTIONS_TAB}`
-}
-
 // The Company page, under which the company doc's sections sit.
 export function getCompanyDocUrl() {
   return getKnowledgePageUrl(COMPANY_PAGE_ID)

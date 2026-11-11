@@ -537,7 +537,8 @@ pub async fn announce_suggested(
     }
     let page_id = suggested.suggestion.page_id;
     events.publish(&ServerEvent::PageChanged { id: page_id });
-    announce_review_item(events, connection, page_id, suggested.item).await;
+    let at = suggested.suggestion.created_at;
+    announce_review_item(events, connection, page_id, suggested.item, at).await;
 }
 
 /// Announces a decision on a suggestion once it commits, and answers the suggestion and its page as
@@ -550,6 +551,7 @@ async fn answer_decided(
     decided: Decided,
 ) -> Result<(SuggestionResponse, PageResponse), ApiError> {
     let page_id = decided.suggestion.page_id;
+    let at = decided.suggestion.decided_at.unwrap_or_else(Utc::now);
     let page = if let Some(recorded) = decided.published {
         answer(events, connection, recorded).await?
     } else {
@@ -557,12 +559,12 @@ async fn answer_decided(
         let page = page::find(connection, page_id).await?;
         response(connection, page).await?
     };
-    announce_review_item(events, connection, page_id, decided.item).await;
+    announce_review_item(events, connection, page_id, decided.item, at).await;
     let suggestion = SuggestionResponse::new(decided.suggestion, &page.body);
     Ok((suggestion, page))
 }
 
-/// Announces the inbox item a suggestion's write kept in step, logging one that cannot be.
+/// Announces the inbox item a suggestion's write kept in step at `at`, logging one that cannot be.
 async fn announce_review_item(
     events: &EventBus,
     connection: &mut AsyncPgConnection,
@@ -570,12 +572,13 @@ async fn announce_review_item(
     item: Option<
         crate::models::action_item_event::Recorded<crate::models::action_item::ActionItem>,
     >,
+    at: DateTime<Utc>,
 ) {
     let Some(item) = item else {
         return;
     };
     let item_id = item.record.id;
-    if let Err(error) = publish_item_write(events, connection, item, &[], Utc::now()).await {
+    if let Err(error) = publish_item_write(events, connection, item, &[], at).await {
         tracing::event!(
             name: "pages.suggestions.item_unpublished",
             tracing::Level::WARN,

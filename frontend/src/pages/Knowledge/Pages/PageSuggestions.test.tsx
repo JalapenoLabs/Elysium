@@ -20,7 +20,7 @@ import { PageSuggestions } from './PageSuggestions'
 // Misc
 import { makePage, makeUser } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
-import { getPageSuggestionsUrl, UrlTree } from '../../../urls'
+import { getKnowledgePageUrl, PAGE_SUGGESTIONS_TAB, TAB_PARAM, UrlTree } from '../../../urls'
 
 // The requests are the network boundary.
 const routes = vi.hoisted(() => ({
@@ -79,7 +79,7 @@ function renderSuggestions(page: KnowledgePage) {
         </PromptGate>
       </TestAriaRouter>,
     }],
-    { initialEntries: [ getPageSuggestionsUrl(page.id) ]},
+    { initialEntries: [ `${getKnowledgePageUrl(page.id)}?${TAB_PARAM}=${PAGE_SUGGESTIONS_TAB}` ]},
   )
   render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
     <Provider store={store}>

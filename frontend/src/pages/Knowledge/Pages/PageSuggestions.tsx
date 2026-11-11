@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ParseKeys } from 'i18next'
 import type { KnowledgePage, PageSuggestion } from '../../../api/routes/pageRoutes'
 
 // Core
@@ -33,10 +34,10 @@ type Props = {
 
 // The refusals a decision can meet because someone else got there first, each told in its own words
 // and answered by loading the suggestions again, since what they show is behind.
-const refusalKeys = {
+const refusalKeys: Record<string, ParseKeys<'knowledge'>> = {
   suggestion_overlaps: 'pages.suggestions.toasts.overlaps',
   suggestion_decided: 'pages.suggestions.toasts.decided',
-} as const
+}
 
 // A page's Suggestions tab: the edits agents suggested to it, oldest first, each accepted wholly or
 // in part or dismissed with a reason. Read from SWR alone, since no other view shows them, and
@@ -50,9 +51,9 @@ export function PageSuggestions(props: Props) {
   const [ isDeciding, setIsDeciding ] = useState(false)
 
   function refused(error: unknown) {
-    const code = getApiErrorCode(error)
-    if (code === 'suggestion_overlaps' || code === 'suggestion_decided') {
-      toast.warning(t(refusalKeys[code]))
+    const refusalKey = refusalKeys[getApiErrorCode(error) ?? '']
+    if (refusalKey) {
+      toast.warning(t(refusalKey))
       void suggestions.mutate()
       return
     }

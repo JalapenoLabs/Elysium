@@ -49,8 +49,15 @@ pub async fn read(database: &Pool, id: Uuid) -> Result<PageResponse, ApiError> {
     response(&mut connection, page).await
 }
 
-/// Page `id` as an agent's `page_read` reads it: the page whole and the suggestions waiting on it,
-/// so an agent knows what a person may still accept and need not suggest it again.
+/// The most suggestions `page_read` answers beside a page, the oldest first. Claude Code refuses a
+/// tool's result past about 25,000 tokens, and each suggestion carries its changes with their lines
+/// around them; the page's `pendingSuggestions` says how many wait in all, and the same edit is
+/// pending once, so an agent rarely meets the bound.
+const READ_SUGGESTIONS_MAX: usize = 20;
+
+/// Page `id` as an agent's `page_read` reads it: the page whole and the oldest
+/// [`READ_SUGGESTIONS_MAX`] suggestions waiting on it, so an agent knows what a person may still
+/// accept and need not suggest it again.
 ///
 /// # Errors
 /// `404` for an unknown page.
@@ -64,6 +71,7 @@ pub async fn read_with_suggestions(
         .context("no database connection available")?;
     let page = page::find(&mut connection, id).await?;
     let page = response(&mut connection, page).await?;
-    let suggestions = pending_suggestions(&mut connection, id).await?;
+    let mut suggestions = pending_suggestions(&mut connection, id).await?;
+    suggestions.truncate(READ_SUGGESTIONS_MAX);
     Ok((page, suggestions))
 }

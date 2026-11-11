@@ -512,8 +512,8 @@ pub async fn accept(
             if page.deleted_at.is_some() {
                 return Err(PageError::Deleted.into());
             }
-            let all = changes(&suggestion.base_body, &suggestion.body);
-            let chosen = checked_choice(chosen, all.len())?;
+            let count = changes(&suggestion.base_body, &suggestion.body).len();
+            let chosen = checked_choice(chosen, count)?;
             let taken = take(&suggestion.base_body, &suggestion.body, chosen.as_deref());
             let merged = merged(&suggestion.base_body, &page.body, &taken)
                 .ok_or(SuggestionError::Overlaps)?;
