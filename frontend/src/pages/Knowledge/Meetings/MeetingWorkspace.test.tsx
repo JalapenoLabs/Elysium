@@ -98,7 +98,9 @@ const transcript: MeetingWords = {
     sourceKind: 'fireflies',
     url: null,
     offsetMs: 0,
+    offsetSource: 'listed',
     hasRecording: false,
+    mergedFrom: null,
   }],
 }
 

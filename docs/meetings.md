@@ -193,8 +193,9 @@ is fetched or its segments are cut and published.
 
 - **A meeting** (`meetings`, `models::meeting`) is the event: its title, when it started and for how long, who
   organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
-  connector read its first capture. A meeting whose captures were merged into another names it (`merged_into`),
-  holds none, and is listed nowhere and processed no further until they are split back out.
+  connector read its first capture. A meeting whose captures were merged into another names it (`merged_into`, answered
+  as `mergedInto`), holds none, and is listed nowhere and processed no further until they are split back out; its own
+  page still opens, saying where they went.
 - **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
   Fireflies meeting, a Teams recording, a Slack huddle), and an upload on the roadmap (`docs/meeting-review.md`). It
   keeps what its source gave, as it came: its connector, its source and the source's id for it, its page there, the
@@ -626,12 +627,11 @@ merged into another skips it ("Merged into another meeting, so nothing to align"
 - **Lining the transcript up.** Then the final transcript is lined up from every capture (The final transcript, below).
 - **The same meeting twice.** Last, the meeting may ask its person whether it is the same as another (The same meeting
   twice, below), and the run waits here until they answer (`Done::Held`).
-- **Set by hand.** A person sets a capture's offset (`PUT /api/v1/meetings/{id}/captures/{captureId}/offset`,
-  `meetings::clock`), at most twelve hours either way: it is `hand`, recorded in the meeting's history as
-  `offset_changed`, the transcript is lined up again at once, and aligning never moves it after. Its undo, from the
-  history on the meeting's page, puts the offset back while nothing moved the capture since. The page's controls for
-  setting an offset and splitting a capture out are on the roadmap, among the meeting's options
-  (`docs/meeting-review.md`, The meeting's page).
+- **Set by hand.** A person moves a capture from the meeting's options (In the web app, below), which sets its offset
+  (`PUT /api/v1/meetings/{id}/captures/{captureId}/offset`, `meetings::clock`), at most twelve hours either way: it is
+  `hand`, recorded in the meeting's history as `offset_changed`, the transcript is lined up again at once, and aligning
+  never moves it after. The route answers the entry, so the page's toast offers Undo and Ctrl+Z reaches it, as the
+  history's Undo does; each puts the offset back while nothing moved the capture since.
 - **What it logs.** Counts, offsets, and how each was found, never a title or a word that was said.
 
 ## The same meeting twice
@@ -662,10 +662,12 @@ them on its own (`api/src/meetings/duplicates.rs`).
 - **Splitting.** A merge is undone by splitting the captures back out (`POST
   /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry), while each capture still sits as
   the merge left it, or on an offset aligning found since; one a person set by hand since answers that it changed
-  since, as undoing would overwrite it. Each goes back where it sat, the
-  edits the merge carried are taken back, the merged meeting is its own again, both transcripts are lined up again,
-  the pair becomes not the same, and runs start that align the kept meeting again and carry the split one on from
-  aligning (or align it alone, if it was segmented). Both histories record `split`, and undoing it merges them again.
+  since, as undoing would overwrite it. The merge split is the newest `merged` entry of the kept meeting's own that
+  brought the capture in (`duplicates::merges_bringing`), which is also how the meeting's page names where each capture
+  came from. Each goes back where it sat, the edits the merge carried are taken back, the merged meeting is its own
+  again, both transcripts are lined up again, the pair becomes not the same, and runs start that align the kept meeting
+  again and carry the split one on from aligning (or align it alone, if it was segmented). Both histories record
+  `split`, and undoing it merges them again; the route answers the kept meeting's entry for its page's Undo.
 - **On the item's page** (`SameMeetingPanel`, reading `GET /api/v1/meetings/duplicates?itemId=`): both meetings,
   each linking to its page, with Merge and Not the same until the person answers, and what they answered after.
 
@@ -791,9 +793,22 @@ whose effect still stands is undone; one moved on since answers that it changed 
     floats at its top as the page scrolls, the mark selected, then the meeting's changes. Below `lg` the lane is a
     drawer, opened by Options above the transcript. The options switch the transcript between Final and each capture's
     own (`CaptureTranscript`, `GET /meetings/{id}/captures/{captureId}/transcript`, as it came, with no marks), turn
-    each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, and hold the
-    meeting's actions: where its correction stands, Approve while the copy waits for one, holding it for approval by
-    hand until it is corrected unless its source already waits, and its run.
+    each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, list the
+    captures, and hold the meeting's actions: where its correction stands, Approve while the copy waits for one,
+    holding it for approval by hand until it is corrected unless its source already waits, and its run.
+  - **Captures** (`MeetingCaptures`, under Recordings in the options). Each capture names its source, where it starts
+    on the meeting's clock (with the meeting, so long into it, or so long before it), and how that was found: as its
+    source listed it, lined up by its audio or its words, or set by hand. Move (`CaptureOffsetEditor`) opens its start
+    in place as seconds into the meeting, in tenths, below zero for one that started early, applied with Enter or Move
+    and left with Esc or Cancel; Enter is the browser's own submit from the field, after the field has taken the number
+    typed. The captures a merge brought in (`mergedFrom`) are boxed under a link to the meeting they came from, with
+    Split out, which moves all of them back (`groupCaptures`); it waits, saying why, while one of them was moved by hand
+    since, as the API would refuse it. Moving and splitting act at once with Undo in their toast and join what Ctrl+Z
+    undoes; each lines the transcript up again, so the page reads it again on the meeting's announcement rather than
+    applying a change.
+  - **A meeting merged away** opens as its own page, saying its recordings are in the meeting it went into, named and
+    linked (`MergedIntoNotice`), which is where they are split out. Lists leave it out (`selectListedMeetings`), though
+    the announcement of a merge puts it in the store, until it is split back out.
   - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
     at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
     paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
@@ -821,6 +836,9 @@ whose effect still stands is undone; one moved on since answers that it changed 
     Save. The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last
     of them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list
     every change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
+    A merge or a split reads from the side of the meeting it is listed on (merged in, or merged into another; split
+    out, or its own again), and offers Undo only in the meeting the recordings went into, which splits or merges them
+    again (`describeHistory`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **An item asking whether two meetings are one** shows both, each linking to its page, with Merge and Not the same

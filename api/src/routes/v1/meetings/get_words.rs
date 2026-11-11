@@ -2,10 +2,14 @@
 
 //! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
 //! it reads, for its page: its standing words in order, every standing mark over them, and its
-//! captures, each of which opens as it came (`captures/{captureId}/transcript`).
+//! captures, each of which opens as it came (`captures/{captureId}/transcript`), saying where it
+//! sits on the meeting's clock and how that was found, and which meeting it came from when a merge
+//! brought it, which splitting it makes its own again.
 //!
 //! `words` is empty until the transcript is built, which its correction does
 //! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.
+
+use std::collections::HashMap;
 
 use anyhow::Context;
 use axum::Json;
@@ -18,7 +22,9 @@ use uuid::Uuid;
 use super::{MarkResponse, WordResponse};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::duplicates;
 use crate::models::meeting_capture::{self, CaptureSummary};
+use crate::models::meeting_event::{self, EventKind};
 use crate::models::{meeting, meeting_mark, meeting_word};
 use crate::state::AppState;
 
@@ -34,18 +40,33 @@ struct CaptureResponse {
     url: Option<String>,
     /// Where its clock sits on the meeting's.
     offset_ms: i64,
+    /// How that was found: `listed`, `audio`, `words`, or `hand`, which aligning never moves.
+    offset_source: &'static str,
     has_recording: bool,
+    /// The meeting a merge brought it from, while that merge stands; `null` for a capture of the
+    /// meeting's own.
+    merged_from: Option<MergedFrom>,
 }
 
-impl From<CaptureSummary> for CaptureResponse {
-    fn from(capture: CaptureSummary) -> Self {
+/// The meeting a capture was merged in from.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergedFrom {
+    meeting_id: Uuid,
+    title: String,
+}
+
+impl CaptureResponse {
+    fn new(capture: CaptureSummary, merged_from: Option<MergedFrom>) -> Self {
         Self {
+            offset_source: capture.offset_source().as_str(),
             id: capture.id,
             connector_id: capture.connector_id,
             source_kind: capture.source_kind,
             url: capture.url,
             offset_ms: capture.offset_ms,
             has_recording: capture.recording_path.is_some(),
+            merged_from,
         }
     }
 }
@@ -63,8 +84,8 @@ pub async fn handle(
         .context("no database connection available")?;
     let found = meeting::find_owned(&mut connection, id, current.id()).await?;
     // One snapshot, so every mark answered is over words answered, however an edit lands
-    // meanwhile.
-    let (words, marks, captures) = connection
+    // meanwhile, and every capture is named by the merges that hold it now.
+    let (words, marks, captures, merges) = connection
         .build_transaction()
         .read_only()
         .repeatable_read()
@@ -72,12 +93,47 @@ pub async fn handle(
             let words = meeting_word::standing(connection, found.id).await?;
             let marks = meeting_mark::standing(connection, found.id).await?;
             let captures = meeting_capture::summaries_of(connection, found.id).await?;
-            diesel::QueryResult::Ok((words, marks, captures))
+            let merges = meeting_event::of_kind(connection, found.id, EventKind::Merged).await?;
+            diesel::QueryResult::Ok((words, marks, captures, merges))
         })
         .await?;
+    let brought = duplicates::merges_bringing(&merges, found.id);
+    let mut from_ids: Vec<Uuid> = captures
+        .iter()
+        .filter_map(|capture| brought.get(&capture.id).map(|merge| merge.from))
+        .collect();
+    from_ids.sort_unstable();
+    from_ids.dedup();
+    // A meeting merged in is the same person's, and outlives the merge, so its title is read as
+    // it stands now.
+    let titles: HashMap<Uuid, String> = meeting::titles_of(&mut connection, &from_ids).await?;
+
     let words: Vec<WordResponse> = words.into_iter().map(WordResponse::from).collect();
     let marks: Vec<MarkResponse> = marks.into_iter().map(MarkResponse::from).collect();
-    let captures: Vec<CaptureResponse> = captures.into_iter().map(CaptureResponse::from).collect();
+    let captures: Vec<CaptureResponse> = captures
+        .into_iter()
+        .map(|capture| {
+            let merged_from = brought.get(&capture.id).map(|merge| {
+                let title = titles.get(&merge.from).cloned().unwrap_or_else(|| {
+                    // Meetings are never deleted, so only a fault leaves a merge naming none; the
+                    // page then calls it untitled rather than hiding where the capture came from.
+                    tracing::event!(
+                        name: "meetings.words.merged_from_missing",
+                        tracing::Level::WARN,
+                        meeting.id = %found.id,
+                        meeting_capture.id = %capture.id,
+                        "a capture's merge names a meeting that is gone",
+                    );
+                    String::new()
+                });
+                MergedFrom {
+                    meeting_id: merge.from,
+                    title,
+                }
+            });
+            CaptureResponse::new(capture, merged_from)
+        })
+        .collect();
     Ok(Json(
         json!({ "words": words, "marks": marks, "captures": captures }),
     ))

@@ -961,7 +961,13 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
   announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
-  tab knows no such entry and reads the change as news.
+  tab knows no such entry and reads the change as news. A change that moves a capture (an offset set by hand, a split,
+  or the undo of either) lines the whole transcript up again, which no change of words describes, so its announcement
+  names no entry and every page holding the meeting reads it again, the one that made it included.
+- **Captures.** A merged-away meeting reaches `meetingsSlice` from its own page and from a merge's announcement, so a
+  list reads `selectListedMeetings`, which leaves out a meeting with `mergedInto`. A capture's start opens in a
+  `NumberField` (`CaptureOffsetEditor`), whose form leaves Enter to the browser's own submit: the field takes the number
+  typed as Enter reaches it, after a form's `submitOnEnter` would already have submitted the number it held before.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.

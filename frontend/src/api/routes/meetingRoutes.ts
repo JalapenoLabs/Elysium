@@ -52,6 +52,9 @@ export type Meeting = {
   runId: string | null
   // Whether that run is held, waiting for its person to approve the corrected transcript.
   awaitingApproval: boolean
+  // The meeting its captures were merged into, while they are: it is listed nowhere then, and
+  // they are split back out from there.
+  mergedInto: string | null
   createdAt: string
   updatedAt: string
 }
@@ -104,15 +107,28 @@ export type MeetingMark = {
   createdAt: string
 }
 
+// Mirrors `OffsetSource` in api/src/models/meeting_capture.rs: how a capture's offset onto its
+// meeting's clock was found. One set by `hand` is never moved by aligning.
+export const CAPTURE_OFFSET_SOURCES = [ 'listed', 'audio', 'words', 'hand' ] as const
+export type CaptureOffsetSource = typeof CAPTURE_OFFSET_SOURCES[number]
+
 // One capture of a meeting, without what it holds.
 export type MeetingCapture = {
   id: string
   connectorId: string | null
   sourceKind: string
   url: string | null
-  // Where its clock sits on the meeting's.
+  // Where its clock sits on the meeting's: its start, in milliseconds into the meeting.
   offsetMs: number
+  // How that was found; a source a later API adds arrives as its stored name.
+  offsetSource: string
   hasRecording: boolean
+  // The meeting a merge brought it from, while that merge stands; null for the meeting's own.
+  // Splitting it out makes that meeting its own again, with every capture the merge brought.
+  mergedFrom: {
+    meetingId: string
+    title: string
+  } | null
 }
 
 // A meeting's final transcript as it reads: its standing words in order, the marks over them,
@@ -315,4 +331,44 @@ export function keepMeetingDuplicateApart(duplicateId: string) {
   return apiClient
     .post(`v1/meetings/duplicates/${duplicateId}/not-the-same`)
     .json<DecidedMeetingDuplicateResponse>()
+}
+
+// Mirrors `OFFSET_MAX_MS` in api/src/meetings/clock.rs: the furthest a capture may sit from its
+// meeting's clock, either way, so a slip of the keyboard is caught before it is sent.
+export const CAPTURE_OFFSET_MAX_MS = 12 * 60 * 60 * 1000
+
+// What moving a capture on the clock answers: its history entry, which Undo undoes, and where the
+// capture now sits. The transcript is lined up again, so the page reads it again rather than
+// applying a change.
+type SetCaptureOffsetResponse = {
+  entry: MeetingHistoryEntry
+  capture: {
+    id: string
+    offsetMs: number
+    offsetSource: string
+  }
+}
+
+// Sets where capture `captureId` starts on its meeting's clock, by hand, which aligning never
+// moves after. `400 offset_out_of_range` past `CAPTURE_OFFSET_MAX_MS` either way.
+export function setCaptureOffset(meetingId: string, captureId: string, offsetMs: number) {
+  return apiClient
+    .put(`v1/meetings/${meetingId}/captures/${captureId}/offset`, { json: { offsetMs }})
+    .json<SetCaptureOffsetResponse>()
+}
+
+// What splitting answers: its history entry, which Undo undoes by merging again, and the meeting
+// as it now stands.
+type SplitCaptureResponse = {
+  entry: MeetingHistoryEntry
+  meeting: Meeting
+}
+
+// Splits capture `captureId` back out of the meeting a merge brought it into, with every capture
+// that merge brought. `409 capture_not_merged` for one no merge brought, `409 meeting_changed`
+// once a capture it brought was moved by hand since.
+export function splitCapture(meetingId: string, captureId: string) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/captures/${captureId}/split`)
+    .json<SplitCaptureResponse>()
 }

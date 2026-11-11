@@ -112,6 +112,9 @@ pub struct MeetingResponse {
     run_id: Option<Uuid>,
     /// Whether that run is held, waiting for its person to approve the corrected transcript.
     awaiting_approval: bool,
+    /// The meeting its captures were merged into, while they are: it is listed nowhere then, and
+    /// its page points there, where they are split back out.
+    merged_into: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -169,6 +172,7 @@ impl MeetingResponse {
             run_id: run.map(|run| run.id),
             awaiting_approval: run.is_some_and(|run| run.state == WorkflowRunState::Held),
             hold_for_approval: meeting.hold_for_approval,
+            merged_into: meeting.merged_into,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
             source_kind: capture

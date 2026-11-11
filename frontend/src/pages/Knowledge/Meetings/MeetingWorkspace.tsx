@@ -283,6 +283,8 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
+    onMoveCapture={changes.moveCapture}
+    onSplitCapture={changes.splitOut}
     words={words}
     selectedMark={selectedMark}
     history={{

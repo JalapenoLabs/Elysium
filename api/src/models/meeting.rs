@@ -18,6 +18,8 @@
 //! holds no captures while it does, and is listed nowhere and processed no further; splitting
 //! the captures back out clears it (`crate::meetings::duplicates`).
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
@@ -201,6 +203,23 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<M
         .select(Meeting::as_select())
         .first(connection)
         .await
+}
+
+/// The titles of meetings `ids`, by id, for a page naming the meetings another one's captures
+/// came from; an id no meeting has is left out.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn titles_of(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<HashMap<Uuid, String>> {
+    let titles: Vec<(Uuid, String)> = meetings::table
+        .filter(meetings::id.eq_any(ids))
+        .select((meetings::id, meetings::title))
+        .load(connection)
+        .await?;
+    Ok(titles.into_iter().collect())
 }
 
 /// The meeting `id`, locked until the transaction ends, so what changes it is decided one writer

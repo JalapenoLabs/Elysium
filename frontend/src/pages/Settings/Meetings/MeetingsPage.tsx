@@ -7,7 +7,7 @@ import { Link } from 'react-router'
 // Redux
 import { selectAllConnectors } from '../../../store/connectorsSlice'
 import { useAppSelector } from '../../../store/hooks'
-import { selectAllMeetings } from '../../../store/meetingsSlice'
+import { selectListedMeetings } from '../../../store/meetingsSlice'
 
 // User interface
 import { Spinner, Tabs, buttonVariants } from '@heroui/react'
@@ -35,7 +35,7 @@ export function MeetingsPage() {
   const connectorsStatus = useConnectorsLoader()
   const connectors = useAppSelector(selectAllConnectors)
   const meetingsStatus = useMeetingsLoader()
-  const meetings = useAppSelector(selectAllMeetings)
+  const meetings = useAppSelector(selectListedMeetings)
   const [ selectedTab, selectTab ] = useTabParam(TABS)
 
   const sources = meetingSourcesOf(definitions.kinds, connectors)
