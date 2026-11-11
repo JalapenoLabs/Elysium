@@ -113,6 +113,7 @@ fn fireflies_lines() -> Vec<TranscriptLine> {
             "Grace Hopper",
             "Moore's lab wants the customer interviews scheduled next week.",
         ),
+        (36_000, 38_500, "Grace Hopper", "Demo on Friday."),
         (
             40_000,
             45_000,
@@ -427,12 +428,13 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     let (fireflies_run, held) =
         align_through_the_queue(&database, &mut connection, &fireflies).await;
     assert!(matches!(held, Done::Held { .. }), "{held:?}");
-    // Ada fixes a word only Fireflies heard, the goodbye, while it waits: the edit must travel
-    // with its capture when the merge and then aligning move that capture onto Teams' clock.
+    // Ada fixes a word only Fireflies heard, the goodbye's last, while it waits: the edit must
+    // travel with its capture when the merge and then aligning move that capture onto Teams'
+    // clock, and the same word said a moment before it must stay as it was said.
     let goodbye = standing(&mut connection, fireflies.id)
         .await
         .into_iter()
-        .find(|word| word.text == "Friday.")
+        .rfind(|word| word.text == "Friday.")
         .expect("Fireflies' goodbye");
     meeting_word::edit(
         &mut connection,
@@ -576,8 +578,8 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     );
     assert!(
         read.ends_with(
-            "Mooreslab wants the customer interviews scheduled next week. Thanks all, see you \
-             Friday!"
+            "Mooreslab wants the customer interviews scheduled next week. Demo on Friday. Thanks \
+             all, see you Friday!"
         ),
         "the edit carried from Fireflies stands where it was said, and what it replaced stays \
          out, though aligning moved its capture: {read}"

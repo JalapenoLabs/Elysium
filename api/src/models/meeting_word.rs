@@ -40,12 +40,13 @@
 //! from) and not by when: a word that says the same keeps its id, so marks over it never move, and
 //! takes its new times, so a capture placed anew on the clock moves its words rather than
 //! replacing them. The rest are replaced by the rebuild.
-//! Every edit's words stand through it, so a rebuild never undoes what anyone changed. The words an
-//! edit replaced are compared too: heard again, they stay out, and the edit's words move by as much
-//! as they did, so an edit goes wherever its capture goes on the clock. A heard word no match
-//! accounts for stays out where it lies inside an edit's time. A mark over words a rebuild replaced
-//! moves onto the new words at the same moment. A rebuild is not undone on its own: what caused it
-//! is (a hand-set offset, a merge), and that builds the transcript again.
+//! Every edit's words stand through it, so a rebuild never undoes what anyone changed, and the
+//! captures' words inside an edit's time stay out. An edit belongs to the capture of the words it
+//! replaced, and it and they move with that capture: by as much as its offset moved since the
+//! transcript was last lined up, which the last `built` entry records, so an edit stays over what
+//! it replaced wherever its capture goes on the clock. A mark over words a rebuild replaced moves
+//! onto the new words at the same moment. A rebuild is not undone on its own: what caused it is (a
+//! hand-set offset, a merge), and that builds the transcript again.
 //!
 //! Every change is made under the meeting's lock and recorded in its history
 //! (`models::meeting_event`) in the same transaction.
@@ -258,13 +259,19 @@ pub async fn rebuild(
                 .load(connection)
                 .await?;
 
+            let moved_by = moved_since_built(connection, meeting_id, &lined_up.captures).await?;
             let event_id = Uuid::now_v7();
             let Compared {
                 built,
                 replaced,
                 times,
                 edits,
-            } = compare(&every_word, lined_up.words, meeting_id, event_id);
+            } = compare(
+                &every_word,
+                lined_up.words,
+                &moved_by,
+                (meeting_id, event_id),
+            );
             let added = built
                 .iter()
                 .filter(|word| matches!(word, After::Written(_)))
@@ -376,8 +383,8 @@ fn edit_runs(every_word: &[Word]) -> Vec<Vec<Word>> {
     runs
 }
 
-/// Whether the middle of `word` lies inside the time one of the edits `runs` covers: a word the
-/// rebuild could not match with what an edit replaced, which still never comes back over it.
+/// Whether the middle of `word` lies inside the time one of the edits `runs` covers: what an edit
+/// replaced, which no capture's word comes back over.
 fn inside_any(runs: &[Vec<Word>], word: &BuiltWord) -> bool {
     let middle = word.start_ms + (word.end_ms - word.start_ms) / 2;
     runs.iter().any(|run| {
@@ -402,8 +409,8 @@ struct Compared {
     built: Vec<After>,
     /// The standing words no longer heard, which the rebuild replaces.
     replaced: Vec<Uuid>,
-    /// The times of every word already the meeting's that the rebuild keeps on the clock: the
-    /// captures' words it kept, the words edits replaced that it heard again, and the edits'
+    /// The times of every word already the meeting's that the rebuild moves on the clock: the
+    /// captures' words it kept, the words edits replaced, and the edits'
     /// own words, which move with them.
     times: HashMap<Uuid, (i64, i64)>,
     /// Every standing edit's run of words at its new times, ordered by when it begins.
@@ -414,53 +421,46 @@ struct Compared {
 /// capture by capture, by what each says (`matched`):
 ///
 /// - a heard word matching a standing word keeps it, at the heard word's times;
-/// - a heard word matching a word an edit replaced stays out, as the edit says, and tells where
-///   the capture's words now sit, so the edit's words move with it;
 /// - any other heard word is written anew by change `event_id`, unless it lies inside an edit's
-///   time, a word of what an edit replaced that the rebuild could not match;
+///   time: what an edit replaced, which stays out;
 /// - a standing word no heard word matches is replaced.
 ///
-/// Each edit's words move by as much as the nearest word before them that the rebuild heard
-/// again (the words an edit replaced sit just before its own), or the first one after when none
-/// comes before.
+/// The words edits replaced, and the edits' own words, move with their capture: by as much as its
+/// offset moved since the transcript was last lined up (`moved_by`, by capture), so an edit stays
+/// over what it replaced wherever its capture goes on the clock. An edit's words sit just after
+/// the words they replaced, so an edit belongs to the capture of the nearest replaced word before
+/// it.
 fn compare(
     every_word: &[Word],
     heard: Vec<HeardWord>,
-    meeting_id: Uuid,
-    event_id: Uuid,
+    moved_by: &HashMap<Uuid, i64>,
+    (meeting_id, event_id): (Uuid, Uuid),
 ) -> Compared {
-    let covering = covering_edits(every_word);
     let comparable: Vec<&Word> = every_word
         .iter()
-        .filter(|word| {
-            let stands = word.superseded_by.is_none() && word.origin != Origin::Edit.as_str();
-            stands || is_covered(word, &covering)
-        })
+        .filter(|word| word.superseded_by.is_none() && word.origin != Origin::Edit.as_str())
         .collect();
     let (kept, still_heard) = matched(&comparable, &heard);
 
     let mut times: HashMap<Uuid, (i64, i64)> = HashMap::new();
-    let mut shifts: HashMap<Uuid, i64> = HashMap::new();
     for (heard_word, kept_word) in heard.iter().zip(&kept) {
         if let Some(word) = kept_word {
             times.insert(word.id, (heard_word.word.start_ms, heard_word.word.end_ms));
-            shifts.insert(word.id, heard_word.word.start_ms - word.start_ms);
         }
     }
-    let moved = with_edits_moved(every_word, &shifts, &mut times);
+    let moved = with_edits_moved(every_word, moved_by, &mut times);
     let edits = edit_runs(&moved);
 
     let built = heard
         .into_iter()
         .zip(kept)
         .filter_map(|(heard, kept)| match kept {
-            Some(word) if word.superseded_by.is_none() => {
+            Some(word) => {
                 let mut word = word.clone();
                 (word.start_ms, word.end_ms) = (heard.word.start_ms, heard.word.end_ms);
                 Some(After::Kept(word))
             }
             // What an edit replaced, heard again: the edit stands in its place.
-            Some(_covered) => None,
             None if inside_any(&edits, &heard.word) => None,
             None => Some(After::Written(NewWord {
                 id: Uuid::now_v7(),
@@ -479,7 +479,7 @@ fn compare(
     let replaced = comparable
         .iter()
         .zip(still_heard)
-        .filter(|(word, heard)| word.superseded_by.is_none() && !heard)
+        .filter(|(_word, heard)| !heard)
         .map(|(word, _heard)| word.id)
         .collect();
     Compared {
@@ -490,26 +490,36 @@ fn compare(
     }
 }
 
-/// `every_word` with each standing edit word moved by the shift of the nearest word before it
-/// that has one in `shifts` (or the first after, when none comes before), each recorded in
-/// `times`.
+/// `every_word` with each word an edit replaced, and each standing edit word, moved by as much as
+/// its capture moved (`moved_by`), each recorded in `times`. An edit word moves with the capture
+/// of the nearest replaced word before it.
 fn with_edits_moved(
     every_word: &[Word],
-    shifts: &HashMap<Uuid, i64>,
+    moved_by: &HashMap<Uuid, i64>,
     times: &mut HashMap<Uuid, (i64, i64)>,
 ) -> Vec<Word> {
-    let first_shift = every_word
-        .iter()
-        .find_map(|word| shifts.get(&word.id).copied())
-        .unwrap_or(0);
-    let mut shift = first_shift;
+    let covering = covering_edits(every_word);
+    let mut capture_of_edit: Option<Uuid> = None;
     let mut moved = Vec::with_capacity(every_word.len());
     for word in every_word {
-        if let Some(found) = shifts.get(&word.id) {
-            shift = *found;
-        }
         let mut word = word.clone();
-        if word.superseded_by.is_none() && word.origin == Origin::Edit.as_str() && shift != 0 {
+        let covered = is_covered(&word, &covering);
+        if covered {
+            capture_of_edit = word.capture_id;
+        }
+        let stands_as_edit = word.superseded_by.is_none() && word.origin == Origin::Edit.as_str();
+        let capture = if covered {
+            word.capture_id
+        } else if stands_as_edit {
+            capture_of_edit
+        } else {
+            None
+        };
+        let shift = capture
+            .and_then(|capture_id| moved_by.get(&capture_id))
+            .copied()
+            .unwrap_or(0);
+        if shift != 0 {
             word.start_ms += shift;
             word.end_ms += shift;
             times.insert(word.id, (word.start_ms, word.end_ms));
@@ -517,6 +527,57 @@ fn with_edits_moved(
         moved.push(word);
     }
     moved
+}
+
+/// How far each capture of `lined_up` moved on the clock since meeting `meeting_id`'s transcript
+/// was last lined up: its offset now less the one its last `built` entry recorded. A capture that
+/// entry does not name (new to the meeting, its words written at its offset now) has not moved.
+async fn moved_since_built(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    lined_up: &[BuiltCapture],
+) -> QueryResult<HashMap<Uuid, i64>> {
+    use crate::database::schema::meeting_events;
+
+    let last: Option<Value> = meeting_events::table
+        .filter(meeting_events::meeting_id.eq(meeting_id))
+        .filter(meeting_events::kind.eq(EventKind::Built.as_str()))
+        .order(meeting_events::id.desc())
+        .select(meeting_events::data)
+        .first(connection)
+        .await
+        .optional()?;
+    let Some(last) = last else {
+        return Ok(HashMap::new());
+    };
+    let before: HashMap<Uuid, i64> = match serde_json::from_value::<BuiltOffsets>(last.clone()) {
+        Ok(built) => built
+            .captures
+            .into_iter()
+            .map(|capture| (capture.capture_id, capture.offset_ms))
+            .collect(),
+        // A transcript built before captures were aligned names its one capture, at the zero
+        // offset every capture had then.
+        Err(_old_shape) => last
+            .get("captureId")
+            .and_then(Value::as_str)
+            .and_then(|capture_id| capture_id.parse().ok())
+            .map(|capture_id| HashMap::from([(capture_id, 0)]))
+            .unwrap_or_default(),
+    };
+    Ok(lined_up
+        .iter()
+        .filter_map(|capture| {
+            let was = before.get(&capture.capture_id)?;
+            Some((capture.capture_id, capture.offset_ms - was))
+        })
+        .collect())
+}
+
+/// The captures a `built` entry lined its transcript up from, which is all a rebuild reads of it.
+#[derive(Debug, Deserialize)]
+struct BuiltOffsets {
+    captures: Vec<BuiltCapture>,
 }
 
 /// Matches the rebuild's words `heard` with the meeting's words `comparable`, each capture's on
@@ -761,9 +822,9 @@ async fn write_order(
 /// Carries the edits that stand in meeting `from` into meeting `into`, as change `event_id` of
 /// `into`, as a merge does: each edit's words written again, `shift_ms` later on `into`'s clock,
 /// after every word `into` has, together with the words of its capture it replaced, written
-/// already replaced by `event_id`, so a rebuild of `into` knows them when it hears them again and
-/// moves the edit wherever their capture goes. Each run has an `edit` mark of its own made by
-/// whoever made the edit. Answers the edit words written.
+/// already replaced by `event_id`, so a rebuild of `into` knows which capture the edit belongs to
+/// and moves it wherever that capture goes. Each run has an `edit` mark of its own made by whoever
+/// made the edit. Answers the edit words written.
 ///
 /// # Errors
 /// Propagates any database error.
