@@ -10,7 +10,9 @@
 //!
 //! # Every word it ever held
 //!
-//! A word is never deleted or rewritten. An edit ([`edit`]) marks the words of its range as
+//! A word is never deleted, and what it says is never rewritten: its text, its speaker, and where
+//! it came from. Only its times move, with its capture's place on the meeting's clock (Building it
+//! again, below). An edit ([`edit`]) marks the words of its range as
 //! replaced (`superseded_by`) and writes new ones in their place, so an undo ([`undo`]) puts the
 //! old words back and every mark and history entry naming a word still resolves. The transcript is
 //! the words that stand, in order of `position`.
@@ -33,9 +35,11 @@
 //!
 //! A transcript is lined up from its captures ([`rebuild`]) when they are first aligned, and again
 //! whenever what it is lined up from changes: a capture's offset, a capture merged in or split
-//! back out, a corrected copy. A rebuild compares the words the captures give now with the words
-//! that stand, word by word, and changes only what differs: a word that reads, sounds, and sits
-//! the same keeps its id, so marks over it never move, and the rest are replaced by the rebuild.
+//! back out, a corrected copy. A rebuild compares each capture's words as it gives them now with
+//! its words that stand, in order, by what each says (its text, its speaker, and where it came
+//! from) and not by when: a word that says the same keeps its id, so marks over it never move, and
+//! takes its new times, so a capture placed anew on the clock moves its words rather than
+//! replacing them. The rest are replaced by the rebuild.
 //! Every edit's words stand through it, and the captures' words at the same moment stay out, so a
 //! rebuild never undoes what anyone changed. A mark over words it replaced moves onto the new words
 //! at the same moment. A rebuild is not undone on its own: what caused it is (a hand-set offset,
@@ -197,9 +201,10 @@ pub struct Rebuilt {
     pub built_from: BuiltFrom,
     /// How many words stand after it.
     pub words: usize,
-    /// How many words it wrote, and how many it replaced.
+    /// How many words it wrote, how many it replaced, and how many it kept at new times.
     pub added: usize,
     pub replaced: usize,
+    pub retimed: usize,
     /// How many marks it moved off the words it replaced.
     pub marks_moved: usize,
 }
@@ -262,12 +267,16 @@ pub async fn rebuild(
                 .collect();
 
             let event_id = Uuid::now_v7();
-            let (built, replaced) = compare(&standing_heard, heard, meeting_id, event_id);
+            let Compared {
+                built,
+                replaced,
+                retimed,
+            } = compare(&standing_heard, heard, meeting_id, event_id);
             let added = built
                 .iter()
                 .filter(|word| matches!(word, After::Written(_)))
                 .count();
-            if added == 0 && replaced.is_empty() {
+            if added == 0 && replaced.is_empty() && retimed == 0 {
                 return Ok(None);
             }
             let standing = with_edits(built, &edited);
@@ -281,6 +290,7 @@ pub async fn rebuild(
                 words: standing.len(),
                 added,
                 replaced: replaced.len(),
+                retimed,
                 marks_moved: moves.len(),
             };
             let entry = meeting_event::record(
@@ -338,65 +348,50 @@ fn inside_any(runs: &[Vec<Word>], word: &BuiltWord) -> bool {
     })
 }
 
-/// What a word is, as two builds are compared: its text, speaker, times, origin, and capture.
-type WordKey = (String, String, i64, i64, String, Option<Uuid>);
+/// What a word says, as two builds are compared: its text, its speaker, and where it came from.
+/// Its times are not part of it, so a capture placed anew keeps its words.
+type WordKey<'word> = (&'word str, &'word str, &'word str);
 
-/// The words `heard` gives against the captures' words that stand now, `standing` (in order):
-/// each word of `heard`, in order, kept where an identical word stands in the same place and
-/// written anew by change `event_id` where not, and the standing words no longer heard, which the
-/// rebuild replaces.
+/// How long one capture's comparison may take before it settles for a diff that is correct but
+/// not the smallest. Words that say the same compare in linear time whatever their times, so only
+/// a capture whose words all changed comes near it, and it is then replaced nearly whole anyway.
+const DIFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// What comparing a rebuild's words with the standing ones found.
+struct Compared {
+    /// Every word of the rebuild, in its order: kept (at its new times) or written anew.
+    built: Vec<After>,
+    /// The standing words no longer heard, which the rebuild replaces.
+    replaced: Vec<Uuid>,
+    /// How many kept words take new times.
+    retimed: usize,
+}
+
+/// The words `heard` gives against the captures' words that stand now, `standing` (in order),
+/// capture by capture: each word of `heard`, in order, kept at its new times where its capture has
+/// a standing word that says the same in the same order, and written anew by change `event_id`
+/// where not; and the standing words no longer heard.
 fn compare(
     standing: &[&Word],
     heard: Vec<HeardWord>,
     meeting_id: Uuid,
     event_id: Uuid,
-) -> (Vec<After>, Vec<Uuid>) {
-    let standing_keys: Vec<WordKey> = standing
-        .iter()
-        .map(|word| {
-            (
-                word.text.clone(),
-                word.speaker.clone(),
-                word.start_ms,
-                word.end_ms,
-                word.origin.clone(),
-                word.capture_id,
-            )
-        })
-        .collect();
-    let heard_keys: Vec<WordKey> = heard
-        .iter()
-        .map(|heard| {
-            (
-                heard.word.text.clone(),
-                heard.word.speaker.clone(),
-                heard.word.start_ms,
-                heard.word.end_ms,
-                heard.word.origin.as_str().to_owned(),
-                Some(heard.capture_id),
-            )
-        })
-        .collect();
-    let mut kept: Vec<Option<&Word>> = vec![None; heard.len()];
-    let mut still_heard = vec![false; standing.len()];
-    for operation in similar::capture_diff_slices(Algorithm::Myers, &standing_keys, &heard_keys) {
-        if let DiffOp::Equal {
-            old_index,
-            new_index,
-            len,
-        } = operation
-        {
-            for step in 0..len {
-                kept[new_index + step] = Some(standing[old_index + step]);
-                still_heard[old_index + step] = true;
-            }
-        }
-    }
+) -> Compared {
+    let (kept, still_heard) = matched(standing, &heard);
+    let mut retimed = 0;
     let built = heard
         .into_iter()
         .zip(kept)
         .map(|(heard, kept)| match kept {
-            Some(word) => After::Kept(word.clone()),
+            Some(word) => {
+                let mut word = word.clone();
+                if (word.start_ms, word.end_ms) != (heard.word.start_ms, heard.word.end_ms) {
+                    retimed += 1;
+                    word.start_ms = heard.word.start_ms;
+                    word.end_ms = heard.word.end_ms;
+                }
+                After::Kept(word)
+            }
             None => After::Written(NewWord {
                 id: Uuid::now_v7(),
                 meeting_id,
@@ -417,7 +412,86 @@ fn compare(
         .filter(|(_word, heard)| !heard)
         .map(|(word, _heard)| word.id)
         .collect();
-    (built, replaced)
+    Compared {
+        built,
+        replaced,
+        retimed,
+    }
+}
+
+/// Matches the rebuild's words `heard` with the standing words `standing`, each capture's on
+/// its own, by what they say: for each word of `heard` the standing word it keeps, if any, and
+/// for each standing word whether it is still heard.
+fn matched<'word>(
+    standing: &[&'word Word],
+    heard: &[HeardWord],
+) -> (Vec<Option<&'word Word>>, Vec<bool>) {
+    let mut standing_by_capture: HashMap<Option<Uuid>, Vec<usize>> = HashMap::new();
+    for (index, word) in standing.iter().enumerate() {
+        standing_by_capture
+            .entry(word.capture_id)
+            .or_default()
+            .push(index);
+    }
+    let mut heard_by_capture: HashMap<Option<Uuid>, Vec<usize>> = HashMap::new();
+    for (index, word) in heard.iter().enumerate() {
+        heard_by_capture
+            .entry(Some(word.capture_id))
+            .or_default()
+            .push(index);
+    }
+
+    let mut kept: Vec<Option<&'word Word>> = vec![None; heard.len()];
+    let mut still_heard = vec![false; standing.len()];
+    for (capture_id, heard_indices) in &heard_by_capture {
+        let Some(standing_indices) = standing_by_capture.get(capture_id) else {
+            continue;
+        };
+        let standing_keys: Vec<WordKey> = standing_indices
+            .iter()
+            .map(|index| {
+                let word = standing[*index];
+                (
+                    word.text.as_str(),
+                    word.speaker.as_str(),
+                    word.origin.as_str(),
+                )
+            })
+            .collect();
+        let heard_keys: Vec<WordKey> = heard_indices
+            .iter()
+            .map(|index| {
+                let word = &heard[*index].word;
+                (
+                    word.text.as_str(),
+                    word.speaker.as_str(),
+                    word.origin.as_str(),
+                )
+            })
+            .collect();
+        let deadline = std::time::Instant::now() + DIFF_DEADLINE;
+        let operations = similar::capture_diff_slices_deadline(
+            Algorithm::Myers,
+            &standing_keys,
+            &heard_keys,
+            Some(deadline),
+        );
+        for operation in operations {
+            if let DiffOp::Equal {
+                old_index,
+                new_index,
+                len,
+            } = operation
+            {
+                for step in 0..len {
+                    let standing_index = standing_indices[old_index + step];
+                    kept[heard_indices[new_index + step]] = Some(standing[standing_index]);
+                    still_heard[standing_index] = true;
+                }
+            }
+        }
+    }
+    (kept, still_heard)
 }
 
 /// The transcript as it stands after a rebuild: the captures' words `built`, in order, with each
@@ -521,9 +595,10 @@ fn moves_by_time(anchored: &[Mark], every_word: &[Word], standing: &[After]) -> 
     moves
 }
 
-/// Writes a rebuild's order, `ordered`, [`POSITION_GAP`] apart: every word already the meeting's
-/// whose place changes moves in one statement, which `meeting_words_order`, deferrable, checks once
-/// at its end, and every word of `standing` the rebuild writes is inserted at its place.
+/// Writes a rebuild's order, `ordered`, [`POSITION_GAP`] apart, and its kept words' new times:
+/// every word already the meeting's whose place or times change moves in one statement, which
+/// `meeting_words_order`, deferrable, checks once at its end, and every word of `standing` the
+/// rebuild writes is inserted at its place.
 async fn write_order(
     connection: &mut AsyncPgConnection,
     every_word: &[Word],
@@ -535,21 +610,43 @@ async fn write_order(
         .zip(1_i64..)
         .map(|(id, number)| (*id, number * POSITION_GAP))
         .collect();
-    let (moved_ids, moved_positions): (Vec<Uuid>, Vec<i64>) = every_word
+    let times: HashMap<Uuid, (i64, i64)> = standing
         .iter()
-        .filter_map(|word| {
-            let position = positions[&word.id];
-            (position != word.position).then_some((word.id, position))
+        .filter_map(|word| match word {
+            After::Kept(kept) => Some((kept.id, (kept.start_ms, kept.end_ms))),
+            After::Written(_) => None,
         })
-        .unzip();
+        .collect();
+    let mut moved_ids = Vec::new();
+    let mut moved_positions = Vec::new();
+    let mut moved_starts = Vec::new();
+    let mut moved_ends = Vec::new();
+    for word in every_word {
+        let position = positions[&word.id];
+        let (start_ms, end_ms) = times
+            .get(&word.id)
+            .copied()
+            .unwrap_or((word.start_ms, word.end_ms));
+        if (position, start_ms, end_ms) == (word.position, word.start_ms, word.end_ms) {
+            continue;
+        }
+        moved_ids.push(word.id);
+        moved_positions.push(position);
+        moved_starts.push(start_ms);
+        moved_ends.push(end_ms);
+    }
     if !moved_ids.is_empty() {
         diesel::sql_query(
-            "UPDATE meeting_words SET position = moved.position \
-             FROM unnest($1::uuid[], $2::bigint[]) AS moved (id, position) \
+            "UPDATE meeting_words \
+             SET position = moved.position, start_ms = moved.start_ms, end_ms = moved.end_ms \
+             FROM unnest($1::uuid[], $2::bigint[], $3::bigint[], $4::bigint[]) \
+                 AS moved (id, position, start_ms, end_ms) \
              WHERE meeting_words.id = moved.id",
         )
         .bind::<diesel::sql_types::Array<SqlUuid>, _>(&moved_ids)
         .bind::<diesel::sql_types::Array<BigInt>, _>(&moved_positions)
+        .bind::<diesel::sql_types::Array<BigInt>, _>(&moved_starts)
+        .bind::<diesel::sql_types::Array<BigInt>, _>(&moved_ends)
         .execute(connection)
         .await?;
     }
@@ -595,17 +692,18 @@ pub(crate) async fn carry_edits(
         .first(connection)
         .await?;
     let mut position = after.unwrap_or(0);
+    // The edits that wrote them, read once: each run's mark names whoever made its edit.
+    let introduced_by: Vec<Uuid> = runs.iter().map(|run| run[0].introduced_by).collect();
+    let edits: HashMap<Uuid, MeetingEvent> = crate::database::schema::meeting_events::table
+        .filter(crate::database::schema::meeting_events::id.eq_any(&introduced_by))
+        .select(MeetingEvent::as_select())
+        .load(connection)
+        .await?
+        .into_iter()
+        .map(|edit| (edit.id, edit))
+        .collect();
     let mut written = Vec::new();
     for run in runs {
-        let introduced_by: Vec<Uuid> = run.iter().map(|word| word.introduced_by).collect();
-        let edits: HashMap<Uuid, MeetingEvent> = crate::database::schema::meeting_events::table
-            .filter(crate::database::schema::meeting_events::id.eq_any(&introduced_by))
-            .select(MeetingEvent::as_select())
-            .load(connection)
-            .await?
-            .into_iter()
-            .map(|edit| (edit.id, edit))
-            .collect();
         let rows: Vec<NewWord> = run
             .iter()
             .map(|word| {

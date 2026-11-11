@@ -213,47 +213,48 @@ impl AlignMeeting {
         let Some((first, others)) = captures.split_first() else {
             return Ok(false);
         };
-        let unplaced: Vec<&MeetingCapture> = others
-            .iter()
-            .filter(|capture| capture.offset_source() == OffsetSource::Listed)
+        // Numbered as the meeting orders them, the first being 1, so the log names each capture
+        // the same way whichever of them were placed already.
+        let unplaced: Vec<(usize, &MeetingCapture)> = (2..)
+            .zip(others)
+            .filter(|(_number, capture)| capture.offset_source() == OffsetSource::Listed)
             .collect();
         if unplaced.is_empty() {
             return Ok(false);
         }
         let reference = self.heard(first).await?;
         let reference_words = reference.words(first.offset_ms);
-        // Read once, the first time a capture with audio needs it.
+        // Read once, the first time a capture with audio needs it; `Some(None)` once it could not
+        // be, after which no other recording is fetched to correlate against nothing.
         let mut reference_envelope: Option<Option<Arc<Vec<f32>>>> = None;
         let mut fetched_media = false;
 
-        for (number, capture) in (2..).zip(unplaced) {
+        for (number, capture) in unplaced {
             let heard = self.heard(capture).await?;
             let mut placed = None;
             if reference.has_audio && heard.has_audio {
                 fetched_media = true;
                 if reference_envelope.is_none() {
                     let read = self.envelope(current.id, first, log).await?;
+                    if read.is_none() {
+                        log.line(
+                            "The first capture's audio could not be read; every other capture is \
+                             placed by its words",
+                        );
+                    }
                     reference_envelope = Some(read.map(Arc::new));
                 }
-                let other_envelope = self.envelope(current.id, capture, log).await?;
-                if let (Some(Some(reference)), Some(other)) = (&reference_envelope, other_envelope)
-                {
-                    let reference = Arc::clone(reference);
-                    // Hundreds of thousands of frames each: arithmetic off the async runtime.
-                    let found = tokio::task::spawn_blocking(move || {
-                        alignment::audio_lag(&reference, &other)
-                    })
-                    .await
-                    .map_err(|error| {
-                        StepFailure::retryable(anyhow!("aligning stopped: {error}"))
-                    })?;
-                    placed = found.map(|lag| (first.offset_ms + lag, OffsetSource::Audio));
-                }
-                if placed.is_none() {
-                    log.line(&format!(
-                        "Capture {number}'s audio gives no clear lag against the first's; \
-                         matching its words instead"
-                    ));
+                if let Some(Some(reference)) = &reference_envelope {
+                    placed = self
+                        .place_by_audio(current.id, capture, Arc::clone(reference), log)
+                        .await?
+                        .map(|lag| (first.offset_ms + lag, OffsetSource::Audio));
+                    if placed.is_none() {
+                        log.line(&format!(
+                            "Capture {number}'s audio gives no clear lag against the first's; \
+                             matching its words instead"
+                        ));
+                    }
                 }
             }
             if placed.is_none() {
@@ -282,6 +283,24 @@ impl AlignMeeting {
             }
         }
         Ok(fetched_media)
+    }
+
+    /// How far `capture`'s audio runs behind the first capture's, whose envelope is `reference`;
+    /// `None` when its own audio cannot be read or no lag stands out.
+    async fn place_by_audio(
+        &self,
+        meeting_id: Uuid,
+        capture: &MeetingCapture,
+        reference: Arc<Vec<f32>>,
+        log: &StepLog,
+    ) -> Result<Option<i64>, StepFailure> {
+        let Some(other) = self.envelope(meeting_id, capture, log).await? else {
+            return Ok(None);
+        };
+        // Hundreds of thousands of frames each: arithmetic off the async runtime.
+        tokio::task::spawn_blocking(move || alignment::audio_lag(&reference, &other))
+            .await
+            .map_err(|error| StepFailure::retryable(anyhow!("aligning stopped: {error}")))
     }
 
     /// What `capture` heard: its lines (its source's, or Whisper's segments when its source sent
@@ -407,7 +426,7 @@ impl AlignMeeting {
             .map_err(StepFailure::retryable)?;
         if let Some(built) = &built {
             log.line(&format!(
-                "Lined the transcript up: {} words written, {} replaced",
+                "{} words written, {} replaced",
                 built.data["added"], built.data["replaced"]
             ));
         }

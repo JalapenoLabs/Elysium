@@ -73,9 +73,22 @@ pub async fn rebuild(
         };
         // A meeting's corrected copy follows its first capture, line for line: the capture its
         // run corrected, which no capture merged in later ever displaces.
-        let copy = corrected
-            .as_deref()
-            .filter(|copy| index == 0 && copy.len() == base.lines.len());
+        let copy = corrected.as_deref().filter(|copy| index == 0 && {
+            let follows = copy.len() == base.lines.len();
+            if !follows {
+                // Correction keeps every line, so only a copy stored by hand reaches this.
+                tracing::event!(
+                    name: "meetings.transcript.copy_unfollowed",
+                    tracing::Level::WARN,
+                    meeting.id = %meeting_id,
+                    copy.lines = copy.len(),
+                    capture.lines = base.lines.len(),
+                    "a corrected copy does not follow its capture line for line; the transcript \
+                     is lined up as the capture heard it",
+                );
+            }
+            follows
+        });
         let (from, lines) = lines_to_build(&base, copy);
         if index == 0 {
             built_from = from;

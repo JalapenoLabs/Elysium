@@ -81,7 +81,7 @@ pub async fn nudge(
     offset_ms: i64,
     author: Author<'_>,
 ) -> Result<MeetingEvent, NudgeError> {
-    if offset_ms.abs() > OFFSET_MAX_MS {
+    if !(-OFFSET_MAX_MS..=OFFSET_MAX_MS).contains(&offset_ms) {
         return Err(NudgeError::OutOfRange);
     }
     connection

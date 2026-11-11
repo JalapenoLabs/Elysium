@@ -703,7 +703,8 @@ learning is filed under a workspace category, rather than refile or drop it.
 Meetings, each the one event that happened, and how far each one's processing got; see `docs/meetings.md`. What its
 source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
 it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`), and meetings merged into
-another for finding them (`meetings_merged_into`).
+another for finding them (`meetings_merged_into`); a person's meetings not merged away by when they started
+(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as.
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|

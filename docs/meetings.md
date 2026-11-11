@@ -637,8 +637,8 @@ merged into another skips it ("Merged into another meeting, so nothing to align"
 Teams and Fireflies often record the same meeting, and each listing stores a meeting of its own. Elysium never merges
 them on its own (`api/src/meetings/duplicates.rs`).
 
-- **Asking.** As it is aligned, a meeting looks for another of its person's that overlaps it in time (or, when a source
-  kept no length, started within ten minutes of it) with a participant in common. Sources name people differently
+- **Asking.** As it is aligned, a meeting looks for another of its person's that overlaps it in time (or, when either
+  source kept no length, started within ten minutes of it) with a participant in common. Sources name people differently
   (Fireflies by address, Teams and Slack by name), so a participant is compared, without regard to case, by what the
   source says and by the forms an address is commonly made from a name: `Ada Lovelace` is `adalovelace` and
   `alovelace`, as `ada.lovelace@` and `alovelace@` are, and a one-word name is the address `name@`. The
@@ -655,9 +655,12 @@ them on its own (`api/src/meetings/duplicates.rs`).
   went into. Both histories record `merged`, with where each capture sat before and after.
 - **Not the same** (`POST .../not-the-same`) is remembered, so the pair is never asked about again.
 - Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. Only the meeting's
-  person answers; a pair decided answers `409 duplicate_decided`.
+  person answers; a pair decided answers `409 duplicate_decided`, and of two answers at once the first to be written
+  counts, the other answered that way.
 - **Splitting.** A merge is undone by splitting the captures back out (`POST
-  /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry): each goes back where it sat, the
+  /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry), while each capture still sits as
+  the merge left it, or on an offset aligning found since; one a person set by hand since answers that it changed
+  since, as undoing would overwrite it. Each goes back where it sat, the
   edits the merge carried are taken back, the merged meeting is its own again, both transcripts are lined up again,
   the pair becomes not the same, and runs start that align the kept meeting again and carry the split one on from
   aligning (or align it alone, if it was segmented). Both histories record `split`, and undoing it merges them again.
@@ -708,14 +711,17 @@ in the meeting's history that wrote it (`introduced_by`).
   captures heard reads once and a stretch only one caught is still there. A capture Whisper never heard is built
   exactly as the migration that split meetings into captures built every transcript, in SQL, and a test holds the two
   to the same words.
-- **Lined up again.** It is lined up by the align step, again by the correction step once its copy is stored, again
-  by everything that moves a capture (a hand-set offset, a merge, a split), and by segmenting for a meeting whose
-  aligning was skipped, by the system or by the person whose change caused it, as a `built` change. Each compares the
-  words its captures give now with the words that stand and changes only what differs: a word that reads, sounds, and
-  sits the same keeps its id, so marks over it never move. Every edit's words stand through it, the captures' words at
-  the same moment staying out, and a mark over a word it replaced moves onto the new words at the same moment. A
-  rebuild is not undone on its own; what caused it is, and that lines the transcript up again.
-- **Every word it ever held.** A word is never deleted or rewritten. An edit marks the words of its range replaced
+- **Lined up again.** It is lined up by the align step, again by the correction step once its copy is stored, again by
+  everything that moves a capture (a hand-set offset, a merge, a split), and by segmenting for a meeting whose aligning
+  was skipped, by the system or by the person whose change caused it, as a `built` change. Each compares each capture's
+  words as it gives them now with its words that stand, in order, by what each says (its text, speaker, and origin) and
+  not by when, and changes only what differs: a word that says the same keeps its id, so marks over it never move, and
+  takes its new times, so a capture placed anew moves its words rather than replacing them. One capture's comparison
+  that runs past two seconds settles for a larger diff. Every edit's words stand through it, the captures' words at the
+  same moment staying out, and a mark over a word it replaced moves onto the new words at the same moment. A rebuild is
+  not undone on its own; what caused it is, and that lines the transcript up again.
+- **Every word it ever held.** A word is never deleted, and what it says (its text, speaker, and origin) is never
+  rewritten; only its times move, with its capture's place on the clock. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
   order of `position`. Positions order every word a meeting ever held in one sequence with gaps of 1024, and an edit
   writes its new words just after the last word it replaces, so the words it replaced stay where they were and an undo
@@ -742,7 +748,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Change                | What it records                                                  | Its undo |
 |-----------------------|------------------------------------------------------------------|----------|
-| `built`               | The captures it was lined up from with their offsets, whether the first capture's words are its corrected copy's, and how many words stand, were written, and were replaced, and how many marks moved | None: what caused it is undone, and lines it up again |
+| `built`               | The captures it was lined up from with their offsets, whether the first capture's words are its corrected copy's, and how many words stand, were written, were replaced, and were kept at new times, and how many marks moved | None: what caused it is undone, and lines it up again |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
 | `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |

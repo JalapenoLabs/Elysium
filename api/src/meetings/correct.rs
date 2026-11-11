@@ -1233,6 +1233,7 @@ mod tests {
                 "words": 3,
                 "added": 3,
                 "replaced": 0,
+                "retimed": 0,
                 "marksMoved": 0,
             })
         );

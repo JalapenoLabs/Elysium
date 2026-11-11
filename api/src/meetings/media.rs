@@ -410,22 +410,15 @@ pub async fn envelope(
         )
         .await
         .map_err(FileError::from)?;
-    if output.exit_code != Some(0) {
-        return Err(MediaError::Failed(format!(
+    let read = if output.exit_code == Some(0) {
+        read_envelope(workspace, &meeting_directory, &envelope_name).await
+    } else {
+        Err(MediaError::Failed(format!(
             "ffmpeg could not read the recording's audio: {}",
             output.output.trim()
-        )));
-    }
-    let file = workspace
-        .read_file(&meeting_directory, &envelope_name)
-        .await?;
-    let bytes: Vec<u8> = file
-        .body
-        .try_fold(Vec::new(), |mut read, chunk| async move {
-            read.extend_from_slice(&chunk);
-            Ok(read)
-        })
-        .await?;
+        )))
+    };
+    // Removed however the read went, so a failed decode leaves nothing half written behind.
     workspace
         .run_script(
             AGENT_USER,
@@ -436,6 +429,23 @@ pub async fn envelope(
         )
         .await
         .map_err(FileError::from)?;
+    read
+}
+
+/// The envelope `ffmpeg` wrote to `envelope_name` in `directory`.
+async fn read_envelope(
+    workspace: &WorkspaceContainer,
+    directory: &WorkspacePath,
+    envelope_name: &str,
+) -> Result<Vec<f32>, MediaError> {
+    let file = workspace.read_file(directory, envelope_name).await?;
+    let bytes: Vec<u8> = file
+        .body
+        .try_fold(Vec::new(), |mut read, chunk| async move {
+            read.extend_from_slice(&chunk);
+            Ok(read)
+        })
+        .await?;
     Ok(envelope_of(&bytes))
 }
 

@@ -592,6 +592,24 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
             .any(|entry| entry.kind() == Some(EventKind::Merged)),
         "and in Fireflies'"
     );
+    // A person sets the moved capture's offset by hand: splitting now would overwrite that, so it
+    // is refused until the hand-set offset is undone.
+    let hand_set = clock::nudge(
+        &mut connection,
+        teams.id,
+        fireflies_capture.id,
+        FIREFLIES_LATE_MS + 100,
+        person(),
+    )
+    .await
+    .expect("nudges");
+    assert!(matches!(
+        history::undo(&mut connection, teams.id, merge_entry.id, person()).await,
+        Err(history::UndoError::ChangedSince)
+    ));
+    history::undo(&mut connection, teams.id, hand_set.id, person())
+        .await
+        .expect("undoes the hand-set offset");
     let split = history::undo(&mut connection, teams.id, merge_entry.id, person())
         .await
         .expect("splits");
@@ -703,6 +721,60 @@ async fn not_the_same_is_remembered_and_lets_the_run_go_on() {
     ));
 }
 
+/// Merge and Not the same pressed at once, from two tabs: one answer counts, and what the pair
+/// says matches what happened to the meeting.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn two_answers_at_once_leave_the_pair_saying_what_happened() {
+    let (url, mut connection) = migrated_database().await;
+    let database = crate::connections::connect_postgres(&url, 4)
+        .await
+        .expect("a pool");
+    let on_the_hour: DateTime<Utc> = "2026-11-10T15:00:00Z".parse().expect("a time");
+    let (first, _) =
+        listed_and_fetched(&mut connection, "teams", on_the_hour, &teams_lines(), None).await;
+    let (second, _) = listed_and_fetched(
+        &mut connection,
+        "fireflies",
+        on_the_hour,
+        &fireflies_lines(),
+        None,
+    )
+    .await;
+    assert!(matches!(
+        align(&database, &mut connection, &first).await,
+        Done::Succeeded { .. }
+    ));
+    let (_run, held) = align_through_the_queue(&database, &mut connection, &second).await;
+    assert!(matches!(held, Done::Held { .. }));
+    let pair = pair_of(&mut connection, second.id).await.remove(0);
+
+    let mut merging = database.get().await.expect("a connection");
+    let mut keeping_apart = database.get().await.expect("a connection");
+    let (merged, kept_apart) = tokio::join!(
+        duplicates::merge(&mut merging, pair.id, TEST_PERSON_ID, Utc::now()),
+        duplicates::not_the_same(&mut keeping_apart, pair.id, TEST_PERSON_ID, Utc::now()),
+    );
+    assert!(
+        merged.is_ok() != kept_apart.is_ok(),
+        "exactly one answer counts: {merged:?} {kept_apart:?}"
+    );
+    let refused = if merged.is_ok() { kept_apart } else { merged };
+    assert!(matches!(refused, Err(duplicates::DecideError::Decided)));
+
+    let decision = pair_of(&mut connection, second.id).await[0]
+        .decision
+        .clone();
+    let now = meeting::find(&mut connection, second.id)
+        .await
+        .expect("found");
+    match decision.as_deref() {
+        Some("merged") => assert_eq!(now.merged_into, Some(first.id)),
+        Some("not_the_same") => assert_eq!(now.merged_into, None),
+        other => panic!("the pair is decided, not {other:?}"),
+    }
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
@@ -724,7 +796,8 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
         Done::Succeeded { .. }
     ));
     let first_word = |words: &[Word]| words[0].start_ms;
-    let before = first_word(&standing(&mut connection, meeting.id).await);
+    let words_before = standing(&mut connection, meeting.id).await;
+    let before = first_word(&words_before);
 
     let nudged = clock::nudge(
         &mut connection,
@@ -736,6 +809,18 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
     .await
     .expect("nudges");
     assert_eq!(nudged.kind(), Some(EventKind::OffsetChanged));
+    // Every word moves with its capture and keeps its id, so marks over them stay where they are.
+    let words_after = standing(&mut connection, meeting.id).await;
+    assert_eq!(
+        words_after.iter().map(|word| word.id).collect::<Vec<_>>(),
+        words_before.iter().map(|word| word.id).collect::<Vec<_>>()
+    );
+    assert!(
+        words_after
+            .iter()
+            .zip(&words_before)
+            .all(|(after, before)| after.start_ms == before.start_ms + FIREFLIES_LATE_MS)
+    );
     let moved = meeting_capture::find(&mut connection, capture.id)
         .await
         .expect("found");

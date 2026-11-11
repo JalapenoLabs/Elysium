@@ -23,10 +23,10 @@
 //! the same. A split is undone by merging again ([`merge_again`]). Only the meeting's person
 //! decides, merges, or splits.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SubsecRound, Utc};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -77,10 +77,13 @@ pub fn looks_like(meeting: &Meeting, other: &Meeting) -> bool {
     let ends = |meeting: &Meeting| {
         meeting.started_at + Duration::milliseconds(meeting.duration_ms.unwrap_or(0).max(0))
     };
-    let drift = Duration::minutes(START_DRIFT_MINUTES);
-    let close_starts = (meeting.started_at - other.started_at).abs() <= drift;
     let overlap = meeting.started_at < ends(other) && other.started_at < ends(meeting);
-    if !close_starts && !overlap {
+    // Only a length nobody knows falls back on the starts: two meetings whose lengths are known
+    // and do not overlap are two meetings, however close they began.
+    let unknown_length = meeting.duration_ms.is_none() || other.duration_ms.is_none();
+    let close_starts =
+        (meeting.started_at - other.started_at).abs() <= Duration::minutes(START_DRIFT_MINUTES);
+    if !(overlap || (unknown_length && close_starts)) {
         return false;
     }
     let taking_part = identities(meeting);
@@ -349,18 +352,19 @@ pub async fn merge(
             let pair = undecided_of(connection, pair_id, person).await?;
             let keeper_id = holder_of(connection, pair.same_as_id).await?;
             let (merging, keeper) = lock_both(connection, pair.meeting_id, keeper_id).await?;
-            if merging.merged_into.is_some() || merging.id == keeper.id {
+            // Read again under the locks: another merge may have moved either meeting while this
+            // one waited for them, and captures never go into a meeting merged away.
+            let moved_since = merging.merged_into.is_some() || keeper.merged_into.is_some();
+            if moved_since || merging.id == keeper.id {
                 return Err(DecideError::Decided);
             }
+            let pair = decide_once(connection, pair.id, Decision::Merged, (person, now)).await?;
             let author = person_at(person, now);
             merge_captures(connection, &merging, &keeper, author, None).await?;
-            let pair =
-                meeting_duplicate::decide(connection, pair.id, Decision::Merged, (person, now))
-                    .await?;
             let item = resolve_item(connection, &pair, person, now).await?;
             let mut runs = Vec::new();
             runs.extend(let_waiting_run_through(connection, merging.id, person, now).await?);
-            runs.extend(start_alignment(connection, &keeper).await?);
+            runs.extend(start_alignment(connection, &keeper, now).await?);
             let meetings = vec![
                 meeting::find(connection, merging.id).await?,
                 meeting::find(connection, keeper.id).await?,
@@ -392,8 +396,7 @@ pub async fn not_the_same(
             let pair = undecided_of(connection, pair_id, person).await?;
             let asking = meeting::lock(connection, pair.meeting_id).await?;
             let pair =
-                meeting_duplicate::decide(connection, pair.id, Decision::NotTheSame, (person, now))
-                    .await?;
+                decide_once(connection, pair.id, Decision::NotTheSame, (person, now)).await?;
             let item = resolve_item(connection, &pair, person, now).await?;
             let runs = let_waiting_run_through(connection, asking.id, person, now)
                 .await?
@@ -407,6 +410,20 @@ pub async fn not_the_same(
             })
         })
         .await
+}
+
+/// Records `decision` on pair `pair_id` unless it was decided already: two answers at once, Merge
+/// and Not the same, each read the pair undecided, and only the first to write counts. The second
+/// is told it was decided, and its transaction goes back whole.
+async fn decide_once(
+    connection: &mut AsyncPgConnection,
+    pair_id: Uuid,
+    decision: Decision,
+    decided: (Uuid, DateTime<Utc>),
+) -> Result<MeetingDuplicate, DecideError> {
+    meeting_duplicate::decide_undecided(connection, pair_id, decision, decided)
+        .await?
+        .ok_or(DecideError::Decided)
 }
 
 /// Pair `pair_id`, when its meeting is `person`'s and it is not decided yet.
@@ -527,7 +544,8 @@ async fn merge_captures(
                 before: capture.placement(),
                 after: Placement {
                     meeting_id: keeper.id,
-                    joined_at: author.at,
+                    // As Postgres keeps it, to the microsecond, so a split compares it exactly.
+                    joined_at: author.at.trunc_subsecs(6),
                     offset_ms: capture.offset_ms + shift_ms,
                     offset_source: OffsetSource::Listed,
                 },
@@ -640,11 +658,11 @@ pub(crate) async fn split(
     final_transcript::rebuild(connection, merging.id, author)
         .await
         .map_err(UndoError::Transcript)?;
-    start_alignment(connection, keeper)
+    start_alignment(connection, keeper, author.at)
         .await
         .map_err(UndoError::Transcript)?;
     if merging.state() == MeetingState::Done {
-        start_alignment(connection, &merging)
+        start_alignment(connection, &merging, author.at)
             .await
             .map_err(UndoError::Transcript)?;
     } else {
@@ -686,7 +704,7 @@ pub(crate) async fn merge_again(
         author,
     )
     .await?;
-    start_alignment(connection, keeper)
+    start_alignment(connection, keeper, author.at)
         .await
         .map_err(UndoError::Transcript)?;
     Ok(entry)
@@ -711,20 +729,32 @@ fn moved_of(undone: &MeetingEvent) -> Result<Moved, UndoError> {
     Ok(moved)
 }
 
-/// Whether every capture `moved` moved still sits in meeting `meeting_id` where `placed` says.
+/// Whether every capture `moved` moved still sits in meeting `meeting_id` as `placed` left it:
+/// in that meeting, joined when it joined, and on the offset it was left on, or on one Elysium
+/// found for it since. Aligning a capture after it moved is what moving it is for, and putting
+/// it back where it came from replaces that finding with the one it had there; an offset a
+/// person set since is their change, which undoing the move would overwrite.
 async fn captures_sit(
     connection: &mut AsyncPgConnection,
     moved: &Moved,
     meeting_id: Uuid,
     placed: impl Fn(&MovedCapture) -> Placement,
 ) -> diesel::QueryResult<bool> {
-    let present: HashSet<Uuid> = meeting_capture::list_of(connection, meeting_id)
+    let present: HashMap<Uuid, Placement> = meeting_capture::list_of(connection, meeting_id)
         .await?
         .into_iter()
-        .map(|capture| capture.id)
+        .map(|capture| (capture.id, capture.placement()))
         .collect();
     Ok(moved.captures.iter().all(|capture| {
-        placed(capture).meeting_id == meeting_id && present.contains(&capture.capture_id)
+        let left = placed(capture);
+        present.get(&capture.capture_id).is_some_and(|now| {
+            let offset_as_left =
+                now.offset_ms == left.offset_ms && now.offset_source == left.offset_source;
+            let found_since = now.offset_source != OffsetSource::Hand;
+            left.meeting_id == meeting_id
+                && now.joined_at == left.joined_at
+                && (offset_as_left || found_since)
+        })
     }))
 }
 
@@ -813,9 +843,10 @@ async fn let_waiting_run_through(
 async fn start_alignment(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
+    at: DateTime<Utc>,
 ) -> anyhow::Result<Option<Settled>> {
     let new_run: NewRun = workflow::run_alignment(connection, meeting).await?;
-    let started = workflow_run::start(connection, new_run, Utc::now()).await?;
+    let started = workflow_run::start(connection, new_run, at).await?;
     Ok(started.created.then_some(started.settled))
 }
 
@@ -896,5 +927,11 @@ mod tests {
 
         let nobody = meeting("2026-11-10T15:00:00Z", Some(30), &[]);
         assert!(!looks_like(&standup, &nobody));
+
+        // Two short meetings whose lengths are known and do not overlap are two, however close
+        // they began.
+        let quick = meeting("2026-11-10T15:00:00Z", Some(5), &["ada@example.com"]);
+        let after_it = meeting("2026-11-10T15:08:00Z", Some(20), &["ada@example.com"]);
+        assert!(!looks_like(&quick, &after_it));
     }
 }
