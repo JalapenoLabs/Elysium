@@ -51,10 +51,6 @@ pub enum UndoError {
 /// [`UndoError::NotFound`] when the meeting has no such change, [`UndoError::NotUndoable`] for a
 /// kind that cannot be undone, [`UndoError::ChangedSince`] when what it changed moved on since,
 /// [`UndoError::Corrected`] for a hold once the transcript is corrected; any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the meeting's page undoes its changes (#234)")
-)]
 pub async fn undo(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,

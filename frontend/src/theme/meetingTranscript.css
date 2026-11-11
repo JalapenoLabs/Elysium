@@ -1,0 +1,140 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* A meeting's final transcript, as its page draws it (docs/meeting-review.md, Marks). Every word
+   and every space between two words is a piece, so a mark over several words draws as one box:
+   a space is marked only when one mark covers the words on both sides of it. Each kind of mark
+   draws in its own channel, so any of them can lie over the same words at once:
+
+   - Confidence is the background, its hue from `--confidence-hue` (0 red, 60 yellow, 120 green),
+     which the page sets per piece from the mark's 0 to 100.
+   - An edit is a purple outline inside the piece, a comment an outline just outside it, and a
+     selected excerpt a wider blue one outside that.
+   - A black-out boxes its words in black, edged so the box shows on the dark page too, and dims
+     their text.
+   - The selection is the accent's soft fill over all of those; the moment picked is underlined.
+
+   Edges come from `data-*-start` and `data-*-end`, so a box closes only where its mark does. */
+
+.transcript-piece {
+  border-radius: 0;
+  box-shadow:
+    var(--edit-sides, 0 0 #0000),
+    var(--edit-start, 0 0 #0000),
+    var(--edit-end, 0 0 #0000),
+    var(--comment-sides, 0 0 #0000),
+    var(--comment-start, 0 0 #0000),
+    var(--comment-end, 0 0 #0000),
+    var(--excerpt-sides, 0 0 #0000),
+    var(--excerpt-start, 0 0 #0000),
+    var(--excerpt-end, 0 0 #0000),
+    var(--black-out-sides, 0 0 #0000),
+    var(--black-out-start, 0 0 #0000),
+    var(--black-out-end, 0 0 #0000);
+  cursor: text;
+}
+
+.transcript-piece[data-confidence] {
+  background: hsl(var(--confidence-hue) 85% 50% / 0.3);
+}
+
+.transcript-piece[data-edit] {
+  --edit-sides: inset 0 2px 0 var(--mark-edit), inset 0 -2px 0 var(--mark-edit);
+}
+
+.transcript-piece[data-edit-start] {
+  --edit-start: inset 2px 0 0 var(--mark-edit);
+}
+
+.transcript-piece[data-edit-end] {
+  --edit-end: inset -2px 0 0 var(--mark-edit);
+}
+
+.transcript-piece[data-comment] {
+  --comment-sides: 0 -1px 0 var(--mark-comment), 0 1px 0 var(--mark-comment);
+}
+
+.transcript-piece[data-comment-start] {
+  --comment-start: -1px 0 0 var(--mark-comment);
+}
+
+.transcript-piece[data-comment-end] {
+  --comment-end: 1px 0 0 var(--mark-comment);
+}
+
+.transcript-piece[data-excerpt-selected] {
+  --excerpt-sides: 0 -3px 0 var(--mark-excerpt), 0 3px 0 var(--mark-excerpt);
+}
+
+.transcript-piece[data-excerpt-selected-start] {
+  --excerpt-start: -3px 0 0 var(--mark-excerpt);
+}
+
+.transcript-piece[data-excerpt-selected-end] {
+  --excerpt-end: 3px 0 0 var(--mark-excerpt);
+}
+
+.transcript-piece[data-black-out] {
+  --black-out-sides: inset 0 1px 0 var(--mark-black-out-edge), inset 0 -1px 0 var(--mark-black-out-edge);
+  background: var(--mark-black-out);
+  color: rgb(255 255 255 / 0.45);
+}
+
+.transcript-piece[data-black-out-start] {
+  --black-out-start: inset 1px 0 0 var(--mark-black-out-edge);
+}
+
+.transcript-piece[data-black-out-end] {
+  --black-out-end: inset -1px 0 0 var(--mark-black-out-edge);
+}
+
+.transcript-piece[data-selected] {
+  background: var(--accent-soft);
+  color: inherit;
+}
+
+.transcript-piece[data-moment] {
+  text-decoration: underline 2px var(--accent);
+  text-underline-offset: 4px;
+}
+
+/* Each kind's swatch beside its switch in the options, drawn as the kind draws on the words. */
+.meeting-mark-swatch--confidence {
+  background: linear-gradient(90deg, hsl(0 85% 50%), hsl(60 85% 50%), hsl(120 85% 50%));
+}
+
+.meeting-mark-swatch--edit {
+  box-shadow: inset 0 0 0 2px var(--mark-edit);
+}
+
+.meeting-mark-swatch--excerpt {
+  background: var(--mark-excerpt);
+}
+
+.meeting-mark-swatch--black_out {
+  background: var(--mark-black-out);
+  box-shadow: 0 0 0 1px var(--separator);
+}
+
+.meeting-mark-swatch--comment {
+  box-shadow: 0 0 0 1px var(--mark-comment);
+}
+
+.transcript-piece:is(
+  [data-edit-start],
+  [data-comment-start],
+  [data-black-out-start],
+  [data-excerpt-selected-start]
+) {
+  border-start-start-radius: 0.25rem;
+  border-end-start-radius: 0.25rem;
+}
+
+.transcript-piece:is(
+  [data-edit-end],
+  [data-comment-end],
+  [data-black-out-end],
+  [data-excerpt-selected-end]
+) {
+  border-start-end-radius: 0.25rem;
+  border-end-end-radius: 0.25rem;
+}

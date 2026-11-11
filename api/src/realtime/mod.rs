@@ -216,14 +216,17 @@ pub enum ServerEvent {
     /// Its id and writer alone, since its text is the writer's; their pages load it by id.
     #[serde(rename = "draft.changed")]
     DraftChanged { id: Uuid, created_by: Uuid },
-    /// A meeting was read, or its processing moved on. Never its title or transcript, for
-    /// the same reason as a record's content; its owner's pages load it by id.
+    /// A meeting was read, its processing moved on, or a person changed it. Never its title or
+    /// transcript, for the same reason as a record's content; its owner's pages load it by id.
     #[serde(rename = "meeting.changed")]
     MeetingChanged {
         id: Uuid,
         /// How far its processing got: `pending`, `recorded`, `segmented`, or `done`.
         state: String,
         created_by: Uuid,
+        /// The history entry a person's edit or undo recorded, so the page that made it, which
+        /// already applied it, need not read the transcript again; `null` for anything else.
+        entry_id: Option<Uuid>,
     },
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]

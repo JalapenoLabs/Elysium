@@ -190,6 +190,38 @@ pub async fn first_of(
         .await
 }
 
+/// What a meeting's page names of one of its captures: where it came from and where it sits on
+/// the meeting's clock, without the transcript it holds, which is read only when it is opened.
+#[derive(Debug, Clone, Queryable, Selectable)]
+#[diesel(table_name = meeting_captures, check_for_backend(diesel::pg::Pg))]
+pub struct CaptureSummary {
+    pub id: Uuid,
+    pub connector_id: Option<Uuid>,
+    pub source_kind: String,
+    pub url: Option<String>,
+    pub offset_ms: i64,
+    pub recording_path: Option<String>,
+}
+
+/// Every capture of meeting `meeting_id`, first first.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn summaries_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> QueryResult<Vec<CaptureSummary>> {
+    meeting_captures::table
+        .filter(meeting_captures::meeting_id.eq(meeting_id))
+        .order((
+            meeting_captures::created_at.asc(),
+            meeting_captures::id.asc(),
+        ))
+        .select(CaptureSummary::as_select())
+        .load(connection)
+        .await
+}
+
 /// What a capture's first fetch stores.
 #[derive(Debug, Clone)]
 pub struct Fetched {

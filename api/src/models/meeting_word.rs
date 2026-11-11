@@ -234,10 +234,6 @@ pub async fn has_words(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> 
 ///
 /// # Errors
 /// Propagates any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the meeting's page reads it (#234)")
-)]
 pub async fn standing(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -347,10 +343,6 @@ pub enum EditError {
 /// [`EditError::NotFound`], [`EditError::NotStanding`], or [`EditError::OutOfOrder`] for a range
 /// that is not one of the transcript as it reads, [`EditError::Empty`] or
 /// [`EditError::TooLong`] for the text; any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "people edit words from the page (#234)")
-)]
 pub async fn edit(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,

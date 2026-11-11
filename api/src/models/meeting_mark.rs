@@ -195,10 +195,6 @@ pub enum MarkError {
 ///
 /// # Errors
 /// Propagates any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the meeting's page reads them (#234)")
-)]
 pub async fn standing(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -240,7 +236,7 @@ pub async fn find(
     not(test),
     expect(
         dead_code,
-        reason = "people and agents mark ranges from the page (#234, #239, #241)"
+        reason = "people and agents mark ranges from the page (#239, #241)"
     )
 )]
 pub async fn add(
@@ -276,7 +272,7 @@ pub async fn add(
 /// removed already, and [`MarkError::EditsOwn`] for an edit's mark; any database error.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "people remove marks from the page (#234, #241)")
+    expect(dead_code, reason = "people remove marks from the page (#241)")
 )]
 pub async fn remove(
     connection: &mut AsyncPgConnection,
