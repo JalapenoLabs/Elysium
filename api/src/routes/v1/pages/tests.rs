@@ -35,6 +35,7 @@ use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_i
 mod attachments;
 mod labels;
 mod search;
+mod suggestions;
 
 const ELYSIA_USER_ID: Uuid = crate::models::user::ELYSIA_USER_ID;
 
@@ -1769,7 +1770,7 @@ async fn the_routes_publish_a_learnings_fields_and_refuse_what_it_cannot_hold() 
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn a_section_published_as_a_page_is_a_change_to_the_doc() {
+async fn a_section_published_as_a_page_is_a_version_of_the_doc() {
     let (url, mut connection) = migrated_database().await;
     let mut state = app_state(&url).await;
     state.events = EventBus::in_process();
@@ -1787,12 +1788,19 @@ async fn a_section_published_as_a_page_is_a_change_to_the_doc() {
     assert_eq!(published["page"]["fixed"], true);
     assert_eq!(published["page"]["proposalOnly"], true);
 
-    let history = company_doc::history(&mut connection).await.expect("reads");
-    assert_eq!(history.len(), 1);
-    assert_eq!(history[0].kind, "edited");
+    let doc = company_doc::sections(&mut connection).await.expect("reads");
+    let glossary = doc
+        .iter()
+        .find(|section| section.section == Section::Glossary)
+        .expect("a glossary");
+    assert_eq!(glossary.content, "- ACME: a client");
+    let versions = page::versions(&mut connection, page_id)
+        .await
+        .expect("reads");
     assert_eq!(
-        history[0].data["changes"]["glossary"],
-        json!({ "from": "", "to": "- ACME: a client" })
+        versions.len(),
+        2,
+        "the doc's history is its sections' pages'"
     );
 
     let mut kinds = Vec::new();
@@ -1800,9 +1808,9 @@ async fn a_section_published_as_a_page_is_a_change_to_the_doc() {
         let event: Value = serde_json::from_str(&payload).expect("JSON");
         kinds.push(event["type"].as_str().expect("a type").to_owned());
     }
-    assert!(kinds.contains(&"page.changed".to_owned()), "{kinds:?}");
-    assert!(
-        kinds.contains(&"companyDoc.changed".to_owned()),
-        "{kinds:?}"
+    assert_eq!(
+        kinds,
+        ["page.changed"],
+        "a section is announced as the page it is"
     );
 }

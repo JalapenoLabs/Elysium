@@ -3,7 +3,7 @@
 import type { SearchEntry } from '../../../search/searchTypes'
 
 // User interface
-import { LuVideo } from 'react-icons/lu'
+import { LuUpload, LuVideo } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../../../urls'
@@ -18,5 +18,14 @@ export const searchEntries: SearchEntry[] = [
     parent: 'settings:title',
     icon: LuVideo,
     href: UrlTree.settingsMeetings,
+  },
+  {
+    id: 'uploadMeeting',
+    group: 'actions',
+    title: 'meetings:upload.action',
+    tags: 'search:tags.meetingUpload',
+    parent: 'settings:items.meetings.title',
+    icon: LuUpload,
+    href: UrlTree.meetingUploadNew,
   },
 ]

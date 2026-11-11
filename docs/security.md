@@ -303,6 +303,26 @@ uploads chooses every byte of something a person's browser opens there. `api/src
 - **Who reads.** `MemberUser` on every route, so a guest gets `403`, and `Cache-Control: private`, kept for an hour so a
   page of images does not spend its rate limit, which is how long a browser that already read a removed file can keep it.
 
+### Meeting uploads
+
+A person uploads their own meetings, gigabytes at a time, and the recording is later played on Elysium's own origin.
+`api/src/meeting_uploads/` holds the rules (`docs/meetings.md`, Uploads):
+
+- **Nothing the browser says about a file is believed.** What it is comes from its extension, through a list of four
+  recording types and four transcript types; anything else is refused before a byte is sent. Names are cleaned as page
+  attachments' are.
+- **A recording is the format it says.** Its first part must open with its format's signature before any of it is
+  kept, so an `.mp4` that is HTML never reaches storage. It is stored with its type's own media type.
+- **A transcript is read, never run.** It is decoded as UTF-8 or UTF-16 text, refused when it holds a NUL or anything
+  undecodable, capped at 10 MB and 100,000 lines, and kept as the plain lines it was read as.
+- **Bounded requests.** Every part is at most 8 MiB, which nginx holds whole before the API sees it, and which streams to
+  the workspace; nothing holds a recording in memory. Parts arrive in order, and only the parts an upload counts are
+  ever read.
+- **Who.** Every route answers the person uploading alone, and a capture is added only to a meeting of theirs.
+- **Staged in the workspace.** Parts wait in the workspace, `.elysium/uploads/`, as meetings' scratch copies do while
+  their clips are cut, so an agent in the workspace can read them until the fetch removes them. An upload left for a
+  week is removed with its parts.
+
 Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside the same policy:
 
 - **Decoders.** Its Draco, KTX2, and Meshopt decoders are off. They load from Google's CDN and run as blob workers
@@ -333,7 +353,8 @@ API share one origin through nginx, so browsers never need a cross-origin grant.
   route alone. nginx holds the file until it has arrived whole, so a slow client never reaches the API, and the transfer
   to the provider ends by itself once it stops moving for 60 seconds (`docs/storage.md`, Streaming and timeouts).
 - 1 MiB body cap in both nginx and the API (`413`), with larger ones on the routes that take a file: 10 MB for a project's
-  cover, and 50 MB for a page's attachment, which streams to its provider rather than being held in memory.
+  cover, 50 MB for a page's attachment, which streams to its provider rather than being held in memory, and 8 MiB for a
+  part of a meeting's upload, which streams to the workspace.
 - Panics in a handler become `500` instead of dropping the connection.
 - The API container runs as an unprivileged user.
 

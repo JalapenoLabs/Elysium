@@ -60,6 +60,7 @@ use super::alignment;
 use super::segmentation::clock;
 use super::source::TranscriptLine;
 use crate::company_doc::{CompanyDocResponse, SectionResponse};
+use crate::meeting_uploads;
 use crate::models::company_doc::Section;
 use crate::models::meeting_correction::BasedOn;
 use crate::models::meeting_word::{BuiltWord, Origin, Word};
@@ -143,20 +144,26 @@ pub struct Base {
 
 /// The transcript a capture's lines follow: the source's lines, which name their speakers, or
 /// Whisper's segments when the source sent none. `None` when nothing was heard at all.
+///
+/// A source transcript with no times at all, such as one uploaded beside its recording, follows
+/// Whisper's segments too when Whisper heard any: they carry the recording's clock, which clips,
+/// the player, and every span need, where the source's lines would make a meeting in words alone
+/// of a meeting that has a recording. The source's lines stay with their capture, as heard.
 pub fn base(source: Vec<TranscriptLine>, whisper: Option<&WhisperTranscript>) -> Option<Base> {
-    if !source.is_empty() {
+    let heard = whisper.map(whisper_lines).unwrap_or_default();
+    let source_is_timed = !meeting_uploads::transcript::is_untimed(&source);
+    if !source.is_empty() && (source_is_timed || heard.is_empty()) {
         return Some(Base {
             based_on: BasedOn::Source,
             lines: source,
         });
     }
-    let lines = whisper_lines(whisper?);
-    if lines.is_empty() {
+    if heard.is_empty() {
         return None;
     }
     Some(Base {
         based_on: BasedOn::Whisper,
-        lines,
+        lines: heard,
     })
 }
 

@@ -55,9 +55,12 @@ use crate::workflows::{self, Start, Step, Workflow};
 /// What a meeting's run is about, as `workflow_runs.source_kind` names it.
 pub const SOURCE_KIND: &str = "meeting";
 
+/// The meeting workflow's name, as `workflow_runs.workflow` names it.
+pub const NAME: &str = "meeting";
+
 /// The meeting workflow: every step a meeting's run goes through, first to last.
 pub fn workflow() -> Workflow<MeetingToFetch> {
-    workflows::declare("meeting")
+    workflows::declare(NAME)
         .first::<FetchMeeting>()
         .then::<TranscribeMeeting>()
         .then::<AlignMeeting>()
@@ -141,9 +144,38 @@ pub fn run_for(meeting_id: Uuid) -> NewRun {
     workflow().new_run(Start {
         source_kind: SOURCE_KIND.to_owned(),
         source_id: meeting_id.to_string(),
-        input: MeetingToFetch { meeting_id },
+        input: MeetingToFetch {
+            meeting_id,
+            capture_id: None,
+        },
         created_by: SYSTEM_USER_ID,
     })
+}
+
+/// A run of the meeting workflow on capture `capture_id` of meeting `meeting_id`, from its fetch,
+/// which person `started_by` starts by finishing its upload.
+pub fn run_for_upload(meeting_id: Uuid, capture_id: Uuid, started_by: Uuid) -> NewRun {
+    workflow().new_run(Start {
+        source_kind: SOURCE_KIND.to_owned(),
+        source_id: meeting_id.to_string(),
+        input: MeetingToFetch {
+            meeting_id,
+            capture_id: Some(capture_id),
+        },
+        created_by: started_by,
+    })
+}
+
+/// Meeting `meeting_id`'s run that is still its, if it has one: going, held, or failed and waiting
+/// for a person. A meeting holds one run at a time (`workflow_run::start`).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn live_run(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> diesel::QueryResult<Option<WorkflowRun>> {
+    workflow_run::find_live(connection, NAME, SOURCE_KIND, &meeting_id.to_string()).await
 }
 
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with

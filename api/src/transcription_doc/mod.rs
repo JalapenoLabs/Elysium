@@ -11,8 +11,8 @@
 //! entry or strengthen one ([`learn`]), live at once, as a version of the page by whoever taught
 //! it. People edit it as any page; what Elysium reads and writes of its Markdown is `markdown`'s.
 //!
-//! A lesson naming someone or something the company doc does not know is also proposed to the
-//! company doc ([`propose_unknown`]), for a person to approve, as every other change to it is.
+//! A lesson naming someone or something the company doc does not know is also suggested to the
+//! company doc ([`suggest_unknown`]), for a person to accept, as every other change to it is.
 
 mod markdown;
 
@@ -20,11 +20,12 @@ use diesel::QueryResult;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use tracing::{Level, event};
 
+use uuid::Uuid;
+
 use crate::models::agent::Author;
-use crate::models::company_doc::{
-    self, CompanyDocError, Edit, NewProposal, ProposalState, Proposer, Section,
-};
+use crate::models::company_doc::{self, Section};
 use crate::models::page::{self, PageContent, PageError, Provenance};
+use crate::models::page_suggestion::{self, Edit, NewSuggestion, Suggested, SuggestionError};
 
 pub use crate::models::page::TRANSCRIPTION_PAGE_ID;
 pub use markdown::{Entry, Lesson, MeetingLink, phrase_key};
@@ -186,45 +187,44 @@ fn term_of(line: &str) -> Option<String> {
     fits.then(|| term.to_owned())
 }
 
-/// Proposes to the company doc each of `lessons` whose written form it does not name yet, nor any
-/// proposal waiting for review does: to People when it names one of `people` (the meeting's
-/// speakers and participants), and to the Glossary otherwise, each as one line a person approves
-/// or rejects. Answers how many it proposed; the caller announces the doc's change once its
-/// transaction commits.
+/// Suggests to the company doc each of `lessons` whose written form neither its People nor its
+/// Glossary names yet, nor any suggestion waiting on them: to People when it names one of `people`
+/// (the meeting's speakers and participants), and to the Glossary otherwise, each as one line a
+/// person accepts or dismisses on the section's page, suggested as `author` (`workflow_run_id`
+/// naming a correction's run). Answers the suggestions it stored, for the caller to announce once
+/// its transaction commits.
 ///
-/// A proposal the doc refuses, one that would make a section too long, is logged and passed over:
+/// A suggestion the doc refuses, one that would make a section too long, is logged and passed over:
 /// the lesson is in the Transcription doc whatever the company doc says.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn propose_unknown(
+pub async fn suggest_unknown(
     connection: &mut AsyncPgConnection,
     lessons: &[Lesson],
     people: &[String],
-    proposer: Proposer<'_>,
-) -> QueryResult<usize> {
+    (author, workflow_run_id): (Author<'_>, Option<Uuid>),
+) -> QueryResult<Vec<Suggested>> {
     if lessons.is_empty() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
+    let names = |section: Section| matches!(section, Section::People | Section::Glossary);
     let sections = company_doc::sections(connection).await?;
-    let pending = company_doc::proposals(connection, ProposalState::Pending, None).await?;
+    let pending = company_doc::pending(connection).await?;
     let mut known: Vec<String> = sections
         .iter()
-        .filter(|section| matches!(section.section, Section::People | Section::Glossary))
+        .filter(|section| names(section.section))
         .map(|section| phrase_key(&section.content))
+        .chain(
+            pending
+                .iter()
+                .filter(|waiting| names(waiting.section))
+                .map(|waiting| phrase_key(&waiting.suggestion.body)),
+        )
         .collect();
-    known.extend(
-        pending
-            .iter()
-            .filter(|proposal| {
-                Section::parse(&proposal.section)
-                    .is_some_and(|section| matches!(section, Section::People | Section::Glossary))
-            })
-            .map(|proposal| phrase_key(&proposal.content)),
-    );
     let person_keys: Vec<String> = people.iter().map(|person| name_key(person)).collect();
 
-    let mut created = 0;
+    let mut stored = Vec::new();
     for lesson in lessons {
         let written = phrase_key(&lesson.written);
         if written.is_empty() || known.iter().any(|text| holds_words(text, &written)) {
@@ -236,40 +236,54 @@ pub async fn propose_unknown(
             Section::Glossary
         };
         let written_form = lesson.written.trim();
-        let new = NewProposal {
-            section,
-            edits: vec![Edit {
+        let heard = lesson.heard.trim();
+        // The meeting's title is where the suggestion was read, cut to what a source holds.
+        let title: String = lesson
+            .meeting
+            .title
+            .chars()
+            .take(page_suggestion::SOURCE_MAX_CHARACTERS)
+            .collect();
+        let new = NewSuggestion::new(
+            section.page_id(),
+            None,
+            vec![Edit {
                 find: String::new(),
-                replace: format!(
-                    "- {written_form}: often heard as \"{}\"",
-                    lesson.heard.trim()
-                ),
+                replace: format!("- {written_form}: often heard as \"{heard}\""),
             }],
-            reason: format!(
-                "A meeting's transcript was corrected: \"{}\" is {written_form}, which the company \
-                 doc does not name yet.",
-                lesson.heard.trim()
+            &format!(
+                "A meeting's transcript was corrected: \"{heard}\" is {written_form}, which the \
+                 company doc does not name yet."
             ),
-            quote: None,
-            source: Some(lesson.meeting.title.chars().take(200).collect()),
-            timeline_record_id: None,
+            None,
+            Some(&title),
+        )
+        .map(|new| NewSuggestion {
+            workflow_run_id,
+            ..new
+        });
+        let suggested = match new {
+            Ok(new) => page_suggestion::suggest(connection, new, author).await,
+            Err(refusal) => Err(refusal),
         };
-        match company_doc::propose(connection, new, proposer, chrono::Utc::now()).await {
-            Ok(stored) => {
-                created += usize::from(stored.created);
+        match suggested {
+            Ok(suggested) => {
                 known.push(written);
+                if suggested.created {
+                    stored.push(suggested);
+                }
             }
-            Err(CompanyDocError::Database(error)) => return Err(error),
+            Err(SuggestionError::Database(error)) => return Err(error),
             Err(refused) => event!(
-                name: "transcription_doc.proposal.refused",
+                name: "transcription_doc.suggestion.refused",
                 Level::DEBUG,
                 company_doc.section = section.as_str(),
                 error.message = %refused,
-                "a name a correction taught could not be proposed to the company doc",
+                "a name a correction taught could not be suggested to the company doc",
             ),
         }
     }
-    Ok(created)
+    Ok(stored)
 }
 
 /// A person as names are compared: an email's part before the `@`, its dots and underscores read
@@ -286,8 +300,6 @@ fn holds_words(text: &str, words: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use super::*;
 
     fn entry(written: &str, meetings: usize) -> Entry {

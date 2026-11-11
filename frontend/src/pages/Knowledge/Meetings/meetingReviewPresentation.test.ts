@@ -74,6 +74,20 @@ describe('describeHistory', () => {
     expect(edited.before?.endsWith('…')).toBe(true)
     expect(edited.before?.length).toBeLessThanOrEqual(60)
   })
+
+  it('says what an added capture holds, which cannot be undone', () => {
+    const rows = describeHistory([
+      entry('both', 'capture_added', { captureId: 'capture', recording: true, transcript: true }),
+      entry('recording', 'capture_added', { recording: true, transcript: false }),
+      entry('transcript', 'capture_added', { recording: false, transcript: true }),
+    ])
+
+    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'addedRecordingAndTranscript', false ],
+      [ 'addedRecording', false ],
+      [ 'addedTranscript', false ],
+    ])
+  })
 })
 
 describe('entryOfEditMark', () => {

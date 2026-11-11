@@ -196,8 +196,8 @@ impl From<crate::models::page::PageError> for ApiError {
             ),
             PageError::ProposalOnly => (
                 "page_proposal_only",
-                "people edit this page directly; agents propose a change to a section of the \
-                 company doc with company_doc_propose",
+                "people edit this page directly; agents suggest an edit with page_suggest, which \
+                 a person accepts",
             ),
             PageError::ParentGone => (
                 "page_parent_gone",
@@ -245,27 +245,34 @@ impl From<crate::models::page::PageError> for ApiError {
     }
 }
 
-impl From<crate::models::company_doc::CompanyDocError> for ApiError {
-    fn from(error: crate::models::company_doc::CompanyDocError) -> Self {
-        use crate::models::company_doc::CompanyDocError;
+impl From<crate::models::page_suggestion::SuggestionError> for ApiError {
+    fn from(error: crate::models::page_suggestion::SuggestionError) -> Self {
+        use crate::models::page_suggestion::SuggestionError;
 
         match error {
-            CompanyDocError::Database(database) => database.into(),
-            CompanyDocError::Page(page) => page.into(),
-            refused @ (CompanyDocError::Invalid(_)
-            | CompanyDocError::TooLong(_)
-            | CompanyDocError::EditDoesNotApply(_)
-            | CompanyDocError::ChangesNothing(_)) => Self::BadRequest(refused.to_string()),
-            CompanyDocError::AlreadyDecided(_) => {
-                Self::Conflict("this proposal was already decided")
-            }
-            // The web app answers this by saying the proposal no longer fits the section.
-            CompanyDocError::Overlaps(_) => Self::CodedConflict {
-                code: "proposal_overlaps",
-                message: "the section changed since this was proposed, in the same lines; \
-                    reject it, or make the change by hand",
+            SuggestionError::Database(database) => database.into(),
+            SuggestionError::Page(page) => page.into(),
+            SuggestionError::IsALearning => Self::CodedConflict {
+                code: "page_is_a_learning",
+                message: "a learning is changed with learning_save, with its evidence, not \
+                    suggested to",
             },
-            CompanyDocError::NothingToUndo(message) => Self::Conflict(message),
+            refused @ (SuggestionError::Invalid(_)
+            | SuggestionError::UnknownVersion(_)
+            | SuggestionError::EditDoesNotApply(_)
+            | SuggestionError::ChangesNothing
+            | SuggestionError::TooLong { .. }
+            | SuggestionError::UnknownChange(_)) => Self::BadRequest(refused.to_string()),
+            SuggestionError::AlreadyDecided(_) => Self::CodedConflict {
+                code: "suggestion_decided",
+                message: "this suggestion was already accepted or dismissed",
+            },
+            // The web app answers this by saying which changes no longer fit the page.
+            SuggestionError::Overlaps => Self::CodedConflict {
+                code: "suggestion_overlaps",
+                message: "the page changed since this was suggested, in the same lines; take the \
+                    other changes, dismiss it, or make the change by hand",
+            },
         }
     }
 }
@@ -395,6 +402,21 @@ impl From<crate::runner::files::FileError> for ApiError {
             failed @ (FileError::Failed(_) | FileError::Workspace(_)) => {
                 Self::BadGateway(format!("the workspace: {failed}"))
             }
+        }
+    }
+}
+
+impl From<crate::meeting_uploads::staging::StagingError> for ApiError {
+    fn from(error: crate::meeting_uploads::staging::StagingError) -> Self {
+        use crate::meeting_uploads::staging::StagingError;
+
+        match error {
+            short @ StagingError::Length { .. } => Self::CodedBadRequest {
+                code: "meeting_upload_part_length",
+                message: short.to_string(),
+            },
+            StagingError::Workspace(refused) => Self::from(refused),
+            failed @ StagingError::Io(_) => Self::BadGateway(failed.to_string()),
         }
     }
 }

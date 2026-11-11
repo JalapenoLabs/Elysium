@@ -9,7 +9,6 @@ import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import {
-  LuBookOpen,
   LuBot,
   LuBrainCircuit,
   LuCable,
@@ -74,11 +73,6 @@ export function SettingsDirectoryPage() {
           title={t('items.meetings.title')}
           href={UrlTree.settingsMeetings}
         />
-        {isCompanyMember && <SettingsDirectoryItem
-          icon={LuBookOpen}
-          title={t('items.companyDoc.title')}
-          href={UrlTree.settingsCompanyDoc}
-        />}
         {isCompanyMember && <SettingsDirectoryItem
           icon={LuScrollText}
           title={t('items.agentGuidance.title')}

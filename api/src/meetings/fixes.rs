@@ -8,7 +8,7 @@
 //! correction's own fixes must) adds each of its fixes to the doc as an entry, or strengthens the
 //! entry it already has, as a version of the doc by the person who made it, with where it was heard
 //! and who was speaking. A fix naming someone or something the company doc does not know is
-//! proposed to it, for a person to approve. An edit that rewrites more than that, or that only
+//! suggested to it, for a person to accept. An edit that rewrites more than that, or that only
 //! changes case and punctuation, teaches nothing. Undoing an edit leaves what it taught, which a
 //! person prunes from the doc as any entry.
 
@@ -17,16 +17,16 @@ use uuid::Uuid;
 
 use super::correction;
 use crate::models::agent::Author;
-use crate::models::company_doc::Proposer;
 use crate::models::meeting_event::MeetingEvent;
 use crate::models::meeting_word::{self, EditError, Origin, Replacement, WordChange};
 use crate::models::{meeting, meeting_capture, user};
 use crate::realtime::{EventBus, ServerEvent};
+use crate::routes::v1::pages;
 use crate::transcription_doc::{self, Lesson, MeetingLink};
 
 /// Replaces the words of `replacement.range` in meeting `meeting_id` with its text as `author`
 /// (`meeting_word::edit`), and teaches the Transcription doc what it fixed, in one transaction;
-/// then announces the doc's change and any proposal to the company doc. Answers the edit's history
+/// then announces the doc's change and any suggestion to the company doc. Answers the edit's history
 /// entry.
 ///
 /// # Errors
@@ -38,20 +38,16 @@ pub async fn edit(
     replacement: Replacement<'_>,
     author: Author<'_>,
 ) -> Result<MeetingEvent, EditError> {
-    let (entry, learned, proposed) = connection
+    let (entry, learned, suggested) = connection
         .transaction(async |connection| {
             let entry = meeting_word::edit(connection, meeting_id, replacement, author).await?;
             let lessons = lessons_of(connection, &entry, author).await?;
             let learned = transcription_doc::learn(connection, &lessons, author).await?;
             let people = people_of(connection, meeting_id).await?;
-            let as_person = Proposer::Person {
-                user_id: author.user_id,
-                agent: author.agent,
-            };
-            let proposed =
-                transcription_doc::propose_unknown(connection, &lessons, &people, as_person)
+            let suggested =
+                transcription_doc::suggest_unknown(connection, &lessons, &people, (author, None))
                     .await?;
-            Ok::<_, EditError>((entry, learned, proposed))
+            Ok::<_, EditError>((entry, learned, suggested))
         })
         .await?;
     if learned {
@@ -59,8 +55,8 @@ pub async fn edit(
             id: transcription_doc::TRANSCRIPTION_PAGE_ID,
         });
     }
-    if proposed > 0 {
-        events.publish(&ServerEvent::CompanyDocChanged);
+    for each in suggested {
+        pages::announce_suggested(events, connection, each).await;
     }
     Ok(entry)
 }

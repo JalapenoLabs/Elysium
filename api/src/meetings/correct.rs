@@ -24,7 +24,7 @@
 //! A flag the agent is sure of ([`TEACHING_CONFIDENCE`] or more) that fixes words teaches the
 //! Transcription doc each of its fixes, with where it was heard and why, in the same transaction,
 //! so the next meeting's correction reads it at once; a fix naming someone or something the
-//! company doc does not know is proposed to it.
+//! company doc does not know is suggested to it.
 //!
 //! # Waiting for approval
 //!
@@ -66,7 +66,6 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
-use crate::models::company_doc::Proposer;
 use crate::models::connector;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_capture::{self, StoredRecording};
@@ -74,12 +73,14 @@ use crate::models::meeting_correction::{self, MeetingCorrection, NewMeetingCorre
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_word::{self, Origin, SettledRange, Word};
 use crate::models::model_setting::ModelChoice;
+use crate::models::page_suggestion::Suggested;
 use crate::models::step_job::{self, StepActionError, StepJobState};
-use crate::models::user::SYSTEM_USER_ID;
+use crate::models::user::{ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::models::workflow_run::{self, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
 use crate::routes::v1::meetings::announce_lined_up;
+use crate::routes::v1::pages;
 use crate::runner::events::{RunnerEvent, TurnOutcome, TurnStatus};
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
 use crate::transcription_doc::{self, Lesson, MeetingLink};
@@ -204,12 +205,12 @@ struct Settling {
 /// What storing a settlement found.
 enum Stored {
     /// This attempt settled the meeting: its `settled` history entry, its copy, whether the
-    /// Transcription doc learned from it, and how many names it proposed to the company doc.
+    /// Transcription doc learned from it, and the names it suggested to the company doc.
     Settled {
         entry: Box<MeetingEvent>,
         correction: MeetingCorrection,
         learned: bool,
-        proposed: usize,
+        suggested: Vec<Suggested>,
     },
     /// Another attempt settled it first; its copy is kept, and this one's discarded.
     ByAnother(MeetingCorrection),
@@ -447,8 +448,12 @@ impl CorrectTranscript {
             agent: None,
             at: Utc::now(),
         };
-        let as_elysia = Proposer::Elysia {
-            workflow_run_id: Some(context.run_id),
+        // A name the company doc lacks is suggested to it in Elysia's name, naming the run, as
+        // its review's suggestions are.
+        let as_elysia = Author {
+            user_id: ELYSIA_USER_ID,
+            agent: None,
+            at: Utc::now(),
         };
 
         let mut connection = self.connection().await?;
@@ -473,9 +478,13 @@ impl CorrectTranscript {
                     .collect();
                 let lessons = lessons_of(heard, &applied);
                 let learned = transcription_doc::learn(connection, &lessons, author).await?;
-                let proposed =
-                    transcription_doc::propose_unknown(connection, &lessons, &people, as_elysia)
-                        .await?;
+                let suggested = transcription_doc::suggest_unknown(
+                    connection,
+                    &lessons,
+                    &people,
+                    (as_elysia, Some(context.run_id)),
+                )
+                .await?;
                 context.log.line(&format!(
                     "Settled {} ranges and passed over {} whose words changed since",
                     settled.marked.iter().flatten().count(),
@@ -489,7 +498,7 @@ impl CorrectTranscript {
                     entry: Box::new(settled.entry),
                     correction,
                     learned,
-                    proposed,
+                    suggested,
                 })
             })
             .await
@@ -559,7 +568,7 @@ impl CorrectTranscript {
                 entry,
                 correction,
                 learned,
-                proposed,
+                suggested,
             } => {
                 context.log.line(&format!(
                     "Stored the corrected copy, SHA-256 {}",
@@ -571,14 +580,17 @@ impl CorrectTranscript {
                         id: transcription_doc::TRANSCRIPTION_PAGE_ID,
                     });
                 }
-                if proposed > 0 {
+                let mut connection = self.connection().await?;
+                if !suggested.is_empty() {
                     context.log.line(&format!(
-                        "Proposed {proposed} names to the company doc, for a person to approve"
+                        "Suggested {} names to the company doc, for a person to accept",
+                        suggested.len()
                     ));
-                    self.inner.events.publish(&ServerEvent::CompanyDocChanged);
+                }
+                for each in suggested {
+                    pages::announce_suggested(&self.inner.events, &mut connection, each).await;
                 }
                 // Every page reads the settled transcript again, as after any change no page made.
-                let mut connection = self.connection().await?;
                 if let Err(error) =
                     announce_lined_up(&self.inner.events, &mut connection, &entry).await
                 {
@@ -766,7 +778,8 @@ async fn versions_of(
                 format!("Capture {number}, {name}")
             }
         };
-        if !source.is_empty() {
+        // A transcript with no times, as an upload may be, has no moment to set beside a line.
+        if !source.is_empty() && !crate::meeting_uploads::transcript::is_untimed(&source) {
             versions.push(Version::of(
                 label(&source_name),
                 &source,
@@ -1812,22 +1825,24 @@ mod tests {
             "a version of the page by Elysium"
         );
 
-        // Sharath is a participant the company doc does not name, so People gets a proposal.
-        let pending = crate::models::company_doc::proposals(
-            &mut connection,
-            crate::models::company_doc::ProposalState::Pending,
-            None,
-        )
-        .await
-        .expect("proposals");
+        // Sharath is a participant the company doc does not name, so People gets a suggestion, in
+        // Elysia's name and naming the run, waiting for a person on the section's page.
+        let pending = crate::models::company_doc::pending(&mut connection)
+            .await
+            .expect("suggestions");
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].section, "people");
+        assert_eq!(
+            pending[0].section,
+            crate::models::company_doc::Section::People
+        );
+        let suggested = &pending[0].suggestion;
         assert!(
-            pending[0]
-                .content
+            suggested
+                .body
                 .contains("- Sharath: often heard as \"Sheriff\"")
         );
-        assert_eq!(pending[0].workflow_run_id, Some(run.settled.run.id));
+        assert_eq!(suggested.workflow_run_id, Some(run.settled.run.id));
+        assert_eq!(suggested.created_by, ELYSIA_USER_ID);
 
         // A capture nudged by hand lines the transcript up again; what was settled stands, marks
         // and all, and nothing is settled again.

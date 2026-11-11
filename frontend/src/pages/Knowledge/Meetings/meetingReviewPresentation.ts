@@ -57,6 +57,9 @@ export const historySentenceKeys = {
   offsetChanged: 'review.history.sentences.offsetChanged',
   merged: 'review.history.sentences.merged',
   split: 'review.history.sentences.split',
+  addedRecordingAndTranscript: 'review.history.sentences.addedRecordingAndTranscript',
+  addedRecording: 'review.history.sentences.addedRecording',
+  addedTranscript: 'review.history.sentences.addedTranscript',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -101,6 +104,23 @@ function quoted(value: unknown) {
 
 function drawnKind(value: unknown) {
   return DRAWN_MARK_KINDS.find((kind) => kind === value) ?? null
+}
+
+// How a capture a person uploaded reads, by what it holds.
+function addedCaptureSentence(data: Record<string, unknown>): HistorySentence {
+  const hasRecording = data.recording === true
+  const hasTranscript = data.transcript === true
+  if (hasRecording && hasTranscript) {
+    return 'addedRecordingAndTranscript'
+  }
+  if (hasRecording) {
+    return 'addedRecording'
+  }
+  if (hasTranscript) {
+    return 'addedTranscript'
+  }
+  console.debug('describeHistory read an added capture that says it holds nothing', { data })
+  return 'changed'
 }
 
 // What each entry of a meeting's history says, newest first as it arrives. Entries come from
@@ -159,6 +179,9 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
       case 'merged':
       case 'split':
         row.sentence = entry.kind
+        return row
+      case 'capture_added':
+        row.sentence = addedCaptureSentence(entry.data)
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

@@ -38,7 +38,14 @@ export function toKnowledgeResults(
         : `knowledge:${citation.documentId}`,
       group: 'knowledge',
       title,
-      detail: t('result.detail', { source: source.label, person: citation.person.name }),
+      // A page with suggestions waiting says so, as its row in the tree does.
+      detail: result.pendingSuggestions
+        ? t('result.detailWithSuggestions', {
+          source: source.label,
+          person: citation.person.name,
+          count: result.pendingSuggestions,
+        })
+        : t('result.detail', { source: source.label, person: citation.person.name }),
       icon: source.icon,
       score: scoreSearchMatch(queryWords, text) ?? 0,
       sourceRank: index,

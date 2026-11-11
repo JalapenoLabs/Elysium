@@ -53,9 +53,10 @@ it was about are still there for the next turn.
 
 Each turn is granted her own tool server, `elysia` (`api/src/tools/elysia.rs`), at `/api/agent-tools/elysia` with a
 token minted for that turn and revoked when it ends (`docs/coding.md`, Elysium's tools). Coding sessions' servers
-refuse her, and hers refuse them. Every turn is also granted `elysium_knowledge`, the company doc's tools, which she
-proposes to as herself (`docs/knowledge.md`, The company doc), and the pages' tools, with which she edits pages as
-herself (`docs/knowledge.md`, Who changes pages). While the password vault is ready, the turn is also
+refuse her, and hers refuse them. Every turn is also granted `elysium_knowledge`, the company doc's tools, with which
+she suggests edits to it as herself (`docs/knowledge.md`, The company doc), and the pages' tools, with which she edits
+pages as herself and suggests edits to any page with `page_suggest`, for a person to accept (`docs/knowledge.md`, Who
+changes pages and Suggestions). While the password vault is ready, the turn is also
 granted `elysium_passwords`,
 the logins agents sign in with (`docs/passwords.md`), and her reply, summary, and any failure are scrubbed of every
 password and code it handed out before they are stored, as coding sessions' events are.

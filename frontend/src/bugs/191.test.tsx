@@ -1,11 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ReactNode } from 'react'
-import type { CompanyDoc } from '../api/routes/companyDocRoutes'
 
 // Core
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Provider } from 'react-redux'
@@ -19,11 +18,9 @@ import { meLoaded } from '../store/authSlice'
 // User interface
 import { LuRefreshCw } from 'react-icons/lu'
 import { Page } from '../layout/page/Page'
-import { CompanyDocPage } from '../pages/Settings/CompanyDoc/CompanyDocPage'
 import { SettingsPage } from '../pages/Settings/SettingsPage'
 
 // Misc
-import { COMPANY_DOC_SECTIONS } from '../api/routes/companyDocRoutes'
 import { usePageSave } from '../layout/page/pageSave'
 import { usePageToolsContainer } from '../layout/page/pageTools'
 import { makeUser } from '../testFixtures'
@@ -36,15 +33,6 @@ import { TestAriaRouter } from '../testRouter'
 // Save, an action, a primary action, tools, or a list that claims the slot. jsdom evaluates no
 // `:has()`, so these tests pin that React state, which is what every browser renders from.
 
-const companyDoc = vi.hoisted(() => ({ get: vi.fn() }))
-vi.mock('../api/routes/companyDocRoutes', async (importOriginal) => ({
-  ...await importOriginal<object>(),
-  getCompanyDoc: companyDoc.get,
-  listCompanyDocHistory: async () => ({ history: []}),
-}))
-
-const SECTION_UPDATED_AT = '2026-11-01T09:00:00Z'
-
 // jsdom has neither observer; the page uses them only to place the floating Save card and to
 // lay out HeroUI's fields.
 class InertObserver {
@@ -56,7 +44,6 @@ class InertObserver {
 beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', InertObserver)
   vi.stubGlobal('ResizeObserver', InertObserver)
-  companyDoc.get.mockReset()
 })
 
 afterEach(() => {
@@ -164,35 +151,5 @@ describe('issue #191: the header\'s right side follows what it is given', () => 
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle list' }))
     expect(titlebarEnd()).toBeNull()
-  })
-
-  it('draws the company doc page\'s header while it loads, and adds Save once the doc is here', async () => {
-    let finishLoading: (doc: CompanyDoc) => void = () => {}
-    companyDoc.get.mockReturnValue(new Promise<CompanyDoc>((resolve) => {
-      finishLoading = resolve
-    }))
-    renderPage(<CompanyDocPage />)
-
-    // The shared header, with its title and action, from the first render.
-    const banner = within(screen.getByRole('banner'))
-    expect(banner.getByRole('heading', { level: 1, name: 'Company doc' })).toBeTruthy()
-    expect(banner.getByRole('button', { name: 'Look for updates' })).toBeTruthy()
-    expect(banner.queryByText('Save')).toBeNull()
-
-    await act(async () => {
-      finishLoading({
-        sections: COMPANY_DOC_SECTIONS.map((section) => ({
-          section,
-          content: '',
-          updatedAt: SECTION_UPDATED_AT,
-          proposals: [],
-        })),
-      })
-    })
-
-    // Disabled while nothing has changed, so it sits inside the trigger of the tooltip saying why.
-    const save = await banner.findByText('Save')
-    expect(save.closest('button')).not.toBeNull()
-    expect(save.closest('.page-actions')).not.toBeNull()
   })
 })

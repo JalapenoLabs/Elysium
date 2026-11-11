@@ -151,6 +151,27 @@ fn a_copy_follows_the_sources_lines_or_whispers_when_the_source_sent_none() {
     assert_eq!(base(Vec::new(), None), None);
 }
 
+/// #233: a transcript uploaded with no times beside its recording follows the recording's clock,
+/// so the meeting is not taken for one in words alone.
+#[test]
+fn an_untimed_source_with_a_recording_follows_whispers_clock() {
+    let untimed = vec![TranscriptLine {
+        start_ms: 0,
+        end_ms: 0,
+        speaker: "Ada".to_owned(),
+        text: "Hello there".to_owned(),
+    }];
+    let heard = whisper(&[(2_000, "Hello there")]);
+
+    let followed = base(untimed.clone(), Some(&heard)).expect("lines");
+    assert_eq!(followed.based_on, BasedOn::Whisper);
+    assert_eq!(followed.lines[0].start_ms, 2_000);
+
+    // With no recording heard, its lines are the meeting, in words alone.
+    let alone = base(untimed.clone(), None).expect("lines");
+    assert_eq!((alone.based_on, alone.lines), (BasedOn::Source, untimed));
+}
+
 #[test]
 fn a_misheard_name_or_term_is_a_fix() {
     assert_eq!(
