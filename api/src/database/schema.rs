@@ -1180,6 +1180,29 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_captures (id) {
+        id -> Uuid,
+        meeting_id -> Uuid,
+        connector_id -> Nullable<Uuid>,
+        source_kind -> Text,
+        external_id -> Nullable<Text>,
+        url -> Nullable<Text>,
+        transcript -> Jsonb,
+        transcript_hash -> Nullable<Text>,
+        storage_location_id -> Nullable<Uuid>,
+        recording_path -> Nullable<Text>,
+        recording_content_type -> Nullable<Text>,
+        recording_hash -> Nullable<Text>,
+        offset_ms -> Int8,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_corrections (meeting_id) {
         meeting_id -> Uuid,
         transcript -> Jsonb,
@@ -1199,8 +1222,41 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    meeting_transcriptions (meeting_id) {
+    meeting_events (id) {
+        id -> Uuid,
         meeting_id -> Uuid,
+        kind -> Text,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_marks (id) {
+        id -> Uuid,
+        meeting_id -> Uuid,
+        kind -> Text,
+        start_word_id -> Uuid,
+        end_word_id -> Uuid,
+        data -> Jsonb,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+        removed_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_transcriptions (capture_id) {
+        capture_id -> Uuid,
         transcript -> Jsonb,
         transcript_hash -> Text,
         created_at -> Timestamptz,
@@ -1210,27 +1266,37 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_words (id) {
+        id -> Uuid,
+        meeting_id -> Uuid,
+        position -> Int8,
+        text -> Text,
+        speaker -> Text,
+        start_ms -> Int8,
+        end_ms -> Int8,
+        origin -> Text,
+        capture_id -> Nullable<Uuid>,
+        introduced_by -> Uuid,
+        superseded_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meetings (id) {
         id -> Uuid,
-        connector_id -> Nullable<Uuid>,
-        source_kind -> Text,
-        external_id -> Text,
         title -> Text,
         started_at -> Timestamptz,
         duration_ms -> Nullable<Int8>,
         organizer -> Text,
         participants -> Jsonb,
-        url -> Nullable<Text>,
-        transcript -> Jsonb,
-        storage_location_id -> Nullable<Uuid>,
-        recording_path -> Nullable<Text>,
-        recording_content_type -> Nullable<Text>,
         segments -> Nullable<Jsonb>,
         state -> Text,
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        transcript_hash -> Nullable<Text>,
         hold_for_approval -> Bool,
     }
 }
@@ -2075,12 +2141,21 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
+diesel::joinable!(meeting_captures -> connectors (connector_id));
+diesel::joinable!(meeting_captures -> meetings (meeting_id));
+diesel::joinable!(meeting_captures -> storage_locations (storage_location_id));
+diesel::joinable!(meeting_captures -> users (created_by));
 diesel::joinable!(meeting_corrections -> action_items (review_item_id));
 diesel::joinable!(meeting_corrections -> meetings (meeting_id));
 diesel::joinable!(meeting_corrections -> users (approved_by));
-diesel::joinable!(meeting_transcriptions -> meetings (meeting_id));
-diesel::joinable!(meetings -> connectors (connector_id));
-diesel::joinable!(meetings -> storage_locations (storage_location_id));
+diesel::joinable!(meeting_events -> meetings (meeting_id));
+diesel::joinable!(meeting_events -> users (created_by));
+diesel::joinable!(meeting_marks -> meeting_events (removed_by));
+diesel::joinable!(meeting_marks -> meetings (meeting_id));
+diesel::joinable!(meeting_marks -> users (created_by));
+diesel::joinable!(meeting_transcriptions -> meeting_captures (capture_id));
+diesel::joinable!(meeting_words -> meeting_captures (capture_id));
+diesel::joinable!(meeting_words -> meetings (meeting_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(page_attachments -> pages (page_id));
@@ -2230,8 +2305,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_accounts,
     mail_domains,
     mail_servers,
+    meeting_captures,
     meeting_corrections,
+    meeting_events,
+    meeting_marks,
     meeting_transcriptions,
+    meeting_words,
     meetings,
     model_settings,
     page_attachments,

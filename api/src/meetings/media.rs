@@ -1,19 +1,39 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Moving a meeting's recording between its source, the workspace, and storage, and cutting
-//! its segments' clips with `ffmpeg`.
+//! Moving a capture's recording between its source, the workspace, and storage, and cutting
+//! its meeting's segments' clips with `ffmpeg`.
 //!
 //! The workspace container is where media work happens: it has `ffmpeg`, and the API's own
 //! image stays small. Each meeting gets a directory there, `.elysium/meetings/<id>`, which
-//! holds the recording while its clips are cut and is removed once the meeting is done.
-//! Storage, not the workspace, is where a recording and its clips are kept: the workspace
+//! holds its captures' recordings while its clips are cut and is removed once the meeting is
+//! done. Storage, not the workspace, is where a recording and its clips are kept: the workspace
 //! copy is a scratch copy, fetched back from storage when it is missing.
 //!
-//! Every byte streams; nothing is held in memory whole. A clip is cut with `-c copy`, which
+//! Every byte streams; nothing is held in memory whole. A download is hashed as it streams, so a
+//! capture keeps the SHA-256 of its recording as its source gave it without reading it twice.
+//!
+//! # Two attempts at once
+//!
+//! A fetch attempt whose lease lapsed may still be running when the next one starts, so two can
+//! download the same capture together, and a source may answer each with other bytes. Each
+//! attempt therefore downloads into a directory of its own ([`download`]) and uploads to a path
+//! named by its recording's hash ([`recording_path`]): whichever attempt's write the capture
+//! keeps, the path it names holds exactly the bytes its hash says. Only that attempt moves its
+//! copy to the capture's scratch name in the meeting's directory ([`keep_local`]); any other
+//! discards its own ([`discard`]).
+//!
+//! An attempt whose bytes differed from the kept one's leaves its object in storage, named by
+//! its hash and by no row, and nothing sweeps it. That is the price of never overwriting the
+//! recording a capture keeps, and it is rare: it takes two attempts at once and a source that
+//! answered them with different recordings of one meeting. A clip is cut with `-c copy`, which
 //! is fast and lossless but starts at the keyframe nearest the segment's start, a second or
 //! two early at most. That is the trade for not re-encoding an hour of video per meeting.
 
+use std::sync::{Arc, Mutex};
+
+use futures_util::TryStreamExt;
 use secrecy::{ExposeSecret, SecretString};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::source::{RecordingKind, RecordingSource};
@@ -57,6 +77,15 @@ ffmpeg -nostdin -hide_banner -loglevel error -y \
 stat -c %s -- "$4"
 "#;
 
+/// Moves an attempt's downloaded recording to the capture's scratch name in its meeting's
+/// directory, replacing any copy there, and removes the attempt's directory. `$1` is the
+/// attempt's directory, `$2` the meeting's, `$3` the file's name.
+const KEEP_SCRIPT: &str = r#"
+set -euo pipefail
+mv -f -- "$1/$3" "$2/$3"
+rmdir -- "$1"
+"#;
+
 /// Why moving or cutting media failed.
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
@@ -68,11 +97,14 @@ pub enum MediaError {
     Failed(String),
 }
 
-/// A recording in the workspace: its file name in the meeting's directory, and its type.
+/// A recording one attempt downloaded into the workspace: the attempt's own directory, the file's
+/// name there, its type, and the SHA-256 of its bytes, as hex.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalRecording {
+    pub directory: WorkspacePath,
     pub file_name: String,
     pub content_type: String,
+    pub hash: String,
 }
 
 /// The workspace directory a meeting's media is worked on in.
@@ -81,9 +113,27 @@ pub fn directory(meeting_id: Uuid) -> WorkspacePath {
         .expect("a meeting's directory is a plain relative path")
 }
 
-/// Where a meeting's recording is kept in its storage location.
-pub fn recording_path(meeting_id: Uuid, extension: &str) -> String {
-    format!("meetings/{meeting_id}/recording.{extension}")
+/// A directory of its own for one attempt's download, inside the meeting's, so it goes with the
+/// meeting's directory whatever becomes of the attempt.
+fn attempt_directory(meeting_id: Uuid) -> WorkspacePath {
+    let attempt = Uuid::now_v7();
+    WorkspacePath::new(format!(".elysium/meetings/{meeting_id}/attempts/{attempt}"))
+        .expect("an attempt's directory is a plain relative path")
+}
+
+/// Where capture `capture_id`'s recording, whose bytes hash to `hash`, is kept in its storage
+/// location, beside its meeting's other captures'. Named by its hash, so two attempts that
+/// downloaded different bytes never write the same object (the module's docs). A recording kept
+/// before captures keeps the path it was stored at, `meetings/<meeting>/recording.<extension>`,
+/// which its capture names.
+pub fn recording_path(meeting_id: Uuid, capture_id: Uuid, hash: &str, extension: &str) -> String {
+    format!("meetings/{meeting_id}/captures/{capture_id}/{hash}.{extension}")
+}
+
+/// The name of capture `capture_id`'s recording in its meeting's workspace directory, so the
+/// recordings of a meeting's captures never meet there.
+fn local_name(capture_id: Uuid, extension: &str) -> String {
+    format!("capture-{capture_id}.{extension}")
 }
 
 /// Where a segment's clip is kept in its storage location.
@@ -118,14 +168,15 @@ pub fn extension_of(path: &str) -> &str {
     path.rsplit_once('.').map_or("", |(_, extension)| extension)
 }
 
-/// Downloads a recording from its source into the meeting's workspace directory.
+/// Downloads capture `capture_id`'s recording from its source into a directory of this attempt's
+/// own, inside its meeting's, hashing it as it streams.
 ///
 /// # Errors
 /// [`MediaError`] when the source refuses or stalls, or the workspace cannot write it.
 pub async fn download(
     http: &reqwest::Client,
     workspace: &WorkspaceContainer,
-    meeting_id: Uuid,
+    (meeting_id, capture_id): (Uuid, Uuid),
     source: &RecordingSource,
 ) -> Result<LocalRecording, MediaError> {
     let response = send_for_body(http.get(source.url.expose_secret()), SOURCE_PROVIDER).await?;
@@ -141,17 +192,27 @@ pub async fn download(
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
     let (extension, content_type) = extension_for(content_type.as_deref(), source.kind);
-    let file_name = format!("recording.{extension}");
-    workspace
-        .write_file(
-            &directory(meeting_id),
-            &file_name,
-            body_of(response, SOURCE_PROVIDER),
-        )
-        .await?;
+    let file_name = local_name(capture_id, extension);
+    let directory = attempt_directory(meeting_id);
+    let hasher = Arc::new(Mutex::new(Sha256::new()));
+    let hashing = Arc::clone(&hasher);
+    let body = body_of(response, SOURCE_PROVIDER).inspect_ok(move |chunk| {
+        hashing
+            .lock()
+            .expect("a hasher is never left poisoned")
+            .update(chunk);
+    });
+    workspace.write_file(&directory, &file_name, body).await?;
+    let digest = hasher
+        .lock()
+        .expect("a hasher is never left poisoned")
+        .clone()
+        .finalize();
     Ok(LocalRecording {
+        directory,
         file_name,
         content_type: content_type.to_owned(),
+        hash: hex::encode(digest),
     })
 }
 
@@ -163,21 +224,19 @@ pub struct Kept<'location> {
     pub access_key: &'location SecretString,
 }
 
-/// Uploads `file_name` from the meeting's workspace directory to `path` where `kept` says.
+/// Uploads `file_name` from workspace directory `local_directory` to `path` where `kept` says.
 ///
 /// # Errors
 /// [`MediaError`] when the file cannot be read or the provider refuses it.
 pub async fn upload(
     kept: Kept<'_>,
     workspace: &WorkspaceContainer,
-    meeting_id: Uuid,
+    local_directory: &WorkspacePath,
     file_name: &str,
     path: &str,
     content_type: &str,
 ) -> Result<(), MediaError> {
-    let file = workspace
-        .read_file(&directory(meeting_id), file_name)
-        .await?;
+    let file = workspace.read_file(local_directory, file_name).await?;
     kept.storage
         .upload(
             kept.location,
@@ -191,18 +250,65 @@ pub async fn upload(
     Ok(())
 }
 
-/// Makes sure the meeting's workspace directory holds its recording, fetching it back from
-/// storage when the workspace lost it, and answers its file name there.
+/// Moves `local`, the recording of the attempt whose fetch its capture kept, to the capture's
+/// scratch name in meeting `meeting_id`'s directory, where segmenting cuts its clips, and removes
+/// the attempt's directory.
+///
+/// # Errors
+/// [`MediaError`] when the workspace refuses.
+pub async fn keep_local(
+    workspace: &WorkspaceContainer,
+    meeting_id: Uuid,
+    local: &LocalRecording,
+) -> Result<(), MediaError> {
+    let output = workspace
+        .run_script(
+            AGENT_USER,
+            KEEP_SCRIPT,
+            &[
+                &local.directory.absolute(),
+                &directory(meeting_id).absolute(),
+                &local.file_name,
+            ],
+            Vec::new(),
+            SCRIPT_TIMEOUT,
+        )
+        .await
+        .map_err(FileError::from)?;
+    if output.exit_code != Some(0) {
+        return Err(MediaError::Failed(format!(
+            "the recording could not be kept in the meeting's directory: {}",
+            output.output.trim()
+        )));
+    }
+    Ok(())
+}
+
+/// Removes `local`, the recording of an attempt whose fetch its capture did not keep, with its
+/// directory.
+///
+/// # Errors
+/// [`MediaError`] when the workspace refuses.
+pub async fn discard(
+    workspace: &WorkspaceContainer,
+    local: &LocalRecording,
+) -> Result<(), MediaError> {
+    workspace.remove_directory(&local.directory).await?;
+    Ok(())
+}
+
+/// Makes sure the meeting's workspace directory holds capture `capture_id`'s recording, fetching
+/// it back from storage when the workspace lost it, and answers its file name there.
 ///
 /// # Errors
 /// [`MediaError`] when the provider or the workspace refuses.
 pub async fn ensure_local(
     kept: Kept<'_>,
     workspace: &WorkspaceContainer,
-    meeting_id: Uuid,
+    (meeting_id, capture_id): (Uuid, Uuid),
     stored_path: &str,
 ) -> Result<String, MediaError> {
-    let file_name = format!("recording.{}", extension_of(stored_path));
+    let file_name = local_name(capture_id, extension_of(stored_path));
     let present = workspace
         .list_files(&directory(meeting_id), "")
         .await?
@@ -300,9 +406,27 @@ mod tests {
     #[test]
     fn paths_name_the_meeting_and_the_segment() {
         let id = Uuid::nil();
+        let capture_id = Uuid::from_u128(7);
         assert_eq!(
-            recording_path(id, "mp4"),
-            "meetings/00000000-0000-0000-0000-000000000000/recording.mp4"
+            recording_path(id, capture_id, "ab12", "mp4"),
+            "meetings/00000000-0000-0000-0000-000000000000/captures/\
+             00000000-0000-0000-0000-000000000007/ab12.mp4"
+        );
+        let attempt = attempt_directory(id).absolute();
+        assert!(
+            attempt.starts_with(
+                "/workspace/.elysium/meetings/00000000-0000-0000-0000-000000000000/attempts/"
+            ),
+            "an attempt downloads inside its meeting's directory: {attempt}"
+        );
+        assert_ne!(
+            attempt,
+            attempt_directory(id).absolute(),
+            "each attempt its own"
+        );
+        assert_eq!(
+            local_name(capture_id, "mp4"),
+            "capture-00000000-0000-0000-0000-000000000007.mp4"
         );
         assert_eq!(
             clip_path(id, 3, "mp3"),

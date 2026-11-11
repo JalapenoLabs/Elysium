@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use crate::meetings::workflow;
 use crate::models::meeting::Meeting;
+use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_correction::{self, MeetingCorrection};
 use crate::models::workflow_run::{self, WorkflowRun, WorkflowRunState};
 use crate::state::AppState;
@@ -44,7 +45,9 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-/// A meeting as its owner sees it.
+/// A meeting as its owner sees it. Where it came from (its connector, its source, its page there,
+/// and whether a recording is kept) is its first capture's, the one a meeting holds until
+/// captures can be merged.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingResponse {
@@ -103,10 +106,11 @@ impl From<&MeetingCorrection> for CorrectionSummary {
 }
 
 impl MeetingResponse {
-    /// `meeting` as answered, with its correction and its newest run, which segments when
-    /// `run_segments`.
+    /// `meeting` as answered, with its first capture, its correction, and its newest run, which
+    /// segments when `run_segments`.
     fn new(
         meeting: Meeting,
+        capture: Option<&MeetingCapture>,
         correction: Option<&MeetingCorrection>,
         run: Option<&WorkflowRun>,
         run_segments: bool,
@@ -124,28 +128,30 @@ impl MeetingResponse {
                 .as_ref()
                 .and_then(Value::as_array)
                 .map(Vec::len),
-            has_recording: meeting.recording_path.is_some(),
+            has_recording: capture.is_some_and(|capture| capture.recording_path.is_some()),
             correction: correction.map(CorrectionSummary::from),
             run_id: run.map(|run| run.id),
             awaiting_approval: run.is_some_and(|run| run.state == WorkflowRunState::Held),
             hold_for_approval: meeting.hold_for_approval,
             id: meeting.id,
-            connector_id: meeting.connector_id,
-            source_kind: meeting.source_kind,
+            connector_id: capture.and_then(|capture| capture.connector_id),
+            source_kind: capture
+                .map(|capture| capture.source_kind.clone())
+                .unwrap_or_default(),
             title: meeting.title,
             started_at: meeting.started_at,
             duration_ms: meeting.duration_ms,
             organizer: meeting.organizer,
             participants: meeting.participants,
-            url: meeting.url,
+            url: capture.and_then(|capture| capture.url.clone()),
             created_at: meeting.created_at,
             updated_at: meeting.updated_at,
         }
     }
 }
 
-/// `meetings` as answered, in their order, each with its correction and its newest run, read
-/// in one query each rather than one per meeting.
+/// `meetings` as answered, in their order, each with its first capture, its correction, and its
+/// newest run, read in one query each rather than one per meeting.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -155,6 +161,11 @@ pub async fn responses(
 ) -> QueryResult<Vec<MeetingResponse>> {
     let ids: Vec<Uuid> = meetings.iter().map(|meeting| meeting.id).collect();
     let source_ids: Vec<String> = ids.iter().map(Uuid::to_string).collect();
+    let captures: HashMap<Uuid, MeetingCapture> = meeting_capture::first_of_each(connection, &ids)
+        .await?
+        .into_iter()
+        .map(|capture| (capture.meeting_id, capture))
+        .collect();
     let corrections: HashMap<Uuid, MeetingCorrection> =
         meeting_correction::find_many(connection, &ids)
             .await?
@@ -176,10 +187,11 @@ pub async fn responses(
     Ok(meetings
         .into_iter()
         .map(|meeting| {
+            let capture = captures.get(&meeting.id);
             let correction = corrections.get(&meeting.id);
             let run = runs.get(&meeting.id.to_string());
             let run_segments = run.is_some_and(|run| segmenting.contains(&run.id));
-            MeetingResponse::new(meeting, correction, run, run_segments)
+            MeetingResponse::new(meeting, capture, correction, run, run_segments)
         })
         .collect())
 }

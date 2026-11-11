@@ -3,13 +3,19 @@
 //! Meetings: recordings and transcripts read from a meeting source as their person, cut into
 //! topic segments that land on the timeline. See `docs/meetings.md`.
 //!
+//! A meeting is the one event that happened; each of its captures is one record of it, as its
+//! source gave it (`models::meeting_capture`). Its final transcript is a stream of words with
+//! stable ids ([`final_transcript`], `models::meeting_word`), every mark on it a range of those
+//! words, and every change to it is in its history ([`history`]).
+//!
 //! # The loop
 //!
 //! [`Meetings::start`] runs until shutdown:
 //!
 //! - Every [`POLL_INTERVAL`] it lists each active meeting connector's new meetings
 //!   ([`source::MeetingSource::list`]) and stores each one it has not seen as a `pending`
-//!   meeting. The connector's cursor remembers the newest start time it saw.
+//!   meeting with its first capture. The connector's cursor remembers the newest start time it
+//!   saw.
 //! - Every [`PROCESS_INTERVAL`] it starts the runs of the meeting workflow ([`workflow`]) that
 //!   unfinished meetings need: one from the fetch for a meeting that never had one, and one from
 //!   segmenting for a meeting fetched before segmenting was a step of its run
@@ -32,8 +38,10 @@ pub mod conversation;
 pub mod correct;
 pub mod correction;
 pub mod fetch;
+pub mod final_transcript;
 pub mod fireflies;
 pub mod fireflies_browser;
+pub mod history;
 pub mod media;
 pub mod segment;
 pub mod segmentation;
@@ -66,6 +74,7 @@ use crate::database::Pool;
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, NewMeeting};
+use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
@@ -326,7 +335,8 @@ impl Meetings {
             .iter()
             .map(|meeting| meeting.external_id.clone())
             .collect();
-        let known = meeting::known_external_ids(&mut connection, account.id, &external_ids).await?;
+        let known =
+            meeting_capture::known_external_ids(&mut connection, account.id, &external_ids).await?;
         let kind = ConnectorKind::parse(&account.kind)
             .with_context(|| format!("unknown connector kind {:?}", account.kind))?;
 
@@ -337,10 +347,9 @@ impl Meetings {
             if known.contains(&listed_meeting.external_id) {
                 continue;
             }
-            let stored =
-                meeting::insert_new(&mut connection, new_meeting(account, kind, listed_meeting))
-                    .await?;
-            if let Some(stored) = stored {
+            let (listed_as, captured_as) = new_meeting(account, kind, listed_meeting);
+            let stored = meeting::insert_new(&mut connection, listed_as, captured_as).await?;
+            if let Some((stored, _capture)) = stored {
                 stored_count += 1;
                 self.publish(stored);
             }
@@ -452,6 +461,34 @@ impl Meetings {
     }
 }
 
+/// The capture a step's input names (`capture_id`), or, for what a run started before meetings
+/// had captures was handed, which names the meeting alone, the meeting's one capture. A capture of
+/// another meeting reads as none.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when the meeting has no such capture.
+pub async fn capture_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    capture_id: Option<Uuid>,
+) -> diesel::QueryResult<MeetingCapture> {
+    let Some(capture_id) = capture_id else {
+        event!(
+            name: "meetings.capture.unnamed",
+            Level::DEBUG,
+            meeting.id = %meeting_id,
+            "a step's input names no capture, as a run's from before captures does; it reads the \
+             meeting's one capture",
+        );
+        return meeting_capture::first_of(connection, meeting_id).await;
+    };
+    let capture = meeting_capture::find(connection, capture_id).await?;
+    if capture.meeting_id != meeting_id {
+        return Err(diesel::result::Error::NotFound);
+    }
+    Ok(capture)
+}
+
 /// Storage location `storage_location_id`, with the key that opens it.
 async fn location(
     connection: &mut AsyncPgConnection,
@@ -492,21 +529,33 @@ fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
     }
 }
 
-fn new_meeting(account: &Connector, kind: ConnectorKind, listed: &ListedMeeting) -> NewMeeting {
-    NewMeeting {
-        id: Uuid::now_v7(),
-        connector_id: Some(account.id),
-        source_kind: kind.as_str().to_owned(),
-        external_id: listed.external_id.clone(),
+/// A meeting `account` listed, and its first capture: the event as its source describes it, and
+/// the record of it the account read.
+fn new_meeting(
+    account: &Connector,
+    kind: ConnectorKind,
+    listed: &ListedMeeting,
+) -> (NewMeeting, NewMeetingCapture) {
+    let meeting_id = Uuid::now_v7();
+    let meeting = NewMeeting {
+        id: meeting_id,
         title: listed.title.chars().take(2048).collect(),
         started_at: listed.started_at,
         duration_ms: listed.duration_ms,
         organizer: listed.organizer.chars().take(512).collect(),
         participants: json!(listed.participants),
-        url: listed.url.clone().filter(|url| url.len() <= 4096),
-        transcript: json!([]),
         created_by: account.created_by,
-    }
+    };
+    let capture = NewMeetingCapture {
+        id: Uuid::now_v7(),
+        meeting_id,
+        connector_id: Some(account.id),
+        source_kind: kind.as_str().to_owned(),
+        external_id: Some(listed.external_id.clone()),
+        url: listed.url.clone().filter(|url| url.len() <= 4096),
+        created_by: account.created_by,
+    };
+    (meeting, capture)
 }
 
 #[cfg(test)]

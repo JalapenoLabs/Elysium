@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/meetings/{id}/transcript`: one of the signed-in person's meetings' transcript as
-//! it was heard, and its corrected copy once there is one, line for line, for its page's diff.
+//! its capture heard it, and its corrected copy once there is one, line for line, for its page's
+//! diff.
 //!
 //! `original` is the transcript the copy follows: the source's lines, or Whisper's segments for
 //! a meeting whose source sent none (`basedOn`). `null` while nothing was heard; `corrected` is
@@ -21,7 +22,7 @@ use crate::errors::ApiError;
 use crate::meetings::correction;
 use crate::meetings::source::TranscriptLine;
 use crate::models::meeting_correction::{self, BasedOn};
-use crate::models::{meeting, meeting_transcription};
+use crate::models::{meeting, meeting_capture, meeting_transcription};
 use crate::state::AppState;
 use crate::whisper::WhisperTranscript;
 
@@ -53,8 +54,9 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let found = meeting::find_owned(&mut connection, id, current.id()).await?;
-    let source: Vec<TranscriptLine> = serde_json::from_value(found.transcript)
-        .context("the meeting's transcript is not in the stored shape")?;
+    let capture = meeting_capture::first_of(&mut connection, found.id).await?;
+    let source: Vec<TranscriptLine> = serde_json::from_value(capture.transcript)
+        .context("the capture's transcript is not in the stored shape")?;
     let stored = meeting_correction::find(&mut connection, id).await?;
 
     // The copy follows Whisper's segments only for a meeting whose source sent no lines, so
@@ -63,7 +65,7 @@ pub async fn handle(
         stored.based_on() == BasedOn::Whisper
     });
     let whisper = if follows_whisper {
-        meeting_transcription::find(&mut connection, id)
+        meeting_transcription::find(&mut connection, capture.id)
             .await?
             .map(|transcription| {
                 serde_json::from_value::<WhisperTranscript>(transcription.transcript)

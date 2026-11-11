@@ -25,6 +25,8 @@ mod page_guidance_tests;
 )]
 pub mod schema;
 #[cfg(test)]
+mod split_meetings_tests;
+#[cfg(test)]
 mod split_sign_ins_tests;
 
 use diesel_async::AsyncPgConnection;

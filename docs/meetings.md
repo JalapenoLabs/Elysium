@@ -9,6 +9,11 @@ Meetings come from meeting sources: Fireflies.ai, read with the person's own API
 Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams and Slack's huddles, each
 read through the browser the person's connector signed in to. The code is `api/src/meetings/`.
 
+A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
+and captures, below). Its final transcript is a stream of words with stable ids, and every mark on it is a range of
+those words (The final transcript, below). Every change to a meeting is in its history, and undoable (History, below).
+How meetings become reviewed documents of the knowledge base is designed in `docs/meeting-review.md`.
+
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
 used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails
@@ -173,10 +178,33 @@ Connectors without entering the key again. Such a connector names no storage loc
 its page, and until then its recordings are not kept. When the person had one such key, the meetings its removed
 connector read are its connector's again, so resuming it reads none of them twice.
 
-Every meeting belongs to a connector (`connectors`), the same table mailboxes use. `UNIQUE (connector_id, external_id)`
-on both `meetings` and `timeline_records` is what keeps a meeting, and each of its segments, from being recorded twice.
-A listing that stored meetings, and a meeting whose segments were published, is a run of its connector, and a
-connector is `syncing` while a meeting of its is fetched or its segments are cut and published.
+Every capture a source read belongs to a connector (`connectors`), the same table mailboxes use.
+`UNIQUE (connector_id, external_id)` on both `meeting_captures` and `timeline_records` is what keeps a meeting, and each
+of its segments, from being recorded twice. A capture with no connector or no id at its source, such as an upload,
+names its segments' records by its meeting (`meeting:<id>#<index>`), which the unique key cannot hold once; what does
+is that segmenting stores a meeting's records under the meeting's lock, in the transaction that marks it done, and
+stores nothing for a meeting done, so two attempts at once publish it once. A listing that stored meetings, and a
+meeting whose segments were published, is a run of its connector, and a connector is `syncing` while a meeting of its
+is fetched or its segments are cut and published.
+
+## Meetings and captures
+
+- **A meeting** (`meetings`, `models::meeting`) is the event: its title, when it started and for how long, who
+  organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
+  connector read its first capture.
+- **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting today, and
+  an upload, a Teams recording, or a Slack huddle on the roadmap (`docs/meeting-review.md`). It keeps what its source
+  gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
+  SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch, and never again.
+- **One clock.** A capture runs on its own clock, the one its transcript and recording are timed by. Its `offset_ms`
+  places that clock on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock, which starts at the
+  meeting's `started_at`. Every time of the final transcript and of a segment's record is on the meeting's clock.
+- A listing stores a meeting and its first capture together, in one transaction, so a capture its connector recorded
+  before leaves no meeting behind (`meeting::insert_new`).
+- A meeting holds one capture until captures can be merged (#238). The steps read the one the run names, and
+  everything shown of a meeting's source (its connector, its source, its page there, and whether a recording is kept)
+  is its first capture's.
+- A recording kept before captures were hashed has no `recording_hash`; it is never downloaded again to hash it.
 
 ## Processing
 
@@ -187,27 +215,33 @@ connector is `syncing` while a meeting of its is fetched or its segments are cut
   through its kind's source, the meetings that started since its cursor (`{"since": <the newest start time seen>}`),
   at most 50 at a time (`LISTING_SIZE`). A new connector's first listing reaches back two weeks
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
-  has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses, or a browser signed out,
-  marks the connector `signed_out` with the reason in `last_error`. The listing writes only its own `since` into the
-  cursor, merged over what is stored (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys
-  beside it; the two share the connector's sign-in state and last error, so each read reports the latest it saw.
+  has not seen is stored `pending`, with its first capture naming the connector, its kind as `source_kind`, and the
+  source's id. A key its source refuses, or a browser signed out, marks the connector `signed_out` with the reason
+  in `last_error`. The listing writes only its own `since` into the cursor, merged over what is stored
+  (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
+  connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
   by the system user (`workflow::run_to_start`).
 
 | Step                 | Moves the meeting       | What happens                                                    |
 |----------------------|-------------------------|-----------------------------------------------------------------|
-| `fetch_meeting`      | `pending` to `recorded` | Stores the transcript and uploads the recording (Fetching, below) |
-| `transcribe_meeting` | No                      | Transcribes the recording with the local Whisper and stores it beside the source's transcript (Transcription, below) |
-| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
+| `fetch_meeting`      | `pending` to `recorded` | Stores the capture's transcript and uploads its recording, each with its hash (Fetching, below) |
+| `transcribe_meeting` | No                      | Transcribes the capture's recording with the local Whisper and stores it beside the source's transcript (Transcription, below) |
+| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, builds the final transcript from it, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
 | `segment_meeting`    | `segmented`, then `done` | Cuts the corrected copy into topics, cuts each one's clip, and publishes every topic as a timeline record attributed to its projects (Segmentation, below) |
+
+Each step's output names the capture it was about (`captureId`), and the step after reads that capture. A step
+handed what a run started before meetings had captures gave, which names the meeting alone, reads the meeting's one
+capture, logging that it did (`meetings::capture_of`).
 
 ### A meeting's run
 
 - **One run carries a meeting.** The loop starts a meeting's run from its fetch when it never had one (source
   `meeting`, the meeting's id), and one that enters the workflow at segmenting (`Workflow::new_run_at`) when it was
   fetched and its newest run ended before segmenting was one of its steps, with what the meeting holds
-  (`workflow::run_from_segmenting`): its transcript's hash, its recording, its Whisper transcript, and its corrected
-  copy with whether it was approved. Any other meeting is its run's, live or not, and the loop starts nothing for it.
+  (`workflow::run_from_segmenting`): its capture, that capture's transcript hash, recording, and Whisper transcript,
+  and its corrected copy with whether it was approved. Any other meeting is its run's, live or not, and the loop
+  starts nothing for it.
 - **A meeting keeps how far it got, and nothing else.** `meetings.state` is `pending`, `recorded`, `segmented`, or
   `done`, each written by a step. Whether it failed, and why, is its newest run's, read as the meeting is answered
   (`workflow::processing`): a failed run reads as `failed` with the run's reason, and a run that went through without
@@ -220,28 +254,36 @@ connector is `syncing` while a meeting of its is fetched or its segments are cut
 - **Retrying.** Retry on the Meetings page (`POST /api/v1/meetings/{id}/retry`, `workflow::retry`) retries its run's
   failed step as the person who asked, exactly as Retry on the run's page does. Each step's attempts and backoff are
   the run's (`docs/engine.md`, Runs).
-- Every step is safe to repeat: what it stores is written once, storage paths are fixed per meeting and segment, and a
+- Every step is safe to repeat: what it stores is written once, storage paths are fixed per capture and segment, and a
   meeting's records are written in the transaction that marks it done.
 
 ### Fetching
 
-`fetch_meeting` (`api/src/meetings/fetch.rs`) takes `{ meetingId }` and gives `{ meetingId, transcriptHash,
+`fetch_meeting` (`api/src/meetings/fetch.rs`) takes `{ meetingId }` and gives `{ meetingId, captureId, transcriptHash,
 recording }`, the recording being where it is kept (`{ storageLocationId, path, contentType }`) or `null`. What it
 takes reads as what it gives with no hash, a meeting not fetched, which is what the step after receives when a person
-skips it. One step reads every source, through the meeting's connector and `Sources::for_kind`, so a new source needs
-no step of its own.
+skips it. One step reads every source, through the capture's connector and `Sources::for_kind`, so a new source needs
+no step of its own. It fetches the meeting's capture, the one its source listed.
 
-- It fetches the transcript and a fresh recording address from the source, downloads the recording into the
-  workspace, and uploads it to the connector's storage location at `meetings/<id>/recording.<ext>`. Without a
-  recording, or with nowhere to keep it, the meeting goes on from its transcript alone, and the log says which. A
-  source whose plan keeps no recording, such as Fireflies' free plan, offers none, so its meetings are fetched from
-  their transcripts alone rather than failing.
-- The transcript is stored as the source sent it, with its SHA-256 (`meetings.transcript_hash`, the hash of its JSON as
-  stored), in one write that only a meeting never fetched takes. Its connector shows as syncing meanwhile.
-- A meeting is fetched once. Running the step again for the same meeting, a retried attempt or a later run, fetches
+- It fetches the transcript and a fresh recording address from the source, downloads the recording into a workspace
+  directory of the attempt's own, hashing it as it streams, and uploads it to the connector's storage location at
+  `meetings/<meeting>/captures/<capture>/<sha256>.<ext>`, named by its hash. Without a recording, or with nowhere to
+  keep it, the meeting goes on from its transcript alone, and the log says which. A source whose plan keeps no
+  recording, such as Fireflies' free plan, offers none, so its meetings are fetched from their transcripts alone
+  rather than failing.
+- Two attempts can run at once (one whose lease lapsed, and the next), and a source may answer each with other bytes.
+  Named by its hash, each attempt's recording lands at a path of its own, so the path the capture keeps holds exactly
+  the bytes its hash says. Only the attempt whose write the capture keeps moves its download to the capture's scratch
+  copy in the meeting's workspace directory, for segmenting to cut clips from; any other discards its own.
+- The transcript is stored on the capture as the source sent it, with its SHA-256 (`meeting_captures.transcript_hash`,
+  the hash of its JSON as stored), and the recording's place with the SHA-256 of its bytes
+  (`meeting_captures.recording_hash`), in one write that only a capture never fetched takes, which moves the meeting to
+  `recorded` in the same transaction. Its connector shows as syncing meanwhile.
+- A capture is fetched once. Running the step again for the same meeting, a retried attempt or a later run, fetches
   from the source and compares hashes, but writes and uploads nothing: the first fetch is what every later step read.
   Its summary says whether the source's transcript is unchanged or has changed since. An attempt cut short after its
-  upload and before its write uploads the recording again on the next attempt, to the same path.
+  upload and before its write uploads the recording again on the next attempt, to the same path when the source
+  sends the same bytes.
 - A key the source refuses, a meeting it does not have, or a connector that was removed fails the step for good, for
   a person to fix and retry; anything else, such as a source that did not answer, is tried again with the run's
   backoff.
@@ -258,12 +300,13 @@ step and the next one still reads its input.
 
 - It streams the recording from the connector's storage location into Whisper's container. Storage, not the workspace,
   is where a recording is kept, and the loop removes the workspace's copy once a meeting's clips are cut.
-- The transcript is stored once, in `meeting_transcriptions`, beside the source's (`docs/database.md`): every segment
-  Whisper decoded with its text, and every word in it with its probability, each timed in whole milliseconds from the
-  recording's start as the source's lines are. A word keeps its leading space, so a segment's words joined with nothing
-  between them read as the segment. Whisper tells no speakers apart. Correction reads it against the source's
-  transcript; segmenting cuts clips by its word timings.
-- Running the step again for a meeting transcribed already answers the stored transcript and transcribes nothing.
+- Each capture with audio is transcribed on its own, and its transcript stored once, in `meeting_transcriptions`, under
+  the capture, beside its source's (`docs/database.md`): every segment Whisper decoded with its text, and every word in
+  it with its probability, each timed in whole milliseconds from the recording's start as the source's lines are, on
+  the capture's own clock. A word keeps its leading space, so a segment's words joined with nothing between them read
+  as the segment. Whisper tells no speakers apart. Correction reads it against the source's transcript; segmenting
+  cuts clips by its word timings.
+- Running the step again for a capture transcribed already answers the stored transcript and transcribes nothing.
 - As a running step, a transcription holds an activity, so auto-update waits for it rather than cutting it short.
 - A meeting without a recording (the source keeps none, or the connector names nowhere to keep it) skips the step,
   saying "No recording, so nothing to transcribe", and one whose recording has no audio stream skips it saying that.
@@ -355,13 +398,13 @@ its person had approved it when the run went on, as segmenting's input (`Transcr
 the next one still reads its input. A meeting not fetched skips it, saying "Not fetched, so nothing to correct". The
 raw transcripts are never written.
 
-- **What it reads.** Every transcript the meeting has: the source's lines and, when the recording was transcribed,
-  Whisper's. The company doc whole, with its pending proposals (`company_doc::read`, `docs/knowledge.md`), its
-  sections in the order correction needs them (people, glossary, products, projects, stakeholders, leadership,
-  company), the lines a pending proposal would add marked as proposed. And the company's other meetings: the fixes
-  their 30 newest corrections made, those made in the most meetings first, approved corrections first, and the names
-  speakers went by in the 30 newest meetings, as their sources labelled them, which is usually how people spell
-  themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
+- **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
+  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`,
+  `docs/knowledge.md`), its sections in the order correction needs them (people, glossary, products, projects,
+  stakeholders, leadership, company), the lines a pending proposal would add marked as proposed. And the company's
+  other meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved
+  corrections first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled
+  them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its
   knowledge base is (`docs/knowledge.md`, Who sees what).
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
   Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
@@ -385,6 +428,9 @@ raw transcripts are never written.
   attempt, which the run's backoff tries again.
 - **Once.** The copy is stored in `meeting_corrections` (`docs/database.md`), once: an attempt that finds it answers
   it without a turn, so an engine that stopped after storing it costs nothing more.
+- **The final transcript.** Every attempt that has a copy builds the meeting's final transcript from it, unless the
+  meeting has one already (The final transcript, below), so an engine that stopped between the two builds it on the
+  next attempt.
 - **What it logs.** Line counts, line numbers, and hashes, never a word that was said.
 
 #### The corrected copy
@@ -394,7 +440,7 @@ What the steps after correction read, segmenting first. The step's output names 
 
 | Field            | Holds                                                                                     |
 |------------------|-------------------------------------------------------------------------------------------|
-| `transcript`     | An array of `{ startMs, endMs, speaker, text }`, the shape of `meetings.transcript`: one per line of the transcript it follows, in its order, with its speaker and times; only `text` differs |
+| `transcript`     | An array of `{ startMs, endMs, speaker, text }`, the shape of `meeting_captures.transcript`: one per line of the transcript it follows, in its order, with its speaker and times; only `text` differs |
 | `transcript_hash`| The SHA-256 of `transcript` as stored, which the output's `correctedTranscriptHash` names  |
 | `based_on`       | `source` or `whisper`: the transcript it follows                                          |
 | `changed_lines`  | How many lines it changed                                                                 |
@@ -482,14 +528,16 @@ giving the CLI's reason, since every attempt would read the same prompt.
 
 1. A meeting not fetched skips the step ("Not fetched, so nothing to segment"), and one already `done` answers what it
    published, changing nothing.
-2. It reads the corrected copy its input names (`correct::corrected_lines`), or the source's transcript when the run
-   handed on none. A meeting in which nothing was said is `done` with no topics, and the step skips ("Nothing was said,
-   so nothing to segment").
+2. It reads the corrected copy its input names (`correct::corrected_lines`), or, when the run handed on none, the
+   transcript correction follows: the capture's source lines, or Whisper's segments when the source sent none. A
+   meeting whose correction was skipped has its final transcript built here from the same (The final transcript,
+   below). A meeting in which nothing was said is `done` with no topics, and the step skips ("Nothing was said, so
+   nothing to segment").
 3. The answer is stored on the meeting (`meetings.segments`, `segmented`) before anything else, once: an attempt that
    finds it stored cuts and publishes from it without asking again.
 4. Each segment's clip is cut and uploaded (Clips, below).
 5. Every segment becomes a timeline record (Segment records, below), attributed to its projects as Elysia, and the
-   meeting is marked `done`, in one transaction. Then each record is announced, the meeting's connector records a run,
+   meeting is marked `done`, in one transaction. Then each record is announced, its capture's connector records a run,
    and the workspace's copy of the recording is removed.
 
 The connector shows as syncing meanwhile, and the step holds a `workflowStep` activity as every running step does, so
@@ -526,9 +574,10 @@ the projects it guessed. A deleted, dismissed, or resolved item skips the step, 
 ### Clips
 
 `ffmpeg` runs in the workspace container (`workspace/Dockerfile`), so the API's image stays small. Each meeting gets a
-scratch directory there, `.elysium/meetings/<id>`, holding its recording while its clips are cut, fetched back from
-storage if the workspace lost it, and removed once the meeting is done. Storage is where recordings and clips are
-kept, each clip at `meetings/<id>/segments/<n>.<ext>`.
+scratch directory there, `.elysium/meetings/<id>`, holding its captures' recordings (`capture-<capture>.<ext>`) while
+its clips are cut, fetched back from storage if the workspace lost them, and removed once the meeting is done. Storage
+is where recordings and clips are kept, each clip at `meetings/<id>/segments/<n>.<ext>`. Clips are cut from the
+capture's recording on its own clock, as its transcript and Whisper's words are timed.
 
 A segment's times come from the transcript, whose lines a source times to a second or so. When Whisper heard the
 recording, its word timings are exact to the audio, so a clip is cut from the start of the word nearest the segment's
@@ -549,20 +598,70 @@ Each segment is a timeline record:
 | Field          | Holds                                                                          |
 |----------------|--------------------------------------------------------------------------------|
 | `source_kind`  | `meeting`                                                                      |
-| `external_id`  | `<the meeting's external id>#<segment index>`                                  |
-| `occurred_at`  | The meeting's start plus the segment's start                                   |
+| `connector_id` | The capture's connector                                                        |
+| `external_id`  | `<the capture's external id>#<segment index>`, or `meeting:<meeting id>#<segment index>` for a capture with none |
+| `occurred_at`  | The meeting's start plus the segment's start on the meeting's clock            |
 | `actor`        | The segment's speakers, in the order they first spoke                          |
 | `title`        | The segment's title                                                            |
 | `body`         | Its transcript excerpt, as `[m:ss] Speaker: text` lines                        |
-| `url`          | The meeting's page at its source                                               |
-| `media`        | `{ meetingId, startMs, endMs, clip: { storageLocationId, path, contentType, startMs, endMs } \| null }`, the clip's own span cut at Whisper's words |
-| `metadata`     | `{ meetingId, meetingTitle, meetingSource, segmentIndex, summary }`            |
+| `url`          | The capture's page at its source                                               |
+| `media`        | `{ meetingId, startMs, endMs, clip: { storageLocationId, path, contentType, startMs, endMs } \| null }` on the meeting's clock, the clip's own span cut at Whisper's words |
+| `metadata`     | `{ meetingId, meetingTitle, meetingSource, segmentIndex, summary }`, its source the capture's |
 
 Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, Elysia never changes
 it back, and every change is in the record's history, undoable (`docs/connectors.md`, The timeline).
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
 streams the clip from storage to the record's owner alone. Each segment is a document of the knowledge index, stored
 with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
+
+## The final transcript
+
+A meeting's final transcript (`meeting_words`, `models::meeting_word`) is a stream of words, each with a stable id, a
+speaker, a start and end on the meeting's clock, and where it came from (`origin`): its capture's source transcript
+(`source`), its capture's Whisper transcript (`whisper`), a correction of what the capture heard (`correction`), or an
+edit (`edit`), with the capture it was heard in (`capture_id`, none for an edit's words). Every word names the change
+in the meeting's history that wrote it (`introduced_by`).
+
+- **Built from the one capture.** Until captures are aligned (#238), a meeting's final transcript is built from its
+  one capture (`meetings::final_transcript`), from the lines its correction followed: its corrected copy's lines, a
+  line that differs from the one it follows being the correction's, or, uncorrected, its source's lines, or Whisper's
+  segments when the source sent none. A line becomes its words, split at whitespace, its span spread evenly across
+  them (a line timed backwards gives its words no time), each word keeping the line's speaker. It is built once, by
+  the system, as a `built` change: by the correction step once its copy is stored, and by segmenting for a meeting
+  whose correction was skipped. The migration that split meetings into captures built every corrected or segmented
+  meeting's transcript the same way, in SQL, and a test holds the two to the same words.
+- **Every word it ever held.** A word is never deleted or rewritten. An edit marks the words of its range replaced
+  (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
+  order of `position`. Positions order every word a meeting ever held in one sequence with gaps of 1024, and an edit
+  writes its new words just after the last word it replaces, so the words it replaced stay where they were and an undo
+  stands them up again between the same neighbours. When no gap is left there, the meeting's words are renumbered in
+  one statement, keeping their order.
+- **Marks** (`meeting_marks`, `models::meeting_mark`) are rows anchored to a start and an end word: a confidence flag,
+  an edit, an excerpt, a black-out, a comment, a pin, or a task (`docs/meeting-review.md`, Marks), each with its data
+  and who made it. A range runs between two standing words of the meeting, in order, so it is one word or the whole
+  meeting. A removed mark is kept, marked by the change that removed it, so an undo puts it back with whatever hangs
+  from it.
+- **An edit** (`meeting_word::edit`) replaces a range of standing words with new ones, at most 20,000 characters and
+  at least one word. The new words share the replaced words' span, spread evenly, and the first replaced word's
+  speaker. Every mark over the old words covers the new ones: one starting in the range starts at the first new word,
+  one ending in it ends at the last. The edit makes a mark of its own, of kind `edit`, over its new words, which goes
+  with the edit and is never made or removed on its own.
+- Every change takes the meeting's lock first, and is recorded in its history in the same transaction.
+
+## History
+
+Every change to a meeting is in its history (`meeting_events`, `models::meeting_event`), shaped like a page's: its
+kind, who made it and the agent acting for them, and what it changed. An undo (`meetings::history::undo`) reverses one
+change and is a change of its own naming the one it reversed (`undid`), so it can be undone in turn. Only a change
+whose effect still stands is undone; one moved on since answers that it changed since, and nothing is overwritten.
+
+| Change                | What it records                                                  | Its undo |
+|-----------------------|------------------------------------------------------------------|----------|
+| `built`               | The capture its final transcript was built from, from what, and how many words | None: a transcript is built once, and edited after |
+| `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
+| `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
+| `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
+| `correction_approved` | Its person approved the corrected copy                           | None: approving let its run go on |
 
 ## In the web app
 
