@@ -368,11 +368,14 @@ impl Meetings {
         Ok((newest, stored_count))
     }
 
-    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`), and removes the
-    /// uploads abandoned since the last pass. One meeting whose run cannot be started is logged and
-    /// left for the next pass; the rest go on.
+    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`), and removes what
+    /// uploads left in the workspace that nothing needs any more: the uploads abandoned since the
+    /// last pass, and the parts of finished ones. One meeting whose run cannot be started is logged
+    /// and left for the next pass; the rest go on.
     async fn process(&self) {
-        self.sweep_stale_uploads().await;
+        let week_ago = Utc::now() - meeting_uploads::STALE_AFTER;
+        self.sweep_stale_uploads(week_ago).await;
+        self.sweep_finished_uploads(week_ago).await;
         let needed = match self.runs_needed().await {
             Ok(needed) => needed,
             Err(error) => {
@@ -399,11 +402,11 @@ impl Meetings {
         }
     }
 
-    /// Removes every upload no part reached for `meeting_uploads::STALE_AFTER`, and its parts.
-    /// The rows go first, so nothing can resume an upload whose parts are going; parts that
-    /// could not be removed only cost the workspace space, and are logged.
-    async fn sweep_stale_uploads(&self) {
-        let before = Utc::now() - meeting_uploads::STALE_AFTER;
+    /// Removes every unfinished upload no part reached since `before`, and its parts. The rows go
+    /// first, so nothing can resume an upload whose parts are going, and a part arriving meanwhile
+    /// takes them itself (`routes::v1::meeting_uploads::upload_part`); parts that could not be
+    /// removed only cost the workspace space, and are logged.
+    async fn sweep_stale_uploads(&self, before: DateTime<Utc>) {
         let swept = match self.connection().await {
             Ok(mut connection) => meeting_upload::delete_stale(&mut connection, before)
                 .await
@@ -422,7 +425,6 @@ impl Meetings {
                 return;
             }
         };
-        self.sweep_finished_uploads(before).await;
         for upload_id in swept {
             if let Err(error) = self.inner.staging.remove(upload_id).await {
                 event!(

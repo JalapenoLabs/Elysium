@@ -152,6 +152,9 @@
         "held": "Held the meeting for approval",
         "released": "Stopped holding the meeting for approval",
         "approved": "Approved the corrected transcript",
+        "addedRecordingAndTranscript": "Added a recording and its transcript",
+        "addedRecording": "Added a recording",
+        "addedTranscript": "Added a transcript",
         "changed": "Changed the meeting"
       }
     }

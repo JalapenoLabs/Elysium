@@ -745,6 +745,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
 | `correction_approved` | Its person approved the corrected copy                           | None: approving let its run go on |
+| `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
 
 ## In the web app
 

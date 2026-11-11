@@ -35,16 +35,20 @@ pub enum EventKind {
     HoldChanged,
     /// Its corrected transcript was approved: `{}`.
     CorrectionApproved,
+    /// A person added a capture to it by uploading a recording, a transcript, or both:
+    /// `{ captureId, sourceKind, recording, transcript }`, the last two saying which it holds.
+    CaptureAdded,
 }
 
 impl EventKind {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
         Self::Unmarked,
         Self::HoldChanged,
         Self::CorrectionApproved,
+        Self::CaptureAdded,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -55,6 +59,7 @@ impl EventKind {
             Self::Unmarked => "unmarked",
             Self::HoldChanged => "hold_changed",
             Self::CorrectionApproved => "correction_approved",
+            Self::CaptureAdded => "capture_added",
         }
     }
 

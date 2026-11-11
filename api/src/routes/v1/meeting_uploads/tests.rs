@@ -757,6 +757,19 @@ async fn a_capture_joins_a_meeting_once_its_run_is_done() {
         staged.upload.transcript,
         Some(json!([{ "startMs": 1000, "endMs": 3000, "speaker": "Ada", "text": "Hello" }]))
     );
+    // The meeting's history says, newest first, who added it and what it holds.
+    let history = fixture
+        .get(&format!("/api/v1/meetings/{}/history", meeting.id))
+        .await;
+    let added = &history.body["entries"][0];
+    assert_eq!(
+        [&added["kind"], &added["createdBy"], &added["data"]],
+        [
+            &json!("capture_added"),
+            &json!(TEST_PERSON_ID),
+            &json!({ "captureId": capture.id, "sourceKind": "upload", "recording": false, "transcript": true }),
+        ]
+    );
 
     // Someone else's meeting takes nothing from this person.
     let other = json!({
@@ -1091,6 +1104,70 @@ async fn two_sends_of_a_part_or_two_finishes_at_once_keep_one() {
     statuses.sort();
     assert_eq!(statuses, [StatusCode::OK, StatusCode::CREATED]);
     assert_eq!(one.body["meeting"]["id"], two.body["meeting"]["id"]);
+}
+
+/// A part still arriving when its upload is let go (cancelled, or swept, whose rows go before its
+/// parts do) leaves nothing behind: the send answers that the upload is gone and takes the upload's
+/// directory with it, which only that request could still find.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_part_arriving_as_its_upload_goes_leaves_nothing_behind() {
+    use futures_util::StreamExt as _;
+
+    let fixture = fixture().await;
+    let transcript = Bytes::from_static(b"Ada: Hello there\n");
+    let created = fixture
+        .json(
+            Method::POST,
+            "/api/v1/meeting-uploads",
+            &json!({
+                "title": "Call",
+                "startedAt": "2026-11-09T15:00:00Z",
+                "transcript": { "name": "call.txt", "sizeBytes": transcript.len() },
+            }),
+        )
+        .await;
+    let upload = id_of(&created, "upload");
+    let upload_id: Uuid = upload.parse().expect("an id");
+
+    // The part's last bytes wait until the upload's rows are gone.
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let (head, rest) = (transcript.slice(..4), transcript.slice(4..));
+    let body = stream::once(async move { Ok::<_, std::io::Error>(head) }).chain(stream::once(
+        async move {
+            released.await.expect("released");
+            Ok(rest)
+        },
+    ));
+    let part_path = format!("/api/v1/meeting-uploads/{upload}/transcript/parts/0");
+    let sending = fixture.send(
+        Method::PUT,
+        &part_path,
+        Body::from_stream(body),
+        Some(transcript.len()),
+    );
+    let pool = crate::connections::connect_postgres(&fixture.database_url, 1)
+        .await
+        .expect("a pool");
+    let directory = fixture.staging.path().join(&upload);
+    let letting_go = async {
+        while !directory.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let mut connection = pool.get().await.expect("a connection");
+        let deleted = meeting_upload::delete_unfinished(&mut connection, upload_id, TEST_PERSON_ID)
+            .await
+            .expect("deletes");
+        assert!(deleted, "the upload was there to let go");
+        release.send(()).expect("the send waits");
+    };
+    let (sent, ()) = tokio::join!(sending, letting_go);
+
+    assert_eq!(sent.status, StatusCode::NOT_FOUND);
+    assert!(
+        !directory.exists(),
+        "nothing of the upload is left in staging"
+    );
 }
 
 /// A finished upload's parts go once its capture is stored, whether the fetch removed them or not,

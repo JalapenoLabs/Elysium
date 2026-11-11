@@ -14,6 +14,7 @@
 //! | `hold_changed`        | Sets the hold back, while the transcript is not yet corrected, as holding does |
 //! | `built`               | None: a transcript is built once, and changed by edits           |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
+//! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
 
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
@@ -77,7 +78,10 @@ pub async fn undo(
                 Some(EventKind::HoldChanged) => {
                     undo_hold(connection, &current, &undone, author).await?
                 }
-                Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
+                Some(
+                    EventKind::Built | EventKind::CorrectionApproved | EventKind::CaptureAdded,
+                )
+                | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };

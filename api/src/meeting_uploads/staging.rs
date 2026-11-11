@@ -12,8 +12,9 @@
 //! Each send of a part lands under a name of its own ([`Staging::write_part`]), and a send that
 //! fails takes what it wrote with it. A whole send is put under the part's name ([`Staging::place`])
 //! by the request that counts it, under the lock on its file's row, so of two sends of one part at
-//! once the one counted is the one kept, and the other is let go ([`Staging::discard`]). Only the
-//! parts its upload's row counts as received are ever read (`crate::models::meeting_upload`).
+//! once the one counted is the one kept. Every send that is not put in place, for whatever reason,
+//! is let go ([`Staging::discard`]) by the request that wrote it, which alone knows its name. Only
+//! the parts its upload's row counts as received are ever read (`crate::models::meeting_upload`).
 //! Reading joins a file's parts into one stream, part after part, and never holds more than a chunk
 //! of one in memory.
 //!
@@ -43,7 +44,10 @@ const PLACE_SCRIPT: &str = r#"mv -f -- "$1/$2" "$1/$3""#;
 const DISCARD_SCRIPT: &str = r#"rm -f -- "$1/$2""#;
 
 /// One send of a part, written whole under a name of its own, waiting to be put in place or let go.
+/// Only the request that wrote it knows its name, so one it neither places nor lets go stays in the
+/// workspace until its upload's directory is removed.
 #[derive(Debug)]
+#[must_use = "a send is put in place or let go, or it stays in the workspace"]
 pub struct StagedPart {
     write: String,
     part: String,
@@ -142,10 +146,10 @@ impl Staging {
     /// Puts `staged`, a whole send, under its part's name, replacing what was there in one step.
     ///
     /// # Errors
-    /// The workspace's refusal, or failing to reach it, which leaves the part as it was and lets
-    /// the send go.
-    pub async fn place(&self, staged: StagedPart) -> Result<(), StagingError> {
-        let placed = match &self.place {
+    /// The workspace's refusal, or failing to reach it, which leaves the part as it was and the send
+    /// for its caller to let go.
+    pub async fn place(&self, staged: &StagedPart) -> Result<(), StagingError> {
+        match &self.place {
             Place::Workspace(workspace) => match workspace
                 .run_script(
                     AGENT_USER,
@@ -169,16 +173,12 @@ impl Staging {
                     .await
                     .map_err(StagingError::from)
             }
-        };
-        if placed.is_err() {
-            self.discard(staged).await;
         }
-        placed
     }
 
     /// Lets `staged` go: a send that is not wanted, because another one of its part was counted
-    /// first or it failed. Failing to only leaves a file under no part's name, which its upload's
-    /// directory takes with it, so it is logged and nothing more.
+    /// first, or it failed, or counting it did. Failing to only leaves a file under no part's name,
+    /// which its upload's directory takes with it, so it is logged and nothing more.
     pub async fn discard(&self, staged: StagedPart) {
         let removed = match &self.place {
             Place::Workspace(workspace) => workspace
@@ -369,7 +369,7 @@ mod tests {
                 .write_part(file, index, length, chunks(bytes))
                 .await
                 .expect("stages");
-            staging.place(staged).await.expect("places");
+            staging.place(&staged).await.expect("places");
         }
 
         let joined: Vec<Bytes> = staging.read(file, 2).try_collect().await.expect("reads");
@@ -405,7 +405,10 @@ mod tests {
             staging.write_part(file, 0, 64 * 1024, slow(b'a')),
             staging.write_part(file, 0, 64 * 1024, slow(b'b')),
         );
-        staging.place(first.expect("stages")).await.expect("places");
+        staging
+            .place(&first.expect("stages"))
+            .await
+            .expect("places");
         staging.discard(second.expect("stages")).await;
 
         let joined: Vec<Bytes> = staging.read(file, 1).try_collect().await.expect("reads");

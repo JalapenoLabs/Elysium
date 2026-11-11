@@ -4,13 +4,13 @@
 //! upload's meeting (or its capture of a meeting the person has) and starts the meeting's run.
 //!
 //! The transcript is read again here, as it was when its last part arrived (`upload_part`), for the
-//! lines the meeting keeps. Then, in one
-//! transaction, the meeting and its capture are stored, the upload is marked finished with the
-//! lines it was read as, and the meeting's run is started from its fetch, which stores the
-//! recording in the storage location the upload chose (`crate::meetings::fetch`). Starting the run
-//! in the same transaction is what keeps the meetings loop from starting one of its own for a
-//! meeting it sees pending. A capture of a meeting is refused while that meeting's run is still its
-//! own, since a meeting holds one run at a time.
+//! lines the meeting keeps. Then, in one transaction, the meeting and its capture are stored (a
+//! capture of a meeting the person has is recorded in its history as `capture_added`), the upload
+//! is marked finished with the lines it was read as, and the meeting's run is started from its
+//! fetch, which stores the recording in the storage location the upload chose
+//! (`crate::meetings::fetch`). Starting the run in the same transaction is what keeps the meetings
+//! loop from starting one of its own for a meeting it sees pending. A capture of a meeting is
+//! refused while that meeting's run is still its own, since a meeting holds one run at a time.
 //!
 //! Finishing a finished upload answers its meeting again, so a person whose answer was lost sees
 //! where it went.
@@ -20,6 +20,7 @@ use axum::Json;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use chrono::Utc;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -28,11 +29,13 @@ use super::create_upload::meeting_busy;
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::meeting_uploads::{self, transcript};
+use crate::meeting_uploads::{self, FileKind, transcript};
 use crate::meetings::source::TranscriptLine;
 use crate::meetings::workflow;
+use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::meeting_capture::{self, NewMeetingCapture};
+use crate::models::meeting_event::{self, Change, EventKind};
 use crate::models::meeting_upload::{self, MeetingUploadFile, Staged};
 use crate::models::{user, workflow_run};
 use crate::realtime::{ServerEvent, Signal};
@@ -188,6 +191,27 @@ async fn store_capture(
     let captured = meeting_capture::insert_new(connection, capture(meeting_id))
         .await?
         .context("a capture with no connector never meets one already recorded")?;
+    meeting_event::record(
+        connection,
+        Change {
+            id: Uuid::now_v7(),
+            meeting_id,
+            kind: EventKind::CaptureAdded,
+            author: Author {
+                user_id: upload.created_by,
+                agent: None,
+                at: Utc::now(),
+            },
+            data: json!({
+                "captureId": captured.id,
+                "sourceKind": meeting_uploads::SOURCE_KIND,
+                "recording": staged.file(FileKind::Recording).is_some(),
+                "transcript": staged.file(FileKind::Transcript).is_some(),
+            }),
+            undid: None,
+        },
+    )
+    .await?;
     Ok((current, captured.id))
 }
 

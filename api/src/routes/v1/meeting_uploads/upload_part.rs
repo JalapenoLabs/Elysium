@@ -9,9 +9,14 @@
 //! its file's row, so of two sends of one part at once only the one counted is kept; one it has
 //! already is acknowledged without being written, so a part resent after its answer was lost
 //! changes nothing; one past the next is refused with how far the file got, for the page to resume
-//! from. A recording's first part must open as its
-//! format does before any of it is kept, and a transcript's last part is counted only once the
-//! whole transcript reads as one (`super::read_transcript`).
+//! from. A recording's first part must open as its format does before any of it is kept, and a
+//! transcript's last part is counted only once the whole transcript reads as one
+//! (`super::read_transcript`).
+//!
+//! Only this request knows its send's name, so every send it does not put in place is let go here,
+//! whatever stopped it: another send counted first, counting failed, or the upload was cancelled or
+//! swept while the part arrived. That last one takes the upload's whole directory, which the send
+//! may have made again after the cancel removed it.
 //!
 //! [`MeetingUpload::part_bytes`]: crate::models::meeting_upload::MeetingUpload::part_bytes
 
@@ -32,9 +37,20 @@ use uuid::Uuid;
 use super::{UploadResponse, read_transcript};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meeting_uploads::staging::StagedPart;
 use crate::meeting_uploads::{self, FileKind, SIGNATURE_BYTES};
-use crate::models::meeting_upload;
+use crate::models::meeting_upload::{self, Staged};
 use crate::state::AppState;
+
+/// What became of a whole send once its file's row decided.
+enum Counted {
+    /// It was put under its part's name and counted.
+    Placed,
+    /// Another send of its part was counted first, so it is not needed.
+    Superseded,
+    /// Its upload was cancelled, or swept, while it arrived.
+    Gone,
+}
 
 pub async fn handle(
     State(state): State<AppState>,
@@ -87,6 +103,9 @@ pub async fn handle(
     }
     let file_type = meeting_uploads::type_of(kind, &file.file_name)
         .context("a stored file's name keeps the extension it was taken by")?;
+    let from = i64::try_from(received).context("a file's size fits a bigint")?;
+    let to = i64::try_from(received + expected).context("a file's size fits a bigint")?;
+    let is_last_of_transcript = kind == FileKind::Transcript && to == file.size_bytes;
     // The part may take a while to arrive; no connection is held while it does.
     drop(connection);
 
@@ -105,37 +124,88 @@ pub async fn handle(
         .write_part((id, kind), index, expected, whole)
         .await?;
 
+    let counted = count(
+        &state,
+        &staged,
+        &sent,
+        kind,
+        (from, to),
+        is_last_of_transcript,
+    )
+    .await;
+    match counted {
+        Ok(Counted::Placed) => {}
+        Ok(Counted::Superseded) => state.upload_staging.discard(sent).await,
+        Ok(Counted::Gone) => {
+            if let Err(error) = state.upload_staging.remove(id).await {
+                tracing::event!(
+                    name: "meeting_uploads.send.unremoved",
+                    tracing::Level::WARN,
+                    meeting_upload.id = %id,
+                    error.message = %error,
+                    "a part that arrived for an upload let go meanwhile could not be removed",
+                );
+            }
+            return Err(ApiError::NotFound);
+        }
+        Err(error) => {
+            state.upload_staging.discard(sent).await;
+            return Err(error);
+        }
+    }
+
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let from = i64::try_from(received).context("a file's size fits a bigint")?;
-    let to = i64::try_from(received + expected).context("a file's size fits a bigint")?;
-    let is_last_of_transcript = kind == FileKind::Transcript && to == file.size_bytes;
-    let staging = state.upload_staging.clone();
-    connection
-        .transaction(async move |connection| {
-            // One request at a time decides, so the send counted is the send kept.
-            let locked = meeting_upload::lock_file(connection, (id, kind)).await?;
-            if locked.received_bytes != from {
-                // Another send of this part was counted first; this one is not needed.
-                staging.discard(sent).await;
-                return Ok(());
-            }
-            staging.place(sent).await?;
-            if is_last_of_transcript {
-                // The transcript's last part: one that cannot be read is refused now, before a
-                // recording sent after it, rather than when the upload finishes. It stays
-                // uncounted, and the next send of it replaces it.
-                read_transcript(&staging, &staged).await?;
-            }
-            meeting_upload::record_part(connection, (id, kind), from, to).await?;
-            Ok::<_, ApiError>(())
-        })
-        .await?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     Ok(Json(json!({ "upload": UploadResponse::from(staged) })))
+}
+
+/// Decides, under the lock on the row of `staged`'s file of `kind`, whether `sent` is the send of
+/// its part that counts, moving what the file received `from` → `to`, and if it is, puts it in
+/// place and counts it. One request at a time decides, so the send counted is the send kept. A
+/// send that is put in place and then not counted, because the transcript it finishes cannot be
+/// read, stays under its part's name uncounted, for the next send of it to replace.
+///
+/// # Errors
+/// The workspace's refusal, the transcript's, and any database error; the send is then the
+/// caller's to let go, as it is when it was not counted.
+async fn count(
+    state: &AppState,
+    staged: &Staged,
+    sent: &StagedPart,
+    kind: FileKind,
+    (from, to): (i64, i64),
+    is_last_of_transcript: bool,
+) -> Result<Counted, ApiError> {
+    let id = staged.upload.id;
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    connection
+        .transaction(async |connection| {
+            let locked = match meeting_upload::lock_file(connection, (id, kind)).await {
+                Ok(locked) => locked,
+                Err(diesel::result::Error::NotFound) => return Ok(Counted::Gone),
+                Err(error) => return Err(ApiError::from(error)),
+            };
+            if locked.received_bytes != from {
+                return Ok(Counted::Superseded);
+            }
+            state.upload_staging.place(sent).await?;
+            if is_last_of_transcript {
+                // The transcript's last part: one that cannot be read is refused now, before a
+                // recording sent after it, rather than when the upload finishes.
+                read_transcript(&state.upload_staging, staged).await?;
+            }
+            meeting_upload::record_part(connection, (id, kind), from, to).await?;
+            Ok(Counted::Placed)
+        })
+        .await
 }
 
 /// Reads up to [`SIGNATURE_BYTES`] of what is arriving, however it is split into chunks. All of it
