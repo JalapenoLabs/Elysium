@@ -53,13 +53,13 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId, conversationId }` | Something was ingested; never its content, see `docs/connectors.md`. `conversationId` names the conversation a message joined (`docs/engine.md`, Conversations) |
 | `timelineRecord.changed` | `{ id, createdBy }`      | What a record is attributed to changed: its owner's change or undo, or segmenting read its conversation again; its owner loads it by id |
 | `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |
-| `meeting.changed`        | `{ id, state, createdBy }` | A meeting was read, its processing moved on, or its transcript, threads, or history changed; never its title, transcript, or comments, see `docs/meetings.md` |
+| `meeting.changed`        | `{ id, state, createdBy, entryId }` | A meeting was read, its processing moved on, or its transcript, threads, or history changed, `entryId` naming the history entry of a person's change from the page; never its title, transcript, or comments, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |
 | `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
 | `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
-| `projectManager.changed` | `{ projectId }`      | A project's Project Manager was woken, a turn of its started or ended, a batch of its was submitted or moved on, or a promise of its was found, tied, drafted, or moved by its work or follow-up item; members load it by id, and an open follow-up item's promise again |
+| `projectManager.changed` | `{ projectId }`      | A project's Project Manager was woken, assigned an item or had one taken back, a turn of its started or ended, a batch of its was submitted or moved on, or a promise of its was found, tied, drafted, or moved by its work or follow-up item; members load it by id, and an open follow-up item's promise again |
 | `finding.changed`    | `{ id, projectId, state }` | A finding was reported, reported again, accepted, or dismissed; its project's Findings tab, for members, loads its list again. It never wakes Elysia |
 | `projectWorkerSetup.changed` | `{ projectId }` | A project's worker setup (the repositories it declares, its tools script) was saved; its Workers page loads it again |
 | `environmentVariable.upserted` | `EnvironmentVariable` | An environment variable was added or changed      |

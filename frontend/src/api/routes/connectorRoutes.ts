@@ -15,6 +15,7 @@ export const CONNECTOR_KINDS = [
   'teams',
   'slack',
   'fireflies',
+  'fireflies_browser',
   'youtrack',
 ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
@@ -41,8 +42,9 @@ export type CheckSpec = {
 
 export type ContentField = {
   id: string
-  // A selection picks from what the account reaches; a toggle is on or off, off unless saved.
-  field: { type: 'selection' } | { type: 'storage_location' } | { type: 'toggle' }
+  // A selection picks from what the account reaches; a toggle is on or off, and a connector
+  // that never saved it reads it as `onByDefault`.
+  field: { type: 'selection' } | { type: 'storage_location' } | { type: 'toggle', onByDefault: boolean }
   required: boolean
 }
 

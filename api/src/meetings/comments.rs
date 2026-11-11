@@ -372,16 +372,22 @@ impl Announcement {
     /// Elysia's queue when it queued her a turn, which the engine is signalled to start.
     /// Everything was stored already, so a failure here is logged, and a client that missed it
     /// reads it on its next load.
+    ///
+    /// `entry_id` is the history entry a person's change from the page recorded, which that page
+    /// applied already; `None` for a reply, which records none, and for anything an agent did,
+    /// so every page reads it as news.
     pub async fn publish(
         self,
         events: &EventBus,
         connection: &mut AsyncPgConnection,
         meeting: &Meeting,
+        entry_id: Option<Uuid>,
     ) {
         events.publish(&ServerEvent::MeetingChanged {
             id: meeting.id,
             state: meeting.state.clone(),
             created_by: meeting.created_by,
+            entry_id,
         });
         if !self.raised.is_empty()
             && let Err(error) =

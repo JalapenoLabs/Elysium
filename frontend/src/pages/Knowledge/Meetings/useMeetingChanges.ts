@@ -19,6 +19,7 @@ import {
   startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { trackMeetingChange } from '../../../realtime/meetingChangeEchoes'
 import { toast } from '../../../toast/toast'
 
 type Options = {
@@ -37,10 +38,12 @@ export function useMeetingChanges(options: Options) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const madeHere = useRef<string[]>([])
 
+  // Its own change applies from what the route answered; only the history and the threads' comments,
+  // both small, are read again, since a change to a thread, or an undo of one, changes which threads
+  // stand. The change's own announcement is then no news to this page (`meetingChangeEchoes`).
   function settle(response: MeetingChangeResponse) {
     options.applyChange(response.change)
     void mutate(meetingHistoryKey(options.meetingId))
-    // A change to a thread, or an undo of one, changes which threads stand.
     void mutate(meetingThreadsKey(options.meetingId))
   }
 
@@ -68,7 +71,10 @@ export function useMeetingChanges(options: Options) {
 
   async function undo(entryId: string) {
     try {
-      const response = await undoMeetingChange(options.meetingId, entryId)
+      const response = await trackMeetingChange(
+        options.meetingId,
+        undoMeetingChange(options.meetingId, entryId),
+      )
       madeHere.current = madeHere.current.filter((id) => id !== entryId)
       settle(response)
       toast.success(t('review.undone'))
@@ -87,7 +93,10 @@ export function useMeetingChanges(options: Options) {
   // Replaces the words from `startWordId` to `endWordId` with `text`. Resolves whether it did.
   async function edit(startWordId: string, endWordId: string, text: string) {
     try {
-      const response = await editMeetingWords(options.meetingId, { startWordId, endWordId, text })
+      const response = await trackMeetingChange(
+        options.meetingId,
+        editMeetingWords(options.meetingId, { startWordId, endWordId, text }),
+      )
       made(response, t('review.edited'))
       return true
     }
@@ -109,7 +118,10 @@ export function useMeetingChanges(options: Options) {
   // or null when it was refused.
   async function startThread(startWordId: string, endWordId: string, body: string, mentions: string[]) {
     try {
-      const response = await startMeetingThread(options.meetingId, { startWordId, endWordId, body, mentions })
+      const response = await trackMeetingChange(
+        options.meetingId,
+        startMeetingThread(options.meetingId, { startWordId, endWordId, body, mentions }),
+      )
       made(response, t('review.comments.started'))
       return response.comment.threadId
     }
@@ -125,8 +137,9 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
-  // Replies in thread `threadId`. A reply is a comment, not a change to the meeting, so it has no
-  // Undo; it shows in its thread at once. Resolves whether it was posted.
+  // Replies in thread `threadId`. A reply is a comment, not a change in the meeting's history, so it
+  // has no Undo, and its announcement names no entry; it shows in its thread at once. Resolves
+  // whether it was posted.
   async function reply(threadId: string, body: string, mentions: string[]) {
     try {
       await replyInMeetingThread(options.meetingId, threadId, { body, mentions })
@@ -142,7 +155,10 @@ export function useMeetingChanges(options: Options) {
 
   async function setResolved(threadId: string, resolved: boolean) {
     try {
-      const response = await setMeetingThreadResolved(options.meetingId, threadId, resolved)
+      const response = await trackMeetingChange(
+        options.meetingId,
+        setMeetingThreadResolved(options.meetingId, threadId, resolved),
+      )
       made(response, resolved
         ? t('review.comments.resolved')
         : t('review.comments.reopened'))
@@ -161,7 +177,7 @@ export function useMeetingChanges(options: Options) {
   // Removes thread `threadId`, comments and all; its toast's Undo puts it back whole.
   async function removeThread(threadId: string) {
     try {
-      const response = await removeMeetingThread(options.meetingId, threadId)
+      const response = await trackMeetingChange(options.meetingId, removeMeetingThread(options.meetingId, threadId))
       made(response, t('review.comments.removed'))
     }
     catch (error) {

@@ -72,13 +72,9 @@ export function MeetingLane(props: Props) {
     : null
 
   // The drawer quiets its text; the lane reads as the page does wherever it sits. Beside the
-  // transcript the lane is as tall as it, so the options box floats the whole way down.
-  return <div className={[
-    'flex flex-col gap-4 text-foreground',
-    isInDrawer
-      ? ''
-      : 'h-full',
-  ].join(' ')}>
+  // transcript the lane fills its grid cell, the transcript's full height, so the options box has
+  // the whole page to stay stuck in; sized to its own content, it would scroll away with it.
+  return <div className={[ 'flex flex-col gap-4 text-foreground', isInDrawer ? '' : 'h-full' ].join(' ')}>
     <div className={[
       'rounded-xl border border-border bg-surface p-4',
       isInDrawer

@@ -55,8 +55,9 @@ pub const MAX_ITEMS: usize = 5;
 pub const TITLE_CHARACTERS: usize = 200;
 pub const NOTES_CHARACTERS: usize = 2_000;
 
-/// The most bytes of messages one prompt carries, leaving room under the 128 KiB argument the
-/// runner passes it as for the instructions and the topics.
+/// The most bytes of messages one prompt carries. The conversation's agent is one session
+/// resumed every turn, keeping all it was told, so one burst of long messages (a pasted log, a
+/// forwarded thread) is shortened rather than left to crowd every turn after it.
 const MESSAGES_BUDGET_BYTES: usize = 90_000;
 
 /// The shortest a message is cut to when a turn's messages are over budget.

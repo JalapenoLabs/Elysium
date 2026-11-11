@@ -30,6 +30,7 @@ use crate::models::{action_item, initiative};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::{
     CommentResponse, item_responses, publish_history, publish_initiatives, publish_item_links,
+    publish_manager_assignments,
 };
 use crate::routes::v1::initiatives::publish_member_items;
 use crate::state::AppState;
@@ -165,6 +166,7 @@ pub(crate) async fn publish_touched(
         removed_links,
     } = touched;
 
+    publish_manager_assignments(events, &history);
     publish_history(events, history);
     for comment in comments {
         events.publish(&ServerEvent::ActionItemCommentUpserted(

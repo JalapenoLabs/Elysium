@@ -3,6 +3,7 @@
 import type { DataTableSelectionAction } from '@jalapenolabs/uikit'
 import type { ActionItem } from '../../api/routes/actionItemRoutes'
 import type { ToastOptions } from '../../toast/toast'
+import type { User } from '../../api/routes/userRoutes'
 
 // Core
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,10 +13,11 @@ import { Provider } from 'react-redux'
 // Redux
 import { createAppStore } from '../../store'
 import { actionItemsLoaded, selectActionItemById } from '../../store/actionItemsSlice'
+import { meLoaded } from '../../store/authSlice'
 
 // Misc
 import { ACTION_ITEM_BULK_MAX_ITEMS } from '../../constants'
-import { makeActionItem } from '../../testFixtures'
+import { makeActionItem, makeUser } from '../../testFixtures'
 import { useActionItemBulkActions } from './useActionItemBulkActions'
 
 // The bulk route is the network boundary; toasts are watched for what they say.
@@ -45,8 +47,17 @@ const NOW = Date.parse('2026-09-18T12:00:00.000Z')
 const FIRST = makeActionItem({ id: 'item-1', title: 'Reply to Sam' })
 const SECOND = makeActionItem({ id: 'item-2', title: 'Review the deck' })
 
-function renderActions(items: ActionItem[]) {
+// Signed in as `me`, when a test is about who is offered what.
+function renderActions(items: ActionItem[], me?: User) {
   const store = createAppStore()
+  if (me) {
+    store.dispatch(meLoaded({
+      user: me,
+      hasSecondFactor: false,
+      mfaEnrollmentRequired: false,
+      authenticatorNickname: null,
+    }))
+  }
   store.dispatch(actionItemsLoaded(items))
   const captured: { actions?: ReturnType<typeof useActionItemBulkActions> } = {}
   function Harness() {
@@ -150,6 +161,38 @@ describe('useActionItemBulkActions', () => {
     expect(routes.changeActionItems.mock.calls[0][0]).toHaveLength(ACTION_ITEM_BULK_MAX_ITEMS)
     expect(routes.changeActionItems.mock.calls[1][0]).toEqual([ `item-${ACTION_ITEM_BULK_MAX_ITEMS}` ])
     expect(routes.changeActionItems.mock.calls[0][1]).toEqual({ kind: 'snooze', until: null })
+  })
+
+  it('assigns a selection to their Project Managers and names what no project leads', async () => {
+    const assigned = {
+      ...FIRST,
+      leadProjectId: 'launch',
+      managerAssignment: { assignedAt: '2026-09-18T12:00:00.000Z', assignedBy: 'alex' },
+    }
+    routes.changeActionItems.mockResolvedValue({
+      items: [ assigned ],
+      refused: [{ itemId: SECOND.id, message: 'no project leads this item' }],
+    })
+    const { store, captured } = renderActions([ FIRST, SECOND ], makeUser({ role: 'member' }))
+
+    await run(liveAction(captured, 'assignToManager'), [ FIRST, SECOND ])
+
+    expect(routes.changeActionItems).toHaveBeenCalledWith(
+      [ FIRST.id, SECOND.id ],
+      { kind: 'assign-to-manager' },
+    )
+    expect(selectActionItemById(store.getState(), FIRST.id)?.managerAssignment?.assignedBy).toBe('alex')
+    expect(toasts.success).toHaveBeenCalledWith('Assigned 1 item to its Project Manager.')
+    expect(toasts.warning).toHaveBeenCalledWith(
+      'Left “Review the deck” unassigned, since no project leads it or it is finished.',
+    )
+  })
+
+  it('offers assigning to the company members alone, who see Project Managers', () => {
+    const { captured } = renderActions([ FIRST ], makeUser({ role: 'guest' }))
+
+    const ids = captured.actions?.liveActions.map((action) => action.id)
+    expect(ids).not.toContain('assignToManager')
   })
 
   it('says a request failed and changes nothing more', async () => {

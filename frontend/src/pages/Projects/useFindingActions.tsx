@@ -22,16 +22,18 @@ import { toast } from '../../toast/toast'
 import { getWorkBatchViewUrl } from '../../urls'
 import { providerLabelKeys } from '../ActionItems/linkPresentation'
 
-// The finding's list and its project's Project Manager, whose Proposed tab gains the batch.
+// The finding's list and its project's Project Manager, whose Proposed or Work batches tab gains
+// the batch.
 function reload(finding: Finding) {
   void mutate(projectFindingsKey(finding.projectId))
   void mutate(getProjectManagerKey(finding.projectId))
 }
 
 // What a person does with a finding from its project's Findings tab. Accepting makes its item,
-// owes its issue, and proposes its batch, which still waits for their approval, so the toast
-// offers the batch. Dismissing asks first, for an optional reason the agents that see it again are
-// told, since it is final. Each reloads the list and the Project Manager's tabs, so this tab
+// owes its issue, and submits its batch, which waits for their approval or is queued at once as
+// the project's level of autonomy says, so the toast says which and offers the batch. Dismissing
+// asks first, for an optional reason the agents that see it again are told, since it is final.
+// Each reloads the list and the Project Manager's tabs, so this tab
 // moves before the event arrives, and reports its own failure. The actions keep their identity
 // across renders, so a table memoizing its row actions on them holds.
 export function useFindingActions() {
@@ -65,6 +67,7 @@ export function useFindingActions() {
       try {
         const accepted = await acceptFinding(finding.id)
         reload(finding)
+        const isQueued = accepted.batchState === 'queued'
         const reviewBatch = {
           label: t('findings.reviewBatch'),
           onPress: () => navigate(getWorkBatchViewUrl(accepted.batchId)),
@@ -74,16 +77,26 @@ export function useFindingActions() {
         // the warning stays until the person reads it.
         if (!accepted.issue) {
           toast.warning(t('findings.acceptedNowhereToFile', { title: finding.title }), {
-            description: t('findings.nowhereToFile', { reason: accepted.issueRefusal ?? '' }),
+            description: t(
+              isQueued
+                ? 'findings.nowhereToFileQueued'
+                : 'findings.nowhereToFile',
+              { reason: accepted.issueRefusal ?? '' },
+            ),
             action: reviewBatch,
           })
           return
         }
         toast.success(t('findings.accepted', { title: finding.title }), {
-          description: t('findings.acceptedFiling', {
-            provider: t(`actionItems:${providerLabelKeys[accepted.issue.provider]}`),
-            destination: accepted.issue.destination,
-          }),
+          description: t(
+            isQueued
+              ? 'findings.acceptedFilingQueued'
+              : 'findings.acceptedFiling',
+            {
+              provider: t(`actionItems:${providerLabelKeys[accepted.issue.provider]}`),
+              destination: accepted.issue.destination,
+            },
+          ),
           action: reviewBatch,
         })
       }

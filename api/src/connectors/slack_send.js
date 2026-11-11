@@ -50,9 +50,15 @@
   if (request.threadTs) {
     body.append('thread_ts', request.threadTs)
   }
+  // A credentialed call from app.slack.com to the workspace's own host: Slack answers it with
+  // this origin, rather than the `*` a browser refuses alongside cookies, only when it carries
+  // the web client's own marker (`_x_gantry`), as the reader's calls do (slack.js).
+  const address = new URL('api/chat.postMessage', team.url)
+  address.searchParams.set('_x_gantry', 'true')
+  address.searchParams.set('slack_route', team.id)
   let answer = null
   try {
-    const response = await fetch(new URL('api/chat.postMessage', team.url), {
+    const response = await fetch(address, {
       method: 'POST',
       body,
       credentials: 'include',

@@ -3,70 +3,37 @@
 import type { ProjectManager } from '../../api/routes/projectManagerRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-// Redux
-import { useAppDispatch } from '../../store/hooks'
-import { projectManagerLoaded } from '../../store/projectManagersSlice'
-
 // User interface
-import { Button, Label, Switch, useOverlayState } from '@heroui/react'
+import { Button, useOverlayState } from '@heroui/react'
 import { HelpPopover } from '../../components/HelpPopover'
 import { TrackerModal } from './TrackerModal'
 
 // Misc
-import { getApiErrorMessage } from '../../api/errors'
-import { setProjectManagerWritesDirectly } from '../../api/routes/projectManagerRoutes'
 import { providerLabelKeys } from '../ActionItems/linkPresentation'
 import { trackerSourceLabelKeys } from './trackerPresentation'
-import { toast } from '../../toast/toast'
 
 type Props = {
   manager: ProjectManager
 }
 
 // How the project's Project Manager writes: whether its changes apply as it makes them or wait
-// for a person's approval, and the tracker its issues file in, with a way to change either.
+// for a person's approval, which the project's level of autonomy on this page decides, and the
+// tracker its issues file in, with a way to change it.
 export function ProjectManagerWrites(props: Props) {
-  const { t } = useTranslation([ 'projects', 'actionItems', 'common' ])
-  const dispatch = useAppDispatch()
+  const { t } = useTranslation([ 'projects', 'actionItems' ])
   const trackerState = useOverlayState()
-  const [ isSaving, setIsSaving ] = useState(false)
   const writes = props.manager.writes
   const tracker = writes.tracker
 
-  async function setDirect(writesDirectly: boolean) {
-    setIsSaving(true)
-    try {
-      const response = await setProjectManagerWritesDirectly(props.manager.projectId, writesDirectly)
-      dispatch(projectManagerLoaded(response.projectManager))
-      toast.success(t('manager.writes.saved'))
-    }
-    catch (error) {
-      console.debug('ProjectManagerWrites failed to change how it writes', { error })
-      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
-    }
-    finally {
-      setIsSaving(false)
-    }
-  }
-
   return <div className='relaxed flex flex-col gap-2 rounded-xl border border-separator p-4 text-sm'>
     <div className='flex items-center gap-1'>
-      <Switch
-        id='project-manager-writes-directly'
-        isSelected={writes.direct}
-        isDisabled={isSaving}
-        onChange={(isSelected) => void setDirect(isSelected)}
-      >
-        <Switch.Content>
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-          <Label>{t('manager.writes.direct')}</Label>
-        </Switch.Content>
-      </Switch>
+      <p>{
+        writes.direct
+          ? t('manager.writes.direct')
+          : t('manager.writes.reviewed')
+      }</p>
       <HelpPopover label={t('manager.writes.directHelpLabel')}>
         <p>{t('manager.writes.directHelp')}</p>
       </HelpPopover>

@@ -68,9 +68,10 @@ export function AgentConfigurationSettings(props: Props) {
     }
   }
 
+  const isDirty = trimmed !== savedRepository || token !== savedToken
   const onSubmit = usePageSave({
     save,
-    isDirty: trimmed !== savedRepository || token !== savedToken,
+    isDirty,
   })
 
   return <>
@@ -95,6 +96,9 @@ export function AgentConfigurationSettings(props: Props) {
         onChange={setToken}
       />
     </Form>
-    <AgentConfigurationStatus settings={props.settings} />
+    <AgentConfigurationStatus
+      settings={props.settings}
+      hasUnsavedChanges={isDirty}
+    />
   </>
 }

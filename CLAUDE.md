@@ -186,6 +186,8 @@ Everything else follows these rules:
   account's only refresher: turns get its access token alone, and the keeper in `api/src/claude_accounts/` refreshes
   it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
   `docs/coding.md`, Claude accounts.
+- A turn's prompt reaches the CLI on standard input, never as an argument, so no caller cuts what it asks to fit the
+  128 KiB Linux allows one argument. See `docs/coding.md`, How a prompt reaches the CLI.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
 - Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings, read with a
   GitHub token of its own chosen beside it, and adapted to the container that runs it. No worker or Project Manager
@@ -237,6 +239,9 @@ Everything else follows these rules:
 - A browser connector's page carries its sign-in panel, which speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- Once a day the engine's ingest pass reloads each browser's service tab in place, one browser a pass, so its
+  rolling session renews, then reads its connector, which records a lapsed session as signed out. The last refresh is
+  `browser_sessions.refreshed_at`; the interval is a code constant. See `docs/browser.md`, Refreshing.
 - A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
   removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
   says so, with the media ports behind its help, rather than spinning.
@@ -273,14 +278,16 @@ Everything else follows these rules:
   result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
 - Teams reads through its own browser signed in to Microsoft, from Teams' own local store (IndexedDB) rather than its
   page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a channel thread the
-  person wrote in raises an inbox item; other channel messages are only recorded.
+  person wrote in raises an inbox item; other channel messages are only recorded. Teams enforces Trusted Types, so its
+  page scripts read markup with patterns and never hand it to a parser.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
   a comment from someone else on their issue or mentioning them raises an inbox item as `watcher:youtrack`. The first
   read records nothing. Its assigned issues come in through the watcher, as every issue connector's do.
 - Slack reads through its own browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
-  web API with the web client's session, which never leaves the page, and only read methods. A direct or group
+  web API with the web client's session, which never leaves the page, and only read methods. Every call carries the
+  web client's `_x_gantry=true` marker, without which Slack refuses credentialed calls from `app.slack.com`. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
   its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
@@ -311,10 +318,12 @@ Everything else follows these rules:
 
 ## Meetings
 
-- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
-  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). See
-  `docs/meetings.md`.
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): Fireflies, with the person's own API
+  key on a paid plan or through Fireflies' own web app in its connector's browser on any plan (the `fireflies_browser`
+  kind, `meetings::fireflies_browser`), and Teams and Slack's huddles, each through its connector's own browser, so
+  nothing is installed into an organization. A source is a connector whose kind declares it provides meetings, managed
+  under Connectors alone; the meetings page and loop never name one, and each source's sign-in is resolved beside it
+  (`meetings::sources`). See `docs/meetings.md`.
 - A meeting is the one event; a capture (`meeting_captures`) is one record of it, as its source gave it: today a
   connector's meeting, each holding its connector, its raw transcript and recording with their hashes, and its offset
   onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
@@ -325,6 +334,15 @@ Everything else follows these rules:
   marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to
   a meeting is in its history (`meeting_events`) with who made it, and undoable (`meetings::history`). See
   `docs/meetings.md`, The final transcript, and History.
+- Teams lists the recorded meetings whose chats its store holds, and fetches each recording's download address and its
+  transcript, with speakers, from the organizer's SharePoint with the token Teams keeps for it, which never leaves the
+  page. It reads meetings while "Read meeting recordings and transcripts" is on (the default) and once a storage
+  location is picked. A connector's cursor is merged, not replaced, so its chat reader and the meetings listing each
+  keep their own keys. See `docs/meetings.md`, Teams.
+- Slack lists the person's huddles that ended with a transcript and reads each one's transcript file with the web
+  client's own methods, never Slack's AI notes beside it. A huddle keeps no recording, so it is a meeting in words alone
+  and needs no storage location. It reads huddles while "Read meeting recordings and transcripts" is on (the default).
+  See `docs/meetings.md`, Slack huddles.
 - A meeting's page is in the knowledge base (`/knowledge/meetings/:meetingId`): its final transcript with every mark
   drawn over it beside a lane of options, the mark selected, and its history. Whole words are selected and edited in
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
@@ -514,6 +532,11 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   Elysia's confidence, the surest leading; she never overrides anyone else's choice, every change is in the item's
   history and undoable, and attributing wakes no Project Manager (`api/src/models/action_item_attribution.rs`). See
   `docs/action-items.md`, Projects and the lead.
+- A person assigns an item, alone or a selection, to its lead project's Project Manager, which wakes to plan it and
+  starts no worker; an item no project leads is refused, and moving the lead ends the assignment. Elysia suggests
+  assignments as `assign-item` changeset operations, and the person accepting one is who assigned it. The item's page
+  shows where its plan stands (`api/src/models/action_item_assignment.rs`). See `docs/action-items.md`, Assigning to a
+  Project Manager.
 - The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
   constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
 - Provider writes (closing a resolved item's issues, posting a comment to the primary link, filing an item's own
@@ -554,15 +577,22 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - Every project has a Project Manager (`api/src/project_managers/`): one Claude Code session per project, resumed for
   every turn (`claude -p --resume`) and kept indefinitely, relying on Claude Code's compaction. It plans the project's
-  work and submits it as work batches (`work_batches`: a goal, repositories, ASAP, normal, or a scheduled time, and its
-  provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+  work and submits it as work batches (`work_batches`: a goal, the goal in its project's brief it serves, repositories,
+  ASAP, normal, or a scheduled time, and its provenance) for the worker pool. See `docs/engine.md`, Project Managers.
+- Every project has a brief (`api/src/models/project_brief.rs`): a fixed knowledge base page under Project briefs,
+  created and renamed with the project and linked to it, holding its goals (`###` headings under `## Goals`), decisions,
+  and what is out of scope. Every turn's prompt carries it whole; the Project Manager keeps it current with `page_save`
+  against the version it read, recording each rejection's reason, and a batch serving no goal in it is refused. Anyone's
+  publish of it but its own Project Manager's and the system user's wakes that Project Manager. See `docs/autonomy.md`,
+  The project brief.
 - Every batch's origin (human-rooted or found) and generation (how many batches led to it) are worked out from its
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
-- It is woken by a record newly attributed to its project, a batch's result, a promise, a person, and Elysia, each
-  written as a wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time
-  (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
+- It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
+  it, a person, Elysia, and someone else's edit of its brief, each written as a wake in the transaction that caused it.
+  Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
+  restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,
@@ -570,8 +600,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   any other page. A link wakes nobody.
 - It changes its project's action items and files their issues in Jira, YouTrack, or GitHub with
   `manager_make_changes`: one changeset per call, as `project_manager:<project id>`, each operation naming the timeline
-  record that caused it and recorded on the timeline when it applies. A per-project switch
-  (`projects.manager_writes_directly`), off by default, applies them at once; off, they wait for a person's approval.
+  record that caused it and recorded on the timeline when it applies. They apply at once only at its project's Full
+  autonomy; at every other level they wait for a person's approval.
+- Each project has one level of autonomy, its trust dial (`projects.autonomy`, `crate::models::project_autonomy`):
+  Approve every batch, the default; Approve found work only, where human-rooted batches queue without an approval;
+  and Full autonomy, where its changes apply at once too. Only a person sets it, on the project's page
+  (`project_autonomy::set` takes a `MemberUser`), each change recorded with who and when, and it applies to what comes
+  next. No level lets found work queue itself. See `docs/autonomy.md`, The dial.
 - Its issues file in the tracker the project names, or else where most of its items' issues already are; Jira and
   YouTrack through that tracker's credential, GitHub through the project's own token or the workspace default. Filings
   are an outbox the watcher lands (`action_item_issue_filings`), and a retried filing finds the issue its earlier
@@ -584,14 +619,16 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Agent-found work never queues itself. Workers and Project Managers report work nobody asked for as a finding
   (`worker_report_finding`, `manager_report_finding`, `api/src/findings.rs`): what was seen, where, and what it would
   cost, one per project however often it is reported. A person accepts it from the project's Findings tab, which makes
-  an item as them, owes its issue in the project's tracker, and proposes a batch, human-rooted and generation 0, or
+  an item as them, owes its issue in the project's tracker, and submits a batch, human-rooted and generation 0, which
+  follows the project's level of autonomy, or
   dismisses it for good, with a reason its reporters are told. Findings raise no item each and never wake Elysia; she
   reads each project's count in `elysia_overview`. See `docs/engine.md`, Findings.
 
 ## The worker pool
 
-- Every batch a Project Manager submits starts `proposed` and waits for a person to approve it, edit and approve it,
-  or reject it with a reason, which wakes its Project Manager; the pool never gives a proposal a slot. Only a person
+- A batch a Project Manager submits starts `proposed` and waits for a person to approve it, edit and approve it, or
+  reject it with a reason, which wakes its Project Manager; the pool never gives a proposal a slot. Only a human-rooted
+  batch on a project whose level of autonomy lets it starts `queued` instead (`work_batch::submit`). Only a person
   decides (`worker_pool::actions::approve` and `reject` take a `MemberUser`); Elysia and Project Managers list
   proposals. Each project with proposals waiting has one inbox item counting them. See `docs/engine.md`, Proposed
   batches.
@@ -623,6 +660,11 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (approve and reject,
   for a person alone; run next, priority, pause, resume, cancel), each change recorded in `work_batch_events` with who
   made it. The work queue is `/work-queue`, for members.
+- Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
+  for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
+  link. Every pull request a worker records carries the chain at the end of its description
+  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
+  batch exists.
 
 ## One event stream keeps the frontend current
 

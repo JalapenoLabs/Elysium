@@ -129,10 +129,12 @@ pub async fn run_edit(
             )),
             EditError::Database(error) => internal(scope, "elysia.meeting_edit", &error),
         })?;
+    // Her change is news to every page, the one the person has open included.
     context.events.publish(&ServerEvent::MeetingChanged {
         id: found.id,
         state: found.state.clone(),
         created_by: found.created_by,
+        entry_id: None,
     });
     Ok(json!({
         "note": "Edited. The meeting's history has it as yours, with Undo.",

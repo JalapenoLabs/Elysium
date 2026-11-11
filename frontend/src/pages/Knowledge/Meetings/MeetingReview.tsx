@@ -11,7 +11,7 @@ import { Chip, Link, Spinner, Tabs } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
-import { ConnectorLogo } from '../../Settings/Connectors/ConnectorLogo'
+import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 import { MeetingTopics } from './MeetingTopics'
 import { MeetingWorkspace } from './MeetingWorkspace'
 
@@ -20,7 +20,11 @@ import { DateText } from '../../../format/DateText'
 import { formatDuration } from '../../../format/durations'
 import { useMeetingTopicsLoader } from '../../../hooks/useServerData'
 import { useTabParam } from '../../../hooks/useTabParam'
-import { meetingStateChipColors, meetingStateLabelKeys } from '../../Settings/Meetings/meetingsPresentation'
+import {
+  meetingSourceNameKey,
+  meetingStateChipColors,
+  meetingStateLabelKeys,
+} from '../../Settings/Meetings/meetingsPresentation'
 import { useMeetingWords } from './useMeetingWords'
 
 // The review first; then the topics the meeting was cut into, until excerpts take their place
@@ -56,7 +60,7 @@ export function MeetingReview(props: Props) {
 
   return <Page
     title={meeting.title || t('list.untitled')}
-    icon={<ConnectorLogo kind={meeting.sourceKind} className='size-8' />}
+    icon={<MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-8' />}
     parents={props.parents}
     // While its run waits for the person, its processing waits too; the correction's status in
     // the options says so, rather than a state that reads as work under way.
@@ -77,7 +81,7 @@ export function MeetingReview(props: Props) {
       {meeting.url && <>
         <span aria-hidden className='opacity-70'>·</span>
         <Link href={meeting.url} target='_blank' rel='noreferrer' className='text-link text-sm'>
-          <span>{t('page.openAtSource', { source: t(`connectors:kinds.${meeting.sourceKind}.name`) })}</span>
+          <span>{t('page.openAtSource', { source: t(meetingSourceNameKey(meeting.sourceKind)) })}</span>
           <LuExternalLink className='ml-1 inline size-3.5' aria-hidden />
         </Link>
       </>}

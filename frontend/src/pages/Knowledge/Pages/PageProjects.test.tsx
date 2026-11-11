@@ -88,6 +88,13 @@ describe('PageProjects', () => {
       .toBe(getProjectDocsUrl('launch'))
   })
 
+  it('keeps a project\'s brief on its project, and lets it be taken off any other', () => {
+    renderProjects(makePage({ id: 'brief', briefProjectId: 'launch', projectIds: [ 'launch', 'website' ]}))
+
+    expect(screen.queryByRole('button', { name: 'Take off Launch' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Take off Website' })).toBeTruthy()
+  })
+
   it('offers the projects the page is not on, and links the one picked', async () => {
     const page = makePage({ id: 'page', title: 'Checklist', projectIds: [ 'website' ]})
     vi.mocked(linkPageToProject).mockResolvedValue({

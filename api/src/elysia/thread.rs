@@ -214,7 +214,7 @@ pub async fn answer(
         Ok(outcome) => {
             outcome
                 .announcement
-                .publish(events, connection, &found)
+                .publish(events, connection, &found, None)
                 .await;
             Ok(())
         }

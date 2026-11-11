@@ -28,6 +28,7 @@
 //!   and puts every merge on its project's timeline.
 
 pub mod actions;
+pub mod description;
 pub mod merging;
 pub mod order;
 pub mod queue;

@@ -253,6 +253,9 @@ async fn answer(
         announcement,
     } = outcome;
     let mut answered = json!({});
+    // The page that made the change applies what this answers, so its announcement names the
+    // entry; a reply names none, and every page reads it again.
+    let entry_id = entry.as_ref().map(|entry| entry.id);
     if let Some(entry) = entry {
         let change = transcript_change(connection, meeting.id, &entry).await?;
         answered["entry"] = json!(MeetingEventResponse::from(entry));
@@ -262,7 +265,7 @@ async fn answer(
         answered["comment"] = json!(CommentResponse::from(comment));
     }
     announcement
-        .publish(&state.events, connection, meeting)
+        .publish(&state.events, connection, meeting, entry_id)
         .await;
     Ok(answered)
 }

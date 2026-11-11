@@ -149,6 +149,9 @@ pub enum Operation {
     RemoveFromInitiative(Membership),
     CreateInitiative(CreateInitiative),
     FileIssue(FileIssue),
+    /// Elysia's suggestion that a person assign an item to its lead project's Project Manager:
+    /// approving it is the person assigning it (`crate::models::action_item_assignment`).
+    AssignItem(AssignItem),
 }
 
 /// Creates an item.
@@ -245,6 +248,13 @@ impl TrackerTarget {
     }
 }
 
+/// Assigns an item to its lead project's Project Manager, which wakes to plan it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssignItem {
+    pub item: Target,
+}
+
 /// Puts an item into an initiative, or takes it out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -284,7 +294,8 @@ impl Operation {
             | Self::DismissItem(FinishItem { item })
             | Self::Comment(AddComment { item, .. })
             | Self::Link(AddLink { item, .. })
-            | Self::FileIssue(FileIssue { item, .. }) => vec![(*item, Subject::Item)],
+            | Self::FileIssue(FileIssue { item, .. })
+            | Self::AssignItem(AssignItem { item }) => vec![(*item, Subject::Item)],
             Self::AddToInitiative(membership) | Self::RemoveFromInitiative(membership) => vec![
                 (membership.item, Subject::Item),
                 (membership.initiative, Subject::Initiative),
@@ -340,7 +351,8 @@ impl Operation {
             Self::ResolveItem(_)
             | Self::DismissItem(_)
             | Self::AddToInitiative(_)
-            | Self::RemoveFromInitiative(_) => None,
+            | Self::RemoveFromInitiative(_)
+            | Self::AssignItem(_) => None,
         }
     }
 }
@@ -436,11 +448,26 @@ pub fn validate(proposal: &Proposal) -> Option<String> {
                     .as_ref()
                     .and_then(|source| text_refusal("source", source, SOURCE_MAX_CHARACTERS))
             })
+            .or_else(|| proposer_refusal(proposal.proposer, &proposed.operation))
             .or_else(|| proposed.operation.field_refusal())
             .or_else(|| target_refusal(&proposal.operations, position, &proposed.operation));
         if let Some(refusal) = refusal {
             return Some(format!("operation {position}: {refusal}"));
         }
+    }
+    None
+}
+
+/// Why `proposer` may not propose `operation`. Assigning an item is a person deciding work is
+/// taken on, so only Elysia suggests it, for a person to accept: a Project Manager assigning work
+/// to itself, or a coding agent assigning it more, would be work feeding itself, and a Project
+/// Manager's changes may apply without review.
+fn proposer_refusal(proposer: Proposer, operation: &Operation) -> Option<String> {
+    if matches!(operation, Operation::AssignItem(_)) && proposer != Proposer::Elysia {
+        return Some(
+            "only a person assigns an item to its Project Manager; Elysia may suggest it"
+                .to_owned(),
+        );
     }
     None
 }
@@ -807,6 +834,36 @@ mod tests {
             validate(&wrong_kind).as_deref(),
             Some("operation 2: operation 1 is not a create-initiative")
         );
+    }
+
+    #[test]
+    fn only_elysia_suggests_assigning_an_item_to_its_project_manager() {
+        let assign = Operation::AssignItem(AssignItem { item: existing() });
+        let read: Operation =
+            serde_json::from_value(json!({ "kind": "assign-item", "item": { "id": Uuid::nil() } }))
+                .expect("parses");
+        assert_eq!(read, assign);
+
+        let suggested = proposal(vec![create_item("Pricing page"), assign.clone()]);
+        assert_eq!(validate(&suggested), None);
+        for proposer in [Proposer::ProjectManager(Uuid::nil()), Proposer::Session(4)] {
+            let mut self_assigned = proposal(vec![assign.clone()]);
+            self_assigned.proposer = proposer;
+            assert_eq!(
+                validate(&self_assigned).as_deref(),
+                Some(
+                    "operation 1: only a person assigns an item to its Project Manager; Elysia may \
+                     suggest it"
+                ),
+                "{proposer:?} may not feed its own work"
+            );
+        }
+        // Assigning an item the same changeset creates depends on that create.
+        let created_then_assigned = [
+            create_item("Pricing page"),
+            Operation::AssignItem(AssignItem { item: proposed(1) }),
+        ];
+        assert_eq!(dependencies(&created_then_assigned), [vec![], vec![1]]);
     }
 
     #[test]
