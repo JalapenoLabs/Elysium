@@ -69,7 +69,8 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting } from '../api/routes/meetingRoutes'
+import { getMeeting, meetingHistoryKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { getProjectAutonomyKey } from '../api/routes/projectRoutes'
@@ -404,11 +405,20 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id.
+  // meeting is loaded by id, and its page's transcript and history, read only while it is open,
+  // are read again, unless the page made that change itself and applied it already.
   'meeting.changed': (event) => {
+    const { id, entryId } = event.data
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
+    void (async () => {
+      if (entryId && await isOwnMeetingChange(id, entryId)) {
+        return
+      }
+      void mutate(meetingWordsKey(id))
+      void mutate(meetingHistoryKey(id))
+    })()
     getMeeting(event.data.id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))
       .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {

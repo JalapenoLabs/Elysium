@@ -563,6 +563,7 @@ impl Meetings {
             id: changed.id,
             state: changed.state,
             created_by: changed.created_by,
+            entry_id: None,
         });
     }
 }

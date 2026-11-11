@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ConnectorKind } from './connectorRoutes'
+import type { LearningAgent } from './learningRoutes'
 
 // Misc
 import { apiClient } from '../index'
@@ -8,9 +8,6 @@ import { apiClient } from '../index'
 // What a capture a person uploaded names as its source, as `SOURCE_KIND` in
 // api/src/meeting_uploads/mod.rs.
 export const UPLOAD_SOURCE_KIND = 'upload'
-
-// Where a meeting came from: the kind of connector that read it, or a person's upload.
-export type MeetingSourceKind = ConnectorKind | typeof UPLOAD_SOURCE_KIND
 
 // Mirrors `Processing` in api/src/meetings/workflow.rs: how far a meeting's processing got, or
 // that its run failed or went through without it, a person having skipped a step it needed.
@@ -29,13 +26,14 @@ export type MeetingCorrection = {
 }
 
 // A meeting read from a meeting source. Its transcript is loaded on its own page
-// (`getMeetingTranscript`); its segments reach the timeline. Only its owner receives it.
+// (`getMeetingWords`); its segments reach the timeline. Only its owner receives it.
 export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
   connectorId: string | null
-  // The kind of connector it came from, which outlives the connector, or `upload`.
-  sourceKind: MeetingSourceKind
+  // Where it came from: a connector kind, which outlives its connector, or a source that is none,
+  // such as an upload (`UPLOAD_SOURCE_KIND`); `meetingSourceNameKey` names either.
+  sourceKind: string
   title: string
   startedAt: string
   durationMs: number | null
@@ -70,23 +68,99 @@ export type TranscriptLine = {
   text: string
 }
 
-// Mirrors `BasedOn` in api/src/models/meeting_correction.rs: which transcript a corrected copy
-// follows line by line.
+// Mirrors `BasedOn` in api/src/models/meeting_correction.rs: which transcript a capture's own
+// is, its source's lines or, for a source that sent none, Whisper's segments.
 export type TranscriptBase = 'source' | 'whisper'
 
-export type MeetingTranscript = {
-  // The transcript as heard, which the corrected copy follows; null while nothing was heard.
-  original: {
+// Mirrors `WordResponse` in api/src/routes/v1/meetings/mod.rs: one word of a meeting's final
+// transcript, on the meeting's clock.
+export type MeetingWord = {
+  id: string
+  // Orders the transcript; a change's new words slot in by it.
+  position: number
+  text: string
+  speaker: string
+  startMs: number
+  endMs: number
+  // `source`, `whisper`, `correction`, or `edit`.
+  origin: string
+  // The capture it was heard in; null for an edit's words.
+  captureId: string | null
+}
+
+// Mirrors `MarkKind` in api/src/models/meeting_mark.rs. A kind a later API adds arrives as its
+// stored name and is left undrawn.
+export const MEETING_MARK_KINDS = [ 'confidence', 'edit', 'excerpt', 'black_out', 'comment', 'pin', 'task' ] as const
+export type MeetingMarkKind = typeof MEETING_MARK_KINDS[number]
+
+// Mirrors `MarkResponse`: one mark over a range of the final transcript, from its first word to
+// its last. Its data is shaped by its kind (docs/meetings.md, The final transcript).
+export type MeetingMark = {
+  id: string
+  kind: string
+  startWordId: string
+  endWordId: string
+  data: Record<string, unknown>
+  createdBy: string
+  // The agent that acted for whoever made it, if one did.
+  agent: LearningAgent | null
+  createdAt: string
+}
+
+// One capture of a meeting, without what it holds.
+export type MeetingCapture = {
+  id: string
+  connectorId: string | null
+  sourceKind: string
+  url: string | null
+  // Where its clock sits on the meeting's.
+  offsetMs: number
+  hasRecording: boolean
+}
+
+// A meeting's final transcript as it reads: its standing words in order, the marks over them,
+// and its captures. No words until it is built, which its correction does.
+export type MeetingWords = {
+  words: MeetingWord[]
+  marks: MeetingMark[]
+  captures: MeetingCapture[]
+}
+
+// What one change did to the transcript, to apply without reading it again: the words it took
+// out, those it stood in their place, and every mark as it now stands.
+export type MeetingTranscriptChange = {
+  removedWordIds: string[]
+  words: MeetingWord[]
+  marks: MeetingMark[]
+}
+
+// Mirrors `MeetingEventResponse`: one entry of a meeting's history.
+export type MeetingHistoryEntry = {
+  id: string
+  // `built`, `edited`, `marked`, `unmarked`, `hold_changed`, or `correction_approved`.
+  kind: string
+  createdBy: string
+  agent: LearningAgent | null
+  // Shaped by its kind (docs/meetings.md, History); read defensively, since entries outlive the
+  // version that wrote them.
+  data: Record<string, unknown>
+  // The entry this one undid, when it is an undo.
+  undid: string | null
+  createdAt: string
+}
+
+// A capture's own transcript as it came, on the meeting's clock; null while nothing was heard.
+export type CaptureTranscript = {
+  transcript: {
     basedOn: TranscriptBase
     lines: TranscriptLine[]
   } | null
-  // The corrected copy, line for line; null until the meeting is corrected.
-  corrected: {
-    lines: TranscriptLine[]
-    changedLines: number
-    approvedAt: string | null
-    approvedBy: string | null
-  } | null
+}
+
+// What an edit or an undo answers: its history entry, and what it did to the transcript.
+export type MeetingChangeResponse = {
+  entry: MeetingHistoryEntry
+  change: MeetingTranscriptChange
 }
 
 type ListMeetingsResponse = {
@@ -124,10 +198,59 @@ export function retryMeeting(meetingId: string) {
     .json<MeetingResponse>()
 }
 
-export function getMeetingTranscript(meetingId: string) {
+// SWR keys of what a meeting's page reads, which the event stream revalidates when the meeting
+// changes.
+export function meetingWordsKey(meetingId: string) {
+  return `v1/meetings/${meetingId}/words`
+}
+
+export function meetingHistoryKey(meetingId: string) {
+  return `v1/meetings/${meetingId}/history`
+}
+
+export function getMeetingWords(meetingId: string) {
   return apiClient
-    .get(`v1/meetings/${meetingId}/transcript`)
-    .json<MeetingTranscript>()
+    .get(meetingWordsKey(meetingId))
+    .json<MeetingWords>()
+}
+
+export function getCaptureTranscript(meetingId: string, captureId: string) {
+  return apiClient
+    .get(`v1/meetings/${meetingId}/captures/${captureId}/transcript`)
+    .json<CaptureTranscript>()
+}
+
+type EditMeetingWordsRequest = {
+  startWordId: string
+  endWordId: string
+  // Split at whitespace into the new words; at least one.
+  text: string
+}
+
+// Replaces a range of the final transcript. `409 meeting_words_changed` when a word of it was
+// replaced meanwhile.
+export function editMeetingWords(meetingId: string, body: EditMeetingWordsRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/edits`, { json: body })
+    .json<MeetingChangeResponse>()
+}
+
+type MeetingHistoryResponse = {
+  entries: MeetingHistoryEntry[]
+}
+
+// Newest first.
+export function getMeetingHistory(meetingId: string) {
+  return apiClient
+    .get(meetingHistoryKey(meetingId))
+    .json<MeetingHistoryResponse>()
+}
+
+// `409 meeting_changed_since` when what it changed moved on since.
+export function undoMeetingChange(meetingId: string, entryId: string) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/history/${entryId}/undo`)
+    .json<MeetingChangeResponse>()
 }
 
 // Approves the corrected transcript, and lets a run held for it go on.

@@ -326,6 +326,7 @@ impl FetchMeeting {
             id: recorded.id,
             state: recorded.state.clone(),
             created_by: recorded.created_by,
+            entry_id: None,
         });
         Ok(Some(stored))
     }

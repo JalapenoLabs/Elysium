@@ -2,21 +2,13 @@
 
 import type { ParseKeys } from 'i18next'
 import type { Connector, ConnectorKind, ConnectorKindDefinition } from '../../../api/routes/connectorRoutes'
-import type { Meeting, MeetingSourceKind, MeetingState, TranscriptLine } from '../../../api/routes/meetingRoutes'
+import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 
 // Misc
+import { CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
 import { UPLOAD_SOURCE_KIND } from '../../../api/routes/meetingRoutes'
-import { formatMediaPosition } from '../../../format/durations'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
-
-// The words naming where a meeting came from: its connector kind's name, or Uploaded.
-export function meetingSourceNameKey(kind: MeetingSourceKind) {
-  if (kind === UPLOAD_SOURCE_KIND) {
-    return 'meetings:upload.sourceName' as const
-  }
-  return `connectors:kinds.${kind}.name` as const
-}
 
 // Where a meeting's corrected transcript stands: not corrected yet, its run held for the
 // person's approval, approved, or corrected and gone on without it.
@@ -50,21 +42,6 @@ export const correctionStatusChipColors = {
   unapproved: 'default',
 } as const satisfies Record<CorrectionStatus, ChipColor>
 
-// A transcript as its page shows and diffs it: one `[m:ss] Speaker: text` line per line of the
-// transcript, so a corrected word shows as its line removed and added. Whisper's lines name no
-// speaker, and a line's own line breaks would split it in two, so they read as spaces.
-export function transcriptText(lines: TranscriptLine[]) {
-  return lines
-    .map((line) => {
-      const position = formatMediaPosition(line.startMs)
-      const text = line.text.replace(/\s+/g, ' ').trim()
-      return line.speaker
-        ? `[${position}] ${line.speaker}: ${text}`
-        : `[${position}] ${text}`
-    })
-    .join('\n')
-}
-
 export const meetingStateLabelKeys = {
   pending: 'states.pending',
   recorded: 'states.recorded',
@@ -97,4 +74,24 @@ export function meetingSourcesOf(definitions: ConnectorKindDefinition[], connect
 
   const connected = connectors.filter((connector) => kinds.includes(connector.kind))
   return { kinds, connectors: connected } as const
+}
+
+// The connector kind a meeting's source is, when it is one. A source that is no connector, such
+// as an upload, or a kind this build does not know yet, is none.
+export function connectorKindOf(sourceKind: string) {
+  return CONNECTOR_KINDS.find((kind) => kind === sourceKind) ?? null
+}
+
+// What a meeting's source is called: its connector kind's name, Uploaded for a person's upload, or
+// a plain name for any other source that is no connector this build knows.
+export function meetingSourceNameKey(sourceKind: string): ParseKeys<[ 'meetings', 'connectors' ]> {
+  if (sourceKind === UPLOAD_SOURCE_KIND) {
+    return 'meetings:upload.sourceName'
+  }
+  const kind = connectorKindOf(sourceKind)
+  if (!kind) {
+    console.debug('meetingSourceNameKey found a source that is no connector kind', { sourceKind })
+    return 'meetings:sources.other'
+  }
+  return `connectors:kinds.${kind}.name`
 }

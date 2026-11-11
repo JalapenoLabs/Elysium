@@ -124,7 +124,7 @@ export function MeetingTable(props: Props) {
         }</Link>,
       // The connector is gone once removed; its kind still names where the meeting came from.
       source: (meeting: Meeting) => <span className='inline-flex items-center gap-1.5'>
-        <MeetingSourceLogo kind={meeting.sourceKind} className='size-4' />
+        <MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-4' />
         {meeting.connectorId
           ? <Link href={getConnectorUrl(meeting.connectorId)} className='text-inherit no-underline hover:underline'>{
             sourceText(meeting)

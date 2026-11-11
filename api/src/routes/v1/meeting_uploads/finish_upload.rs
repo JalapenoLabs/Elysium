@@ -122,6 +122,7 @@ pub async fn handle(
         id: made.id,
         state: made.state.clone(),
         created_by: made.created_by,
+        entry_id: None,
     });
     let answered = meetings::response(&mut connection, made).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))

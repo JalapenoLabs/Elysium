@@ -100,7 +100,8 @@ import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/New
 import { LearningPage } from './pages/Knowledge/Learnings/LearningPage'
 import { LearningRedirect } from './pages/Knowledge/Learnings/LearningRedirect'
 import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
-import { MeetingPage } from './pages/Settings/Meetings/MeetingPage'
+import { MeetingPage } from './pages/Knowledge/Meetings/MeetingPage'
+import { MeetingRedirect } from './pages/Knowledge/Meetings/MeetingRedirect'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 import { UploadMeetingPage } from './pages/MeetingUploads/UploadMeetingPage'
 import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
@@ -304,6 +305,10 @@ export const workspaceRoutes: RouteObject = {
           path: UrlTree.knowledgeLabel,
           element: <KnowledgeLabelPage />,
         },
+        {
+          path: UrlTree.knowledgeMeeting,
+          element: <MeetingPage />,
+        },
       ],
     },
     {
@@ -387,9 +392,10 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsMeetings,
       element: <MeetingsPage />,
     },
+    // A meeting's page moved into the knowledge base; the old address lands there.
     {
       path: UrlTree.settingsMeeting,
-      element: <MeetingPage />,
+      element: <MeetingRedirect />,
     },
     {
       path: UrlTree.meetingUploadNew,

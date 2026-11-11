@@ -61,6 +61,8 @@ export const UrlTree = {
   knowledgeDocument: '/knowledge/documents/:documentId',
   // Every page carrying a label.
   knowledgeLabel: '/knowledge/labels/:label',
+  // One meeting, reviewed and corrected as a page of the knowledge base.
+  knowledgeMeeting: '/knowledge/meetings/:meetingId',
   // Every result of the topbar's search, for its query.
   search: '/search',
   settings: '/settings',
@@ -81,6 +83,7 @@ export const UrlTree = {
   // The MCP page's old address, kept as a redirect so links and bookmarks to it still land.
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
+  // A meeting's earlier address, which redirects to its page in the knowledge base.
   settingsMeeting: '/settings/meetings/:meetingId',
   // Uploading a meeting, or a recording or transcript of one the person has (a capture of it).
   meetingUploadNew: '/settings/meetings/new',
@@ -268,7 +271,7 @@ export function getWorkBatchEditUrl(batchId: string) {
 }
 
 export function getMeetingUrl(meetingId: string) {
-  return UrlTree.settingsMeeting.replace(':meetingId', meetingId)
+  return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
 }
 
 export function getMeetingCaptureUploadUrl(meetingId: string) {

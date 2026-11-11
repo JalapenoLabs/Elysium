@@ -763,25 +763,57 @@ whose effect still stands is undone; one moved on since answers that it changed 
     state (as its run says: failed with why, skipped, or how far it got), that its run waits for the person's
     approval, or that a finished one was published from its transcript alone; when it started, how long it ran, and how
     many topics Elysia found. A failed meeting's row has Retry, which retries its run's failed step at once.
-- **A meeting's page** (`/settings/meetings/:meetingId`, `MeetingPage`): its title, source, and state; when it
-  started, how long it ran, and a link to it at its source, in a new tab; where its correction stands (not corrected
-  yet, waiting for the person's approval, approved and by whom, or not approved); and two tabs, the open one in
-  `?tab=`. **Topics**, counted, the first: its segments in the order they were said (`MeetingTopics`,
+- **A meeting's page** is a page of the knowledge base (`/knowledge/meetings/:meetingId`, `MeetingPage` in
+  `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
+  `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
+  started, how long it ran, and a link to it at its source, in a new tab. Two tabs follow, the open one in `?tab=`:
+  **Review**, first, and **Topics**, counted: its segments in the order they were said (`MeetingTopics`,
   `GET /timeline?meetingId=`), each shown as on a project's timeline with the projects it is on, which is where a
-  topic Elysia put on no project, or the wrong one, is corrected. **Transcript** (`MeetingTranscript`,
-  `GET /meetings/{id}/transcript`): as heard beside its corrections, as a `TextDiff` whose unchanged lines fold away,
-  or as heard until it is corrected or when nothing needed it. Approve is the header's primary action while the copy
-  waits for one. Its Actions hold the meeting for the person's approval, or stop holding it, until it is corrected and
-  unless its source already waits, and open its run.
-- **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and a meeting's Actions
-  hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for a capture. A
-  recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a size the
-  policy does not take in their own words; a new meeting's title and when it started follow its first file (its name,
-  and when it last changed) until the person changes them, and a recording asks where it is kept. Upload, the page's
-  one save, starts the upload or resumes the one the same files began (`findResumable`), sends its parts with the
+  topic Elysia put on no project, or the wrong one, is corrected until excerpts take their place.
+  - **Layout** (`MeetingWorkspace`). The transcript, three quarters wide, and a lane beside it: the options box, which
+    floats at its top as the page scrolls, the mark selected, then the meeting's changes. Below `lg` the lane is a
+    drawer, opened by Options above the transcript. The options switch the transcript between Final and each capture's
+    own (`CaptureTranscript`, `GET /meetings/{id}/captures/{captureId}/transcript`, as it came, with no marks), turn
+    each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, and hold the
+    meeting's actions: where its correction stands, Approve while the copy waits for one, holding it for approval by
+    hand until it is corrected unless its source already waits, its run, and Add a recording or transcript (Uploading,
+    below).
+  - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
+    at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
+    paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
+    own channel (`src/theme/meetingTranscript.css`): confidence as the background from red (0) through yellow (50) to
+    green (100), an edit outlined purple inside, a comment outlined just outside (white on the dark theme, the
+    foreground's ink on the light one, where white would vanish), a black-out boxed black with its text dimmed, and an
+    excerpt as a blue bar in the gutter, one lane per overlap (`excerptLanes`), naming its projects over it. A space is
+    marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
+    pure and tested (`meetingTranscript.ts`).
+  - **Clicking and selecting.** A click picks a moment, underlined, which the player will seek; with marks under the
+    word, the shortest is selected and every one there shows as a pill in the floating bar, which Tab moves between,
+    and the selected one opens in the lane: its kind, who made it (an agent's saying so), its words, and what its kind
+    says, such as how sure a confidence is and what else it might be, or what an edit replaced with its Undo. A drag,
+    or a click then Shift+click, selects whole words; a touch screen has Select from here, then a tap where it ends.
+    What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
+    offers Edit (E) and clears with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words
+    selected. Comment, Assign to a project, Black out, Pin a frame, and Play from here join the bar with the issues that
+    build them.
+  - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
+    `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
+    (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
+    reading the transcript again. Words changed meanwhile make no edit and read the transcript again; any other
+    refusal keeps the editor open with what was typed.
+  - **Every change is an action** (`useMeetingChanges`): it applies at once with Undo in its toast, and there is no
+    Save. The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last
+    of them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list
+    every change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
+- **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and the actions in a
+  meeting's options hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for
+  a capture. A recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a
+  size the policy does not take in their own words; a new meeting's title and when it started follow its first file (its
+  name, and when it last changed) until the person changes them, and a recording asks where it is kept. Upload, the
+  page's one save, starts the upload or resumes the one the same files began (`findResumable`), sends its parts with the
   progress beside the fields (`sendMeetingFiles`), and once it is whole opens the meeting. A transcript the API cannot
-  read is let go and marked on its field. Leaving while it runs asks first, and stops it where it is, for the same
-  files to resume. The source of an uploaded meeting reads Uploaded (`MeetingSourceLogo`, `meetingSourceNameKey`).
+  read is let go and marked on its field. Leaving while it runs asks first, and stops it where it is, for the same files
+  to resume. The source of an uploaded meeting reads Uploaded (`MeetingSourceLogo`, `meetingSourceNameKey`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **The source's setting** is its connector's content form's switch, "Wait for my approval before acting on
@@ -798,14 +830,15 @@ whose effect still stands is undone; one moved on since answers that it changed 
 - Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created`,
   `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a
   meeting's run, which reloads
-  the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). A meeting's transcript is
-  read again once its correction lands.
+  the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
+  reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
+  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings).
 
 ## What is published
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, or its hold changed: its id, state, and owner, never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, or a person edited its words or undid a change: its id, state, and owner, and the history entry of an edit or undo (`entryId`), never its title or transcript |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |
