@@ -702,7 +702,9 @@ learning is filed under a workspace category, rather than refile or drop it.
 
 Meetings, each the one event that happened, and how far each one's processing got; see `docs/meetings.md`. What its
 source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
-it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`).
+it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`), and meetings merged into
+another for finding them (`meetings_merged_into`); a person's meetings not merged away by when they started
+(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as.
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
@@ -715,6 +717,7 @@ it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinis
 | `segments`               | `JSONB`       | Elysia's topic segments, written once by segmenting; `NULL` until she has read it |
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
+| `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
@@ -723,7 +726,7 @@ it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinis
 Each one record of a meeting, as its source gave it, kept as it came; see `docs/meetings.md`, Meetings and captures.
 Its transcript and recording are written once, by its fetch, and never again. Unique on `(connector_id,
 external_id)` (`meeting_captures_once_per_connector`), so a connector records each of its meetings once;
-`meeting_captures_of_meeting` on `(meeting_id, created_at, id)` reads a meeting's captures first to last.
+`meeting_captures_of_meeting` on `(meeting_id, joined_at, id)` reads a meeting's captures first to last.
 `recording_path` and `storage_location_id` are set together (`meeting_captures_recording_fields`), and a recording's
 hash only with its path (`meeting_captures_recording_hash`).
 
@@ -742,8 +745,29 @@ hash only with its path (`meeting_captures_recording_hash`).
 | `recording_content_type` | `TEXT`        | The recording's media type                                              |
 | `recording_hash`         | `TEXT`        | The SHA-256 of the recording's bytes as downloaded, as hex; `NULL` for a recording kept before captures were hashed |
 | `offset_ms`              | `BIGINT`      | Where its clock falls on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock; `0` unless set |
+| `offset_source`          | `TEXT`        | How `offset_ms` was found: `listed` (from when its source said it started), `audio`, `words`, or `hand` (set by a person, which aligning never changes); `listed` unless set |
+| `joined_at`              | `TIMESTAMPTZ` | When it joined its meeting, its place among the meeting's captures: the one it was listed with first |
 | `created_by`             | `UUID`        | References `users`; whose capture it is: the connector's person, or who uploaded it |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
+
+### `meeting_duplicates`
+
+Two meetings that look like one, overlapping in time with participants in common, and what their person decided; see
+`docs/meetings.md`, The same meeting twice. A pair is recorded once, whichever meeting found the other
+(`meeting_duplicates_once_per_pair`, unique on the pair's lesser and greater id). Indexed by each meeting and by the
+inbox item asking. A decision, who made it, and when are set together (`meeting_duplicates_decided`).
+
+| Column            | Type          | Notes                                                                        |
+|-------------------|---------------|------------------------------------------------------------------------------|
+| `id`              | `UUID`        | UUIDv7, primary key                                                          |
+| `meeting_id`      | `UUID`        | References `meetings`, cascading: the meeting asked about, whose captures a merge moves |
+| `same_as_id`      | `UUID`        | References `meetings`, cascading: the meeting it looks like, which a merge moves them into; never `meeting_id` |
+| `action_item_id`  | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item asking      |
+| `decision`        | `TEXT`        | `merged` or `not_the_same`; `NULL` until its person decides                  |
+| `decided_by`      | `UUID`        | References `users`: who decided                                              |
+| `decided_at`      | `TIMESTAMPTZ` | When                                                                         |
+| `created_by`      | `UUID`        | References `users`; the system user, which asks                              |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                   |
 
 ### `meeting_uploads`
 
@@ -823,7 +847,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, or `capture_added`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, or `capture_added`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |

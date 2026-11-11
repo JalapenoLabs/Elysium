@@ -5,7 +5,7 @@
 //! the company doc, and the company's other meetings, beside the raw ones it was made from.
 //!
 //! The prompt and the checks on the model's answer are `super::correction`; this module runs
-//! the turn, stores the copy, builds the meeting's final transcript from it
+//! the turn, stores the copy, lines the meeting's final transcript up again with it
 //! (`super::final_transcript`), and decides whether the run waits for its person's approval.
 //!
 //! # Doing it once
@@ -13,8 +13,8 @@
 //! A meeting is corrected once. The raw transcripts are never written: the copy goes in
 //! `meeting_corrections` (`models::meeting_correction`), which keeps the first copy stored, and
 //! running the step again answers it without asking the model anything. Every attempt that has a
-//! copy makes sure the final transcript is built from it, so an engine that stopped between the
-//! two builds it on the next.
+//! copy lines the final transcript up with it, which changes nothing once it has, so an engine
+//! that stopped between the two does it on the next.
 //!
 //! # Waiting for approval
 //!
@@ -64,6 +64,7 @@ use crate::models::meeting_event::{self, Change, EventKind};
 use crate::models::meeting_transcription;
 use crate::models::model_setting::ModelChoice;
 use crate::models::step_job::{self, StepActionError, StepJobState};
+use crate::models::user::SYSTEM_USER_ID;
 use crate::models::workflow_run::{self, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
@@ -373,38 +374,27 @@ impl CorrectTranscript {
         Ok(outcome.result.unwrap_or_default())
     }
 
-    /// Builds the meeting's final transcript from `correction`, the copy it has, unless it has one
-    /// already (`final_transcript::ensure_built`).
+    /// Lines meeting `meeting_id`'s final transcript up again with its corrected copy, which
+    /// changes nothing once it has (`final_transcript::rebuild`).
     async fn build_final_transcript(
         &self,
-        input: &TranscribedMeeting,
-        correction: &MeetingCorrection,
+        meeting_id: Uuid,
         log: &crate::workflows::StepLog,
     ) -> Result<(), StepFailure> {
         let mut connection = self.connection().await?;
-        let build = async {
-            // Whatever the run handed on, the copy follows Whisper's segments when its source sent
-            // no lines, so Whisper's transcript is read whenever there is one.
-            let (capture, base, _whisper) = heard_by(&mut connection, input, true).await?;
-            let Some(base) = base else {
-                // A copy follows a transcript, so only one stored by hand reaches this.
-                return Err(anyhow!(
-                    "the meeting has a corrected copy but no transcript"
-                ));
-            };
-            let corrected: Vec<TranscriptLine> =
-                serde_json::from_value(correction.transcript.clone()).map_err(|error| {
-                    anyhow!("the corrected copy is not in the stored shape: {error}")
-                })?;
-            let built =
-                final_transcript::ensure_built(&mut connection, &capture, &base, Some(&corrected))
-                    .await?;
-            anyhow::Ok(built)
+        let author = Author {
+            user_id: SYSTEM_USER_ID,
+            agent: None,
+            at: Utc::now(),
         };
-        if let Some(built) = build.await.map_err(StepFailure::retryable)? {
+        let built = final_transcript::rebuild(&mut connection, meeting_id, author)
+            .await
+            .map_err(StepFailure::retryable)?;
+        if let Some(built) = built {
             log.line(&format!(
-                "Built the final transcript from the corrected copy: {} words",
-                built.data["words"]
+                "Lined the final transcript up with the corrected copy: {} words written, {} \
+                 replaced",
+                built.data["added"], built.data["replaced"]
             ));
         }
         Ok(())
@@ -485,12 +475,24 @@ impl Step for CorrectTranscript {
                 reason: "Not fetched, so nothing to correct".to_owned(),
             });
         };
-        let stored = {
+        let (merged, stored) = {
             let mut connection = self.connection().await?;
-            meeting_correction::find(&mut connection, input.meeting_id)
+            let current = meeting::find(&mut connection, input.meeting_id)
                 .await
-                .map_err(StepFailure::retryable)?
+                .map_err(StepFailure::retryable)?;
+            let stored = meeting_correction::find(&mut connection, input.meeting_id)
+                .await
+                .map_err(StepFailure::retryable)?;
+            (current.merged_into.is_some(), stored)
         };
+        if merged {
+            context
+                .log
+                .line("The meeting's captures were merged into another meeting");
+            return Ok(Done::Skipped {
+                reason: "Merged into another meeting, so nothing to correct".to_owned(),
+            });
+        }
         let correction = if let Some(stored) = stored {
             context.log.line(&format!(
                 "Already corrected, SHA-256 {}; nothing was changed",
@@ -510,7 +512,7 @@ impl Step for CorrectTranscript {
             self.announce(&heard.meeting);
             stored
         };
-        self.build_final_transcript(&input, &correction, &context.log)
+        self.build_final_transcript(input.meeting_id, &context.log)
             .await?;
 
         let summary = summary_of(&correction);
@@ -1005,7 +1007,7 @@ mod tests {
             .await
             .expect("still held");
 
-        // Its run, through the fetch and the transcription.
+        // Its run, through the fetch, the transcription, and aligning.
         workflows::start(
             &mut connection,
             &events,
@@ -1020,6 +1022,7 @@ mod tests {
             recording: None,
         };
         let through = [
+            serde_json::to_value(&fetched).expect("serializes"),
             serde_json::to_value(&fetched).expect("serializes"),
             serde_json::to_value(&fetched).expect("serializes"),
         ];
@@ -1227,7 +1230,15 @@ mod tests {
         assert_eq!(history[0].data, json!({ "before": false, "after": true }));
         assert_eq!(
             history[1].data,
-            json!({ "captureId": capture.id, "builtFrom": "correction", "words": 3 })
+            json!({
+                "captures": [{ "captureId": capture.id, "offsetMs": 0 }],
+                "builtFrom": "correction",
+                "words": 3,
+                "added": 3,
+                "replaced": 0,
+                "retimed": 0,
+                "marksMoved": 0,
+            })
         );
 
         // And segmenting reads the copy the run handed on.

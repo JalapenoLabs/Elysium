@@ -824,15 +824,17 @@ async fn run_next<Running: Step>(
     done
 }
 
-/// Until captures are aligned (#238), a capture added to a meeting already corrected and published
-/// is stored and transcribed by its run, and its correction and segmenting change nothing.
+/// A capture added to a meeting already corrected and published is stored and transcribed by its
+/// run, which aligns it and lines the meeting's transcript up from both captures; the meeting's
+/// correction and segments stand, and nothing asks about it.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 #[expect(
     clippy::too_many_lines,
     reason = "a published meeting, a capture uploaded to it, and its run step by step"
 )]
-async fn a_capture_of_a_published_meeting_is_stored_and_changes_nothing_else() {
+async fn a_capture_of_a_published_meeting_is_aligned_into_its_transcript() {
+    use crate::meetings::align::AlignMeeting;
     use crate::meetings::correct::CorrectTranscript;
     use crate::meetings::segment::SegmentMeeting;
     use crate::meetings::transcribe::TranscribeMeeting;
@@ -910,6 +912,16 @@ async fn a_capture_of_a_published_meeting_is_stored_and_changes_nothing_else() {
         matches!(transcribed, Done::Skipped { .. }),
         "no recording to transcribe"
     );
+    let align = AlignMeeting::for_test(database.clone());
+    let aligned = run_next(&mut fixture.connection, &align, &database).await;
+    let Done::Succeeded {
+        summary: Some(aligned),
+        ..
+    } = aligned
+    else {
+        panic!("the capture is aligned: {aligned:?}");
+    };
+    assert!(aligned.ends_with("from 2 captures"), "{aligned}");
     let correct = CorrectTranscript::for_test(database.clone());
     let corrected = run_next(&mut fixture.connection, &correct, &database).await;
     assert!(matches!(corrected, Done::Succeeded { .. }), "{corrected:?}");
@@ -949,6 +961,32 @@ async fn a_capture_of_a_published_meeting_is_stored_and_changes_nothing_else() {
         .await
         .expect("counts");
     assert_eq!(items_after, items_before, "no inbox item asks about it");
+}
+
+/// A meeting merged into another holds no captures while it is, so it takes no upload: its person
+/// adds to the meeting it went into.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_meeting_merged_into_another_takes_no_capture() {
+    let mut fixture = fixture().await;
+    let (merged, _first) = crate::models::meeting::tests::stored(&mut fixture.connection).await;
+    let (kept, _other) = crate::models::meeting::tests::stored(&mut fixture.connection).await;
+    meeting::set_merged_into(&mut fixture.connection, merged.id, Some(kept.id))
+        .await
+        .expect("merges");
+
+    let refused = fixture
+        .json(
+            Method::POST,
+            "/api/v1/meeting-uploads",
+            &json!({
+                "meetingId": merged.id,
+                "transcript": { "name": "teams.vtt", "sizeBytes": 10 },
+            }),
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(refused.body["code"], "meeting_merged");
 }
 
 #[tokio::test]

@@ -9,21 +9,25 @@
 //! meeting). What a meeting said reaches everyone else as its segments on the timeline.
 
 mod approve_correction;
+mod decide_duplicate;
 mod edit_words;
 mod get_capture_transcript;
+mod get_duplicate;
 mod get_meeting;
 mod get_words;
 mod history;
 mod hold_meeting;
 mod list_meetings;
 mod retry_meeting;
+mod set_capture_offset;
+mod split_capture;
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use chrono::{DateTime, Utc};
 use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
@@ -31,15 +35,16 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::meetings::duplicates::Moved;
 use crate::meetings::workflow;
-use crate::models::meeting::Meeting;
+use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_correction::{self, MeetingCorrection};
 use crate::models::meeting_event::{EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark};
 use crate::models::meeting_word::{self, Word, WordChange};
 use crate::models::workflow_run::{self, WorkflowRun, WorkflowRunState};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
@@ -61,11 +66,24 @@ pub fn router() -> Router<AppState> {
             "/{id}/hold",
             post(hold_meeting::hold).delete(hold_meeting::release),
         )
+        .route(
+            "/{id}/captures/{capture_id}/offset",
+            put(set_capture_offset::handle),
+        )
+        .route(
+            "/{id}/captures/{capture_id}/split",
+            post(split_capture::handle),
+        )
+        .route("/duplicates", get(get_duplicate::handle))
+        .route("/duplicates/{id}/merge", post(decide_duplicate::merge))
+        .route(
+            "/duplicates/{id}/not-the-same",
+            post(decide_duplicate::not_the_same),
+        )
 }
 
 /// A meeting as its owner sees it. Where it came from (its connector, its source, its page there,
-/// and whether a recording is kept) is its first capture's, the one a meeting holds until
-/// captures can be merged.
+/// and whether a recording is kept) is its first capture's, the one it was listed with.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MeetingResponse {
@@ -373,6 +391,49 @@ pub(super) async fn transcript_change(
         words,
         marks,
     })
+}
+
+/// Whether history entry `entry` moved a capture, a hand-set offset or a merge or split or the
+/// undo of one, which lines the transcript up again: no change of words a page could apply comes
+/// back from it, so every page reads the transcript again ([`announce_lined_up`]).
+pub(super) fn lines_up_again(entry: &MeetingEvent) -> bool {
+    matches!(
+        entry.kind(),
+        Some(EventKind::OffsetChanged | EventKind::Merged | EventKind::Split)
+    )
+}
+
+/// Tells every client that history entry `entry`, which moved a capture ([`lines_up_again`]),
+/// changed its meeting, and for a merge or a split the other meeting too, with no entry, so every
+/// page holding either reads it again, the one that asked included. A merge or a split also
+/// started runs that align the meetings again, which the engine is told of.
+///
+/// # Errors
+/// Propagates any database error.
+pub(super) async fn announce_lined_up(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    entry: &MeetingEvent,
+) -> QueryResult<()> {
+    let mut changed_ids = vec![entry.meeting_id];
+    if matches!(entry.kind(), Some(EventKind::Merged | EventKind::Split)) {
+        if let Ok(moved) = serde_json::from_value::<Moved>(entry.data.clone()) {
+            changed_ids.extend([moved.from, moved.into]);
+        }
+        events.signal(&Signal::Workflows);
+    }
+    changed_ids.sort_unstable();
+    changed_ids.dedup();
+    for changed_id in changed_ids {
+        let changed = meeting::find(connection, changed_id).await?;
+        events.publish(&ServerEvent::MeetingChanged {
+            id: changed.id,
+            state: changed.state.clone(),
+            created_by: changed.created_by,
+            entry_id: None,
+        });
+    }
+    Ok(())
 }
 
 /// Tells every client that `meeting` changed by history entry `entry`, so a page holding its

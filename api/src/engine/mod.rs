@@ -71,6 +71,7 @@ use crate::knowledge::answerer::{Answerer, AnswererDeps};
 use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
 use crate::meeting_uploads::staging::Staging;
+use crate::meetings::align::{AlignMeeting, AlignMeetingDeps};
 use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::segment::{SegmentMeeting, SegmentMeetingDeps};
@@ -211,6 +212,13 @@ pub async fn run() -> Result<()> {
         cipher: Arc::clone(&cipher),
         storage: foundation.storage.clone(),
         whisper,
+    }));
+    steps.register(AlignMeeting::new(AlignMeetingDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: foundation.storage.clone(),
+        workspace: meeting_workspace.clone(),
     }));
     steps.register(CorrectTranscript::new(CorrectTranscriptDeps {
         database: database.clone(),

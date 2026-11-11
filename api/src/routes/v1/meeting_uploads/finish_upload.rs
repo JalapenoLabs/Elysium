@@ -25,7 +25,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::create_upload::meeting_busy;
+use super::create_upload::{MEETING_MERGED, meeting_busy};
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
@@ -187,6 +187,10 @@ async fn store_capture(
     let current = meeting::lock(connection, meeting_id).await?;
     if current.created_by != upload.created_by {
         return Err(ApiError::NotFound);
+    }
+    // Merged into another since the upload began.
+    if current.merged_into.is_some() {
+        return Err(MEETING_MERGED);
     }
     let captured = meeting_capture::insert_new(connection, capture(meeting_id))
         .await?

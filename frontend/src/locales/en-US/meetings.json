@@ -152,12 +152,26 @@
         "held": "Held the meeting for approval",
         "released": "Stopped holding the meeting for approval",
         "approved": "Approved the corrected transcript",
+        "offsetChanged": "Moved a recording on the meeting's clock",
+        "merged": "Merged with another recording of this meeting",
+        "split": "Split a merged recording back out",
         "addedRecordingAndTranscript": "Added a recording and its transcript",
         "addedRecording": "Added a recording",
         "addedTranscript": "Added a transcript",
         "changed": "Changed the meeting"
       }
     }
+  },
+  "sameMeeting": {
+    "heading": "Same meeting?",
+    "untitled": "Untitled meeting",
+    "merge": "Merge",
+    "notTheSame": "Not the same",
+    "merged": "Merged on {{date}}",
+    "keptApart": "Kept apart on {{date}}",
+    "mergedToast": "Merged",
+    "keptApartToast": "Kept apart",
+    "decidedMeanwhile": "This was decided already."
   },
   "upload": {
     "action": "Upload a meeting",
@@ -201,7 +215,8 @@
       "tooManyLines": "This transcript is longer than a meeting can hold. Choose a shorter one.",
       "location": "Choose a storage location for the recording.",
       "processing": "This meeting is still being processed. Add to it once it's done.",
-      "runFailed": "This meeting's run failed. Retry or skip it from its page, then add to it."
+      "runFailed": "This meeting's run failed. Retry or skip it from its page, then add to it.",
+      "merged": "This meeting was merged into another. Add to that one instead."
     },
     "toasts": {
       "resumed": "Picking up where the upload stopped",

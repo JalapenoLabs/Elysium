@@ -82,8 +82,12 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     if let Some(meeting_id) = request.meeting_id {
-        // Its own, and done with its run, as a capture is only added once it is (`finish_upload`).
-        meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+        // Its own, not merged away, and done with its run, as a capture is only added once it is
+        // (`finish_upload`).
+        let found = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+        if found.merged_into.is_some() {
+            return Err(MEETING_MERGED);
+        }
         if let Some(run) = workflow::live_run(&mut connection, meeting_id).await? {
             return Err(meeting_busy(&run));
         }
@@ -128,6 +132,13 @@ pub async fn handle(
         Json(json!({ "upload": UploadResponse::from(staged) })),
     ))
 }
+
+/// The refusal for a capture of a meeting merged into another, which holds no captures while it
+/// is: the person adds to the meeting it went into.
+pub const MEETING_MERGED: ApiError = ApiError::CodedConflict {
+    code: "meeting_merged",
+    message: "this meeting was merged into another; add to that one",
+};
 
 /// The refusal for a capture of a meeting whose run is still its `run`: one that failed waits for
 /// its person to retry or skip it, and any other is still going or held.

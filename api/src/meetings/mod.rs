@@ -34,9 +34,13 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod align;
+pub mod alignment;
+pub mod clock;
 pub mod conversation;
 pub mod correct;
 pub mod correction;
+pub mod duplicates;
 pub mod fetch;
 pub mod final_transcript;
 pub mod fireflies;
@@ -49,6 +53,9 @@ pub mod source;
 pub mod sources;
 pub mod transcribe;
 pub mod workflow;
+
+#[cfg(test)]
+mod same_meeting_tests;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -571,8 +578,8 @@ impl Meetings {
 }
 
 /// The capture a step's input names (`capture_id`), or, for what a run started before meetings
-/// had captures was handed, which names the meeting alone, the meeting's one capture. A capture of
-/// another meeting reads as none.
+/// had captures was handed, which names the meeting alone, the meeting's first capture. A capture
+/// of another meeting reads as none.
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when the meeting has no such capture.
@@ -587,7 +594,7 @@ pub async fn capture_of(
             Level::DEBUG,
             meeting.id = %meeting_id,
             "a step's input names no capture, as a run's from before captures does; it reads the \
-             meeting's one capture",
+             meeting's first capture",
         );
         return meeting_capture::first_of(connection, meeting_id).await;
     };
