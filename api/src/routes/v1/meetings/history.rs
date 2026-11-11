@@ -20,7 +20,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, transcript_change};
+use super::{MeetingEventResponse, announce, announce_lined_up, lines_up_again, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::history::{self, UndoError};
@@ -70,9 +70,13 @@ pub async fn undo(
         .await
         .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
-    // Read again: undoing a hold changes the meeting itself.
-    let changed = meeting::find_owned(&mut connection, found.id, current.id()).await?;
-    announce(&state.events, &changed, &entry);
+    if lines_up_again(&entry) {
+        announce_lined_up(&state.events, &mut connection, &entry).await?;
+    } else {
+        // Read again: undoing a hold changes the meeting itself.
+        let changed = meeting::find_owned(&mut connection, found.id, current.id()).await?;
+        announce(&state.events, &changed, &entry);
+    }
     Ok(Json(json!({
         "entry": MeetingEventResponse::from(entry),
         "change": change,
@@ -96,5 +100,6 @@ fn refusal(error: UndoError) -> ApiError {
             message: "The meeting's transcript is corrected already.",
         },
         UndoError::Database(database) => database.into(),
+        UndoError::Transcript(other) => other.into(),
     }
 }

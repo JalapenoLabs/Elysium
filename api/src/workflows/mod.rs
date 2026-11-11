@@ -44,6 +44,7 @@ use crate::{company_doc, conversations, meetings};
 pub fn declared() -> Vec<Outline> {
     vec![
         meetings::workflow::workflow().outline(),
+        meetings::workflow::alignment().outline(),
         company_doc::workflow::workflow().outline(),
         conversations::workflow::workflow().outline(),
         assigned::workflow::workflow().outline(),

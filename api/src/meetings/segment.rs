@@ -74,12 +74,14 @@ use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Replies};
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, MeetingState};
 use crate::models::meeting_capture::MeetingCapture;
 use crate::models::meeting_correction::BasedOn;
 use crate::models::meeting_transcription;
+use crate::models::meeting_word;
 use crate::models::promise::{self, NewPromise, Promise};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::{project, user};
@@ -241,6 +243,31 @@ impl SegmentMeeting {
         })
     }
 
+    /// The meeting `input` names and the capture it was corrected from, or `None` when its
+    /// captures were merged into another meeting, which leaves it nothing to segment.
+    async fn meeting_and_capture(
+        &self,
+        input: &CorrectedMeeting,
+    ) -> Result<Option<(Meeting, MeetingCapture)>, StepFailure> {
+        let gone = |error| match error {
+            diesel::result::Error::NotFound => {
+                StepFailure::permanent("The meeting no longer exists")
+            }
+            other => StepFailure::retryable(other),
+        };
+        let mut connection = self.connection().await?;
+        let current = meeting::find(&mut connection, input.meeting_id)
+            .await
+            .map_err(gone)?;
+        if current.merged_into.is_some() {
+            return Ok(None);
+        }
+        let capture = super::capture_of(&mut connection, input.meeting_id, input.capture_id)
+            .await
+            .map_err(gone)?;
+        Ok(Some((current, capture)))
+    }
+
     /// Segments a meeting past its correction and publishes its segments. See the module's
     /// docs.
     async fn segment_meeting(
@@ -249,21 +276,11 @@ impl SegmentMeeting {
         context: &StepContext,
     ) -> Result<Done<Segmented>, StepFailure> {
         let log = &context.log;
-        let gone = |error| match error {
-            diesel::result::Error::NotFound => {
-                StepFailure::permanent("The meeting no longer exists")
-            }
-            other => StepFailure::retryable(other),
-        };
-        let (current, capture) = {
-            let mut connection = self.connection().await?;
-            let current = meeting::find(&mut connection, input.meeting_id)
-                .await
-                .map_err(gone)?;
-            let capture = super::capture_of(&mut connection, input.meeting_id, input.capture_id)
-                .await
-                .map_err(gone)?;
-            (current, capture)
+        let Some((current, capture)) = self.meeting_and_capture(&input).await? else {
+            log.line("The meeting's captures were merged into another meeting");
+            return Ok(Done::Skipped {
+                reason: "Merged into another meeting, so nothing to segment".to_owned(),
+            });
         };
         match current.state() {
             MeetingState::Pending => {
@@ -284,7 +301,7 @@ impl SegmentMeeting {
         };
         let whisper = self.whisper_transcript(&capture).await?;
         let heard = self.heard(&input, &capture, whisper.as_ref()).await?;
-        self.ensure_final_transcript(&capture, &heard, log).await?;
+        self.ensure_final_transcript(current.id, log).await?;
         let transcript = heard.into_lines(log);
         let segments = match stored_segments(&current)? {
             Some(segments) => {
@@ -375,29 +392,31 @@ impl SegmentMeeting {
         })
     }
 
-    /// Builds the meeting's final transcript from what `capture` heard and its corrected copy,
-    /// unless it has one: a meeting whose correction was skipped has none yet.
+    /// Lines meeting `meeting_id`'s final transcript up from its captures unless it has one: a
+    /// meeting whose aligning a person skipped has none yet.
     async fn ensure_final_transcript(
         &self,
-        capture: &MeetingCapture,
-        heard: &Heard,
+        meeting_id: Uuid,
         log: &StepLog,
     ) -> Result<(), StepFailure> {
-        let Some(base) = &heard.base else {
-            return Ok(());
-        };
         let mut connection = self.connection().await?;
-        let built = final_transcript::ensure_built(
-            &mut connection,
-            capture,
-            base,
-            heard.corrected.as_deref(),
-        )
-        .await
-        .map_err(StepFailure::retryable)?;
+        let has_words = meeting_word::has_words(&mut connection, meeting_id)
+            .await
+            .map_err(StepFailure::retryable)?;
+        if has_words {
+            return Ok(());
+        }
+        let author = Author {
+            user_id: user::SYSTEM_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let built = final_transcript::rebuild(&mut connection, meeting_id, author)
+            .await
+            .map_err(StepFailure::retryable)?;
         if let Some(built) = built {
             log.line(&format!(
-                "Built the final transcript: {} words",
+                "Lined the final transcript up: {} words",
                 built.data["words"]
             ));
         }
@@ -1260,6 +1279,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             hold_for_approval: false,
+            merged_into: None,
         }
     }
 
@@ -1282,6 +1302,8 @@ mod tests {
             created_by: current.created_by,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            joined_at: Utc::now(),
+            offset_source: "listed".to_owned(),
         }
     }
 
