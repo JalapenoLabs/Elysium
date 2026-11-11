@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { shallowEqual } from 'react-redux'
 
@@ -15,12 +15,13 @@ import { MentionTextArea } from './MentionTextArea'
 
 // Misc
 import { submitOnEnter } from '../../../components/submitOnEnter'
-import { useTextDraft } from '../../../drafts/useTextDraft'
+import { forgetSessionDraft, keepSessionDraft, readSessionDraft } from '../../../drafts/sessionDrafts'
 import { keptMentions } from './meetingThreads'
 
 type Props = {
-  // What is written is kept for the tab under this name until it is posted, so picking other
-  // words, which puts a new thread's form away, or a reload, loses nothing.
+  // What is written, and whom it picked to mention, is kept for the tab under this name until it
+  // is posted, so picking other words, which puts a new thread's form away, or a reload, loses
+  // nothing.
   draftName: string
   label: string
   submitLabel: string
@@ -31,16 +32,50 @@ type Props = {
   focusOnOpen?: boolean
 }
 
+// A comment being written: its text, and the user ids picked to mention as it was typed. The two
+// are kept together, since a mention is picked rather than read out of the text.
+type CommentDraft = {
+  body: string
+  mentions: string[]
+}
+
+const NO_DRAFT: CommentDraft = { body: '', mentions: []}
+
+// The draft kept under `name`, when storage holds one of this shape; storage is outside the app.
+function readCommentDraft(name: string): CommentDraft {
+  const stored = readSessionDraft(name)
+  if (stored === null) {
+    return NO_DRAFT
+  }
+  if (typeof stored !== 'object' || !('body' in stored) || !('mentions' in stored)) {
+    console.debug('A comment draft held something else, so it was left out', { name })
+    return NO_DRAFT
+  }
+  const { body, mentions } = stored
+  if (typeof body !== 'string' || !Array.isArray(mentions)) {
+    console.debug('A comment draft held something else, so it was left out', { name })
+    return NO_DRAFT
+  }
+  return {
+    body,
+    mentions: mentions.filter((mention: unknown): mention is string => typeof mention === 'string'),
+  }
+}
+
 // Writing a comment in a meeting's thread, or starting one: the text, with `@` mentions, posted
 // with Ctrl+Enter or its button (docs/frontend.md, Hotkeys, Text areas).
 export function CommentForm(props: Props) {
   const { t } = useTranslation('meetings')
   const namesById = useAppSelector(selectUserNamesById, shallowEqual)
-  const draft = useTextDraft(props.draftName)
-  const body = draft.text ?? ''
-  const [ mentions, setMentions ] = useState<string[]>([])
+  const { draftName } = props
+  const [ draft, setDraft ] = useState(() => readCommentDraft(draftName))
   const [ isPosting, setIsPosting ] = useState(false)
-  const trimmed = body.trim()
+  const trimmed = draft.body.trim()
+
+  // Kept as it changes; blank text is never kept, so blanking the field leaves the last words.
+  useEffect(() => {
+    keepSessionDraft(draftName, draft, [ draft.body ])
+  }, [ draftName, draft ])
 
   async function post() {
     if (!trimmed || isPosting) {
@@ -49,10 +84,10 @@ export function CommentForm(props: Props) {
     }
     setIsPosting(true)
     try {
-      const posted = await props.onSubmit(trimmed, keptMentions(trimmed, mentions, namesById))
+      const posted = await props.onSubmit(trimmed, keptMentions(trimmed, draft.mentions, namesById))
       if (posted) {
-        draft.forget()
-        setMentions([])
+        forgetSessionDraft(draftName)
+        setDraft(NO_DRAFT)
       }
     }
     finally {
@@ -70,10 +105,10 @@ export function CommentForm(props: Props) {
   >
     <MentionTextArea
       label={props.label}
-      value={body}
-      onChange={draft.change}
-      mentions={mentions}
-      onMentionsChange={setMentions}
+      value={draft.body}
+      onChange={(body) => setDraft((current) => ({ ...current, body }))}
+      mentions={draft.mentions}
+      onMentionsChange={(mentions) => setDraft((current) => ({ ...current, mentions }))}
       onEscape={isPosting
         ? undefined
         : props.onCancel}

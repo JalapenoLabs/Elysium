@@ -153,6 +153,9 @@ async fn with_mentions(
     connection: &mut AsyncPgConnection,
     comments: Vec<Comment>,
 ) -> QueryResult<Vec<WrittenComment>> {
+    if comments.is_empty() {
+        return Ok(Vec::new());
+    }
     let ids: Vec<Uuid> = comments.iter().map(|comment| comment.id).collect();
     let rows: Vec<(Uuid, Uuid)> = meeting_comment_mentions::table
         .filter(meeting_comment_mentions::comment_id.eq_any(&ids))
@@ -265,6 +268,55 @@ struct ThreadRow {
     quote: String,
 }
 
+#[derive(Debug, QueryableByName)]
+struct SpanRow {
+    #[diesel(sql_type = BigInt)]
+    start_ms: i64,
+    #[diesel(sql_type = BigInt)]
+    end_ms: i64,
+}
+
+/// The standing threads of meeting `$1` whose range overlaps `$2` to `$3` on its clock, as the
+/// tables `marks`, `first` (its first word), and `last` (its last word), for both queries over
+/// them to share one predicate. A range overlaps the span when it starts before the span ends and
+/// ends after it starts; a range of one instant, a word with no time of its own, counts as a
+/// millisecond long, so it still lies in the segment around it.
+const THREADS_OVER: &str = "
+    FROM meeting_marks marks
+    JOIN meeting_words first ON first.id = marks.start_word_id
+    JOIN meeting_words last ON last.id = marks.end_word_id
+    WHERE marks.meeting_id = $1
+      AND marks.kind = 'comment'
+      AND marks.removed_by IS NULL
+      AND first.start_ms < $3
+      AND GREATEST(last.end_ms, first.start_ms + 1) > $2";
+
+/// Where on its clock each of meeting `meeting_id`'s standing threads overlapping `start_ms` to
+/// `end_ms` lies, from its first word's start to its last word's end: the spans whose segments a
+/// change to those words indexes again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn spans_over(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    start_ms: i64,
+    end_ms: i64,
+) -> QueryResult<Vec<(i64, i64)>> {
+    let rows: Vec<SpanRow> = diesel::sql_query(format!(
+        "SELECT first.start_ms, GREATEST(last.end_ms, first.start_ms) AS end_ms {THREADS_OVER}"
+    ))
+    .bind::<SqlUuid, _>(meeting_id)
+    .bind::<BigInt, _>(start_ms)
+    .bind::<BigInt, _>(end_ms)
+    .load(connection)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.start_ms, row.end_ms))
+        .collect())
+}
+
 /// Meeting `meeting_id`'s standing threads whose range overlaps `start_ms` to `end_ms` on its
 /// clock, in the order their ranges start, each with its comments: what a segment over that
 /// span indexes beside its own text (`knowledge::records`).
@@ -277,11 +329,8 @@ pub async fn indexed_over(
     start_ms: i64,
     end_ms: i64,
 ) -> QueryResult<Vec<IndexedThread>> {
-    // A range overlaps the span when it starts before the span ends and ends after it starts; a
-    // range of one instant, a word with no time of its own, counts as a millisecond long, so it
-    // still lies in the segment around it. The quote reads the standing words between its ends,
-    // through the transcript's own index.
-    let threads: Vec<ThreadRow> = diesel::sql_query(
+    // The quote reads the standing words between its ends, through the transcript's own index.
+    let threads: Vec<ThreadRow> = diesel::sql_query(format!(
         "SELECT marks.id AS mark_id,
                 COALESCE((
                     SELECT string_agg(quoted.text, ' ' ORDER BY quoted.position)
@@ -295,16 +344,9 @@ pub async fn indexed_over(
                         LIMIT $4
                     ) quoted
                 ), '') AS quote
-         FROM meeting_marks marks
-         JOIN meeting_words first ON first.id = marks.start_word_id
-         JOIN meeting_words last ON last.id = marks.end_word_id
-         WHERE marks.meeting_id = $1
-           AND marks.kind = 'comment'
-           AND marks.removed_by IS NULL
-           AND first.start_ms < $3
-           AND GREATEST(last.end_ms, first.start_ms + 1) > $2
+         {THREADS_OVER}
          ORDER BY first.position, marks.id",
-    )
+    ))
     .bind::<SqlUuid, _>(meeting_id)
     .bind::<BigInt, _>(start_ms)
     .bind::<BigInt, _>(end_ms)

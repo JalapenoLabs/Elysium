@@ -142,7 +142,7 @@
       "new": "New comment",
       "label": "Comment",
       "replyLabel": "Reply",
-      "hint": "@ mentions someone. Ctrl+Enter posts.",
+      "hint": "@ mentions someone. Ctrl+Enter, or Cmd+Enter on a Mac, posts.",
       "mentionsLabel": "People to mention",
       "noOneToMention": "Nobody by that name",
       "post": "Comment",

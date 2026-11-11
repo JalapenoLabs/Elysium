@@ -168,7 +168,7 @@ function comment(id: string, threadId: string, body: string): MeetingComment {
   }
 }
 
-function renderWorkspace(context: Context, shown: MeetingWords = transcript) {
+function renderWorkspace(context: Context, shown: MeetingWords = transcript, address = '/') {
   const store = createAppStore()
   store.dispatch(usersLoaded(people))
   const router = createMemoryRouter([{
@@ -185,7 +185,7 @@ function renderWorkspace(context: Context, shown: MeetingWords = transcript) {
         </TestAriaRouter>
       </SWRConfig>
     </Provider>,
-  }])
+  }], { initialEntries: [ address ]})
   render(<RouterProvider router={router} />)
 }
 
@@ -214,12 +214,15 @@ describe('MeetingWorkspace', () => {
     vi.mocked(getMeetingThreads).mockResolvedValue({ comments: []})
     vi.mocked(startMeetingThread).mockReset()
     vi.mocked(setMeetingThreadResolved).mockReset()
+    // Comment drafts are kept for the tab, which every test here shares.
+    window.sessionStorage.clear()
     vi.mocked(toast.success).mockReset()
     vi.mocked(toast).mockReset()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it<Context>('picks a moment where a click lands on no mark, and selects nothing', (context) => {
@@ -435,6 +438,53 @@ describe('MeetingWorkspace', () => {
     expect(vi.mocked(toast.success).mock.calls[0][1]?.action?.label).toBe('Undo')
   })
 
+  it<Context>('keeps whom a new thread mentions when its form is put away and opened again', async (context) => {
+    vi.mocked(startMeetingThread).mockResolvedValue({
+      entry: entry('started', 'marked'),
+      change: { removedWordIds: [], words: [], marks: transcript.marks },
+      comment: { ...comment('first', 'new', '@Elysia who?'), mentions: [ ELYSIA_USER_ID ]},
+    })
+    // A desktop, where the lane stands beside the transcript and no drawer opens over it.
+    const matchMedia = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: query === '(min-width: 64rem)',
+    }))
+    renderWorkspace(context)
+    const commentField = async () => {
+      const field = (await screen.findAllByRole('textbox', { name: 'Comment' })).at(-1)
+      if (!(field instanceof HTMLTextAreaElement)) {
+        throw new Error('no comment field')
+      }
+      return field
+    }
+
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('Launch'), { shiftKey: true })
+    press('c')
+    const first = await commentField()
+    fireEvent.change(first, { target: { value: '@Ely' }})
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'Elysia' }))
+    fireEvent.change(first, { target: { value: '@Elysia who?' }})
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).at(-1) ?? first)
+    expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+
+    // Opened again, it holds the text and the mention picked with it.
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('Launch'), { shiftKey: true })
+    press('c')
+    const again = await commentField()
+    expect(again.value).toBe('@Elysia who?')
+    fireEvent.keyDown(again, { key: 'Enter', ctrlKey: true })
+
+    await waitFor(() => expect(startMeetingThread).toHaveBeenCalledWith('meeting', {
+      startWordId: 'w0',
+      endWordId: 'w0',
+      body: '@Elysia who?',
+      mentions: [ ELYSIA_USER_ID ],
+    }))
+  })
+
   it<Context>('opens a thread on its words, and resolves it with Undo', async (context) => {
     vi.mocked(getMeetingThreads).mockResolvedValue({ comments: [ comment('first', 'note', 'Is this Friday?') ]})
     const change = { removedWordIds: [], words: [], marks: [ mark('note', 'comment', 'w1', 'w2', { resolved: true }) ]}
@@ -449,6 +499,21 @@ describe('MeetingWorkspace', () => {
     await waitFor(() => expect(setMeetingThreadResolved).toHaveBeenCalledWith('meeting', 'note', true))
     expect(context.applyChange).toHaveBeenCalledWith(change)
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Thread resolved')
+  })
+
+  it<Context>('opens a thread a link names, in the drawer where the lane is one', async (context) => {
+    vi.mocked(getMeetingThreads).mockResolvedValue({ comments: [ comment('first', 'note', 'Is this Friday?') ]})
+    // jsdom lays nothing out, so it has no scrolling to bring the thread's words into view.
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    renderWorkspace(context, transcript, '/?thread=note')
+
+    // jsdom answers no media query, so this is a phone, whose lane is the drawer.
+    const drawer = await screen.findByRole('dialog')
+    expect((await within(drawer).findAllByText('Is this Friday?')).length).toBeGreaterThan(0)
+    expect(wordPiece('is').hasAttribute('data-selected')).toBe(true)
+    expect(scrollIntoView).toHaveBeenCalled()
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
   })
 
   it<Context>('draws a resolved thread no more, and lists it as resolved', async (context) => {

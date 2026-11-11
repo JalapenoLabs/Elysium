@@ -20,12 +20,13 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::meetings::comments;
+use crate::meetings::comments::{self, Announcement, CommentError};
 use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_correction;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
-use crate::models::{meeting_mark, meeting_word};
+use crate::models::meeting_mark::{self, MarkKind};
+use crate::models::meeting_word::{self, WordChange};
 
 /// Why a change could not be undone.
 #[derive(Debug, thiserror::Error)]
@@ -42,12 +43,24 @@ pub enum UndoError {
     /// A hold no longer changes once the meeting's transcript is corrected.
     #[error("the meeting's transcript is corrected already")]
     Corrected,
+    /// Undoing a thread's resolve or reopen could not tell its people (`meetings::comments`).
+    #[error(transparent)]
+    Thread(#[from] CommentError),
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
 
+/// An undo: its own history entry, and what it set off for its caller to announce once it commits
+/// ([`Announcement::publish`]), such as the inbox items an undone resolve raises.
+#[derive(Debug)]
+pub struct Undone {
+    pub entry: MeetingEvent,
+    pub announcement: Announcement,
+}
+
 /// Undoes change `event_id` of meeting `meeting_id` as `author`, under the meeting's lock, and
-/// answers the undo's own history entry. Who may undo is the caller's to decide.
+/// answers the undo's own history entry with what it set off. Who may undo is the caller's to
+/// decide.
 ///
 /// # Errors
 /// [`UndoError::NotFound`] when the meeting has no such change, [`UndoError::NotUndoable`] for a
@@ -58,7 +71,7 @@ pub async fn undo(
     meeting_id: Uuid,
     event_id: Uuid,
     author: Author<'_>,
-) -> Result<MeetingEvent, UndoError> {
+) -> Result<Undone, UndoError> {
     connection
         .transaction(async |connection| {
             let current = match meeting::lock(connection, meeting_id).await {
@@ -71,33 +84,76 @@ pub async fn undo(
                 Err(diesel::result::Error::NotFound) => return Err(UndoError::NotFound),
                 Err(error) => return Err(UndoError::Database(error)),
             };
-            let undo = match undone.kind() {
-                Some(EventKind::Edited) => meeting_word::undo(connection, &undone, author).await?,
-                Some(EventKind::Marked | EventKind::Unmarked) => {
-                    meeting_mark::undo(connection, &undone, author).await?
-                }
-                Some(EventKind::HoldChanged) => {
-                    undo_hold(connection, &current, &undone, author).await?
-                }
+            let (undo, announcement) = match undone.kind() {
+                Some(EventKind::Edited) => (
+                    meeting_word::undo(connection, &undone, author).await?,
+                    Announcement::default(),
+                ),
+                Some(EventKind::Marked | EventKind::Unmarked) => (
+                    meeting_mark::undo(connection, &undone, author).await?,
+                    Announcement::default(),
+                ),
+                Some(EventKind::HoldChanged) => (
+                    undo_hold(connection, &current, &undone, author).await?,
+                    Announcement::default(),
+                ),
                 Some(EventKind::ThreadResolved | EventKind::ThreadReopened) => {
-                    comments::undo_resolution(connection, &undone, author).await?
+                    match comments::undo_resolution(connection, &current, &undone, author).await? {
+                        Some((entry, announcement)) => (Some(entry), announcement),
+                        None => (None, Announcement::default()),
+                    }
                 }
                 Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };
-            let undo = undo.ok_or(UndoError::ChangedSince)?;
-            // A thread put back or taken away, or words a thread quotes, change what the
-            // meeting's segments index.
-            if matches!(
-                undone.kind(),
-                Some(EventKind::Edited | EventKind::Marked | EventKind::Unmarked)
-            ) {
-                comments::reindex(connection, &current).await?;
-            }
-            Ok(undo)
+            let entry = undo.ok_or(UndoError::ChangedSince)?;
+            reindex_undone(connection, &current, &undone).await?;
+            Ok(Undone {
+                entry,
+                announcement,
+            })
         })
         .await
+}
+
+/// Indexes again what undoing `undone` changed in `current`'s segments: a thread put back or
+/// taken away, or words a thread quotes. Every other change leaves the index as it was.
+async fn reindex_undone(
+    connection: &mut AsyncPgConnection,
+    current: &Meeting,
+    undone: &MeetingEvent,
+) -> diesel::QueryResult<()> {
+    match undone.kind() {
+        Some(EventKind::Edited) => {
+            // An edit's words and the ones it replaced share one span of the meeting's clock.
+            let Ok(change) = serde_json::from_value::<WordChange>(undone.data.clone()) else {
+                return Ok(());
+            };
+            let words: Vec<Uuid> = change.replaced.into_iter().chain(change.words).collect();
+            match comments::words_span(connection, current.id, &words).await? {
+                Some(span) => comments::reindex_quoting(connection, current, span).await,
+                None => Ok(()),
+            }
+        }
+        Some(EventKind::Marked | EventKind::Unmarked)
+            if undone.data.get("kind").and_then(Value::as_str)
+                == Some(MarkKind::Comment.as_str()) =>
+        {
+            let Some(mark_id) = undone
+                .data
+                .get("markId")
+                .and_then(Value::as_str)
+                .and_then(|mark_id| mark_id.parse::<Uuid>().ok())
+            else {
+                return Ok(());
+            };
+            let mark = meeting_mark::find(connection, current.id, mark_id).await?;
+            let span = comments::span_of(connection, &mark).await?;
+            comments::reindex_over(connection, current, span).await
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Records that meeting `meeting_id`'s hold went from `before` to `after`, as `author`.
@@ -193,7 +249,8 @@ mod tests {
 
         let released = undo(&mut connection, meeting.id, held.id, person())
             .await
-            .expect("undoes");
+            .expect("undoes")
+            .entry;
         assert_eq!(released.data["before"], json!(true));
         assert_eq!(released.data["after"], json!(false));
         assert!(

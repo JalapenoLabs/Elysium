@@ -13,12 +13,12 @@
 //! # Who is told
 //!
 //! Each change raises an inbox item for each person it concerns, never for whoever made it: a
-//! comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking
-//! part in the thread, who wrote in it or was mentioned in it. Machines are never told. Items are
-//! the whole workspace's until each person has a Next of their own (`docs/action-items.md`,
-//! Ownership), so each names who it is for, and carries the meeting's title and nothing written
-//! in the thread, as every item a meeting raises does. `meeting_thread_items` keeps the thread
-//! that raised it, so the item's page opens the thread.
+//! comment for everyone it mentions, and a reply, a resolve, or a reopen, an undo of either
+//! included, for everyone else taking part in the thread, who wrote in it or was mentioned in it.
+//! Machines are never told. Items are the whole workspace's until each person has a Next of their
+//! own (`docs/action-items.md`, Ownership), so each names who it is for, and carries the meeting's
+//! title and nothing written in the thread, as every item a meeting raises does.
+//! `meeting_thread_items` keeps the thread that raised it, so the item's page opens the thread.
 //!
 //! # Elysia
 //!
@@ -31,7 +31,9 @@
 //! A meeting is in the knowledge index as its segments (`docs/meetings.md`, Segment records), so
 //! a thread is indexed with each segment whose span its range overlaps (`knowledge::records`),
 //! and goes wherever that segment goes: its projects' searches, and the agents reading it. Every
-//! change here indexes the meeting's segments again ([`reindex`]); a segment's text that came out
+//! change here indexes again the segments the thread's range overlaps ([`reindex_over`]), and an
+//! edit of words a thread quotes the segments holding that thread ([`reindex_quoting`]), in the
+//! change's own transaction; a segment's text that came out
 //! the same writes nothing.
 
 use chrono::Utc;
@@ -169,7 +171,8 @@ pub async fn start(
                 .collect();
             let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
             let turn = queue_elysia(connection, meeting, &written, named.author_is_person).await?;
-            reindex(connection, meeting).await?;
+            let span = span_of(connection, &mark).await?;
+            reindex_over(connection, meeting, span).await?;
             Ok(Outcome {
                 entry: Some(entry),
                 comment: Some(written),
@@ -214,7 +217,8 @@ pub async fn reply(
             }
             let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
             let turn = queue_elysia(connection, meeting, &written, named.author_is_person).await?;
-            reindex(connection, meeting).await?;
+            let span = span_of(connection, &mark).await?;
+            reindex_over(connection, meeting, span).await?;
             Ok(Outcome {
                 entry: None,
                 comment: Some(written),
@@ -244,22 +248,12 @@ pub async fn set_resolved(
             if is_resolved(&mark) == resolved {
                 return Err(CommentError::Unchanged);
             }
-            let entry = record_resolution(connection, &mark, resolved, author, None).await?;
-            let telling = if resolved {
-                Telling::Resolved
-            } else {
-                Telling::Reopened
-            };
-            let told: Vec<(Uuid, Telling)> = meeting_comment::participants(connection, mark.id)
-                .await?
-                .into_iter()
-                .map(|person| (person, telling))
-                .collect();
-            let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
+            let (entry, announcement) =
+                resolve_and_tell(connection, meeting, &mark, resolved, author, None).await?;
             Ok(Outcome {
                 entry: Some(entry),
                 comment: None,
-                announcement: Announcement { raised, turn: None },
+                announcement,
             })
         })
         .await
@@ -279,7 +273,8 @@ pub async fn remove(
 ) -> Result<Outcome, CommentError> {
     connection
         .transaction(async |connection| {
-            standing_thread(connection, meeting.id, mark_id).await?;
+            let mark = standing_thread(connection, meeting.id, mark_id).await?;
+            let span = span_of(connection, &mark).await?;
             let entry = meeting_mark::remove(connection, meeting.id, mark_id, author)
                 .await
                 .map_err(|error| match error {
@@ -287,7 +282,7 @@ pub async fn remove(
                     MarkError::Removed => CommentError::Removed,
                     _ => CommentError::NotFound,
                 })?;
-            reindex(connection, meeting).await?;
+            reindex_over(connection, meeting, span).await?;
             Ok(Outcome {
                 entry: Some(entry),
                 comment: None,
@@ -297,17 +292,20 @@ pub async fn remove(
         .await
 }
 
-/// Undoes `undone`, a `thread_resolved` or `thread_reopened` entry, as `author`: the thread goes
-/// back to how it was. Answers `None` when its thread was resolved or reopened again since, or
-/// removed, so undoing it would overwrite that. The caller holds the meeting's lock.
+/// Undoes `undone`, a `thread_resolved` or `thread_reopened` entry of `meeting`, as `author`: the
+/// thread goes back to how it was, and everyone else taking part is told, as a resolve or a reopen
+/// tells them, so nobody is left believing a change they heard of still stands. Answers `None`
+/// when its thread was resolved or reopened again since, or removed, so undoing it would overwrite
+/// that. The caller holds the meeting's lock.
 ///
 /// # Errors
-/// Propagates any database error.
+/// Propagates any database error, and an inbox item refused.
 pub(crate) async fn undo_resolution(
     connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
     undone: &MeetingEvent,
     author: Author<'_>,
-) -> QueryResult<Option<MeetingEvent>> {
+) -> Result<Option<(MeetingEvent, Announcement)>, CommentError> {
     let Some(mark_id) = undone
         .data
         .get("markId")
@@ -323,18 +321,38 @@ pub(crate) async fn undo_resolution(
         );
         return Ok(None);
     };
-    let mark = meeting_mark::find(connection, undone.meeting_id, mark_id).await?;
+    let mark = match meeting_mark::find(connection, undone.meeting_id, mark_id).await {
+        Ok(mark) => mark,
+        Err(diesel::result::Error::NotFound) => {
+            // Only a history entry written by hand names another meeting's mark.
+            tracing::event!(
+                name: "meetings.history.unreadable",
+                tracing::Level::WARN,
+                meeting_event.id = %undone.id,
+                "a thread's history entry names no thread of its meeting; it cannot be undone",
+            );
+            return Ok(None);
+        }
+        Err(error) => return Err(CommentError::Database(error)),
+    };
     if mark.removed_by.is_some() || resolution_of(&mark) != Some(undone.id) {
         return Ok(None);
     }
     let resolved = undone.kind() != Some(EventKind::ThreadResolved);
-    Ok(Some(
-        record_resolution(connection, &mark, resolved, author, Some(undone.id)).await?,
-    ))
+    let undo = resolve_and_tell(
+        connection,
+        meeting,
+        &mark,
+        resolved,
+        author,
+        Some(undone.id),
+    )
+    .await?;
+    Ok(Some(undo))
 }
 
-/// Replaces a range of `meeting`'s words as `author` (`meeting_word::edit`), and indexes its
-/// segments again in the same transaction, since a thread quotes the words it is on.
+/// Replaces a range of `meeting`'s words as `author` (`meeting_word::edit`), and indexes again,
+/// in the same transaction, the segments holding a thread that quotes them.
 ///
 /// # Errors
 /// As `meeting_word::edit`; any database error.
@@ -347,23 +365,71 @@ pub async fn edit_words(
     connection
         .transaction(async |connection| {
             let entry = meeting_word::edit(connection, meeting.id, replacement, author).await?;
-            reindex(connection, meeting).await?;
+            // The replaced words stand no more but keep their times, which the new ones share.
+            let ends = [
+                replacement.range.start_word_id,
+                replacement.range.end_word_id,
+            ];
+            if let Some(span) = words_span(connection, meeting.id, &ends).await? {
+                reindex_quoting(connection, meeting, span).await?;
+            }
             Ok(entry)
         })
         .await
 }
 
-/// Indexes `meeting`'s segments again, so each holds the threads over it as they stand. Call it in
-/// the transaction that changed a thread, or the words one quotes.
+/// Indexes again `meeting`'s segments over `span` of its clock, so each holds the threads over it
+/// as they stand. Call it in the transaction that changed a thread there. A segment whose text
+/// came out the same writes nothing.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn reindex(connection: &mut AsyncPgConnection, meeting: &Meeting) -> QueryResult<()> {
-    let segments = timeline_record::of_meeting(connection, meeting.created_by, meeting.id).await?;
-    for (record, _) in segments {
+pub async fn reindex_over(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    span: (i64, i64),
+) -> QueryResult<()> {
+    for (record, _) in segments_over(connection, meeting, span).await? {
         timeline_record::index(connection, &record).await?;
     }
     Ok(())
+}
+
+/// Indexes again the segments holding a thread that overlaps `span` of `meeting`'s clock, whose
+/// words changed: a thread quotes them in every segment it lies in, which can reach past the span.
+/// With no thread there, nothing is indexed, since a segment's own text never changes with an
+/// edit.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reindex_quoting(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    (start_ms, end_ms): (i64, i64),
+) -> QueryResult<()> {
+    let spans = meeting_comment::spans_over(connection, meeting.id, start_ms, end_ms).await?;
+    let start = spans.iter().map(|(start, _)| *start).min();
+    let end = spans.iter().map(|(_, end)| *end).max();
+    let Some(covered) = start.zip(end) else {
+        return Ok(());
+    };
+    reindex_over(connection, meeting, covered).await
+}
+
+/// Where words `word_ids` of meeting `meeting_id` lie on its clock, from the earliest start to the
+/// latest end, standing or replaced; `None` when none of them is the meeting's.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn words_span(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    word_ids: &[Uuid],
+) -> QueryResult<Option<(i64, i64)>> {
+    let words = meeting_word::find_many(connection, meeting_id, word_ids).await?;
+    let start = words.iter().map(|word| word.start_ms).min();
+    let end = words.iter().map(|word| word.end_ms).max();
+    Ok(start.zip(end).map(|(start, end)| (start, end.max(start))))
 }
 
 impl Announcement {
@@ -517,6 +583,31 @@ async fn standing_thread(
         return Err(CommentError::Removed);
     }
     Ok(mark)
+}
+
+/// Resolves thread `mark` of `meeting`, or opens it again, as `author` (undoing `undid`, when it is
+/// an undo), records it, and tells everyone else taking part in the thread.
+async fn resolve_and_tell(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    mark: &Mark,
+    resolved: bool,
+    author: Author<'_>,
+    undid: Option<Uuid>,
+) -> Result<(MeetingEvent, Announcement), CommentError> {
+    let entry = record_resolution(connection, mark, resolved, author, undid).await?;
+    let telling = if resolved {
+        Telling::Resolved
+    } else {
+        Telling::Reopened
+    };
+    let told: Vec<(Uuid, Telling)> = meeting_comment::participants(connection, mark.id)
+        .await?
+        .into_iter()
+        .map(|person| (person, telling))
+        .collect();
+    let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
+    Ok((entry, Announcement { raised, turn: None }))
 }
 
 /// Records thread `mark` resolved, or opened again, as `author` (undoing `undid`, when it is an
@@ -741,10 +832,13 @@ mod tests {
         Writing { body, mentions }
     }
 
-    /// Who each item `outcome` raised is for, and its title.
-    async fn told(connection: &mut AsyncPgConnection, outcome: &Outcome) -> Vec<(Uuid, String)> {
+    /// Who each item `announcement` raised is for, and its title.
+    async fn told(
+        connection: &mut AsyncPgConnection,
+        announcement: &Announcement,
+    ) -> Vec<(Uuid, String)> {
         let mut told = Vec::new();
-        for raised in &outcome.announcement.raised {
+        for raised in &announcement.raised {
             let person: Uuid = crate::database::schema::meeting_thread_items::table
                 .find(raised.record.id)
                 .select(crate::database::schema::meeting_thread_items::person_id)
@@ -819,7 +913,7 @@ mod tests {
         assert_eq!(entry.kind(), Some(EventKind::Marked));
         let mark_id = started.comment.as_ref().expect("a comment").comment.mark_id;
         assert_eq!(
-            told(&mut connection, &started).await,
+            told(&mut connection, &started.announcement).await,
             vec![(
                 GRACE_ID,
                 format!("Tester mentioned Grace Hopper on {title}")
@@ -845,7 +939,7 @@ mod tests {
         .expect("replies");
         assert!(replied.entry.is_none());
         assert_eq!(
-            told(&mut connection, &replied).await,
+            told(&mut connection, &replied.announcement).await,
             vec![(
                 TEST_PERSON_ID,
                 format!("Grace Hopper replied in a thread on {title}")
@@ -858,7 +952,7 @@ mod tests {
             .expect("resolves");
         let resolution = resolved.entry.as_ref().expect("an entry").id;
         assert_eq!(
-            told(&mut connection, &resolved).await,
+            told(&mut connection, &resolved.announcement).await,
             vec![(GRACE_ID, format!("Tester resolved a thread on {title}"))]
         );
         assert!(matches!(
@@ -870,11 +964,16 @@ mod tests {
             .expect("the thread");
         assert!(is_resolved(&thread));
 
-        // Undoing the resolve opens it again; undoing that undo resolves it once more, and the
-        // first resolve, moved on since, stays.
-        let reopened = history::undo(&mut connection, found.id, resolution, person())
+        // Undoing the resolve opens it again, telling Grace as a reopen does; undoing that undo
+        // resolves it once more, and the first resolve, moved on since, stays.
+        let undone = history::undo(&mut connection, found.id, resolution, person())
             .await
             .expect("undoes");
+        assert_eq!(
+            told(&mut connection, &undone.announcement).await,
+            vec![(GRACE_ID, format!("Tester reopened a thread on {title}"))]
+        );
+        let reopened = undone.entry;
         assert_eq!(reopened.kind(), Some(EventKind::ThreadReopened));
         assert_eq!(reopened.undid(), Some(resolution));
         let thread = meeting_mark::find(&mut connection, found.id, mark_id)
@@ -898,7 +997,7 @@ mod tests {
             .await
             .expect("reopens");
         assert_eq!(
-            told(&mut connection, &reopened).await,
+            told(&mut connection, &reopened.announcement).await,
             vec![(GRACE_ID, format!("Tester reopened a thread on {title}"))]
         );
     }
@@ -963,7 +1062,7 @@ mod tests {
             vec![GRACE_ID]
         );
         assert_eq!(
-            told(&mut connection, &mentioned).await,
+            told(&mut connection, &mentioned.announcement).await,
             vec![(
                 GRACE_ID,
                 "Tester mentioned Grace Hopper on Weekly sync".to_owned()

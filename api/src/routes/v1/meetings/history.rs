@@ -20,7 +20,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, transcript_change};
+use super::{MeetingEventResponse, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::history::{self, UndoError};
@@ -66,13 +66,18 @@ pub async fn undo(
         agent: None,
         at: Utc::now(),
     };
-    let entry = history::undo(&mut connection, found.id, entry_id, author)
+    let undone = history::undo(&mut connection, found.id, entry_id, author)
         .await
         .map_err(refusal)?;
+    let entry = undone.entry;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
     // Read again: undoing a hold changes the meeting itself.
     let changed = meeting::find_owned(&mut connection, found.id, current.id()).await?;
-    announce(&state.events, &changed, &entry);
+    // With the meeting, the inbox items an undone resolve or reopen raised.
+    undone
+        .announcement
+        .publish(&state.events, &mut connection, &changed, Some(entry.id))
+        .await;
     Ok(Json(json!({
         "entry": MeetingEventResponse::from(entry),
         "change": change,
@@ -95,6 +100,9 @@ fn refusal(error: UndoError) -> ApiError {
             code: "meeting_corrected",
             message: "The meeting's transcript is corrected already.",
         },
+        UndoError::Thread(error) => {
+            anyhow::anyhow!("undoing a thread's change could not tell its people: {error}").into()
+        }
         UndoError::Database(database) => database.into(),
     }
 }

@@ -124,12 +124,21 @@ export function mentionCandidates(users: User[], query: string) {
 }
 
 // The mentions a comment keeps: each one chosen whose `@Name` is still in its text, once each, in
-// the order chosen. One deleted from the text is not mentioned.
+// the order chosen. One deleted from the text is not mentioned, and neither is one whose name is
+// only the start of a longer name chosen too (`@Ada` inside `@Ada Lovelace`).
 export function keptMentions(body: string, chosen: string[], namesById: Record<string, string>) {
+  const names = chosen.map((userId) => namesById[userId] ?? '')
+  const written = new Set<string>()
+  for (const piece of mentionPieces(body, names)) {
+    if (piece.isMention) {
+      written.add(piece.text)
+    }
+  }
+
   const kept: string[] = []
   for (const userId of chosen) {
     const name = namesById[userId]
-    if (!name || kept.includes(userId) || !body.includes(`@${name}`)) {
+    if (!name || kept.includes(userId) || !written.has(`@${name}`)) {
       continue
     }
     kept.push(userId)

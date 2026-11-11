@@ -56,6 +56,11 @@ pub const INDEXED_AS: i32 = 1;
 /// cannot hold the embedder for minutes. Raising it re-indexes nothing already indexed.
 pub const BODY_MAX_CHARACTERS: usize = 100_000;
 
+/// The most of a segment's comment threads indexed after its body, in characters, so a segment
+/// with many long threads holds the embedder no longer than a long body does. Threads are taken in
+/// the order their ranges start, so what is left out is the last of them.
+pub const THREADS_MAX_CHARACTERS: usize = 50_000;
+
 /// The document `record` is indexed as, with `threads`, the comment threads over a meeting
 /// segment, after its body; `None` when it says nothing to search: no title, no sender, and no
 /// body.
@@ -71,6 +76,7 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
     paragraphs.push(record.body.chars().take(BODY_MAX_CHARACTERS).collect());
     // After the body, so a comment written later changes only the passages at the document's end
     // and the rest keep their embeddings.
+    let mut room = THREADS_MAX_CHARACTERS;
     for thread in threads {
         let mut paragraph = format!("Comment on \"{}\"", thread.quote);
         for comment in &thread.comments {
@@ -79,6 +85,12 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
             paragraph.push_str(": ");
             paragraph.push_str(&comment.body);
         }
+        let length = paragraph.chars().count();
+        if length > room {
+            paragraphs.push(paragraph.chars().take(room).collect());
+            break;
+        }
+        room -= length;
         paragraphs.push(paragraph);
     }
 
@@ -252,6 +264,32 @@ mod tests {
                  Elysia: Fixed: it reads Sharath now."
             ]
         );
+    }
+
+    #[test]
+    fn a_segments_threads_are_indexed_up_to_their_limit() {
+        let mut segment = record(SEGMENT_SOURCE_KIND);
+        segment.title = String::new();
+        segment.body = String::new();
+        segment.metadata = json!({});
+        let long = IndexedThread {
+            quote: "Friday".to_owned(),
+            comments: vec![IndexedComment {
+                author: "Ada".to_owned(),
+                body: "word ".repeat(THREADS_MAX_CHARACTERS / 10),
+            }],
+        };
+        let threads = vec![long; 5];
+
+        let indexed = document(&segment, &threads).expect("a document");
+        let indexed_characters: usize = indexed
+            .passages
+            .iter()
+            .map(|passage| passage.chars().count())
+            .sum();
+
+        assert!(indexed_characters <= THREADS_MAX_CHARACTERS);
+        assert!(indexed_characters > THREADS_MAX_CHARACTERS - passages::PASSAGE_TARGET_CHARACTERS);
     }
 
     #[test]

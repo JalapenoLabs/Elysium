@@ -255,13 +255,19 @@ export function MeetingWorkspace(props: Props) {
     revealWord(thread.start)
   }, [ placed, selectMarkById ])
 
+  // The thread a link names opens where it can be read: beside the transcript, or in the drawer
+  // where the lane is one.
+  const { open: openDrawer } = drawer
   useEffect(() => {
     if (!linkedThreadId || hasOpenedLink.current || !words.length) {
       return
     }
     hasOpenedLink.current = true
     openThread(linkedThreadId)
-  }, [ linkedThreadId, words.length, openThread ])
+    if (!window.matchMedia(LANE_BESIDE_QUERY).matches) {
+      openDrawer()
+    }
+  }, [ linkedThreadId, words.length, openThread, openDrawer ])
 
   // Starts writing a thread on the words selected; the lane holds it, so a phone opens its drawer.
   function startComment() {

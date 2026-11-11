@@ -675,14 +675,18 @@ oldest first, plain text up to 20,000 characters, each naming whom it mentions (
 removed keeps its comments, so an undo puts it back whole. A resolved thread still takes replies, so an answer under
 way when it was resolved lands.
 
-- **Who reads it.** Everyone who can read the meeting: today its owner alone, as every meeting route answers, until
-  meetings are public by default (`docs/meeting-review.md`, Who sees a meeting).
+- **Who reads it.** On the meeting's page, everyone who can read the meeting: today its owner alone, as every meeting
+  route answers, until meetings are public by default (`docs/meeting-review.md`, Who sees a meeting). Its text is
+  in the knowledge index for every member, as the segments it lies in are (The index, below), as every timeline
+  record's text is (`docs/knowledge.md`, Who sees what).
 - **Mentions are picked, not parsed.** A comment names the user ids it mentions beside its text, chosen as `@` is
   typed, so a name written twice or shared by two people is never a guess. Only an active person or Elysia can be
   mentioned.
 - **Who is told.** Every change raises an inbox item for each person it concerns, never for whoever made it and never
   for a machine: a comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking part
-  in the thread, who wrote in it or was mentioned in it. Someone mentioned in a reply hears of it once, as a mention.
+  in the thread, who wrote in it or was mentioned in it. Undoing a resolve or a reopen tells them too, as the reopen
+  or resolve it is, so nobody is left believing a change they heard of still stands. Someone mentioned in a reply
+  hears of it once, as a mention.
   Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is raised by the system, says whom it
   is for in its notes, and carries the meeting's title and nothing written in the thread. `meeting_thread_items` keeps
   the thread that raised each, so the item's page opens it (`GET /meetings/thread-items/{itemId}`).
@@ -693,10 +697,11 @@ way when it was resolved lands.
   cannot set herself going. Changing who spoke is not a change a meeting takes yet, and she says so.
 - **The index.** A meeting is in the knowledge index as its segments, so a thread is indexed with each segment whose
   span its range overlaps: its first 40 words quoted, then each comment by its author's name, after the segment's own
-  text, so a later comment re-embeds only the passages at the end. It goes wherever its segment goes: the segment's
-  projects, their searches, and the agents reading them. A thread written before its meeting is segmented is indexed
-  as the segments are stored, and every change to a thread, or to words one quotes, indexes the meeting's segments
-  again in its transaction. A meeting whose segmenting was skipped or failed has no segments, and so no indexed
+  text, so a later comment re-embeds only the passages at the end, up to 50,000 characters of threads a segment. It
+  goes wherever its segment goes: the segment's projects, their searches, and the agents reading them. A thread
+  written before its meeting is segmented is indexed as the segments are stored. A change to a thread indexes again
+  the segments its range overlaps, and an edit or its undo the segments holding a thread that quotes its words, each
+  in its own transaction; nothing else is indexed again. A meeting whose segmenting was skipped or failed has no segments, and so no indexed
   comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`, Excerpts).
 
 ## In the web app

@@ -585,7 +585,8 @@ mod tests {
         // Undoing the removal puts it back, and undoing that removes it again.
         let put_back = history::undo(&mut connection, meeting_id, unmarked.id, person())
             .await
-            .expect("puts back");
+            .expect("puts back")
+            .entry;
         assert_eq!(put_back.kind(), Some(EventKind::Marked));
         assert_eq!(put_back.undid(), Some(unmarked.id));
         assert_eq!(

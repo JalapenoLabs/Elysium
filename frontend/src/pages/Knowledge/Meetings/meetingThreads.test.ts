@@ -141,6 +141,14 @@ describe('keptMentions', () => {
     // A name deleted from the text, or someone unknown, is mentioned no more.
     expect(keptMentions('Just @Ada Lovelace', [ 'grace', 'ada', 'stranger' ], names)).toEqual([ 'ada' ])
   })
+
+  it('keeps no one whose name is only the start of a longer name written', () => {
+    const names = { ada: 'Ada', lovelace: 'Ada Lovelace' }
+
+    expect(keptMentions('Ask @Ada Lovelace', [ 'ada', 'lovelace' ], names)).toEqual([ 'lovelace' ])
+    expect(keptMentions('Ask @Ada and @Ada Lovelace', [ 'ada', 'lovelace' ], names))
+      .toEqual([ 'ada', 'lovelace' ])
+  })
 })
 
 describe('mentionPieces', () => {
