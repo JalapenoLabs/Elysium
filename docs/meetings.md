@@ -804,7 +804,8 @@ Each segment is a timeline record:
 Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, Elysia never changes
 it back, and every change is in the record's history, undoable (`docs/connectors.md`, The timeline).
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
-streams the clip from storage to the record's owner alone. Each segment is a document of the knowledge index, stored
+streams the clip from storage to the record's owner alone, a range at a time (Playing media, below). Each segment is a
+document of the knowledge index, stored
 with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
 
 ## The final transcript
@@ -892,9 +893,9 @@ and the Company page), is the one source of truth for how the company's speech i
 - **Its entries** are a table, `| Heard | Is | Sources | Speakers | Meetings |`: what was heard, what it is, the
   transcripts that heard it so (a source such as Teams, or Whisper), who was speaking, and links to the ten newest
   meetings it was heard in, then how many more ("and 42 more"), which is what its entries are ordered by wherever they
-  are read. A meeting taught again after its link fell off counts again, since the doc keeps no longer list. Below it, **What it taught itself** lists each entry Elysium added or heard again, newest
-  first, each with when, where, and why, for a person to review and prune. The hundred newest stay on the page; every
-  older one is in its versions.
+  are read. A meeting taught again after its link fell off counts again, since the doc keeps no longer list. Below it,
+  **What it taught itself** lists each entry Elysium added or heard again, newest first, each with when, where, and
+  why, for a person to review and prune. The hundred newest stay on the page; every older one is in its versions.
 - **It teaches itself, live at once.** A person's edit on a meeting's page that only fixes words, as a correction's text
   must (`meetings::fixes::edit`), and each fix of a flag the correcting agent was sure of, at 80 or more
   (`correct::TEACHING_CONFIDENCE`), add their entry or strengthen it with their source, speaker, and meeting, in the
@@ -913,6 +914,25 @@ and the Company page), is the one source of truth for how the company's speech i
   to People when it names one of the meeting's participants or speakers, and to the Glossary otherwise, for a person
   to accept or dismiss there (`docs/knowledge.md`, The company doc, and Pages, Suggestions). A correction suggests as
   Elysia, naming its run, and a person's fix as them.
+
+## Playing media
+
+A capture's recording and a segment's clip stream from their storage location through the API, from Elysium's own
+origin, so no provider address or key reaches a browser (`routes::v1::media`). `GET
+/api/v1/meetings/{id}/captures/{captureId}/media` plays a capture's recording for its meeting's owner alone, `404` for
+anyone else, a capture of another meeting, or one with no recording kept; `GET /api/v1/timeline/{id}/media` plays a
+segment's clip for its record's owner.
+
+- **A range at a time.** Both answer a `Range` of one span of bytes with `206 Partial Content` and its `Content-Range`,
+  one that covers none of the file with `416`, and anything else with the whole file, each saying `Accept-Ranges:
+  bytes`. A player asks for the part it needs, so a two hour recording seeks without being downloaded whole.
+- **From the provider, a part alone.** The range goes on to the provider (`Storage::download_range`,
+  `docs/storage.md`, Ranges), so the API reads only the part asked for, and nginx is told not to buffer the answer
+  (`X-Accel-Buffering: no`), so it reads only as fast as the browser plays rather than a whole recording ahead for
+  every seek.
+- **What it says it is.** A recording's type is what its fetch stored, or its extension's for one kept without it.
+  Only audio and video types are sent as themselves; anything else is sent as bytes, under the `/api` sandbox
+  (`docs/security.md`). Each is written once at a path that names it, so a browser keeps what it read, privately.
 
 ## In the web app
 
@@ -955,15 +975,27 @@ and the Company page), is the one source of truth for how the company's speech i
     excerpt as a blue bar in the gutter, one lane per overlap (`excerptLanes`), naming its projects over it. A space is
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
-  - **Clicking and selecting.** A click picks a moment, underlined, which the player will seek; with marks under the
+  - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
+    recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
+    a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on
+    from the same moment on the meeting's clock. A recording with audio alone plays over black with its waveform (`PlayerWaveform`),
+    drawn live from what is heard, so it needs nothing the player does not already stream. Once the page scrolls past
+    its place, which keeps its height so nothing jumps, the same media element floats in the bottom right corner and
+    plays on; dragged by its grip it goes anywhere in the window, and stays where it was left, as a share of the room
+    the window leaves, for that person on that browser (`usePlayerPlacement`). A meeting in words alone, such as a
+    Slack huddle, has no player. Clicking a word seeks to it; once the transcript or the player has been pressed, Space
+    plays and pauses, or plays the words selected, and the left and right arrows jump ten seconds; and the word being
+    spoken is underlined in the text's own color as it plays, found every frame by a binary search over the words
+    (`spokenWordAt`, `meetingPlayer.ts`), so only the paragraphs it moves between redraw.
+  - **Clicking and selecting.** A click picks a moment, underlined, which the player seeks; with marks under the
     word, the shortest is selected and every one there shows as a pill in the floating bar, which Tab moves between,
     and the selected one opens in the lane: its kind, who made it (an agent's saying so), its words, and what its kind
     says, such as how sure a confidence is and what else it might be, or what an edit replaced with its Undo. A drag,
     or a click then Shift+click, selects whole words; a touch screen has Select from here, then a tap where it ends.
     What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
-    offers Edit (E) and clears with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words
-    selected. Comment, Assign to a project, Black out, Pin a frame, and Play from here join the bar with the issues that
-    build them.
+    offers Edit (E), and Play from here (Space) while the meeting has a recording, and clears with its X or Esc; the
+    browser's own text selection is off, and Ctrl+C copies the words selected. Comment, Assign to a project, Black out,
+    and Pin a frame join the bar with the issues that build them.
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
@@ -1023,4 +1055,3 @@ and the Company page), is the one source of truth for how the company's speech i
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
   meetings whose chats the person's Teams has not stored.
-- Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.

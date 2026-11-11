@@ -505,6 +505,8 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
 | E, Tab, Ctrl+C  | A meeting's transcript, once pressed | Edit the words selected, move between the marks under the word clicked, copy them (see Meetings) |
+| Space           | A meeting's transcript or player, once pressed, with a recording | Plays and pauses, or plays the words selected |
+| Left, Right     | A meeting's transcript or player, once pressed, with a recording | Jumps ten seconds back or forward |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
 | Esc             | A meeting's page, with words picked  | Clears what is picked, before going up a level                  |
 
@@ -982,11 +984,27 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
 - **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: Esc and Ctrl+Z
-  anywhere on the page, and E, Tab, and Ctrl+C only while focus is in the transcript (`data-review-keys`, which holds
-  its floating bar). A press on a word gives the transcript focus (`tabIndex={-1}`, never a Tab stop), since a press it
-  cancels to drag moves no focus on its own; elsewhere Tab moves focus, E is a letter, and Ctrl+C copies, as always. A
-  key it uses is marked, so the page's own Esc never goes up a level over a selection. The editor's Esc and Ctrl+Enter
+  anywhere on the page; Space and the left and right arrows while focus is in the transcript or the player
+  (`data-review-keys`, `data-player-keys`); and E, Tab, and Ctrl+C only while focus is in the transcript
+  (`data-review-keys`, which holds its floating bar). A press on a word gives the transcript focus (`tabIndex={-1}`,
+  never a Tab stop), since a press it cancels to drag moves no focus on its own; elsewhere Tab moves focus, E is a
+  letter, Space scrolls, and Ctrl+C copies, as always. Space is left to a button, link, switch, or other control that
+  has focus, which it presses, and the arrows to tabs, sliders, and radio groups such as the pills, which they move
+  through; without a recording neither is used. A key it uses is marked, so the page's own Esc never goes up a level
+  over a selection, and the player's own controls never take Space or an arrow too. The editor's Esc and Ctrl+Enter
   are its form's (`submitOnEnter`).
+- **The player** (`MeetingPlayer`, which mounts `PlayerFrame` once there is a recording to play, so the place it
+  watches to float and the box it measures exist as it starts watching them) is one `<video>` with the browser's own
+  controls, kept mounted while it floats, so it never stops; floating is a class and a position, never a second
+  element or a portal. A browser's own controls,
+  focused, keep every key and press from the page, so a mouse that focuses them hands focus to the player around them
+  (`tabIndex={-1}`, never a Tab stop) when it is not `:focus-visible`, where Space and the arrows mean what they mean
+  on the transcript; a keyboard that tabs into them keeps them, with the browser's own keys. Its media streams from the
+  API on Elysium's own origin, which the app's `default-src 'self'` allows with no `media-src` of its own. The waveform
+  listens through Web Audio (`createMediaElementSource`), which takes an element's sound once in its life, so the graph
+  belongs to the element: `useMeetingPlayer`'s ref callback closes it as the element goes, and it is made only once
+  audio alone is playing, after the person's press, so it starts running rather than suspended, and is resumed
+  whenever anything plays after.
 
 ### Markdown
 

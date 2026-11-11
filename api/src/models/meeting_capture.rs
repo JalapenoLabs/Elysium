@@ -267,6 +267,7 @@ pub struct CaptureSummary {
     pub url: Option<String>,
     pub offset_ms: i64,
     pub recording_path: Option<String>,
+    pub recording_content_type: Option<String>,
 }
 
 /// Every capture of meeting `meeting_id`, in the order they joined it, the first first.
