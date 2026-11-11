@@ -68,7 +68,7 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting, meetingHistoryKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import { getMeeting, meetingHistoryKey, meetingThreadsKey, meetingWordsKey } from '../api/routes/meetingRoutes'
 import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
@@ -404,8 +404,8 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id, and its page's transcript and history, read only while it is open,
-  // are read again, unless the page made that change itself and applied it already.
+  // meeting is loaded by id, and its page's transcript, history, and threads, read only while it
+  // is open, are read again, unless the page made that change itself and applied it already.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
@@ -417,6 +417,7 @@ const handlers: Handlers = {
       }
       void mutate(meetingWordsKey(id))
       void mutate(meetingHistoryKey(id))
+      void mutate(meetingThreadsKey(id))
     })()
     getMeeting(event.data.id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))

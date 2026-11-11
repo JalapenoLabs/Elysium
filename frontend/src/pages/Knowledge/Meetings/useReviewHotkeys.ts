@@ -51,6 +51,7 @@ type Handlers = {
   // Each answers whether it used the key, so one it did not use keeps its usual meaning.
   onEscape: () => boolean
   onEdit: () => boolean
+  onComment: () => boolean
   onCycleMark: (step: 1 | -1) => boolean
   // Held down, Space repeats; a repeat is used without playing, so the page neither scrolls nor
   // flicks between playing and paused.
@@ -88,9 +89,10 @@ function isOnPlayback(target: EventTarget | null) {
 // dialog or menu is open: Esc clears what is picked and Ctrl+Z (Cmd+Z) undoes the page's last
 // change; on the transcript or the player (`isOnPlayback`), Space plays and pauses and the left and
 // right arrows jump back and forward; and on the transcript alone (`isOnTranscript`), E edits the
-// words selected, Tab moves between the marks under the word clicked, and Ctrl+C copies the words
-// selected. They listen as the key travels down, so Esc is used here before the page's own Esc goes
-// up a level, which a used key never does (`readPageShortcut`).
+// words selected, C starts a comment thread on them, Tab moves between the marks under the word
+// clicked, and Ctrl+C copies the words selected. They listen as the key travels down, so Esc is
+// used here before the page's own Esc goes up a level, which a used key never does
+// (`readPageShortcut`).
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {
@@ -132,6 +134,10 @@ export function useReviewHotkeys(handlers: Handlers) {
       return
     }
     if (event.key.toLowerCase() === 'e' && !event.shiftKey && !event.repeat && handlers.onEdit()) {
+      event.preventDefault()
+      return
+    }
+    if (event.key.toLowerCase() === 'c' && !event.shiftKey && !event.repeat && handlers.onComment()) {
       event.preventDefault()
     }
   })

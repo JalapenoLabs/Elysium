@@ -224,8 +224,10 @@ pub enum ServerEvent {
         /// How far its processing got: `pending`, `recorded`, `segmented`, or `done`.
         state: String,
         created_by: Uuid,
-        /// The history entry a person's edit or undo recorded, so the page that made it, which
-        /// already applied it, need not read the transcript again; `null` for anything else.
+        /// The history entry a person's change from the page recorded (an edit, an undo, or
+        /// starting, resolving, reopening, or removing a thread), so the page that made it, which
+        /// already applied it, need not read the transcript again; `null` for anything else, a
+        /// reply and an agent's change included.
         entry_id: Option<Uuid>,
     },
     /// A write to an item or initiative recorded this in its history.

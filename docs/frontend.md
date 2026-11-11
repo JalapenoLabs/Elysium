@@ -506,7 +506,7 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
-| E, Tab, Ctrl+C  | A meeting's transcript, once pressed | Edit the words selected, move between the marks under the word clicked, copy them (see Meetings) |
+| E, C, Tab, Ctrl+C | A meeting's transcript, once pressed | Edit the words selected, start a comment thread on them, move between the marks under the word clicked, copy them (see Meetings) |
 | Space           | A meeting's transcript or player, once pressed, with a recording | Plays and pauses, or plays the words selected |
 | Left, Right     | A meeting's transcript or player, once pressed, with a recording | Jumps ten seconds back or forward |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
@@ -993,25 +993,29 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   `pageAddressById` sends the Meetings page's own row and address to the list. A filter narrows pages alone, so the
   filtered tree holds no meeting.
 
-- **Data.** The transcript (`useMeetingWords`) and the history (`useMeetingHistory`) are read through SWR alone, since
-  no other view shows them, and `meeting.changed` revalidates both. An edit or an undo answers what it did, which the
+- **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
+  (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates
+  all three. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
   page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
   announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
-  tab knows no such entry and reads the change as news.
+  tab knows no such entry and reads the change as news, and so does every tab for a reply, which is no history entry.
+  Where a thread lies and whether it is resolved is its mark's; `meetingThreads.ts` gathers each thread's comments in
+  one pass and reads mentions, purely.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
 - **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: Esc and Ctrl+Z
   anywhere on the page; Space and the left and right arrows while focus is in the transcript or the player
-  (`data-review-keys`, `data-player-keys`); and E, Tab, and Ctrl+C only while focus is in the transcript
+  (`data-review-keys`, `data-player-keys`); and E, C, Tab, and Ctrl+C only while focus is in the transcript
   (`data-review-keys`, which holds its floating bar). A press on a word gives the transcript focus (`tabIndex={-1}`,
-  never a Tab stop), since a press it cancels to drag moves no focus on its own; elsewhere Tab moves focus, E is a
-  letter, Space scrolls, and Ctrl+C copies, as always. Space is left to a button, link, switch, or other control that
-  has focus, which it presses, and the arrows to tabs, sliders, and radio groups such as the pills, which they move
-  through; without a recording neither is used. A key it uses is marked, so the page's own Esc never goes up a level
-  over a selection, and the player's own controls never take Space or an arrow too. The editor's Esc and Ctrl+Enter
-  are its form's (`submitOnEnter`).
+  never a Tab stop), since a press it cancels to drag moves no focus on its own; elsewhere Tab moves focus, E and C
+  are letters, Space scrolls, and Ctrl+C copies, as always. Space is left to a button, link, switch, or other control
+  that has focus, which it presses, and the arrows to tabs, sliders, and radio groups such as the pills, which they
+  move through; without a recording neither is used. A key it uses is marked, so the page's own Esc never goes up a
+  level over a selection, and the player's own controls never take Space or an arrow too. The editor's Esc and
+  Ctrl+Enter are its form's (`submitOnEnter`). In a comment's field (`MentionTextArea`), Esc first closes the mention
+  list, then puts a new thread away or leaves a reply's field, and never goes up a level.
 - **The player** (`MeetingPlayer`, which mounts `PlayerFrame` once there is a recording to play, so the place it
   watches to float and the box it measures exist as it starts watching them) is one `<video>` with the browser's own
   controls, kept mounted while it floats, so it never stops; floating is a class and a position, never a second

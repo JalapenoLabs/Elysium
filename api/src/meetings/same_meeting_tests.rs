@@ -706,7 +706,8 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         .expect("undoes the hand-set offset");
     let split = history::undo(&mut connection, teams.id, merge_entry.id, person())
         .await
-        .expect("splits");
+        .expect("splits")
+        .entry;
     assert_eq!(split.kind(), Some(EventKind::Split));
     let fireflies_now = meeting::find(&mut connection, fireflies.id)
         .await
@@ -754,7 +755,8 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     // Undoing the split merges them again.
     let merged_again = history::undo(&mut connection, teams.id, split.id, person())
         .await
-        .expect("merges again");
+        .expect("merges again")
+        .entry;
     assert_eq!(merged_again.kind(), Some(EventKind::Merged));
     let fireflies_now = meeting::find(&mut connection, fireflies.id)
         .await

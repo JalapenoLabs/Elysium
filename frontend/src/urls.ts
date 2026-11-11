@@ -293,6 +293,11 @@ export function getProjectMeetingsUrl(projectId: string) {
   return `${UrlTree.knowledgeMeetings}?${params.toString()}`
 }
 
+// A meeting's page opened at one of its comment threads.
+export function getMeetingThreadUrl(meetingId: string, threadId: string) {
+  return `${getMeetingUrl(meetingId)}?thread=${threadId}`
+}
+
 export function getMeetingCaptureUploadUrl(meetingId: string) {
   return UrlTree.meetingCaptureUploadNew.replace(':meetingId', meetingId)
 }

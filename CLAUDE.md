@@ -360,6 +360,12 @@ Everything else follows these rules:
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
   Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
   app.
+- Comment threads sit on ranges as marks of kind `comment`, their comments in `meeting_comments`
+  (`meetings::comments`). Mentions are picked user ids, never parsed from text. Each change raises an inbox item for
+  each person it concerns but its maker: whoever is mentioned, and the thread's other people for a reply, a resolve,
+  or a reopen. A person mentioning Elysia queues her `meeting-comment` turn, which answers in the thread and may edit
+  the words or attribute the topics the range lies in. A thread is indexed with the segments its range overlaps. See
+  `docs/meetings.md`, Comments.
 - Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
   one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
   group under the brief of every project its topics are on, as linked entries that move nowhere. Settings, Meetings

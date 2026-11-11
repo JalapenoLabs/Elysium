@@ -33,7 +33,7 @@ use uuid::Uuid;
 use super::availability;
 use super::prompt::{self, IdleWork, PromptMessage, TurnContext};
 use super::runner::{ElysiaOutcome, ElysiaTurn, RunnerError};
-use super::{Elysia, stored_availability, trigger};
+use super::{Elysia, stored_availability, thread, trigger};
 use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
@@ -209,17 +209,14 @@ async fn run_turn(
     publish_turn(context, &turn);
     publish_snapshot(&context.events, &mut connection).await?;
 
-    let Some(turn_context) = load_context(&mut connection, &turn).await? else {
-        // A message turn whose messages an earlier turn already answered.
-        let finished = elysia::finish_turn(
-            &mut connection,
-            turn.id,
-            Ok(Some("Answered in an earlier turn.")),
-        )
-        .await?;
-        publish_turn(context, &finished);
-        publish_snapshot(&context.events, &mut connection).await?;
-        return Ok(());
+    let turn_context = match load_context(&mut connection, &turn).await? {
+        Prepared::Ready(turn_context) => turn_context,
+        Prepared::Nothing(summary) => {
+            let finished = elysia::finish_turn(&mut connection, turn.id, Ok(Some(summary))).await?;
+            publish_turn(context, &finished);
+            publish_snapshot(&context.events, &mut connection).await?;
+            return Ok(());
+        }
     };
     // Read as the turn starts, so an admin's change applies from her next turn.
     let model = agent_models::for_agent(&mut connection, Agent::Elysia, None)
@@ -314,7 +311,15 @@ async fn record_outcome(
             keep_session(connection, session_id.as_deref()).await?;
             let result = scrubber.scrub_text(result.as_deref().unwrap_or_default());
             let read_back = prompt::read_back(&result);
-            if trigger::is_from_person(&turn.trigger_kind)
+            if turn.trigger_kind == trigger::MEETING_COMMENT {
+                // Asked in a thread, she answers there rather than in her conversation. Its
+                // detail was read as the turn started, so it names a thread here.
+                if let (Some(asked), Some(reply)) =
+                    (thread::Asked::of(&turn.trigger_detail), &read_back.reply)
+                {
+                    thread::answer(connection, &context.events, asked, reply).await?;
+                }
+            } else if trigger::is_from_person(&turn.trigger_kind)
                 && let Some(reply) = &read_back.reply
             {
                 let message = elysia::insert_message(connection, reply, ELYSIA_USER_ID).await?;
@@ -369,11 +374,15 @@ async fn keep_session(
     Ok(())
 }
 
-/// What the prompt carries for `turn`. `None` for a message turn with nothing left to answer.
-async fn load_context(
-    connection: &mut AsyncPgConnection,
-    turn: &Turn,
-) -> anyhow::Result<Option<TurnContext>> {
+/// What a turn's prompt carries, or why it has nothing left to do, as its summary says.
+enum Prepared {
+    Ready(TurnContext),
+    Nothing(&'static str),
+}
+
+/// What the prompt carries for `turn`, or nothing for a turn whose messages or thread an earlier
+/// turn already answered, or whose thread is gone.
+async fn load_context(connection: &mut AsyncPgConnection, turn: &Turn) -> anyhow::Result<Prepared> {
     let names = user::names(connection).await?;
     let name_of = |id: Uuid| {
         names
@@ -386,9 +395,9 @@ async fn load_context(
         trigger::MESSAGE => {
             let messages = elysia::messages_since_last_reply(connection).await?;
             if messages.is_empty() {
-                return Ok(None);
+                return Ok(Prepared::Nothing("Answered in an earlier turn."));
             }
-            Ok(Some(TurnContext::Messages(
+            Ok(Prepared::Ready(TurnContext::Messages(
                 messages
                     .into_iter()
                     .map(|message| PromptMessage {
@@ -402,7 +411,7 @@ async fn load_context(
         trigger::ANSWER => {
             let question_id = detail_id(&turn.trigger_detail, "questionId")?;
             let question = elysia::find_question(connection, question_id).await?;
-            Ok(Some(TurnContext::Answer {
+            Ok(Prepared::Ready(TurnContext::Answer {
                 question: question.prompt,
                 answer: question.answer.unwrap_or_default(),
                 answered_by: question
@@ -413,7 +422,7 @@ async fn load_context(
         trigger::IDLE => {
             let work = elysia::unfinished_work(connection).await?;
             let wanted = detail_ids(&turn.trigger_detail, "workIds");
-            Ok(Some(TurnContext::Idle(
+            Ok(Prepared::Ready(TurnContext::Idle(
                 work.into_iter()
                     .filter(|item| wanted.contains(&item.id))
                     .map(|item| IdleWork {
@@ -428,8 +437,22 @@ async fn load_context(
                     .collect(),
             )))
         }
+        trigger::MEETING_COMMENT => {
+            let Some(asked) = thread::Asked::of(&turn.trigger_detail) else {
+                anyhow::bail!("a meeting comment turn names no thread");
+            };
+            Ok(match thread::load(connection, asked, &names).await? {
+                thread::Loaded::Thread(asked_in) => {
+                    Prepared::Ready(TurnContext::MeetingComment(asked_in))
+                }
+                thread::Loaded::Answered => Prepared::Nothing("Answered in an earlier turn."),
+                thread::Loaded::Gone => {
+                    Prepared::Nothing("The thread was gone before it could be answered.")
+                }
+            })
+        }
         // `event`, and any kind a later version queued: the detail carries the changes.
-        _ => Ok(Some(TurnContext::Events(
+        _ => Ok(Prepared::Ready(TurnContext::Events(
             turn.trigger_detail
                 .get("events")
                 .and_then(Value::as_array)
@@ -687,6 +710,93 @@ mod tests {
 
         let state = elysia::state(&mut connection).await.expect("state loads");
         assert_eq!(state.runner_session_id.as_deref(), Some("session-1"));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run scripts/verify-migrations.sh"]
+    async fn asked_in_a_meeting_thread_she_answers_there_once() {
+        use crate::meetings::comments::{self, Writing};
+        use crate::models::meeting;
+        use crate::models::meeting_comment;
+        use crate::models::meeting_word::tests::{built_meeting, person, range, word};
+
+        let (context, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+            result: Some(
+                "Fixed: it reads Sharath now.\nSummary: Fixed a misheard name.".to_owned(),
+            ),
+            session_id: Some("session-1".to_owned()),
+        }])
+        .await;
+        let (capture, words) = built_meeting(&mut connection, &[("Ada", "Sheriff ships")]).await;
+        let found = meeting::find(&mut connection, capture.meeting_id)
+            .await
+            .expect("the meeting");
+        let sheriff = word(&words, "Sheriff");
+        let asked = comments::start(
+            &mut connection,
+            &found,
+            range(sheriff, sheriff),
+            Writing {
+                body: "@Elysia this was Sharath",
+                mentions: &[ELYSIA_USER_ID],
+            },
+            person(),
+        )
+        .await
+        .expect("starts");
+        let comment = asked.comment.expect("a comment").comment;
+        let queued = elysia::active_turns(&mut connection)
+            .await
+            .expect("turns load");
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].trigger_kind, trigger::MEETING_COMMENT);
+
+        dispatch(&context, &CancellationToken::new())
+            .await
+            .expect("the queue runs");
+
+        let thread = meeting_comment::of_thread(&mut connection, comment.mark_id)
+            .await
+            .expect("the thread loads");
+        assert_eq!(thread.len(), 2);
+        assert_eq!(thread[1].comment.created_by, ELYSIA_USER_ID);
+        assert_eq!(thread[1].comment.body, "Fixed: it reads Sharath now.");
+        // Her answer is the thread's, not her conversation's.
+        let messages = elysia::list_messages(&mut connection, None, 10)
+            .await
+            .expect("messages load");
+        assert!(messages.is_empty());
+
+        // A turn for the same comment, queued twice, finds it answered.
+        let again = elysia::insert_turn(
+            &mut connection,
+            NewTurn {
+                id: Uuid::now_v7(),
+                trigger_kind: trigger::MEETING_COMMENT.to_owned(),
+                trigger_detail: queued[0].trigger_detail.clone(),
+                created_by: comment.created_by,
+            },
+        )
+        .await
+        .expect("queues");
+        dispatch(&context, &CancellationToken::new())
+            .await
+            .expect("the queue runs");
+        let finished = elysia::find_turn(&mut connection, again.id)
+            .await
+            .expect("the turn");
+        assert_eq!(finished.status, TurnStatus::Succeeded);
+        assert_eq!(
+            finished.summary.as_deref(),
+            Some("Answered in an earlier turn.")
+        );
+        assert_eq!(
+            meeting_comment::of_thread(&mut connection, comment.mark_id)
+                .await
+                .expect("the thread loads")
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]

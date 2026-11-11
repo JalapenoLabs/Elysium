@@ -24,6 +24,7 @@ pub mod intake;
 pub mod prompt;
 pub mod runner;
 pub mod status;
+pub mod thread;
 pub mod trigger;
 
 use chrono::Utc;

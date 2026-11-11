@@ -27,6 +27,7 @@ use super::alignment::{self, Speaking};
 use super::correction::{self, Base};
 use super::source::TranscriptLine;
 use crate::models::agent::Author;
+use crate::models::meeting;
 use crate::models::meeting_capture::{self, MeetingCapture, OffsetSource};
 use crate::models::meeting_correction::{self, BasedOn};
 use crate::models::meeting_event::MeetingEvent;
@@ -124,7 +125,14 @@ pub async fn rebuild(
             .map(|capture| capture.id)
             .collect(),
     };
-    Ok(meeting_word::rebuild(connection, built, author).await?)
+    let rebuilt = meeting_word::rebuild(connection, built, author).await?;
+    // Lining the words up again can move them, and the comment threads anchored to them, across
+    // the meeting's segments, which index the threads over them.
+    if rebuilt.is_some() {
+        let current = meeting::find(connection, meeting_id).await?;
+        super::comments::reindex_meeting(connection, &current).await?;
+    }
+    Ok(rebuilt)
 }
 
 /// What `capture` heard: its source's lines, and Whisper's transcript when it has one.

@@ -44,6 +44,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
+| GET    | `/api/v1/meetings/{id}/threads`       | `200` `{ comments }`: every comment in its standing threads, each thread's oldest first |
+| POST   | `/api/v1/meetings/{id}/threads`       | `201` `{ entry, change, comment }`; starts a thread on `startWordId` to `endWordId` with `body` and `mentions` |
+| POST   | `/api/v1/meetings/{id}/threads/{threadId}/comments` | `201` `{ comment }`; replies with `body` and `mentions`, `409` (`meeting_thread_removed`) for a thread removed meanwhile |
+| POST   | `/api/v1/meetings/{id}/threads/{threadId}/resolved` | `200` `{ entry, change }`; resolves it, `409` (`meeting_thread_unchanged`) when it is already |
+| DELETE | `/api/v1/meetings/{id}/threads/{threadId}/resolved` | `200` `{ entry, change }`; opens it again, `409` (`meeting_thread_unchanged`) when it is open |
+| DELETE | `/api/v1/meetings/{id}/threads/{threadId}` | `200` `{ entry, change }`; removes it, comments and all, undoable |
+| GET    | `/api/v1/meetings/thread-items/{itemId}` | `200` `{ thread }`: `{ meetingId, threadId }` the inbox item was raised by, or `null` |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -463,6 +470,15 @@ and an undo answer `entry`, the history entry, and `change`, what it did to the 
 marks }`, the words it took out, those it stood in their place, and every mark as it now stands, for the page to apply
 without reading the transcript again. A history entry is `{ id, kind, createdBy, agent, data, undid, createdAt }`,
 `undid` naming the entry an undo undid. See `docs/meetings.md`, The final transcript and History.
+
+A thread is named by its comment mark's id. A comment is `{ id, threadId, body, mentions, createdBy, agent, createdAt
+}`, `mentions` the user ids it names. Writing one takes `{ body, mentions }`, and starting a thread its range too:
+`400` with `meeting_comment_empty` for a blank body, `meeting_comment_too_long` past 20,000 characters,
+`meeting_comment_mention` for a mention of anyone but an active person or Elysia, or a range that ends before it
+starts; `409` `meeting_words_changed` for a range a word of which was replaced meanwhile. Starting, resolving,
+reopening, and removing a thread are changes in its meeting's history, answered as an edit is. `thread-items` answers
+`null` for an item no thread of the caller's meetings raised, since every item's page asks. See `docs/meetings.md`,
+Comments.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
