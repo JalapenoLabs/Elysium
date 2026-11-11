@@ -505,8 +505,11 @@ pub fn prompt(background: &str, transcript: &Transcript<'_>) -> String {
 pub enum AnswerError {
     #[error("the answer holds no JSON object")]
     NoJson,
-    #[error("the answer is not the expected shape: {0}")]
-    Shape(String),
+    /// Where in the answer it went wrong, and never what was there: serde's own message quotes
+    /// the value it refused, which may be the meeting's words, and the step's error is every
+    /// member's. The message itself is logged to the server's own log.
+    #[error("the answer is not the expected shape, at line {line}, column {column}")]
+    Shape { line: usize, column: usize },
 }
 
 /// Why one flag was refused. Each says what was wrong and never what the line says, since every
@@ -596,8 +599,13 @@ struct AnswerFlag {
 /// [`AnswerError`] when the answer holds no JSON object or is not the asked-for shape.
 pub fn parse_answer(answer: &str, transcript: &Transcript<'_>) -> Result<Checked, AnswerError> {
     let json = json_object(answer).ok_or(AnswerError::NoJson)?;
-    let parsed: Answer =
-        serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
+    let parsed: Answer = serde_json::from_str(json).map_err(|error| {
+        tracing::debug!(%error, "a correction's answer is not the expected shape");
+        AnswerError::Shape {
+            line: error.line(),
+            column: error.column(),
+        }
+    })?;
 
     let mut checked = Checked::default();
     let mut taken: Vec<Range<usize>> = Vec::new();

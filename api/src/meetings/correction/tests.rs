@@ -338,10 +338,20 @@ fn the_transcription_doc_gives_its_most_heard_entries_within_its_budget() {
 
     let text = transcription_text(&entries);
 
+    // The entries keep to the budget; the line after them saying how many were left out is not
+    // counted in it.
+    let shown_bytes = text
+        .lines()
+        .filter(|line| line.starts_with("- "))
+        .map(|line| line.len() + 1)
+        .sum::<usize>();
     assert!(
-        text.len() <= TRANSCRIPTION_BUDGET_BYTES + 100,
-        "{} bytes",
-        text.len()
+        shown_bytes <= TRANSCRIPTION_BUDGET_BYTES,
+        "{shown_bytes} bytes"
+    );
+    assert!(
+        shown_bytes > TRANSCRIPTION_BUDGET_BYTES - 100,
+        "it fills the budget"
     );
     assert!(
         text.starts_with("- \"Sheriff\" is Sharath"),
@@ -526,8 +536,19 @@ fn a_flag_is_kept_only_over_words_it_was_given_without_overlap() {
     assert_eq!(parse_answer("no", &transcript), Err(AnswerError::NoJson));
     assert!(matches!(
         parse_answer("{\"edits\": []}", &transcript),
-        Err(AnswerError::Shape(_))
+        Err(AnswerError::Shape { .. })
     ));
+    // #269 review: a string where a list belongs is refused by where it is, never by what it says.
+    let quoted = parse_answer(
+        r#"{"flags": "We asked Sheriff about the launch"}"#,
+        &transcript,
+    )
+    .expect_err("refused");
+    assert!(
+        matches!(quoted, AnswerError::Shape { line: 1, .. }),
+        "{quoted:?}"
+    );
+    assert!(!quoted.to_string().contains("Sheriff"), "{quoted}");
 }
 
 #[test]

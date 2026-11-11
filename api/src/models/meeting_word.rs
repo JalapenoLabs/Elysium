@@ -1406,10 +1406,10 @@ pub struct SettledChange {
 }
 
 /// Settles meeting `meeting_id`'s final transcript as `author`, under its lock, as one change of
-/// its history: over each of `ranges` (none overlapping another) the text it decided on replaces
-/// the range's words as words of the correction's own, and a confidence mark covers the range. A
-/// range whose words no longer stand exactly as the correction read them is passed over, since
-/// whatever changed them is newer than the correction's reading.
+/// its history: over each of `ranges` the text it decided on replaces the range's words as words of
+/// the correction's own, and a confidence mark covers the range. A range whose words no longer
+/// stand exactly as the correction read them is passed over, since whatever changed them is newer
+/// than the correction's reading, and so is one sharing a word with a range before it.
 ///
 /// # Errors
 /// Propagates any database error, such as a meeting that does not exist.
@@ -1446,8 +1446,9 @@ pub async fn settle(
                 marks_added: Vec::new(),
                 skipped: 0,
             };
-            // Every range is checked against the transcript as it reads now, read once: the ranges
-            // never overlap, so writing one leaves every other's words standing in their order.
+            // Every range is checked against the transcript as it reads now, read once. Writing one
+            // range leaves every other's words standing in their order only while no two share a
+            // word, which the correction's checks keep so and `claimed` makes sure of.
             let standing_now = standing(connection, meeting_id).await?;
             let place: HashMap<Uuid, usize> = standing_now
                 .iter()
@@ -1456,6 +1457,7 @@ pub async fn settle(
                 .collect();
             let mut marked = Vec::with_capacity(ranges.len());
             let mut marks_alone: Vec<NewMark> = Vec::new();
+            let mut claimed: HashSet<Uuid> = HashSet::new();
             for settled in ranges {
                 let (Some(first), Some(last)) =
                     (settled.words.as_slice().first(), settled.words.last())
@@ -1474,12 +1476,14 @@ pub async fn settle(
                             .iter()
                             .map(|word| word.id)
                             .eq(settled.words.iter().copied())
-                    });
+                    })
+                    .filter(|words| words.iter().all(|word| !claimed.contains(&word.id)));
                 let Some(words) = words else {
                     recorded.skipped += 1;
                     marked.push(None);
                     continue;
                 };
+                claimed.extend(settled.words.iter().copied());
                 let Some(text) = settled.text.as_deref() else {
                     // Its words stand as they are; only its mark is new, written with the rest.
                     let mark = NewMark::new(

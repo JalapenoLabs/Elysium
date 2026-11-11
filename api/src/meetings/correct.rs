@@ -455,11 +455,10 @@ impl CorrectTranscript {
                 // The flags are the first ranges (`settled_ranges`), so the first answers are
                 // theirs. A flag whose words changed since the turn read them was passed over, and
                 // so is left out of the copy as of the words.
-                let (flag_marks, _changed_marks) = settled.marked.split_at(settling.flags.len());
                 let applied: Vec<&Flag> = settling
                     .flags
                     .iter()
-                    .zip(flag_marks)
+                    .zip(&settled.marked[..settling.flags.len()])
                     .filter(|(_flag, marked)| marked.is_some())
                     .map(|(flag, _marked)| flag)
                     .collect();

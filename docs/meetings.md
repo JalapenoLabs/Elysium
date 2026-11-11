@@ -468,7 +468,8 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   each only fixing words as its text must, and at most three. A refused flag leaves its words as they were, and is
   logged by its line number and why, the number alone: a line the model named by anything else may quote the meeting,
   so it is logged as unnamed. An answer with no JSON, or the wrong shape, fails the attempt, which the run's
-  backoff tries again.
+  backoff tries again; the shape's error says only where in the answer it went wrong, since what was there may quote
+  the meeting.
 - **Settling.** In one transaction under the meeting's lock (`meeting_word::settle`): each flag whose text differs from
   its words replaces them with words of the correction's own (origin `correction`, their capture the words'), sharing
   their span, every mark over the old words covering the new ones; and every flag makes a confidence mark over its
