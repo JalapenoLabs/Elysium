@@ -1949,7 +1949,16 @@ mod tests {
             recording: None,
             whisper_transcript_hash: Some("b".repeat(64)),
         };
-        let context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        // The run its suggestions to the company doc name.
+        let run = workflows::start(
+            &mut connection,
+            &EventBus::in_process(),
+            super::super::workflow::run_for(stored.id),
+        )
+        .await
+        .expect("a run");
+        let mut context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        context.run_id = run.settled.run.id;
 
         // The turn reads the meeting, and Ada fixes the name herself before it answers.
         let Read::Heard(heard) = step.read(&input, &context.log).await.expect("reads") else {
