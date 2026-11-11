@@ -27,7 +27,7 @@ use super::alignment::{self, Speaking};
 use super::correction::{self, Base};
 use super::source::TranscriptLine;
 use crate::models::agent::Author;
-use crate::models::meeting_capture::{self, MeetingCapture};
+use crate::models::meeting_capture::{self, MeetingCapture, OffsetSource};
 use crate::models::meeting_correction::{self, BasedOn};
 use crate::models::meeting_event::MeetingEvent;
 use crate::models::meeting_transcription;
@@ -117,6 +117,12 @@ pub async fn rebuild(
             })
             .collect(),
         built_from,
+        provisional: captures
+            .iter()
+            .skip(1)
+            .filter(|capture| capture.offset_source() == OffsetSource::Listed)
+            .map(|capture| capture.id)
+            .collect(),
     };
     Ok(meeting_word::rebuild(connection, built, author).await?)
 }

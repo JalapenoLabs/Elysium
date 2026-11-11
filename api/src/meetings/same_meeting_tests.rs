@@ -6,6 +6,8 @@
 //! clock keeping a person's edit, a split puts everything back, and an offset set by hand moves a
 //! capture's words until it is undone. See `docs/meetings.md`, Aligning and The same meeting twice.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use serde_json::json;
@@ -499,10 +501,24 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     ));
 
     // Ada merges it.
+    let teams_said: Vec<Uuid> = standing(&mut connection, teams.id)
+        .await
+        .iter()
+        .filter(|word| word.capture_id == Some(teams_capture.id))
+        .map(|word| word.id)
+        .collect();
     let merged = duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
         .await
         .expect("merges");
     assert_eq!(merged.pair.decision.as_deref(), Some("merged"));
+    // Lined up at the offset the listings gave, Fireflies' carried edits sit at a time nobody has
+    // checked yet, so they keep out none of Teams' words: every one stands, with its id.
+    let standing_ids: HashSet<Uuid> = standing(&mut connection, teams.id)
+        .await
+        .iter()
+        .map(|word| word.id)
+        .collect();
+    assert!(teams_said.iter().all(|id| standing_ids.contains(id)));
     let fireflies_now = meeting::find(&mut connection, fireflies.id)
         .await
         .expect("found");
@@ -588,6 +604,14 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     // One transcript: Teams' words where Teams heard them, Ada's edit standing, the excerpt still
     // over the words it was made on, and the goodbyes only Fireflies heard, at forty seconds.
     let lined_up = standing(&mut connection, teams.id).await;
+    // Placed by its words, Fireflies' corrected name now sits over Teams' own, which alone of
+    // Teams' words gives way to it.
+    let standing_ids: HashSet<Uuid> = lined_up.iter().map(|word| word.id).collect();
+    let gave_way: Vec<&Uuid> = teams_said
+        .iter()
+        .filter(|id| !standing_ids.contains(id))
+        .collect();
+    assert_eq!(gave_way.len(), 1, "{gave_way:?}");
     let read = text(&lined_up);
     assert!(
         read.contains("Sharath confirmed the Elysium migration finishes Thursday night."),

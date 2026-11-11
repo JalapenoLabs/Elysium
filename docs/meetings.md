@@ -719,9 +719,12 @@ in the meeting's history that wrote it (`introduced_by`).
   takes its new times, so a capture placed anew moves its words rather than replacing them. One capture's comparison
   that runs past two seconds settles for a larger diff. Every edit's words stand through it, and the captures' words
   inside an edit's time stay out. An edit belongs to the capture of the words it replaced, and it and they move with
-  that capture, by as much as its offset moved since the last `built` entry, so an edit stays over what it replaced
-  wherever its capture goes on the clock. A mark over a word a rebuild replaced moves onto the new words at the same
-  moment. A rebuild is not undone on its own; what caused it is, and that lines the transcript up again.
+  that capture, by as much as its offset moved since its words were last placed (the newest `built` entry naming it,
+  or the merge that brought it), so an edit stays over what it replaced wherever its capture goes on the clock. A
+  standing word another capture heard under an edit is replaced too, even when it says the same, but only once the
+  edit's capture is placed: an edit over a capture still at its listed offset sits at a time nobody has checked. A mark
+  over a word a rebuild replaced moves onto the new words at the same moment. A rebuild is not undone on its own; what
+  caused it is, and that lines the transcript up again.
 - **Every word it ever held.** A word is never deleted, and what it says (its text, speaker, and origin) is never
   rewritten; only its times move, with its capture's place on the clock. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
