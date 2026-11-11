@@ -742,7 +742,8 @@ fn alternatives_of(answered: &[Value], heard: &str, text: &str) -> Vec<String> {
 }
 
 /// A run of the transcript whose text differs from what a capture heard over it, which no flag
-/// covers: marked changed at [`CHANGED_CONFIDENCE`], with what the captures heard there.
+/// covers: marked changed at [`CHANGED_CONFIDENCE`], with what the captures heard there. A capture
+/// that heard nothing there gives no alternative.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Changed {
     /// As a range of the transcript's words.
@@ -765,14 +766,21 @@ struct Differing {
     words: Range<usize>,
     /// The capture's version that heard it otherwise.
     version: usize,
-    /// What that version heard there.
+    /// What that version heard there: empty for words it heard nothing in place of.
     heard: String,
 }
 
 /// Every run of `transcript` whose words differ from what one of its captures heard over the same
 /// line, compared word by word as fixes are, that none of `flags` overlaps and no person's edit
-/// wrote. Runs that overlap, as two captures that heard a name differently give, are one, and each
-/// capture's reading of it is one of its alternatives.
+/// wrote: words the capture heard as other words, and words it heard nothing in place of between
+/// words it agreed on. Runs that overlap, as two captures that heard a name differently give, are
+/// one, and each capture's reading of it is one of its alternatives.
+///
+/// Words a capture left out at a line's start or end are not counted, since the capture may have
+/// placed them on the line beside it, or not yet or no longer been recording. Words a capture heard
+/// that the transcript does not hold are not either: there is no word of the transcript to mark,
+/// and they are mostly the fillers a source's own transcript tidies away. The prompt shows the
+/// model both, under each line.
 pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Changed> {
     let mut changed = Vec::new();
     for (number, line) in transcript.lines.iter().enumerate() {
@@ -787,16 +795,27 @@ pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Cha
                 continue;
             }
             let heard_keys: Vec<String> = heard.iter().map(|word| comparable(&word.text)).collect();
-            for operation in similar::capture_diff_slices(Algorithm::Myers, &said_keys, &heard_keys)
-            {
-                let DiffOp::Replace {
-                    old_index,
-                    old_len,
-                    new_index,
-                    new_len,
-                } = operation
-                else {
-                    continue;
+            let operations =
+                similar::capture_diff_slices(Algorithm::Myers, &said_keys, &heard_keys);
+            let agreed_around = |index: usize| {
+                index > 0
+                    && matches!(operations[index - 1], DiffOp::Equal { .. })
+                    && matches!(operations.get(index + 1), Some(DiffOp::Equal { .. }))
+            };
+            for (index, operation) in operations.iter().enumerate() {
+                let (old_index, old_len, heard_run) = match *operation {
+                    DiffOp::Replace {
+                        old_index,
+                        old_len,
+                        new_index,
+                        new_len,
+                    } => (old_index, old_len, new_index..new_index + new_len),
+                    DiffOp::Delete {
+                        old_index,
+                        old_len,
+                        new_index,
+                    } if agreed_around(index) => (old_index, old_len, new_index..new_index),
+                    _ => continue,
                 };
                 let words = line.start + old_index..line.start + old_index + old_len;
                 let flagged = flags
@@ -808,7 +827,7 @@ pub fn unflagged_changes(transcript: &Transcript<'_>, flags: &[Flag]) -> Vec<Cha
                 if flagged || edited {
                     continue;
                 }
-                let heard = heard[new_index..new_index + new_len]
+                let heard = heard[heard_run]
                     .iter()
                     .map(|word| word.text.as_str())
                     .collect::<Vec<_>>()
@@ -857,7 +876,9 @@ fn merged(transcript: &Transcript<'_>, mut differing: Vec<Differing>) -> Vec<Cha
                 let mut index = span.start;
                 while index < span.end {
                     if let Some(run) = own.iter().find(|run| run.words.start == index) {
-                        reading.push(run.heard.clone());
+                        if !run.heard.is_empty() {
+                            reading.push(run.heard.clone());
+                        }
                         index = run.words.end;
                     } else {
                         reading.push(transcript.words[index].text.clone());
@@ -865,7 +886,11 @@ fn merged(transcript: &Transcript<'_>, mut differing: Vec<Differing>) -> Vec<Cha
                     }
                 }
                 let reading = reading.join(" ");
-                if alternatives.len() < ALTERNATIVES_MAX && seen.insert(keys_text(&reading)) {
+                // A capture that heard nothing over the whole run offers nothing to put there.
+                if !reading.is_empty()
+                    && alternatives.len() < ALTERNATIVES_MAX
+                    && seen.insert(keys_text(&reading))
+                {
                     alternatives.push(reading);
                 }
             }

@@ -475,9 +475,13 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   their span, every mark over the old words covering the new ones; and every flag makes a confidence mark over its
   words, `{ confidence, alternatives }`. A run whose words differ from what a capture heard over the same line, with no
   flag over it and no person's edit in it, is marked changed at 50, its alternatives what the captures heard there
-  (`correction::unflagged_changes`), so nothing the transcript changed from a capture goes unseen. A run whose words
-  changed since the turn read them, by a person's edit meanwhile, is passed over. It is one `settled` change in the
-  meeting's history, by the system (History, below).
+  (`correction::unflagged_changes`), so nothing the transcript changed from a capture goes unseen. That is words a
+  capture heard as other words, and words it heard nothing in place of between words it agreed on, which give no
+  alternative. Words a capture left out at a line's start or end are not, since it may have placed them on the line
+  beside it or not been recording yet; nor are words a capture heard that the transcript lacks, which leave no word to
+  mark and are mostly fillers a source's own transcript tidies away. The model sees both under each line. A run whose
+  words changed since the turn read them, by a person's edit meanwhile, is passed over. It is one `settled` change in
+  the meeting's history, by the system (History, below).
 - **The copy, and what it teaches.** In the same transaction, the corrected copy of its first capture's lines is
   stored, each flag settled that lies inside one of those lines in place (The corrected copy, below), and the
   Transcription doc learns each fix of every flag settled at 80 or more (The Transcription doc, below). A flag passed

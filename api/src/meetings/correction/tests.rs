@@ -602,6 +602,37 @@ fn what_a_capture_heard_otherwise_with_no_flag_is_marked_changed_with_what_it_he
     );
 }
 
+/// #269 review: a word a capture heard nothing in place of, between words it agreed on, is a
+/// difference too; one at a line's edge, or one the capture heard that the transcript lacks, is not.
+#[test]
+fn words_a_capture_heard_nothing_in_place_of_are_marked_changed_only_between_words_it_agreed_on() {
+    let words = words_of(
+        Uuid::now_v7(),
+        &[("Ada", "so hello big world"), ("Grace", "we ship it today")],
+    );
+    let transcript = Transcript::new(
+        &words,
+        vec![
+            // Fireflies heard nothing for "big", or for "so" at the line's start.
+            version("Fireflies", &["hello world", "we ship it today"]),
+            // Whisper heard a filler the transcript does not hold.
+            version("Whisper", &["so hello big world", "we um ship it today"]),
+        ],
+    );
+
+    let changed = unflagged_changes(&transcript, &[]);
+
+    let read: Vec<(String, Vec<String>)> = changed
+        .iter()
+        .map(|run| (texts(&words, &run.words), run.alternatives.clone()))
+        .collect();
+    assert_eq!(read, vec![("big".to_owned(), Vec::new())]);
+    assert_eq!(
+        changed[0].mark(),
+        json!({ "confidence": 50, "alternatives": [] })
+    );
+}
+
 #[test]
 fn runs_two_captures_heard_otherwise_that_overlap_are_one_mark() {
     let words = words_of(Uuid::now_v7(), &[("Ada", "ask Moore lab now")]);
