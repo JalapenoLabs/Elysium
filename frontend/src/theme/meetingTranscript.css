@@ -11,7 +11,8 @@
      selected excerpt a wider blue one outside that.
    - A black-out boxes its words in black, edged so the box shows on the dark page too, and dims
      their text.
-   - The selection is the accent's soft fill over all of those; the moment picked is underlined.
+   - The selection is the accent's soft fill over all of those; the moment picked is underlined in
+     the accent, and the word being spoken as the meeting plays in the text's own color.
 
    Edges come from `data-*-start` and `data-*-end`, so a box closes only where its mark does. */
 
@@ -90,6 +91,12 @@
 .transcript-piece[data-selected] {
   background: var(--accent-soft);
   color: inherit;
+}
+
+/* Before the moment, so a word clicked shows as picked while it is the one being spoken. */
+.transcript-piece[data-spoken] {
+  text-decoration: underline 2px currentColor;
+  text-underline-offset: 4px;
 }
 
 .transcript-piece[data-moment] {

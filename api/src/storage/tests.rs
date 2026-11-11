@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use axum::Router;
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, Method, Uri};
 use axum::response::{IntoResponse, Response};
 use futures_util::{StreamExt, stream};
 use serde_json::json;
@@ -299,6 +299,121 @@ async fn uploads_stream_with_a_declared_length_and_download_back() {
         .expect("download");
     assert_eq!(download.content_length, Some(18));
     assert_eq!(read_all(download).await, b"first second third");
+}
+
+/// Reads a ranged download's part, its span, and the file's length.
+async fn read_part(answer: RangedDownload) -> (Span, Option<u64>, Option<u64>, Vec<u8>) {
+    let RangedDownload::Part {
+        span,
+        total,
+        download,
+    } = answer
+    else {
+        panic!("a part, not {answer:?}");
+    };
+    let length = download.content_length;
+    (span, total, length, read_all(download).await)
+}
+
+/// The fake answers a range with the whole file, as Bunny's storage API, which documents no
+/// ranges, may; the part is cut from it, so a seek still receives only what it asked for.
+#[tokio::test]
+async fn a_range_from_a_provider_that_sends_the_whole_file_is_cut_to_its_part() {
+    let (storage, _files) = fake_storage().await;
+    let location = bunny_location();
+    let password = SecretString::from(PASSWORD);
+    storage
+        .upload(
+            &location,
+            &password,
+            "meetings/recording.mp4",
+            chunks_of(&[b"0123", b"456789"]),
+            10,
+            Some("video/mp4"),
+        )
+        .await
+        .expect("upload");
+
+    let cases = [
+        ("bytes=2-5", Span { start: 2, end: 5 }, b"2345".as_slice()),
+        ("bytes=7-", Span { start: 7, end: 9 }, b"789".as_slice()),
+        ("bytes=-3", Span { start: 7, end: 9 }, b"789".as_slice()),
+        (
+            "bytes=3-100",
+            Span { start: 3, end: 9 },
+            b"3456789".as_slice(),
+        ),
+    ];
+    for (header, expected_span, expected_bytes) in cases {
+        let range = range::ByteRange::parse(header).expect("a range");
+        let answer = storage
+            .download_range(&location, &password, "meetings/recording.mp4", range)
+            .await
+            .expect("download");
+        let (span, total, length, bytes) = read_part(answer).await;
+        assert_eq!(span, expected_span, "{header}");
+        assert_eq!(total, Some(10), "{header}");
+        assert_eq!(length, Some(span.length()), "{header}");
+        assert_eq!(bytes, expected_bytes, "{header}");
+    }
+
+    let past_the_end = range::ByteRange::parse("bytes=10-").expect("a range");
+    let answer = storage
+        .download_range(&location, &password, "meetings/recording.mp4", past_the_end)
+        .await
+        .expect("download");
+    assert!(
+        matches!(answer, RangedDownload::Unsatisfiable { total: Some(10) }),
+        "{answer:?}"
+    );
+
+    let missing = storage
+        .download_range(&location, &password, "meetings/missing.mp4", past_the_end)
+        .await;
+    assert!(
+        matches!(missing, Err(StorageError::NotFound)),
+        "{missing:?}"
+    );
+}
+
+/// A provider's own answer to a range, as S3 sends one: the part with its `Content-Range`, and
+/// the file's length when it covers none of it.
+#[tokio::test]
+async fn a_providers_part_is_passed_on_as_it_says() {
+    let range = range::ByteRange::parse("bytes=4-").expect("a range");
+    let part = axum::http::Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header("content-range", "bytes 4-6/7")
+        .header("content-length", "3")
+        .body("456")
+        .expect("a response");
+    let answer = RangedDownload::from_response(part.into(), range, "S3").expect("a part");
+    let (span, total, length, bytes) = read_part(answer).await;
+    assert_eq!(span, Span { start: 4, end: 6 });
+    assert_eq!(total, Some(7));
+    assert_eq!(length, Some(3));
+    assert_eq!(bytes, b"456");
+
+    let refused = axum::http::Response::builder()
+        .status(StatusCode::RANGE_NOT_SATISFIABLE)
+        .header("content-range", "bytes */7")
+        .body("")
+        .expect("a response");
+    let answer = RangedDownload::from_response(refused.into(), range, "S3").expect("answered");
+    assert!(
+        matches!(answer, RangedDownload::Unsatisfiable { total: Some(7) }),
+        "{answer:?}"
+    );
+
+    let unnamed = axum::http::Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .body("456")
+        .expect("a response");
+    let answer = RangedDownload::from_response(unnamed.into(), range, "S3");
+    assert!(
+        matches!(answer, Err(StorageError::Refused(_))),
+        "{answer:?}"
+    );
 }
 
 #[tokio::test]

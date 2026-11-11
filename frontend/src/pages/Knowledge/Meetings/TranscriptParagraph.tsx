@@ -46,6 +46,8 @@ type Props = {
   selection: Range
   selectedExcerpt: Range
   moment: number | null
+  // The word being spoken as the meeting plays.
+  spoken: number | null
   editing: Range
   // The editor, given only to the paragraph where the edited range starts.
   editor: ReactNode
@@ -68,6 +70,7 @@ function isSameParagraph(previous: Props, next: Props) {
     && previous.bars === next.bars
     && previous.excerptLabels === next.excerptLabels
     && previous.moment === next.moment
+    && previous.spoken === next.spoken
     && previous.editor === next.editor
     && previous.onExcerptPress === next.onExcerptPress
     && isSameRange('selection')
@@ -117,6 +120,9 @@ function pieceAttributes(props: Props, index: number, isGap: boolean) {
   if (!isGap && props.moment === index) {
     attributes['data-moment'] = ''
   }
+  if (!isGap && props.spoken === index) {
+    attributes['data-spoken'] = ''
+  }
 
   const confidence = isGap
     ? decorations.gapConfidence[index]
@@ -132,7 +138,7 @@ function pieceAttributes(props: Props, index: number, isGap: boolean) {
 
 // One paragraph of a meeting's final transcript: its speaker and time when it opens their turn,
 // its excerpts' bars in the gutter, and its words, each mark drawn over them. Memoized, so a
-// selection, an edit, or a moment redraws only the paragraphs it reaches.
+// selection, an edit, a moment, or the word being spoken redraws only the paragraphs it reaches.
 export const TranscriptParagraph = memo(function TranscriptParagraph(props: Props) {
   const { t } = useTranslation('meetings')
   const { paragraph, words } = props

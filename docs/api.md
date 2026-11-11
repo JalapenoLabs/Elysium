@@ -40,6 +40,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
+| GET    | `/api/v1/meetings/{id}/captures/{captureId}/media` | The capture's recording, streamed from storage: `206` for one `Range`, `416` past its end, else `200`; `404` when none is kept |
 | POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
@@ -67,7 +68,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meeting-uploads/{id}`        | `204`; stops an unfinished upload and removes its parts |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
-| GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
+| GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage a range at a time, as a capture's recording is; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller attributes it to a project |
 | DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller takes it off a project |
 | GET    | `/api/v1/timeline/{id}/history`       | `200` `{ history: HistoryEntry[] }`, every change to its attributions, oldest first |

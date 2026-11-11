@@ -181,6 +181,22 @@ pub fn extension_for(
     }
 }
 
+/// The media type a stored file's extension says it is, such as `video/mp4` for
+/// `meetings/x/recording.mp4`, for a recording kept without its type; `None` for one Elysium
+/// never writes.
+///
+/// Every fetch since captures stores its type, so only a recording moved over from before them
+/// reaches here. An extension both kinds share (`webm`) reads as the first type the table lists
+/// for it, video; a video element plays either, and the player learns from the recording itself
+/// whether it has a picture.
+pub fn media_type_of(path: &str) -> Option<&'static str> {
+    let extension = extension_of(path).to_ascii_lowercase();
+    EXTENSION_BY_TYPE
+        .iter()
+        .find(|(_, known)| *known == extension)
+        .map(|(media_type, _)| *media_type)
+}
+
 /// The extension of a stored path, such as `mp4` for `meetings/x/recording.mp4`.
 pub fn extension_of(path: &str) -> &str {
     path.rsplit_once('.').map_or("", |(_, extension)| extension)
