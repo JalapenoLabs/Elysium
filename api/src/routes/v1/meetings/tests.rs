@@ -125,16 +125,27 @@ async fn an_edit_answers_what_it_did_and_its_undo_puts_the_words_back() {
     assert_eq!(marks[0]["agent"], Value::Null);
 
     // Announced with the entry it recorded, so the page that made it skips reading it again, and
-    // never with what the meeting says.
-    let payload = heard.try_recv().expect("the edit is announced");
-    assert!(
-        !payload.contains("Friday"),
-        "never what a meeting says: {payload}"
-    );
-    let event: Value = serde_json::from_str(&payload).expect("JSON");
-    assert_eq!(event["type"], "meeting.changed");
+    // never with what the meeting says. A fix of a misheard word also taught the Transcription
+    // doc, whose page is announced by its id alone.
+    let mut announced: Vec<Value> = Vec::new();
+    while let Ok(payload) = heard.try_recv() {
+        assert!(
+            !payload.contains("Friday"),
+            "never what a meeting says: {payload}"
+        );
+        announced.push(serde_json::from_str(&payload).expect("JSON"));
+    }
+    let event = announced
+        .iter()
+        .find(|event| event["type"] == "meeting.changed")
+        .expect("the edit is announced");
     assert_eq!(event["data"]["id"], json!(meeting_id));
     assert_eq!(event["data"]["entryId"], edited["entry"]["id"]);
+    assert!(
+        announced.iter().any(|event| event["type"] == "page.changed"
+            && event["data"]["id"] == json!(crate::models::page::TRANSCRIPTION_PAGE_ID)),
+        "{announced:?}"
+    );
 
     let (_, read) = send(
         &state,

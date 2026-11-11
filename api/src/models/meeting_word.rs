@@ -2301,6 +2301,73 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn settled_words_stand_through_a_rebuild_while_their_capture_is_the_meetings() {
+        let (_url, mut connection) = migrated_database().await;
+        let (capture, words) = built_meeting(
+            &mut connection,
+            &[("Ada", "Jon ships"), ("Grace", "Sure thing")],
+        )
+        .await;
+        let meeting_id = capture.meeting_id;
+        let jon = word(&words, "Jon").clone();
+        let sure = word(&words, "Sure").clone();
+        let settled = settle(
+            &mut connection,
+            meeting_id,
+            &[SettledRange {
+                words: vec![jon.id],
+                text: Some("John".to_owned()),
+                mark: json!({ "confidence": 90, "alternatives": [] }),
+            }],
+            system(),
+        )
+        .await
+        .expect("settles");
+        assert_eq!(settled.entry.kind, "settled");
+        // A person's edit elsewhere, which stands through every rebuild whatever its capture.
+        edit(
+            &mut connection,
+            meeting_id,
+            Replacement {
+                range: range(&sure, &sure),
+                text: "Certain",
+            },
+            person(),
+        )
+        .await
+        .expect("edits");
+        assert_eq!(
+            text(&mut connection, meeting_id).await,
+            "John ships Certain thing"
+        );
+
+        // Lined up again from the capture, which still heard "Jon": the settled word stands.
+        final_transcript::rebuild(&mut connection, meeting_id, system())
+            .await
+            .expect("rebuilds");
+        assert_eq!(
+            text(&mut connection, meeting_id).await,
+            "John ships Certain thing"
+        );
+
+        // With its capture gone from the meeting, as a split takes it, the settlement goes with
+        // the capture's words, and the person's edit stays.
+        let gone = Rebuild {
+            meeting_id,
+            words: Vec::new(),
+            captures: Vec::new(),
+            built_from: BuiltFrom::Source,
+            provisional: HashSet::new(),
+        };
+        rebuild(&mut connection, gone, system())
+            .await
+            .expect("rebuilds")
+            .expect("the capture's words went");
+        assert_eq!(text(&mut connection, meeting_id).await, "Certain");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn an_edit_is_refused_unless_it_is_a_range_of_the_transcript_and_writes_words() {
         let (_url, mut connection) = migrated_database().await;
         let (capture, words) = built_meeting(&mut connection, &[("Ada", "Jon ships Friday")]).await;
