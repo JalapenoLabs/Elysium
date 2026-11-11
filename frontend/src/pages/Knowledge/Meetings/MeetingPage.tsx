@@ -36,10 +36,10 @@ function MeetingLoader(props: Props) {
   const status = useMeetingLoader(props.meetingId)
   useConnectorsLoader()
   const meeting = useAppSelector((state) => selectMeetingById(state, props.meetingId))
-  // Meetings are listed under Settings until the knowledge base's own Meetings page (#235).
+  // A meeting's home is the knowledge base's Meetings page, wherever else the tree lists it.
   const parents = [
     { label: t('knowledge:title'), href: UrlTree.knowledge },
-    { label: t('title'), href: UrlTree.settingsMeetings },
+    { label: t('title'), href: UrlTree.knowledgeMeetings },
   ]
 
   if (!meeting && status === 'loading') {

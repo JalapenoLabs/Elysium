@@ -979,21 +979,32 @@ segment's clip for its record's owner.
 
 ## In the web app
 
-- **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section, `MeetingsPage`): the
-  person's recent meetings and their meeting sources, as two tabs with their counts, the open one in `?tab=`, with
-  Upload a meeting in the titlebar. The page
-  names no source itself; it finds them from the kinds whose definitions provide meetings (`GET /connectors/kinds`), so
-  a new source appears on it unchanged.
-  - **Sources.** Each of the person's meeting connectors, with its logo, account, and status, linking to its connector's
-    page, where it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the
-    kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the tab
-    shows each kind that provides meetings as a card opening its own form, and an empty Recent meetings tab links to
-    it.
-  - **Recent meetings.** A table (`MeetingTable`) whose search, Columns, and export sit in the page's titlebar: each
-    meeting's title, opening its page; the source it came from, linking to its connector while there is one; its
-    state (as its run says: failed with why, skipped, or how far it got), that its run waits for the person's
-    approval, or that a finished one was published from its transcript alone; when it started, how long it ran, and how
-    many topics Elysia found. A failed meeting's row has Retry, which retries its run's failed step at once.
+- **The Meetings page** (`/knowledge/meetings`, `KnowledgeMeetingsPage` in `src/pages/Knowledge/Meetings/`), the
+  knowledge base's fixed Meetings page, is every one of the person's meetings, newest first, each one's home, those on
+  no project included (`docs/knowledge.md`, The tree, Linked entries). `GET /meetings` answers them all, with no limit,
+  each naming the projects its topics are on (`projectIds`, from its segments' records). A table (`MeetingTable`)
+  whose search, filters, Columns, and export sit in the page's titlebar: each meeting's title, opening its page; the
+  source it came from, linking to its connector while there is one; its state (as its run says: failed with why,
+  skipped, or how far it got), that its run waits for the person's approval, or that a finished one was published from
+  its transcript alone; the projects its topics are on; when it started, how long it ran, and how many topics Elysia
+  found. A failed meeting's row has Retry, which retries its run's failed step at once. The filters live in the address
+  (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed to it (`?project=`): source
+  (every kind that provides meetings, such as Fireflies, Teams, and Slack's huddles, then any other source a meeting
+  came from, named as the source column names it, `meetingSourceNameKey`), state, project or none, and waiting for
+  review. The header counts the meetings waiting for review, and holds Upload a meeting, which opens the upload
+  (`/knowledge/meetings/new`, Uploads, below), and one action, which opens Settings, Meetings. With no source
+  connected, an empty page links there.
+- **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section as Meeting sources,
+  `MeetingsPage`): where the person's meetings come from, and nothing else, since meetings are daily work and live in
+  the knowledge base; its old `?tab=meetings` lands on the Meetings page. It names no source itself; it finds them from
+  the kinds whose definitions provide meetings (`GET /connectors/kinds`), so a new source appears on it unchanged. Each
+  of the person's meeting connectors shows with its logo, account, and status, linking to its connector's page, where
+  it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the kinds that
+  provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the page shows each kind
+  that provides meetings as a card opening its own form.
+- **In the tree**, each meeting is listed under the Meetings page and in the Meetings group under the brief of every
+  project its topics are on, all opening its one page. A topic moving between projects (`timelineRecord.changed`)
+  loads its meeting again, so the groups follow.
 - **A meeting's page** is a page of the knowledge base (`/knowledge/meetings/:meetingId`, `MeetingPage` in
   `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
   `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
@@ -1057,9 +1068,10 @@ segment's clip for its record's owner.
     Undo in its toast. A thread that asked Elysia says she answers there until she does. A resolved thread draws no
     outline. `?thread=` opens the page at a thread, which is how an item a thread raised links to it
     (`MeetingThreadLink`).
-- **Uploading** (`src/pages/MeetingUploads/`): Upload a meeting opens `/settings/meetings/new`, and the actions in a
-  meeting's options hold Add a recording or transcript, `/settings/meetings/:meetingId/captures/new`, the same form for
-  a capture. A recording and a transcript field each take a file from the picker or dropped on it, refusing a type or a
+- **Uploading** (`src/pages/MeetingUploads/`): the Meetings page's Upload a meeting opens `/knowledge/meetings/new`,
+  under the Meetings page, and the actions in a meeting's options hold Add a recording or transcript,
+  `/knowledge/meetings/:meetingId/captures/new`, the same form for a capture. A recording and a transcript field
+  each take a file from the picker or dropped on it, refusing a type or a
   size the policy does not take in their own words; a new meeting's title and when it started follow its first file (its
   name, and when it last changed) until the person changes them, and a recording asks where it is kept. Upload, the
   page's one save, starts the upload or resumes the one the same files began (`findResumable`), sends its parts with the
@@ -1086,7 +1098,9 @@ segment's clip for its record's owner.
   meeting's run, which reloads
   the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
   reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
-  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings).
+  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings). An event can name a meeting merged into
+  another, which a load by id answers with its `mergedInto`; the store keeps it for its own page, and every list reads
+  the meetings not merged away (`selectListedMeetings`), as `GET /meetings` answers them.
 
 ## What is published
 

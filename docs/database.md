@@ -344,7 +344,8 @@ Indexed by conversation and arrival, and partially over what still waits on a ru
 Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
 item is recorded once per connector, and on `(turn_summary_session_id, turn_summary_turn_id)`, so a turn summary is
 one record. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was ingested, as the company
-doc's review does.
+doc's review does. `timeline_records_meeting_segments` on `metadata ->> 'meetingId'`, for `source_kind = 'meeting'`
+alone, finds a meeting's segments, and so the projects its topics are on, which listing meetings reads.
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
@@ -586,10 +587,10 @@ being under itself at any depth, are the API's to keep, under one advisory lock 
 is a rule of one row. A learning is a page with a category and evidence: the partial unique index
 `pages_learning_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
 included, so saving a title again revises its learning, and `migrate run` rebuilds it with every other text index when
-the collation changes (Collations, above). The Learnings page, the Company page, the company doc's seven sections, the
-Project briefs page, and the Transcription page are seeded by migrations at ids fixed in code (`crate::models::page`,
-`Section::page_id`); the
-sections keep their limit in `pages_company_doc_section_fits`, as a learning keeps its in `pages_learning_body_fits`. A
+the collation changes (Collations, above). The Learnings page, the Company page, the company doc's seven sections,
+the Project briefs page, the Meetings page, and the Transcription page are seeded by migrations at ids fixed in code
+(`crate::models::page`, `Section::page_id`); the sections keep their limit in `pages_company_doc_section_fits`, as a
+learning keeps its in `pages_learning_body_fits`. A
 project's brief is a page whose `brief_project_id` names it (`docs/autonomy.md`, The project brief), one per project,
 and `pages_brief_is_a_plain_page` keeps a brief from being a learning or proposal-only. `updated_at` says when
 what a page holds last changed, so its trigger skips a row whose parent or position changes: a move or a renumbering

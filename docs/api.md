@@ -35,7 +35,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
-| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest; `reviewItemId` keeps the one an inbox item asks to review |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, every one of the caller's, newest first; `reviewItemId` keeps the one an inbox item asks to review |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures |
@@ -451,7 +451,9 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 `skipped` as its newest run says), `lastError` (why its run failed, while it has),
 `hasRecording`, `segmentCount`, `holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
-`awaitingApproval` (whether that run is held for the caller's approval), `createdAt`, and `updatedAt`. `sourceKind` is
+`awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its topics are on,
+in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
+leaves such a meeting out), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
 connector was removed.
 
@@ -879,7 +881,7 @@ Refusals are `409` with a `code` the web app explains in its own words:
 | `page_changed`        | A publish named a `baseVersion` that is no longer current; read the page again   |
 | `page_deleted`        | A publish, restore of a version, move, or change of a label or project link on a deleted page |
 | `page_proposal_only`  | An agent wrote a page agents only suggest edits to, or would delete one with its parent |
-| `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, or Project briefs page, a section, or a project's brief |
+| `page_fixed`          | A move, a deletion, or a new title on the Learnings, Company, Project briefs, or Meetings page, a section, or a project's brief |
 | `page_brief_linked`   | Taking a project's brief off that project, which only deleting the project does   |
 | `page_title_taken`    | A learning was given a title another learning has, deleted ones included         |
 | `page_not_a_learning` | A publish named a category and evidence for a page that is no learning           |

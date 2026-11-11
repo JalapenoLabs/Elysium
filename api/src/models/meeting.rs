@@ -155,21 +155,20 @@ pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<
         .await
 }
 
-/// `owner`'s meetings, newest first, but for those merged into another, which live on in it.
+/// Every one of `owner`'s meetings, newest first, the later id first between two that started
+/// together, so two never tie, but for those merged into another, which live on in it.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn list_owned(
     connection: &mut AsyncPgConnection,
     owner: Uuid,
-    limit: i64,
 ) -> QueryResult<Vec<Meeting>> {
     meetings::table
         .filter(meetings::created_by.eq(owner))
         .filter(meetings::merged_into.is_null())
         .select(Meeting::as_select())
         .order((meetings::started_at.desc(), meetings::id.desc()))
-        .limit(limit)
         .load(connection)
         .await
 }
@@ -604,7 +603,7 @@ pub(crate) mod tests {
             1,
             "one listing stores it and the other finds it recorded"
         );
-        let meetings = list_owned(&mut connection, TEST_PERSON_ID, 10)
+        let meetings = list_owned(&mut connection, TEST_PERSON_ID)
             .await
             .expect("lists");
         assert_eq!(meetings.len(), 1, "no meeting is left without its capture");

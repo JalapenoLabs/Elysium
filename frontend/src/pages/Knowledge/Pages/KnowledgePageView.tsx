@@ -6,7 +6,7 @@ import type { PageAction } from '../../../layout/page/pageActions'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useSearchParams } from 'react-router'
+import { Navigate, useParams, useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
@@ -39,8 +39,10 @@ import {
   getKnowledgePageUrl,
   getLearningEditUrl,
   getRunViewUrl,
+  pageAddressById,
   PAGE_HISTORY_TAB,
   PAGE_SUGGESTIONS_TAB,
+  TAB_PARAM,
   UrlTree,
 } from '../../../urls'
 import { readPassageParam } from './pagePassage'
@@ -209,6 +211,13 @@ function tabCount(tab: Tab, versions: number, pendingSuggestions: number) {
 // nothing of one, such as an edit, carries to the next.
 export function KnowledgePageView() {
   const { pageId = '' } = useParams()
+  const [ params ] = useSearchParams()
 
+  // A seeded page shown as a page of its own, such as the Meetings list, reads there. Its history
+  // still reads here, at the address the tree never offers.
+  const ownAddress = pageAddressById[pageId]
+  if (ownAddress && !params.has(TAB_PARAM)) {
+    return <Navigate to={ownAddress} replace />
+  }
   return <KnowledgePageReader key={pageId} pageId={pageId} />
 }

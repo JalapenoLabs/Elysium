@@ -1,29 +1,32 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! A meeting's review routes against Postgres (#234): reading its final transcript with its marks
-//! and captures, a capture as it came on the meeting's clock, an edit answering what it did, its
-//! history naming each undo, undo refusing what moved on since, and every route answering the
-//! meeting's owner alone.
+//! A meeting's routes against Postgres: the list naming the projects each meeting's topics are on
+//! (#235); reading its final transcript with its marks and captures, a capture as it came on the
+//! meeting's clock, an edit answering what it did, its history naming each undo, undo refusing what
+//! moved on since, and every route answering the meeting's owner alone (#234).
 //!
 //! They are `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs
 //! them.
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
+use chrono::Utc;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
+use crate::models::meeting;
 use crate::models::meeting_word::tests::{built_meeting, word};
-use crate::models::project::ProjectScope;
+use crate::models::project::{self, NewProject, ProjectScope};
 use crate::models::storage_location::{
     self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
 };
 use crate::models::user::SYSTEM_USER_ID;
 use crate::realtime::EventBus;
 use crate::routes;
+use crate::routes::v1::knowledge::tests::meeting_topic;
 use crate::storage::tests::{Files, PASSWORD, StoredFile, fake_storage};
 use crate::test_support::{
     TEST_PERSON_ID, app_state, app_state_with_storage, migrated_database, signed_in_cookie,
@@ -325,6 +328,102 @@ async fn a_capture_reads_as_it_came_on_the_meetings_clock() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn the_list_names_the_projects_each_meetings_topics_are_on() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let mut project_ids = Vec::new();
+    for name in ["Launch", "Billing"] {
+        let new_project = NewProject {
+            name: name.to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        };
+        let created = project::create(&mut connection, &new_project)
+            .await
+            .expect("the project is created");
+        project_ids.push(created.id);
+    }
+    project_ids.sort_unstable();
+    let (discussed, _) = built_meeting(&mut connection, &[("Ada", "Launch and billing.")]).await;
+    let (unattributed, _) = built_meeting(&mut connection, &[("Ada", "Hello there.")]).await;
+
+    // Two topics, one on both projects and one on the first again: each project is named once.
+    let topics = [(0, project_ids.clone()), (1, vec![project_ids[0]])];
+    for (index, on) in topics {
+        let record = meeting_topic(
+            &mut connection,
+            TEST_PERSON_ID,
+            discussed.meeting_id,
+            "Planning",
+            index,
+            Utc::now(),
+            "Launch",
+        )
+        .await;
+        for project_id in on {
+            execute(
+                &mut connection,
+                format!(
+                    "INSERT INTO timeline_record_projects \
+                     (timeline_record_id, project_id, confidence, attributed_by, created_at) \
+                     VALUES ('{record}', '{project_id}', 0.9, 'elysia', now())"
+                ),
+            )
+            .await;
+        }
+    }
+
+    let (status, listed) = send(&state, Method::GET, "/api/v1/meetings", None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let projects_of = |meeting_id: Uuid| {
+        listed["meetings"]
+            .as_array()
+            .expect("a list of meetings")
+            .iter()
+            .find(|meeting| meeting["id"] == json!(meeting_id))
+            .map(|meeting| meeting["projectIds"].clone())
+            .expect("the meeting is listed")
+    };
+    assert_eq!(projects_of(discussed.meeting_id), json!(project_ids));
+    assert_eq!(projects_of(unattributed.meeting_id), json!([]));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (kept, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    let (merged, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    meeting::set_merged_into(&mut connection, merged.meeting_id, Some(kept.meeting_id))
+        .await
+        .expect("the meeting is merged");
+
+    let (status, listed) = send(&state, Method::GET, "/api/v1/meetings", None).await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let listed_ids: Vec<&Value> = listed["meetings"]
+        .as_array()
+        .expect("a list of meetings")
+        .iter()
+        .map(|meeting| &meeting["id"])
+        .collect();
+    assert_eq!(listed_ids, vec![&json!(kept.meeting_id)]);
+    assert_eq!(listed["meetings"][0]["mergedInto"], Value::Null);
+
+    // An event can still name it, so a client loading it by id learns where it went.
+    let (status, found) = send(
+        &state,
+        Method::GET,
+        &format!("/api/v1/meetings/{}", merged.meeting_id),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(found["meeting"]["mergedInto"], json!(kept.meeting_id));
 }
 
 #[tokio::test]

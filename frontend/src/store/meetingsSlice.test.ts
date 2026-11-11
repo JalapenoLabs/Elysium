@@ -1,0 +1,41 @@
+// Copyright © 2026 Jalapeno Labs
+
+// Core
+import { describe, expect, it } from 'vitest'
+
+// Redux
+import { createAppStore } from './index'
+import { meetingsLoaded, meetingUpserted, selectListedMeetings, selectMeetingById } from './meetingsSlice'
+import { pagesLoaded, selectKnowledgeTree } from './pagesSlice'
+
+// Misc
+import { MEETINGS_PAGE_ID } from '../constants'
+import { makeMeeting, makePageSummary } from '../testFixtures'
+
+describe('meetingsSlice', () => {
+  it('orders meetings newest first, the later id first between two that started together', () => {
+    const store = createAppStore()
+
+    store.dispatch(meetingsLoaded([
+      makeMeeting({ id: 'a', startedAt: '2026-11-09T09:00:00Z' }),
+      makeMeeting({ id: 'b', startedAt: '2026-11-10T09:00:00Z' }),
+      makeMeeting({ id: 'c', startedAt: '2026-11-09T09:00:00Z' }),
+    ]))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'b', 'c', 'a' ])
+  })
+
+  it('keeps a meeting loaded after it was merged away out of every list, but not out of the store', () => {
+    const store = createAppStore()
+    store.dispatch(pagesLoaded([ makePageSummary({ id: MEETINGS_PAGE_ID, title: 'Meetings', fixed: true }) ]))
+    store.dispatch(meetingsLoaded([ makeMeeting({ id: 'kept' }) ]))
+
+    // An event about one of its old topics loads the merged meeting by id.
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', mergedInto: 'kept' })))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'kept' ])
+    const homes = selectKnowledgeTree(store.getState()).meetingsByPage.get(MEETINGS_PAGE_ID)
+    expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'kept' ])
+    expect(selectMeetingById(store.getState(), 'merged')?.mergedInto).toBe('kept')
+  })
+})

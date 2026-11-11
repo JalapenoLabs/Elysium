@@ -12,8 +12,11 @@ transcript, and asking before merging a meeting recorded twice, with merging and
 knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
 undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to
 its owner alone until meetings are public by default; uploads of recordings and transcripts as new meetings or
-captures of one; and settling the final transcript with confidences and alternatives, taught by the Transcription doc,
-which teaches itself and gives Whisper its hint words. What is built is described in `docs/meetings.md`, which this
+captures of one; meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
+group of every project's brief it is about, with the Meetings page listing, searching, and filtering them and
+starting uploads, Settings keeping only their sources; and settling the final transcript with confidences and
+alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words. What is built is
+described in `docs/meetings.md`, which this
 design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
@@ -240,8 +243,8 @@ The `meeting` workflow becomes:
   gigabytes.
 - An upload is a capture like any other: transcribed, aligned, corrected, and segmented. A transcript with no times
   and no media is a meeting in words alone: reviewed, excerpted, and commented, with no player.
-- How it works today is `docs/meetings.md`, Uploads. A capture's upload is among the actions in the meeting's options;
-  when the knowledge base's own Meetings page is built (#235), a new meeting's upload moves there.
+- How it works today is `docs/meetings.md`, Uploads. A new meeting's upload starts from the knowledge base's Meetings
+  page, and a capture's is among the actions in the meeting's options.
 
 ## Teams and Slack huddles
 
@@ -261,11 +264,16 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
 - **Meetings**, a fixed page, lists every meeting the reader can see, newest first, with search, filters by source,
   state, and project, and how many wait for review. It is each meeting's home, unattributed ones included, and where
   uploads start.
-- **Projects**, a fixed page, has one child per project, made, renamed, and removed with its project. Under each, a
-  Meetings group lists every meeting with an excerpt on the project, newest first, as linked entries of the one
-  meeting page, so a meeting about three projects shows in three places and is one page.
+- **Each project's page is its brief**, under the fixed Project briefs page, made and renamed with its project
+  (`docs/autonomy.md`, The project brief). Under each, a Meetings group lists every meeting with an excerpt on the
+  project, newest first, as linked entries of the one meeting page, so a meeting about three projects shows in three
+  places and is one page. Deleting the project leaves its brief an ordinary page, and takes the group with it. Until
+  excerpts replace topics, a meeting is in a project's group when one of its topics is on the project.
 - The meeting's page is in the knowledge base, `/knowledge/meetings/:meetingId`, and its Settings address lands there.
-  Settings, Meetings keeps its Sources once the Meetings page lists the meetings.
+  Settings, Meetings keeps only its Sources.
+
+Built: the Meetings page, the groups under each brief, and the tree's rules for their entries (`docs/knowledge.md`,
+The tree, Linked entries), listing a person's own meetings until meetings are public by default.
 
 ## Roadmap
 
@@ -275,7 +283,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
-| 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |
 | 3     | #245  | Comments                                                                              |

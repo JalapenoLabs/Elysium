@@ -99,6 +99,7 @@ import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/New
 import { LearningPage } from './pages/Knowledge/Learnings/LearningPage'
 import { LearningRedirect } from './pages/Knowledge/Learnings/LearningRedirect'
 import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
+import { KnowledgeMeetingsPage } from './pages/Knowledge/Meetings/KnowledgeMeetingsPage'
 import { MeetingPage } from './pages/Knowledge/Meetings/MeetingPage'
 import { MeetingRedirect } from './pages/Knowledge/Meetings/MeetingRedirect'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
@@ -305,6 +306,18 @@ export const workspaceRoutes: RouteObject = {
           element: <KnowledgeLabelPage />,
         },
         {
+          path: UrlTree.knowledgeMeetings,
+          element: <KnowledgeMeetingsPage />,
+        },
+        {
+          path: UrlTree.meetingUploadNew,
+          element: <UploadMeetingPage />,
+        },
+        {
+          path: UrlTree.meetingCaptureUploadNew,
+          element: <UploadMeetingPage />,
+        },
+        {
           path: UrlTree.knowledgeMeeting,
           element: <MeetingPage />,
         },
@@ -397,14 +410,6 @@ export const workspaceRoutes: RouteObject = {
       element: <MeetingRedirect />,
     },
     // The company doc lives in the knowledge base; its old address opens the Company page.
-    {
-      path: UrlTree.meetingUploadNew,
-      element: <UploadMeetingPage />,
-    },
-    {
-      path: UrlTree.meetingCaptureUploadNew,
-      element: <UploadMeetingPage />,
-    },
     {
       path: UrlTree.settingsCompanyDoc,
       element: <Navigate to={getCompanyDocUrl()} replace />,

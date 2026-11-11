@@ -63,6 +63,11 @@ pub const COMPANY_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000002");
 /// The page every project's brief sits under, seeded by its migration at this id.
 pub const PROJECT_BRIEFS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000003");
 
+/// The page every meeting is listed under, seeded by its migration at this id. Meetings are no
+/// pages: the web app lists the ones its reader can see under it, as their home
+/// (`docs/knowledge.md`, The tree).
+pub const MEETINGS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000004");
+
 /// The Transcription doc: how speech is misheard in the company's meetings, and what it is
 /// (`crate::transcription_doc`). Seeded by its migration at this id.
 pub const TRANSCRIPTION_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000005");
@@ -225,11 +230,12 @@ impl Page {
 }
 
 /// Whether page `id` is one Elysium seeds at an id fixed in code: the Learnings, Company, Project
-/// briefs, and Transcription pages and the doc's sections.
+/// briefs, Meetings, and Transcription pages and the doc's sections.
 pub fn is_seeded(id: Uuid) -> bool {
     id == LEARNINGS_PAGE_ID
         || id == COMPANY_PAGE_ID
         || id == PROJECT_BRIEFS_PAGE_ID
+        || id == MEETINGS_PAGE_ID
         || id == TRANSCRIPTION_PAGE_ID
         || Section::of_page(id).is_some()
 }
@@ -1893,6 +1899,7 @@ mod tests {
         assert!(is_seeded(LEARNINGS_PAGE_ID));
         assert!(is_seeded(COMPANY_PAGE_ID));
         assert!(is_seeded(PROJECT_BRIEFS_PAGE_ID));
+        assert!(is_seeded(MEETINGS_PAGE_ID));
         assert!(is_seeded(TRANSCRIPTION_PAGE_ID));
         for section in Section::ALL {
             assert!(is_seeded(section.page_id()), "{section:?}");

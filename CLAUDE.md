@@ -366,6 +366,10 @@ Everything else follows these rules:
   or a reopen. A person mentioning Elysia queues her `meeting-comment` turn, which answers in the thread and may edit
   the words or attribute the topics the range lies in. A thread is indexed with the segments its range overlaps. See
   `docs/meetings.md`, Comments.
+- Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
+  one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
+  group under the brief of every project its topics are on, as linked entries that move nowhere. Settings, Meetings
+  keeps only their sources. See `docs/knowledge.md`, The tree, Linked entries.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is

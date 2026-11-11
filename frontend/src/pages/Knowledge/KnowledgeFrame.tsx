@@ -7,7 +7,7 @@ import { Outlet, useLocation, useMatch } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
-import { selectPageTree } from '../../store/pagesSlice'
+import { selectKnowledgeTree } from '../../store/pagesSlice'
 
 // User interface
 import { Button, Drawer, useOverlayState } from '@heroui/react'
@@ -16,7 +16,8 @@ import { CollapseEdgeButton } from '../../components/CollapseEdgeButton'
 import { KnowledgePanel } from './KnowledgePanel'
 
 // Misc
-import { usePagesLoader } from '../../hooks/useServerData'
+import { MEETINGS_PAGE_ID } from '../../constants'
+import { useMeetingsLoader, usePagesLoader } from '../../hooks/useServerData'
 import { UrlTree } from '../../urls'
 import { KNOWLEDGE_CONTENT_CLASS_NAME } from './knowledgeContent'
 import { findPageAncestors, NO_PAGE_TREE_FILTER } from './Pages/pageTree'
@@ -33,8 +34,11 @@ export function KnowledgeFrame() {
   const memory = usePageTreeMemory()
   const [ treeFilter, setTreeFilter ] = useState(NO_PAGE_TREE_FILTER)
   const treeStatus = usePagesLoader()
-  const tree = useAppSelector(selectPageTree)
+  // The tree lists the reader's meetings under Meetings and each brief, so it loads them too.
+  const meetingsStatus = useMeetingsLoader()
+  const tree = useAppSelector(selectKnowledgeTree)
   const currentPageId = useMatch(UrlTree.knowledgePage)?.params.pageId
+  const currentMeetingId = useMatch(UrlTree.knowledgeMeeting)?.params.meetingId
   const scrollerRef = useRef<HTMLDivElement>(null)
 
   // The router restores nothing inside a scroller of the page's own, so each address starts at
@@ -43,17 +47,23 @@ export function KnowledgeFrame() {
     scrollerRef.current?.scrollTo({ top: 0 })
   }, [ pathname ])
 
-  // A page opened from a link shows where it sits. Once per page, so a branch closed afterwards
-  // stays closed.
+  // A page opened from a link shows where it sits, and a meeting at its home under Meetings while
+  // that branch lists it: an older one than the branch's newest leaves it closed, since opening it
+  // would show rows that are not the meeting. Once per page, so a branch closed afterwards stays
+  // closed.
   const openBranchesToCurrentPage = useEffectEvent(() => {
-    if (!currentPageId) {
-      return
+    if (currentPageId) {
+      memory.openBranches(findPageAncestors(tree, currentPageId).map((page) => page.id))
     }
-    memory.openBranches(findPageAncestors(tree, currentPageId).map((page) => page.id))
+    const homes = tree.meetingsByPage.get(MEETINGS_PAGE_ID)
+    if (currentMeetingId && homes?.entries.some((entry) => entry.meetingId === currentMeetingId)) {
+      const above = findPageAncestors(tree, MEETINGS_PAGE_ID).map((page) => page.id)
+      memory.openBranches([ ...above, MEETINGS_PAGE_ID ])
+    }
   })
   useEffect(() => {
     openBranchesToCurrentPage()
-  }, [ currentPageId, treeStatus ])
+  }, [ currentPageId, currentMeetingId, treeStatus, meetingsStatus ])
 
   return <div className='flex h-full'>
     <aside className={[
