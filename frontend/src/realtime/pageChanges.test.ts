@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Misc
-import { pageHistoryKey, pageKey, PAGES_KEY, projectPagesKey } from '../api/routes/pageRoutes'
+import { pageHistoryKey, pageKey, PAGES_KEY, pageSuggestionsKey, projectPagesKey } from '../api/routes/pageRoutes'
 import { PAGE_CHANGES_WINDOW_MS } from '../constants'
 import { reloadChangedPage } from './pageChanges'
 
@@ -30,7 +30,7 @@ describe('reloadChangedPage', () => {
     expect(mutateMock).not.toHaveBeenCalled()
   })
 
-  it('ends a burst in one load of the list and one of each page and history it named', () => {
+  it('ends a burst in one load of the list and one of each page, history, and suggestions it named', () => {
     reloadChangedPage('one')
     reloadChangedPage('two')
     reloadChangedPage('one')
@@ -42,8 +42,10 @@ describe('reloadChangedPage', () => {
       expect.any(Function),
       pageKey('one'),
       pageHistoryKey('one'),
+      pageSuggestionsKey('one'),
       pageKey('two'),
       pageHistoryKey('two'),
+      pageSuggestionsKey('two'),
     ])
   })
 
@@ -72,6 +74,7 @@ describe('reloadChangedPage', () => {
       expect.any(Function),
       pageKey('two'),
       pageHistoryKey('two'),
+      pageSuggestionsKey('two'),
     ])
   })
 })

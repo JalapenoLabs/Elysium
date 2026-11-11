@@ -28,6 +28,7 @@ pub mod learnings;
 pub mod llms;
 pub mod mail;
 mod me;
+mod meeting_uploads;
 pub mod meetings;
 mod model_settings;
 mod my_sessions;
@@ -112,6 +113,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/learnings", learnings::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
+        .nest("/meeting-uploads", meeting_uploads::router())
         .nest("/meetings", meetings::router())
         .nest("/model-settings", model_settings::router())
         .nest("/page-attachments", page_attachments::router())

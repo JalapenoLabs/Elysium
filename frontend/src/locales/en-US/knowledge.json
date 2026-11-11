@@ -37,6 +37,7 @@
     "tabs": {
       "label": "Page views",
       "read": "Page",
+      "suggestions": "Suggestions",
       "history": "History"
     },
     "history": {
@@ -75,7 +76,7 @@
         "restored": "{{who}} restored version {{version}}",
         "undid": "{{who}} undid version {{version}}",
         "undidEarlier": "{{who}} undid an earlier change",
-        "approved": "{{who}} approved a proposal",
+        "accepted": "{{who}} accepted a suggested edit",
         "moved": "{{who}} moved this page from {{from}} to {{to}}",
         "reordered": "{{who}} changed this page's place among its siblings",
         "deleted": "{{who}} deleted this page",
@@ -95,6 +96,40 @@
         "alreadyCurrent": "The page already says what version {{version}} says",
         "titleTaken": "Another learning has this version's title now",
         "deleted": "This page was deleted, so its versions can't be restored"
+      }
+    },
+    "suggestions": {
+      "waiting_one": "{{count, compact}} suggested edit waits for review",
+      "waiting_other": "{{count, compact}} suggested edits wait for review",
+      "count": "{{count, compact}}",
+      "loadFailed": "The suggested edits could not be loaded.",
+      "none": "No suggested edits wait for review.",
+      "suggestedBy": "{{who}} suggested",
+      "suggestedByAgent": "{{who}} suggested through {{agent}}",
+      "fromReview": "From a review",
+      "earlierVersion": "Written against version {{version}}. Accepting merges it with what changed since.",
+      "line": "Line {{line, compact}}",
+      "take": "Take the change at line {{line, compact}}",
+      "changedSince": "The page changed in these lines since, so this change cannot be taken.",
+      "diffLabel": "The change at line {{line, compact}}",
+      "foldedLines_one": "{{count, compact}} unchanged line",
+      "foldedLines_other": "{{count, compact}} unchanged lines",
+      "accept": "Accept",
+      "acceptSome": "Accept {{taken, compact}} of {{count, compact}}",
+      "chooseOne": "Choose at least one change to accept",
+      "nothingApplies": "The page changed in these lines since; dismiss it, or make the change yourself",
+      "deletedPage": "Restore the page to accept a suggestion",
+      "dismiss": "Dismiss",
+      "dismissPrompt": {
+        "title": "Dismiss this suggestion",
+        "reason": "Why",
+        "keep": "Keep it"
+      },
+      "toasts": {
+        "accepted": "Suggestion accepted",
+        "dismissed": "Suggestion dismissed",
+        "overlaps": "The page changed in the same lines since this was suggested. Take the other changes, dismiss it, or make the change yourself.",
+        "decided": "Someone already decided on this suggestion"
       }
     },
     "actions": {
@@ -140,7 +175,7 @@
     "newTitle": "New page",
     "publish": "Publish",
     "learningHistory": "History and undo",
-    "companyDocProposals": "Proposals",
+    "lookForUpdates": "Look for updates",
     "editor": {
       "title": "Title",
       "body": "Page text",
@@ -177,6 +212,11 @@
       "keepEditing": "Keep editing",
       "seeAgain": "See what changed",
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
+    },
+    "review": {
+      "started": "Looking for updates",
+      "running": "A review is already under way",
+      "openRun": "Open the run"
     }
   },
   "projectLinks": {
@@ -320,7 +360,13 @@
     "alsoRecordedBy": "Also recorded by {{names}}",
     "pagePath": "In {{path}}",
     "unknownProject": "A project",
-    "unknownPerson": "Someone"
+    "unknownPerson": "Someone",
+    "pendingSuggestions_one": "{{count, compact}} suggested edit waits",
+    "pendingSuggestions_other": "{{count, compact}} suggested edits wait",
+    "pageSuggestions_one": "{{source}} · {{count, compact}} suggested edit waits",
+    "pageSuggestions_other": "{{source}} · {{count, compact}} suggested edits wait",
+    "detailWithSuggestions_one": "{{source}} · {{person}} · {{count, compact}} suggested edit waits",
+    "detailWithSuggestions_other": "{{source}} · {{person}} · {{count, compact}} suggested edits wait"
   },
   "sources": {
     "outlook": "Outlook",

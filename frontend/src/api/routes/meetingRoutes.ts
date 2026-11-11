@@ -6,6 +6,10 @@ import type { LearningAgent } from './learningRoutes'
 // Misc
 import { apiClient } from '../index'
 
+// What a capture a person uploaded names as its source, as `SOURCE_KIND` in
+// api/src/meeting_uploads/mod.rs.
+export const UPLOAD_SOURCE_KIND = 'upload'
+
 // Mirrors `Processing` in api/src/meetings/workflow.rs: how far a meeting's processing got, or
 // that its run failed or went through without it, a person having skipped a step it needed.
 export const MEETING_STATES = [ 'pending', 'recorded', 'segmented', 'done', 'skipped', 'failed' ] as const
@@ -29,7 +33,7 @@ export type Meeting = {
   // The connector that read it, or null once that connector is removed.
   connectorId: string | null
   // Where it came from: a connector kind, which outlives its connector, or a source that is none,
-  // such as an upload; `meetingSourceNameKey` names either.
+  // such as an upload (`UPLOAD_SOURCE_KIND`); `meetingSourceNameKey` names either.
   sourceKind: string
   title: string
   startedAt: string
@@ -135,7 +139,7 @@ export type MeetingTranscriptChange = {
 export type MeetingHistoryEntry = {
   id: string
   // `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-  // `offset_changed`, `merged`, `split`, `thread_resolved`, or `thread_reopened`.
+  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`.
   kind: string
   createdBy: string
   agent: LearningAgent | null

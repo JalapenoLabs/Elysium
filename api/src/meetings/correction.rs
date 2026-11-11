@@ -47,6 +47,7 @@ use similar::{Algorithm, DiffOp};
 use super::segmentation::clock;
 use super::source::TranscriptLine;
 use crate::company_doc::{CompanyDocResponse, SectionResponse};
+use crate::meeting_uploads;
 use crate::models::company_doc::Section;
 use crate::models::meeting_correction::BasedOn;
 use crate::whisper::WhisperTranscript;
@@ -102,16 +103,15 @@ pub struct Base {
 /// The transcript a meeting's corrected copy follows: the source's lines, which name their
 /// speakers, or Whisper's segments when the source sent none. `None` when nothing was heard at
 /// all, so there is nothing to correct.
+///
+/// A source transcript with no times at all, such as one uploaded beside its recording, follows
+/// Whisper's segments too when Whisper heard any: they carry the recording's clock, which clips,
+/// the player, and every span need, where the source's lines would make a meeting in words alone
+/// of a meeting that has a recording. The source's lines stay with their capture, as heard.
 pub fn base(source: Vec<TranscriptLine>, whisper: Option<&WhisperTranscript>) -> Option<Base> {
-    if !source.is_empty() {
-        return Some(Base {
-            based_on: BasedOn::Source,
-            lines: source,
-        });
-    }
-    let lines: Vec<TranscriptLine> = whisper?
-        .segments
-        .iter()
+    let heard: Vec<TranscriptLine> = whisper
+        .into_iter()
+        .flat_map(|transcript| &transcript.segments)
         .filter(|segment| !segment.text.trim().is_empty())
         .map(|segment| TranscriptLine {
             start_ms: segment.start_ms,
@@ -120,12 +120,19 @@ pub fn base(source: Vec<TranscriptLine>, whisper: Option<&WhisperTranscript>) ->
             text: segment.text.trim().to_owned(),
         })
         .collect();
-    if lines.is_empty() {
+    let source_is_timed = !meeting_uploads::transcript::is_untimed(&source);
+    if !source.is_empty() && (source_is_timed || heard.is_empty()) {
+        return Some(Base {
+            based_on: BasedOn::Source,
+            lines: source,
+        });
+    }
+    if heard.is_empty() {
         return None;
     }
     Some(Base {
         based_on: BasedOn::Whisper,
-        lines,
+        lines: heard,
     })
 }
 
@@ -620,6 +627,27 @@ mod tests {
         assert_eq!(from_whisper.lines[0].speaker, "");
 
         assert_eq!(base(Vec::new(), None), None);
+    }
+
+    /// #233: a transcript uploaded with no times beside its recording follows the recording's
+    /// clock, so the meeting is not taken for one in words alone.
+    #[test]
+    fn an_untimed_source_with_a_recording_follows_whispers_clock() {
+        let untimed = vec![TranscriptLine {
+            start_ms: 0,
+            end_ms: 0,
+            speaker: "Ada".to_owned(),
+            text: "Hello there".to_owned(),
+        }];
+        let heard = whisper(&[(2_000, "Hello there")]);
+
+        let followed = base(untimed.clone(), Some(&heard)).expect("lines");
+        assert_eq!(followed.based_on, BasedOn::Whisper);
+        assert_eq!(followed.lines[0].start_ms, 2_000);
+
+        // With no recording heard, its lines are the meeting, in words alone.
+        let alone = base(untimed.clone(), None).expect("lines");
+        assert_eq!((alone.based_on, alone.lines), (BasedOn::Source, untimed));
     }
 
     #[test]

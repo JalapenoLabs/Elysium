@@ -56,6 +56,9 @@ export const historySentenceKeys = {
   offsetChanged: 'review.history.sentences.offsetChanged',
   merged: 'review.history.sentences.merged',
   split: 'review.history.sentences.split',
+  addedRecordingAndTranscript: 'review.history.sentences.addedRecordingAndTranscript',
+  addedRecording: 'review.history.sentences.addedRecording',
+  addedTranscript: 'review.history.sentences.addedTranscript',
   threadResolved: 'review.history.sentences.threadResolved',
   threadReopened: 'review.history.sentences.threadReopened',
   changed: 'review.history.sentences.changed',
@@ -112,6 +115,23 @@ function drawnKind(value: unknown) {
   return DRAWN_MARK_KINDS.find((kind) => kind === value) ?? null
 }
 
+// How a capture a person uploaded reads, by what it holds.
+function addedCaptureSentence(data: Record<string, unknown>): HistorySentence {
+  const hasRecording = data.recording === true
+  const hasTranscript = data.transcript === true
+  if (hasRecording && hasTranscript) {
+    return 'addedRecordingAndTranscript'
+  }
+  if (hasRecording) {
+    return 'addedRecording'
+  }
+  if (hasTranscript) {
+    return 'addedTranscript'
+  }
+  console.debug('describeHistory read an added capture that says it holds nothing', { data })
+  return 'changed'
+}
+
 // What each entry of a meeting's history says, newest first as it arrives. Entries come from
 // every version of the API, so their data is read defensively and an unknown kind reads as a
 // change.
@@ -164,6 +184,9 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
       case 'merged':
       case 'split':
         row.sentence = entry.kind
+        return row
+      case 'capture_added':
+        row.sentence = addedCaptureSentence(entry.data)
         return row
       case 'thread_resolved':
         row.sentence = 'threadResolved'

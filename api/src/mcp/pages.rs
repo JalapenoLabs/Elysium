@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Tools for pages: reading the knowledge base's tree and editing it directly, every version kept.
+//! Tools for pages: reading the knowledge base's tree, editing it directly, every version kept, and
+//! suggesting edits for a person to accept.
 //!
 //! Each calls the page routes' own function (`routes::v1::pages`), so a page changed here is
 //! validated, versioned, indexed, and announced exactly as one changed in the browser. Reading is
@@ -26,17 +27,18 @@ use crate::errors::ApiError;
 use crate::models::agent::{Agent, Author};
 use crate::routes::v1::pages::{
     self, ListPagesArguments, MovePageArguments, PageArguments, PageLabelArguments,
-    PageProjectArguments, SavePageRequest,
+    PageProjectArguments, SavePageRequest, SuggestPageRequest,
 };
 use crate::state::AppState;
 
 /// What reading a page answers, shared with the agents' tool of the same name.
 pub const READ_DESCRIPTION: &str = "Reads one page of the company's knowledge base whole: its \
     title, its text in Markdown, its parentId, its labels, the projectIds it is linked to, and \
-    its currentVersion, which \
-    page_save needs, with who published that version and the agent acting for them. Find an id \
-    with page_list, or as the pageId of a citation that names one. proposalOnly means a \
-    company doc page, and a category with evidence means a learning; page_save changes neither.";
+    its currentVersion, which page_save and page_suggest need, with who published that version and \
+    the agent acting for them, and the oldest 20 suggestions waiting for a person (pendingSuggestions \
+    counts them all), each as the changes it makes, so you need not suggest them again. Find an id with page_list, or as the pageId of a \
+    citation that names one. proposalOnly means a company doc page, which takes suggestions alone, \
+    and a category with evidence means a learning; page_save changes neither.";
 
 /// What listing pages answers, shared with the agents' tool of the same name.
 pub const LIST_DESCRIPTION: &str = "Lists the knowledge base's pages a branch at a time: the \
@@ -56,9 +58,21 @@ pub const SAVE_DESCRIPTION: &str = "Saves a page of the company's knowledge base
     make your change on what it says now, and save that, rather than your older text. To create \
     a page, leave id out and give parentId, the page it goes under from page_list, or null for \
     the top of the tree. Text the page already holds makes no version. A company doc page \
-    refuses this with page_proposal_only: propose the change with company_doc_propose instead. \
-    A learning refuses it with page_is_a_learning, and a learning is saved with learning_save. \
+    refuses this with page_proposal_only: suggest the edit with page_suggest instead. A learning \
+    refuses it with page_is_a_learning, and a learning is saved with learning_save. \
     To move a page use page_move, and to label one page_label_add. Needs write access.";
+
+/// How to suggest an edit to a page, shared with the agents' tool of the same name.
+pub const SUGGEST_DESCRIPTION: &str = "Suggests an edit to a page of the company's knowledge \
+    base, for a person to accept or dismiss on the page; nothing changes until they accept it, \
+    wholly or in part. Use it for a page agents may only suggest to (proposalOnly, such as the \
+    company doc's), or when a person should decide. Read the page with page_read, then give its id, \
+    its currentVersion as baseVersion, and edits against that version in the form Claude Code's \
+    Edit tool takes: find is text the page holds exactly once, copied exactly, and replace takes \
+    its place; an empty find adds replace at the end. A page published since is no reason to read \
+    it again, since accepting merges the two. Give a reason, and the quote and source that show it \
+    when you read it somewhere. An edit already waiting for review is answered rather than \
+    suggested twice. A learning refuses it with page_is_a_learning. Needs write access.";
 
 /// How to move a page, shared with the agents' tool of the same name.
 pub const MOVE_DESCRIPTION: &str = "Moves a page of the knowledge base with everything under it, \
@@ -104,8 +118,8 @@ impl Workspace {
         if let Err(refusal) = MemberUser::check(caller.user) {
             return answer(Err(refusal));
         }
-        let page = pages::read(&self.state.database, arguments.id).await;
-        answer(page.map(|page| json!({ "page": page })))
+        let read = pages::read_with_suggestions(&self.state.database, arguments.id).await;
+        answer(read.map(|(page, suggestions)| json!({ "page": page, "suggestions": suggestions })))
     }
 
     #[tool(name = "page_list", description = LIST_DESCRIPTION)]
@@ -148,6 +162,33 @@ impl Workspace {
         };
         let saved = pages::save(&self.state.database, &self.state.events, author, request).await;
         answer(saved.map(|saved| json!(saved)))
+    }
+
+    #[tool(name = "page_suggest", description = SUGGEST_DESCRIPTION)]
+    async fn page_suggest(
+        &self,
+        Parameters(request): Parameters<SuggestPageRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let caller = caller(&context)?;
+        let member = match MemberUser::check(caller.user.clone()) {
+            Ok(member) => member,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        if let Some(refusal) = refuse_without_write(&caller) {
+            return Ok(refusal);
+        }
+        // A suggestion changes nothing until a person accepts it, so a client that cannot be
+        // recorded may still make one, as the person, as company_doc_propose always allowed.
+        let agent = acting_agent(&self.state, &caller).await;
+        let author = Author {
+            user_id: member.id(),
+            agent: agent.as_ref(),
+            at: Utc::now(),
+        };
+        let suggested =
+            pages::suggest(&self.state.database, &self.state.events, author, request).await;
+        answer(suggested.map(|suggested| json!(suggested)))
     }
 
     #[tool(name = "page_move", description = MOVE_DESCRIPTION)]

@@ -14,7 +14,7 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip } from '@heroui/react'
-import { LuCheck, LuHand, LuPlay, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageActions } from '../../../layout/page/PageActions'
 
 // Misc
@@ -24,7 +24,7 @@ import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { toast } from '../../../toast/toast'
-import { getRunViewUrl } from '../../../urls'
+import { getMeetingCaptureUploadUrl, getRunViewUrl } from '../../../urls'
 import {
   correctionStatusChipColors,
   correctionStatusLabelKeys,
@@ -37,8 +37,8 @@ type Props = {
 
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, holding it for approval by hand until it is corrected
-// (unless its source already waits), and its run. Privacy, sharing,
-// captures and their offsets, and Done reviewing join them as they are built
+// (unless its source already waits), its run, and adding a recording or transcript as another
+// capture. Privacy, sharing, captures' offsets, and Done reviewing join them as they are built
 // (docs/meeting-review.md, Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
@@ -118,6 +118,13 @@ export function MeetingActions(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
+  // Always offered: an upload sent while the meeting's run is still going is refused, saying so.
+  actions.push({
+    id: 'addCapture',
+    label: t('upload.addCapture'),
+    icon: LuUpload,
+    href: getMeetingCaptureUploadUrl(meeting.id),
+  })
 
   // Before it is corrected, whether its run will wait, and why.
   let waitsNote: string | null = null

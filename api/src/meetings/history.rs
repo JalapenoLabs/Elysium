@@ -18,6 +18,7 @@
 //! | `thread_resolved`, `thread_reopened` | Opens the thread again, or resolves it again (`meetings::comments`) |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
+//! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
 //!
 //! A merge and a split are recorded in both meetings' histories, and undone from the history of
 //! the meeting the captures went into.
@@ -127,7 +128,10 @@ pub async fn undo(
                     ),
                     Announcement::default(),
                 ),
-                Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
+                Some(
+                    EventKind::Built | EventKind::CorrectionApproved | EventKind::CaptureAdded,
+                )
+                | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };

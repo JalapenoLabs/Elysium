@@ -358,7 +358,8 @@ impl From<WrittenComment> for CommentResponse {
 pub struct MeetingEventResponse {
     id: Uuid,
     /// `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-    /// `thread_resolved`, or `thread_reopened`.
+    /// `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or
+    /// `thread_reopened`.
     kind: String,
     created_by: Uuid,
     agent: Option<AgentResponse>,

@@ -79,10 +79,12 @@ use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::meeting_uploads::{self, staging::Staging};
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
+use crate::models::meeting_upload;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
@@ -99,6 +101,10 @@ const LISTING_SIZE: u32 = 50;
 
 /// How often unfinished meetings get the runs they need.
 pub const PROCESS_INTERVAL: Duration = Duration::from_mins(1);
+
+/// The most finished uploads one pass removes the parts of, so a backlog clears over a few passes
+/// rather than holding one.
+const UPLOAD_SWEEP_BATCH: i64 = 20;
 
 /// How far back an account's first listing reaches, so a newly connected account brings its
 /// recent meetings with it, but not its whole history.
@@ -133,6 +139,7 @@ struct Inner {
     activity: Activity,
     cipher: Arc<Cipher>,
     sources: Sources,
+    staging: Staging,
 }
 
 impl std::fmt::Debug for Meetings {
@@ -153,6 +160,9 @@ pub struct MeetingsDeps {
     pub activity: Activity,
     pub cipher: Arc<Cipher>,
     pub sources: Sources,
+    /// Where uploads' parts wait, which the loop clears of uploads abandoned for
+    /// `meeting_uploads::STALE_AFTER`.
+    pub staging: Staging,
 }
 
 impl Meetings {
@@ -164,6 +174,7 @@ impl Meetings {
                 activity: deps.activity,
                 cipher: deps.cipher,
                 sources: deps.sources,
+                staging: deps.staging,
             }),
         }
     }
@@ -365,9 +376,14 @@ impl Meetings {
         Ok((newest, stored_count))
     }
 
-    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`). One meeting
-    /// whose run cannot be started is logged and left for the next pass; the rest go on.
+    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`), and removes what
+    /// uploads left in the workspace that nothing needs any more: the uploads abandoned since the
+    /// last pass, and the parts of finished ones. One meeting whose run cannot be started is logged
+    /// and left for the next pass; the rest go on.
     async fn process(&self) {
+        let week_ago = Utc::now() - meeting_uploads::STALE_AFTER;
+        self.sweep_stale_uploads(week_ago).await;
+        self.sweep_finished_uploads(week_ago).await;
         let needed = match self.runs_needed().await {
             Ok(needed) => needed,
             Err(error) => {
@@ -389,6 +405,98 @@ impl Meetings {
                     meeting.id = %meeting_id,
                     error.message = %format!("{error:#}"),
                     "cannot start a meeting's run; the next pass tries again",
+                );
+            }
+        }
+    }
+
+    /// Removes every unfinished upload no part reached since `before`, and its parts. The rows go
+    /// first, so nothing can resume an upload whose parts are going, and a part arriving meanwhile
+    /// takes them itself (`routes::v1::meeting_uploads::upload_part`); parts that could not be
+    /// removed only cost the workspace space, and are logged.
+    async fn sweep_stale_uploads(&self, before: DateTime<Utc>) {
+        let swept = match self.connection().await {
+            Ok(mut connection) => meeting_upload::delete_stale(&mut connection, before)
+                .await
+                .map_err(anyhow::Error::from),
+            Err(error) => Err(error),
+        };
+        let swept = match swept {
+            Ok(swept) => swept,
+            Err(error) => {
+                event!(
+                    name: "meetings.uploads.sweep_failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot remove abandoned uploads; the next pass tries again",
+                );
+                return;
+            }
+        };
+        for upload_id in swept {
+            if let Err(error) = self.inner.staging.remove(upload_id).await {
+                event!(
+                    name: "meetings.uploads.parts_unremoved",
+                    Level::WARN,
+                    meeting_upload.id = %upload_id,
+                    error.message = %error,
+                    "an abandoned upload's parts could not be removed from the workspace",
+                );
+            } else {
+                event!(
+                    name: "meetings.uploads.swept",
+                    Level::INFO,
+                    meeting_upload.id = %upload_id,
+                    "removed an upload nothing reached for a week",
+                );
+            }
+        }
+    }
+
+    /// Removes the parts of finished uploads that no longer need them: each whose capture was
+    /// stored, whose fetch could not remove them, and each finished before `before` whose meeting's
+    /// run settled without storing it, such as one whose fetch a person skipped. A fetch that failed
+    /// and waits for its retry keeps its parts. Each removal is recorded, so it happens once.
+    async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
+        let finished = match self.connection().await {
+            Ok(mut connection) => {
+                meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
+                    .await
+                    .map_err(anyhow::Error::from)
+            }
+            Err(error) => Err(error),
+        };
+        let finished = match finished {
+            Ok(finished) => finished,
+            Err(error) => {
+                event!(
+                    name: "meetings.uploads.sweep_failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot read which finished uploads keep parts; the next pass tries again",
+                );
+                return;
+            }
+        };
+        for upload_id in finished {
+            let removed = match self.inner.staging.remove(upload_id).await {
+                Ok(()) => match self.connection().await {
+                    Ok(mut connection) => {
+                        meeting_upload::record_parts_removed(&mut connection, upload_id)
+                            .await
+                            .map_err(anyhow::Error::from)
+                    }
+                    Err(error) => Err(error),
+                },
+                Err(error) => Err(anyhow::Error::from(error)),
+            };
+            if let Err(error) = removed {
+                event!(
+                    name: "meetings.uploads.parts_unremoved",
+                    Level::WARN,
+                    meeting_upload.id = %upload_id,
+                    error.message = %format!("{error:#}"),
+                    "a finished upload's parts could not be removed; the next pass tries again",
                 );
             }
         }

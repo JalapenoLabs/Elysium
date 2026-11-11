@@ -46,6 +46,9 @@ pub enum EventKind {
     /// Captures merged in were split back out into their meeting, recorded in both, as a merge's
     /// undo or the undo of one.
     Split,
+    /// A person added a capture to it by uploading a recording, a transcript, or both:
+    /// `{ captureId, sourceKind, recording, transcript }`, the last two saying which it holds.
+    CaptureAdded,
     /// A comment thread was resolved: `{ markId }`.
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
@@ -53,7 +56,7 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
@@ -63,6 +66,7 @@ impl EventKind {
         Self::OffsetChanged,
         Self::Merged,
         Self::Split,
+        Self::CaptureAdded,
         Self::ThreadResolved,
         Self::ThreadReopened,
     ];
@@ -78,6 +82,7 @@ impl EventKind {
             Self::OffsetChanged => "offset_changed",
             Self::Merged => "merged",
             Self::Split => "split",
+            Self::CaptureAdded => "capture_added",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
         }
