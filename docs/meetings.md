@@ -700,9 +700,11 @@ way when it was resolved lands.
   text, so a later comment re-embeds only the passages at the end, up to 50,000 characters of threads a segment. It
   goes wherever its segment goes: the segment's projects, their searches, and the agents reading them. A thread
   written before its meeting is segmented is indexed as the segments are stored. A change to a thread indexes again
-  the segments its range overlaps, and an edit or its undo the segments holding a thread that quotes its words, each
-  in its own transaction; nothing else is indexed again. A meeting whose segmenting was skipped or failed has no segments, and so no indexed
-  comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`, Excerpts).
+  the segments its range overlaps, and an edit or its undo the segments over its words and those holding a thread
+  that quotes them, each in its own transaction; nothing else is indexed again. No backfill is owed: no segment held
+  a thread before threads existed. A meeting whose segmenting was skipped or failed has no segments, and so no
+  indexed comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`,
+  Excerpts).
 
 ## In the web app
 

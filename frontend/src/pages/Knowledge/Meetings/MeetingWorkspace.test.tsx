@@ -506,14 +506,18 @@ describe('MeetingWorkspace', () => {
     // jsdom lays nothing out, so it has no scrolling to bring the thread's words into view.
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
-    renderWorkspace(context, transcript, '/?thread=note')
+    try {
+      renderWorkspace(context, transcript, '/?thread=note')
 
-    // jsdom answers no media query, so this is a phone, whose lane is the drawer.
-    const drawer = await screen.findByRole('dialog')
-    expect((await within(drawer).findAllByText('Is this Friday?')).length).toBeGreaterThan(0)
-    expect(wordPiece('is').hasAttribute('data-selected')).toBe(true)
-    expect(scrollIntoView).toHaveBeenCalled()
-    Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+      // jsdom answers no media query, so this is a phone, whose lane is the drawer.
+      const drawer = await screen.findByRole('dialog')
+      expect((await within(drawer).findAllByText('Is this Friday?')).length).toBeGreaterThan(0)
+      expect(wordPiece('is').hasAttribute('data-selected')).toBe(true)
+      expect(scrollIntoView).toHaveBeenCalled()
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
   })
 
   it<Context>('draws a resolved thread no more, and lists it as resolved', async (context) => {

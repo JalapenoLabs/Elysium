@@ -396,9 +396,11 @@ pub async fn reindex_over(
 }
 
 /// Indexes again the segments holding a thread that overlaps `span` of `meeting`'s clock, whose
-/// words changed: a thread quotes them in every segment it lies in, which can reach past the span.
-/// With no thread there, nothing is indexed, since a segment's own text never changes with an
-/// edit.
+/// words changed, and every segment over the span itself. A thread quotes the words in every
+/// segment it lies in, which can reach past the span; and a thread an undo moved back off the
+/// span's far ends, onto words it was on before, still has its old text in the segments it left,
+/// all of which lie inside the span. With no thread there, nothing is indexed, since a segment's
+/// own text never changes with an edit.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -407,13 +409,16 @@ pub async fn reindex_quoting(
     meeting: &Meeting,
     (start_ms, end_ms): (i64, i64),
 ) -> QueryResult<()> {
+    // A span of one instant, words with no time of their own, is a millisecond long, as a range
+    // of one instant is where threads and segments are matched.
+    let end_ms = end_ms.max(start_ms + 1);
     let spans = meeting_comment::spans_over(connection, meeting.id, start_ms, end_ms).await?;
     let start = spans.iter().map(|(start, _)| *start).min();
     let end = spans.iter().map(|(_, end)| *end).max();
-    let Some(covered) = start.zip(end) else {
+    let Some((start, end)) = start.zip(end) else {
         return Ok(());
     };
-    reindex_over(connection, meeting, covered).await
+    reindex_over(connection, meeting, (start.min(start_ms), end.max(end_ms))).await
 }
 
 /// Where words `word_ids` of meeting `meeting_id` lie on its clock, from the earliest start to the
@@ -1211,6 +1216,73 @@ mod tests {
             indexed_text(&mut connection, first)
                 .await
                 .contains("Comment on \"John ships Friday\"")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn an_undo_that_moves_a_thread_back_takes_it_out_of_the_segment_it_left() {
+        let (_url, mut connection) = migrated_database().await;
+        let (found, _, words) = meeting_with_grace(
+            &mut connection,
+            &[("Ada", "Jon ships Friday"), ("Grace", "Then we celebrate")],
+        )
+        .await;
+        let (friday, then) = (word(&words, "Friday"), word(&words, "Then"));
+        let first = segment(&mut connection, &found, (0, 2_000)).await;
+        let second = segment(&mut connection, &found, (2_000, 4_000)).await;
+        // On a word of the second segment alone.
+        start(
+            &mut connection,
+            &found,
+            range(then, then),
+            writing("Is this the party?", &[]),
+            person(),
+        )
+        .await
+        .expect("starts");
+        assert!(
+            !indexed_text(&mut connection, first)
+                .await
+                .contains("Comment on")
+        );
+        assert!(
+            indexed_text(&mut connection, second)
+                .await
+                .contains("Comment on")
+        );
+
+        // An edit across the boundary stretches the thread over its new words, into the first.
+        let edited = edit_words(
+            &mut connection,
+            &found,
+            Replacement {
+                range: range(friday, then),
+                text: "Friday, then",
+            },
+            person(),
+        )
+        .await
+        .expect("edits");
+        assert!(
+            indexed_text(&mut connection, first)
+                .await
+                .contains("Comment on")
+        );
+
+        // Its undo puts the thread back on its word, and the first segment holds it no more.
+        history::undo(&mut connection, found.id, edited.id, person())
+            .await
+            .expect("undoes");
+        assert!(
+            !indexed_text(&mut connection, first)
+                .await
+                .contains("Comment on")
+        );
+        assert!(
+            indexed_text(&mut connection, second)
+                .await
+                .contains("Comment on \"Then\"")
         );
     }
 }
