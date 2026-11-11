@@ -395,6 +395,22 @@ pub async fn reindex_over(
     Ok(())
 }
 
+/// Indexes again every one of `meeting`'s segments, for a change that can move any of its words:
+/// lining its transcript up again from its captures (`final_transcript::rebuild`).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reindex_meeting(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+) -> QueryResult<()> {
+    let segments = timeline_record::of_meeting(connection, meeting.created_by, meeting.id).await?;
+    for (record, _) in segments {
+        timeline_record::index(connection, &record).await?;
+    }
+    Ok(())
+}
+
 /// Indexes again the segments holding a thread that overlaps `span` of `meeting`'s clock, whose
 /// words changed, and every segment over the span itself. A thread quotes the words in every
 /// segment it lies in, which can reach past the span; and a thread an undo moved back off the

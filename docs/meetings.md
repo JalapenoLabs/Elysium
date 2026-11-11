@@ -10,8 +10,10 @@ Fireflies' own web app in a browser the person signed in to on any plan, and Mic
 read through the browser the person's connector signed in to. The code is `api/src/meetings/`.
 
 A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
-and captures, below). Its final transcript is a stream of words with stable ids, and every mark on it is a range of
-those words (The final transcript, below). Every change to a meeting is in its history, and undoable (History, below).
+and captures, below). Every capture sits on the meeting's one clock, and their words are lined up into its final
+transcript, a stream of words with stable ids, every mark on it a range of those words (Aligning, and The final
+transcript, below). A meeting recorded twice is merged only when its person says so (The same meeting twice, below).
+Every change to a meeting is in its history, and undoable (History, below).
 How meetings become reviewed documents of the knowledge base is designed in `docs/meeting-review.md`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
@@ -191,19 +193,24 @@ is fetched or its segments are cut and published.
 
 - **A meeting** (`meetings`, `models::meeting`) is the event: its title, when it started and for how long, who
   organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
-  connector read its first capture.
-- **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting today, and
-  an upload, a Teams recording, or a Slack huddle on the roadmap (`docs/meeting-review.md`). It keeps what its source
-  gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
-  SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch, and never again.
+  connector read its first capture. A meeting whose captures were merged into another names it (`merged_into`),
+  holds none, and is listed nowhere and processed no further until they are split back out.
+- **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
+  Fireflies meeting, a Teams recording, a Slack huddle), and an upload on the roadmap (`docs/meeting-review.md`). It
+  keeps what its source gave, as it came: its connector, its source and the source's id for it, its page there, the
+  transcript with its SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch,
+  and never again.
 - **One clock.** A capture runs on its own clock, the one its transcript and recording are timed by. Its `offset_ms`
   places that clock on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock, which starts at the
-  meeting's `started_at`. Every time of the final transcript and of a segment's record is on the meeting's clock.
+  meeting's `started_at`. Every time of the final transcript and of a segment's record is on the meeting's clock. How
+  each offset was found is its `offset_source` (Aligning, below).
 - A listing stores a meeting and its first capture together, in one transaction, so a capture its connector recorded
   before leaves no meeting behind (`meeting::insert_new`).
-- A meeting holds one capture until captures can be merged (#238). The steps read the one the run names, and
-  everything shown of a meeting's source (its connector, its source, its page there, and whether a recording is kept)
-  is its first capture's.
+- **Its captures in order.** A meeting's captures are in the order they joined it (`joined_at`,
+  `meeting_capture::list_of`): the one it was listed with first, then each merged into it. The first is the clock
+  every other is aligned against, its corrected copy is the one correction made, and everything shown of a meeting's
+  source (its connector, its source, its page there, and whether a recording is kept) is its. The steps that fetch,
+  transcribe, and segment read the capture the run names: the meeting's own first one.
 - A recording kept before captures were hashed has no `recording_hash`; it is never downloaded again to hash it.
 
 ## Processing
@@ -227,12 +234,17 @@ is fetched or its segments are cut and published.
 |----------------------|-------------------------|-----------------------------------------------------------------|
 | `fetch_meeting`      | `pending` to `recorded` | Stores the capture's transcript and uploads its recording, each with its hash (Fetching, below) |
 | `transcribe_meeting` | No                      | Transcribes the capture's recording with the local Whisper and stores it beside the source's transcript (Transcription, below) |
-| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, builds the final transcript from it, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
+| `align_meeting`      | No                      | Places every capture on the meeting's clock, lines their words up into the final transcript, and holds the run while its person says whether it is the same meeting as another (Aligning, below) |
+| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, lines the final transcript up again with it, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
 | `segment_meeting`    | `segmented`, then `done` | Cuts the corrected copy into topics, cuts each one's clip, and publishes every topic as a timeline record attributed to its projects (Segmentation, below) |
 
 Each step's output names the capture it was about (`captureId`), and the step after reads that capture. A step
-handed what a run started before meetings had captures gave, which names the meeting alone, reads the meeting's one
+handed what a run started before meetings had captures gave, which names the meeting alone, reads the meeting's first
 capture, logging that it did (`meetings::capture_of`).
+
+A meeting whose captures change after its run aligned it (a merge, or a split) is aligned again by a run of the
+`meeting_alignment` workflow, `align_meeting` alone (`workflow::alignment`), started by what changed it. It leaves the
+meeting's processing where it was: a meeting segmented already is not segmented again.
 
 ### A meeting's run
 
@@ -428,9 +440,10 @@ raw transcripts are never written.
   attempt, which the run's backoff tries again.
 - **Once.** The copy is stored in `meeting_corrections` (`docs/database.md`), once: an attempt that finds it answers
   it without a turn, so an engine that stopped after storing it costs nothing more.
-- **The final transcript.** Every attempt that has a copy builds the meeting's final transcript from it, unless the
-  meeting has one already (The final transcript, below), so an engine that stopped between the two builds it on the
-  next attempt.
+- **The final transcript.** Every attempt that has a copy lines the meeting's final transcript up again with it (The
+  final transcript, below), which changes nothing once it has, so an engine that stopped between the two does it on
+  the next attempt. A meeting merged into another skips the step, saying "Merged into another meeting, so nothing to
+  correct".
 - **What it logs.** Line counts, line numbers, and hashes, never a word that was said.
 
 #### The corrected copy
@@ -530,9 +543,9 @@ giving the CLI's reason, since every attempt would read the same prompt.
    published, changing nothing.
 2. It reads the corrected copy its input names (`correct::corrected_lines`), or, when the run handed on none, the
    transcript correction follows: the capture's source lines, or Whisper's segments when the source sent none. A
-   meeting whose correction was skipped has its final transcript built here from the same (The final transcript,
-   below). A meeting in which nothing was said is `done` with no topics, and the step skips ("Nothing was said, so
-   nothing to segment").
+   meeting whose aligning was skipped has its final transcript lined up here (The final transcript, below). A meeting
+   in which nothing was said is `done` with no topics, and the step skips ("Nothing was said, so nothing to segment"),
+   and one merged into another skips it ("Merged into another meeting, so nothing to segment").
 3. The answer is stored on the meeting (`meetings.segments`, `segmented`) before anything else, once: an attempt that
    finds it stored cuts and publishes from it without asking again.
 4. Each segment's clip is cut and uploaded (Clips, below).
@@ -591,6 +604,71 @@ at most. MP4-family clips are written with `+faststart`, so a browser plays them
 Recording downloads use their own HTTP client, which follows redirects only to `https` addresses on a named host,
 and the first address is held to the same rule, so a source's address cannot lead Elysium into its own network.
 
+## Aligning
+
+`align_meeting` (`api/src/meetings/align.rs`; the arithmetic is `alignment.rs`) takes what the transcription gives and
+gives it back, so a person may skip it. A meeting not fetched skips it ("Not fetched, so nothing to align"), and one
+merged into another skips it ("Merged into another meeting, so nothing to align").
+
+- **Placing each capture.** The first capture is the meeting's clock. Every other capture whose offset is still the one
+  its listing gave (`offset_source` `listed`) is aligned against it:
+  - **By audio**, when both have a recording Whisper heard: `ffmpeg` in the workspace writes each recording's energy
+    envelope, the mean square of its audio over every ten milliseconds (two hours is 720,000 values), and the two are
+    cross-correlated by the fast Fourier transform. The lag wins when the two share at least a minute of audio, its
+    correlation reaches 0.3, and it stands 0.1 above the best lag more than two seconds from it, so a silence or hold
+    music never decides by a hair. Its offset is the first capture's plus the lag (`audio`).
+  - **By words**, otherwise, or when the audio gives no clear lag: every word of four letters or more that each of the
+    two says at most three times votes for the gap between when the two heard it, and the gap 1.5 seconds wide with the
+    most votes wins, given at least five and twice the votes of any gap more than five seconds from it. Its offset is
+    the median vote (`words`).
+  - Neither answering, the capture keeps its listed offset, and the log says so. An offset found, or set by a person, is
+    never looked for again; a new search happens only for a capture merged in.
+- **Lining the transcript up.** Then the final transcript is lined up from every capture (The final transcript, below).
+- **The same meeting twice.** Last, the meeting may ask its person whether it is the same as another (The same meeting
+  twice, below), and the run waits here until they answer (`Done::Held`).
+- **Set by hand.** A person sets a capture's offset (`PUT /api/v1/meetings/{id}/captures/{captureId}/offset`,
+  `meetings::clock`), at most twelve hours either way: it is `hand`, recorded in the meeting's history as
+  `offset_changed`, the transcript is lined up again at once, and aligning never moves it after. Its undo, from the
+  history on the meeting's page, puts the offset back while nothing moved the capture since. The page's controls for
+  setting an offset and splitting a capture out are on the roadmap, among the meeting's options
+  (`docs/meeting-review.md`, The meeting's page).
+- **What it logs.** Counts, offsets, and how each was found, never a title or a word that was said.
+
+## The same meeting twice
+
+Teams and Fireflies often record the same meeting, and each listing stores a meeting of its own. Elysium never merges
+them on its own (`api/src/meetings/duplicates.rs`).
+
+- **Asking.** As it is aligned, a meeting looks for another of its person's that overlaps it in time (or, when either
+  source kept no length, started within ten minutes of it) with a participant in common. Sources name people differently
+  (Fireflies by address, Teams and Slack by name), so a participant is compared, without regard to case, by what the
+  source says and by the forms an address is commonly made from a name: `Ada Lovelace` is `adalovelace` and
+  `alovelace`, as `ada.lovelace@` and `alovelace@` are, and a one-word name is the address `name@`. The
+  later of the two to be listed asks: an inbox item for its person, "Same meeting as" the other's title, raised as the
+  system, and a pair in `meeting_duplicates` recording it once, whichever meeting found the other. Its run waits at
+  aligning for the answer, so a duplicate never publishes segments of its own. Items are the whole workspace's, so it
+  carries the two titles, and nothing that was said.
+- **Only the person's own meetings** are compared, since a meeting is its owner's alone until meetings are public by
+  default (`docs/meeting-review.md`, Who sees a meeting); comparing everyone's meetings comes with that.
+- **Merge** (`POST /api/v1/meetings/duplicates/{id}/merge`) moves the meeting's captures into the other, each placed
+  on its clock from when the two meetings started, after its own captures. Every edit made on the merged meeting is
+  carried across with its words, the words it replaced, and its mark, the other's transcript is lined up again keeping
+  every edit, and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names
+  the one it went into. Both histories record `merged`, with where each capture sat before and after.
+- **Not the same** (`POST .../not-the-same`) is remembered, so the pair is never asked about again.
+- Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. Only the meeting's
+  person answers; a pair decided answers `409 duplicate_decided`, and of two answers at once the first to be written
+  counts, the other answered that way.
+- **Splitting.** A merge is undone by splitting the captures back out (`POST
+  /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry), while each capture still sits as
+  the merge left it, or on an offset aligning found since; one a person set by hand since answers that it changed
+  since, as undoing would overwrite it. Each goes back where it sat, the
+  edits the merge carried are taken back, the merged meeting is its own again, both transcripts are lined up again,
+  the pair becomes not the same, and runs start that align the kept meeting again and carry the split one on from
+  aligning (or align it alone, if it was segmented). Both histories record `split`, and undoing it merges them again.
+- **On the item's page** (`SameMeetingPanel`, reading `GET /api/v1/meetings/duplicates?itemId=`): both meetings,
+  each linking to its page, with Merge and Not the same until the person answers, and what they answered after.
+
 ## Segment records
 
 Each segment is a timeline record:
@@ -623,15 +701,35 @@ speaker, a start and end on the meeting's clock, and where it came from (`origin
 edit (`edit`), with the capture it was heard in (`capture_id`, none for an edit's words). Every word names the change
 in the meeting's history that wrote it (`introduced_by`).
 
-- **Built from the one capture.** Until captures are aligned (#238), a meeting's final transcript is built from its
-  one capture (`meetings::final_transcript`), from the lines its correction followed: its corrected copy's lines, a
-  line that differs from the one it follows being the correction's, or, uncorrected, its source's lines, or Whisper's
-  segments when the source sent none. A line becomes its words, split at whitespace, its span spread evenly across
-  them (a line timed backwards gives its words no time), each word keeping the line's speaker. It is built once, by
-  the system, as a `built` change: by the correction step once its copy is stored, and by segmenting for a meeting
-  whose correction was skipped. The migration that split meetings into captures built every corrected or segmented
-  meeting's transcript the same way, in SQL, and a test holds the two to the same words.
-- **Every word it ever held.** A word is never deleted or rewritten. An edit marks the words of its range replaced
+- **Lined up from every capture.** A meeting's final transcript is lined up from its captures
+  (`meetings::final_transcript::rebuild`, the arithmetic in `meetings::alignment`), each on the meeting's clock. Each
+  capture's words come from its lines: the first capture's corrected copy, when the meeting has one, a line that
+  differs from the one it follows being the correction's; otherwise its source's lines, or Whisper's segments when the
+  source sent none. Each word of a line takes Whisper's timing when Whisper heard the same word within two seconds of
+  the line, matched in order, since Whisper's timings are exact to the audio; the rest are spread evenly across the
+  time left between the words Whisper anchored, or across the whole line (a line timed backwards gives its words no
+  time). A word keeps its line's speaker, and one Whisper alone heard takes the speaker of a source's line at that
+  moment, since Whisper tells nobody apart. Then the captures are laid out by time: every word of the first capture,
+  and of each later one only the words where no capture before it heard anything within two seconds, so a moment two
+  captures heard reads once and a stretch only one caught is still there. A capture Whisper never heard is built
+  exactly as the migration that split meetings into captures built every transcript, in SQL, and a test holds the two
+  to the same words.
+- **Lined up again.** It is lined up by the align step, again by the correction step once its copy is stored, again by
+  everything that moves a capture (a hand-set offset, a merge, a split), and by segmenting for a meeting whose aligning
+  was skipped, by the system or by the person whose change caused it, as a `built` change. Each compares each capture's
+  words as it gives them now with its words that stand, in order, by what each says (its text, speaker, and origin) and
+  not by when, and changes only what differs: a word that says the same keeps its id, so marks over it never move, and
+  takes its new times, so a capture placed anew moves its words rather than replacing them. One capture's comparison
+  that runs past two seconds settles for a larger diff. Every edit's words stand through it, and the captures' words
+  inside an edit's time stay out. An edit belongs to the capture of the words it replaced, and it and they move with
+  that capture, by as much as its offset moved since its words were last placed (the newest `built` entry naming it,
+  or the merge that brought it), so an edit stays over what it replaced wherever its capture goes on the clock. A
+  standing word another capture heard under an edit is replaced too, even when it says the same, but only once the
+  edit's capture is placed: an edit over a capture still at its listed offset sits at a time nobody has checked. A mark
+  over a word a rebuild replaced moves onto the new words at the same moment. A rebuild is not undone on its own; what
+  caused it is, and that lines the transcript up again.
+- **Every word it ever held.** A word is never deleted, and what it says (its text, speaker, and origin) is never
+  rewritten; only its times move, with its capture's place on the clock. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
   order of `position`. Positions order every word a meeting ever held in one sequence with gaps of 1024, and an edit
   writes its new words just after the last word it replaces, so the words it replaced stay where they were and an undo
@@ -658,11 +756,14 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Change                | What it records                                                  | Its undo |
 |-----------------------|------------------------------------------------------------------|----------|
-| `built`               | The capture its final transcript was built from, from what, and how many words | None: a transcript is built once, and edited after |
+| `built`               | The captures it was lined up from with their offsets, whether the first capture's words are its corrected copy's, and how many words stand, were written, were replaced, and were kept at new times, and how many marks moved | None: what caused it is undone, and lines it up again |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
 | `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
 | `correction_approved` | Its person approved the corrected copy                           | None: approving let its run go on |
+| `offset_changed`      | A capture's offset and how it was found, before and after, set by hand | Puts the offset back, while nothing moved the capture since |
+| `merged`              | In both meetings: which meeting's captures went into which, and where each sat before and after | From the kept meeting's: splits them back out |
+| `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
 
 ## Comments
@@ -686,10 +787,10 @@ way when it was resolved lands.
   for a machine: a comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking part
   in the thread, who wrote in it or was mentioned in it. Undoing a resolve or a reopen tells them too, as the reopen
   or resolve it is, so nobody is left believing a change they heard of still stands. Someone mentioned in a reply
-  hears of it once, as a mention.
-  Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is raised by the system, says whom it
-  is for in its notes, and carries the meeting's title and nothing written in the thread. `meeting_thread_items` keeps
-  the thread that raised each, so the item's page opens it (`GET /meetings/thread-items/{itemId}`).
+  hears of it once, as a mention. Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is
+  raised by the system, says whom it is for in its notes, and carries the meeting's title and nothing written in the
+  thread. `meeting_thread_items` keeps the thread that raised each, so the item's page opens it
+  (`GET /meetings/thread-items/{itemId}`).
 - **Elysia.** A person's comment mentioning Elysia queues a `meeting-comment` turn of hers (`docs/elysia.md`,
   Triggers). She answers in the thread as herself, which tells its author, and may do what it asks: fix the words
   ("this was Sharath" over a name it misheard), or put the topics the range lies in on a project ("this belongs to
@@ -701,8 +802,9 @@ way when it was resolved lands.
   goes wherever its segment goes: the segment's projects, their searches, and the agents reading them. A thread
   written before its meeting is segmented is indexed as the segments are stored. A change to a thread indexes again
   the segments its range overlaps, and an edit or its undo the segments over its words and those holding a thread
-  that quotes them, each in its own transaction; nothing else is indexed again. No backfill is owed: no segment held
-  a thread before threads existed. A meeting whose segmenting was skipped or failed has no segments, and so no
+  that quotes them, and lining the transcript up again from its captures (an offset set, a merge, a split) every
+  segment of the meeting, each in its own transaction; nothing else is indexed again. No backfill is owed: no segment
+  held a thread before threads existed. A meeting whose segmenting was skipped or failed has no segments, and so no
   indexed comments either, until excerpts and the whole transcript are in search (`docs/meeting-review.md`,
   Excerpts).
 
@@ -774,6 +876,8 @@ way when it was resolved lands.
     (`MeetingThreadLink`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
+- **An item asking whether two meetings are one** shows both, each linking to its page, with Merge and Not the same
+  (`SameMeetingPanel`, The same meeting twice, above).
 - **The source's setting** is its connector's content form's switch, "Wait for my approval before acting on
   meetings", saved with the page.
 - **A project's timeline** (`ProjectTimeline`, the project page's Timeline tab, which counts every record): every
@@ -796,7 +900,7 @@ way when it was resolved lands.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a person edited its words or undid a change, or one of its threads was written in, resolved, reopened, or removed: its id, state, and owner, and the history entry a person's change made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
+| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words or undid a change, or one of its threads was written in, resolved, reopened, or removed: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |

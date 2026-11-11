@@ -22,8 +22,10 @@ use crate::models::agent::Author;
 /// migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventKind {
-    /// Its final transcript was built from a capture: `{ captureId, builtFrom, words }`, where
-    /// `builtFrom` is `correction` (its corrected copy), `source`, or `whisper`.
+    /// Its final transcript was lined up from its captures (`models::meeting_word::Rebuilt`):
+    /// first built, or built again because its captures, their offsets, or its corrected copy
+    /// changed, keeping every edit. A transcript built before captures were aligned records
+    /// `{ captureId, builtFrom, words }` instead.
     Built,
     /// A range of its words was replaced (`models::meeting_word::WordChange`).
     Edited,
@@ -35,6 +37,15 @@ pub enum EventKind {
     HoldChanged,
     /// Its corrected transcript was approved: `{}`.
     CorrectionApproved,
+    /// A person set a capture's offset onto its clock by hand: `{ captureId, before, after }`,
+    /// each `{ offsetMs, offsetSource }`.
+    OffsetChanged,
+    /// One meeting's captures were merged into another (`crate::meetings::duplicates::Moved`),
+    /// recorded in both.
+    Merged,
+    /// Captures merged in were split back out into their meeting, recorded in both, as a merge's
+    /// undo or the undo of one.
+    Split,
     /// A comment thread was resolved: `{ markId }`.
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
@@ -42,13 +53,16 @@ pub enum EventKind {
 }
 
 impl EventKind {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 11] = [
         Self::Built,
         Self::Edited,
         Self::Marked,
         Self::Unmarked,
         Self::HoldChanged,
         Self::CorrectionApproved,
+        Self::OffsetChanged,
+        Self::Merged,
+        Self::Split,
         Self::ThreadResolved,
         Self::ThreadReopened,
     ];
@@ -61,6 +75,9 @@ impl EventKind {
             Self::Unmarked => "unmarked",
             Self::HoldChanged => "hold_changed",
             Self::CorrectionApproved => "correction_approved",
+            Self::OffsetChanged => "offset_changed",
+            Self::Merged => "merged",
+            Self::Split => "split",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
         }

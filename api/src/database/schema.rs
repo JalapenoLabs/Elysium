@@ -1197,6 +1197,8 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        joined_at -> Timestamptz,
+        offset_source -> Text,
     }
 }
 
@@ -1239,6 +1241,23 @@ diesel::table! {
         approved_at -> Nullable<Timestamptz>,
         review_item_id -> Nullable<Uuid>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_duplicates (id) {
+        id -> Uuid,
+        meeting_id -> Uuid,
+        same_as_id -> Uuid,
+        action_item_id -> Nullable<Uuid>,
+        decision -> Nullable<Text>,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -1333,6 +1352,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         hold_for_approval -> Bool,
+        merged_into -> Nullable<Uuid>,
     }
 }
 
@@ -2187,6 +2207,7 @@ diesel::joinable!(meeting_comments -> users (created_by));
 diesel::joinable!(meeting_corrections -> action_items (review_item_id));
 diesel::joinable!(meeting_corrections -> meetings (meeting_id));
 diesel::joinable!(meeting_corrections -> users (approved_by));
+diesel::joinable!(meeting_duplicates -> action_items (action_item_id));
 diesel::joinable!(meeting_events -> meetings (meeting_id));
 diesel::joinable!(meeting_events -> users (created_by));
 diesel::joinable!(meeting_marks -> meeting_events (removed_by));
@@ -2350,6 +2371,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_comment_mentions,
     meeting_comments,
     meeting_corrections,
+    meeting_duplicates,
     meeting_events,
     meeting_marks,
     meeting_thread_items,
