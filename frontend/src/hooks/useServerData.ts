@@ -16,7 +16,6 @@ import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { connectorsLoaded } from '../store/connectorsSlice'
 import { draftUpserted, recordDraftsLoaded } from '../store/draftsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
-import { companyDocLoaded } from '../store/companyDocSlice'
 import { useAppDispatch } from '../store/hooks'
 import { projectManagerLoaded, turnLogLoaded } from '../store/projectManagersSlice'
 import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
@@ -73,7 +72,6 @@ import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectors } from '../api/routes/connectorRoutes'
 import { getDraft, listRecordDrafts, recordDraftsKey } from '../api/routes/draftRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
-import { COMPANY_DOC_KEY, getCompanyDoc } from '../api/routes/companyDocRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
@@ -255,21 +253,6 @@ export function useLearningCategoriesLoader(isEnabled: boolean): LoadStatus {
   const { data, error } = useSWR(key, async () => {
     const response = await listLearningCategories()
     dispatch(learningCategoriesLoaded(response.categories))
-    return response
-  })
-  return toLoadStatus(data !== undefined, error)
-}
-
-// The company doc with each section's pending proposals, for the company's members alone: a
-// guest's request would be refused.
-export function useCompanyDocLoader(isEnabled: boolean): LoadStatus {
-  const dispatch = useAppDispatch()
-  const key = isEnabled
-    ? COMPANY_DOC_KEY
-    : null
-  const { data, error } = useSWR(key, async () => {
-    const response = await getCompanyDoc()
-    dispatch(companyDocLoaded(response))
     return response
   })
   return toLoadStatus(data !== undefined, error)

@@ -1,14 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Tools for the company doc: the one document that knows the company, which agents read and
-//! propose changes to.
+//! suggest edits to.
 //!
-//! `company_doc_read` answers what `GET /api/v1/company-doc` answers: every section, each with
-//! the proposals still waiting for review. `company_doc_propose` calls `crate::company_doc::propose`,
-//! as the review and agents' own tool do, with the person who connected the client as the one
-//! proposing and the client as the agent acting for them. Nothing it proposes changes the doc
-//! until a person approves it. The doc is part of the knowledge base, so a guest's client is
-//! refused, as the routes refuse a guest.
+//! `company_doc_read` answers every section, each with the suggestions still waiting for review as
+//! its proposals. `company_doc_propose` is `page_suggest` for one section, named by its key, and
+//! calls `crate::company_doc::propose`, as agents' own tool does, with the person who connected the
+//! client as the one suggesting and the client as the agent acting for them. Nothing it suggests
+//! changes the doc until a person accepts it on the section's page. The doc is part of the
+//! knowledge base, so a guest's client is refused, as the routes refuse a guest.
 
 use anyhow::Context;
 use rmcp::handler::server::wrapper::Parameters;
@@ -22,7 +22,7 @@ use super::workspace::{Workspace, answer, caller, refuse_without_write};
 use crate::auth::MemberUser;
 use crate::company_doc::{self, ProposeRequest};
 use crate::errors::ApiError;
-use crate::models::company_doc::Proposer;
+use crate::models::agent::Author;
 
 #[tool_router(router = company_doc_router, vis = "pub(super)")]
 impl Workspace {
@@ -30,9 +30,10 @@ impl Workspace {
         name = "company_doc_read",
         description = "Reads the company doc: who the company is, its leadership, its people and \
             how their names are spelled, stakeholders, products, projects, and a glossary of \
-            names and jargon. Each section lists the proposed changes still waiting for a \
-            person's review, so you know what may change and need not propose it again. Read it \
-            before writing anything that names the company's people, clients, or terms."
+            names and jargon. Each section lists the suggested edits still waiting for a \
+            person's review as its proposals, so you know what may change and need not suggest \
+            it again. Read it before writing anything that names the company's people, clients, \
+            or terms."
     )]
     async fn company_doc_read(
         &self,
@@ -56,13 +57,13 @@ impl Workspace {
 
     #[tool(
         name = "company_doc_propose",
-        description = "Proposes a change to one section of the company doc, for a person to \
-            approve or reject; nothing changes until they approve it. Propose what you learned \
-            for certain: a person's name as they spell it themselves, a new client or product, \
-            a term and what it means, a changed role. Read the doc first and give edits against \
-            a section as it reads now, in the form Claude Code's Edit tool takes. A change \
-            already waiting for review is answered rather than proposed twice. Needs write \
-            access."
+        description = "Suggests an edit to one section of the company doc, for a person to \
+            accept or dismiss on the section's page; nothing changes until they accept it. It is \
+            page_suggest for a section named by its key. Suggest what you learned for certain: a \
+            person's name as they spell it themselves, a new client or product, a term and what \
+            it means, a changed role. Read the doc first and give edits against a section as it \
+            reads now, in the form Claude Code's Edit tool takes. An edit already waiting for \
+            review is answered rather than suggested twice. Needs write access."
     )]
     async fn company_doc_propose(
         &self,
@@ -78,9 +79,10 @@ impl Workspace {
             return Ok(refusal);
         }
         let agent = acting_agent(&self.state, &caller).await;
-        let proposer = Proposer::Person {
+        let author = Author {
             user_id: member.id(),
             agent: agent.as_ref(),
+            at: chrono::Utc::now(),
         };
         let proposed = async {
             let mut connection = self
@@ -90,8 +92,7 @@ impl Workspace {
                 .await
                 .context("no database connection available")?;
             let proposed =
-                company_doc::propose(&mut connection, &self.state.events, request, proposer)
-                    .await?;
+                company_doc::propose(&mut connection, &self.state.events, request, author).await?;
             Ok::<_, ApiError>(json!(proposed))
         };
         answer(proposed.await)

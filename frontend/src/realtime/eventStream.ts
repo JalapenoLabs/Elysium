@@ -63,7 +63,6 @@ import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { AGENT_GUIDANCE_KEY } from '../api/routes/agentGuidanceRoutes'
-import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { getKnowledgeAsk } from '../api/routes/knowledgeRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
@@ -253,14 +252,6 @@ const handlers: Handlers = {
       return
     }
     void mutate(PAGE_ATTACHMENT_POLICY_KEY)
-  },
-  // The doc is one record, loaded again whole with its history, by the company's members only.
-  'companyDoc.changed': () => {
-    if (!selectIsCompanyMember(store.getState())) {
-      return
-    }
-    void mutate(COMPANY_DOC_KEY)
-    void mutate(COMPANY_DOC_HISTORY_KEY)
   },
   // The guidance and its versions are one answer, loaded again whole by the company's members.
   'agentGuidance.changed': () => {

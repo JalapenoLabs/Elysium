@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{PageResponse, response};
+use super::{PageResponse, SuggestionResponse, pending_suggestions, response};
 use crate::auth::MemberUser;
 use crate::database::Pool;
 use crate::errors::ApiError;
@@ -47,4 +47,23 @@ pub async fn read(database: &Pool, id: Uuid) -> Result<PageResponse, ApiError> {
         .context("no database connection available")?;
     let page = page::find(&mut connection, id).await?;
     response(&mut connection, page).await
+}
+
+/// Page `id` as an agent's `page_read` reads it: the page whole and the suggestions waiting on it,
+/// so an agent knows what a person may still accept and need not suggest it again.
+///
+/// # Errors
+/// `404` for an unknown page.
+pub async fn read_with_suggestions(
+    database: &Pool,
+    id: Uuid,
+) -> Result<(PageResponse, Vec<SuggestionResponse>), ApiError> {
+    let mut connection = database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let page = page::find(&mut connection, id).await?;
+    let page = response(&mut connection, page).await?;
+    let suggestions = pending_suggestions(&mut connection, id).await?;
+    Ok((page, suggestions))
 }

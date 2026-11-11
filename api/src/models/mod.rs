@@ -64,6 +64,7 @@ pub mod page;
 pub mod page_attachment;
 pub mod page_label;
 pub mod page_project;
+pub mod page_suggestion;
 pub mod password_vault;
 pub mod project;
 pub mod project_autonomy;

@@ -10,15 +10,15 @@ far: the index's tables in Postgres (Search, below); every timeline record index
 backfill for what was stored before, agent turn summaries among them (Timeline records, below); learnings, saved through the routes, the MCP server, and
 the Knowledge page, filed under the built-in categories and the workspace's own, and indexed as they are saved
 (Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole, on the
-Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited in Settings, Company doc,
-proposed to by its scheduled review and by agents, read by every agent, and indexed as it changes (The company doc,
-below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
+Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited and reviewed on its pages in the
+knowledge base, suggested to by its scheduled review and by agents, read by every agent, and indexed as it changes (The
+company doc, below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
 (Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
 turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
-their place in the index, and finding them by title and text, with learnings and the company doc among them (Pages,
-below).
+their place in the index, finding them by title and text, and the edits agents suggest to them, reviewed on the page,
+with learnings and the company doc among them (Pages, below).
 
 ## What is indexed
 
@@ -521,9 +521,10 @@ workspace's own; it is a setting, so it stays in Settings. See `docs/frontend.md
 One document per instance knows the company. Every agent reads it, and correcting a meeting's transcript leans on it
 most (`docs/engine.md`, Meetings), so it carries how the company spells its people's names and its jargon. Each
 section is a page under the Company page (Pages, Learnings and the company doc, below). The model is
-`api/src/models/company_doc.rs`, what every caller shares of it `api/src/company_doc/`, the routes
-`/api/v1/company-doc` (`docs/api.md`), and the tables `company_doc_proposals` and `company_doc_review_cursor`
-(`docs/database.md`).
+`api/src/models/company_doc.rs`, what every caller shares of it `api/src/company_doc/`, the route that starts its review
+`POST /api/v1/company-doc/review` (`docs/api.md`), and the table `company_doc_review_cursor` (`docs/database.md`).
+Everything else about it is its pages': their versions, their history, and the edits suggested to them (Pages,
+Suggestions, below).
 
 ### Sections
 
@@ -545,63 +546,35 @@ each section to agents in English; the web app names and describes them from its
 
 ### Who changes it
 
-- **People edit it directly**, any number of sections at once from the page's Save, as one change in its history.
-- **Everyone else proposes.** The scheduled review, Elysia, coding agents, and people's MCP clients never write the
-  doc: each proposes a change to one section, and nothing changes until a person approves it. Any member approves or
-  rejects any proposal, one at a time; a guest reaches none of it (Who sees what, above).
+- **People edit it directly**, each section on its own page, as they edit any page.
+- **Everyone else suggests.** The scheduled review, Elysia, coding agents, Project Managers, and people's MCP clients
+  never write the doc: its sections are proposal-only pages (Pages, Who changes pages), so each suggests an edit to one
+  section, and nothing changes until a person accepts it. Any member accepts or dismisses any suggestion, on the
+  section's own page; a guest reaches none of it (Who sees what, above).
 
-Proposals are the company doc's own, not changesets (`docs/action-items.md`, Changesets). A changeset is a batch of
-action-item operations, scoped to a project, with dependencies between them, applied as its proposer through the
-action-item writes and reviewed in the Action items area. A proposal to the doc is one section's text, with no
-dependencies, reviewed beside the section it changes. Folding it into changesets would carry project scoping and the
-action-item review into a document that has neither, so the doc keeps the rule (nothing applies until a person
-approves each change, and every applied change is recorded and can be undone) in a model of its own.
+A suggestion to the doc is a suggestion to its section's page, through the framework every page shares (Pages,
+Suggestions, below): the doc adds no rule of its own to how one is made, reviewed, merged, or recorded.
+`company_doc_propose` is a name for `page_suggest` that names a section by its key rather than its page, and suggests
+against the section as it reads now, so the agents and guidance that use it keep working.
 
-### Proposals
+Suggestions are not changesets (`docs/action-items.md`, Changesets). A changeset is a batch of action-item operations,
+scoped to a project, with dependencies between them, applied as its proposer through the action-item writes and
+reviewed in the Action items area. A suggestion is one page's text, with no dependencies, reviewed beside the page it
+changes. Folding it into changesets would carry project scoping and the action-item review into pages that have
+neither, so pages keep the rule (nothing applies until a person accepts each change, and every applied change is a
+version that can be restored) in a model of their own.
 
-- **A proposal** is one section's new text with the text it was made against, its reason, and optionally the quote
-  and source it was read in (and, for the review's, the timeline record and the run). It is `pending` until a person
-  approves or rejects it, and records who decided and when.
-- **Agents propose edits**, in the form Claude Code's Edit tool takes: `find` is text the section holds exactly once,
-  and `replace` takes its place; an empty `find` adds to the end. Elysium applies them to the section as it stands and
-  stores the result, so an agent that misreads a long section cannot drop what it did not mean to change. An edit
-  whose text is missing or found twice is refused, saying which.
-- **The same change is pending once.** Proposing a section text that is already pending answers that proposal, so a
-  review that runs twice, or two agents reading the same message, make one.
-- **Approving** writes the proposal into its section as a change by the person approving. When the section changed
-  since the proposal was made, the two changes are merged three ways from the text it was made against, line by
-  line, the way version control merges a branch; a proposal whose lines were changed since is refused with
-  `409 proposal_overlaps` and stays pending, for the person to reject or make by hand. Without the merge, every edit
-  to People or the glossary would leave every pending proposal to them unusable.
-- **Rejecting** changes nothing in the doc and is not part of its history; the proposal keeps the decision, and the
-  review reads the latest rejections so it does not propose them again.
+### History
 
-Who proposed is recorded as learnings record who saved (`created_by` and `agent`): a person and the MCP client acting
-for them (`mcp:<client id>`), the coding agent's machine user for a session (`session:<number>`), or Elysia, for her
-turns and for the review, which also names its run.
-
-### History and undo
-
-Every change that writes the doc is one entry, whichever sections it reached, shaped as learnings' history is. The doc
-keeps no history of its own: each section it wrote has a version and a row in its page's history, those rows sharing
-one id, and `company_doc::history` reads them back as one entry. Publishing a section's page directly, or restoring one
-of its versions, is a change to the doc like any other and reads as an `edited` entry.
-
-| Kind       | `data`                                                                                   |
-|------------|------------------------------------------------------------------------------------------|
-| `edited`   | `changes`: each section that changed, `{ from, to }`; `undid` when an undo wrote it      |
-| `approved` | `changes`, as for an edit; the entry names the proposal it applied (`proposal_id`)       |
-
-- An entry names who made the change: the person who edited, approved, or undid.
-- Any entry can be undone by any member, and the undo is an `edited` entry naming the one it reversed, so it can be
-  undone in turn. It is undone section by section: a section that still holds what the entry wrote gets back what it
-  replaced, and one changed since keeps its newer text. A change with nothing left to reverse answers `409`.
-- A section given its own text again is not part of a change, and a save that changes nothing records nothing.
+The doc keeps no history of its own: each section's is its page's (Pages, History). Every change is a version of the
+section it reached, with who made it and the agent acting for them, read, compared, and restored from that page's
+History tab, and a version an accepted suggestion wrote names the suggestion. A change that reached several sections at
+once is one entry id with a row on each section's page.
 
 ### The review
 
-A workflow on the engine, `company_doc_review`, reads what was ingested since its last run and proposes changes, as
-Elysia. Its one step, `review_company_doc`, is a text turn on the step's model setting, Opus 5.5 at high effort unless
+A workflow on the engine, `company_doc_review`, reads what was ingested since its last run and suggests edits, as
+Elysia, reading the suggestions waiting and the latest dismissed with why, so it does not suggest them again. Its one step, `review_company_doc`, is a text turn on the step's model setting, Opus 5.5 at high effort unless
 an admin chose another. Its schedule, its window, and how it fits one prompt are in `docs/engine.md`, The company doc.
 
 ### In the index
@@ -613,20 +586,21 @@ attributed to the person whose change it now reads as.
 
 ### Agents read it
 
-- Over MCP, `company_doc_read` answers every section, in order, with what belongs there and the proposals still
-  pending, so an agent knows what may change and need not propose it again; `company_doc_propose` proposes, needing
-  `workspace:write`, as the person and their client (`docs/mcp.md`).
+- Over MCP, `company_doc_read` answers every section, in order, with what belongs there and the suggestions still
+  pending, as `proposals`, so an agent knows what may change and need not suggest it again;
+  `company_doc_propose` suggests, needing `workspace:write`, as the person and their client (`docs/mcp.md`).
 - In a turn, the same two tools are on the `elysium_knowledge` server, which every coding and Studio session's turn,
-  every one of Elysia's, and every Project Manager's gets, project or not (`docs/coding.md`). A session proposes as its
-  coding agent, Elysia as herself, and a Project Manager as itself (`project_manager:<project id>`).
-- Every change announces `companyDoc.changed`, with nothing in it, and members load the doc again
-  (`docs/realtime.md`).
+  every one of Elysia's, and every Project Manager's gets, project or not (`docs/coding.md`). A session suggests as
+  whoever started it, naming the session, Elysia as herself, and a Project Manager as itself
+  (`project_manager:<project id>`), as `page_suggest` records them.
+- Every change to a section announces `page.changed` for its page (`docs/realtime.md`).
 
 ### In the web app
 
-Settings, Company doc (`/settings/company-doc`, in the Knowledge base section, for members) edits every section in
-one form saved from the header, each section with its pending proposals beside it as a diff with Approve and Reject,
-and the history below with Undo. Look for updates starts a review at once. See `docs/frontend.md`, Company doc.
+The company doc lives in the knowledge base, nowhere else. The Company page lists its seven sections as its child
+pages; each is read, edited, compared, and restored as any page is, and its suggestions are reviewed on its own
+Suggestions tab (Pages, In the web app, below). Look for updates, an action on the Company page and on every section,
+starts a review at once and says so in a toast linking to its run. `/settings/company-doc` opens the Company page.
 
 ## MCP
 
@@ -643,12 +617,13 @@ under the same names, descriptions, and argument schemas.
 | `knowledge_ask`       | Yes | No   | A written answer to a question, every claim citing a passage (Asking, below) |
 | `knowledge_ask_get`   | Yes | No   | An ask by its id, waiting a bounded time for its answer               |
 | `company_doc_read`    | Yes | Yes  | The company doc (The company doc, above)                              |
-| `company_doc_propose` | Yes | Yes  | A proposal to one section                                             |
+| `company_doc_propose` | Yes | Yes  | `page_suggest` for one section, named by its key                      |
 | `learning_save`       | Yes | No   | Saves or revises a learning (Learnings, above)                        |
 | `learning_delete`     | Yes | No   | Deletes a learning softly                                             |
-| `page_read`           | Yes | Yes  | One page whole, with its `currentVersion`                             |
+| `page_read`           | Yes | Yes  | One page whole, with its `currentVersion` and the suggestions waiting |
 | `page_list`           | Yes | Yes  | One branch of the tree, 200 pages at a time, each with its `childCount` |
 | `page_save`           | Yes | Yes  | Creates a page or publishes its next version (Who changes pages, below) |
+| `page_suggest`        | Yes | Yes  | Suggests an edit to a page, for a person to accept (Suggestions, below) |
 | `page_move`           | Yes | Yes  | Moves a page with everything under it, or reorders it                 |
 | `page_label_add`      | Yes | Yes  | Puts a label on a page (Labels, below)                                |
 | `page_label_remove`   | Yes | Yes  | Takes a label off a page                                              |
@@ -682,8 +657,8 @@ under the same names, descriptions, and argument schemas.
   strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
   narrow and `person` is whoever said it, what `searchedByMeaning: false` means, to cite by title, person, and date,
   and that results may quote a coworker's mail and are not for repeating outside the company.
-- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`, and
-  `page_project_unlink` call what the page routes call, with the argument structs beside those routes, so a turn's schemas are the MCP server's as the knowledge tools'
+- **Pages.** `page_read`, `page_save`, `page_suggest`, `page_move`, `page_label_add`, `page_label_remove`,
+  `page_project_link`, and `page_project_unlink` call what the page routes call, with the argument structs beside those routes, so a turn's schemas are the MCP server's as the knowledge tools'
   are. `page_list` answers one branch, from what `GET /api/v1/pages` reads: every learning is a page, so the flat list
   soon passes what a tool may answer (Claude Code refuses about 25,000 tokens, some 300 pages), and an agent wants to see
   how the tree is laid out, not all of it at once. It starts at the top and follows `childCount`; to find what a page
@@ -693,7 +668,7 @@ under the same names, descriptions, and argument schemas.
   saved it and the client as the agent acting for them, so a learning an agent saves is validated, recorded, indexed,
   and announced exactly as one saved in the browser. `learning_save`'s description and the agent guidance (Agent
   guidance, below) say what makes a learning worth saving. A turn cannot save learnings yet: an agent acting for a
-  session needs recording as one, as `session:<n>` is for a proposal, which is on the roadmap.
+  session needs recording as one, as `session:<n>` is for a suggestion, which is on the roadmap.
 - `knowledge_ask` answers in writing rather than with evidence, for clients that want an answer (Asking, below). A
   turn does not get it: an agent searches for itself, and an answer would spend a second turn on what the first one
   can read.
@@ -920,7 +895,7 @@ who made it, the agent acting for them, and `data`.
 | Kind        | `data`                                                                                  |
 |-------------|-----------------------------------------------------------------------------------------|
 | `created`   | `{ parentId, version }`                                                                 |
-| `published` | `{ version }`, with `restoredFrom` for a restore, `undid` for an undo of a learning or the company doc, and `proposalId` for an approved proposal |
+| `published` | `{ version }`, with `restoredFrom` for a restore, `undid` for an undo of a learning or of the company doc, and `suggestionId` for an accepted suggestion |
 | `moved`     | `{ from, to }`, each `{ parentId, after }`: the two values a move takes                 |
 | `deleted`   | Empty, or `{ deletedWith }`, the ancestor whose deletion took it; `undid` for an undo; `{ keptChildren }`, each `{ id, position }`, when it went alone |
 | `restored`  | `{ deletedAt }`, the deletion it reversed, with `restoredWith` when an ancestor's restore brought it back; `undid` for an undo |
@@ -948,7 +923,8 @@ deletion that left it in its parent's place, or the restore that took it back.
 - **Agents write as their person, or as themselves.** Every write takes an `Author`: who it is by and the agent acting
   for them (`mcp:<client id>`, `session:<number>`, or `project_manager:<project id>`). Each route's work is a function
   of its own taking one, so an agent's tool calls what the route calls. Agents edit pages directly, since every version
-  is kept and can be restored; what an agent should not do alone is a page that says so (below).
+  is kept and can be restored, or suggest an edit for a person to accept (Suggestions, below); what an agent should not
+  do alone is a page that says so (below).
 
   | Agent                       | Reads as                     | Writes                                               |
   |-----------------------------|------------------------------|------------------------------------------------------|
@@ -974,9 +950,9 @@ deletion that left it in its parent's place, or the restore that took it back.
   listed as a learning. `learning_save` takes the evidence with the text and revises by title. A turn has no
   `learning_save`, so it is told to say what should change in its answer. Moving a learning is only a move, so
   `page_move` takes one.
-- **Proposal-only pages.** A page may be `proposalOnly`: people edit it directly, and an agent may only propose.
+- **Proposal-only pages.** A page may be `proposalOnly`: people edit it directly, and an agent may only suggest.
   Anything but a person acting alone is refused, publishing, restoring, moving, or deleting it, or deleting a page
-  above it, with `409 page_proposal_only`, whose message names `company_doc_propose`. Who that is is read from the user
+  above it, with `409 page_proposal_only`, whose message names `page_suggest`. Who that is is read from the user
   as well as the agent named, so Elysia, who writes as her machine user with no agent, is refused too, and a caller that
   forgets to name its agent is refused all the same. A client that cannot be recorded as an agent is refused any change
   to a page first, since it would read as the person alone. No route sets it: the Company page and the doc's sections
@@ -988,6 +964,71 @@ deletion that left it in its parent's place, or the restore that took it back.
   beside and under them.
 - Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
   event (`docs/realtime.md`).
+
+### Suggestions
+
+Any agent may suggest an edit to any page, for a person to accept: Elysia, Project Managers, coding and Studio
+sessions, and people's MCP clients, with `page_suggest`. It is one framework for every page, the company doc's sections
+among them, so a suggestion is made, reviewed, merged, and recorded the same way on any page. The model is
+`api/src/models/page_suggestion.rs`, the routes `/api/v1/pages/{id}/suggestions` (`docs/api.md`), and the table
+`page_suggestions` (`docs/database.md`).
+
+- **A suggestion** is the text a page would hold, the version it was written from with that version's text, its
+  reason, and optionally the quote and source it was read in (and, for the company doc's review, the timeline record
+  and the run). It changes nothing until a person accepts it. It is `pending` until a person accepts or dismisses it,
+  and keeps who decided, when, and, for a dismissal, why.
+- **Agents suggest edits** in the form Claude Code's Edit tool takes: `find` is text the version holds exactly once,
+  and `replace` takes its place; an empty `find` adds to the end. `page_suggest` names the version the agent read
+  (`baseVersion`, as `page_save` does) and the edits apply to that version, so an agent that misread a long page cannot
+  drop what it did not mean to change, and one that read an older version suggests against what it saw rather than
+  being refused. An edit whose text is missing or found twice is refused, saying which.
+- **What it changes.** A page's text alone: its title, place, labels, links, and files are each changed their own way
+  (above). A suggestion fits the page's bounds, 100,000 characters, or a section's 12,000.
+- **The same change is pending once** on a page: suggesting text already pending answers that suggestion, so a review
+  that runs twice, or two agents reading the same message, make one.
+- **Not on a learning, nor a deleted page.** A learning is changed through `learning_save`, with its evidence, so
+  `page_suggest` refuses one with `409 page_is_a_learning`, as `page_save` does. A deleted page changes no further
+  (`409 page_deleted`).
+- **Who suggested** is recorded as every write of a page records its author (Who changes pages, above): an MCP
+  client's person, naming the client; a session's starter, naming the session; a Project Manager's machine user,
+  naming its project; and Elysia as herself, for her turns and for the review, which also names its run.
+
+#### Reviewing one
+
+- **Its changes.** A suggestion is read as its changes: each run of lines it adds, removes, or replaces against the
+  version it was written from, in order, with a few unchanged lines around each (`page_suggestion::changes`, on the
+  lines as `similar` diffs them). The edits an agent sent are not kept, since each later edit's `find` reads the text
+  the earlier ones left.
+- **Accepting**, wholly or in part. A person takes every change, or picks which, and the ones left out are no part of
+  what is written. The chosen changes are applied to the version the suggestion was written from, then merged three
+  ways with what the page holds now, line by line, the way version control merges a branch, and published as the
+  page's next version by the person accepting, its history naming the suggestion (`suggestionId`). A change whose lines
+  were changed since is refused with `409 suggestion_overlaps` and the suggestion stays pending, for the person to take
+  the rest, dismiss it, or make the change by hand; each change says whether it still merges, so the page shows which
+  before anyone presses Accept. Without the merge, every edit to a busy page (People, the glossary) would leave every
+  suggestion to it unusable. Changes the page already holds are accepted without a version. The suggestion keeps which
+  changes were taken (`acceptedChanges`, `null` for all of them).
+- **Dismissing** takes a reason, 1 to 2,000 characters, changes nothing on the page, and is no part of its history.
+  The company doc's review reads the latest dismissals with their reasons, so it does not suggest them again.
+- **Who decides.** Whoever may edit the page: today every admin and member, on every page, the company doc's sections
+  included, since a person edits a proposal-only page directly. A person decides alone, in the browser
+  (`MemberUser`): no agent's tool accepts or dismisses, so no agent ever accepts its own suggestion. A guest reaches
+  none of it.
+
+#### Telling people
+
+- **Once per page.** While a page has suggestions waiting, one inbox item asks for them to be reviewed, titled with how
+  many wait and the page's title ("Review 2 suggested edits to Glossary"), its notes naming the page's Suggestions tab
+  as where they are reviewed, as a project's approval item names the work queue. It is kept up to date as suggestions arrive and are decided, in the transaction that changes them, and resolved once
+  none are left (`page_suggestion::review_item`, `page_suggestion_items`), as a project's approval item is for its
+  proposed batches (`docs/engine.md`, Proposed batches). Elysium itself raises it (`system`), whoever suggested, so it
+  never reads as a person's own. A person who resolves or dismisses it by hand is done with it: deciding the rest
+  changes nothing, and the next suggestion raises a new one. The inbox is everyone's one list, so a page's title
+  reaches it as a message's subject does (Who sees what, above); what a suggestion says stays on the page.
+- **In the tree and in search.** `GET /api/v1/pages` counts each page's waiting suggestions, and so do the topbar's
+  page results and the knowledge search's results for a page, so a page with suggestions waiting says so wherever it
+  is listed.
+- Every suggestion made, accepted, or dismissed announces `page.changed` for its page, with its id alone.
 
 ### Labels
 
@@ -1151,8 +1192,8 @@ A learning is a page with a category and evidence, created under the Learnings p
 company doc is seven proposal-only pages under the Company page, each section's id fixed in code
 (`Section::page_id`). Both are written through what every publish comes down to (`page::publish_content`), so each
 change is a version with who made it and the agent acting for them, in the index in the same transaction, and they add
-only their own rules: saving by title and the category's checks (`crate::models::learning`), and proposals, approval
-with its three-way merge, and the review (`crate::models::company_doc`).
+only their own rules: saving by title and the category's checks (`crate::models::learning`), and the fixed sections and
+the review (`crate::models::company_doc`). Suggestions are every page's (Suggestions, above).
 
 - **A learning is what it holds, not where it sits.** `pages.category` makes a page a learning, wherever it is moved;
   a page placed under Learnings without one is an ordinary page and is not listed as a learning. No page becomes a
@@ -1161,20 +1202,20 @@ with its three-way merge, and the review (`crate::models::company_doc`).
   whichever way it is written, so the review's one prompt still fits the doc.
 - **Undo.** Undoing is generic over a page's fields (`page::undo_version`): each field that still holds what a version
   wrote gets back what it replaced, a field changed again since keeps its newer value, and the reversal is the next
-  version, naming the entry it undid. A learning's undo works on its four fields; the company doc's on each section's
-  body, under one id across the sections it reaches. Undoing a learning's first save or restore deletes it, and undoing
-  a deletion restores it, through the page's own delete and restore.
-- **Every entry reads as it did.** The routes for learnings and the doc answer the same shapes they always have, from
-  the pages' versions and history: an entry written before learnings were pages keeps its id and can be undone. Its
-  `revised` or `edited` kind is what a `published` row reads as there.
-- **What people see.** The Learnings tab, the admins' feed, and Settings, Company doc work as they did, each entry with
-  its Undo, and every revision and section change is also a version of its page, which can be read, compared, and
-  restored like any other. A learning's address (`/knowledge/learnings/<id>`) and a citation open its page, and Edit
-  opens the editor, with its evidence and category, while History and undo goes to `/knowledge/learnings/<id>/edit`. A
-  citation of the company doc opens its section's page, and Edit opens the editor as a person acting alone, while
-  Proposals goes to Settings, Company doc, which keeps its address as the one place proposals are reviewed. A move shows in a page's history and not in a learning's. Restoring a version puts back the
-  whole of it, where Undo puts back only what is still there to reverse. A learning's search result is attributed to
-  who published its newest version, rather than who first saved it, as a page's is.
+  version, naming the entry it undid. A learning's undo works on its four fields. Undoing a learning's first save or
+  restore deletes it, and undoing a deletion restores it, through the page's own delete and restore. A company doc
+  section is restored as any page is.
+- **Every entry reads as it did.** The routes for learnings answer the same shapes they always have, from the pages'
+  versions and history: an entry written before learnings were pages keeps its id and can be undone. Its `revised` kind
+  is what a `published` row reads as there.
+- **What people see.** The Learnings tab and the admins' feed work as they did, each entry with its Undo, and every
+  revision and section change is also a version of its page, which can be read, compared, and restored like any other.
+  A learning's address (`/knowledge/learnings/<id>`) and a citation open its page, and Edit opens the editor, with its
+  evidence and category, while History and undo goes to `/knowledge/learnings/<id>/edit`. A citation of the company doc
+  opens its section's page, where Edit opens the editor as a person acting alone and Suggestions reviews what agents
+  suggested. A move shows in a page's history and not in a learning's. Restoring a version puts back the whole of it,
+  where Undo puts back only what is still there to reverse. A learning's search result is attributed to who published
+  its newest version, rather than who first saved it, as a page's is.
 - **Moved in one migration, and back.** Revisions replay into versions from each one's own history, and a history that
   does not replay onto its row stops the migration, which changes nothing; a document moves to its page's column in
   place, so its passages keep their embeddings, and its text is what they were embedded from, so indexing it again
@@ -1209,6 +1250,14 @@ runs nothing, and only `http`, `https`, `mailto`, and relative addresses survive
 loads, since the Content Security Policy refuses it and loading it would tell a third party who read the page: it is a
 link that opens the image in a new tab. A file attached to a page is served by Elysium, so an image shows inline, and a
 link to any other file downloads it.
+
+A page's Suggestions tab, between Read and History and counting what waits, reviews the edits agents suggested to it,
+oldest first: who suggested it and through which agent, when, the review's run it came from, its reason, its quote and
+source, and each of its changes as a diff of the lines around it, with a checkbox to take it when there are several. A
+change that no longer merges with the page says so, and a suggestion written against an earlier version says that
+accepting merges both. Accept takes the changes ticked, all of them at first, and acts at once with a toast; Dismiss
+asks for the reason in a dialog. A page's row in the tree, its result in the topbar's search, and its card in the
+knowledge search show how many suggestions wait.
 
 A page's History tab lists everything that happened to it, newest first: each version with who published it, the agent
 acting for them, and when, and between them its moves, deletions, restorations, labels, and links to projects, so what learnings and the

@@ -5,7 +5,8 @@
 //! session's agent finding, opening, and listing what the company recorded, a session a guest
 //! started refused every tool, its searches spending its starter's budget, Elysia reading as
 //! herself, and a turn's pages (#205): an edit a version naming who started the session and its
-//! agent, a stale save, the company doc and a learning refusing it, and who may write at all.
+//! agent, a stale save, the company doc and a learning refusing it, and who may write at all; and
+//! suggesting an edit (#262), to a page or a company doc section, recorded as every write is.
 //!
 //! The router tests are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
@@ -47,6 +48,7 @@ fn the_tools_share_the_mcp_servers_names() {
             "page_read",
             "page_list",
             "page_save",
+            "page_suggest",
             "page_move",
             "page_label_add",
             "page_label_remove",
@@ -685,7 +687,7 @@ async fn the_company_doc_refuses_every_kind_of_agent_and_points_at_proposing() {
         .await;
         assert!(failed, "{text}");
         assert!(text.contains("page_proposal_only"), "{text}");
-        assert!(text.contains("company_doc_propose"), "{text}");
+        assert!(text.contains("page_suggest"), "{text}");
     }
     let after = page::find(&mut connection, section).await.expect("there");
     assert_eq!(after.current_version, before.current_version);
@@ -864,6 +866,15 @@ async fn a_worker_reads_pages_and_is_sent_to_its_project_manager_to_change_one()
             "page_project_unlink",
             json!({ "id": created["id"], "projectId": created["id"] }),
         ),
+        (
+            "page_suggest",
+            json!({
+                "id": created["id"],
+                "baseVersion": 1,
+                "edits": [{ "find": "First.", "replace": "Second." }],
+                "reason": "It changed.",
+            }),
+        ),
     ] {
         let (failed, text) = call(&state, &worker, tool, arguments).await;
         assert!(failed, "{tool}: {text}");
@@ -872,4 +883,76 @@ async fn a_worker_reads_pages_and_is_sent_to_its_project_manager_to_change_one()
     let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
     let stored = page::find(&mut connection, id).await.expect("stored");
     assert_eq!(stored.current_version, 1);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_sessions_agent_suggests_an_edit_as_whoever_started_it_and_the_company_doc_takes_one() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let session = newest_session(&mut connection).await;
+    let created = new_page(&state, &bearer, "Runbooks", "Restart the worker.").await;
+    let id: Uuid = serde_json::from_value(created["id"].clone()).expect("an id");
+
+    let suggested = answered(
+        call(
+            &state,
+            &bearer,
+            "page_suggest",
+            json!({
+                "id": id,
+                "baseVersion": 1,
+                "edits": [{ "find": "the worker.", "replace": "the worker, then the queue." }],
+                "reason": "The queue holds jobs the worker drops.",
+                "quote": "restart the queue too",
+            }),
+        )
+        .await,
+    );
+    assert_eq!(suggested["created"], true);
+    assert_eq!(suggested["suggestion"]["createdBy"], json!(TEST_PERSON_ID));
+    assert_eq!(
+        suggested["suggestion"]["agent"]["id"],
+        json!(format!("session:{session}"))
+    );
+    let stored = page::find(&mut connection, id).await.expect("stored");
+    assert_eq!(
+        stored.body, "Restart the worker.",
+        "nothing changes until accepted"
+    );
+
+    let read = answered(call(&state, &bearer, "page_read", json!({ "id": id })).await);
+    assert_eq!(read["page"]["pendingSuggestions"], 1);
+    assert_eq!(
+        read["suggestions"][0]["changes"][0]["after"], "Restart the worker, then the queue.",
+        "a page's reader sees what waits"
+    );
+
+    let proposed = answered(
+        call(
+            &state,
+            &bearer,
+            "company_doc_propose",
+            json!({
+                "section": "glossary",
+                "edits": [{ "find": "", "replace": "- WAY: the tracker" }],
+                "reason": "Named in the launch thread.",
+            }),
+        )
+        .await,
+    );
+    assert_eq!(proposed["pageId"], json!(Section::Glossary.page_id()));
+    let doc = answered(call(&state, &bearer, "company_doc_read", json!({})).await);
+    let glossary = doc["sections"]
+        .as_array()
+        .expect("sections")
+        .iter()
+        .find(|section| section["section"] == "glossary")
+        .expect("a glossary");
+    assert_eq!(glossary["proposals"][0]["id"], proposed["proposal"]["id"]);
+    assert_eq!(
+        glossary["proposals"][0]["agent"]["id"],
+        json!(format!("session:{session}"))
+    );
 }

@@ -1,13 +1,15 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The company doc as the routes, the MCP server, agents' tools, and the review share it. See
+//! The company doc as the MCP server, agents' tools, meetings, and the review share it. See
 //! `docs/knowledge.md`, The company doc.
 //!
-//! The doc's records and their rules are `crate::models::company_doc`. This module is what every
-//! caller sees of them: the doc as it is answered, with each section's pending proposals beside
-//! it ([`read`]), and proposing a change ([`propose`]), so a proposal made by an agent over MCP,
-//! by a coding agent's tool, or by the scheduled review is checked, stored, and announced the
-//! same way. The review itself, a workflow on the engine, is [`workflow`].
+//! The doc's sections and their rules are `crate::models::company_doc`, and a suggestion to one is a
+//! suggestion to its page (`crate::models::page_suggestion`). This module is what every caller sees
+//! of them: the doc as it is answered, with each section's pending suggestions beside it as its
+//! `proposals` ([`read`]), and suggesting an edit to a section by its key ([`propose`]), which
+//! agents' `company_doc_propose` names. Both keep the shapes agents read before suggestions were
+//! every page's, so connected agents and their guidance keep working. The review itself, a
+//! workflow on the engine, is [`workflow`].
 
 pub mod review;
 pub mod workflow;
@@ -19,23 +21,14 @@ use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
-use crate::models::company_doc::{
-    self, CompanyDocError, DocSection, Edit, HistoryEntry, NewProposal, Proposal, ProposalState,
-    Proposer, Section,
-};
-use crate::realtime::{EventBus, ServerEvent};
-
-/// The most edits one proposal holds: a section's worth of corrections, each small enough to
-/// review.
-pub const EDITS_MAX: usize = 20;
-
-/// The longest reason, quote, and source, as `company_doc_proposals` allows.
-pub const REASON_MAX_CHARACTERS: usize = 2_000;
-pub const QUOTE_MAX_CHARACTERS: usize = 2_000;
-pub const SOURCE_MAX_CHARACTERS: usize = 500;
+use crate::errors::ApiError;
+use crate::models::agent::Author;
+use crate::models::company_doc::{self, DocSection, Section, SectionSuggestion};
+use crate::models::page_suggestion::{self, Edit, NewSuggestion};
+use crate::realtime::EventBus;
+use crate::routes::v1::pages;
 
 /// The doc as clients and agents see it.
 #[derive(Debug, Clone, Serialize)]
@@ -45,37 +38,37 @@ pub struct CompanyDocResponse {
     pub sections: Vec<SectionResponse>,
 }
 
-/// One section, with the changes proposed to it that wait for a person.
+/// One section, with the edits suggested to it that wait for a person.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SectionResponse {
     pub section: Section,
-    /// What belongs there, for the agents that read and propose to it.
+    /// What belongs there, for the agents that read and suggest to it.
     pub purpose: &'static str,
     /// Markdown.
     pub content: String,
     pub updated_at: DateTime<Utc>,
-    /// Pending proposals to this section, oldest first.
+    /// Suggestions waiting on this section, oldest first.
     pub proposals: Vec<ProposalResponse>,
 }
 
-/// The agent that acted for whoever proposed a change.
+/// The agent that acted for whoever suggested an edit.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResponse {
-    /// Its recorded form: `mcp:<client id>` or `session:<number>`.
+    /// Its recorded form: `mcp:<client id>`, `session:<number>`, or `project_manager:<id>`.
     pub id: String,
     /// What an MCP client called itself, if anything.
     pub name: Option<String>,
 }
 
-/// A proposal as clients and agents see it.
+/// A suggestion to a section, as agents have always read the doc's proposals.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalResponse {
     pub id: Uuid,
     pub section: String,
-    /// The section as it read when the change was proposed, and as the change would leave it.
+    /// The section as it read when the edit was suggested, and as the edit would leave it.
     pub base_content: String,
     pub content: String,
     pub reason: String,
@@ -83,98 +76,68 @@ pub struct ProposalResponse {
     pub source: Option<String>,
     /// The timeline record the review read it in, while that record exists.
     pub timeline_record_id: Option<Uuid>,
-    /// The review's run that proposed it, while that run exists.
+    /// The review's run that suggested it, while that run exists.
     pub workflow_run_id: Option<Uuid>,
-    /// `pending`, `approved`, or `rejected`.
+    /// `pending`, `accepted`, or `dismissed`.
     pub state: String,
     pub decided_by: Option<Uuid>,
     pub decided_at: Option<DateTime<Utc>>,
-    /// Who proposed it: a person, or the machine user of Elysia or the coding agent.
+    /// Who suggested it: a person, or the machine user of Elysia or a Project Manager.
     pub created_by: Uuid,
     pub agent: Option<AgentResponse>,
     pub created_at: DateTime<Utc>,
 }
 
-impl From<Proposal> for ProposalResponse {
-    fn from(proposal: Proposal) -> Self {
+impl From<SectionSuggestion> for ProposalResponse {
+    fn from(suggested: SectionSuggestion) -> Self {
+        let suggestion = suggested.suggestion;
         Self {
-            id: proposal.id,
-            section: proposal.section,
-            base_content: proposal.base_content,
-            content: proposal.content,
-            reason: proposal.reason,
-            quote: proposal.quote,
-            source: proposal.source,
-            timeline_record_id: proposal.timeline_record_id,
-            workflow_run_id: proposal.workflow_run_id,
-            state: proposal.state,
-            decided_by: proposal.decided_by,
-            decided_at: proposal.decided_at,
-            created_by: proposal.created_by,
-            agent: proposal.agent.map(|id| AgentResponse {
+            id: suggestion.id,
+            section: suggested.section.as_str().to_owned(),
+            base_content: suggestion.base_body,
+            content: suggestion.body,
+            reason: suggestion.reason,
+            quote: suggestion.quote,
+            source: suggestion.source,
+            timeline_record_id: suggestion.timeline_record_id,
+            workflow_run_id: suggestion.workflow_run_id,
+            state: suggestion.state,
+            decided_by: suggestion.decided_by,
+            decided_at: suggestion.decided_at,
+            created_by: suggestion.created_by,
+            agent: suggestion.agent.map(|id| AgentResponse {
                 id,
-                name: proposal.agent_name,
+                name: suggestion.agent_name,
             }),
-            created_at: proposal.created_at,
+            created_at: suggestion.created_at,
         }
     }
 }
 
-/// A history entry as clients see it.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryEntryResponse {
-    pub id: Uuid,
-    /// `edited` or `approved`.
-    pub kind: String,
-    /// Who made the change.
-    pub created_by: Uuid,
-    /// The proposal an `approved` entry applied.
-    pub proposal_id: Option<Uuid>,
-    /// `changes`: each section changed, `{ from, to }`; `undid` when an undo wrote it.
-    pub data: Value,
-    pub created_at: DateTime<Utc>,
-}
-
-impl From<HistoryEntry> for HistoryEntryResponse {
-    fn from(entry: HistoryEntry) -> Self {
-        Self {
-            id: entry.id,
-            kind: entry.kind,
-            created_by: entry.created_by,
-            proposal_id: entry.proposal_id,
-            data: entry.data,
-            created_at: entry.created_at,
-        }
-    }
-}
-
-/// The doc as it stands, each section with its pending proposals.
+/// The doc as it stands, each section with its pending suggestions.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn read(connection: &mut AsyncPgConnection) -> QueryResult<CompanyDocResponse> {
     let sections = company_doc::sections(connection).await?;
-    let pending = company_doc::proposals(connection, ProposalState::Pending, None).await?;
+    let pending = company_doc::pending(connection).await?;
     Ok(respond(sections, pending))
 }
 
-/// `sections` as answered, each with the proposals of `pending` made to it.
-pub fn respond(sections: Vec<DocSection>, pending: Vec<Proposal>) -> CompanyDocResponse {
-    let mut by_section: HashMap<String, Vec<ProposalResponse>> = HashMap::new();
-    for proposal in pending {
+/// `sections` as answered, each with the suggestions of `pending` made to it.
+pub fn respond(sections: Vec<DocSection>, pending: Vec<SectionSuggestion>) -> CompanyDocResponse {
+    let mut by_section: HashMap<Section, Vec<ProposalResponse>> = HashMap::new();
+    for suggested in pending {
         by_section
-            .entry(proposal.section.clone())
+            .entry(suggested.section)
             .or_default()
-            .push(ProposalResponse::from(proposal));
+            .push(ProposalResponse::from(suggested));
     }
     let sections = sections
         .into_iter()
         .map(|section| SectionResponse {
             purpose: section.section.purpose(),
-            proposals: by_section
-                .remove(section.section.as_str())
-                .unwrap_or_default(),
+            proposals: by_section.remove(&section.section).unwrap_or_default(),
             section: section.section,
             content: section.content,
             updated_at: section.updated_at,
@@ -183,7 +146,8 @@ pub fn respond(sections: Vec<DocSection>, pending: Vec<Proposal>) -> CompanyDocR
     CompanyDocResponse { sections }
 }
 
-/// A change to propose to one section of the company doc, for a person to approve or reject.
+/// An edit to suggest to one section of the company doc, for a person to accept or dismiss: what
+/// `page_suggest` takes, with the section named by its key and suggested against as it reads now.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProposeRequest {
@@ -204,127 +168,51 @@ pub struct ProposeRequest {
     pub source: Option<String>,
 }
 
-/// A proposal, and whether proposing it stored it or found the same change already pending.
+/// A suggestion, and whether suggesting it stored it or found the same change already pending.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposedResponse {
     pub proposal: ProposalResponse,
+    /// The page of the section it was suggested to, whose Suggestions tab reviews it.
+    pub page_id: Uuid,
     /// `false` when the same change was already waiting for review.
     pub created: bool,
-    /// What happens next, for the agent that proposed it.
+    /// What happens next, for the agent that suggested it.
     pub message: &'static str,
 }
 
-/// Proposes `request` as `proposer`, announcing it when it is new.
+/// Suggests `request` to its section's page as `author`, announcing it when it is new.
 ///
 /// # Errors
-/// [`CompanyDocError::Invalid`] for a request out of bounds, and every refusal of
-/// [`company_doc::propose`].
+/// What [`NewSuggestion::new`] and [`page_suggestion::suggest`] refuse, as the routes answer them,
+/// and a database error.
 pub async fn propose(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
     request: ProposeRequest,
-    proposer: Proposer<'_>,
-) -> Result<ProposedResponse, CompanyDocError> {
-    let new = checked(request)?;
-    let stored = company_doc::propose(connection, new, proposer, Utc::now()).await?;
-    if stored.created {
-        events.publish(&ServerEvent::CompanyDocChanged);
-    }
+    author: Author<'_>,
+) -> Result<ProposedResponse, ApiError> {
+    let section = request.section;
+    let new = NewSuggestion::new(
+        section.page_id(),
+        None,
+        request.edits,
+        &request.reason,
+        request.quote.as_deref(),
+        request.source.as_deref(),
+    )?;
+    let suggested = page_suggestion::suggest(connection, new, author).await?;
+    let created = suggested.created;
+    let proposal = ProposalResponse::from(SectionSuggestion {
+        section,
+        suggestion: suggested.suggestion.clone(),
+    });
+    pages::announce_suggested(events, connection, suggested).await;
     Ok(ProposedResponse {
-        proposal: ProposalResponse::from(stored.proposal),
-        created: stored.created,
-        message: "Nothing in the company doc changes until a person approves this proposal.",
+        proposal,
+        page_id: section.page_id(),
+        created,
+        message: "Nothing in the company doc changes until a person accepts this suggestion on \
+            the section's page.",
     })
-}
-
-/// `request` trimmed and bounded, ready to store.
-fn checked(request: ProposeRequest) -> Result<NewProposal, CompanyDocError> {
-    let invalid = |message: &str| Err(CompanyDocError::Invalid(message.to_owned()));
-    if request.edits.is_empty() {
-        return invalid("a proposal holds at least one edit");
-    }
-    if request.edits.len() > EDITS_MAX {
-        return invalid("a proposal holds at most 20 edits; propose the rest separately");
-    }
-    let reason = request.reason.trim().to_owned();
-    if reason.is_empty() || reason.chars().count() > REASON_MAX_CHARACTERS {
-        return invalid("the reason is 1 to 2,000 characters");
-    }
-    let optional = |text: Option<String>, max: usize, field: &str| {
-        let text = text.map(|text| text.trim().to_owned());
-        match text {
-            Some(text) if text.chars().count() > max => Err(CompanyDocError::Invalid(format!(
-                "the {field} is at most {max} characters"
-            ))),
-            Some(text) if text.is_empty() => Ok(None),
-            other => Ok(other),
-        }
-    };
-    Ok(NewProposal {
-        section: request.section,
-        edits: request.edits,
-        reason,
-        quote: optional(request.quote, QUOTE_MAX_CHARACTERS, "quote")?,
-        source: optional(request.source, SOURCE_MAX_CHARACTERS, "source")?,
-        timeline_record_id: None,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    fn request(value: Value) -> ProposeRequest {
-        serde_json::from_value(value).expect("parses")
-    }
-
-    #[test]
-    fn a_request_is_trimmed_and_blank_optional_fields_are_dropped() {
-        let new = checked(request(json!({
-            "section": "glossary",
-            "edits": [{ "find": "", "replace": "- ACME: our first client" }],
-            "reason": "  Said in the kickoff.  ",
-            "quote": " ",
-            "source": " Kickoff, November 3rd ",
-        })))
-        .expect("checks");
-
-        assert_eq!(new.section, Section::Glossary);
-        assert_eq!(new.reason, "Said in the kickoff.");
-        assert_eq!(new.quote, None);
-        assert_eq!(new.source.as_deref(), Some("Kickoff, November 3rd"));
-    }
-
-    #[test]
-    fn a_request_out_of_bounds_is_refused_saying_why() {
-        let no_edits = checked(request(json!({
-            "section": "people", "edits": [], "reason": "Why",
-        })))
-        .expect_err("refused");
-        assert!(
-            no_edits.to_string().contains("at least one edit"),
-            "{no_edits}"
-        );
-
-        let blank_reason = checked(request(json!({
-            "section": "people",
-            "edits": [{ "find": "", "replace": "- Priya" }],
-            "reason": "   ",
-        })))
-        .expect_err("refused");
-        assert!(
-            blank_reason.to_string().contains("reason"),
-            "{blank_reason}"
-        );
-
-        serde_json::from_value::<ProposeRequest>(json!({
-            "section": "history",
-            "edits": [{ "find": "", "replace": "x" }],
-            "reason": "Why",
-        }))
-        .expect_err("only the doc's sections can be named");
-    }
 }

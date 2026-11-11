@@ -71,9 +71,6 @@ export type ServerEvent =
   // An admin chose where page attachments go. Nothing more, for the same reason; members load it
   // again.
   | { type: 'pageAttachments.changed' }
-  // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
-  // same reason; members load it again.
-  | { type: 'companyDoc.changed' }
   // An admin saved or restored a version of the agent guidance. Nothing more; members load it
   // again.
   | { type: 'agentGuidance.changed' }
