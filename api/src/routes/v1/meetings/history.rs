@@ -72,7 +72,7 @@ pub async fn undo(
     let change = transcript_change(&mut connection, found.id, &entry).await?;
     // Read again: undoing a hold changes the meeting itself.
     let changed = meeting::find_owned(&mut connection, found.id, current.id()).await?;
-    announce(&state.events, &changed);
+    announce(&state.events, &changed, &entry);
     Ok(Json(json!({
         "entry": MeetingEventResponse::from(entry),
         "change": change,

@@ -8,8 +8,9 @@
 //! from `GET /pulls/{number}`), `state_reason` on closed issues, filtering by
 //! `state`, `since`, `milestone`, and `labels`, and `404` for anything it does not hold. For
 //! merging it answers the GraphQL read of one pull request with a node a test holds (any query
-//! text is answered with the same shape, read from its `variables`), a branch's rules, and the
-//! merge itself, refused when the head moved.
+//! text is answered with the same shape, read from its `variables`), a branch's rules, the
+//! merge itself, refused when the head moved, and a new description. Every repository is private
+//! unless a test makes it public.
 //! Every request is recorded, so a test asserts on what left the process, and a test can
 //! change an issue the way someone on GitHub would, which moves its `updated_at`.
 //!
@@ -116,6 +117,8 @@ struct FakeState {
     pull_request_nodes: BTreeMap<(String, u64), Value>,
     /// What `GET /rules/branches/{branch}` answers, by `owner/name`.
     branch_rules: BTreeMap<String, Value>,
+    /// The repositories anyone may read, by `owner/name`.
+    public_repositories: Vec<String>,
     /// When set, GraphQL answers with an error, as for a token GitHub limits.
     graphql_fails: bool,
     received: Vec<Received>,
@@ -275,6 +278,11 @@ impl FakeGithub {
         })
     }
 
+    /// Makes `repository` one anyone may read.
+    pub(crate) fn make_public(&self, repository: &str) {
+        self.with_state(|state| state.public_repositories.push(repository.to_owned()));
+    }
+
     /// Answers `rules` for every branch of `repository`.
     pub(crate) fn put_branch_rules(&self, repository: &str, rules: Value) {
         self.with_state(|state| {
@@ -321,6 +329,7 @@ pub(crate) fn ready_pull_request_node(repository: &str, number: u64, title: &str
         "number": number,
         "url": format!("https://github.com/{repository}/pull/{number}"),
         "title": title,
+        "body": "",
         "state": "OPEN",
         "isDraft": false,
         "mergedAt": null,
@@ -729,10 +738,12 @@ async fn answer(
                 }))
                 .into_response();
             };
+            let is_private = !state.public_repositories.contains(&repository);
             axum::Json(json!({ "data": {
                 "viewer": { "login": LOGIN },
                 "repository": {
                     "nameWithOwner": repository,
+                    "isPrivate": is_private,
                     "squashMergeAllowed": true,
                     "mergeCommitAllowed": true,
                     "rebaseMergeAllowed": true,
@@ -749,6 +760,21 @@ async fn answer(
                 .cloned()
                 .unwrap_or_else(|| json!([]));
             axum::Json(rules).into_response()
+        }
+
+        // A new description, which is all Elysium changes of a pull request.
+        (Method::PATCH, ["repos", owner, name, "pulls", number]) => {
+            let repository = format!("{owner}/{name}");
+            let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let Some(node) = number
+                .parse::<u64>()
+                .ok()
+                .and_then(|number| state.pull_request_nodes.get_mut(&(repository, number)))
+            else {
+                return github_error(StatusCode::NOT_FOUND, "Not Found");
+            };
+            node["body"] = request["body"].clone();
+            axum::Json(node.clone()).into_response()
         }
 
         // A merge GitHub makes only of the head it was told, as `sha` asks.

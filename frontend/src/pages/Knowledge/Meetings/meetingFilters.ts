@@ -1,14 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { SmartTableFilterValues } from '@jalapenolabs/uikit'
-import type { ConnectorKind } from '../../../api/routes/connectorRoutes'
+import type { ConnectorKindDefinition } from '../../../api/routes/connectorRoutes'
 import type { Meeting, MeetingState } from '../../../api/routes/meetingRoutes'
 
 // Misc
-import { CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
 import { MEETING_STATES } from '../../../api/routes/meetingRoutes'
 import { MEETINGS_PROJECT_PARAM } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
+import { meetingSourcesOf } from '../../Settings/Meetings/meetingsPresentation'
 
 // The Meetings page's filters, kept in the address as the item list keeps its own, edited in the
 // table's filters drawer and shown as its tags. Elysium applies them itself (`filterMeetings`), so
@@ -16,8 +16,9 @@ import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
 // its project chosen.
 
 export type MeetingFilters = {
-  // Where they came from. Empty shows every source.
-  sources: ConnectorKind[]
+  // The kinds of source they came from, as `Meeting.sourceKind` names them: a connector kind, or a
+  // source that is none, such as an upload. Empty shows every source.
+  sources: string[]
   // How far each one's processing got. Empty shows every state.
   states: MeetingState[]
   // A project its topics are on, `NO_PROJECT` for a meeting on none, or null for any.
@@ -34,8 +35,10 @@ export const MEETING_FILTER_IDS = {
   waitingForReview: 'review',
 } as const satisfies Record<keyof MeetingFilters, string>
 
+// A source is any kind a meeting names, connector or not, so the address keeps whatever it held; one
+// no meeting came from matches nothing, and the page says so.
 function readSources(values: string[]) {
-  return CONNECTOR_KINDS.filter((kind) => values.includes(kind))
+  return values.filter(Boolean)
 }
 
 function readStates(values: string[]) {
@@ -101,6 +104,17 @@ export function fromMeetingFilterValues(values: SmartTableFilterValues): Meeting
       : null,
     waitingForReview: values[MEETING_FILTER_IDS.waitingForReview] === true,
   }
+}
+
+// The sources the filter offers: every kind whose definition provides meetings, in the hub's order,
+// so a source is offered before it has read anything, then any other source a meeting came from,
+// such as an upload, in the order the meetings first name it.
+export function listMeetingSourceKinds(definitions: ConnectorKindDefinition[], meetings: Meeting[]) {
+  const kinds = new Set<string>(meetingSourcesOf(definitions, []).kinds)
+  for (const meeting of meetings) {
+    kinds.add(meeting.sourceKind)
+  }
+  return [ ...kinds ]
 }
 
 // The meetings that pass every filter, in the order given, and how many of all of them wait for

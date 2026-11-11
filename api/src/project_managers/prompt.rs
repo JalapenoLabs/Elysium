@@ -5,15 +5,16 @@
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
 //! carries the project's brief whole (its goals, decisions, and what is out of scope, which every
-//! batch serves), names the docs linked to it, says how its changes reach the work and where its
-//! issues file ([`Writes`]), and carries everything that woke it: the messages, someone else's
-//! edits to the brief, the records newly on its timeline, the batches that finished, and the
-//! promises found on its project or whose work finished. Every turn also carries each promise
-//! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a
-//! plain function of its inputs, so it is tested without a runner.
+//! batch serves), names the docs linked to it, says which of its batches and changes wait for a
+//! person, as its project's level of autonomy decides, and where its issues file ([`Writes`]), and
+//! carries everything that woke it: the messages, someone else's edits to the brief, the action
+//! items a person assigned it, the records newly on its timeline, the batches that finished, and
+//! the promises found on its project or whose work finished. Every turn also carries each promise
+//! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a plain
+//! function of its inputs, so it is tested without a runner.
 //!
-//! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
-//! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
+//! Its session is resumed for every turn and kept indefinitely, so what one turn brings stays in
+//! it: a record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
 //! [`PROMPT_MAX_BYTES`]; the Project Manager reads any record in full with `manager_record`.
 
 use std::fmt::Write as _;
@@ -22,8 +23,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::models::action_item::ActionItemState;
+use crate::models::project_autonomy::Autonomy;
 use crate::models::promise::PromiseState;
 use crate::models::work_batch::BatchState;
+use crate::models::work_batch::lineage::Origin;
 
 /// Its standing instructions.
 pub const INSTRUCTIONS: &str = include_str!("instructions.md");
@@ -42,8 +45,8 @@ const BRIEF_MAX_CHARACTERS: usize = 20_000;
 /// these fit however long they run; the rest are a `manager_pages` call away.
 const PAGES_MAX: usize = 50;
 
-/// The longest prompt, in bytes: under the 128 KiB Linux allows one argument, with room for the
-/// runner's own.
+/// The longest prompt, in bytes, about 25,000 tokens: one busy wake (a day of records, a
+/// batch's long report) must not crowd out the session it is added to.
 pub const PROMPT_MAX_BYTES: usize = 100_000;
 
 /// What the end of a prompt cut to fit says.
@@ -102,6 +105,21 @@ pub struct PromptMessage {
     pub from_elysia: bool,
     pub body: String,
     pub sent_at: DateTime<Utc>,
+}
+
+/// An action item a person assigned it to plan, which its project leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptAssignment {
+    /// The item's id, which a batch planned for it names (`actionItemIds`).
+    pub item_id: Uuid,
+    pub title: String,
+    pub notes: String,
+    pub state: ActionItemState,
+    /// Who assigned it, by name.
+    pub assigned_by: String,
+    pub assigned_at: DateTime<Utc>,
+    /// The issues and pull requests it is linked to, each by its key and URL, the primary first.
+    pub links: Vec<String>,
 }
 
 /// A record newly on its project's timeline.
@@ -170,11 +188,11 @@ pub enum PromptWork {
     },
 }
 
-/// How a turn's changes reach the work, and where the issues it files go.
+/// How a turn's batches and changes reach the work, and where the issues it files go.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Writes {
-    /// Whether its changes apply as it makes them, rather than waiting for a person to approve.
-    pub direct: bool,
+    /// Its project's level, which says which of its batches and changes wait for a person.
+    pub autonomy: Autonomy,
     /// Where its issues file, such as `Jira project ELY, which this project names`, or why it
     /// cannot file any.
     pub tracker: Result<String, String>,
@@ -188,6 +206,7 @@ pub struct TurnContext {
     pub messages: Vec<PromptMessage>,
     /// Someone else's publishes of the brief, oldest first.
     pub brief_edits: Vec<PromptBriefEdit>,
+    pub assignments: Vec<PromptAssignment>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
     pub promises: Vec<PromptPromise>,
@@ -230,6 +249,19 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
             &context.brief_edits,
             context.project.brief.version,
         );
+    }
+
+    if !context.assignments.is_empty() {
+        let _ = write!(
+            prompt,
+            "\n## Assigned to you ({})\n\nA person chose these action items for you to plan. \
+             Plan each into the batch or batches it needs with manager_submit_batch, naming it in \
+             actionItemIds, or say in your reply why it cannot be planned yet.\n",
+            context.assignments.len()
+        );
+        for assignment in &context.assignments {
+            render_assignment(&mut prompt, assignment);
+        }
     }
 
     if !context.records.is_empty() {
@@ -395,9 +427,24 @@ fn render_brief_edits(prompt: &mut String, edits: &[PromptBriefEdit], current: i
     );
 }
 
-/// Whether its changes apply at once, and where its issues file.
+/// Which of its batches and changes wait for a person, as its project's level says, and where its
+/// issues file.
 fn render_writes(prompt: &mut String, writes: &Writes) {
-    if writes.direct {
+    let autonomy = writes.autonomy;
+    let _ = writeln!(
+        prompt,
+        "This project's level of autonomy is {}, which only a person changes.",
+        autonomy.words()
+    );
+    if autonomy.queues(Origin::HumanRooted) {
+        prompt.push_str(
+            "A human-rooted batch you submit goes straight to the queue for a worker, with no \
+             person approving it first. A found batch still waits for a person's approval.\n",
+        );
+    } else {
+        prompt.push_str("Every batch you submit waits for a person to approve it.\n");
+    }
+    if autonomy.writes_directly() {
         prompt.push_str(
             "The changes you make with manager_make_changes apply as you make them: this \
              project lets you write to its action items and trackers yourself.\n",
@@ -470,6 +517,31 @@ fn render_batch(prompt: &mut String, batch: &PromptBatch, brief_version: i32) {
              manager_tie_promise.",
             ids.join(", ")
         );
+    }
+}
+
+fn render_assignment(prompt: &mut String, assignment: &PromptAssignment) {
+    let _ = write!(
+        prompt,
+        "\n- \"{}\" (item {}), {}, assigned by {} at {}.\n",
+        assignment.title,
+        assignment.item_id,
+        item_state_words(assignment.state),
+        assignment.assigned_by,
+        assignment.assigned_at.to_rfc3339(),
+    );
+    if !assignment.links.is_empty() {
+        let _ = writeln!(prompt, "  Linked to: {}", assignment.links.join(", "));
+    }
+    let notes = assignment.notes.trim();
+    if !notes.is_empty() {
+        let excerpt: String = notes.chars().take(EXCERPT_MAX_CHARACTERS).collect();
+        let more = if excerpt.len() < notes.len() {
+            " (more with work_item)"
+        } else {
+            ""
+        };
+        let _ = writeln!(prompt, "  {}{more}", excerpt.replace('\n', "\n  "));
     }
 }
 
@@ -547,15 +619,10 @@ fn render_promise(prompt: &mut String, promise: &PromptPromise) {
                 batch_state_words(*state)
             )
         }
-        Some(PromptWork::Item { id, title, state }) => {
-            let state = match state {
-                ActionItemState::Inbox => "in the inbox",
-                ActionItemState::Open => "open",
-                ActionItemState::Resolved => "resolved",
-                ActionItemState::Dismissed => "dismissed",
-            };
-            format!("It waits on action item \"{title}\" (item {id}), which is {state}.")
-        }
+        Some(PromptWork::Item { id, title, state }) => format!(
+            "It waits on action item \"{title}\" (item {id}), which is {}.",
+            item_state_words(*state)
+        ),
     };
     let _ = writeln!(prompt, "  {work}");
     let next = match promise.state {
@@ -571,6 +638,16 @@ fn render_promise(prompt: &mut String, promise: &PromptPromise) {
         | PromiseState::Dismissed => "Nothing to do until its work finishes.",
     };
     let _ = writeln!(prompt, "  {next}");
+}
+
+/// How an item's state reads in a sentence.
+const fn item_state_words(state: ActionItemState) -> &'static str {
+    match state {
+        ActionItemState::Inbox => "in the inbox",
+        ActionItemState::Open => "open",
+        ActionItemState::Resolved => "resolved",
+        ActionItemState::Dismissed => "dismissed",
+    }
 }
 
 /// How a batch's state reads in a sentence.
@@ -630,11 +707,12 @@ mod tests {
                 pages: Vec::new(),
             },
             writes: Writes {
-                direct: false,
+                autonomy: Autonomy::ApproveEveryBatch,
                 tracker: Ok("Jira project ELY, where this project's issues already are".to_owned()),
             },
             messages: Vec::new(),
             brief_edits: Vec::new(),
+            assignments: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
             promises: Vec::new(),
@@ -760,13 +838,35 @@ mod tests {
     fn it_says_when_its_changes_apply_at_once_and_why_it_cannot_file() {
         let mut direct = context();
         direct.writes = Writes {
-            direct: true,
+            autonomy: Autonomy::FullAutonomy,
             tracker: Err("this project names no tracker".to_owned()),
         };
 
         let prompt = render(&direct, now());
+        assert!(prompt.contains("level of autonomy is Full autonomy"));
+        assert!(prompt.contains("A human-rooted batch you submit goes straight to the queue"));
+        assert!(prompt.contains("A found batch still waits for a person's approval."));
         assert!(prompt.contains("apply as you make them"));
         assert!(prompt.contains("You cannot file issues: this project names no tracker."));
+    }
+
+    #[test]
+    fn it_says_every_batch_waits_at_the_default() {
+        let prompt = render(&context(), now());
+        assert!(prompt.contains("level of autonomy is Approve every batch"));
+        assert!(prompt.contains("Every batch you submit waits for a person to approve it."));
+        assert!(!prompt.contains("goes straight to the queue"));
+    }
+
+    #[test]
+    fn it_says_its_human_rooted_batches_run_while_its_changes_wait() {
+        let mut found_only = context();
+        found_only.writes.autonomy = Autonomy::ApproveFoundWork;
+
+        let prompt = render(&found_only, now());
+        assert!(prompt.contains("level of autonomy is Approve found work only"));
+        assert!(prompt.contains("A human-rooted batch you submit goes straight to the queue"));
+        assert!(prompt.contains("wait for a person to approve them"));
     }
 
     #[test]
@@ -807,6 +907,31 @@ mod tests {
         assert!(prompt.contains("failed."));
         assert!(prompt.contains("Its worker reported: The tests need a Stripe key."));
         assert!(!prompt.contains("did not finish"));
+    }
+
+    #[test]
+    fn an_assigned_item_is_named_with_who_assigned_it_and_how_to_plan_it() {
+        let mut assigned = context();
+        assert!(!render(&assigned, now()).contains("Assigned to you"));
+        assigned.assignments.push(PromptAssignment {
+            item_id: Uuid::nil(),
+            title: "Annual pricing".to_owned(),
+            notes: "Ada wants yearly plans on the pricing page.".to_owned(),
+            state: ActionItemState::Open,
+            assigned_by: "Alex".to_owned(),
+            assigned_at: now(),
+            links: vec!["ELY-12 (https://example.atlassian.net/browse/ELY-12)".to_owned()],
+        });
+
+        let prompt = render(&assigned, now());
+        assert!(prompt.contains("## Assigned to you (1)"));
+        assert!(prompt.contains("naming it in actionItemIds"));
+        assert!(prompt.contains(&format!(
+            "\"Annual pricing\" (item {}), open, assigned by Alex",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("Linked to: ELY-12 (https://example.atlassian.net/browse/ELY-12)"));
+        assert!(prompt.contains("Ada wants yearly plans on the pricing page."));
     }
 
     fn promise(state: PromiseState, work: Option<PromptWork>) -> PromptPromise {
@@ -922,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_too_long_for_one_argument_is_cut_and_says_so() {
+    fn a_prompt_over_its_limit_is_cut_and_says_so() {
         let mut woken = context();
         for _ in 0..10 {
             woken.messages.push(PromptMessage {

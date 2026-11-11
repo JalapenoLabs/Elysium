@@ -17,7 +17,7 @@ import { selectProjectEntities } from '../../../store/projectsSlice'
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { LuRotateCcw } from 'react-icons/lu'
-import { ConnectorLogo } from '../../Settings/Connectors/ConnectorLogo'
+import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
@@ -29,7 +29,11 @@ import { formatNumber } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { getConnectorUrl, getMeetingUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
-import { meetingStateChipColors, meetingStateLabelKeys } from '../../Settings/Meetings/meetingsPresentation'
+import {
+  meetingSourceNameKey,
+  meetingStateChipColors,
+  meetingStateLabelKeys,
+} from '../../Settings/Meetings/meetingsPresentation'
 
 type Props = {
   // Newest first.
@@ -98,7 +102,7 @@ export function MeetingTable(props: Props) {
       return names.join(', ')
     }
     function sourceText(meeting: Meeting) {
-      return t(`connectors:kinds.${meeting.sourceKind}.name`)
+      return t(meetingSourceNameKey(meeting.sourceKind))
     }
     function stateText(meeting: Meeting) {
       return t(meetingStateLabelKeys[meeting.state])
@@ -141,7 +145,7 @@ export function MeetingTable(props: Props) {
         }</Link>,
       // The connector is gone once removed; its kind still names where the meeting came from.
       source: (meeting: Meeting) => <span className='inline-flex items-center gap-1.5'>
-        <ConnectorLogo kind={meeting.sourceKind} className='size-4' />
+        <MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-4' />
         {meeting.connectorId
           ? <Link href={getConnectorUrl(meeting.connectorId)} className='text-inherit no-underline hover:underline'>{
             sourceText(meeting)

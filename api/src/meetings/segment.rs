@@ -750,6 +750,7 @@ impl SegmentMeeting {
             id: current.id,
             state: MeetingState::Done.as_str().to_owned(),
             created_by: current.created_by,
+            entry_id: None,
         });
     }
 
@@ -758,6 +759,7 @@ impl SegmentMeeting {
             id: changed.id,
             state: changed.state.clone(),
             created_by: changed.created_by,
+            entry_id: None,
         });
     }
 
@@ -949,6 +951,14 @@ impl SegmentMeeting {
                 }
             }
         };
+        if outcome.prompt_too_long() {
+            // The prompt is the transcript, conversation, or item itself, so every attempt would
+            // fail the same way.
+            return Err(StepFailure::permanent(format!(
+                "Too long for the model to read in one turn: {}",
+                outcome.error.unwrap_or_default()
+            )));
+        }
         if outcome.status != TurnStatus::Completed {
             return Err(StepFailure::retryable(anyhow!(
                 "The segmentation turn ended {:?}: {}",

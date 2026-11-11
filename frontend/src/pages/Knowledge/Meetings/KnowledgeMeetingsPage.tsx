@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { SmartTableFilter } from '@jalapenolabs/uikit'
-import type { ConnectorKind } from '../../../api/routes/connectorRoutes'
 import type { Meeting } from '../../../api/routes/meetingRoutes'
 
 // Core
@@ -28,10 +27,15 @@ import { formatNumber } from '../../../format/numbers'
 import { useConnectorsLoader, useMeetingsLoader, useProjectsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
-import { meetingSourcesOf, meetingStateLabelKeys } from '../../Settings/Meetings/meetingsPresentation'
+import {
+  meetingSourceNameKey,
+  meetingSourcesOf,
+  meetingStateLabelKeys,
+} from '../../Settings/Meetings/meetingsPresentation'
 import {
   filterMeetings,
   fromMeetingFilterValues,
+  listMeetingSourceKinds,
   MEETING_FILTER_IDS,
   readMeetingFilters,
   toMeetingFilterValues,
@@ -61,14 +65,10 @@ export function KnowledgeMeetingsPage() {
     || Boolean(meetingSourcesOf(definitions.kinds, connectors).connectors.length)
   const { matches, waitingCount } = filterMeetings(meetings, filters)
 
-  // The sources offered are the ones the person's meetings came from, in the hub's order.
-  const sourceKinds = useMemo(() => {
-    const kinds = new Set<ConnectorKind>()
-    for (const meeting of meetings) {
-      kinds.add(meeting.sourceKind)
-    }
-    return [ ...kinds ]
-  }, [ meetings ])
+  const sourceKinds = useMemo(
+    () => listMeetingSourceKinds(definitions.kinds, meetings),
+    [ definitions.kinds, meetings ],
+  )
 
   // None carries `matches`: the page applies them itself, so it knows when nothing matches.
   const filterDefinitions = useMemo((): SmartTableFilter<Meeting>[] => [
@@ -76,7 +76,7 @@ export function KnowledgeMeetingsPage() {
       id: MEETING_FILTER_IDS.sources,
       label: t('table.source'),
       kind: 'multiSelect',
-      options: sourceKinds.map((kind) => ({ value: kind, label: t(`connectors:kinds.${kind}.name`) })),
+      options: sourceKinds.map((kind) => ({ value: kind, label: t(meetingSourceNameKey(kind)) })),
     },
     {
       id: MEETING_FILTER_IDS.states,

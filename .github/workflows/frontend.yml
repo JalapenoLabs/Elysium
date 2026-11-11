@@ -85,10 +85,11 @@ jobs:
         working-directory: frontend
         run: yarn test
 
-      # The page scripts connectors run in a person's browser (api/src/connectors/*.js), against
-      # fixtures of the pages they read, with Node's own test runner.
+      # The page scripts connectors and meeting sources run in a person's browser
+      # (api/src/connectors/*.js, api/src/meetings/*/*.js), against fixtures of the pages they read,
+      # with Node's own test runner.
       - name: Test connector page scripts
-        run: node --test api/src/connectors/*.test.mjs
+        run: node --test api/src/connectors/*.test.mjs api/src/meetings/*/*.test.mjs
 
   build:
     name: Frontend build

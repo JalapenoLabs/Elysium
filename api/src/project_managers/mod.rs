@@ -5,7 +5,8 @@
 //! worker pool. See `docs/engine.md`, Project Managers.
 //!
 //! It is woken by records attributed to its project (a meeting's or a conversation's topics, or a
-//! record a person put there), by the results of its batches, by a person, and by Elysia. Each of
+//! record a person put there), by the results of its batches, by its promises, by action items a
+//! person assigned it to plan, by a person, and by Elysia. Each of
 //! those writes a wake in the transaction that caused it (`crate::models::project_manager`), and
 //! the engine's [`dispatcher`] turns a project's wakes into one turn once they go quiet
 //! ([`queue`]). Every turn resumes the project's one session (`claude -p --resume`), relying on
@@ -136,7 +137,8 @@ pub struct Snapshot {
 /// How a Project Manager's changes reach the work, as its tab shows it.
 #[derive(Debug, Clone)]
 pub struct WritesSnapshot {
-    /// Whether its changes apply as it makes them, rather than waiting for a person.
+    /// Whether its changes apply as it makes them, rather than waiting for a person: its
+    /// project's level of autonomy (`crate::models::project_autonomy`).
     pub direct: bool,
     /// Where its issues file, or why there is nowhere.
     pub tracker: Result<TrackerSnapshot, &'static str>,
@@ -211,7 +213,8 @@ pub async fn snapshot(
 
     let direct = project::find(connection, project_id)
         .await?
-        .manager_writes_directly;
+        .autonomy
+        .writes_directly();
     let tracker = match trackers::resolve(connection, project_id).await? {
         Ok(tracker) => Ok(TrackerSnapshot {
             credential_name: credential_name(connection, &tracker).await?,

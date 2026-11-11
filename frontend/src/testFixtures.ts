@@ -52,6 +52,7 @@ export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem,
     projectIds: [],
     projectAttributions: [],
     leadProjectId: null,
+    managerAssignment: null,
     initiativeIds: [],
     createdAt: CREATED_AT,
     createdBy: CREATED_BY,
@@ -162,6 +163,7 @@ export function makeProject(overrides: Partial<Project> & Pick<Project, 'id'>): 
     coverUpdatedAt: null,
     coverFit: 'fit',
     github: { access: 'default', credentialId: null },
+    autonomy: 'approve_every_batch',
     ...overrides,
   }
 }

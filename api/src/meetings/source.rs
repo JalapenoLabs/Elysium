@@ -4,9 +4,8 @@
 //! recording.
 //!
 //! A source is the meeting counterpart of `crate::connectors::Connector`: it reads as its
-//! account's person, signed in the way its connector signs in. Today's source is Fireflies,
-//! read with the person's own API key; sources that read Google Meet and Teams recordings
-//! through a signed-in browser fill the same trait.
+//! account's person, signed in the way its connector signs in ([`MeetingSource::SignIn`]):
+//! Fireflies with the person's own API key, Teams through the browser they signed in to.
 
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
@@ -82,10 +81,14 @@ pub enum SourceError {
 
 /// A service that records meetings, read as its account's person.
 pub trait MeetingSource {
+    /// How the source reads as its person: an API key, or the browser they signed in to.
+    /// `crate::meetings::sources` resolves it from the connector beside its source.
+    type SignIn: Sync;
+
     /// Meetings that started at or after `since`, newest first, at most `limit` of them.
     fn list(
         &self,
-        credential: &SecretString,
+        sign_in: &Self::SignIn,
         since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> impl Future<Output = Result<Vec<ListedMeeting>, SourceError>> + Send;
@@ -93,7 +96,7 @@ pub trait MeetingSource {
     /// One meeting's transcript and a fresh address to download its recording from.
     fn fetch(
         &self,
-        credential: &SecretString,
+        sign_in: &Self::SignIn,
         external_id: &str,
     ) -> impl Future<Output = Result<FetchedMeeting, SourceError>> + Send;
 }

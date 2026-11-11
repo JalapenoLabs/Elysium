@@ -1,9 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/work-queue`: the worker pool and every batch holding a slot or waiting for one,
-//! in the order the pool hands them slots, and every batch proposed, waiting for a person. Members
-//! only, as every batch's route is. See `crate::worker_pool::queue` and `docs/engine.md`, Workers
-//! and the pool.
+//! in the order the pool hands them slots, and every batch proposed, waiting for a person, each
+//! with what its chain starts from (`crate::models::work_batch::why`). Members only, as every
+//! batch's route is. See `crate::worker_pool::queue` and `docs/engine.md`, Workers and the pool.
+
+use std::collections::HashMap;
 
 use anyhow::Context;
 use axum::extract::State;
@@ -18,6 +20,7 @@ use crate::agent_configuration::Hold;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::work_batch::lineage::Origin;
+use crate::models::work_batch::why::{self, Link, Why};
 use crate::models::work_batch::{BatchState, Priority, WorkBatch};
 use crate::state::AppState;
 use crate::worker_pool::queue::{self, Pool, Queue};
@@ -36,7 +39,21 @@ async fn handle(
         .await
         .context("no database connection available")?;
     let queue = queue::read(&mut connection, Utc::now()).await?;
-    Ok(Json(json!({ "workQueue": QueueResponse::from(queue) })))
+    // Every list's chains in one read, rather than a read per row.
+    let listed: Vec<&WorkBatch> = [
+        &queue.in_slots,
+        &queue.next,
+        &queue.scheduled,
+        &queue.paused,
+        &queue.proposed,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let whys = why::read_many(&mut connection, &listed).await?;
+    Ok(Json(
+        json!({ "workQueue": QueueResponse::new(queue, &whys) }),
+    ))
 }
 
 /// The work queue as clients see it.
@@ -55,10 +72,18 @@ pub struct QueueResponse {
     proposed: Vec<EntryResponse>,
 }
 
-impl From<Queue> for QueueResponse {
-    fn from(queue: Queue) -> Self {
-        let entries =
-            |batches: Vec<WorkBatch>| batches.into_iter().map(EntryResponse::from).collect();
+impl QueueResponse {
+    /// `queue` as clients see it, each batch with the head of its chain in `whys`.
+    fn new(queue: Queue, whys: &HashMap<Uuid, Why>) -> Self {
+        let entries = |batches: Vec<WorkBatch>| {
+            batches
+                .into_iter()
+                .map(|batch| {
+                    let cause = whys.get(&batch.id).and_then(Why::head).cloned();
+                    EntryResponse::new(batch, cause)
+                })
+                .collect()
+        };
         Self {
             pool: PoolResponse::from(queue.pool),
             in_slots: entries(queue.in_slots),
@@ -122,10 +147,13 @@ pub struct EntryResponse {
     origin: Origin,
     /// How many batches led to it.
     generation: i32,
+    /// What its chain starts from: the first thing that asked for it, or the first item it works
+    /// on, as `GET /work-batches/{id}` names it in `why.chain`; `null` for one that names nothing.
+    cause: Option<Link>,
 }
 
-impl From<WorkBatch> for EntryResponse {
-    fn from(batch: WorkBatch) -> Self {
+impl EntryResponse {
+    fn new(batch: WorkBatch, cause: Option<Link>) -> Self {
         Self {
             id: batch.id,
             project_id: batch.project_id,
@@ -139,6 +167,7 @@ impl From<WorkBatch> for EntryResponse {
             started_at: batch.started_at,
             origin: batch.origin,
             generation: batch.generation,
+            cause,
         }
     }
 }

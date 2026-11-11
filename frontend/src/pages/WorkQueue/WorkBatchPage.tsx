@@ -56,10 +56,11 @@ import {
 
 // `/work-queue/:batchId`: one batch whole, whether it traces to a person, how many batches led to
 // it and which, what its worker waits on, or why a queued one waits for the configuration
-// repository, its goal, the repositories it needs, why it exists, how it ended, the configuration
-// its worker runs on, the pull requests its worker opened, its history, and its worker's log, with
-// what may still be done to it in its Actions. A proposed batch leads with Approve, and offers
-// Edit, which approves it once changed, and Reject. A guest is sent to the start.
+// repository, its goal, the repositories it needs, why it exists as one chain from what asked for
+// it to its pull requests, how it ended, the configuration its worker runs on, the pull requests
+// its worker opened, its history, and its worker's log, with what may still be done to it in its
+// Actions. A proposed batch leads with Approve, and offers Edit, which approves it once changed,
+// and Reject. A guest is sent to the start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -272,7 +273,11 @@ function WorkBatchDetails(props: DetailsProps) {
 
     <section className='relaxed max-w-3xl'>
       <h2 className='compact text-lg font-semibold'>{t('batch.why.title')}</h2>
-      <WorkBatchWhy why={props.why} />
+      <WorkBatchWhy
+        why={props.why}
+        batchId={batch.id}
+        projectId={batch.projectId}
+      />
     </section>
 
     {batch.configuration && <WorkBatchConfiguration configuration={batch.configuration} />}

@@ -122,6 +122,15 @@ describe('startingContent', () => {
     })).toEqual({ conversations: '*' })
   })
 
+  it('starts each toggle at its kind\'s default', () => {
+    expect(startingContent({
+      content: [
+        { id: 'readMeetings', field: { type: 'toggle', onByDefault: true }, required: false },
+        { id: 'waitForApproval', field: { type: 'toggle', onByDefault: false }, required: false },
+      ],
+    })).toEqual({ readMeetings: true, waitForApproval: false })
+  })
+
   it('reads nothing chosen for a kind that reads its whole account', () => {
     expect(startingContent({ content: []})).toEqual({})
   })

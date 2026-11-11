@@ -18,6 +18,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
+use super::project_autonomy::Autonomy;
 use crate::database::schema::projects;
 use crate::models::page::{self, PageError};
 use crate::models::project_brief;
@@ -121,9 +122,9 @@ pub struct Project {
     pub github_credential_id: Option<Uuid>,
     /// Who created it.
     pub created_by: Uuid,
-    /// Whether its Project Manager's changes apply as it makes them. Off, the default, it
-    /// proposes each as a changeset a person approves first.
-    pub manager_writes_directly: bool,
+    /// What of its Project Manager's work waits for a person, which only a person changes
+    /// (`super::project_autonomy`).
+    pub autonomy: Autonomy,
 }
 
 impl Project {
@@ -171,7 +172,6 @@ pub struct ProjectChanges {
         reason = "Diesel's changeset encoding: outer None skips, Some(None) writes NULL"
     )]
     pub github_credential_id: Option<Option<Uuid>>,
-    pub manager_writes_directly: Option<bool>,
 }
 
 impl ProjectChanges {
@@ -181,7 +181,6 @@ impl ProjectChanges {
             && self.description.is_none()
             && self.cover_fit.is_none()
             && self.github_access.is_none()
-            && self.manager_writes_directly.is_none()
     }
 }
 

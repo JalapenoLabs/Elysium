@@ -3,6 +3,7 @@
 //! Database records and the queries that read and write them.
 
 pub mod action_item;
+pub mod action_item_assignment;
 pub mod action_item_attribution;
 pub mod action_item_bulk;
 pub mod action_item_comment;
@@ -65,6 +66,7 @@ pub mod page_label;
 pub mod page_project;
 pub mod password_vault;
 pub mod project;
+pub mod project_autonomy;
 pub mod project_brief;
 pub mod project_issue_tracker;
 pub mod project_manager;

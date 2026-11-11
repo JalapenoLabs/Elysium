@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ConnectorKindDefinition } from '../../../api/routes/connectorRoutes'
 import type { MeetingFilters } from './meetingFilters'
 
 // Core
@@ -12,6 +13,7 @@ import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
 import {
   filterMeetings,
   fromMeetingFilterValues,
+  listMeetingSourceKinds,
   readMeetingFilters,
   toMeetingFilterValues,
   writeMeetingFilters,
@@ -25,18 +27,19 @@ describe('readMeetingFilters and writeMeetingFilters', () => {
     expect(writeMeetingFilters(NO_FILTERS).toString()).toBe('')
   })
 
-  it('reads back what it writes, leaving out sources and states it does not know', () => {
+  it('reads back what it writes, keeping any source and leaving out states it does not know', () => {
     const filters: MeetingFilters = {
-      sources: [ 'fireflies' ],
+      sources: [ 'fireflies', 'upload' ],
       states: [ 'failed', 'done' ],
       project: 'launch',
       waitingForReview: true,
     }
     const params = writeMeetingFilters(filters)
-    params.set('source', 'fireflies,somewhere-else')
+    params.set('state', 'failed,done,somewhere-else')
 
     expect(readMeetingFilters(params)).toEqual({
-      sources: [ 'fireflies' ],
+      // A source need not be a connector, as an upload is not.
+      sources: [ 'fireflies', 'upload' ],
       // In the order the API names states, whatever order the address held.
       states: [ 'done', 'failed' ],
       project: 'launch',
@@ -54,6 +57,43 @@ describe('readMeetingFilters and writeMeetingFilters', () => {
     const filters: MeetingFilters = { sources: [], states: [ 'pending' ], project: NO_PROJECT, waitingForReview: false }
 
     expect(fromMeetingFilterValues(toMeetingFilterValues(filters))).toEqual(filters)
+  })
+})
+
+describe('listMeetingSourceKinds', () => {
+  // A kind's definition as the API serves it, providing what the test names.
+  function makeDefinition(
+    kind: ConnectorKindDefinition['kind'],
+    provides: ConnectorKindDefinition['provides'],
+  ): ConnectorKindDefinition {
+    return {
+      kind,
+      provides,
+      scope: 'personal',
+      account: 'browser',
+      startUrl: null,
+      content: [],
+      checks: [],
+      replies: { through: 'never' },
+    }
+  }
+
+  it('offers every kind that provides meetings, read or not, then any other source a meeting names', () => {
+    const definitions = [
+      makeDefinition('jira', [ 'issues' ]),
+      makeDefinition('teams', [ 'messages', 'meetings' ]),
+      makeDefinition('slack', [ 'messages', 'meetings' ]),
+      makeDefinition('fireflies', [ 'meetings' ]),
+      makeDefinition('fireflies_browser', [ 'meetings' ]),
+    ]
+    const meetings = [
+      makeMeeting({ id: 'uploaded', sourceKind: 'upload' }),
+      makeMeeting({ id: 'standup', sourceKind: 'fireflies' }),
+      makeMeeting({ id: 'retro', sourceKind: 'upload' }),
+    ]
+
+    expect(listMeetingSourceKinds(definitions, meetings))
+      .toEqual([ 'teams', 'slack', 'fireflies', 'fireflies_browser', 'upload' ])
   })
 })
 

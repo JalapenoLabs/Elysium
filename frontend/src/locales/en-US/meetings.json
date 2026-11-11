@@ -4,6 +4,7 @@
     "title": "Meeting sources",
     "manage": "Meeting sources",
     "add": "Add a source",
+    "other": "Another source",
     "none": "No meeting source yet. Connect one to read your meetings:"
   },
   "list": {

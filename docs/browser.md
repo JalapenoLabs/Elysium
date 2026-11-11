@@ -5,8 +5,8 @@ The user signs in on the real page, through any OAuth, MFA, or passkey prompt it
 on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
 Elysium uses each service as its user does and never installs anything into an organization.
 
-Today every Outlook, Gmail, Teams, and Slack connector owns a browser of its own, started with it and removed with it
-(`docs/connectors.md`). The engine runs each browser and reads pages in it, the API relays its stream, and the
+Today every Outlook, Gmail, Teams, Slack, and Fireflies (browser) connector owns a browser of its own, started with it
+and removed with it (`docs/connectors.md`). The engine runs each browser and reads pages in it, the API relays its stream, and the
 connector's page streams it to its owner to sign in on. The facts below were verified against the pinned versions.
 
 ## Neko
@@ -201,6 +201,30 @@ browser being created, checked, reset, and removed at once never races itself.
   window closes). The profile stays, so whatever the browser is signed in to stays signed in. It is the way out of a
   sign-in that landed somewhere with nowhere to go, such as a provider's error page after its MFA was reset, and is
   announced as `browserSession.startedOver`.
+- **Refreshing** keeps a sign-in from going stale. Outlook, Teams, and Slack renew a rolling session whenever their app
+  loads, but a browser only Elysium reads never loads anything again after its sign-in: the app keeps running, its
+  reader keeps reading what the page holds, and the session behind it lapses unnoticed. So once a day
+  (`REFRESH_INTERVAL`, 24 hours, a code constant) the engine loads each browser's service again, then reads its
+  connector, which records whether it is still signed in: a session that lapsed reads `signed_out`, and the connector
+  shows `error`. It is part of the minute's ingest pass (`api/src/connectors/refresh.rs`), not the reconciler, since
+  the read that follows is the pass's own.
+  - **Which browser.** At most one per pass, the most overdue: a running browser whose start page is open, once a day
+    has passed since the later of its last refresh and its start page opening, so a browser just added or reset waits
+    a day before anything reloads under the person signing in. The refresh is recorded on the row
+    (`refreshed_at`) before it is attempted, so a restart neither reloads every browser at once nor skips one, one that
+    fails waits its day, and one a minute keeps every browser in its own minute. Only active connectors' browsers are
+    refreshed, as only they are read. That includes a kind another loop reads (`kinds::read_through_a_browser`):
+    Fireflies' web app renews its two-week session token only as it loads, so its browser is reloaded with the rest,
+    and the meetings loop's next listing records whether it is still signed in.
+  - **How.** The tab showing the service, by the addresses its reader goes by (`readers::service_page`), is reloaded
+    in place (`Page.reload`) and given 20 seconds after its load event to start before it is read. A reload renews the
+    session exactly as a fresh tab would, keeps the person's tab where it is, steals no focus from a window they may be
+    watching, and makes the very tab the reader reads show whether the session still holds; a fresh tab would leave
+    the old page reading what it held. With no tab on the service, its start page opens in a new tab, as the Teams and
+    Slack readers do. A tab already asking to sign in is left alone: there is nothing to renew.
+  - **Logs.** `browser.refresh.done` (with its outcome: `reloaded`, `opened`, or `signing_in`),
+    `browser.refresh.failed`, and `browser.refresh.checked` with the sign-in the read found, naming the browser and its
+    connector's kind, never a page's address or content.
 - **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock the API marks
   the start page as owed, removes the container and the profile volume, and reports the browser `starting`; the
   network stays, so everything joined to it stays joined. Then it signals the engine, which brings the browser up as if

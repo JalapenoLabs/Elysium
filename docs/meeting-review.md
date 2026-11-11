@@ -81,7 +81,9 @@ task) is anchored to a range of word ids, so a range can be one word or the whol
   correction makes (`docs/meetings.md`, Correction) hold per range.
 - **Whisper is told the names.** Each transcription is given the Transcription doc's written forms and the company
   doc's people and glossary as Whisper's hint words, so a name is heard right more often before anything corrects it.
-- Long meetings need the CLI to take prompts on standard input (`docs/meetings.md`, Roadmap), which this needs first.
+- **One prompt, however long.** The runner hands the CLI its prompt on standard input (`docs/coding.md`, How a prompt
+  reaches the CLI), so the whole aligned transcript, every capture side by side, is one turn's prompt, with the
+  Transcription doc and the company doc read once.
 
 ### The Transcription doc
 
@@ -267,7 +269,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 
 | Phase | Issue | Lane                                                                                  |
 |-------|-------|---------------------------------------------------------------------------------------|
-| 1     | #230  | Turns: prompts on standard input                                                      |
 | 1     | #233  | Uploads: recordings and transcripts                                                   |
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
