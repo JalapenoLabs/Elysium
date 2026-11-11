@@ -542,13 +542,16 @@ async fn merge_captures(
         into: keeper.id,
         captures: captures
             .iter()
-            .map(|capture| MovedCapture {
+            .zip(0_i64..)
+            .map(|(capture, place)| MovedCapture {
                 capture_id: capture.id,
                 before: capture.placement(),
                 after: Placement {
                     meeting_id: keeper.id,
-                    // As Postgres keeps it, to the microsecond, so a split compares it exactly.
-                    joined_at: author.at.trunc_subsecs(6),
+                    // After the keeper's own captures and in the order they held, a microsecond
+                    // apart, since the first among overlapping captures is the one whose words
+                    // stand; to the microsecond, as Postgres keeps it, so a split compares exactly.
+                    joined_at: author.at.trunc_subsecs(6) + Duration::microseconds(place),
                     offset_ms: capture.offset_ms + shift_ms,
                     offset_source: OffsetSource::Listed,
                 },

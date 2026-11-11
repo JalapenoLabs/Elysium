@@ -360,15 +360,22 @@ fn is_covered(word: &Word, covering: &HashSet<Uuid>) -> bool {
 }
 
 /// The standing edits of `every_word` (in order of position): each run of standing edit words with
-/// no other standing word between, ordered by when it begins, so an edit carried in from another
-/// meeting goes where it was said rather than where its words were written.
+/// no other standing word between, and no word an edit replaced either, since each edit's replaced
+/// words sit just before its own (two edits of neighbouring words, or two edits a merge carried in
+/// one after the other, are two runs). Ordered by when each begins, so an edit carried in from
+/// another meeting goes where it was said rather than where its words were written.
 fn edit_runs(every_word: &[Word]) -> Vec<Vec<Word>> {
+    let covering = covering_edits(every_word);
     let mut runs: Vec<Vec<Word>> = Vec::new();
     let mut in_run = false;
-    for word in every_word
-        .iter()
-        .filter(|word| word.superseded_by.is_none())
-    {
+    for word in every_word {
+        if is_covered(word, &covering) {
+            in_run = false;
+            continue;
+        }
+        if word.superseded_by.is_some() {
+            continue;
+        }
         if word.origin != Origin::Edit.as_str() {
             in_run = false;
             continue;
@@ -421,9 +428,10 @@ struct Compared {
 /// capture by capture, by what each says (`matched`):
 ///
 /// - a heard word matching a standing word keeps it, at the heard word's times;
-/// - any other heard word is written anew by change `event_id`, unless it lies inside an edit's
-///   time: what an edit replaced, which stays out;
-/// - a standing word no heard word matches is replaced.
+/// - any other heard word is written anew by change `event_id`;
+/// - a standing word no heard word matches is replaced;
+/// - but a heard word inside an edit's time stays out, and a standing word it matched is
+///   replaced: what an edit replaced, or another capture's word a move brought under the edit.
 ///
 /// The words edits replaced, and the edits' own words, move with their capture: by as much as its
 /// offset moved since the transcript was last lined up (`moved_by`, by capture), so an edit stays
@@ -451,16 +459,22 @@ fn compare(
     let moved = with_edits_moved(every_word, moved_by, &mut times);
     let edits = edit_runs(&moved);
 
+    // A word inside an edit's time stays out, kept or new: what the edit replaced, or another
+    // capture's word at the same moment, which a capture moved onto it brings there.
+    let mut edited_over: HashSet<Uuid> = HashSet::new();
     let built = heard
         .into_iter()
         .zip(kept)
         .filter_map(|(heard, kept)| match kept {
+            Some(word) if inside_any(&edits, &heard.word) => {
+                edited_over.insert(word.id);
+                None
+            }
             Some(word) => {
                 let mut word = word.clone();
                 (word.start_ms, word.end_ms) = (heard.word.start_ms, heard.word.end_ms);
                 Some(After::Kept(word))
             }
-            // What an edit replaced, heard again: the edit stands in its place.
             None if inside_any(&edits, &heard.word) => None,
             None => Some(After::Written(NewWord {
                 id: Uuid::now_v7(),
@@ -479,7 +493,7 @@ fn compare(
     let replaced = comparable
         .iter()
         .zip(still_heard)
-        .filter(|(_word, heard)| !heard)
+        .filter(|(word, heard)| !heard || edited_over.contains(&word.id))
         .map(|(word, _heard)| word.id)
         .collect();
     Compared {

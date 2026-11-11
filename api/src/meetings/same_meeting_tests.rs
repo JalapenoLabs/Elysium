@@ -450,6 +450,27 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     )
     .await
     .expect("edits");
+    // And a second, the name Fireflies misheard where Teams heard it too: two edits carried across
+    // one merge stay two, each where it was said.
+    let misheard = standing(&mut connection, fireflies.id)
+        .await
+        .into_iter()
+        .find(|word| word.text == "Sheriff")
+        .expect("the misheard name");
+    meeting_word::edit(
+        &mut connection,
+        fireflies.id,
+        Replacement {
+            range: Range {
+                start_word_id: misheard.id,
+                end_word_id: misheard.id,
+            },
+            text: "Sharath",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
     let pairs = pair_of(&mut connection, fireflies.id).await;
     let [pair] = pairs.as_slice() else {
         panic!("one pair, not {pairs:?}");
@@ -576,6 +597,11 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         !read.contains("Sheriff"),
         "a moment Teams heard reads once: {read}"
     );
+    assert_eq!(
+        read.matches("Sharath").count(),
+        1,
+        "the name corrected on Fireflies stands once, in its place: {read}"
+    );
     assert!(
         read.ends_with(
             "Mooreslab wants the customer interviews scheduled next week. Demo on Friday. Thanks \
@@ -675,9 +701,10 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         teams_alone.contains("Thursday night."),
         "the edit stands through it all"
     );
+    let fireflies_alone = text(&standing(&mut connection, fireflies.id).await);
     assert!(
-        text(&standing(&mut connection, fireflies.id).await).contains("Sheriff confirmed"),
-        "Fireflies reads as it heard the meeting again"
+        fireflies_alone.contains("Sharath confirmed") && fireflies_alone.ends_with("Friday!"),
+        "Fireflies reads as it did before the merge, Ada's edits and all: {fireflies_alone}"
     );
     let pairs = pair_of(&mut connection, fireflies.id).await;
     assert_eq!(pairs[0].decision.as_deref(), Some("not_the_same"));
