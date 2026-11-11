@@ -15,7 +15,7 @@ import { selectMeetingById } from '../../store/meetingsSlice'
 // User interface
 import { Spinner } from '@heroui/react'
 import { EmptyNotice } from '../../components/EmptyNotice'
-import { SettingsPage } from '../Settings/SettingsPage'
+import { Page } from '../../layout/page/Page'
 import { UploadMeetingForm } from './UploadMeetingForm'
 
 // Misc
@@ -23,9 +23,10 @@ import { getMeetingUploadPolicy, listMeetingUploads } from '../../api/routes/mee
 import { useMeetingLoader, useStorageLocationsLoader } from '../../hooks/useServerData'
 import { UrlTree, getMeetingUrl } from '../../urls'
 
-// `/settings/meetings/new` uploads a meeting: a recording, a transcript, or both. At
-// `/settings/meetings/:meetingId/captures/new` the same files become one more capture of a
-// meeting the person has. See docs/meetings.md, Uploads.
+// `/knowledge/meetings/new` uploads a meeting: a recording, a transcript, or both. The Meetings page
+// starts it, as it is each meeting's home. At `/knowledge/meetings/:meetingId/captures/new` the same
+// files become one more capture of a meeting the person has, started from its page. See
+// docs/meetings.md, Uploads.
 export function UploadMeetingPage() {
   const { meetingId } = useParams()
   if (meetingId) {
@@ -40,7 +41,7 @@ type CaptureProps = {
 
 // A capture's upload, once its meeting is loaded, since the page names it.
 function CaptureUpload(props: CaptureProps) {
-  const { t } = useTranslation('meetings')
+  const { t } = useTranslation([ 'meetings', 'knowledge' ])
   const status = useMeetingLoader(props.meetingId)
   const meeting = useAppSelector((state) => selectMeetingById(state, props.meetingId))
 
@@ -48,12 +49,13 @@ function CaptureUpload(props: CaptureProps) {
     return <div className='grid place-items-center py-10'><Spinner /></div>
   }
   if (!meeting) {
-    return <SettingsPage
-      title={t('page.missingTitle')}
-      parents={[{ label: t('title'), href: UrlTree.settingsMeetings }]}
-    >
+    const parents = [
+      { label: t('knowledge:title'), href: UrlTree.knowledge },
+      { label: t('meetings:title'), href: UrlTree.knowledgeMeetings },
+    ]
+    return <Page title={t('page.missingTitle')} parents={parents}>
       <EmptyNotice>{t('page.missing')}</EmptyNotice>
-    </SettingsPage>
+    </Page>
   }
   return <UploadPanel meeting={meeting} />
 }
@@ -66,13 +68,18 @@ type PanelProps = {
 // The page around the form: what a meeting takes, and the uploads to resume, read before the
 // form opens so it starts from them.
 function UploadPanel(props: PanelProps) {
-  const { t } = useTranslation([ 'meetings', 'common' ])
+  const { t } = useTranslation([ 'meetings', 'knowledge', 'common' ])
   const meetingId = props.meeting?.id ?? null
   useStorageLocationsLoader()
   const policy = useSWR([ 'v1/meeting-uploads/policy', meetingId ], () => getMeetingUploadPolicy(meetingId))
   const unfinished = useSWR('v1/meeting-uploads', listMeetingUploads)
 
-  const parents: PageCrumb[] = [{ label: t('title'), href: UrlTree.settingsMeetings }]
+  // An upload sits under the knowledge base's Meetings page, where it starts, and a capture under
+  // its meeting too.
+  const parents: PageCrumb[] = [
+    { label: t('knowledge:title'), href: UrlTree.knowledge },
+    { label: t('meetings:title'), href: UrlTree.knowledgeMeetings },
+  ]
   if (props.meeting) {
     parents.push({
       label: props.meeting.title || t('list.untitled'),
@@ -85,7 +92,7 @@ function UploadPanel(props: PanelProps) {
   const hasFailed = Boolean(policy.error || unfinished.error)
   const isLoaded = Boolean(policy.data && unfinished.data)
 
-  return <SettingsPage title={title} parents={parents} help={t('upload.help')}>
+  return <Page title={title} parents={parents} help={t('upload.help')}>
     {!isLoaded && !hasFailed && <div className='grid place-items-center py-16'>
       <Spinner />
     </div>}
@@ -95,5 +102,5 @@ function UploadPanel(props: PanelProps) {
       policy={policy.data.policy}
       unfinished={unfinished.data.uploads}
     />}
-  </SettingsPage>
+  </Page>
 }

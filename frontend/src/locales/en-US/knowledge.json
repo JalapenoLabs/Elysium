@@ -213,6 +213,9 @@
       "seeAgain": "See what changed",
       "loadFailed": "What changed can't be loaded right now. Your text is kept."
     },
+    "meetingsGroup": "Meetings",
+    "allMeetings_one": "All {{formattedCount}} meeting",
+    "allMeetings_other": "All {{formattedCount}} meetings",
     "review": {
       "started": "Looking for updates",
       "running": "A review is already under way",

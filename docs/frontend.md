@@ -285,6 +285,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/learnings/:learningId/edit` | `LearningPage` | One learning, corrected in place, with its history and Undo |
 | `/knowledge/documents/:documentId` | `KnowledgeDocumentPage` | One document whole, as every citation opens it; `?passage=` scrolls to one |
 | `/knowledge/labels/:label`    | `KnowledgeLabelPage`     | Every live page carrying a label, as a table             |
+| `/knowledge/meetings`         | `KnowledgeMeetingsPage`  | Every meeting the person can see, its filters in the address (`?project=`); the Meetings page's own address lands here |
+| `/knowledge/meetings/new`     | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
+| `/knowledge/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
 | `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane) and its topics, as tabs in `?tab=` |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
@@ -327,10 +330,8 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/new`          | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
-| `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
+| `/settings/meetings`          | `MeetingsPage`           | Meeting sources; `?tab=meetings` lands on `/knowledge/meetings` |
 | `/settings/meetings/:meetingId` | redirect             | To `/knowledge/meetings/:meetingId`, keeping its query   |
-| `/settings/meetings/new`      | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
-| `/settings/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
 | `/settings/company-doc`       | redirect                 | To the Company page in the knowledge base, where the company doc lives |
 | `/settings/agent-guidance`    | `AgentGuidancePage`      | What every connected agent reads, edited by admins, with its rules, CLAUDE.md block, and versions; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
@@ -342,8 +343,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings; the company doc and the agent guidance, hidden from guests; learning categories, for
-admins alone; and the knowledge base's own settings as they are built), and Workspace settings. Learnings are
+settings, Knowledge base (meeting sources; the company doc and the agent guidance, hidden from guests; learning
+categories, for admins alone; and the knowledge base's own settings as they are built), and Workspace settings. The
+meetings themselves are daily work and live in the Knowledge area, as learnings do. Learnings are
 content rather than a setting, so they live in the Knowledge area. Each entry is a tile, its icon
 and title and nothing more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on
 keyboard focus. Every entry has an icon of its own.
@@ -860,7 +862,8 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
   drawn. A row's menu and lock show only under a mouse or with focus in the row, and cost as much as the rest of it, so
   they mount on the first of those (`hasControls`), or with the row on a touch screen, which always shows the menu. A
   row costs about 1.5ms that way, so a branch of 2,000 open pages takes about 3 seconds to open. Past eight levels a row
-  stops indenting.
+  stops indenting. The person's meetings are rows too, under the Meetings page and each brief (Meetings, below), which
+  share the rows' look (`pageTreeRow.ts`) and chevron (`PageTreeChevron`).
 - **Moving.** `useDragAndDrop` gives the tree a pointer's drag and a keyboard's, started from a row's `slot='drag'`
   button, and its hooks reach the `Tree` inside `NavigationTree` through `TreeContext`. Only `onMove` is set, since a
   same-parent drop would fire `onReorder` as well, and `findDropPlacement` turns its target into the `{ parentId, after }`
@@ -971,8 +974,24 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 
 ### Meetings
 
-`src/pages/Knowledge/Meetings/` is a meeting's page in the knowledge base (`docs/meetings.md`, In the web app, and
-`docs/meeting-review.md`, The meeting's page).
+`src/pages/Knowledge/Meetings/` is the knowledge base's Meetings page and a meeting's page (`docs/meetings.md`, In the
+web app, and `docs/meeting-review.md`, The meeting's page).
+
+- **The Meetings page** (`KnowledgeMeetingsPage`) reads the person's meetings from `meetingsSlice`, which
+  `GET /meetings` fills whole, and filters them in the browser (`filterMeetings`), from filters kept in the address
+  (`meetingFilters.ts`), as the Initiatives list does: source, state, project or none, and waiting for review, the last
+  also counted in the header whatever the filters leave. `MeetingTable` draws them, its controls in the titlebar
+  (`usePageToolsContainer`), and `MeetingList` says why it is empty: the filters, no meeting yet, or no source.
+- **In the tree.** `withMeetingEntries` (`pageTree.ts`) adds the meetings to the tree the panel draws
+  (`selectKnowledgeTree`): every one under the Meetings page (`MEETINGS_PAGE_ID`), and a group per project under its
+  brief, found by `briefProjectId`. Each branch holds its newest `MEETINGS_TREE_BRANCH_SIZE` and a total, and one holding
+  more ends in `AllMeetingsTreeItem`, a row to the page listing them all. `MeetingTreeItem`, `MeetingGroupTreeItem`, and
+  that row are rows of their own, with no menu and a disabled drag button, and `PageTree` refuses any drop onto one
+  (`getDropOperation`), since a drop names a page.
+  Every row a meeting has opens its one page, so each is current there, and opening one opens the Meetings branch
+  while that branch lists it.
+  `pageAddressById` sends the Meetings page's own row and address to the list. A filter narrows pages alone, so the
+  filtered tree holds no meeting.
 
 - **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
   (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates

@@ -25,8 +25,8 @@ use crate::models::knowledge_document;
 use crate::models::learning::{self, LearningContent};
 use crate::models::learning_category::{self, NewCategory};
 use crate::models::page::{
-    self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, LearningFields, PageEdit, PageError, Placement,
-    Recorded,
+    self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, LearningFields, MEETINGS_PAGE_ID, PageEdit,
+    PageError, Placement, Recorded,
 };
 use crate::realtime::EventBus;
 use crate::routes;
@@ -1232,7 +1232,7 @@ async fn members_create_publish_read_and_restore_pages_over_the_routes() {
     let own = own.expect("the page beside the fixed ones");
     assert_eq!(own["title"], "Deploying the API");
     assert!(own.get("body").is_none());
-    assert_eq!(listed.len(), 11, "and the ten every tree starts with");
+    assert_eq!(listed.len(), 12, "and the eleven every tree starts with");
 }
 
 #[tokio::test]
@@ -1452,6 +1452,7 @@ async fn nobody_moves_deletes_or_renames_a_page_elysium_relies_on() {
     for id in [
         LEARNINGS_PAGE_ID,
         COMPANY_PAGE_ID,
+        MEETINGS_PAGE_ID,
         Section::Company.page_id(),
         Section::Glossary.page_id(),
     ] {
