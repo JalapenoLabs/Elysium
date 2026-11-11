@@ -626,10 +626,12 @@ merged into another skips it ("Merged into another meeting, so nothing to align"
 - **Lining the transcript up.** Then the final transcript is lined up from every capture (The final transcript, below).
 - **The same meeting twice.** Last, the meeting may ask its person whether it is the same as another (The same meeting
   twice, below), and the run waits here until they answer (`Done::Held`).
-- **Set by hand.** A person sets a capture's offset from the meeting's options (`PUT
-  /api/v1/meetings/{id}/captures/{captureId}/offset`, `meetings::clock`), at most twelve hours either way: it is
-  `hand`, recorded in the meeting's history as `offset_changed`, the transcript is lined up again at once, and aligning
-  never moves it after. Its undo puts the offset back while nothing moved the capture since.
+- **Set by hand.** A person sets a capture's offset (`PUT /api/v1/meetings/{id}/captures/{captureId}/offset`,
+  `meetings::clock`), at most twelve hours either way: it is `hand`, recorded in the meeting's history as
+  `offset_changed`, the transcript is lined up again at once, and aligning never moves it after. Its undo, from the
+  history on the meeting's page, puts the offset back while nothing moved the capture since. The page's controls for
+  setting an offset and splitting a capture out are on the roadmap, among the meeting's options
+  (`docs/meeting-review.md`, The meeting's page).
 - **What it logs.** Counts, offsets, and how each was found, never a title or a word that was said.
 
 ## The same meeting twice

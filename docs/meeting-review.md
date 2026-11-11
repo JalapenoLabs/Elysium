@@ -269,7 +269,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
 | 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
-
 | 2     | #239  | Settling the final transcript, and the Transcription doc                              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |
