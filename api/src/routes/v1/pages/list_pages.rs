@@ -166,6 +166,7 @@ mod tests {
             title: "A page".to_owned(),
             current_version: 1,
             fixed: false,
+            brief_project_id: None,
             labels: Vec::new(),
             updated_at: Utc::now(),
             deleted_at: None,

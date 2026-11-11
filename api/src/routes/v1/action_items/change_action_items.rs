@@ -2,7 +2,10 @@
 
 //! `POST /api/v1/action-items/bulk`: apply one change to many items at once, as a person's
 //! multi-select asks: a state, a priority, a snooze, joining or leaving an initiative,
-//! deleting, or restoring.
+//! assigning to or taking back from the lead project's Project Manager, deleting, or restoring.
+//!
+//! Assigning and taking back are the company's members' alone, as on one item
+//! (`assign_to_manager`).
 //!
 //! Each item goes through the write its own route makes, in one transaction, and records its
 //! own history with the person as the actor (`crate::models::action_item_bulk`). An item the
@@ -20,7 +23,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{publish_item_links, publish_item_writes, unique_ids};
-use crate::auth::CurrentUser;
+use crate::auth::{CurrentUser, MemberUser};
 use crate::errors::ApiError;
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_bulk::{self, BulkChange, MAX_ITEMS};
@@ -59,6 +62,12 @@ pub async fn handle(
         return Err(ApiError::BadRequest(
             "until must be in the future".to_owned(),
         ));
+    }
+    if matches!(
+        body.change,
+        BulkChange::AssignToManager {} | BulkChange::UnassignFromManager {}
+    ) {
+        MemberUser::check(current.0.clone())?;
     }
 
     let mut connection = state

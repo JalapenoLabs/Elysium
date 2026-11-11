@@ -28,5 +28,6 @@ export const connectorLogos = {
   teams: { icon: PiMicrosoftTeamsLogoFill, className: 'text-[#7b83eb]' },
   slack: { icon: PiSlackLogoFill, className: 'text-[#e01e5a]' },
   fireflies: { icon: LuAudioLines, className: 'text-[#e8457c]' },
+  fireflies_browser: { icon: LuAudioLines, className: 'text-[#e8457c]' },
   youtrack: { icon: SiJetbrains, className: '' },
 } as const satisfies Record<ConnectorKind, ConnectorLogo>

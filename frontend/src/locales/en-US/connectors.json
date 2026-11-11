@@ -81,15 +81,19 @@
     },
     "teams": {
       "name": "Teams",
-      "description": "Your Teams chats and channels, read through a browser Elysium runs, which you sign in to once. Unread chats, mentions, and replies in your threads land in your inbox."
+      "description": "Your Teams chats, channels, and recorded meetings, read through a browser Elysium runs, which you sign in to once. Unread chats, mentions, and replies in your threads land in your inbox, and each recorded meeting lands on your timeline."
     },
     "fireflies": {
       "name": "Fireflies",
       "description": "Your recorded meetings, read with your Fireflies API key and cut into segments on each project's timeline."
     },
+    "fireflies_browser": {
+      "name": "Fireflies (browser)",
+      "description": "Your recorded meetings, read through Fireflies in a browser Elysium runs, which you sign in to once. Works on every Fireflies plan, including the free one, and cuts each meeting into segments on each project's timeline."
+    },
     "slack": {
       "name": "Slack",
-      "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox."
+      "description": "Your Slack workspaces, read through a browser Elysium runs, which you sign in to once. Direct messages, mentions, and thread replies land in your inbox, and each transcribed huddle lands on your timeline."
     },
     "youtrack": {
       "name": "YouTrack",
@@ -108,6 +112,7 @@
     "boards": "Boards",
     "spaces": "Spaces",
     "conversations": "Conversations",
+    "readMeetings": "Read meeting recordings and transcripts",
     "storageLocationId": "Storage location",
     "waitForApproval": "Wait for my approval before acting on meetings",
     "choices": {
@@ -211,9 +216,13 @@
       "mailbox_not_open": "Open the mailbox in the browser, then run the checks again.",
       "teams_not_open": "Teams is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
       "teams_store_not_found": "Teams is open, but its chats were not found. Open a chat, then run the checks again.",
+      "fireflies_not_open": "Fireflies is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
       "meeting_unavailable": "The newest meeting is still being processed. Run the checks again later.",
+      "meetings_off": "Meetings are turned off for this connector.",
+      "no_storage_location": "Pick a storage location to start reading meetings.",
+      "recording_not_downloadable": "Its transcript reads, but its recording cannot be downloaded, so meetings are read from their transcripts.",
       "spaces_unresolved": "Couldn't confirm the chosen spaces. Run the checks again.",
       "no_spaces_chosen": "Choose at least one space to search it.",
       "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",

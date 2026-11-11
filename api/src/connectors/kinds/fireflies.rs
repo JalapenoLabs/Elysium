@@ -54,7 +54,9 @@ pub const DEFINITION: Definition = Definition {
         },
         ContentField {
             id: WAIT_FOR_APPROVAL_FIELD,
-            field: ContentFieldType::Toggle,
+            field: ContentFieldType::Toggle {
+                on_by_default: false,
+            },
             required: false,
         },
     ],
@@ -223,7 +225,10 @@ impl Checks for FirefliesChecks {
 }
 
 /// Checks `storage_location_id` names a storage location.
-async fn ensure_location(state: &AppState, storage_location_id: Uuid) -> Result<(), ApiError> {
+pub(super) async fn ensure_location(
+    state: &AppState,
+    storage_location_id: Uuid,
+) -> Result<(), ApiError> {
     let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
     match storage_location::find(&mut connection, storage_location_id).await {
         Ok(_location) => Ok(()),

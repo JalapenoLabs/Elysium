@@ -1024,6 +1024,8 @@ fn item_summary(item: &ActionItem, memberships: &Memberships) -> Value {
         "owner": item.owner(),
         // Only the lead project's Project Manager may submit a batch for it.
         "leadProjectId": item.lead_project_id,
+        // While a person has assigned it to the lead project's Project Manager to plan.
+        "assignedToManagerAt": item.manager_assigned_at,
         "initiativeIds": memberships.initiative_ids(item.id),
         "createdAt": item.created_at,
         "updatedAt": item.updated_at,

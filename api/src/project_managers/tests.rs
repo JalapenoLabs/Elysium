@@ -17,15 +17,22 @@ use super::batches::{self, BatchError, Submission};
 use super::dispatcher::{self, DispatchContext};
 use super::runner::{ManagerRunner, Script};
 use super::timeline::SOURCE_KIND;
+use crate::action_items::changesets::{
+    AssignItem, Existing, LinkReads, Operation, Proposal, ProposedOperation, Proposer, Target,
+};
+use crate::action_items::{Actor, Transition};
 use crate::database::schema::project_manager_wakes;
 use crate::elysia::runner::ElysiaOutcome;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::action_item_assignment::{self, Assigner};
 use crate::models::action_item_attribution;
-use crate::models::agent::Author;
+use crate::models::agent::{Agent, Author};
 use crate::models::attribution::{self, Attributor};
-use crate::models::page::{self, PageEdit};
+use crate::models::changeset::{self, ChangesetDecision};
+use crate::models::page::{self, PageEdit, PageError};
 use crate::models::page_project;
 use crate::models::project::{self, NewProject};
+use crate::models::project_brief;
 use crate::models::project_manager::{self, TurnStatus, WakeKind};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, TimelineRecord};
 use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
@@ -37,8 +44,10 @@ use crate::test_support::{
 };
 use crate::tools::grants::Grants;
 
+/// A project whose brief names the goal "Annual pricing", written by its own Project Manager, which
+/// wakes nothing.
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
-    project::create(
+    let project_id = project::create(
         connection,
         &NewProject {
             name: name.to_owned(),
@@ -48,7 +57,40 @@ async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     )
     .await
     .expect("a project")
-    .id
+    .id;
+    let brief = project_brief::find(connection, project_id)
+        .await
+        .expect("every project has a brief");
+    let its_own = Agent::project_manager(project_id);
+    let recorded = publish_brief(
+        connection,
+        &brief,
+        "## Goals\n\n### Annual pricing\n\nAda asked for it.",
+        Author {
+            user_id: PROJECT_MANAGER_USER_ID,
+            agent: Some(&its_own),
+            at: Utc::now(),
+        },
+    )
+    .await
+    .expect("its Project Manager writes it");
+    assert_eq!(recorded.woke, None, "its own edit wakes it for nothing");
+    project_id
+}
+
+/// Publishes `body` over `brief` as `author`, against the version it was read at.
+async fn publish_brief(
+    connection: &mut AsyncPgConnection,
+    brief: &page::Page,
+    body: &str,
+    author: Author<'_>,
+) -> Result<page::Recorded, PageError> {
+    let edit = PageEdit {
+        title: brief.title.clone(),
+        body: body.to_owned(),
+        learning: None,
+    };
+    page::publish(connection, brief.id, edit, brief.current_version, author).await
 }
 
 /// A meeting segment on the test person's timeline, not yet on any project.
@@ -573,6 +615,7 @@ fn submission(record_ids: Vec<Uuid>) -> Submission {
     Submission {
         title: "Annual pricing".to_owned(),
         goal: "Show annual pricing on the pricing page, as Ada asked.".to_owned(),
+        serves: "annual pricing".to_owned(),
         repositories: Vec::new(),
         priority: Priority::Asap,
         scheduled_for: None,
@@ -663,6 +706,36 @@ async fn only_the_lead_projects_project_manager_submits_a_batch_for_an_item() {
     };
     assert!(reason.contains("not one sent to this project's Project Manager"));
 
+    // Finished work is not planned until a person reopens it.
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Resolve,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("resolved");
+    let refused = batches::submit(&mut connection, &events, other, turn.id, for_item.clone())
+        .await
+        .expect_err("a resolved item");
+    let BatchError::Refused(reason) = refused else {
+        panic!("a refusal the Project Manager reads");
+    };
+    assert!(
+        reason.contains("is finished; a person reopens it"),
+        "{reason}"
+    );
+    action_item::transition(
+        &mut connection,
+        item.id,
+        Transition::Reopen,
+        TEST_PERSON,
+        now,
+    )
+    .await
+    .expect("reopened");
+
     let batch = batches::submit(&mut connection, &events, other, turn.id, for_item)
         .await
         .expect("submitted");
@@ -715,6 +788,11 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     assert_eq!(batch.state, BatchState::Proposed);
     assert_eq!(batch.turn_id, Some(turn.id));
     assert_eq!(batch.source_records(), vec![record]);
+    assert_eq!(
+        batch.serves.as_deref(),
+        Some("Annual pricing"),
+        "the goal is stored as the brief spells it"
+    );
     assert_eq!(batch.origin, Origin::HumanRooted);
     assert_eq!(batch.generation, 0);
     let on_timeline = timeline_record::attributed_among(
@@ -726,6 +804,7 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     .expect("reads");
     assert_eq!(on_timeline[0].0.title, "Annual pricing");
     assert_eq!(on_timeline[0].0.metadata["priority"], "asap");
+    assert_eq!(on_timeline[0].0.metadata["serves"], "Annual pricing");
 
     // Proposed, the pool hands it nothing. Once a person approves it, the pool hands it a slot,
     // and a worker takes it and finishes it: its Project Manager wakes with the result.
@@ -808,6 +887,73 @@ async fn a_scheduled_batch_is_stored_with_its_time_and_a_proposed_one_can_be_wit
         .expect("withdrawn");
     assert_eq!(cancelled.state, BatchState::Cancelled);
     assert_eq!(cancelled.result.as_deref(), Some("Launch moved"));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_batch_outside_the_brief_is_refused_naming_the_goals_there_are() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+    let (turn, _taken) = {
+        project_manager::wake_with_message(&mut connection, launch, "Plan.", TEST_PERSON_ID)
+            .await
+            .expect("woken");
+        project_manager::start_turn(&mut connection, launch, 40)
+            .await
+            .expect("starts")
+            .expect("a turn")
+    };
+
+    let mut outside = submission(Vec::new());
+    outside.serves = "Dark mode".to_owned();
+    let refused = batches::submit(&mut connection, &events, launch, turn.id, outside)
+        .await
+        .expect_err("no such goal");
+    assert!(
+        matches!(&refused, BatchError::Refused(reason)
+            if reason.contains("\"Dark mode\" is not a goal")
+                && reason.contains("\"Annual pricing\"")
+                && reason.contains("ask the person")),
+        "{refused:?}"
+    );
+
+    // A project whose brief is still the skeleton names no goals, so nothing is submitted.
+    let website = project::create(
+        &mut connection,
+        &NewProject {
+            name: "Website".to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("a project")
+    .id;
+    project_manager::wake_with_message(&mut connection, website, "Plan.", TEST_PERSON_ID)
+        .await
+        .expect("woken");
+    let (website_turn, _taken) = project_manager::start_turn(&mut connection, website, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let refused = batches::submit(
+        &mut connection,
+        &events,
+        website,
+        website_turn.id,
+        submission(Vec::new()),
+    )
+    .await
+    .expect_err("no goals yet");
+    assert!(
+        matches!(&refused, BatchError::Refused(reason) if reason.contains("names no goals yet")),
+        "{refused:?}"
+    );
+    let stored = work_batch::list_for_project(&mut connection, website, &[], 10)
+        .await
+        .expect("lists");
+    assert!(stored.is_empty(), "a refused batch stores nothing");
 }
 
 /// A person approves batch `batch_id`, the pool hands it a slot, and a worker starts it and
@@ -1126,6 +1272,122 @@ async fn a_project_manager_cannot_claim_a_human_origin_it_cannot_trace() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_persons_edit_of_the_brief_wakes_its_project_manager_and_wins_over_a_stale_save() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    assert!(
+        waiting_kinds(&mut connection, launch).await.is_empty(),
+        "creating the project and its Project Manager's own edit wake nothing"
+    );
+
+    // The Project Manager read version 2; a person publishes version 3 meanwhile.
+    let read = project_brief::find(&mut connection, launch)
+        .await
+        .expect("a brief");
+    let person = Author {
+        user_id: TEST_PERSON_ID,
+        agent: None,
+        at: Utc::now(),
+    };
+    let edited = publish_brief(
+        &mut connection,
+        &read,
+        "## Goals\n\n### Annual pricing\n\n## Out of scope\n\nMonthly discounts.",
+        person,
+    )
+    .await
+    .expect("a person edits it");
+    assert_eq!(edited.woke, Some(launch));
+    let wakes: Vec<(WakeKind, Option<i32>, Uuid)> = project_manager_wakes::table
+        .filter(project_manager_wakes::project_id.eq(launch))
+        .filter(project_manager_wakes::turn_id.is_null())
+        .select((
+            project_manager_wakes::kind,
+            project_manager_wakes::page_version,
+            project_manager_wakes::created_by,
+        ))
+        .load(&mut connection)
+        .await
+        .expect("wakes");
+    assert_eq!(wakes, vec![(WakeKind::Brief, Some(3), TEST_PERSON_ID)]);
+
+    // Its save against the version it read is refused, and nothing the person wrote is lost.
+    let its_own = Agent::project_manager(launch);
+    let stale = publish_brief(
+        &mut connection,
+        &read,
+        "## Goals\n\n### Annual pricing\n\n## Decisions\n\nShip in March.",
+        Author {
+            user_id: PROJECT_MANAGER_USER_ID,
+            agent: Some(&its_own),
+            at: Utc::now(),
+        },
+    )
+    .await
+    .expect_err("a version was published since");
+    assert!(matches!(stale, PageError::Changed), "{stale:?}");
+    let brief = project_brief::find(&mut connection, launch)
+        .await
+        .expect("a brief");
+    assert_eq!(brief.current_version, 3);
+    assert!(brief.body.contains("Monthly discounts."));
+
+    // A person restoring an earlier version is an edit too.
+    let restored = page::restore_version(&mut connection, brief.id, 2, person)
+        .await
+        .expect("restores");
+    assert_eq!(restored.woke, Some(launch));
+    assert_eq!(
+        waiting_kinds(&mut connection, launch).await,
+        vec![WakeKind::Brief, WakeKind::Brief]
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn every_turn_carries_the_brief_and_names_who_edited_it() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Read the brief.\nSummary: Followed the new scope.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let brief = project_brief::find(&mut connection, launch)
+        .await
+        .expect("a brief");
+    publish_brief(
+        &mut connection,
+        &brief,
+        "## Goals\n\n### Annual pricing\n\n## Out of scope\n\nMonthly discounts.",
+        Author {
+            user_id: TEST_PERSON_ID,
+            agent: None,
+            at: Utc::now(),
+        },
+    )
+    .await
+    .expect("a person edits it");
+    go_quiet(&mut connection).await;
+
+    dispatch_once(&context).await;
+
+    let turns = asked(&script);
+    let prompt = &turns[0].prompt;
+    assert!(prompt.contains(&format!(
+        "## The project's brief (page {}, version 3)",
+        brief.id
+    )));
+    assert!(prompt.contains("Monthly discounts."));
+    assert!(prompt.contains("## The brief changed"));
+    assert!(prompt.contains("published version 3"));
+    assert!(
+        !prompt.contains(&format!("- {} (page", brief.title)),
+        "the brief is carried whole, not listed again among the docs"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_rejected_batch_is_replaced_where_it_stood() {
     let (_url, mut connection) = migrated_database().await;
     let events = EventBus::in_process();
@@ -1171,4 +1433,179 @@ async fn a_rejected_batch_is_replaced_where_it_stood() {
     .expect("submitted");
     assert_eq!(replacement.generation, 0);
     assert_eq!(replacement.parents(), vec![first.id]);
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_assigned_item_is_planned_in_one_turn_and_nothing_stale_is_named() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Planned it.\nSummary: Planned the pricing page.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let mut items = Vec::new();
+    for title in ["Annual pricing page", "Retired pricing table"] {
+        let item = action_item::create(
+            &mut connection,
+            NewActionItem {
+                title: title.to_owned(),
+                notes: "Ada asked for it.".to_owned(),
+                state: ActionItemState::Open,
+                priority: ActionItemPriority::Normal,
+                due_at: None,
+                owner: Owner::User,
+                project_ids: vec![launch],
+                initiative_ids: Vec::new(),
+            },
+            TEST_PERSON,
+            Utc::now(),
+        )
+        .await
+        .expect("created")
+        .record
+        .id;
+        action_item_assignment::assign(
+            &mut connection,
+            item,
+            Assigner::person(TEST_PERSON_ID),
+            Utc::now(),
+        )
+        .await
+        .expect("assigned");
+        items.push(item);
+    }
+    // One is deleted before the turn runs, which ends its assignment and drops its wake: no longer
+    // the Project Manager's to plan.
+    action_item::soft_delete(&mut connection, items[1], TEST_PERSON, Utc::now())
+        .await
+        .expect("deleted");
+    assert_eq!(
+        waiting_kinds(&mut connection, launch).await,
+        [WakeKind::Assignment]
+    );
+
+    // Assignments wait like records, so a selection is one turn.
+    dispatch_once(&context).await;
+    assert!(asked(&script).is_empty(), "not due at once");
+    go_quiet(&mut connection).await;
+    dispatch_once(&context).await;
+    let turns = asked(&script);
+    assert_eq!(turns.len(), 1);
+    let prompt = &turns[0].prompt;
+    assert!(prompt.contains("## Assigned to you (1)"), "{prompt}");
+    assert!(prompt.contains("Annual pricing page"), "{prompt}");
+    assert!(prompt.contains(&items[0].to_string()), "{prompt}");
+    assert!(prompt.contains("assigned by Tester"), "{prompt}");
+    assert!(!prompt.contains("Retired pricing table"), "{prompt}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_accepted_suggestion_roots_its_batch_in_the_person_and_starts_the_chain_again() {
+    let (_url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let launch = project_named(&mut connection, "Launch").await;
+
+    // Elysia raised the item from a conversation and nobody accepted it: her reading alone.
+    let raised = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Annual pricing".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: vec![launch],
+            initiative_ids: Vec::new(),
+        },
+        Actor::Elysia,
+        Utc::now(),
+    )
+    .await
+    .expect("raised")
+    .record
+    .id;
+
+    // A batch already ran for the project, and its result arrives beside the assignment.
+    let record = segment(&mut connection, "annual pricing").await;
+    attribution::attribute(&mut connection, record, launch, 0.8, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    let (turn, _taken) = project_manager::start_turn(&mut connection, launch, 40)
+        .await
+        .expect("starts")
+        .expect("a turn");
+    let earlier = batches::submit(
+        &mut connection,
+        &events,
+        launch,
+        turn.id,
+        submission(vec![record]),
+    )
+    .await
+    .expect("submitted");
+    worked_and_finished(&mut connection, earlier.id, "Done.").await;
+
+    // Elysia suggests assigning it, and the person accepts her suggestion.
+    let suggested = changeset::propose(
+        &mut connection,
+        Proposal {
+            proposer: Proposer::Elysia,
+            project_id: None,
+            summary: "Plan the pricing work".to_owned(),
+            operations: vec![ProposedOperation {
+                operation: Operation::AssignItem(AssignItem {
+                    item: Target::Existing(Existing { id: raised }),
+                }),
+                reason: "Ada asked for it and it is clear enough to plan.".to_owned(),
+                quote: None,
+                source: None,
+                cause_record_id: None,
+            }],
+        },
+        Utc::now(),
+    )
+    .await
+    .expect("proposed");
+    let changeset_id = suggested.changeset.id;
+    changeset::decide(
+        &mut connection,
+        changeset_id,
+        ChangesetDecision::Approved,
+        None,
+    )
+    .await
+    .expect("approved");
+    changeset::apply(
+        &mut connection,
+        changeset_id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        Utc::now(),
+    )
+    .await
+    .expect("applied");
+    let assigned = action_item::find(&mut connection, raised)
+        .await
+        .expect("an item");
+    assert_eq!(
+        assigned.manager_assigned_by,
+        Some(TEST_PERSON_ID),
+        "the person who accepted assigned it"
+    );
+
+    // One turn takes the batch's result and the assignment. Planning the item answers the person,
+    // so it is human-rooted and nothing the turn's other wakes did leads to it.
+    let after = next_turn(&mut connection, launch, turn.id).await;
+    let mut for_the_item = submission(Vec::new());
+    for_the_item.action_item_ids = vec![raised];
+    let planned = batches::submit(&mut connection, &events, launch, after, for_the_item)
+        .await
+        .expect("submitted");
+    assert_eq!(planned.origin, Origin::HumanRooted);
+    assert_eq!(planned.generation, 0);
+    assert!(planned.parents().is_empty());
+    assert_eq!(planned.state, BatchState::Proposed, "no worker starts it");
 }

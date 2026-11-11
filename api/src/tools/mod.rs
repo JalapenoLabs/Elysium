@@ -35,6 +35,7 @@ use futures_util::future::BoxFuture;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tracing::{Level, event};
+use url::Url;
 use uuid::Uuid;
 
 use crate::action_items::links::Links;
@@ -69,6 +70,8 @@ pub struct ToolContext {
     pub passwords: RemoteVault,
     /// The knowledge base's search, whose budgets agents' searches spend as people's do.
     pub knowledge: KnowledgeSearch,
+    /// The origin people open Elysium at, which links a tool writes outside it point into.
+    pub public_url: Url,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -460,6 +463,24 @@ mod tests {
                 assert!(
                     !tool.name.contains("approve") && !tool.name.contains("reject"),
                     "{} on {} may not decide on a proposal",
+                    tool.name,
+                    server.name
+                );
+            }
+        }
+    }
+
+    /// Only a person turns a project's trust dial. The boundary is the type, as above:
+    /// `crate::models::project_autonomy::set` takes a `MemberUser`. This tripwire, by name, makes
+    /// a tool meant to turn it noticed in review, so neither Elysia nor a Project Manager is ever
+    /// handed one.
+    #[test]
+    fn no_agent_tool_turns_a_projects_dial() {
+        for server in SERVERS {
+            for tool in server.tools {
+                assert!(
+                    !tool.name.contains("autonomy") && !tool.name.contains("trust"),
+                    "{} on {} may not change a project's level of autonomy",
                     tool.name,
                     server.name
                 );

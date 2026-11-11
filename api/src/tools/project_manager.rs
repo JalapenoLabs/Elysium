@@ -51,10 +51,12 @@ pub const SERVER: ToolServer = ToolServer {
         base pages linked to the project, its docs, and manager_page reads one. manager_batches \
         lists the batches you submitted and where each stands; check it before submitting, so \
         no work is submitted twice. manager_submit_batch proposes a piece of work for a worker: \
-        write its goal so a worker who has seen nothing else can finish it, and name the records \
-        and action items it came from. Every batch waits for a person to approve it, edit and \
-        approve it, or reject it with a reason, which wakes you; only then does it wait in the \
-        one queue for the whole workspace, which a person or Elysia may reorder or pause. \
+        write its goal so a worker who has seen nothing else can finish it, name the goal in the \
+        project's brief it serves, and name the records and action items it came from. A batch \
+        waits for a person to approve it, edit and approve it, or reject it with a reason, which \
+        wakes you, unless the project's level of autonomy, which your prompt names, lets a \
+        human-rooted one queue at once; a found batch always waits. Queued, it waits in the one \
+        queue for the whole workspace, which a person or Elysia may reorder or pause. \
         manager_cancel_batch withdraws a batch no worker has started on yet. Work nobody asked \
         for that you notice is a finding, not a batch: manager_report_finding puts it on the \
         project's Findings list for a person to accept or dismiss, and you never submit a batch, \
@@ -117,15 +119,17 @@ const TOOLS: [Tool; 13] = [
     Tool {
         name: "manager_submit_batch",
         description: "Proposes a work batch for a worker: a title, a goal complete enough to \
-            work from alone, the repositories it needs, and a priority, asap, normal, or \
-            scheduled with scheduledFor (an ISO 8601 time with its offset). recordIds, \
-            actionItemIds, and messageIds name what called for it, which the person reads as they \
-            decide; a batch naming none is refused. Its origin (human_rooted when anything named \
-            traces to a person, found when all of it is an agent's) and its generation (how many \
-            batches led to it) are worked out from them and from what woke this turn, and one past \
-            the generation limit is refused, saying why. It is put on the project's timeline and waits, proposed, \
-            until a person approves it; no worker starts it before then. Answers the stored \
-            batch.",
+            work from alone, the goal in the project's brief it serves (serves, by its heading), \
+            the repositories it needs, and a priority, asap, normal, or scheduled with \
+            scheduledFor (an ISO 8601 time with its offset). recordIds, actionItemIds, and \
+            messageIds name what called for it, which the person reads as they decide; a batch \
+            naming none is refused, and so is work that serves no goal in the brief. Its origin \
+            (human_rooted when anything named traces to a person, found when all of it is an \
+            agent's) and its generation (how many batches led to it) are worked out from them and \
+            from what woke this turn, and one past the generation limit is refused, saying why. \
+            It is put on the project's timeline. A found batch waits, proposed, until a person \
+            approves it; a human-rooted one waits too unless the project's level of autonomy lets \
+            it queue at once, as your prompt says. Answers the stored batch, with its state.",
         input_schema: submit_schema,
         run: |context, scope, arguments| run_submit(context, scope, arguments).boxed(),
     },
@@ -137,9 +141,10 @@ const TOOLS: [Tool; 13] = [
             has seen nothing else could do it; repositoryUrl and location say where (a path \
             without line numbers, a URL, a page, or a place's name); cost is small (an hour or \
             less), medium (about a batch), or large (more than one). It goes on the project's \
-            Findings list for a person to accept, which files its issue and proposes its batch, \
-            or dismiss, and answers if the same finding was reported before and what a person \
-            made of it. Never submit a batch, create an item, or file an issue for it yourself.",
+            Findings list for a person to accept, which files its issue and submits its batch, \
+            proposed or queued as the project's level of autonomy says, or dismiss, and answers \
+            if the same finding was reported before and what a person made of it. Never submit \
+            a batch, create an item, or file an issue for it yourself.",
         input_schema: findings::report_schema,
         run: |context, scope, arguments| run_report_finding(context, scope, arguments).boxed(),
     },
@@ -397,6 +402,14 @@ fn submit_schema() -> Value {
                 "description": "What done looks like, for a worker who has seen nothing else: \
                     the context, what to change, how to check it, and who asked.",
             },
+            "serves": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300,
+                "description": "The goal in the project's brief this work serves, by its heading \
+                    as your prompt lists it. A batch that serves none is refused: ask the person \
+                    whether the work belongs instead.",
+            },
             "repositories": {
                 "type": "array",
                 "maxItems": 16,
@@ -440,7 +453,7 @@ fn submit_schema() -> Value {
             "messageIds": ids("The messages sent to you that called for it, by the ids your \
                 prompt gives them."),
         },
-        "required": ["title", "goal", "priority"],
+        "required": ["title", "goal", "serves", "priority"],
         "additionalProperties": false,
     })
 }
@@ -761,9 +774,24 @@ async fn run_submit(
     .map_err(|error| refused_or_internal(scope, "manager.submit_batch", error))?;
     Ok(json!({
         "batch": batch_view(&batch),
-        "note": "Proposed: it waits for a person to approve it before any worker starts on it. \
-            A rejection wakes you with their reason.",
+        "note": submitted_note(batch.state),
     }))
+}
+
+/// What a Project Manager is told about the batch it just submitted, following the state it was
+/// stored in, which the project's level of autonomy decided, so it never reports queued work as
+/// waiting for a person.
+const fn submitted_note(state: BatchState) -> &'static str {
+    match state {
+        BatchState::Queued => {
+            "Queued: the project's level of autonomy lets work a person asked for run without \
+                an approval, so it waits only for a worker's slot."
+        }
+        _ => {
+            "Proposed: it waits for a person to approve it before any worker starts on it. A \
+                rejection wakes you with their reason."
+        }
+    }
 }
 
 async fn run_report_finding(
@@ -991,6 +1019,7 @@ fn batch_view(batch: &WorkBatch) -> Value {
         "id": batch.id,
         "title": batch.title,
         "goal": batch.goal,
+        "serves": batch.serves,
         "repositories": batch.repositories,
         "priority": batch.priority,
         "scheduledFor": batch.scheduled_for,
@@ -1020,11 +1049,12 @@ mod tests {
     use tower::ServiceExt as _;
     use uuid::Uuid;
 
-    use super::{PAGE_PART_CHARACTERS, SERVER, page_part};
+    use super::{PAGE_PART_CHARACTERS, SERVER, page_part, submitted_note};
     use crate::models::agent::Author;
     use crate::models::page::{self, PageEdit};
     use crate::models::page_project;
     use crate::models::project::{self, NewProject};
+    use crate::models::work_batch::BatchState;
     use crate::routes;
     use crate::runner::McpServer;
     use crate::state::AppState;
@@ -1129,9 +1159,11 @@ mod tests {
         };
         let bearer = headers[0].1.expose_secret().to_owned();
 
+        // Its brief is one of its docs too, linked since the project was created.
         let listed = answered(call(&state, &bearer, "manager_pages", json!({})).await);
-        assert_eq!(listed["pages"].as_array().expect("pages").len(), 1);
+        assert_eq!(listed["pages"].as_array().expect("pages").len(), 2);
         assert_eq!(listed["pages"][0]["title"], "Launch checklist");
+        assert_eq!(listed["pages"][1]["title"], "Launch brief");
 
         let arguments = json!({ "pageId": linked });
         let first = answered(call(&state, &bearer, "manager_page", arguments).await);
@@ -1147,6 +1179,13 @@ mod tests {
         assert!(failed, "a page off the project is refused: {text}");
         assert!(text.contains("not linked to this project"), "{text}");
         assert!(!text.contains("Private to its project."), "{text}");
+    }
+
+    #[test]
+    fn a_submitted_batch_is_described_as_the_state_it_was_stored_in() {
+        assert!(submitted_note(BatchState::Queued).starts_with("Queued:"));
+        assert!(submitted_note(BatchState::Proposed).starts_with("Proposed:"));
+        assert!(!submitted_note(BatchState::Queued).contains("approve it"));
     }
 
     #[test]

@@ -8,21 +8,25 @@ use serde_json::json;
 
 use super::*;
 use crate::action_items::changesets::{
-    AddComment, AddLink, Existing, FinishItem, LinkReads, Membership, Proposed, ProposedOperation,
-    Proposer, UpdateItem, read_link_targets,
+    AddComment, AddLink, AssignItem, Existing, FinishItem, LinkReads, Membership, Proposed,
+    ProposedOperation, Proposer, UpdateItem, read_link_targets,
 };
 use crate::action_items::links::tests::{LinkFixture, REPOSITORY};
 use crate::action_items::{Transition, watcher};
+use crate::database::schema::project_manager_wakes;
 use crate::github::fake::FakeIssue;
 use crate::models::action_item::{
     ActionItem, ActionItemChanges, ActionItemFilter, ActionItemPriority, ActionItemState,
     NewActionItem, Owner,
 };
+use crate::models::action_item_assignment::{self, Assigner};
 use crate::models::action_item_event::list_for_item;
 use crate::models::action_item_link::{LinkKind, LinkProvider, NewLink};
 use crate::models::initiative::NewInitiative;
 use crate::models::project::NewProject;
-use crate::models::{action_item_comment, action_item_link, action_item_link_write};
+use crate::models::{
+    action_item_comment, action_item_link, action_item_link_write, project_manager,
+};
 use crate::routes::v1::action_items::LinkTarget;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
@@ -1072,4 +1076,137 @@ async fn a_provider_that_refuses_fails_only_its_operation_and_its_writes_stay_ow
         .await
         .expect("item");
     assert_eq!(returned.state, ActionItemState::Open);
+}
+
+async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
+    let new_project = NewProject {
+        created_by: TEST_PERSON_ID,
+        name: name.to_owned(),
+        description: String::new(),
+    };
+    project::create(connection, &new_project)
+        .await
+        .expect("project")
+        .id
+}
+
+/// Item `title`, open, in `project_id`, which leads it.
+async fn item_led_by(connection: &mut AsyncPgConnection, title: &str, project_id: Uuid) -> Uuid {
+    let new_item = NewActionItem {
+        title: title.to_owned(),
+        notes: String::new(),
+        state: ActionItemState::Open,
+        priority: ActionItemPriority::Normal,
+        due_at: None,
+        owner: Owner::User,
+        project_ids: vec![project_id],
+        initiative_ids: Vec::new(),
+    };
+    action_item::create(connection, new_item, TEST_PERSON, minute(0))
+        .await
+        .expect("item")
+        .record
+        .id
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_accepted_assignment_is_the_persons_and_undoing_it_takes_back_what_still_stands() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let website = project_named(&mut connection, "Website").await;
+    let pricing = item_led_by(&mut connection, "Annual pricing", launch).await;
+    let footer = item_led_by(&mut connection, "New footer", website).await;
+    let checkout = item_led_by(&mut connection, "Checkout copy", website).await;
+    let suggest = |id: Uuid| Operation::AssignItem(AssignItem { item: existing(id) });
+
+    let staged = propose(
+        &mut connection,
+        from_elysia(vec![suggest(pricing), suggest(footer), suggest(checkout)]),
+        minute(1),
+    )
+    .await
+    .expect("proposed");
+    let id = staged.changeset.id;
+    decide(&mut connection, id, ChangesetDecision::Approved, None)
+        .await
+        .expect("approved");
+    let applied = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
+    assert_eq!(outcomes(&applied.staged), [ChangesetOutcome::Applied; 3]);
+
+    // Applied as Elysia's suggestion, but the person who accepted it is who assigned it.
+    let assigned = action_item::find(&mut connection, pricing)
+        .await
+        .expect("item");
+    assert_eq!(assigned.manager_assigned_by, Some(TEST_PERSON_ID));
+    let entry = list_for_item(&mut connection, pricing)
+        .await
+        .expect("history")
+        .into_iter()
+        .find(|entry| entry.kind == "manager_assigned")
+        .expect("recorded");
+    assert_eq!(entry.actor, "elysia");
+    assert_eq!(entry.changeset_id, Some(id));
+    let wakers: Vec<Uuid> = project_manager_wakes::table
+        .filter(project_manager_wakes::action_item_id.eq(pricing))
+        .select(project_manager_wakes::created_by)
+        .load(&mut connection)
+        .await
+        .expect("wakes");
+    assert_eq!(wakers, [TEST_PERSON_ID], "a person's request, not Elysia's");
+
+    // Website's Project Manager takes its two; the person then takes one back and assigns it again.
+    project_manager::start_turn(&mut connection, website, 40)
+        .await
+        .expect("starts")
+        .expect("woken");
+    action_item_assignment::unassign(&mut connection, checkout, TEST_PERSON, minute(3))
+        .await
+        .expect("taken back");
+    let again = Assigner::person(TEST_PERSON_ID);
+    action_item_assignment::assign(&mut connection, checkout, again, minute(3))
+        .await
+        .expect("assigned again");
+
+    let undone = undo(&mut connection, id, TEST_PERSON, minute(4))
+        .await
+        .expect("undone");
+    assert_eq!(
+        outcomes(&undone.staged),
+        [
+            ChangesetOutcome::Undone,
+            ChangesetOutcome::Undone,
+            ChangesetOutcome::Applied
+        ]
+    );
+    assert_eq!(undone.staged.operations[0].undo, Some(json!({})));
+    assert_eq!(
+        undone.staged.operations[1].undo,
+        Some(json!({ "stillPlanned": true })),
+        "what its Project Manager planned stays the person's to decide"
+    );
+    assert_eq!(
+        undone.staged.operations[2].undo,
+        Some(json!({ "movedSince": true })),
+        "the person's own assignment stands"
+    );
+    for (item, still) in [(pricing, false), (footer, false), (checkout, true)] {
+        let found = action_item::find(&mut connection, item)
+            .await
+            .expect("item");
+        assert_eq!(
+            found.manager_assigned_at.is_some(),
+            still,
+            "{}",
+            found.title
+        );
+    }
 }

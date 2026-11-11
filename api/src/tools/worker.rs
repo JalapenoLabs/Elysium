@@ -9,9 +9,11 @@
 //! waits on a review, CI, or an answer, keeping its container. The API answers these calls and
 //! holds no claim on the batch's
 //! slot, so each only files a report on the batch (`crate::models::work_batch::worker`), or
-//! records a pull request (`crate::models::work_batch::pull_request`); the engine acts on them
-//! once the turn is over, and only the engine merges (`crate::worker_pool::merging`). Every call
-//! is checked against the batch as the database holds it now. See `docs/engine.md`, Workers.
+//! records a pull request (`crate::models::work_batch::pull_request`) and puts why its batch
+//! exists in the pull request's description (`crate::worker_pool::description`); the engine acts
+//! on them once the turn is over, and only the engine merges (`crate::worker_pool::merging`).
+//! Every call is checked against the batch as the database holds it now. See `docs/engine.md`,
+//! Workers.
 
 use chrono::{TimeDelta, Utc};
 use futures_util::FutureExt as _;
@@ -27,12 +29,14 @@ use crate::github::issues::IssueRef;
 use crate::github::pulls::PullRequest;
 use crate::models::finding::Reporter;
 use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
+use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
 use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, WorkBatch};
 use crate::models::worker_setup::{self, MergePolicy, WorkerSetup};
 use crate::models::{github_credential, project};
 use crate::routes::v1::coding_sessions::github_token;
 use crate::worker_pool::actions::announce;
+use crate::worker_pool::description;
 use crate::worker_pool::merging;
 
 pub const SERVER: ToolServer = ToolServer {
@@ -69,9 +73,11 @@ const TOOLS: [Tool; 5] = [
         name: "worker_pull_request",
         description: "Records a pull request you opened for this batch, by its github.com URL, \
             right after you open it. It must be yours: opened by the project's GitHub account \
-            during this batch, from a branch of the repository itself. Answers who merges it: \
-            Elysium, once every check passed, no review thread is open, and nobody asked for \
-            changes, or a person. Never merge a pull request yourself.",
+            during this batch, from a branch of the repository itself. Elysium then adds why \
+            the batch exists to the end of its description; call it again to put that back if \
+            an edit removed it. Answers who merges it: Elysium, once every check passed, no \
+            review thread is open, and nobody asked for changes, or a person. Never merge a pull \
+            request yourself.",
         input_schema: pull_request_schema,
         run: |context, scope, arguments| run_pull_request(context, scope, arguments).boxed(),
     },
@@ -299,6 +305,14 @@ async fn run_pull_request(
     })?;
     announce(&context.events, &batch);
 
+    // Recorded first, since that is what lets it merge. The chain is read now and the connection
+    // given back, so none is held across GitHub's round trips.
+    let why = why::read(&mut connection, &batch)
+        .await
+        .map_err(|error| internal(scope, "worker.pull_request.why", &error))?;
+    drop(connection);
+    let description = describe(context, scope, &batch, &token, &reference, &why).await;
+
     let (merged_by, next) = match merging::policy_for(&declared, &recorded.github_url()) {
         MergePolicy::Auto => (
             "elysium",
@@ -321,8 +335,48 @@ async fn run_pull_request(
             "state": recorded.state,
         },
         "mergedBy": merged_by,
+        "description": description,
         "next": next,
     }))
+}
+
+/// Puts why `batch` exists, `why`, in the description of the pull request `reference` names, and
+/// answers what its worker is told of it.
+///
+/// A description GitHub would not take is said in the answer and logged rather than failing the
+/// call: the pull request is recorded already, which is what lets it merge, and recording it
+/// again tries the description again.
+async fn describe(
+    context: &ToolContext,
+    scope: &CallScope,
+    batch: &WorkBatch,
+    token: &SecretString,
+    reference: &IssueRef,
+    why: &Why,
+) -> String {
+    let written =
+        description::write(&context.github, token, reference, why, &context.public_url).await;
+    if let Err(error) = written {
+        tracing::event!(
+            name: "tools.worker.description_unwritten",
+            tracing::Level::WARN,
+            tool.caller = scope.label(),
+            work_batch.id = %batch.id,
+            pull_request = %reference,
+            error.message = %error,
+            "could not put why a batch exists in its pull request's description",
+        );
+        return format!(
+            "It is recorded, but Elysium could not add why this batch exists to its \
+             description: {error}. Call worker_pull_request again to try once more."
+        );
+    }
+    format!(
+        "Its description ends with why this batch exists, between {} and {}. Keep that section \
+         when you edit the description; calling worker_pull_request again puts it back.",
+        description::START,
+        description::END
+    )
 }
 
 async fn run_report_finding(

@@ -130,6 +130,10 @@ pub mod sql_types {
     pub struct PasswordServer;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "project_autonomy"))]
+    pub struct ProjectAutonomy;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "project_cover_fit"))]
     pub struct ProjectCoverFit;
 
@@ -345,6 +349,8 @@ diesel::table! {
         updated_at -> Timestamptz,
         created_by -> Uuid,
         lead_project_id -> Nullable<Uuid>,
+        manager_assigned_at -> Nullable<Timestamptz>,
+        manager_assigned_by -> Nullable<Uuid>,
     }
 }
 
@@ -443,6 +449,7 @@ diesel::table! {
         start_page_opened_at -> Nullable<Timestamptz>,
         state -> BrowserState,
         state_error -> Nullable<Text>,
+        refreshed_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -1398,6 +1405,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        brief_project_id -> Nullable<Uuid>,
     }
 }
 
@@ -1431,6 +1439,20 @@ diesel::table! {
         activities -> Jsonb,
         expires_at -> Timestamptz,
         created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ProjectAutonomy;
+
+    project_autonomy_changes (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        previous_autonomy -> ProjectAutonomy,
+        autonomy -> ProjectAutonomy,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 
@@ -1484,6 +1506,8 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         promise_id -> Nullable<Uuid>,
+        page_version -> Nullable<Int4>,
+        action_item_id -> Nullable<Uuid>,
     }
 }
 
@@ -1521,6 +1545,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
+    use super::sql_types::ProjectAutonomy;
 
     projects (id) {
         id -> Uuid,
@@ -1535,8 +1560,8 @@ diesel::table! {
         github_credential_id -> Nullable<Uuid>,
         created_by -> Uuid,
         cover_removed_at -> Nullable<Timestamptz>,
-        manager_writes_directly -> Bool,
         tools_setup_script -> Nullable<Text>,
+        autonomy -> ProjectAutonomy,
     }
 }
 
@@ -1947,6 +1972,7 @@ diesel::table! {
         generation -> Int4,
         parent_batch_ids -> Jsonb,
         source_message_ids -> Jsonb,
+        serves -> Nullable<Text>,
     }
 }
 
@@ -2030,7 +2056,6 @@ diesel::joinable!(action_item_links -> github_credentials (github_credential_id)
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_links -> token_accounts (token_account_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
-diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(agent_configuration_status -> action_items (inbox_item_id));
 diesel::joinable!(agent_configuration_status -> users (created_by));
 diesel::joinable!(agent_guidance_versions -> users (created_by));
@@ -2146,9 +2171,12 @@ diesel::joinable!(page_projects -> users (created_by));
 diesel::joinable!(page_versions -> pages (page_id));
 diesel::joinable!(page_versions -> users (created_by));
 diesel::joinable!(pages -> learning_categories (category));
+diesel::joinable!(pages -> projects (brief_project_id));
 diesel::joinable!(pages -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));
+diesel::joinable!(project_autonomy_changes -> projects (project_id));
+diesel::joinable!(project_autonomy_changes -> users (created_by));
 diesel::joinable!(project_issue_trackers -> jira_credentials (jira_credential_id));
 diesel::joinable!(project_issue_trackers -> projects (project_id));
 diesel::joinable!(project_issue_trackers -> token_accounts (token_account_id));
@@ -2156,6 +2184,7 @@ diesel::joinable!(project_issue_trackers -> users (created_by));
 diesel::joinable!(project_manager_turns -> project_managers (project_id));
 diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id));
 diesel::joinable!(project_manager_turns -> users (created_by));
+diesel::joinable!(project_manager_wakes -> action_items (action_item_id));
 diesel::joinable!(project_manager_wakes -> project_manager_turns (turn_id));
 diesel::joinable!(project_manager_wakes -> projects (project_id));
 diesel::joinable!(project_manager_wakes -> promises (promise_id));
@@ -2292,6 +2321,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     pages,
     password_vault,
     process_activities,
+    project_autonomy_changes,
     project_issue_trackers,
     project_manager_turns,
     project_manager_wakes,

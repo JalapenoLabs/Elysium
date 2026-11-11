@@ -225,6 +225,7 @@ mod tests {
     use super::*;
     use crate::models::action_item::OwnerKind;
     use crate::models::project::{GithubAccess, ProjectCoverFit};
+    use crate::models::project_autonomy::Autonomy;
     use crate::test_support::TEST_PERSON_ID;
 
     fn moment(offset_minutes: i64) -> DateTime<Utc> {
@@ -238,6 +239,8 @@ mod tests {
         ActionItem {
             created_by: TEST_PERSON_ID,
             lead_project_id: None,
+            manager_assigned_at: None,
+            manager_assigned_by: None,
             id: Uuid::nil(),
             title: "Fix the login bug".to_owned(),
             notes: "Users on Safari are logged out after a refresh.".to_owned(),
@@ -269,7 +272,7 @@ mod tests {
             cover_fit: ProjectCoverFit::Fit,
             github_access: GithubAccess::Default,
             github_credential_id: None,
-            manager_writes_directly: false,
+            autonomy: Autonomy::ApproveEveryBatch,
         }
     }
 
