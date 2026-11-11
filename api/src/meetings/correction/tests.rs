@@ -54,11 +54,27 @@ fn doc(content: &str) -> CompanyDocResponse {
     }
 }
 
+/// A Transcription doc entry: `heard` is `written`, heard by Teams when Ada spoke, in `meetings`.
+fn entry(heard: &str, written: &str, meetings: usize) -> Entry {
+    Entry {
+        heard: heard.to_owned(),
+        written: written.to_owned(),
+        sources: vec!["Teams".to_owned()],
+        speakers: vec!["Ada".to_owned()],
+        meetings: (0..meetings)
+            .map(|_meeting| crate::transcription_doc::MeetingLink {
+                id: Uuid::now_v7(),
+                title: "Standup".to_owned(),
+            })
+            .collect(),
+    }
+}
+
 fn background_of(doc: &CompanyDocResponse) -> String {
     background(Background {
         title: "Weekly sync",
         participants: &["ada@example.com".to_owned()],
-        transcription: "| Heard | Is |\n| --- | --- |\n| Sheriff | Sharath |",
+        transcription: &[entry("Sheriff", "Sharath", 2)],
         doc,
         speakers: &["Grace Hopper".to_owned()],
     })
@@ -283,7 +299,9 @@ fn every_line_shows_what_each_capture_heard_otherwise() {
         .expect("the Transcription doc");
     let lines_at = text.find("[0] [0:00]").expect("the lines");
     assert!(doc_at < lines_at, "the doc is read before the transcript");
-    assert!(text.contains("| Sheriff | Sharath |"));
+    assert!(
+        text.contains("- \"Sheriff\" is Sharath, heard by Teams, when Ada spoke, in 2 meetings\n")
+    );
     assert!(text.contains("Grace Hopper"));
 }
 
@@ -307,6 +325,33 @@ fn a_long_meeting_is_one_prompt_with_every_line() {
         4_800,
         "every line is whole"
     );
+}
+
+#[test]
+fn the_transcription_doc_gives_its_most_heard_entries_within_its_budget() {
+    // Far more entries than one prompt should carry, the most heard last in the doc.
+    let mut entries: Vec<Entry> = (0..2_000)
+        .map(|number| entry(&format!("heard {number}"), &format!("written {number}"), 1))
+        .collect();
+    entries.push(entry("Sheriff", "Sharath", 9));
+
+    let text = transcription_text(&entries);
+
+    assert!(
+        text.len() <= TRANSCRIPTION_BUDGET_BYTES + 100,
+        "{} bytes",
+        text.len()
+    );
+    assert!(
+        text.starts_with("- \"Sheriff\" is Sharath"),
+        "the most heard comes first"
+    );
+    let shown = text.lines().filter(|line| line.starts_with("- ")).count();
+    assert!(text.ends_with(&format!(
+        "({} entries heard in fewer meetings are left out)\n",
+        entries.len() - shown
+    )));
+    assert_eq!(transcription_text(&[]), "(empty)\n");
 }
 
 #[test]
@@ -431,21 +476,18 @@ fn a_flag_is_kept_only_over_words_it_was_given_without_overlap() {
 
     let checked = parse_answer(answer, &transcript).expect("parses");
 
-    let refusals: Vec<Refusal> = checked
-        .refused
-        .iter()
-        .map(|(_, refusal)| *refusal)
-        .collect();
+    // A line named by anything but its number is kept as no number at all, since what the model
+    // wrote there may quote the meeting and the step's log is every member's.
     assert_eq!(
-        refusals,
+        checked.refused,
         vec![
-            Refusal::UnknownLine,
-            Refusal::UnknownLine,
-            Refusal::NotInLine,
-            Refusal::Empty,
-            Refusal::AddsWords,
-            Refusal::Rewrites,
-            Refusal::Overlaps,
+            (Some(9), Refusal::UnknownLine),
+            (None, Refusal::UnknownLine),
+            (Some(0), Refusal::NotInLine),
+            (Some(0), Refusal::Empty),
+            (Some(0), Refusal::AddsWords),
+            (Some(0), Refusal::Rewrites),
+            (Some(0), Refusal::Overlaps),
         ]
     );
     let kept: Vec<(String, &str, u8)> = checked
@@ -478,7 +520,7 @@ fn a_flag_is_kept_only_over_words_it_was_given_without_overlap() {
         &ambiguous,
     )
     .expect("parses");
-    assert_eq!(checked.refused, vec![("0".to_owned(), Refusal::Ambiguous)]);
+    assert_eq!(checked.refused, vec![(Some(0), Refusal::Ambiguous)]);
 
     assert_eq!(parse_answer("no", &transcript), Err(AnswerError::NoJson));
     assert!(matches!(
@@ -618,7 +660,7 @@ fn the_corrected_copy_takes_each_flag_inside_one_of_the_first_captures_lines() {
     .expect("parses");
     assert_eq!(checked.flags.len(), 3, "{checked:?}");
 
-    let (copy, changed) = corrected_copy(&base, &places, &transcript, &checked.flags);
+    let (copy, changed) = corrected_copy(&base, &places, &words, &checked.flags);
 
     assert_eq!(changed, 2);
     assert_eq!(copy[0].text, "We asked Sharath about it");

@@ -40,9 +40,11 @@
 //! # One turn
 //!
 //! The runner hands `claude` its prompt on standard input, which no argument limit bounds, so the
-//! prompt is the whole meeting: the background once ([`background`]: the Transcription doc and the
-//! company doc whole, then the names speakers went by), then every line and every capture's
-//! version of it ([`prompt`]). Nothing is cut to fit. A meeting too long for the model's context
+//! prompt is the whole meeting: the background once ([`background`]: the Transcription doc's
+//! entries, the company doc whole, then the names speakers went by), then every line and every
+//! capture's version of it ([`prompt`]). Nothing of the meeting is cut to fit; the Transcription
+//! doc, which grows with every meeting, gives its entries heard in the most meetings first, within
+//! [`TRANSCRIPTION_BUDGET_BYTES`]. A meeting too long for the model's context
 //! fails the step for good, with the CLI's reason, since every attempt would read the same prompt;
 //! skipping the step lets segmenting go on from the transcript as heard.
 
@@ -64,6 +66,7 @@ use crate::meeting_uploads;
 use crate::models::company_doc::Section;
 use crate::models::meeting_correction::BasedOn;
 use crate::models::meeting_word::{BuiltWord, Origin, Word};
+use crate::transcription_doc::Entry;
 use crate::whisper::{WhisperTranscript, WhisperWord};
 
 /// The most bytes of the meeting's participants one prompt carries: a meeting with hundreds of
@@ -73,6 +76,11 @@ const PARTICIPANTS_BUDGET_BYTES: usize = 2_000;
 /// The most bytes of the names other meetings' speakers went by: the company's recurring names,
 /// without crowding the meeting itself.
 const SPEAKERS_BUDGET_BYTES: usize = 4_000;
+
+/// The most bytes of the Transcription doc's entries one prompt carries: several hundred entries,
+/// those heard in the most meetings first. The doc grows with every meeting, and a prompt past the
+/// model's context fails the step for good, so the rarest are left out rather than the meeting.
+pub const TRANSCRIPTION_BUDGET_BYTES: usize = 60_000;
 
 /// The doc's sections in the order a correction needs them: how people's names are spelled,
 /// then the company's terms, then what its products, projects, and stakeholders are called.
@@ -195,16 +203,16 @@ pub struct Fix {
 pub struct Background<'context> {
     pub title: &'context str,
     pub participants: &'context [String],
-    /// The Transcription doc's whole text.
-    pub transcription: &'context str,
+    /// The Transcription doc's entries.
+    pub transcription: &'context [Entry],
     pub doc: &'context CompanyDocResponse,
     /// The names other meetings' speakers went by, most often heard first.
     pub speakers: &'context [String],
 }
 
-/// The part of the prompt that is not the transcript: the meeting, the Transcription doc whole,
-/// the company doc whole with the sections that spell names first, and the names other meetings'
-/// speakers went by.
+/// The part of the prompt that is not the transcript: the meeting, the Transcription doc's entries
+/// ([`transcription_text`]), the company doc whole with the sections that spell names first, and
+/// the names other meetings' speakers went by.
 pub fn background(background: Background<'_>) -> String {
     let mut text = format!("The meeting: {}\n", background.title);
     if !background.participants.is_empty() {
@@ -219,12 +227,7 @@ pub fn background(background: Background<'_>) -> String {
     text.push_str(
         "\nThe Transcription doc, how the company's speech is misheard and what it really is:\n",
     );
-    let transcription = background.transcription.trim();
-    if transcription.is_empty() {
-        text.push_str("(empty)\n");
-    } else {
-        let _ = writeln!(text, "{transcription}");
-    }
+    text.push_str(&transcription_text(background.transcription));
 
     text.push_str("\nThe company doc, the sections that spell names first:\n");
     for key in SECTION_ORDER {
@@ -254,6 +257,42 @@ pub fn background(background: Background<'_>) -> String {
     }
     text.push_str(&names);
     text.push('\n');
+    text
+}
+
+/// The Transcription doc's `entries` as the prompt shows them, one a line: those heard in the most
+/// meetings first, within [`TRANSCRIPTION_BUDGET_BYTES`], saying how many rarer ones were left out.
+fn transcription_text(entries: &[Entry]) -> String {
+    if entries.is_empty() {
+        return "(empty)\n".to_owned();
+    }
+    let mut by_strength: Vec<&Entry> = entries.iter().collect();
+    // A stable sort keeps the doc's own order among entries heard as often.
+    by_strength.sort_by_key(|entry| std::cmp::Reverse(entry.meetings.len()));
+    let mut text = String::new();
+    let mut shown = 0;
+    for entry in &by_strength {
+        let mut line = format!("- \"{}\" is {}", entry.heard, entry.written);
+        if !entry.sources.is_empty() {
+            let _ = write!(line, ", heard by {}", entry.sources.join(", "));
+        }
+        if !entry.speakers.is_empty() {
+            let _ = write!(line, ", when {} spoke", entry.speakers.join(" or "));
+        }
+        let _ = writeln!(line, ", in {} meetings", entry.meetings.len());
+        if text.len() + line.len() > TRANSCRIPTION_BUDGET_BYTES {
+            break;
+        }
+        text.push_str(&line);
+        shown += 1;
+    }
+    let left_out = by_strength.len() - shown;
+    if left_out > 0 {
+        let _ = writeln!(
+            text,
+            "({left_out} entries heard in fewer meetings are left out)"
+        );
+    }
     text
 }
 
@@ -523,8 +562,10 @@ impl Flag {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Checked {
     pub flags: Vec<Flag>,
-    /// Each refused flag's line as the model named it, and why.
-    pub refused: Vec<(String, Refusal)>,
+    /// Each refused flag's line, when the model named one by number, and why. Only a number is
+    /// kept: whatever else the model wrote there may quote the meeting, and the step's log is every
+    /// member's.
+    pub refused: Vec<(Option<u64>, Refusal)>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -561,7 +602,7 @@ pub fn parse_answer(answer: &str, transcript: &Transcript<'_>) -> Result<Checked
     let mut checked = Checked::default();
     let mut taken: Vec<Range<usize>> = Vec::new();
     for candidate in parsed.flags {
-        let named = candidate.line.to_string();
+        let named = candidate.line.as_u64();
         match check_flag(candidate, transcript, &taken) {
             Ok(Some(flag)) => {
                 taken.push(flag.words.clone());
@@ -952,23 +993,23 @@ pub fn places_in_lines(
 
 /// The first capture's lines `base` with every flag of `flags` that changes text and lies inside
 /// one of them applied: the corrected copy the steps after correction read, every line kept, in
-/// order, with its speaker and times, only `text` differing. `places` is where each of
-/// `transcript`'s words of the capture stands in its lines ([`places_in_lines`]); a flag over words
-/// of another capture, or across two lines, leaves the copy as it was. Answers the copy and how
-/// many lines it changed.
-pub fn corrected_copy(
+/// order, with its speaker and times, only `text` differing. `places` is where each of `words`
+/// (the transcript the flags were made over) of the capture stands in its lines
+/// ([`places_in_lines`]); a flag over words of another capture, or across two lines, leaves the
+/// copy as it was. Answers the copy and how many lines it changed.
+pub fn corrected_copy<'flags>(
     base: &Base,
     places: &HashMap<Uuid, (usize, usize)>,
-    transcript: &Transcript<'_>,
-    flags: &[Flag],
+    words: &[Word],
+    flags: impl IntoIterator<Item = &'flags Flag>,
 ) -> (Vec<TranscriptLine>, usize) {
     let mut line_words: Vec<Option<Vec<String>>> = vec![None; base.lines.len()];
     // Applied from each line's end, so an earlier flag's place in it still holds.
     let mut in_lines: Vec<(usize, usize, usize, &Flag)> = flags
-        .iter()
+        .into_iter()
         .filter(|flag| flag.changes_text)
         .filter_map(|flag| {
-            let spots: Vec<(usize, usize)> = transcript.words[flag.words.clone()]
+            let spots: Vec<(usize, usize)> = words[flag.words.clone()]
                 .iter()
                 .map(|word| places.get(&word.id).copied())
                 .collect::<Option<_>>()?;
@@ -1020,10 +1061,10 @@ pub fn corrected_copy(
 }
 
 /// Every distinct fix among `flags`, in the order they were made.
-pub fn distinct_fixes(flags: &[Flag]) -> Vec<Fix> {
+pub fn distinct_fixes<'flags>(flags: impl IntoIterator<Item = &'flags Flag>) -> Vec<Fix> {
     let mut seen = HashSet::new();
     let mut distinct = Vec::new();
-    for fix in flags.iter().flat_map(|flag| &flag.fixes) {
+    for fix in flags.into_iter().flat_map(|flag| &flag.fixes) {
         if seen.insert(fix) {
             distinct.push(fix.clone());
         }

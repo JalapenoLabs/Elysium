@@ -402,10 +402,11 @@ fn covering_edits(every_word: &[Word], overwriting: Overwriting<'_>) -> HashSet<
     }
 }
 
-/// Whether `word` is one a capture heard that an edit standing now replaced (`covering`, from
-/// [`covering_edits`] with the same `overwriting`).
-fn is_covered(word: &Word, covering: &HashSet<Uuid>, overwriting: Overwriting<'_>) -> bool {
-    !overwriting.wrote(word)
+/// Whether `word` is one an edit standing now replaced (`covering`, from [`covering_edits`]): a word
+/// a capture heard, or one a correction settled, which names the capture an edit over it belongs
+/// to. A person's own edit replaced by another is no such word: it names no capture.
+fn is_covered(word: &Word, covering: &HashSet<Uuid>) -> bool {
+    word.origin != Origin::Edit.as_str()
         && word
             .superseded_by
             .is_some_and(|replacing| covering.contains(&replacing))
@@ -422,7 +423,7 @@ fn edit_runs(every_word: &[Word], overwriting: Overwriting<'_>) -> Vec<Vec<Word>
     let mut runs: Vec<Vec<Word>> = Vec::new();
     let mut in_run = false;
     for word in every_word {
-        if is_covered(word, &covering, overwriting) {
+        if is_covered(word, &covering) {
             in_run = false;
             continue;
         }
@@ -584,7 +585,7 @@ fn with_edits_moved(
     let mut moved = Vec::with_capacity(every_word.len());
     for word in every_word {
         let mut word = word.clone();
-        let covered = is_covered(&word, &covering, overwriting);
+        let covered = is_covered(&word, &covering);
         if covered {
             nearest_capture = word.capture_id;
         }
@@ -994,7 +995,7 @@ pub(crate) async fn carry_edits(
     let mut rows = Vec::new();
     for word in &every_word {
         let stands_as_edit = word.superseded_by.is_none() && word.origin == Origin::Edit.as_str();
-        let covered = is_covered(word, &covering, Overwriting::Edits);
+        let covered = is_covered(word, &covering);
         if !stands_as_edit && !covered {
             continue;
         }
@@ -1445,7 +1446,16 @@ pub async fn settle(
                 marks_added: Vec::new(),
                 skipped: 0,
             };
+            // Every range is checked against the transcript as it reads now, read once: the ranges
+            // never overlap, so writing one leaves every other's words standing in their order.
+            let standing_now = standing(connection, meeting_id).await?;
+            let place: HashMap<Uuid, usize> = standing_now
+                .iter()
+                .enumerate()
+                .map(|(index, word)| (word.id, index))
+                .collect();
             let mut marked = Vec::with_capacity(ranges.len());
+            let mut marks_alone: Vec<NewMark> = Vec::new();
             for settled in ranges {
                 let (Some(first), Some(last)) =
                     (settled.words.as_slice().first(), settled.words.last())
@@ -1456,24 +1466,22 @@ pub async fn settle(
                     start_word_id: *first,
                     end_word_id: *last,
                 };
-                let words = match standing_ends(connection, meeting_id, ends).await {
-                    Ok((first, last)) => {
-                        standing_between(connection, meeting_id, &first, &last).await?
-                    }
-                    Err(EditError::Database(error)) => return Err(error),
-                    Err(_moved_on) => Vec::new(),
-                };
-                let as_read = words
-                    .iter()
-                    .map(|word| word.id)
-                    .eq(settled.words.iter().copied());
-                if !as_read {
+                let words = place
+                    .get(first)
+                    .and_then(|start| standing_now.get(*start..*start + settled.words.len()))
+                    .filter(|words| {
+                        words
+                            .iter()
+                            .map(|word| word.id)
+                            .eq(settled.words.iter().copied())
+                    });
+                let Some(words) = words else {
                     recorded.skipped += 1;
                     marked.push(None);
                     continue;
-                }
+                };
                 let Some(text) = settled.text.as_deref() else {
-                    // Its words stand as they are; only its mark is new.
+                    // Its words stand as they are; only its mark is new, written with the rest.
                     let mark = NewMark::new(
                         meeting_id,
                         MarkKind::Confidence,
@@ -1482,14 +1490,14 @@ pub async fn settle(
                         author,
                     );
                     recorded.marks_added.push(mark.id);
-                    meeting_mark::insert(connection, mark).await?;
+                    marks_alone.push(mark);
                     marked.push(Some(ends));
                     continue;
                 };
                 let texts: Vec<&str> = text.split_whitespace().collect();
                 assert!(!texts.is_empty(), "a settled text writes at least one word");
                 let replacing =
-                    plan_replacement(connection, &words, &texts, Origin::Correction, event_id)
+                    plan_replacement(connection, words, &texts, Origin::Correction, event_id)
                         .await?;
                 let onto = replacing.onto();
                 let mark = NewMark::new(
@@ -1505,6 +1513,8 @@ pub async fn settle(
                 meeting_mark::insert(connection, mark).await?;
                 marked.push(Some(onto));
             }
+
+            meeting_mark::insert_all(connection, marks_alone).await?;
 
             let data = serde_json::to_value(&recorded).expect("a settlement is plain fields");
             let entry = meeting_event::set_data(connection, event_id, data).await?;
@@ -2297,6 +2307,47 @@ pub(crate) mod tests {
             .await,
             Err(MarkError::NotStanding)
         ));
+    }
+
+    /// #269 review: a person's edit over a word the correction settled, carried into another meeting
+    /// by a merge, still belongs to the settled word's capture there, and moves with it.
+    #[test]
+    fn an_edit_carried_over_a_settled_word_moves_with_the_settled_words_capture() {
+        let meeting_id = Uuid::now_v7();
+        let carried_by = Uuid::now_v7();
+        let (heard_in, kept_capture) = (Uuid::now_v7(), Uuid::now_v7());
+        let row = |text: &str, origin: Origin, capture_id: Option<Uuid>, number: i64| Word {
+            id: Uuid::now_v7(),
+            meeting_id,
+            position: number * POSITION_GAP,
+            text: text.to_owned(),
+            speaker: "Ada".to_owned(),
+            start_ms: 1_000,
+            end_ms: 1_400,
+            origin: origin.as_str().to_owned(),
+            capture_id,
+            introduced_by: carried_by,
+            superseded_by: None,
+            created_at: Utc::now(),
+        };
+        // As a merge writes them: the settled word the edit replaced, then the edit's own word.
+        let mut settled = row("Sharath", Origin::Correction, Some(heard_in), 1);
+        settled.superseded_by = Some(carried_by);
+        let edited = row("Sharad", Origin::Edit, None, 2);
+        let every_word = vec![settled, edited.clone()];
+        let present = HashSet::from([heard_in, kept_capture]);
+        let moved_by = HashMap::from([(heard_in, 500)]);
+
+        let mut times = HashMap::new();
+        let (_moved, capture_of_edit) = with_edits_moved(
+            &every_word,
+            &moved_by,
+            Overwriting::EditsAndSettled(&present),
+            &mut times,
+        );
+
+        assert_eq!(capture_of_edit.get(&edited.id), Some(&heard_in));
+        assert_eq!(times.get(&edited.id), Some(&(1_500, 1_900)));
     }
 
     #[tokio::test]

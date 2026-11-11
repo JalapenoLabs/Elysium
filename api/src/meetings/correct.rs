@@ -189,7 +189,7 @@ struct Heard {
     versions: Vec<Version>,
     /// What each capture's source is called, by capture.
     sources: HashMap<Uuid, String>,
-    transcription: String,
+    transcription: Vec<transcription_doc::Entry>,
     doc: company_doc::CompanyDocResponse,
     speakers: Vec<String>,
 }
@@ -198,8 +198,6 @@ struct Heard {
 struct Settling {
     flags: Vec<Flag>,
     changed: Vec<Changed>,
-    copy: Vec<TranscriptLine>,
-    changed_lines: usize,
 }
 
 /// What storing a settlement found.
@@ -303,7 +301,7 @@ impl CorrectTranscript {
                 words,
                 versions,
                 sources,
-                transcription: transcription.body,
+                transcription: transcription.entries,
                 doc,
                 speakers,
             })))
@@ -341,13 +339,15 @@ impl CorrectTranscript {
         let checked = correction::parse_answer(&answer, &transcript)
             .map_err(|error| StepFailure::retryable(format!("The correction's answer: {error}")))?;
         for (line, refusal) in &checked.refused {
+            let named = match line {
+                Some(line) => format!("line {line}"),
+                None => "a line named by no number".to_owned(),
+            };
             context
                 .log
-                .line(&format!("Refused a flag on line {line}: {refusal}"));
+                .line(&format!("Refused a flag on {named}: {refusal}"));
         }
         let changed = correction::unflagged_changes(&transcript, &checked.flags);
-        let (copy, changed_lines) =
-            correction::corrected_copy(&heard.base, &heard.places, &transcript, &checked.flags);
         context.log.line(&format!(
             "{} flags kept, {} of them changing words, and {} refused; {} runs a capture heard \
              otherwise",
@@ -363,8 +363,6 @@ impl CorrectTranscript {
         Ok(Settling {
             flags: checked.flags,
             changed,
-            copy,
-            changed_lines,
         })
     }
 
@@ -426,17 +424,6 @@ impl CorrectTranscript {
             .clone()
             .ok_or_else(|| StepFailure::permanent("The meeting was not fetched"))?;
         let ranges = settled_ranges(&heard.words, settling);
-        let new = NewMeetingCorrection {
-            meeting_id: heard.meeting.id,
-            transcript: serde_json::to_value(&settling.copy).map_err(StepFailure::permanent)?,
-            transcript_hash: correction::transcript_hash(&settling.copy),
-            based_on: heard.base.based_on.as_str().to_owned(),
-            source_transcript_hash,
-            whisper_transcript_hash: input.whisper_transcript_hash.clone(),
-            changed_lines: i32::try_from(settling.changed_lines).unwrap_or(i32::MAX),
-            fixes: serde_json::to_value(correction::distinct_fixes(&settling.flags))
-                .map_err(StepFailure::permanent)?,
-        };
         let participants: Vec<String> =
             serde_json::from_value(heard.meeting.participants.clone()).unwrap_or_default();
         let mut people = participants;
@@ -464,18 +451,39 @@ impl CorrectTranscript {
                 if let Some(stored) = meeting_correction::find(connection, meeting_id).await? {
                     return anyhow::Ok(Stored::ByAnother(stored));
                 }
-                // The flags come first among the ranges, so the first answers are theirs.
                 let settled = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
-                let correction = meeting_correction::record(connection, new)
-                    .await?
-                    .ok_or_else(|| anyhow!("the meeting's copy was stored under its own lock"))?;
+                // The flags are the first ranges (`settled_ranges`), so the first answers are
+                // theirs. A flag whose words changed since the turn read them was passed over, and
+                // so is left out of the copy as of the words.
+                let (flag_marks, _changed_marks) = settled.marked.split_at(settling.flags.len());
                 let applied: Vec<&Flag> = settling
                     .flags
                     .iter()
-                    .zip(&settled.marked)
+                    .zip(flag_marks)
                     .filter(|(_flag, marked)| marked.is_some())
                     .map(|(flag, _marked)| flag)
                     .collect();
+                let (copy, changed_lines) = correction::corrected_copy(
+                    &heard.base,
+                    &heard.places,
+                    &heard.words,
+                    applied.iter().copied(),
+                );
+                let new = NewMeetingCorrection {
+                    meeting_id,
+                    transcript: serde_json::to_value(&copy)?,
+                    transcript_hash: correction::transcript_hash(&copy),
+                    based_on: heard.base.based_on.as_str().to_owned(),
+                    source_transcript_hash: source_transcript_hash.clone(),
+                    whisper_transcript_hash: input.whisper_transcript_hash.clone(),
+                    changed_lines: i32::try_from(changed_lines).unwrap_or(i32::MAX),
+                    fixes: serde_json::to_value(correction::distinct_fixes(
+                        applied.iter().copied(),
+                    ))?,
+                };
+                let correction = meeting_correction::record(connection, new)
+                    .await?
+                    .ok_or_else(|| anyhow!("the meeting's copy was stored under its own lock"))?;
                 let lessons = lessons_of(heard, &applied);
                 let learned = transcription_doc::learn(connection, &lessons, author).await?;
                 let suggested = transcription_doc::suggest_unknown(
@@ -1912,6 +1920,105 @@ mod tests {
                 .filter(|entry| entry.kind == "settled")
                 .count(),
             1
+        );
+    }
+
+    /// #269 review: a person who fixes a word while the correction's turn runs keeps their fix, and
+    /// the corrected copy leaves out what the correction would have written over it.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_flag_over_words_a_person_edited_meanwhile_is_left_out_of_the_words_and_the_copy() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let answer = r#"{"flags": [
+            {"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92},
+            {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 95}
+        ]}"#;
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::answering(&[answer]),
+        });
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+        let context = StepContext::for_test::<CorrectTranscript>(database.clone());
+
+        // The turn reads the meeting, and Ada fixes the name herself before it answers.
+        let Read::Heard(heard) = step.read(&input, &context.log).await.expect("reads") else {
+            panic!("the meeting was heard");
+        };
+        let sheriff = heard
+            .words
+            .iter()
+            .find(|word| word.text == "Sheriff")
+            .expect("the misheard name")
+            .clone();
+        meeting_word::edit(
+            &mut connection,
+            stored.id,
+            meeting_word::Replacement {
+                range: crate::models::meeting_mark::Range {
+                    start_word_id: sheriff.id,
+                    end_word_id: sheriff.id,
+                },
+                text: "Sharad",
+            },
+            Author {
+                user_id: TEST_PERSON_ID,
+                agent: None,
+                at: Utc::now(),
+            },
+        )
+        .await
+        .expect("edits");
+        let settling = step.ask_about(&heard, &context).await.expect("asks");
+        let Stored::Settled { correction, .. } = step
+            .store(&heard, &settling, &input, &context)
+            .await
+            .expect("stores")
+        else {
+            panic!("this attempt settles the meeting");
+        };
+
+        let words = meeting_word::standing(&mut connection, stored.id)
+            .await
+            .expect("reads");
+        assert_eq!(
+            meeting_word::text_of(&words),
+            "We asked Sharad about the launch Elysium ships Friday"
+        );
+        let copy: Vec<TranscriptLine> =
+            serde_json::from_value(correction.transcript).expect("lines");
+        assert_eq!(
+            copy.iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["We asked Sheriff about the launch", "Elysium ships Friday"],
+            "the flag passed over is no part of the copy"
+        );
+        assert_eq!(correction.changed_lines, 1);
+        let history = meeting_event::history(&mut connection, stored.id)
+            .await
+            .expect("history");
+        let settled = history
+            .iter()
+            .find(|entry| entry.kind == "settled")
+            .expect("settled");
+        assert_eq!(settled.data["skipped"], 1);
+        // Nothing was learned from the flag passed over.
+        let doc = transcription_doc::read(&mut connection).await.expect("doc");
+        assert!(
+            doc.entries.iter().all(|entry| entry.written != "Sharath"),
+            "{}",
+            doc.body
         );
     }
 

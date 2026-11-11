@@ -31,8 +31,9 @@ pub use crate::models::page::TRANSCRIPTION_PAGE_ID;
 pub use markdown::{Entry, Lesson, MeetingLink, phrase_key};
 
 /// The most characters of hint words Whisper is given, joined by commas as it reads them. Whisper
-/// reads them as the start of its own context, which holds at most 224 tokens, and faster-whisper
-/// keeps only the last of them; this fits with room for what Whisper heard before.
+/// reads them as the start of its own context, of which faster-whisper gives hint words at most
+/// half (223 tokens), keeping the first and cutting the rest, so the most-taught names come first
+/// and this stays inside it.
 const HINT_WORDS_MAX_CHARACTERS: usize = 500;
 
 /// The longest company doc line read as a name or a term: past this, a line is a sentence.

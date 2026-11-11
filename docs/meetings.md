@@ -437,8 +437,10 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   and its Whisper's alike, on the meeting's clock (`correction::Transcript`); a source transcript with no times at all,
   such as one uploaded beside its recording, has no moment to set beside a line and is left out, its words already the
   final transcript's when Whisper heard nothing. Agreement is not trust: a name every capture mishears the same way is
-  still wrong, and Whisper is one capture among the others, never the source of truth. Beside it, the Transcription doc
-  whole (The Transcription doc, below); the company doc whole, with the suggestions pending on its sections
+  still wrong, and Whisper is one capture among the others, never the source of truth. Beside it, the Transcription
+  doc's entries, one a line, those heard in the most meetings first, within 60,000 bytes, saying how many rarer ones
+  were left out, since the doc grows with every meeting and a prompt too long fails for good (The Transcription doc,
+  below); the company doc whole, with the suggestions pending on its sections
   (`company_doc::read`, `docs/knowledge.md`), its sections in the order correction needs them (people, glossary,
   products, projects, stakeholders, leadership, company), the lines a pending suggestion would add marked as proposed;
   and the names speakers went by in the 30 newest meetings' captures, as their sources labelled them, which is usually
@@ -464,7 +466,8 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   rounded and clamped to 0 to 100; a flag that changes words without one is held at 50, and one that changes nothing
   and says nothing is dropped. Its alternatives are kept when they are text, each once, none the text it decided on,
   each only fixing words as its text must, and at most three. A refused flag leaves its words as they were, and is
-  logged by its line number and why. An answer with no JSON, or the wrong shape, fails the attempt, which the run's
+  logged by its line number and why, the number alone: a line the model named by anything else may quote the meeting,
+  so it is logged as unnamed. An answer with no JSON, or the wrong shape, fails the attempt, which the run's
   backoff tries again.
 - **Settling.** In one transaction under the meeting's lock (`meeting_word::settle`): each flag whose text differs from
   its words replaces them with words of the correction's own (origin `correction`, their capture the words'), sharing
@@ -475,8 +478,9 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   changed since the turn read them, by a person's edit meanwhile, is passed over. It is one `settled` change in the
   meeting's history, by the system (History, below).
 - **The copy, and what it teaches.** In the same transaction, the corrected copy of its first capture's lines is
-  stored, each flag that lies inside one of those lines in place (The corrected copy, below), and the Transcription doc
-  learns each fix of every flag at 80 or more (The Transcription doc, below).
+  stored, each flag settled that lies inside one of those lines in place (The corrected copy, below), and the
+  Transcription doc learns each fix of every flag settled at 80 or more (The Transcription doc, below). A flag passed
+  over, its words edited by a person while the turn ran, is in neither, so the copy never says what the words do not.
 - **Once.** The copy is stored in `meeting_corrections` (`docs/database.md`), once: an attempt that finds it answers
   it without a turn, and one that finds another attempt stored it first discards its own. A rebuild keeps what a
   settlement wrote (The final transcript, below), so a hand-set offset, a merge, or a split lines the transcript up
@@ -894,7 +898,7 @@ and the Company page), is the one source of truth for how the company's speech i
 - **People's edits stay.** Elysium reads and writes only the table and the list, found by their header and heading,
   and edits their lines in place, so a person's own rows, notes, and order stay as they wrote them. A row it cannot
   read is passed over, and a table or heading a person removed comes back at the page's end the next time it learns.
-- **Every correction reads it** whole in its prompt (Correction, above), and **every transcription** is told what its
+- **Every correction reads its entries** in its prompt (Correction, above), and **every transcription** is told what its
   entries are, those heard in the most meetings first, then the names and terms the company doc's People and Glossary
   sections spell (each line's text before its first colon, dash, bracket, or comma), each once, within 500 characters
   (Transcription, above).

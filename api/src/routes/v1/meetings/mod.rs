@@ -404,9 +404,10 @@ pub(crate) fn lines_up_again(entry: &MeetingEvent) -> bool {
     )
 }
 
-/// Tells every client that history entry `entry`, one of [`lines_up_again`]'s, changed its meeting, and for a merge or a split the other meeting too, with no entry, so every
-/// page holding either reads it again, the one that asked included. A merge or a split also
-/// started runs that align the meetings again, which the engine is told of.
+/// Tells every client that history entry `entry`, one of [`lines_up_again`]'s, changed its meeting,
+/// and for a merge or a split the other meeting too, with no entry, so every page holding either
+/// reads it again, the one that asked included. A merge or a split also started runs that align
+/// the meetings again, which the engine is told of.
 ///
 /// # Errors
 /// Propagates any database error.
