@@ -109,13 +109,6 @@ impl MeetingEvent {
     }
 
     /// The change it undid, when it is an undo.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the meeting's page shows what each undo undid (#234)"
-        )
-    )]
     pub fn undid(&self) -> Option<Uuid> {
         self.data
             .get("undid")
@@ -183,20 +176,20 @@ pub async fn record(
 }
 
 /// Fills in what entry `id` records, for a change recorded before its effects were written, since
-/// what it writes names it ([`Change::id`]).
+/// what it writes names it ([`Change::id`]). Answers the entry.
 ///
 /// # Errors
-/// Propagates any database error.
+/// Propagates any database error, such as an entry that does not exist.
 pub async fn set_data(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     data: Value,
-) -> QueryResult<()> {
+) -> QueryResult<MeetingEvent> {
     diesel::update(meeting_events::table.find(id))
         .set(meeting_events::data.eq(data))
-        .execute(connection)
+        .returning(MeetingEvent::as_returning())
+        .get_result(connection)
         .await
-        .map(drop)
 }
 
 /// Entry `id` of meeting `meeting_id`'s history.

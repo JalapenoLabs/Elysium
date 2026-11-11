@@ -36,13 +36,6 @@ impl BasedOn {
             Self::Whisper => "whisper",
         }
     }
-
-    /// What `text` stores, if it is one; the column's check allows nothing else.
-    pub fn parse(text: &str) -> Option<Self> {
-        [Self::Source, Self::Whisper]
-            .into_iter()
-            .find(|based_on| based_on.as_str() == text)
-    }
 }
 
 /// A corrected copy as its readers read it. What it was made from (the hashes of the
@@ -57,22 +50,12 @@ pub struct MeetingCorrection {
     pub transcript: Value,
     /// The SHA-256 of `transcript` as it was serialized to be stored, as hex.
     pub transcript_hash: String,
-    /// See [`BasedOn`].
-    pub based_on: String,
     pub changed_lines: i32,
     pub approved_by: Option<Uuid>,
     pub approved_at: Option<DateTime<Utc>>,
     /// The inbox item raised when its run was held for approval, while that item exists.
     pub review_item_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
-}
-
-impl MeetingCorrection {
-    /// Which transcript it follows. A value the column's check does not allow reads as the
-    /// source's.
-    pub fn based_on(&self) -> BasedOn {
-        BasedOn::parse(&self.based_on).unwrap_or(BasedOn::Source)
-    }
 }
 
 #[derive(Debug, Clone, Insertable)]

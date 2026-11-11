@@ -59,9 +59,9 @@ describe('SameMeetingPanel', () => {
     // Two recordings of one meeting share its title; where each came from tells them apart.
     const asked = await screen.findByText('Fireflies')
     expect(asked.closest('a')?.textContent).toBe('Launch reviewFireflies')
-    expect(asked.closest('a')?.getAttribute('href')).toBe('/settings/meetings/fireflies-meeting')
+    expect(asked.closest('a')?.getAttribute('href')).toBe('/knowledge/meetings/fireflies-meeting')
     const other = screen.getByText('Teams')
-    expect(other.closest('a')?.getAttribute('href')).toBe('/settings/meetings/teams-meeting')
+    expect(other.closest('a')?.getAttribute('href')).toBe('/knowledge/meetings/teams-meeting')
 
     fireEvent.click(screen.getByText('Merge'))
     await waitFor(() => expect(routes.mergeMeetingDuplicate).toHaveBeenCalledWith('pair'))

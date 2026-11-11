@@ -160,6 +160,34 @@ describe('describeOperation', () => {
   })
 })
 
+describe('describeOperation for an assignment', () => {
+  function assignment(result: Record<string, unknown> = {}) {
+    return makeChangesetOperation({
+      id: 'assign',
+      position: 1,
+      operation: { kind: 'assign-item', item: { id: ITEM_ID }},
+      result,
+    })
+  }
+
+  it('names whose Project Manager the item goes to: its lead now, or the one it went to', () => {
+    const led = {
+      ...context([]),
+      itemsById: { [ITEM_ID]: makeActionItem({ id: ITEM_ID, title: 'Reply to Sam', leadProjectId: 'launch' }) },
+      projectNames: { launch: 'Launch', website: 'Website' },
+    }
+    expect(describeOperation(assignment(), led, t).summary)
+      .toBe('Assign Reply to Sam to Launch\'s Project Manager')
+    expect(describeOperation(assignment({ itemId: ITEM_ID, projectId: 'website' }), led, t).summary)
+      .toBe('Assign Reply to Sam to Website\'s Project Manager')
+  })
+
+  it('says its lead project\'s when no project leads it as shown', () => {
+    expect(describeOperation(assignment(), context([]), t).summary)
+      .toBe('Assign Reply to Sam to its lead project\'s Project Manager')
+  })
+})
+
 describe('appliedWithoutReview', () => {
   it('tells a Project Manager\'s own apply from a person\'s', () => {
     expect(appliedWithoutReview(makeChangeset({ id: 'own', decidedBy: PROJECT_MANAGER_USER_ID }))).toBe(true)
@@ -184,6 +212,11 @@ describe('describeUndo', () => {
       'Already closed in GitHub: owner/name#1, owner/name#2. They stay closed.',
     ])
     expect(describeUndo({}, t)).toEqual([])
+  })
+
+  it('says what its Project Manager already planned stays', () => {
+    expect(describeUndo({ stillPlanned: true }, t))
+      .toEqual([ 'Its Project Manager already took it up; what it planned stays for you to decide.' ])
   })
 
   it('says an issue already filed stays in its tracker', () => {

@@ -5,8 +5,9 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Meetings come from meeting sources. Today one exists, Fireflies.ai, read with the person's own API key. The code is
-`api/src/meetings/`.
+Meetings come from meeting sources: Fireflies.ai, read with the person's own API key on a paid plan or through
+Fireflies' own web app in a browser the person signed in to on any plan, and Microsoft Teams and Slack's huddles, each
+read through the browser the person's connector signed in to. The code is `api/src/meetings/`.
 
 A meeting is the one event that happened; each of its captures is one record of it, as its source gave it (Meetings
 and captures, below). Every capture sits on the meeting's one clock, and their words are lined up into its final
@@ -19,8 +20,11 @@ How meetings become reviewed documents of the knowledge base is designed in `doc
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
 Nothing a source's own AI wrote (its summary, action items, notes, outline, or analytics) is asked for, stored, or
-used, since the model behind it is unknown. Fireflies' queries name each field they read, and a test fails if one asks
-for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`).
+used, since the model behind it is unknown. Fireflies' queries, both ways, name each field they read, and a test fails
+if one asks for any of Fireflies' AI fields (`api/src/meetings/fireflies.rs`); Teams' page script reads the recording
+and its transcript alone, never the meeting recap or notes Microsoft's AI writes, and a test fails if it names them
+(`api/src/connectors/teams/meetings.rs`); Slack's huddles are read from their transcript file alone, never Slack's AI
+notes beside it (`api/src/connectors/slack/meetings.rs`).
 
 ## Meeting sources
 
@@ -29,24 +33,141 @@ A meeting source is a connector whose kind provides meetings: its definition say
 organization. Like every connector, it is added, edited, checked, paused, and removed under Settings, Connectors alone.
 
 Every source fills one trait, `MeetingSource` in `api/src/meetings/source.rs`: it lists the meetings that started
-since a time, and fetches one meeting's transcript with a fresh address to download its recording from.
-`api/src/meetings/sources.rs` is the one place a kind meets its source (`Sources::for_kind`), so the loop below lists
-and fetches every source the same way, and a test fails when a kind that provides meetings has no source. A new source
-adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and adds its client and its row
-in `for_kind`; the meetings page and the loop pick it up unchanged.
+since a time, and fetches one meeting's transcript with a fresh address to download its recording from, each as its
+person, signed in the way its connector signs in (`MeetingSource::SignIn`). `api/src/meetings/sources.rs` is the one
+place a kind meets its source (`Sources::for_kind`), and where each source's sign-in is resolved from its connector
+(`Source::sign_in`): a key-based source opens the token account it reads through, and a browser source finds its
+connector's browser. The loop below and the fetch step hold the signed-in source (`SignedIn`) and never handle a
+credential, so they list and fetch every source the same way, and a test fails when a kind that provides meetings has
+no source. A new source adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and
+adds its client, its sign-in, and its row in `for_kind`; the meetings page and the loop pick it up unchanged.
 
-| Source    | Signs in with                                  | Reads                                                    |
-|-----------|------------------------------------------------|----------------------------------------------------------|
-| Fireflies | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, video or audio |
+A source may read meetings only some of the time (`Source::reads`): Fireflies reads nothing else, so always, either
+way it signs in, while a Teams connector also reads chats, and reads meetings only while its person leaves them on and
+once it names a storage location, and a Slack connector reads huddles while its person leaves them on, with no storage
+location, since a huddle keeps no recording. The loop lists no meetings for a connector that reads none, and records nothing on it.
 
-A Fireflies key reads what its own user can see. Recordings need a Pro plan or higher, and video needs the "record
-meeting video" setting in Fireflies; without them a meeting is processed from its transcript alone and its segments
-carry no clip. Recording addresses expire after a day, so each is asked for right before its download. Fireflies
-allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each meeting once stays far
-inside that.
+| Source              | Signs in with                                  | Reads                                                    |
+|---------------------|------------------------------------------------|----------------------------------------------------------|
+| Fireflies           | The person's API key, from Fireflies' Integrations page | `api.fireflies.ai/graphql`: the transcript listing, then each meeting's sentences, then its video or audio |
+| Fireflies (browser) | The connector's own browser, signed in to `app.fireflies.ai` | The web app's `/api/v4/hive`, from its tab: the notebook's listing, then each meeting's captions and, apart, its video or audio |
+| Teams               | The Teams connector's own browser, signed in to Microsoft | Teams' own store for the listing, then the recording's drive item on the organizer's `SharePoint`: its download and its transcript |
+| Slack               | The Slack connector's own browser, signed in to `app.slack.com` | The web client's own methods in the signed-in tab: `huddles.history`, then each huddle's transcript file (`huddles.get`, `files.info`) |
+
+A Fireflies key reads what its own user can see. Each meeting is fetched in two calls: its sentences, then its
+recording addresses. Recording addresses need a Pro plan or higher, and video needs the "record meeting video" setting
+in Fireflies. On the free plan Fireflies answers the second call with its `paid_required` error code, which Elysium
+reads as a meeting without a recording, logging `meetings.fireflies.recording.paid_plan_required` with the plan tier
+Fireflies names: the meeting is processed from its transcript alone and its segments carry no clip. Any refusal of
+the sentences still fails the fetch. Recording addresses expire after a day, so each is asked for right before its
+download. Fireflies allows 500 to 5,000 calls a day below Business; listing every ten minutes and fetching each
+meeting once, in two calls, stays far inside that.
 
 A sentence's start and end are read as seconds, sent either as a number or a numeric string. That is checked against
 the documented schema and a fixture, not yet against a live account.
+
+### Fireflies through a browser
+
+Fireflies' free plan refuses transcripts and recordings to its API, but its web app reads every meeting, on any plan,
+from its own GraphQL endpoint, `POST /api/v4/hive` on `app.fireflies.ai`, signed in by the session in the page. The
+`fireflies_browser` kind reads that endpoint from its own browser (`docs/browser.md`), started at Fireflies' sign-in
+page; its person signs in once on the connector's page. `api/src/meetings/fireflies_browser/` is the source:
+`hive.js` runs as the page over DevTools and asks the endpoint the queries the source hands it, refusing anything
+that is not a query, and the web app's session token (`localStorage.AUTHORIZATION`) never leaves the page; only
+Fireflies' answers do. The queries are the web app's own, read from its public JavaScript, with selections of Elysium's
+own that leave out every AI field; how to find them again is in that directory's `CLAUDE.md`.
+
+- **Listing** asks `getFilteredMeetings` for the meetings the person is part of (the notebook's "My Meetings",
+  `USER_PART_OF`) that started since the cursor, oldest first, at most 50, so a listing that cannot hold them all
+  leaves the rest for the next one. Fireflies lists a meeting before its words exist, and a meeting is fetched once,
+  so a listing stops at the first meeting still being transcribed and the cursor waits before it; one that has said so
+  for a day (`TRANSCRIBING_PATIENCE`) is taken as it is, so it never holds the rest back. Each meeting links to its page,
+  `app.fireflies.ai/view/<id>`.
+- **Fetching** asks `meetingNote` twice in one evaluation: its captions, each with a speaker and start and end in
+  seconds, then its video and audio addresses, so a refusal of the recording costs only the recording. The edits its
+  people saved in Fireflies are applied as Fireflies shows them: a rewritten sentence in place of what was heard, a
+  deleted one left out, one reassigned under its new speaker, and captions with neither a letter nor a digit hidden.
+  A speaker is named from `speakerMeta`, or `Speaker <n>` as the web app shows one nobody named. A meeting still being
+  transcribed is refused for the run's backoff to try again.
+- **Signed in** is the session token in the page, so the check asks nothing of Fireflies. No Fireflies tab opens one
+  and reads as not open yet; a tab on Google's, Microsoft's, or Apple's sign-in reads as signed out, as does a session
+  Fireflies answers `UNAUTHENTICATED`, which marks the connector `signed_out`.
+- The web app renews its own session, a two-week token, as it loads, and Elysium never renews it itself: the daily
+  browser refresh reloads the Fireflies tab (`docs/browser.md`, Refreshing), and every read opens one when none is.
+- Its storage location is optional (`docs/connectors.md`, Connectors): a meeting with nowhere to keep its recording
+  goes on from its transcript alone.
+
+All three queries were checked against a free-plan account's signed-in tab, production's connector browser among
+them: the listing, full transcripts, and a recording query that answers audio alone (`video_url` is `null`,
+`audio_url` a signed address on `cdn.fireflies.ai`), which downloads whole from the host, outside the browser, so a
+free-plan meeting keeps its recording, its clips, and its Whisper transcript.
+
+### Teams
+
+A Teams connector (`docs/connectors.md`, Teams) reads its person's recorded meetings unless they turn off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), and only once they pick the storage location its
+recordings are kept in: a browser connector is made before its person can choose one, and a meeting is fetched once, so
+reading before then would keep none of those recordings. `api/src/connectors/teams/meetings.rs` reads through
+`api/src/connectors/teams_meetings.js`, which runs in the browser's Teams tab as the page, over DevTools, and does only
+GETs:
+
+- **Listing** reads the store Teams keeps in IndexedDB (`Teams:replychain-manager:...`), as the chat reader does, and
+  calls nothing. Once a meeting's recording is ready, Teams posts a message in the meeting's chat
+  (`RichText/Media_CallRecording`, its `RecordingStatus` `Success`, earlier versions `Initial` and `ChunkFinished`):
+  the recording's title, start (`RecordingContent timestamp`), length (`duration`, `H:MM:SS.ff`), the call it belongs
+  to, and its drive item in the organizer's OneDrive (`item type="onedriveForBusinessVideo"`, with its sharing link,
+  `driveId`, and `driveItemId`). The call's ended message (`Event/Call`, matched by `callId`) names the organizer's
+  UPN and who took part. So the meetings listed are the recorded ones whose chats this person's Teams has stored. Each
+  is known by its drive item's address on SharePoint's API,
+  `https://<tenant>-my.sharepoint.com/_api/v2.1/drives/<drive>/items/<item>`, its external id; its link is the sharing
+  link, which opens it in Stream. The markup is read with patterns, never a parser, which Teams' Trusted Types policy
+  refuses.
+- **Fetching** reads that drive item with the access token Teams keeps for the SharePoint host in its MSAL cache
+  (localStorage), which never leaves the page: `?select=...,@content.downloadUrl` for the recording's
+  pre-authenticated download address (`/_layouts/15/download.aspx?...&tempauth=...`, good for about an hour), then
+  `/media/transcripts` for the transcript Teams marks default, then its
+  `/media/transcripts/<id>/content?format=json`, whose entries carry `speakerDisplayName`, `startOffset`, `endOffset`
+  (`HH:MM:SS.fffffff`), and `text`. The WebVTT the same address serves carries no speakers (`<v>` tags), so the JSON
+  is read. The fetch step downloads the recording from the address the page handed over, as it does Fireflies', and
+  accepts only `https` on a `*.sharepoint.com` host.
+
+Transcript offsets count from the start of the transcript, which starts with the recording to within a few seconds;
+clips are cut on the words Whisper heard (Clips), so that drift never reaches a clip. A recording whose organizer
+blocked downloads has no download address, and its meeting is processed from its transcript alone, as a source without
+a recording is; the `sample_transcript` check says so (`recording_not_downloadable`). A drive item the person cannot
+see, or one removed, answers `403` or `404` and fails its fetch for good. Teams renews its SharePoint token as it is
+used; one that has expired, or none yet, fails the fetch with its attempts and backoff and says so. Both were read
+against a signed-in Teams: its listing found every recorded meeting its chats held, and a fetch read a 40 minute
+meeting's 273 transcript entries from seven speakers, and its recording's address, which answered a ranged download
+from outside the browser as `video/mp4`.
+
+### Slack huddles
+
+A Slack connector (`docs/connectors.md`, Slack) reads its huddles as meetings unless its person turns off "Read meeting
+recordings and transcripts" (`readMeetings`, on by default), from the same workspaces and conversations its messages
+come from. `api/src/connectors/slack/meetings.rs` reads through the connector's page script
+(`api/src/connectors/slack.js`), so the session never leaves the browser, with the web client's own methods, which are
+not Slack's published API:
+
+- **Listing** is `huddles.history` in each workspace, newest first, 50 a page and at most four pages a listing. A huddle
+  that ended with a `transcript_file_id` is a meeting, its id `team/huddle`; one still going, or never transcribed, is
+  not listed yet. Whether a huddle is new goes by when it ended, not when it started, since the listing cursor is the
+  newest start seen: a long huddle that started before a shorter one still arrives once its transcript is there. Its
+  title is `Huddle in #channel`, or `Huddle with` who joined for a direct or group huddle; its people are named with
+  `users.info` and `conversations.info`, and its link opens its thread in Slack.
+- **Fetching** asks `huddles.get` (`huddle_id`) for the huddle's transcript file, then `files.info` with
+  `include_transcription`. Where the workspace keeps Slack's AI notes, that file is the notes canvas ("Huddle AI notes
+  & transcript"); only its metadata is read, which names the transcript file beside it (`huddle_transcript_file_id`, a
+  file of type `huddle_transcript`), and that is read instead. Nothing of the notes is read.
+- **A transcript** is `huddle_transcription.lines`: a speaker's user id, a start in milliseconds from the huddle's start
+  (`date_start`, seconds), and the words. Slack gives no end, so a line ends where the next begins and the last where
+  the huddle ended. Speakers are named with `users.info`; one not found keeps their id.
+- **No recording.** Slack keeps none of a huddle, so each is a meeting in words alone: the fetch offers no recording,
+  transcription has nothing to transcribe, and its segments carry no clip. A Slack connector names no storage location.
+
+The shapes were read from a signed-in Slack on a plan with huddle notes, where 65 of 144 huddles had a transcript and
+each fetch read one transcript file of 200 to 390 lines. A workspace that transcribes huddles without notes, whose
+`transcript_file_id` would name the transcript itself, is read the same way but not yet seen.
 
 ### Accounts
 
@@ -76,10 +197,11 @@ is fetched or its segments are cut and published.
   organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
   connector read its first capture. A meeting whose captures were merged into another names it (`merged_into`),
   holds none, and is listed nowhere and processed no further until they are split back out.
-- **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting today, and
-  an upload, a Teams recording, or a Slack huddle on the roadmap (`docs/meeting-review.md`). It keeps what its source
-  gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
-  SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch, and never again.
+- **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
+  Fireflies meeting, a Teams recording, a Slack huddle), and an upload on the roadmap (`docs/meeting-review.md`). It
+  keeps what its source gave, as it came: its connector, its source and the source's id for it, its page there, the
+  transcript with its SHA-256, and the recording with the SHA-256 of its bytes. Both are written once, by its fetch,
+  and never again.
 - **One clock.** A capture runs on its own clock, the one its transcript and recording are timed by. Its `offset_ms`
   places that clock on the meeting's: its moment `t` is `t + offset_ms` on the meeting's clock, which starts at the
   meeting's `started_at`. Every time of the final transcript and of a segment's record is on the meeting's clock. How
@@ -103,7 +225,10 @@ is fetched or its segments are cut and published.
   at most 50 at a time (`LISTING_SIZE`). A new connector's first listing reaches back two weeks
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
   has not seen is stored `pending`, with its first capture naming the connector, its kind as `source_kind`, and the
-  source's id. A key its source refuses marks the connector `signed_out` with the reason in `last_error`.
+  source's id. A key its source refuses, or a browser signed out, marks the connector `signed_out` with the reason
+  in `last_error`. The listing writes only its own `since` into the cursor, merged over what is stored
+  (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
+  connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
   by the system user (`workflow::run_to_start`).
 
@@ -157,7 +282,9 @@ no step of its own. It fetches the meeting's capture, the one its source listed.
 - It fetches the transcript and a fresh recording address from the source, downloads the recording into a workspace
   directory of the attempt's own, hashing it as it streams, and uploads it to the connector's storage location at
   `meetings/<meeting>/captures/<capture>/<sha256>.<ext>`, named by its hash. Without a recording, or with nowhere to
-  keep it, the meeting goes on from its transcript alone, and the log says which.
+  keep it, the meeting goes on from its transcript alone, and the log says which. A source whose plan keeps no
+  recording, such as Fireflies' free plan, offers none, so its meetings are fetched from their transcripts alone
+  rather than failing.
 - Two attempts can run at once (one whose lease lapsed, and the next), and a source may answer each with other bytes.
   Named by its hash, each attempt's recording lands at a path of its own, so the path the capture keeps holds exactly
   the bytes its hash says. Only the attempt whose write the capture keeps moves its download to the capture's scratch
@@ -534,8 +661,11 @@ merged into another skips it ("Merged into another meeting, so nothing to align"
 Teams and Fireflies often record the same meeting, and each listing stores a meeting of its own. Elysium never merges
 them on its own (`api/src/meetings/duplicates.rs`).
 
-- **Asking.** As it is aligned, a meeting looks for another of its person's that overlaps it in time (or, when a source
-  kept no length, started within ten minutes of it) with a participant in common, compared without regard to case. The
+- **Asking.** As it is aligned, a meeting looks for another of its person's that overlaps it in time (or, when either
+  source kept no length, started within ten minutes of it) with a participant in common. Sources name people differently
+  (Fireflies by address, Teams and Slack by name), so a participant is compared, without regard to case, by what the
+  source says and by the forms an address is commonly made from a name: `Ada Lovelace` is `adalovelace` and
+  `alovelace`, as `ada.lovelace@` and `alovelace@` are, and a one-word name is the address `name@`. The
   later of the two to be listed asks: an inbox item for its person, "Same meeting as" the other's title, raised as the
   system, and a pair in `meeting_duplicates` recording it once, whichever meeting found the other. Its run waits at
   aligning for the answer, so a duplicate never publishes segments of its own. Items are the whole workspace's, so it
@@ -544,14 +674,17 @@ them on its own (`api/src/meetings/duplicates.rs`).
   default (`docs/meeting-review.md`, Who sees a meeting); comparing everyone's meetings comes with that.
 - **Merge** (`POST /api/v1/meetings/duplicates/{id}/merge`) moves the meeting's captures into the other, each placed
   on its clock from when the two meetings started, after its own captures. Every edit made on the merged meeting is
-  carried across with its words and its mark, the other's transcript is lined up again keeping every edit of its own,
-  and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names the one it
-  went into. Both histories record `merged`, with where each capture sat before and after.
+  carried across with its words, the words it replaced, and its mark, the other's transcript is lined up again keeping
+  every edit, and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names
+  the one it went into. Both histories record `merged`, with where each capture sat before and after.
 - **Not the same** (`POST .../not-the-same`) is remembered, so the pair is never asked about again.
 - Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. Only the meeting's
-  person answers; a pair decided answers `409 duplicate_decided`.
+  person answers; a pair decided answers `409 duplicate_decided`, and of two answers at once the first to be written
+  counts, the other answered that way.
 - **Splitting.** A merge is undone by splitting the captures back out (`POST
-  /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry): each goes back where it sat, the
+  /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry), while each capture still sits as
+  the merge left it, or on an offset aligning found since; one a person set by hand since answers that it changed
+  since, as undoing would overwrite it. Each goes back where it sat, the
   edits the merge carried are taken back, the merged meeting is its own again, both transcripts are lined up again,
   the pair becomes not the same, and runs start that align the kept meeting again and carry the split one on from
   aligning (or align it alone, if it was segmented). Both histories record `split`, and undoing it merges them again.
@@ -602,13 +735,22 @@ in the meeting's history that wrote it (`introduced_by`).
   holds the two to the same words.
 - **Lined up again.** It is lined up by the align step, again by everything that moves a capture (a hand-set offset,
   a merge, a split), and by correction and segmenting for a meeting whose aligning was skipped, by the system or by the
-  person whose change caused it, as a `built` change. Each compares the words its captures give now with the words
-  that stand and changes only what differs: a word that reads, sounds, and sits the same keeps its id, so marks over it
-  never move. Every edit's words stand through it, and so do the words its correction settled while their capture is
-  the meeting's, the captures' words at the same moment staying out; a settled word of a capture split back out goes
-  with its capture. A mark over a word it replaced moves onto the new words at the same moment. A rebuild is not undone
-  on its own; what caused it is, and that lines the transcript up again.
-- **Every word it ever held.** A word is never deleted or rewritten. An edit marks the words of its range replaced
+  person whose change caused it, as a `built` change. Each compares each capture's words as it gives them now with its
+  words that stand, in order, by what each says (its text, speaker, and origin) and not by when, and changes only what
+  differs: a word that says the same keeps its id, so marks over it never move, and takes its new times, so a capture
+  placed anew moves its words rather than replacing them. One capture's comparison that runs past two seconds settles
+  for a larger diff. Every edit's words stand through it, and so do the words the meeting's correction settled while
+  their capture is the meeting's, a settlement standing as an edit does (a settled word of a capture split back out
+  goes with its capture); the captures' words inside an edit's time stay out. An edit belongs to the capture of the
+  words it replaced, and it and they move with that capture, by as much as its offset moved since its words were last
+  placed (the newest `built` entry naming it, or the merge that brought it), so an edit stays over what it replaced
+  wherever its capture goes on the clock. A standing word another capture heard under an edit is replaced too, even
+  when it says the same, but only once the edit's capture is placed: an edit over a capture still at its listed offset
+  sits at a time nobody has checked. A merge carries a person's edits into the meeting the captures go into, never a
+  settlement. A mark over a word a rebuild replaced moves onto the new words at the same moment. A rebuild is not
+  undone on its own; what caused it is, and that lines the transcript up again.
+- **Every word it ever held.** A word is never deleted, and what it says (its text, speaker, and origin) is never
+  rewritten; only its times move, with its capture's place on the clock. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in
   order of `position`. Positions order every word a meeting ever held in one sequence with gaps of 1024, and an edit
   writes its new words just after the last word it replaces, so the words it replaced stay where they were and an undo
@@ -636,7 +778,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 
 | Change                | What it records                                                  | Its undo |
 |-----------------------|------------------------------------------------------------------|----------|
-| `built`               | The captures it was lined up from with their offsets, what the first capture's words were lined up from (`source` or `whisper`), and how many words stand, were written, and were replaced, and how many marks moved | None: what caused it is undone, and lines it up again |
+| `built`               | The captures it was lined up from with their offsets, what the first capture's words were lined up from (`source` or `whisper`), and how many words stand, were written, were replaced, and were kept at new times, and how many marks moved | None: what caused it is undone, and lines it up again |
 | `settled`             | Each range its correction changed, as an edit records its own, every confidence mark it made, and how many ranges it passed over because their words changed since it read them | None: a person edits what it settled, its alternatives offered on the meeting's page |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
 | `marked`, `unmarked`  | The mark, its kind, and its range                                | Removes the mark, or puts it back |
@@ -692,16 +834,47 @@ and the Company page), is the one source of truth for how the company's speech i
     state (as its run says: failed with why, skipped, or how far it got), that its run waits for the person's
     approval, or that a finished one was published from its transcript alone; when it started, how long it ran, and how
     many topics Elysia found. A failed meeting's row has Retry, which retries its run's failed step at once.
-- **A meeting's page** (`/settings/meetings/:meetingId`, `MeetingPage`): its title, source, and state; when it
-  started, how long it ran, and a link to it at its source, in a new tab; where its correction stands (not corrected
-  yet, waiting for the person's approval, approved and by whom, or not approved); and two tabs, the open one in
-  `?tab=`. **Topics**, counted, the first: its segments in the order they were said (`MeetingTopics`,
+- **A meeting's page** is a page of the knowledge base (`/knowledge/meetings/:meetingId`, `MeetingPage` in
+  `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
+  `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
+  started, how long it ran, and a link to it at its source, in a new tab. Two tabs follow, the open one in `?tab=`:
+  **Review**, first, and **Topics**, counted: its segments in the order they were said (`MeetingTopics`,
   `GET /timeline?meetingId=`), each shown as on a project's timeline with the projects it is on, which is where a
-  topic Elysia put on no project, or the wrong one, is corrected. **Transcript** (`MeetingTranscript`,
-  `GET /meetings/{id}/transcript`): as heard beside its corrections, as a `TextDiff` whose unchanged lines fold away,
-  or as heard until it is corrected or when nothing needed it. Approve is the header's primary action while the copy
-  waits for one. Its Actions hold the meeting for the person's approval, or stop holding it, until it is corrected and
-  unless its source already waits, and open its run.
+  topic Elysia put on no project, or the wrong one, is corrected until excerpts take their place.
+  - **Layout** (`MeetingWorkspace`). The transcript, three quarters wide, and a lane beside it: the options box, which
+    floats at its top as the page scrolls, the mark selected, then the meeting's changes. Below `lg` the lane is a
+    drawer, opened by Options above the transcript. The options switch the transcript between Final and each capture's
+    own (`CaptureTranscript`, `GET /meetings/{id}/captures/{captureId}/transcript`, as it came, with no marks), turn
+    each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, and hold the
+    meeting's actions: where its correction stands, Approve while the copy waits for one, holding it for approval by
+    hand until it is corrected unless its source already waits, and its run.
+  - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
+    at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
+    paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
+    own channel (`src/theme/meetingTranscript.css`): confidence as the background from red (0) through yellow (50) to
+    green (100), an edit outlined purple inside, a comment outlined just outside (white on the dark theme, the
+    foreground's ink on the light one, where white would vanish), a black-out boxed black with its text dimmed, and an
+    excerpt as a blue bar in the gutter, one lane per overlap (`excerptLanes`), naming its projects over it. A space is
+    marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
+    pure and tested (`meetingTranscript.ts`).
+  - **Clicking and selecting.** A click picks a moment, underlined, which the player will seek; with marks under the
+    word, the shortest is selected and every one there shows as a pill in the floating bar, which Tab moves between,
+    and the selected one opens in the lane: its kind, who made it (an agent's saying so), its words, and what its kind
+    says, such as how sure a confidence is and what else it might be, or what an edit replaced with its Undo. A drag,
+    or a click then Shift+click, selects whole words; a touch screen has Select from here, then a tap where it ends.
+    What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
+    offers Edit (E) and clears with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words
+    selected. Comment, Assign to a project, Black out, Pin a frame, and Play from here join the bar with the issues that
+    build them.
+  - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
+    `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
+    (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
+    reading the transcript again. Words changed meanwhile make no edit and read the transcript again; any other
+    refusal keeps the editor open with what was typed.
+  - **Every change is an action** (`useMeetingChanges`): it applies at once with Undo in its toast, and there is no
+    Save. The page keeps the changes it made that still stand, so Ctrl+Z (Cmd+Z) outside a text field undoes the last
+    of them, and further back on each press. The lane's changes (`MeetingHistory`, `GET /meetings/{id}/history`) list
+    every change newest first, who made it, and Undo on each that still can be; one moved on since says so and stays.
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **An item asking whether two meetings are one** shows both, each linking to its page, with Merge and Not the same
@@ -720,14 +893,15 @@ and the Company page), is the one source of truth for how the company's speech i
 - Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created`,
   `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a
   meeting's run, which reloads
-  the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). A meeting's transcript is
-  read again once its correction lands.
+  the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
+  reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
+  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings).
 
 ## What is published
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, or it was merged or split: its id, state, and owner, never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, or a person edited its words or undid a change: its id, state, and owner, and the history entry of an edit or undo (`entryId`), never its title or transcript |
 | `page.changed`              | The Transcription doc learned from a correction or a person's fix: its id alone |
 | `companyDoc.changed`        | A correction or a fix proposed a name to the company doc                 |
 | `timelineRecord.created`    | A segment's record was stored                                            |
@@ -738,9 +912,9 @@ and the Company page), is the one source of truth for how the company's speech i
 
 - Meetings as reviewed documents in the knowledge base: captures from several sources and uploads, one final
   transcript with its confidence, edits, excerpts, black-outs, comments, and attachments, public by default. The design
-  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources below.
-- Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
-  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
-  signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
-  `sources.rs` instead.
+  is `docs/meeting-review.md`, and it covers the Teams and Slack huddle sources.
+- Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
+  they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
+- Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
+  meetings whose chats the person's Teams has not stored.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.

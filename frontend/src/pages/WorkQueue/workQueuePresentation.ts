@@ -31,6 +31,7 @@ import {
 
 // Misc
 import { WORK_BATCH_WAITS } from '../../api/routes/projectManagerRoutes'
+import { PROJECT_AUTONOMY_LEVELS } from '../../api/routes/projectRoutes'
 import { WORK_BATCH_EVENT_KINDS } from '../../api/routes/workQueueRoutes'
 
 // What people may do to a batch while it waits, and the words for a batch's history. Pure, and
@@ -217,7 +218,8 @@ export const editedFieldLabelKeys = {
 
 // One history entry as a line reads it: what happened, and what it carries beside it, such as
 // the priority it moved from and to, the fields a person changed, why it was cancelled or
-// rejected, what its worker waits for, or the answer it was given. A kind this build does not
+// rejected, what its worker waits for, the answer it was given, or the level of autonomy that let
+// it queue without an approval. A kind this build does not
 // know reads as its name, logged, rather than hiding the entry.
 export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
   const kind = WORK_BATCH_EVENT_KINDS.find((known) => known === entry.kind)
@@ -231,9 +233,16 @@ export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
   const wait = kind === 'waiting'
     ? readWait(entry.data)
     : null
+  // A batch its project's level of autonomy let queue at once names that level.
+  const queuedAt = kind === 'submitted'
+    ? PROJECT_AUTONOMY_LEVELS.find((level) => level === entry.data.autonomy) ?? null
+    : null
   let labelKey: ParseKeys<'workQueue'> | null = null
   if (wait) {
     labelKey = waitingHistoryKeys[wait.on]
+  }
+  else if (queuedAt) {
+    labelKey = 'history.submittedQueued'
   }
   else if (kind) {
     labelKey = historyKindLabelKeys[kind]
@@ -265,6 +274,7 @@ export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
     succeeded,
     edited,
     until: wait?.until ?? null,
+    queuedAt,
   } as const
 }
 

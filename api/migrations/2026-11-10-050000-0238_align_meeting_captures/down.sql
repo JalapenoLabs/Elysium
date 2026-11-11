@@ -12,6 +12,7 @@ END $$;
 
 DROP TABLE meeting_duplicates;
 
+DROP INDEX meetings_started_by_person;
 DROP INDEX meetings_merged_into;
 ALTER TABLE meetings
     DROP CONSTRAINT meetings_merged_into_another,

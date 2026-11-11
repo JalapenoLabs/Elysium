@@ -69,9 +69,11 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting } from '../api/routes/meetingRoutes'
+import { getMeeting, meetingHistoryKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
+import { getProjectAutonomyKey } from '../api/routes/projectRoutes'
 import { projectFindingsKey } from '../api/routes/findingRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
 import {
@@ -81,6 +83,7 @@ import {
   WORK_QUEUE_KEY,
 } from '../api/routes/workQueueRoutes'
 import { getProjectWorkerSetupKey } from '../api/routes/workerSetupRoutes'
+import { getManagerAssignmentKey, isManagerAssignmentKey } from '../api/routes/actionItemRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
 import {
@@ -133,7 +136,11 @@ const handlers: Handlers = {
     mustReloadOnHello = true
   },
   'resync': () => reloadEverything(),
-  'actionItem.upserted': (event) => store.dispatch(actionItemUpserted(event.data)),
+  // An item assigned or taken back moves where its plan stands, which its page reads again.
+  'actionItem.upserted': (event) => {
+    store.dispatch(actionItemUpserted(event.data))
+    void mutate(getManagerAssignmentKey(event.data.id))
+  },
   // The event carries only the id, so the deleted list and the item's own page reload, each
   // only if a view shows it; the page then shows the item as deleted rather than missing.
   'actionItem.deleted': (event) => {
@@ -330,6 +337,8 @@ const handlers: Handlers = {
     const key = getProjectManagerKey(event.data.projectId)
     void mutate((candidate) => typeof candidate === 'string'
       && (candidate.startsWith(key) || candidate.startsWith(PROMISES_KEY_PREFIX)))
+    // A turn taking or finishing an assignment moves an item's plan, whose page reads it again.
+    void mutate(isManagerAssignmentKey)
   },
   // The queue's order is the server's to derive, so a page showing it loads it again, and a
   // page showing the batch loads that and its worker's log; each only while a page holds it.
@@ -342,6 +351,8 @@ const handlers: Handlers = {
     void mutate(getWorkerLogKey(event.data.id))
     // Only the batch's page shows its pull requests, so their key refetches while it holds them.
     void mutate(getWorkBatchPullRequestsKey(event.data.id))
+    // A batch naming an item is part of that item's plan, which its page reads again.
+    void mutate(isManagerAssignmentKey)
   },
   'workerPool.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {
@@ -394,11 +405,20 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id.
+  // meeting is loaded by id, and its page's transcript and history, read only while it is open,
+  // are read again, unless the page made that change itself and applied it already.
   'meeting.changed': (event) => {
+    const { id, entryId } = event.data
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
+    void (async () => {
+      if (entryId && await isOwnMeetingChange(id, entryId)) {
+        return
+      }
+      void mutate(meetingWordsKey(id))
+      void mutate(meetingHistoryKey(id))
+    })()
     getMeeting(event.data.id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))
       .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {
@@ -425,7 +445,12 @@ const handlers: Handlers = {
   'mailServer.updated': (event) => store.dispatch(mailServerUpdated(event.data)),
   'mailDomain.upserted': (event) => store.dispatch(mailDomainUpserted(event.data)),
   'mailDomain.deleted': (event) => store.dispatch(mailDomainDeleted(event.data.id)),
-  'project.upserted': (event) => store.dispatch(projectUpserted(event.data)),
+  // Who set the project's level of autonomy is read apart, by its page alone, which refetches it
+  // only while it holds the key.
+  'project.upserted': (event) => {
+    store.dispatch(projectUpserted(event.data))
+    void mutate(getProjectAutonomyKey(event.data.id))
+  },
   'project.deleted': (event) => store.dispatch(projectDeleted(event.data.id)),
   'storageLocation.upserted': (event) => store.dispatch(storageLocationUpserted(event.data)),
   'storageLocation.deleted': (event) => store.dispatch(storageLocationDeleted(event.data.id)),

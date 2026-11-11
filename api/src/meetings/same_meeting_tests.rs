@@ -6,6 +6,8 @@
 //! clock keeping a person's edit, a split puts everything back, and an offset set by hand moves a
 //! capture's words until it is undone. See `docs/meetings.md`, Aligning and The same meeting twice.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use serde_json::json;
@@ -113,6 +115,7 @@ fn fireflies_lines() -> Vec<TranscriptLine> {
             "Grace Hopper",
             "Moore's lab wants the customer interviews scheduled next week.",
         ),
+        (36_000, 38_500, "Grace Hopper", "Demo on Friday."),
         (
             40_000,
             45_000,
@@ -164,7 +167,8 @@ fn teams_whisper() -> WhisperTranscript {
 }
 
 /// Stores a meeting of the test person's as `source_kind` listed it, starting `started_at`, with
-/// its capture fetched as `lines`, and Whisper's transcript of it when there is one.
+/// its capture fetched as `lines`, and Whisper's transcript of it when there is one. Teams names
+/// who took part; Fireflies gives their addresses, as the two sources do.
 async fn listed_and_fetched(
     connection: &mut AsyncPgConnection,
     source_kind: &str,
@@ -181,7 +185,11 @@ async fn listed_and_fetched(
             started_at,
             duration_ms: Some(1_800_000),
             organizer: "ada@example.com".to_owned(),
-            participants: json!(["ada@example.com", "grace@example.com"]),
+            participants: if source_kind == "teams" {
+                json!(["Ada Lovelace", "Grace Hopper"])
+            } else {
+                json!(["ada.lovelace@example.com", "grace@example.com"])
+            },
             created_by: TEST_PERSON_ID,
         },
         NewMeetingCapture {
@@ -422,6 +430,49 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     let (fireflies_run, held) =
         align_through_the_queue(&database, &mut connection, &fireflies).await;
     assert!(matches!(held, Done::Held { .. }), "{held:?}");
+    // Ada fixes a word only Fireflies heard, the goodbye's last, while it waits: the edit must
+    // travel with its capture when the merge and then aligning move that capture onto Teams'
+    // clock, and the same word said a moment before it must stay as it was said.
+    let goodbye = standing(&mut connection, fireflies.id)
+        .await
+        .into_iter()
+        .rfind(|word| word.text == "Friday.")
+        .expect("Fireflies' goodbye");
+    meeting_word::edit(
+        &mut connection,
+        fireflies.id,
+        Replacement {
+            range: Range {
+                start_word_id: goodbye.id,
+                end_word_id: goodbye.id,
+            },
+            text: "Friday!",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
+    // And a second, the name Fireflies misheard where Teams heard it too: two edits carried across
+    // one merge stay two, each where it was said.
+    let misheard = standing(&mut connection, fireflies.id)
+        .await
+        .into_iter()
+        .find(|word| word.text == "Sheriff")
+        .expect("the misheard name");
+    meeting_word::edit(
+        &mut connection,
+        fireflies.id,
+        Replacement {
+            range: Range {
+                start_word_id: misheard.id,
+                end_word_id: misheard.id,
+            },
+            text: "Sharath",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
     let pairs = pair_of(&mut connection, fireflies.id).await;
     let [pair] = pairs.as_slice() else {
         panic!("one pair, not {pairs:?}");
@@ -450,10 +501,24 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     ));
 
     // Ada merges it.
+    let teams_said: Vec<Uuid> = standing(&mut connection, teams.id)
+        .await
+        .iter()
+        .filter(|word| word.capture_id == Some(teams_capture.id))
+        .map(|word| word.id)
+        .collect();
     let merged = duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
         .await
         .expect("merges");
     assert_eq!(merged.pair.decision.as_deref(), Some("merged"));
+    // Lined up at the offset the listings gave, Fireflies' carried edits sit at a time nobody has
+    // checked yet, so they keep out none of Teams' words: every one stands, with its id.
+    let standing_ids: HashSet<Uuid> = standing(&mut connection, teams.id)
+        .await
+        .iter()
+        .map(|word| word.id)
+        .collect();
+    assert!(teams_said.iter().all(|id| standing_ids.contains(id)));
     let fireflies_now = meeting::find(&mut connection, fireflies.id)
         .await
         .expect("found");
@@ -539,6 +604,14 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     // One transcript: Teams' words where Teams heard them, Ada's edit standing, the excerpt still
     // over the words it was made on, and the goodbyes only Fireflies heard, at forty seconds.
     let lined_up = standing(&mut connection, teams.id).await;
+    // Placed by its words, Fireflies' corrected name now sits over Teams' own, which alone of
+    // Teams' words gives way to it.
+    let standing_ids: HashSet<Uuid> = lined_up.iter().map(|word| word.id).collect();
+    let gave_way: Vec<&Uuid> = teams_said
+        .iter()
+        .filter(|id| !standing_ids.contains(id))
+        .collect();
+    assert_eq!(gave_way.len(), 1, "{gave_way:?}");
     let read = text(&lined_up);
     assert!(
         read.contains("Sharath confirmed the Elysium migration finishes Thursday night."),
@@ -548,7 +621,33 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         !read.contains("Sheriff"),
         "a moment Teams heard reads once: {read}"
     );
-    assert!(read.ends_with("Mooreslab wants the customer interviews scheduled next week. Thanks all, see you Friday."), "{read}");
+    assert_eq!(
+        read.matches("Sharath").count(),
+        1,
+        "the name corrected on Fireflies stands once, in its place: {read}"
+    );
+    assert!(
+        read.ends_with(
+            "Mooreslab wants the customer interviews scheduled next week. Demo on Friday. Thanks \
+             all, see you Friday!"
+        ),
+        "the edit carried from Fireflies stands where it was said, and what it replaced stays \
+         out, though aligning moved its capture: {read}"
+    );
+    let carried = lined_up
+        .iter()
+        .find(|word| word.text == "Friday!")
+        .expect("the carried edit");
+    let you = lined_up
+        .iter()
+        .find(|word| word.text == "you" && word.capture_id == Some(fireflies_capture.id))
+        .expect("the word before it");
+    assert!(
+        carried.start_ms >= you.end_ms && carried.start_ms - you.end_ms < 1_000,
+        "the edit moved with its capture: {} after {}",
+        carried.start_ms,
+        you.end_ms
+    );
     let thanks = lined_up
         .iter()
         .find(|word| word.text == "Thanks")
@@ -587,6 +686,24 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
             .any(|entry| entry.kind() == Some(EventKind::Merged)),
         "and in Fireflies'"
     );
+    // A person sets the moved capture's offset by hand: splitting now would overwrite that, so it
+    // is refused until the hand-set offset is undone.
+    let hand_set = clock::nudge(
+        &mut connection,
+        teams.id,
+        fireflies_capture.id,
+        FIREFLIES_LATE_MS + 100,
+        person(),
+    )
+    .await
+    .expect("nudges");
+    assert!(matches!(
+        history::undo(&mut connection, teams.id, merge_entry.id, person()).await,
+        Err(history::UndoError::ChangedSince)
+    ));
+    history::undo(&mut connection, teams.id, hand_set.id, person())
+        .await
+        .expect("undoes the hand-set offset");
     let split = history::undo(&mut connection, teams.id, merge_entry.id, person())
         .await
         .expect("splits");
@@ -608,9 +725,10 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         teams_alone.contains("Thursday night."),
         "the edit stands through it all"
     );
+    let fireflies_alone = text(&standing(&mut connection, fireflies.id).await);
     assert!(
-        text(&standing(&mut connection, fireflies.id).await).contains("Sheriff confirmed"),
-        "Fireflies reads as it heard the meeting again"
+        fireflies_alone.contains("Sharath confirmed") && fireflies_alone.ends_with("Friday!"),
+        "Fireflies reads as it did before the merge, Ada's edits and all: {fireflies_alone}"
     );
     let pairs = pair_of(&mut connection, fireflies.id).await;
     assert_eq!(pairs[0].decision.as_deref(), Some("not_the_same"));
@@ -698,8 +816,66 @@ async fn not_the_same_is_remembered_and_lets_the_run_go_on() {
     ));
 }
 
+/// Merge and Not the same pressed at once, from two tabs: one answer counts, and what the pair
+/// says matches what happened to the meeting.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn two_answers_at_once_leave_the_pair_saying_what_happened() {
+    let (url, mut connection) = migrated_database().await;
+    let database = crate::connections::connect_postgres(&url, 4)
+        .await
+        .expect("a pool");
+    let on_the_hour: DateTime<Utc> = "2026-11-10T15:00:00Z".parse().expect("a time");
+    let (first, _) =
+        listed_and_fetched(&mut connection, "teams", on_the_hour, &teams_lines(), None).await;
+    let (second, _) = listed_and_fetched(
+        &mut connection,
+        "fireflies",
+        on_the_hour,
+        &fireflies_lines(),
+        None,
+    )
+    .await;
+    assert!(matches!(
+        align(&database, &mut connection, &first).await,
+        Done::Succeeded { .. }
+    ));
+    let (_run, held) = align_through_the_queue(&database, &mut connection, &second).await;
+    assert!(matches!(held, Done::Held { .. }));
+    let pair = pair_of(&mut connection, second.id).await.remove(0);
+
+    let mut merging = database.get().await.expect("a connection");
+    let mut keeping_apart = database.get().await.expect("a connection");
+    let (merged, kept_apart) = tokio::join!(
+        duplicates::merge(&mut merging, pair.id, TEST_PERSON_ID, Utc::now()),
+        duplicates::not_the_same(&mut keeping_apart, pair.id, TEST_PERSON_ID, Utc::now()),
+    );
+    assert!(
+        merged.is_ok() != kept_apart.is_ok(),
+        "exactly one answer counts: {merged:?} {kept_apart:?}"
+    );
+    let refused = if merged.is_ok() { kept_apart } else { merged };
+    assert!(matches!(refused, Err(duplicates::DecideError::Decided)));
+
+    let decision = pair_of(&mut connection, second.id).await[0]
+        .decision
+        .clone();
+    let now = meeting::find(&mut connection, second.id)
+        .await
+        .expect("found");
+    match decision.as_deref() {
+        Some("merged") => assert_eq!(now.merged_into, Some(first.id)),
+        Some("not_the_same") => assert_eq!(now.merged_into, None),
+        other => panic!("the pair is decided, not {other:?}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "an edit, a nudge, and both undone, with what each leaves of the words"
+)]
 async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
     let (url, mut connection) = migrated_database().await;
     let database = crate::connections::connect_postgres(&url, 4)
@@ -719,7 +895,30 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
         Done::Succeeded { .. }
     ));
     let first_word = |words: &[Word]| words[0].start_ms;
-    let before = first_word(&standing(&mut connection, meeting.id).await);
+    // An edit over the capture's words moves with them too, and what it replaced stays out.
+    let heard = standing(&mut connection, meeting.id).await;
+    let lab = heard
+        .iter()
+        .find(|word| word.text == "lab")
+        .expect("a word")
+        .clone();
+    meeting_word::edit(
+        &mut connection,
+        meeting.id,
+        Replacement {
+            range: Range {
+                start_word_id: lab.id,
+                end_word_id: lab.id,
+            },
+            text: "Lab",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
+    let words_before = standing(&mut connection, meeting.id).await;
+    let before = first_word(&words_before);
+    let text_before = text(&words_before);
 
     let nudged = clock::nudge(
         &mut connection,
@@ -731,6 +930,23 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
     .await
     .expect("nudges");
     assert_eq!(nudged.kind(), Some(EventKind::OffsetChanged));
+    // Every word moves with its capture and keeps its id, so marks over them stay where they are.
+    let words_after = standing(&mut connection, meeting.id).await;
+    assert_eq!(
+        text(&words_after),
+        text_before,
+        "the edit stands, and lab stays out"
+    );
+    assert_eq!(
+        words_after.iter().map(|word| word.id).collect::<Vec<_>>(),
+        words_before.iter().map(|word| word.id).collect::<Vec<_>>()
+    );
+    assert!(
+        words_after
+            .iter()
+            .zip(&words_before)
+            .all(|(after, before)| after.start_ms == before.start_ms + FIREFLIES_LATE_MS)
+    );
     let moved = meeting_capture::find(&mut connection, capture.id)
         .await
         .expect("found");
@@ -776,10 +992,21 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
         (back.offset_ms, back.offset_source()),
         (0, OffsetSource::Listed)
     );
-    assert_eq!(
-        first_word(&standing(&mut connection, meeting.id).await),
-        before
-    );
+    let words_back = standing(&mut connection, meeting.id).await;
+    assert_eq!(first_word(&words_back), before);
+    assert_eq!(text(&words_back), text_before);
+    // Undoing the edit now stands what it replaced up again, once, at the capture's times.
+    let edit_entry = meeting_event::history(&mut connection, meeting.id)
+        .await
+        .expect("history")
+        .into_iter()
+        .find(|entry| entry.kind() == Some(EventKind::Edited))
+        .expect("the edit");
+    history::undo(&mut connection, meeting.id, edit_entry.id, person())
+        .await
+        .expect("undoes the edit");
+    let unedited = text(&standing(&mut connection, meeting.id).await);
+    assert_eq!(unedited.matches("Moore's lab").count(), 1, "{unedited}");
     // Undone once; the undo of a change moved on since is refused.
     assert!(matches!(
         history::undo(&mut connection, meeting.id, nudged.id, person()).await,

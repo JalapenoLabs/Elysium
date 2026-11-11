@@ -20,8 +20,10 @@
 //! never asserted (`crate::models::work_batch::lineage`): a batch that names nothing, or that
 //! would be past the generation limit, is refused with what to do instead.
 //!
-//! A submitted batch is proposed: it waits for a person to approve it before the pool may give
-//! it a slot (`crate::models::work_batch::approval`).
+//! A submitted batch is proposed, waiting for a person to approve it before the pool may give it a
+//! slot (`crate::models::work_batch::approval`), unless its project's level of autonomy lets work
+//! that traces to a person queue at once (`crate::models::project_autonomy`). Found work is
+//! proposed at every level.
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,6 +36,7 @@ use uuid::Uuid;
 
 use super::timeline;
 use crate::database::schema::{action_items, project_manager_wakes};
+use crate::models::action_item::ActionItemState;
 use crate::models::project;
 use crate::models::project_brief;
 use crate::models::project_manager::WakeKind;
@@ -42,9 +45,9 @@ use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::approval::Edits;
 use crate::models::work_batch::lineage::{self, MAX_GENERATION, Provenance, Refusal};
 use crate::models::work_batch::{
-    self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch, Written,
+    self, BatchState, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch, Written,
 };
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::coding_sessions::validate_repository_url;
 use crate::worker_pool::actions;
 
@@ -228,8 +231,9 @@ fn tidy_repositories(repositories: Vec<Repository>) -> Vec<Repository> {
 }
 
 /// Submits `submission` for `project_id` from its Project Manager's turn `turn_id`: works out its
-/// origin and generation, stores it, proposed, puts it on the project's timeline, raises or updates
-/// the project's approval item, and announces all three.
+/// origin and generation, stores it, proposed or queued as its project's level of autonomy says,
+/// puts it on the project's timeline, raises or updates the project's approval item when it is
+/// proposed, and announces them.
 ///
 /// # Errors
 /// [`BatchError::Refused`] naming what to change, when [`check`] refuses it, it serves no goal in
@@ -300,8 +304,9 @@ impl Stored {
     }
 }
 
-/// Stores `new_batch`, proposed, puts it on its project's timeline as submitted by
-/// `submitted_by`, and raises or updates the project's approval item, in one transaction, or in
+/// Stores `new_batch`, proposed or queued as its project's level of autonomy says
+/// (`work_batch::submit`), puts it on its project's timeline as submitted by `submitted_by`, and
+/// raises or updates the project's approval item when it is proposed, in one transaction, or in
 /// the caller's when it holds one. Its lineage is already decided: a Project Manager's from its
 /// provenance ([`submit`]), or a person's accepting a finding (`crate::findings`), whose name
 /// its record carries.
@@ -325,7 +330,8 @@ pub async fn store(
 }
 
 /// Announces a batch [`store`] wrote, once the transaction that wrote it committed: its record,
-/// the batch, and its project's approval item. Answers the batch.
+/// the batch, and its project's approval item, and tells the pool when the batch went straight to
+/// the queue. Answers the batch.
 pub async fn announce(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -339,8 +345,13 @@ pub async fn announce(
         action_item_id: None,
         conversation_id: None,
     });
-    // Proposed, it waits for a person rather than for a slot, so the pool is not told.
-    actions::publish(connection, events, written).await
+    let batch = actions::publish(connection, events, written).await;
+    // A proposed batch waits for a person rather than for a slot, so only a queued one is the
+    // pool's to hear about, which may hand it a slot at once, as an approval does.
+    if batch.state == BatchState::Queued {
+        events.signal(&Signal::WorkerPool);
+    }
+    batch
 }
 
 /// Withdraws `project_id`'s batch `batch_id` while no worker has started on it, saying `reason`,
@@ -444,7 +455,8 @@ fn refusal_words(refusal: &Refusal) -> String {
 }
 
 /// Refuses a submission naming a record not attributed to its project, an action item that is
-/// deleted or that another project leads, or a message that was not sent to its Project Manager.
+/// deleted, resolved, or dismissed or that another project leads, or a message that was not sent to
+/// its Project Manager.
 async fn refuse_unknown_provenance(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -465,16 +477,29 @@ async fn refuse_unknown_provenance(
         }
     }
     if !submission.action_item_ids.is_empty() {
-        let leads: HashMap<Uuid, Option<Uuid>> = action_items::table
+        let items: HashMap<Uuid, (Option<Uuid>, ActionItemState)> = action_items::table
             .filter(action_items::id.eq_any(&submission.action_item_ids))
             .filter(action_items::deleted_at.is_null())
-            .select((action_items::id, action_items::lead_project_id))
-            .load::<(Uuid, Option<Uuid>)>(connection)
+            .select((
+                action_items::id,
+                action_items::lead_project_id,
+                action_items::state,
+            ))
+            .load::<(Uuid, Option<Uuid>, ActionItemState)>(connection)
             .await?
             .into_iter()
+            .map(|(id, lead, state)| (id, (lead, state)))
             .collect();
         for item_id in &submission.action_item_ids {
-            let lead = leads.get(item_id).copied().flatten();
+            let (lead, state) = items.get(item_id).copied().unzip();
+            let lead = lead.flatten();
+            // Finished work is not planned: a person reopens an item before more is done for it.
+            if let Some(ActionItemState::Resolved | ActionItemState::Dismissed) = state {
+                return Err(BatchError::Refused(format!(
+                    "action item {item_id} is finished; a person reopens it before more work is \
+                     planned for it, so leave it out or say in your reply what it still needs"
+                )));
+            }
             if lead == Some(project_id) {
                 continue;
             }

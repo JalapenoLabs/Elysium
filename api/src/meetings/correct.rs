@@ -71,7 +71,7 @@ use crate::models::connector;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_capture::{self, StoredRecording};
 use crate::models::meeting_correction::{self, MeetingCorrection, NewMeetingCorrection};
-use crate::models::meeting_event::{self, Change, EventKind};
+use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_word::{self, Origin, SettledRange, Word};
 use crate::models::model_setting::ModelChoice;
 use crate::models::step_job::{self, StepActionError, StepJobState};
@@ -79,6 +79,7 @@ use crate::models::user::SYSTEM_USER_ID;
 use crate::models::workflow_run::{self, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
+use crate::routes::v1::meetings::announce_lined_up;
 use crate::runner::events::{RunnerEvent, TurnOutcome, TurnStatus};
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
 use crate::transcription_doc::{self, Lesson, MeetingLink};
@@ -202,9 +203,10 @@ struct Settling {
 
 /// What storing a settlement found.
 enum Stored {
-    /// This attempt settled the meeting: its copy, whether the Transcription doc learned from it,
-    /// and how many names it proposed to the company doc.
+    /// This attempt settled the meeting: its `settled` history entry, its copy, whether the
+    /// Transcription doc learned from it, and how many names it proposed to the company doc.
     Settled {
+        entry: Box<MeetingEvent>,
         correction: MeetingCorrection,
         learned: bool,
         proposed: usize,
@@ -458,14 +460,14 @@ impl CorrectTranscript {
                     return anyhow::Ok(Stored::ByAnother(stored));
                 }
                 // The flags come first among the ranges, so the first answers are theirs.
-                let marked = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
+                let settled = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
                 let correction = meeting_correction::record(connection, new)
                     .await?
                     .ok_or_else(|| anyhow!("the meeting's copy was stored under its own lock"))?;
                 let applied: Vec<&Flag> = settling
                     .flags
                     .iter()
-                    .zip(&marked)
+                    .zip(&settled.marked)
                     .filter(|(_flag, marked)| marked.is_some())
                     .map(|(flag, _marked)| flag)
                     .collect();
@@ -476,10 +478,15 @@ impl CorrectTranscript {
                         .await?;
                 context.log.line(&format!(
                     "Settled {} ranges and passed over {} whose words changed since",
-                    marked.iter().flatten().count(),
-                    marked.iter().filter(|range| range.is_none()).count(),
+                    settled.marked.iter().flatten().count(),
+                    settled
+                        .marked
+                        .iter()
+                        .filter(|range| range.is_none())
+                        .count(),
                 ));
                 Ok(Stored::Settled {
+                    entry: Box::new(settled.entry),
                     correction,
                     learned,
                     proposed,
@@ -537,14 +544,6 @@ impl CorrectTranscript {
         Ok(decision)
     }
 
-    fn announce(&self, changed: &Meeting) {
-        self.inner.events.publish(&ServerEvent::MeetingChanged {
-            id: changed.id,
-            state: changed.state.clone(),
-            created_by: changed.created_by,
-        });
-    }
-
     /// Settles the meeting `input` names in one turn, and answers its stored copy.
     async fn settle(
         &self,
@@ -557,6 +556,7 @@ impl CorrectTranscript {
         let settling = self.ask_about(&heard, context).await?;
         match self.store(&heard, &settling, input, context).await? {
             Stored::Settled {
+                entry,
                 correction,
                 learned,
                 proposed,
@@ -577,7 +577,20 @@ impl CorrectTranscript {
                     ));
                     self.inner.events.publish(&ServerEvent::CompanyDocChanged);
                 }
-                self.announce(&heard.meeting);
+                // Every page reads the settled transcript again, as after any change no page made.
+                let mut connection = self.connection().await?;
+                if let Err(error) =
+                    announce_lined_up(&self.inner.events, &mut connection, &entry).await
+                {
+                    // The meeting is settled; pages that missed it read it on their next load.
+                    tracing::event!(
+                        name: "meetings.correction.unannounced",
+                        tracing::Level::WARN,
+                        meeting.id = %heard.meeting.id,
+                        error.message = %error,
+                        "a settled meeting could not be announced",
+                    );
+                }
                 Ok(Some(correction))
             }
             Stored::ByAnother(stored) => {
@@ -1017,6 +1030,7 @@ pub async fn approve(
         id: current.id,
         state: current.state.clone(),
         created_by: current.created_by,
+        entry_id: None,
     });
     Ok(current)
 }
@@ -1080,6 +1094,7 @@ pub async fn hold(
         id: changed.id,
         state: changed.state.clone(),
         created_by: changed.created_by,
+        entry_id: None,
     });
     Ok(changed)
 }

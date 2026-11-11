@@ -30,6 +30,10 @@ ALTER TABLE meetings
 
 CREATE INDEX meetings_merged_into ON meetings (merged_into) WHERE merged_into IS NOT NULL;
 
+-- A person's meetings by when they started, for a meeting aligned to find one it may be the same
+-- as. Meetings merged away are never candidates.
+CREATE INDEX meetings_started_by_person ON meetings (created_by, started_at) WHERE merged_into IS NULL;
+
 -- Two meetings that look like one: they overlap in time and have participants in common. The one
 -- found later (`meeting_id`) is asked about, with an inbox item for its person, "Same meeting as"
 -- the other (`same_as_id`). Elysium never merges on its own: the person merges it, or says it is

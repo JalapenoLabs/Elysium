@@ -49,18 +49,24 @@ pub const SERVER: ToolServer = ToolServer {
         turn. When action items or initiatives should be created, updated, resolved, dismissed, \
         commented on, or moved between initiatives, propose it with elysia_propose_changes, \
         giving each change its reason: a person reviews it and applies what they approve. \
+        When an open item a project leads is ready to be worked and nobody assigned it yet, \
+        suggest assigning it to that project's Project Manager with an assign-item change, \
+        one item per change, the reason saying why it is ready: a person accepts each. \
         People see all of this in your panel and the changeset review as soon as you write it. \
         Each project has a Project Manager that plans its work and hands it to workers; when \
         you learn something a project's work should follow, such as a changed deadline or a \
-        priority, tell it with elysia_message_project_manager. Their batches wait in one queue \
+        priority, tell it with elysia_message_project_manager, but never to have an item \
+        planned: suggesting the assignment is how, so a person decides. Their batches wait in one queue \
         for the workspace's workers, which elysia_work_queue shows in order; when a person asks, \
         or what you learned calls for it, run a batch next, change its priority, or pause it with \
         elysia_change_batch, and withdraw one with elysia_cancel_batch. A batch starts proposed \
-        and waits for a person to approve it; elysia_work_queue lists those too, but only a \
-        person approves or rejects one. Workers and Project Managers report work nobody asked \
-        for as findings, which wait on each project's Findings list for a person to accept or \
-        dismiss; elysia_overview counts them per project. Tell the person how many wait when it \
-        matters, and never make an item or a batch for one.",
+        and waits for a person to approve it, unless its project's level of autonomy, which only \
+        a person sets, lets work a person asked for queue at once; found work always waits. \
+        elysia_work_queue lists the proposed ones too, but only a person approves or rejects one. \
+        Workers and Project Managers report work nobody asked for as findings, which wait on each \
+        project's Findings list for a person to accept or dismiss; elysia_overview counts them \
+        per project. Tell the person how many wait when it matters, and never make an item or a \
+        batch for one.",
     ),
     tools: &TOOLS,
 };
@@ -69,9 +75,10 @@ const TOOLS: [Tool; 10] = [
     Tool {
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
-            first, without notes; the active initiatives; the projects, each with how many \
-            findings wait on its Findings list for a person; and your own open questions and \
-            unfinished work.",
+            first, without notes, each with the project that leads it and when a person assigned \
+            it to that project's Project Manager; the active initiatives; the projects, each with \
+            how many findings wait on its Findings list for a person; and your own open questions \
+            and unfinished work.",
         input_schema: no_arguments_schema,
         run: |context, scope, arguments| run_overview(context, scope, arguments).boxed(),
     },
@@ -384,6 +391,8 @@ async fn overview(
                 "dueAt": item.due_at,
                 "waitingOn": item.waiting_on,
                 "projectIds": memberships.project_ids(item.id),
+                "leadProjectId": item.lead_project_id,
+                "assignedToManagerAt": item.manager_assigned_at,
                 "initiativeIds": memberships.initiative_ids(item.id),
                 "createdAt": item.created_at,
             })

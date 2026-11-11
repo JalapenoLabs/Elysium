@@ -43,8 +43,9 @@ const MEETINGS_SHOWN: usize = 10;
 /// page, so what falls off the end is in its history.
 const TAUGHT_SHOWN: usize = 100;
 
-/// Where a meeting's page is, which every link in the Meetings column names.
-pub const MEETING_PAGE_PATH: &str = "/settings/meetings/";
+/// Where a meeting's page is in the knowledge base (the web app's `UrlTree.knowledgeMeeting`), which
+/// every link in the Meetings column names.
+pub const MEETING_PAGE_PATH: &str = "/knowledge/meetings/";
 
 /// One row of the entries table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,7 +548,7 @@ mod tests {
         assert!(
             taught.contains(&format!(
                 "- November 10th 2026, added: \"Sheriff\" is Sharath, heard by Teams when Ada \
-                 Lovelace spoke, in [Weekly sync \\| planning](/settings/meetings/{}). Ada \
+                 Lovelace spoke, in [Weekly sync \\| planning](/knowledge/meetings/{}). Ada \
                  Lovelace fixed it on the meeting's page.",
                 sync.id
             )),

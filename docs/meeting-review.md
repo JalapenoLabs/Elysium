@@ -8,10 +8,12 @@ recording, and what is relevant, and only that, flows on to projects, their Proj
 This doc is the design. Built so far: meetings and their captures, one clock with each capture's offset, Whisper per
 capture, the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change in a
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
-transcript, and asking before merging a meeting recorded twice, with merging and splitting; and settling the final
-transcript with confidences and alternatives, taught by the Transcription doc, which teaches itself and gives Whisper
-its hint words. What is built is described in `docs/meetings.md`, which this design changes where it says so; the rest
-is the roadmap below, as issues in the Knowledge base milestone.
+transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
+knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
+undoable, open to its owner alone until meetings are public by default; and settling the final transcript with
+confidences and alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words.
+What is built is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap
+below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -255,8 +257,8 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
 - **Projects**, a fixed page, has one child per project, made, renamed, and removed with its project. Under each, a
   Meetings group lists every meeting with an excerpt on the project, newest first, as linked entries of the one
   meeting page, so a meeting about three projects shows in three places and is one page.
-- The meeting's page today, `/settings/meetings/:meetingId`, moves into the knowledge base; Settings, Meetings keeps its
-  Sources.
+- The meeting's page is in the knowledge base, `/knowledge/meetings/:meetingId`, and its Settings address lands there.
+  Settings, Meetings keeps its Sources once the Meetings page lists the meetings.
 
 ## Roadmap
 

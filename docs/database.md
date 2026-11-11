@@ -218,6 +218,7 @@ one connector that reads through it.
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
 | `state`                     | `browser_state` | `starting`, `running`, or `failed`, as the engine's reconciler last found it |
 | `state_error`               | `TEXT`        | Why it failed; set exactly while `failed`                       |
+| `refreshed_at`              | `TIMESTAMPTZ` | When the engine last reloaded its service so the session renews, recorded as it starts; null until the first, see `docs/browser.md`, Refreshing |
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
@@ -703,7 +704,8 @@ learning is filed under a workspace category, rather than refile or drop it.
 Meetings, each the one event that happened, and how far each one's processing got; see `docs/meetings.md`. What its
 source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
 it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`), and meetings merged into
-another for finding them (`meetings_merged_into`).
+another for finding them (`meetings_merged_into`); a person's meetings not merged away by when they started
+(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as.
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
@@ -901,13 +903,34 @@ What coding sessions are grouped under.
 | `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
 | `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
 | `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
-| `manager_writes_directly` | `BOOLEAN` | Whether its Project Manager's changes apply as it makes them; defaults to false, proposing each |
 | `tools_setup_script` | `TEXT` | Nullable, 1 to 20,000 characters: bash run as root in every worker's container before its repositories are cloned |
+| `autonomy` | `project_autonomy` | Its trust dial: `approve_every_batch` (the default), `approve_found_work`, or `full_autonomy`; changed only through `project_autonomy::set` |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover. A removed cover is neither served nor reported:
 `Project::cover_updated_at` is the one that shows. It leaves `tools_setup_script` out too, which only workers and the
 project's Workers page read (`api/src/models/worker_setup.rs`).
+
+`autonomy` says what of the project's Project Manager's work waits for a person (`docs/autonomy.md`, The dial): a
+human-rooted batch is submitted `queued` above the default, its changes apply at once only at `full_autonomy`, and a
+found batch is proposed at every level. Every project starts at the default.
+
+### `project_autonomy_changes`
+
+Each turn of a project's trust dial, by the person who turned it (`api/src/models/project_autonomy.rs`). The newest is
+who set the level the project has; a project with none is still at the default. Written in the transaction that
+changes `projects.autonomy`, under the project's row lock.
+
+| Column              | Type               | Notes                                                       |
+|---------------------|--------------------|-------------------------------------------------------------|
+| `id`                | `UUID`             | UUIDv7, primary key, so a project's changes order by it     |
+| `project_id`        | `UUID`             | References `projects`, cascading                            |
+| `previous_autonomy` | `project_autonomy` | The level it moved from                                     |
+| `autonomy`          | `project_autonomy` | The level it moved to; differs from `previous_autonomy`     |
+| `created_by`        | `UUID`             | References `users`: the company member who turned it        |
+| `created_at`        | `TIMESTAMPTZ`      | Set on insert                                               |
+
+Indexed by `(project_id, id DESC)` for a project's newest change.
 
 ### `project_repositories`
 
@@ -1234,11 +1257,16 @@ What the user owes attention to; see `docs/action-items.md`.
 | `created_at`    | `TIMESTAMPTZ`            | Written by the API, the moment of the create                 |
 | `updated_at`    | `TIMESTAMPTZ`            | Maintained by trigger                                        |
 | `lead_project_id` | `UUID`                 | The one of its projects that leads it; set exactly while it is in any |
+| `manager_assigned_at` | `TIMESTAMPTZ`      | When a person assigned it to its lead project's Project Manager; NULL while it is not |
+| `manager_assigned_by` | `UUID`             | References `users`: the person who assigned it, set exactly with `manager_assigned_at` |
 
 The partial index `action_items_live_state_idx` on `state` where `deleted_at` is NULL serves Next and the state
 filters. `action_items_lead_project_is_a_membership` makes `(id, lead_project_id)` reference `action_item_projects`,
 checked at commit so an item is created with its lead before its memberships, and set to NULL should a membership go
-without the code moving the lead first, which it always does, recording the move.
+without the code moving the lead first, which it always does, recording the move. Moving the lead clears the
+assignment in the same statement (`action_item::move_lead`), so an assignment is always its lead's; no check holds it
+to a lead, because taking an item out of its lead project nulls the lead at once, before the move in the same
+transaction ends the assignment. `action_items_manager_assignment_whole` keeps its two columns set together.
 
 ### `action_item_projects`
 
@@ -1669,15 +1697,17 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
-`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project, and
-`project_manager_wakes_promise_waits_once` one per promise and project. Every publish of a brief that wakes its Project
-Manager is a wake of its own, so a turn names each edit.
+`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project,
+`project_manager_wakes_promise_waits_once` one per promise and project, and
+`project_manager_wakes_assignment_waits_once` one per assigned item and project. Every publish of a brief that wakes its
+Project Manager is a wake of its own, so a turn names each edit. `project_manager_wakes_by_action_item` finds an item's
+newest assignment, for where its plan stands.
 
 | Column               | Type                        | Notes                                                       |
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, or `brief`         |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, `brief`, or `assignment` |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
@@ -1686,6 +1716,7 @@ Manager is a wake of its own, so a turn names each edit.
 | `created_at`         | `TIMESTAMPTZ`               | Set on insert                                               |
 | `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
 | `page_version`       | `INTEGER`                   | Set exactly for `brief`: the version of the project's brief someone else published |
+| `action_item_id`     | `UUID`                      | Set exactly for `assignment`: the item a person assigned it; cascading |
 
 ### `promises`
 
@@ -1728,7 +1759,7 @@ API applies (`docs/engine.md`, Origins and generations), generation 0, and no pa
 | `repositories`       | `JSONB`               | `[{ url, baseBranch? }]`, at most 16                              |
 | `priority`           | `work_batch_priority` | `asap`, `normal`, or `scheduled`                                  |
 | `scheduled_for`      | `TIMESTAMPTZ`         | Set exactly for `scheduled`                                       |
-| `state`              | `work_batch_state`    | `proposed` (the default), `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`, or `rejected` |
+| `state`              | `work_batch_state`    | `proposed` (the default), `queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`, or `rejected`; `work_batch::submit` names it, `queued` only for a human-rooted batch its project's level lets through |
 | `result`             | `TEXT`                | What its worker reported, or why it was cancelled or rejected     |
 | `turn_id`            | `UUID`                | The turn that submitted it; `SET NULL`                            |
 | `source_record_ids`  | `JSONB`               | The timeline records that called for it, as an array of ids       |
@@ -1763,7 +1794,7 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 | `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
 | `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
 | `kind`          | `TEXT`        | `submitted`, `held_for_approval`, `edited`, `approved`, `rejected`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `requeued`, `waiting`, `answered`, or `finished` |
-| `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
+| `data`          | `JSONB`       | A JSON object shaped by `kind`; `submitted` holds `{ autonomy }` when the project's level let the batch queue without an approval |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
 

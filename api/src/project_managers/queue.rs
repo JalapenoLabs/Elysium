@@ -6,7 +6,9 @@
 //! records one after another, so a turn waits for its project's wakes to go quiet
 //! ([`QUIET_WINDOW`]) and takes them all together. A steady trickle never goes quiet, so a turn
 //! is due at the latest [`MAX_WAIT`] after the oldest wake arrived. A person's or Elysia's
-//! message is due at once: someone is waiting for the answer.
+//! message is due at once: someone is waiting for the answer. An action item a person assigns
+//! waits like a record, since a person assigns a selection, or several items one after another,
+//! and one turn plans them together.
 //!
 //! A project with a turn running is not due: what arrives meanwhile waits for the turn after.
 //! A project a usage limit holds is due when the hold lifts. Everything here is a pure function
@@ -179,6 +181,27 @@ mod tests {
         ];
         let planned = plan(&waiting, &nothing_running(), &nothing_held(), now);
         assert_eq!(planned.due, vec![project]);
+    }
+
+    #[test]
+    fn items_assigned_one_after_another_wait_to_be_planned_in_one_turn() {
+        let project = Uuid::now_v7();
+        let start = Utc::now();
+        let assigned = [
+            wake(project, WakeKind::Assignment, start),
+            wake(
+                project,
+                WakeKind::Assignment,
+                start + TimeDelta::seconds(10),
+            ),
+        ];
+        let quiet_from = start + TimeDelta::seconds(10) + QUIET_WINDOW;
+
+        let early = plan(&assigned, &nothing_running(), &nothing_held(), start);
+        assert!(early.due.is_empty(), "an assignment is not due at once");
+        assert_eq!(early.next_due_at, Some(quiet_from));
+        let quiet = plan(&assigned, &nothing_running(), &nothing_held(), quiet_from);
+        assert_eq!(quiet.due, vec![project]);
     }
 
     #[test]

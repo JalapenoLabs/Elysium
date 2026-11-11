@@ -31,10 +31,6 @@ use crate::transcription_doc::{self, Lesson, MeetingLink};
 ///
 /// # Errors
 /// Every refusal of `meeting_word::edit`, and any database error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "people edit words from the meeting's page (#234)")
-)]
 pub async fn edit(
     connection: &mut AsyncPgConnection,
     events: &EventBus,

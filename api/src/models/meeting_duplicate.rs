@@ -146,6 +146,30 @@ pub async fn asked_by(
         .optional()
 }
 
+/// Records `decision` on pair `id`, by `decided_by` at `decided_at`, unless it is decided already.
+/// Answers `None`, writing nothing, when it was: of two answers at once, the first to write counts.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn decide_undecided(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    decision: Decision,
+    (decided_by, decided_at): (Uuid, DateTime<Utc>),
+) -> QueryResult<Option<MeetingDuplicate>> {
+    diesel::update(meeting_duplicates::table.find(id))
+        .filter(meeting_duplicates::decision.is_null())
+        .set((
+            meeting_duplicates::decision.eq(Some(decision.as_str())),
+            meeting_duplicates::decided_by.eq(Some(decided_by)),
+            meeting_duplicates::decided_at.eq(Some(decided_at)),
+        ))
+        .returning(MeetingDuplicate::as_returning())
+        .get_result(connection)
+        .await
+        .optional()
+}
+
 /// Records `decision` on pair `id`, by `decided_by` at `decided_at`, whatever was decided before:
 /// a split makes a merged pair not the same, and its undo merges it again.
 ///

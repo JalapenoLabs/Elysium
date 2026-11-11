@@ -123,10 +123,10 @@ export function promiseWork(
 }
 
 // What woke a turn, grouped as its row shows it: every message in full, oldest first, and how
-// many records, finished batches, promises, and edits to the brief came with them.
+// many records, finished batches, promises, edits to the brief, and assigned items came with them.
 export function groupWakes(wakes: ProjectManagerWake[]) {
   const messages: ProjectManagerWake[] = []
-  const counts = { record: 0, batch: 0, promise: 0, brief: 0 }
+  const counts = { record: 0, batch: 0, promise: 0, brief: 0, assignment: 0 }
   for (const wake of wakes) {
     if (wake.kind === 'message') {
       messages.push(wake)
@@ -140,5 +140,6 @@ export function groupWakes(wakes: ProjectManagerWake[]) {
     batches: counts.batch,
     promises: counts.promise,
     briefEdits: counts.brief,
+    assignments: counts.assignment,
   } as const
 }
