@@ -33,11 +33,23 @@ function ownsKeys(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest(OWNS_KEYS_SELECTOR))
 }
 
+// Where the transcript's own keys apply: the transcript and its floating bar, which carry
+// `data-review-keys`. Clicking a word leaves focus on the page itself, since words take no focus,
+// so a key pressed there is the transcript's too. Anywhere else (a button in the lane, the topbar)
+// Tab moves focus and E is a letter, as everywhere.
+function isOnTranscript(target: EventTarget | null) {
+  if (target === document.body || target === document.documentElement) {
+    return true
+  }
+  return target instanceof Element && Boolean(target.closest('[data-review-keys]'))
+}
+
 // The keys of a meeting's page (docs/frontend.md, Hotkeys), outside a text field and while no
-// dialog or menu is open: Esc clears what is picked, E edits the words selected, Tab moves between
-// the marks under the word clicked, Ctrl+Z (Cmd+Z) undoes the page's last change, and Ctrl+C
-// copies the words selected. They listen as the key travels down, so Esc is used here before the
-// page's own Esc goes up a level, which a used key never does (`readPageShortcut`).
+// dialog or menu is open: Esc clears what is picked, Ctrl+Z (Cmd+Z) undoes the page's last change,
+// and Ctrl+C copies the words selected; on the transcript alone (`isOnTranscript`), E edits the
+// words selected and Tab moves between the marks under the word clicked. They listen as the key
+// travels down, so Esc is used here before the page's own Esc goes up a level, which a used key
+// never does (`readPageShortcut`).
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {
@@ -55,6 +67,9 @@ export function useReviewHotkeys(handlers: Handlers) {
     }
     if (event.key === 'Escape' && !event.shiftKey && handlers.onEscape()) {
       event.preventDefault()
+      return
+    }
+    if (!isOnTranscript(event.target)) {
       return
     }
     if (event.key === 'Tab' && handlers.onCycleMark(event.shiftKey ? -1 : 1)) {

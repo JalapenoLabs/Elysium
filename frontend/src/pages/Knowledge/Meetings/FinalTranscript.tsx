@@ -149,6 +149,9 @@ export function FinalTranscript(props: Props) {
     ref={containerRef}
     role='document'
     aria-label={t('review.transcriptLabel')}
+    // Where its keys apply (`useReviewHotkeys`). Its floating bar is inside it, so a pill pressed
+    // there still moves on with Tab.
+    data-review-keys=''
     className='relative select-none'
     onPointerDown={startDrag}
     onPointerMove={moveDrag}

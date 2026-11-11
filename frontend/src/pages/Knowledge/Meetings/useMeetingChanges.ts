@@ -14,6 +14,7 @@ import {
   meetingHistoryKey,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { trackMeetingChange } from '../../../realtime/meetingChangeEchoes'
 import { toast } from '../../../toast/toast'
 
 type Options = {
@@ -32,6 +33,8 @@ export function useMeetingChanges(options: Options) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const madeHere = useRef<string[]>([])
 
+  // Its own change applies from what the route answered; only the history, small, is read again.
+  // The change's own announcement is then no news to this page (`meetingChangeEchoes`).
   function settle(response: MeetingChangeResponse) {
     options.applyChange(response.change)
     void mutate(meetingHistoryKey(options.meetingId))
@@ -39,7 +42,10 @@ export function useMeetingChanges(options: Options) {
 
   async function undo(entryId: string) {
     try {
-      const response = await undoMeetingChange(options.meetingId, entryId)
+      const response = await trackMeetingChange(
+        options.meetingId,
+        undoMeetingChange(options.meetingId, entryId),
+      )
       madeHere.current = madeHere.current.filter((id) => id !== entryId)
       settle(response)
       toast.success(t('review.undone'))
@@ -58,7 +64,10 @@ export function useMeetingChanges(options: Options) {
   // Replaces the words from `startWordId` to `endWordId` with `text`. Resolves whether it did.
   async function edit(startWordId: string, endWordId: string, text: string) {
     try {
-      const response = await editMeetingWords(options.meetingId, { startWordId, endWordId, text })
+      const response = await trackMeetingChange(
+        options.meetingId,
+        editMeetingWords(options.meetingId, { startWordId, endWordId, text }),
+      )
       madeHere.current.push(response.entry.id)
       settle(response)
       toast.success(t('review.edited'), {

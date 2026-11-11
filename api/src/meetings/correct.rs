@@ -462,6 +462,7 @@ impl CorrectTranscript {
             id: changed.id,
             state: changed.state.clone(),
             created_by: changed.created_by,
+            entry_id: None,
         });
     }
 }
@@ -784,6 +785,7 @@ pub async fn approve(
         id: current.id,
         state: current.state.clone(),
         created_by: current.created_by,
+        entry_id: None,
     });
     Ok(current)
 }
@@ -847,6 +849,7 @@ pub async fn hold(
         id: changed.id,
         state: changed.state.clone(),
         created_by: changed.created_by,
+        entry_id: None,
     });
     Ok(changed)
 }

@@ -374,12 +374,14 @@ pub(super) async fn transcript_change(
     })
 }
 
-/// Tells every client that `meeting` changed, so a page holding its transcript or history reads
-/// it again. The event carries no content, as every meeting's does.
-pub(super) fn announce(events: &EventBus, meeting: &Meeting) {
+/// Tells every client that `meeting` changed by history entry `entry`, so a page holding its
+/// transcript or history reads it again, unless it made that change itself. The event carries no
+/// content, as every meeting's does.
+pub(super) fn announce(events: &EventBus, meeting: &Meeting, entry: &MeetingEvent) {
     events.publish(&ServerEvent::MeetingChanged {
         id: meeting.id,
         state: meeting.state.clone(),
         created_by: meeting.created_by,
+        entry_id: Some(entry.id),
     });
 }

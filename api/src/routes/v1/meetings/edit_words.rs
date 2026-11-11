@@ -70,7 +70,7 @@ pub async fn handle(
         .await
         .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
-    announce(&state.events, &found);
+    announce(&state.events, &found, &entry);
     Ok(Json(json!({
         "entry": MeetingEventResponse::from(entry),
         "change": change,

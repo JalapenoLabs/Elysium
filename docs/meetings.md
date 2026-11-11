@@ -737,13 +737,14 @@ whose effect still stands is undone; one moved on since answers that it changed 
   `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a
   meeting's run, which reloads
   the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
-  reads the open page's transcript and history again, so another tab's edit shows.
+  reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
+  change, which applied it already (`entryId`, `docs/frontend.md`, Meetings).
 
 ## What is published
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, or a person edited its words or undid a change: its id, state, and owner, never its title or transcript |
+| `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, its hold changed, or a person edited its words or undid a change: its id, state, and owner, and the history entry of an edit or undo (`entryId`), never its title or transcript |
 | `timelineRecord.created`    | A segment's record was stored                                            |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |

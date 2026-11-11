@@ -180,6 +180,24 @@ describe('MeetingWorkspace', () => {
     expect(wordPiece('is').hasAttribute('data-selected')).toBe(true)
   })
 
+  it<Context>('leaves Tab and E to the rest of the page, where focus moves as everywhere', (context) => {
+    renderWorkspace(context)
+    fireEvent.click(wordPiece('Fryday.'))
+
+    // A key pressed on a switch in the lane, outside the transcript.
+    const elsewhere = screen.getByRole('switch', { name: 'Edit' })
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    act(() => {
+      elsewhere.dispatchEvent(tab)
+    })
+    fireEvent.keyDown(elsewhere, { key: 'e' })
+
+    expect(tab.defaultPrevented).toBe(false)
+    const pills = within(screen.getByRole('radiogroup', { name: 'Marks here' }))
+    expect(pills.getByRole('radio', { name: 'Confidence' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByRole('textbox', { name: 'What these words should say' })).toBeNull()
+  })
+
   it<Context>('edits words selected by Shift+click, applies with Ctrl+Enter, and Ctrl+Z undoes it', async (context) => {
     vi.mocked(editMeetingWords).mockResolvedValue({
       entry: {
