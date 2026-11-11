@@ -40,6 +40,7 @@ use crate::connectors::checks::CheckRuns;
 use crate::connectors::ingest::Ingest;
 use crate::issue_reports::IssueReports;
 use crate::knowledge::search::KnowledgeSearch;
+use crate::meeting_uploads::staging::Staging;
 use crate::meetings::sources::Sources;
 use crate::passwords::remote::RemoteVault;
 use crate::services::{self, Foundation};
@@ -197,6 +198,7 @@ pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHand
             events.clone(),
         )?,
         meeting_sources: Sources::new(http.clone()),
+        upload_staging: Staging::in_workspace(workspace.clone()),
         passwords,
         search_limiter: Arc::new(middleware::rate_limit::Limiter::new(search::PER_PERSON)),
         sessions: Sessions::new(SessionsDeps {

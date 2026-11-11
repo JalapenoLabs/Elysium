@@ -14,16 +14,24 @@
 //!
 //! A page's attachments are here too, and answer the same people. The rules for what a page takes
 //! and how a file is served are `crate::page_attachments`.
+//!
+//! So are the edits agents suggest to a page, which a member reviews here, accepting them wholly or
+//! in part or dismissing them with a reason (`crate::models::page_suggestion`). Agents suggest
+//! through their tools ([`suggest`]); nothing creates a suggestion over HTTP, since a person edits a
+//! page directly.
 
+mod accept_suggestion;
 mod add_label;
 mod create_page;
 mod delete_page;
+mod dismiss_suggestion;
 mod get_page;
 mod get_passage;
 mod get_version;
 mod link_project;
 mod list_history;
 mod list_pages;
+mod list_suggestions;
 mod list_versions;
 mod move_page;
 #[cfg(test)]
@@ -36,6 +44,7 @@ mod restore_attachment;
 mod restore_page;
 mod restore_version;
 mod save_page;
+mod suggest_page;
 #[cfg(test)]
 mod tests;
 mod unlink_project;
@@ -53,28 +62,29 @@ use validator::{Validate, ValidationError, ValidationErrors};
 
 pub use self::add_label::{PageLabelArguments, add as add_label};
 pub use self::create_page::{CreatePageRequest, create};
-pub use self::get_page::{PageArguments, read};
+pub use self::get_page::{PageArguments, read_with_suggestions};
 pub use self::link_project::{PageProjectArguments, link as link_project};
 pub use self::list_pages::{ListPagesArguments, list_branch};
 pub use self::move_page::{MovePageArguments, move_to};
 pub use self::publish_page::{PublishPageRequest, publish};
 pub use self::remove_label::remove as remove_label;
 pub use self::save_page::{PAGE_IS_A_LEARNING, SavePageRequest, save};
+pub use self::suggest_page::{SuggestPageRequest, suggest};
 pub use self::unlink_project::unlink as unlink_project;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::agent::Author;
-use crate::models::company_doc::Section;
 use crate::models::page::{
-    self, HistoryEntry, LearningFields, Page, PageEdit, PageSummary, PageVersion, Recorded,
-    VersionSummary,
+    self, COMPANY_PAGE_ID, HistoryEntry, LearningFields, Page, PageEdit, PageSummary, PageVersion,
+    Recorded, VersionSummary,
 };
 use crate::models::page_attachment::{self, PageAttachment};
 use crate::models::page_label;
 use crate::models::page_project;
+use crate::models::page_suggestion::{self, Decided, Suggested, Suggestion};
 use crate::page_attachments::{self, MAX_ATTACHMENT_BYTES};
 use crate::realtime::{EventBus, ServerEvent, Signal};
-use crate::routes::v1::action_items::validate_not_blank;
+use crate::routes::v1::action_items::{publish_item_write, validate_not_blank};
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
@@ -109,6 +119,15 @@ pub fn router() -> Router<AppState> {
             get(read_attachment::handle),
         )
         .route("/{id}/history", get(list_history::handle))
+        .route("/{id}/suggestions", get(list_suggestions::handle))
+        .route(
+            "/{id}/suggestions/{suggestion_id}/accept",
+            post(accept_suggestion::handle),
+        )
+        .route(
+            "/{id}/suggestions/{suggestion_id}/dismiss",
+            post(dismiss_suggestion::handle),
+        )
         .route("/{id}/versions", get(list_versions::handle))
         .route("/{id}/versions/{version}", get(get_version::handle))
         .route(
@@ -139,10 +158,14 @@ pub struct PageResponse {
     evidence: Option<String>,
     /// The newest version, which a publish names as `baseVersion`.
     current_version: i32,
-    /// Agents may only propose changes to it.
+    /// Agents may only suggest edits to it.
     proposal_only: bool,
     /// One of the pages Elysium relies on: nobody moves, deletes, or renames it.
     fixed: bool,
+    /// The Company page or one of the company doc's sections, whose review a person can start.
+    company_doc: bool,
+    /// How many edits agents suggested to it wait for a person.
+    pending_suggestions: i64,
     /// The project whose brief it is, which it stays linked to; `null` for every other page.
     brief_project_id: Option<Uuid>,
     /// The labels it carries, in order. No part of a version.
@@ -173,12 +196,15 @@ impl PageResponse {
         labels: Vec<String>,
         attachments: Vec<AttachmentResponse>,
         project_ids: Vec<Uuid>,
+        pending_suggestions: i64,
     ) -> Self {
         Self {
             id: page.id,
             parent_id: page.parent_id,
             position: page.position,
             fixed: page.is_fixed(),
+            company_doc: page.id == COMPANY_PAGE_ID || page.section().is_some(),
+            pending_suggestions,
             brief_project_id: page.brief_project_id,
             title: page.title,
             body: page.body,
@@ -255,13 +281,16 @@ pub struct PageSummaryResponse {
     /// The labels it carries, in order: all a client needs to filter the tree, list a label's
     /// pages, and suggest the labels in use.
     labels: Vec<String>,
+    /// How many edits agents suggested to it wait for a person, which the tree shows.
+    pending_suggestions: i64,
     updated_at: DateTime<Utc>,
     deleted_at: Option<DateTime<Utc>>,
 }
 
 impl PageSummaryResponse {
-    pub fn new(page: PageSummary, labels: Vec<String>) -> Self {
+    pub fn new(page: PageSummary, labels: Vec<String>, pending_suggestions: i64) -> Self {
         Self {
+            pending_suggestions,
             fixed: page.is_fixed(),
             brief_project_id: page.brief_project_id,
             id: page.id,
@@ -484,7 +513,7 @@ fn validate_no_nul(value: &str) -> Result<(), ValidationError> {
 }
 
 /// Announces every page a write changed, as a page and as what else it stands for: clients showing
-/// learnings and the company doc hear those events, not the tree's. A section is the doc changing.
+/// learnings hear those events, not the tree's.
 pub fn announce(events: &EventBus, changed: &[Uuid], learnings: &[Uuid]) {
     for id in changed {
         events.publish(&ServerEvent::PageChanged { id: *id });
@@ -492,8 +521,72 @@ pub fn announce(events: &EventBus, changed: &[Uuid], learnings: &[Uuid]) {
     for id in learnings {
         events.publish(&ServerEvent::LearningChanged { id: *id });
     }
-    if changed.iter().any(|id| Section::of_page(*id).is_some()) {
-        events.publish(&ServerEvent::CompanyDocChanged);
+}
+
+/// Announces a suggestion once it commits: its page, whose count of what waits moved, and the
+/// page's inbox item it raised or retitled. A suggestion already pending changed nothing, so it
+/// announces nothing. Whatever is suggesting, the suggestion stands, so an item that cannot be
+/// announced is logged rather than failing it; a client that missed it reads it on its next load.
+pub async fn announce_suggested(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    suggested: Suggested,
+) {
+    if !suggested.created {
+        return;
+    }
+    let page_id = suggested.suggestion.page_id;
+    events.publish(&ServerEvent::PageChanged { id: page_id });
+    let at = suggested.suggestion.created_at;
+    announce_review_item(events, connection, page_id, suggested.item, at).await;
+}
+
+/// Announces a decision on a suggestion once it commits, and answers the suggestion and its page as
+/// they now read. The page's count of what waits moved whether or not a version was published, so
+/// the page is announced either way, with whatever else the version reached and the Project
+/// Manager a brief's version woke.
+async fn answer_decided(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    decided: Decided,
+) -> Result<(SuggestionResponse, PageResponse), ApiError> {
+    let page_id = decided.suggestion.page_id;
+    let at = decided.suggestion.decided_at.unwrap_or_else(Utc::now);
+    let page = if let Some(recorded) = decided.published {
+        answer(events, connection, recorded).await?
+    } else {
+        announce(events, &[page_id], &[]);
+        let page = page::find(connection, page_id).await?;
+        response(connection, page).await?
+    };
+    announce_review_item(events, connection, page_id, decided.item, at).await;
+    let suggestion = SuggestionResponse::new(decided.suggestion, &page.body);
+    Ok((suggestion, page))
+}
+
+/// Announces the inbox item a suggestion's write kept in step at `at`, logging one that cannot be.
+async fn announce_review_item(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    page_id: Uuid,
+    item: Option<
+        crate::models::action_item_event::Recorded<crate::models::action_item::ActionItem>,
+    >,
+    at: DateTime<Utc>,
+) {
+    let Some(item) = item else {
+        return;
+    };
+    let item_id = item.record.id;
+    if let Err(error) = publish_item_write(events, connection, item, &[], at).await {
+        tracing::event!(
+            name: "pages.suggestions.item_unpublished",
+            tracing::Level::WARN,
+            page.id = %page_id,
+            action_item.id = %item_id,
+            error.message = %error,
+            "a page's review item was written but could not be announced",
+        );
     }
 }
 
@@ -526,12 +619,17 @@ async fn response(
         .map(AttachmentResponse::from)
         .collect();
     let project_ids = page_project::projects_of(connection, page.id).await?;
+    let pending_suggestions = page_suggestion::pending_counts(connection, Some(&[page.id]))
+        .await?
+        .remove(&page.id)
+        .unwrap_or_default();
     Ok(PageResponse::new(
         page,
         published,
         labels,
         attachments,
         project_ids,
+        pending_suggestions,
     ))
 }
 
@@ -550,4 +648,110 @@ async fn answer_published(
         page: answer(events, connection, recorded).await?,
         outcome,
     })
+}
+
+/// A suggestion as clients and agents see it: its changes rather than its text, so a long page's
+/// suggestion reads as what it changes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionResponse {
+    id: Uuid,
+    page_id: Uuid,
+    /// The version it was written from.
+    base_version: i32,
+    /// What it changes, in order, each numbered from 0 as accepting one in part names it.
+    changes: Vec<ChangeResponse>,
+    reason: String,
+    quote: Option<String>,
+    source: Option<String>,
+    /// The timeline record the company doc's review read it in, while that record exists.
+    timeline_record_id: Option<Uuid>,
+    /// The company doc review's run that suggested it, while that run exists.
+    workflow_run_id: Option<Uuid>,
+    /// `pending`, `accepted`, or `dismissed`.
+    state: String,
+    /// The changes an acceptance took; `null` for all of them, or while it is not accepted.
+    accepted_changes: Option<Vec<i32>>,
+    /// Why it was dismissed.
+    dismissal_reason: Option<String>,
+    decided_by: Option<Uuid>,
+    decided_at: Option<DateTime<Utc>>,
+    /// Who suggested it: a person, or the machine user of Elysia or a Project Manager.
+    created_by: Uuid,
+    /// The agent acting for them, if one was named.
+    agent: Option<AgentResponse>,
+    created_at: DateTime<Utc>,
+}
+
+/// One change a suggestion makes, with whether it would still merge with the page as it reads now.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeResponse {
+    /// Its place among the suggestion's changes, from 0.
+    index: usize,
+    /// Its first line in the version the suggestion was written from, from 1.
+    line: usize,
+    /// The lines it changes, with a few unchanged ones on each side, before and after it.
+    before: String,
+    after: String,
+    /// Whether accepting it alone would merge with the page now; `false` when the page changed
+    /// since, in the same lines.
+    applies: bool,
+}
+
+impl SuggestionResponse {
+    /// `suggestion` against a page that now holds `current`.
+    pub fn new(suggestion: Suggestion, current: &str) -> Self {
+        let applies = page_suggestion::applies(&suggestion, current);
+        let changes = page_suggestion::changes(&suggestion.base_body, &suggestion.body)
+            .into_iter()
+            .zip(applies)
+            .enumerate()
+            .map(|(index, (change, applies))| ChangeResponse {
+                index,
+                line: change.line,
+                before: change.before,
+                after: change.after,
+                applies,
+            })
+            .collect();
+        Self {
+            id: suggestion.id,
+            page_id: suggestion.page_id,
+            base_version: suggestion.base_version,
+            changes,
+            reason: suggestion.reason,
+            quote: suggestion.quote,
+            source: suggestion.source,
+            timeline_record_id: suggestion.timeline_record_id,
+            workflow_run_id: suggestion.workflow_run_id,
+            state: suggestion.state,
+            accepted_changes: suggestion
+                .accepted_changes
+                .map(|chosen| chosen.into_iter().flatten().collect()),
+            dismissal_reason: suggestion.dismissal_reason,
+            decided_by: suggestion.decided_by,
+            decided_at: suggestion.decided_at,
+            created_by: suggestion.created_by,
+            agent: AgentResponse::new(suggestion.agent, suggestion.agent_name),
+            created_at: suggestion.created_at,
+        }
+    }
+}
+
+/// The suggestions waiting on page `id`, oldest first, each read against what the page holds now:
+/// what the route answers and `page_read` adds to a page.
+///
+/// # Errors
+/// `404` for an unknown page, and any database error.
+pub async fn pending_suggestions(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> Result<Vec<SuggestionResponse>, ApiError> {
+    let page = page::find(connection, id).await?;
+    let pending = page_suggestion::pending(connection, id).await?;
+    Ok(pending
+        .into_iter()
+        .map(|suggestion| SuggestionResponse::new(suggestion, &page.body))
+        .collect())
 }

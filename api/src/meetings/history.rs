@@ -17,6 +17,7 @@
 //! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
+//! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
 //!
 //! A merge and a split are recorded in both meetings' histories, and undone from the history of
 //! the meeting the captures went into.
@@ -95,7 +96,10 @@ pub async fn undo(
                 Some(EventKind::Split) => Some(
                     super::duplicates::merge_again(connection, &current, &undone, author).await?,
                 ),
-                Some(EventKind::Built | EventKind::CorrectionApproved) | None => {
+                Some(
+                    EventKind::Built | EventKind::CorrectionApproved | EventKind::CaptureAdded,
+                )
+                | None => {
                     return Err(UndoError::NotUndoable);
                 }
             };

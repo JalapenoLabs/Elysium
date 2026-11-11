@@ -8,11 +8,11 @@ recording, and what is relevant, and only that, flows on to projects, their Proj
 This doc is the design. Built so far: meetings and their captures, one clock with each capture's offset, Whisper per
 capture, the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change in a
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
-transcript, and asking before merging a meeting recorded twice, with merging and splitting; and the meeting's page in
-the knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
-undoable, and its player, open to its owner alone until meetings are public by default. What is built is described in
-`docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
-Knowledge base milestone.
+transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
+knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
+undoable, and its player, open to its owner alone until meetings are public by default; and uploads of recordings and
+transcripts as new meetings or captures of one. What is built is described in `docs/meetings.md`, which this design
+changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -97,7 +97,8 @@ it, and it replaces what corrections learn from the 30 newest today.
   add or strengthen an entry as they are made. The page lists what it taught itself, newest first, with why, for a
   person to review and prune; people also edit it directly. Every change is a version, as for any page.
 - Every correction and every transcription reads it. A fix that names a person or a term the company doc does not know
-  is also proposed to the company doc, for a person to approve, as today.
+  is also suggested to the company doc's section, for a person to accept on its page (`crate::company_doc::propose`,
+  `docs/knowledge.md`, Pages, Suggestions).
 
 ## The meeting's page
 
@@ -231,9 +232,12 @@ The `meeting` workflow becomes:
 - From the Meetings page (a new meeting) or a meeting's page (a capture of it): recordings as `.mp3`, `.wav`, `.mp4`,
   or `.mov`, and transcripts as WebVTT, SRT, or plain text and Markdown, where `Speaker: line` and `[00:01:23]` are read
   when they are there. A recording and a transcript can be one capture.
-- Uploads are resumable, in chunks, into the person's storage location, since a recording can be gigabytes.
+- Uploads are resumable, in parts, into the storage location the person keeps meetings in, since a recording can be
+  gigabytes.
 - An upload is a capture like any other: transcribed, aligned, corrected, and segmented. A transcript with no times
   and no media is a meeting in words alone: reviewed, excerpted, and commented, with no player.
+- How it works today is `docs/meetings.md`, Uploads. A capture's upload is among the actions in the meeting's options;
+  when the knowledge base's own Meetings page is built (#235), a new meeting's upload moves there.
 
 ## Teams and Slack huddles
 
@@ -265,11 +269,9 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 
 | Phase | Issue | Lane                                                                                  |
 |-------|-------|---------------------------------------------------------------------------------------|
-| 1     | #233  | Uploads: recordings and transcripts                                                   |
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
 | 2     | #235  | The knowledge base tree: Meetings, Projects, and each project's meetings              |
-
 | 2     | #239  | Settling the final transcript, and the Transcription doc                              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |

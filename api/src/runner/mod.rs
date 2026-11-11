@@ -623,6 +623,45 @@ fn lock<Value>(mutex: &Mutex<Value>) -> std::sync::MutexGuard<'_, Value> {
 }
 
 #[cfg(test)]
+impl Runner {
+    /// A runner whose turns answer `answers` in order, each as Claude Code's final text, on a
+    /// credential of its own and with nothing reaching Docker: for a step whose turn a test
+    /// scripts, such as segmenting.
+    pub fn answering(answers: &[&str]) -> Self {
+        use self::command::CredentialSecret;
+        use self::turn::fake::{FakeWorkspace, Script};
+
+        let scripts = answers
+            .iter()
+            .map(|answer| {
+                let line = serde_json::json!({
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": false,
+                    "result": answer,
+                    "session_id": "scripted",
+                    "total_cost_usd": 0,
+                })
+                .to_string();
+                Script::printing(&[line.as_str()], 0)
+            })
+            .collect();
+        let credential = ClaudeCredential {
+            id: Uuid::now_v7(),
+            name: "scripted".to_owned(),
+            secret: CredentialSecret::SubscriptionToken(SecretString::from("scripted-token")),
+        };
+        Self::with_parts(
+            Executor::Fake(FakeWorkspace::with_scripts(scripts)),
+            CredentialSource::Fixed(vec![credential]),
+            ConfigurationSource::None,
+            Activities::new(),
+            CancellationToken::new(),
+        )
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -163,6 +163,9 @@
         "offsetChanged": "Moved a recording on the meeting's clock",
         "merged": "Merged with another recording of this meeting",
         "split": "Split a merged recording back out",
+        "addedRecordingAndTranscript": "Added a recording and its transcript",
+        "addedRecording": "Added a recording",
+        "addedTranscript": "Added a transcript",
         "changed": "Changed the meeting"
       }
     }
@@ -177,5 +180,61 @@
     "mergedToast": "Merged",
     "keptApartToast": "Kept apart",
     "decidedMeanwhile": "This was decided already."
+  },
+  "upload": {
+    "action": "Upload a meeting",
+    "addCapture": "Add a recording or transcript",
+    "sourceName": "Uploaded",
+    "title": "Upload a meeting",
+    "captureTitle": "Add a recording or transcript",
+    "help": "Upload a recording (MP3, WAV, MP4, or MOV), a transcript (WebVTT, SRT, plain text, or Markdown), or one of each. A transcript's \"Speaker:\" names and [00:01:23] times are read when it has them; one with no times and no recording is a meeting in words alone. Large files are sent in parts, and choosing the same files again picks up where an upload stopped.",
+    "submit": "Upload",
+    "blocked": {
+      "noFile": "Choose a recording, a transcript, or both"
+    },
+    "fields": {
+      "recording": "Recording",
+      "transcript": "Transcript",
+      "chooseRecording": "Choose a recording",
+      "chooseTranscript": "Choose a transcript",
+      "hint": "{{extensions}}, up to {{limit}}",
+      "remove": "Remove this file",
+      "title": "Title",
+      "startedAt": "Started",
+      "startedAtPicker": "When it started",
+      "storageLocation": "Keep the recording in",
+      "storageLocationPlaceholder": "Choose a storage location",
+      "noStorageLocations": "A recording needs a storage location to be kept in.",
+      "addStorageLocation": "Add a storage location"
+    },
+    "errors": {
+      "title": "Give the meeting a title",
+      "titleTooLong": "Keep the title to {{limit}} characters",
+      "startedAt": "Pick when it started",
+      "storageLocation": "Choose where the recording is kept"
+    },
+    "refusals": {
+      "type": "Choose a file of one of these kinds: {{extensions}}.",
+      "empty": "{{name}} is empty.",
+      "tooLarge": "Choose a file of up to {{limit}}.",
+      "notMedia": "This recording isn't the kind of file its name says. Choose another.",
+      "notText": "This transcript isn't text. Choose a WebVTT, SRT, plain text, or Markdown file.",
+      "nothingSaid": "Nothing said was found in this transcript. Choose another.",
+      "tooManyLines": "This transcript is longer than a meeting can hold. Choose a shorter one.",
+      "location": "Choose a storage location for the recording.",
+      "processing": "This meeting is still being processed. Add to it once it's done.",
+      "runFailed": "This meeting's run failed. Retry or skip it from its page, then add to it.",
+      "merged": "This meeting was merged into another. Add to that one instead."
+    },
+    "toasts": {
+      "resumed": "Picking up where the upload stopped",
+      "uploaded": "{{title}} uploaded",
+      "stopped": "The upload stopped. Choose Upload to carry on where it left off."
+    },
+    "progress": {
+      "label": "Upload progress",
+      "sending": "Sending {{received}} of {{total}}",
+      "finishing": "Starting on the meeting"
+    }
   }
 }

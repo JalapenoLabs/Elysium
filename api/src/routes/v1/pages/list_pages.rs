@@ -24,7 +24,7 @@ use super::PageSummaryResponse;
 use crate::auth::MemberUser;
 use crate::database::Pool;
 use crate::errors::ApiError;
-use crate::models::{page, page_label};
+use crate::models::{page, page_label, page_suggestion};
 use crate::state::AppState;
 
 /// The most pages one `page_list` answers, as `LIST_DESCRIPTION` says.
@@ -92,12 +92,14 @@ pub async fn list(database: &Pool, deleted: bool) -> Result<Vec<PageSummaryRespo
         .await
         .context("no database connection available")?;
     let mut labels = page_label::by_page(&mut connection).await?;
+    let mut waiting = page_suggestion::pending_counts(&mut connection, None).await?;
     let pages = page::list(&mut connection, deleted)
         .await?
         .into_iter()
         .map(|page| {
             let labels = labels.remove(&page.id).unwrap_or_default();
-            PageSummaryResponse::new(page, labels)
+            let pending_suggestions = waiting.remove(&page.id).unwrap_or_default();
+            PageSummaryResponse::new(page, labels, pending_suggestions)
         })
         .collect();
     Ok(pages)
@@ -168,6 +170,7 @@ mod tests {
             fixed: false,
             brief_project_id: None,
             labels: Vec::new(),
+            pending_suggestions: 0,
             updated_at: Utc::now(),
             deleted_at: None,
         }

@@ -2,6 +2,9 @@
 
 import type { ConnectorProvides } from './api/routes/connectorRoutes'
 
+// Misc
+import { COMPANY_PAGE_ID } from './constants'
+
 // Urls
 export const UrlTree = {
   root: '/',
@@ -85,6 +88,11 @@ export const UrlTree = {
   settingsMeetings: '/settings/meetings',
   // A meeting's earlier address, which redirects to its page in the knowledge base.
   settingsMeeting: '/settings/meetings/:meetingId',
+  // Uploading a meeting, or a recording or transcript of one the person has (a capture of it).
+  meetingUploadNew: '/settings/meetings/new',
+  meetingCaptureUploadNew: '/settings/meetings/:meetingId/captures/new',
+  // The company doc's old address in Settings, which opens the Company page: the doc lives in the
+  // knowledge base.
   settingsCompanyDoc: '/settings/company-doc',
   // Learnings' earlier address, which redirects to the Knowledge page's, as do the pages under it.
   settingsLearnings: '/settings/learnings',
@@ -178,6 +186,8 @@ export const TAB_PARAM = 'tab'
 // What a knowledge page's History tab shows: one version read through, or two compared. They live
 // in the address, so Back returns to the list and a comparison can be linked to.
 export const PAGE_HISTORY_TAB = 'history'
+// A knowledge page's tab reviewing the edits agents suggested to it.
+export const PAGE_SUGGESTIONS_TAB = 'suggestions'
 // The project's tab listing the pages linked to it.
 export const PROJECT_DOCS_TAB = 'docs'
 // The project's tab holding its Project Manager's conversation, where a message to it is read.
@@ -271,6 +281,10 @@ export function getMeetingUrl(meetingId: string) {
   return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
 }
 
+export function getMeetingCaptureUploadUrl(meetingId: string) {
+  return UrlTree.meetingCaptureUploadNew.replace(':meetingId', meetingId)
+}
+
 export function getConnectorUrl(connectorId: string) {
   return UrlTree.settingsConnector.replace(':connectorId', connectorId)
 }
@@ -313,6 +327,11 @@ export function getKnowledgePageUrl(pageId: string, passage?: number) {
     return url
   }
   return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
+}
+
+// The Company page, under which the company doc's sections sit.
+export function getCompanyDocUrl() {
+  return getKnowledgePageUrl(COMPANY_PAGE_ID)
 }
 
 export function getPageHistoryUrl(pageId: string) {

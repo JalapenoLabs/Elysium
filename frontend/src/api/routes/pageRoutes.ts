@@ -23,6 +23,8 @@ export type KnowledgePageSummary = {
   // The labels it carries, in order. Holding them here filters the tree, lists a label's pages, and
   // suggests the labels in use, all from what the tree already loaded.
   labels: string[]
+  // How many edits agents suggested to it wait for a person, which the tree shows.
+  pendingSuggestions: number
   // When what it holds last changed: published, deleted, or restored. A move or a label leaves it.
   updatedAt: string
   // Set while it is deleted; it can be restored.
@@ -54,8 +56,10 @@ export type KnowledgePage = KnowledgePageSummary & {
   // What a learning holds beyond its text; null on every other page.
   category: string | null
   evidence: string | null
-  // Agents may only propose changes to it.
+  // Agents may only suggest edits to it.
   proposalOnly: boolean
+  // The Company page or one of the company doc's sections, whose review a person can start.
+  companyDoc: boolean
   // The projects it is linked to, oldest link first. A link is no version, and changes nobody's
   // access.
   projectIds: string[]
@@ -137,6 +141,48 @@ export function pageHistoryKey(pageId: string) {
 
 export function projectPagesKey(projectId: string) {
   return `v1/projects/${projectId}/pages`
+}
+
+export function pageSuggestionsKey(pageId: string) {
+  return `${pageKey(pageId)}/suggestions`
+}
+
+// Mirrors `ChangeResponse`: one change a suggestion makes, numbered from 0 as accepting it in part
+// names it.
+export type PageSuggestionChange = {
+  index: number
+  // Its first line in the version the suggestion was written from, from 1.
+  line: number
+  // The lines it changes, with a few unchanged ones on each side, before and after it.
+  before: string
+  after: string
+  // Whether accepting it alone would merge with the page now: false when the page changed since,
+  // in the same lines.
+  applies: boolean
+}
+
+// Mirrors `SuggestionResponse`: an edit an agent suggested, read as its changes.
+export type PageSuggestion = {
+  id: string
+  pageId: string
+  // The version it was written from.
+  baseVersion: number
+  changes: PageSuggestionChange[]
+  reason: string
+  quote: string | null
+  source: string | null
+  // The company doc review's run that suggested it, while that run exists.
+  workflowRunId: string | null
+  state: 'pending' | 'accepted' | 'dismissed'
+  // The changes an acceptance took; null for all of them.
+  acceptedChanges: number[] | null
+  dismissalReason: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  // A person, or the machine user of Elysia or a Project Manager.
+  createdBy: string
+  agent: LearningAgent | null
+  createdAt: string
 }
 
 // A version never changes once written, so nothing revalidates this key.
@@ -370,6 +416,36 @@ export function choosePageAttachmentDestination(storageLocationId: string | null
 
 type ListProjectPagesResponse = {
   pages: ProjectPage[]
+}
+
+type PageSuggestionsResponse = {
+  suggestions: PageSuggestion[]
+}
+
+// The suggestions waiting on a page, oldest first.
+export function listPageSuggestions(pageId: string) {
+  return apiClient
+    .get(pageSuggestionsKey(pageId))
+    .json<PageSuggestionsResponse>()
+}
+
+type DecidedSuggestionResponse = {
+  suggestion: PageSuggestion
+  page: KnowledgePage
+}
+
+// Every change, or those `changes` names by their index. One whose lines the page changed since
+// answers 409 with the code `suggestion_overlaps`, and the suggestion stays pending.
+export function acceptPageSuggestion(pageId: string, suggestionId: string, changes?: number[]) {
+  return apiClient
+    .post(`${pageSuggestionsKey(pageId)}/${suggestionId}/accept`, { json: { changes }})
+    .json<DecidedSuggestionResponse>()
+}
+
+export function dismissPageSuggestion(pageId: string, suggestionId: string, reason: string) {
+  return apiClient
+    .post(`${pageSuggestionsKey(pageId)}/${suggestionId}/dismiss`, { json: { reason }})
+    .json<DecidedSuggestionResponse>()
 }
 
 // The live pages linked to a project, its docs, newest published first; members alone.

@@ -27,7 +27,9 @@ export type DiffRow =
 // to one line of a long section reads as that line.
 export function diffRows(before: string, after: string, context = DIFF_CONTEXT_LINES): DiffRow[] {
   const lines: { kind: 'added' | 'removed' | 'unchanged', text: string }[] = []
-  for (const part of diffLines(before, after)) {
+  // Each text's last line is given its newline, so a last line that gains a line after it reads as
+  // unchanged rather than as removed and added again: `diffLines` tells `b` from `b\n`.
+  for (const part of diffLines(withFinalNewline(before), withFinalNewline(after))) {
     const kind = part.added
       ? 'added'
       : part.removed
@@ -70,6 +72,13 @@ export function diffRows(before: string, after: string, context = DIFF_CONTEXT_L
     index = end
   }
   return rows
+}
+
+function withFinalNewline(text: string) {
+  if (!text || text.endsWith('\n')) {
+    return text
+  }
+  return `${text}\n`
 }
 
 // The runs of a line replaced by another, for each of the two, or null when too little of them is
