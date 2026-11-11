@@ -135,8 +135,9 @@ function wordPiece(text: string) {
   return piece
 }
 
+// A key pressed where focus is, as a browser sends it.
 function press(key: string, options: KeyboardEventInit = {}) {
-  fireEvent.keyDown(document.body, { key, ...options })
+  fireEvent.keyDown(document.activeElement ?? document.body, { key, ...options })
 }
 
 describe('MeetingWorkspace', () => {
@@ -196,6 +197,44 @@ describe('MeetingWorkspace', () => {
     const pills = within(screen.getByRole('radiogroup', { name: 'Marks here' }))
     expect(pills.getByRole('radio', { name: 'Confidence' }).getAttribute('aria-checked')).toBe('true')
     expect(screen.queryByRole('textbox', { name: 'What these words should say' })).toBeNull()
+  })
+
+  it<Context>('takes focus from a press on a word, so its keys answer after a lane control had it', async (context) => {
+    // jsdom has no pointer capture, which a press on a word takes to follow a drag.
+    Object.assign(HTMLElement.prototype, {
+      setPointerCapture: () => {},
+      releasePointerCapture: () => {},
+      hasPointerCapture: () => false,
+    })
+    renderWorkspace(context)
+    const lane = screen.getByRole('switch', { name: 'Edit' })
+    act(() => lane.focus())
+
+    // A real press on a word: its pointerdown is canceled, so nothing moves focus but the page.
+    fireEvent.pointerDown(wordPiece('Fryday.'), { pointerType: 'mouse', button: 0, pointerId: 1 })
+    fireEvent.pointerUp(wordPiece('Fryday.'), { pointerType: 'mouse', button: 0, pointerId: 1 })
+    expect(document.activeElement).toBe(screen.getByRole('document', { name: 'Transcript' }))
+
+    press('e')
+    expect(await screen.findByRole('textbox', { name: 'What these words should say' })).toBeTruthy()
+  })
+
+  it<Context>('copies the words selected only while the transcript has focus', (context) => {
+    renderWorkspace(context)
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('is'), { shiftKey: true })
+
+    const copied = (target: Element) => {
+      const setData = vi.fn()
+      const event = new Event('copy', { bubbles: true, cancelable: true })
+      Object.assign(event, { clipboardData: { setData }})
+      target.dispatchEvent(event)
+      return setData.mock.calls[0]?.[1] ?? null
+    }
+    expect(copied(document.body)).toBe('Launch is')
+
+    act(() => screen.getByRole('switch', { name: 'Edit' }).focus())
+    expect(copied(document.body)).toBeNull()
   })
 
   it<Context>('edits words selected by Shift+click, applies with Ctrl+Enter, and Ctrl+Z undoes it', async (context) => {

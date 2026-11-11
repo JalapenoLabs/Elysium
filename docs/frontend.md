@@ -502,8 +502,9 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
 | Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
 | Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
 | Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
-| E, Tab, Esc     | A meeting's transcript, outside fields | Edit the words selected, move between the marks under the word clicked, clear what is picked (see Meetings) |
+| E, Tab, Ctrl+C  | A meeting's transcript, once pressed | Edit the words selected, move between the marks under the word clicked, copy them (see Meetings) |
 | Ctrl+Z, Cmd+Z   | A meeting's page, outside fields     | Undoes the page's last change that still stands                 |
+| Esc             | A meeting's page, with words picked  | Clears what is picked, before going up a level                  |
 
 - **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
   default), or, for a list that is not only a table, `ListSearchField`, whose table hides its own search
@@ -964,11 +965,12 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
-- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: Esc, Ctrl+Z, and
-  Ctrl+C anywhere on the page, and E and Tab only on the transcript (`data-review-keys`, which holds its floating bar)
-  or the page itself, where a click on a word leaves focus; elsewhere Tab moves focus as always. A key it uses is
-  marked, so the page's own Esc never goes up a level over a selection. The editor's Esc and Ctrl+Enter are its form's
-  (`submitOnEnter`).
+- **Keys.** `useReviewHotkeys` listens as keys travel down, outside text fields, menus, and dialogs: Esc and Ctrl+Z
+  anywhere on the page, and E, Tab, and Ctrl+C only while focus is in the transcript (`data-review-keys`, which holds
+  its floating bar). A press on a word gives the transcript focus (`tabIndex={-1}`, never a Tab stop), since a press it
+  cancels to drag moves no focus on its own; elsewhere Tab moves focus, E is a letter, and Ctrl+C copies, as always. A
+  key it uses is marked, so the page's own Esc never goes up a level over a selection. The editor's Esc and Ctrl+Enter
+  are its form's (`submitOnEnter`).
 
 ### Markdown
 
