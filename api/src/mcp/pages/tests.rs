@@ -30,12 +30,16 @@ use crate::tools::knowledge::SERVER;
 #[test]
 fn the_tools_are_listed_and_every_argument_is_described() {
     let tools = Workspace::pages_router().list_all();
-    let expected: [(&str, &[&str]); 8] = [
+    let expected: [(&str, &[&str]); 9] = [
         ("page_read", &["id"]),
         ("page_list", &["parentId", "offset"]),
         (
             "page_save",
             &["id", "baseVersion", "parentId", "title", "body"],
+        ),
+        (
+            "page_suggest",
+            &["id", "baseVersion", "edits", "reason", "quote", "source"],
         ),
         ("page_move", &["id", "to"]),
         ("page_label_add", &["id", "label"]),
@@ -464,7 +468,7 @@ async fn the_company_doc_refuses_a_client_and_points_it_at_proposing() {
         assert!(
             refused["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("company_doc_propose")),
+                .is_some_and(|message| message.contains("page_suggest")),
             "{refused}"
         );
 

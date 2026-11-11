@@ -152,6 +152,13 @@ export const PAGE_DRAG_TYPE = 'application/vnd.elysium.page'
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300
 
+// The Company page, seeded by the API at this id (`page::COMPANY_PAGE_ID`), under which the company
+// doc's sections sit.
+export const COMPANY_PAGE_ID = '00000000-0000-0000-0001-000000000002'
+
+// The longest reason a suggestion is dismissed with, as `page_suggestions.dismissal_reason` allows.
+export const PAGE_SUGGESTION_REASON_MAX_CHARACTERS = 2_000
+
 // How many messages one page of Elysia's conversation holds, as the API pages them by default.
 export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 

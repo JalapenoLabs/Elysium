@@ -93,7 +93,6 @@ import { BackupDestinationPage } from './pages/Settings/Backups/BackupDestinatio
 import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
 import { AgentGuidancePage } from './pages/Settings/AgentGuidance/AgentGuidancePage'
-import { CompanyDocPage } from './pages/Settings/CompanyDoc/CompanyDocPage'
 import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/EditLearningCategoryPage'
 import { LearningCategoriesPage } from './pages/Settings/LearningCategories/LearningCategoriesPage'
 import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/NewLearningCategoryPage'
@@ -110,7 +109,7 @@ import { NewLearningPage } from './pages/Knowledge/Learnings/NewLearningPage'
 // Misc
 import { llmSlugByType } from './pages/Settings/Llms/llmProviders'
 import { LLM_TYPES } from './pages/Settings/Llms/llmPresentation'
-import { getNewLlmUrl, UNKNOWN_ROUTE_REDIRECT_TO, UrlTree } from './urls'
+import { getCompanyDocUrl, getNewLlmUrl, UNKNOWN_ROUTE_REDIRECT_TO, UrlTree } from './urls'
 
 // How AppShell frames a route. `page` (the default) is a padded, scrolling column;
 // `workspace` gives the page the whole content area and lets it manage its own
@@ -397,6 +396,7 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsMeeting,
       element: <MeetingRedirect />,
     },
+    // The company doc lives in the knowledge base; its old address opens the Company page.
     {
       path: UrlTree.meetingUploadNew,
       element: <UploadMeetingPage />,
@@ -407,7 +407,7 @@ export const workspaceRoutes: RouteObject = {
     },
     {
       path: UrlTree.settingsCompanyDoc,
-      element: <CompanyDocPage />,
+      element: <Navigate to={getCompanyDocUrl()} replace />,
     },
     // Learnings moved to the Knowledge page; a page under the old address lands on its list.
     {

@@ -28,6 +28,8 @@ pub mod schema;
 mod split_meetings_tests;
 #[cfg(test)]
 mod split_sign_ins_tests;
+#[cfg(test)]
+mod suggest_edits_tests;
 
 use diesel_async::AsyncPgConnection;
 

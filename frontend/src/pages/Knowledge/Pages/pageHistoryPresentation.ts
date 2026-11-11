@@ -13,7 +13,7 @@ export const pageHistorySentenceKeys = {
   restored: 'pages.history.sentences.restored',
   undid: 'pages.history.sentences.undid',
   undidEarlier: 'pages.history.sentences.undidEarlier',
-  approved: 'pages.history.sentences.approved',
+  accepted: 'pages.history.sentences.accepted',
   moved: 'pages.history.sentences.moved',
   reordered: 'pages.history.sentences.reordered',
   deleted: 'pages.history.sentences.deleted',
@@ -84,8 +84,8 @@ function readPublished(
     }
     return { sentence: 'undid', otherVersion: undidVersion }
   }
-  if (data.proposalId) {
-    return { sentence: 'approved' }
+  if (data.suggestionId) {
+    return { sentence: 'accepted' }
   }
   return { sentence: 'published' }
 }

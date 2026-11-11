@@ -52,6 +52,7 @@ const pageResult: KnowledgeResult = {
   passages: [{ position: 2, content: 'Restart the fleet.' }],
   alsoRecordedBy: [],
   score: 0.03,
+  pendingSuggestions: 0,
 }
 
 function renderSearch(address: string) {

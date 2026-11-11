@@ -46,6 +46,7 @@ mod syncs;
 use std::sync::Arc;
 
 use anyhow::Result;
+use chrono::Utc;
 use tokio::task::JoinHandle;
 use tracing::{Level, event};
 
@@ -65,6 +66,7 @@ use crate::connectors::activity::Activity;
 use crate::connectors::ingest::Ingest;
 use crate::conversations::Conversations;
 use crate::conversations::handle::{HandleRequest, HandleRequestDeps};
+use crate::database::Pool;
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
 use crate::knowledge::answerer::{Answerer, AnswererDeps};
@@ -78,8 +80,11 @@ use crate::meetings::segment::{SegmentMeeting, SegmentMeetingDeps};
 use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
 use crate::meetings::{Meetings, MeetingsDeps};
+use crate::models::page_suggestion;
 use crate::passwords::remote;
 use crate::project_managers::{self, runner::ManagerRunner};
+use crate::realtime::EventBus;
+use crate::routes::v1::action_items::publish_item_write;
 use crate::runner::Runner;
 use crate::services::{self, Foundation};
 use crate::sessions::queue::{TurnQueue, TurnQueueDeps};
@@ -262,6 +267,11 @@ pub async fn run() -> Result<()> {
     loops.push((
         "company_doc.review",
         company_doc_review::schedule(database.clone(), events.clone(), shutdown.clone()),
+    ));
+    // The inbox item of every page whose suggestions never had one, once.
+    loops.push((
+        "pages.suggestion_items",
+        tokio::spawn(tell_of_suggestions(database.clone(), events.clone())),
     ));
     // Every project's Project Manager, one turn per project at a time.
     loops.push((
@@ -476,6 +486,39 @@ pub async fn run() -> Result<()> {
     foundation.close().await;
     event!(name: "engine.shutdown.complete", Level::INFO, "shutdown complete");
     Ok(())
+}
+
+/// Raises the review item of every page whose suggestions never had one
+/// (`page_suggestion::review_item::reconcile`), so no suggestion waits unseen, and announces each.
+/// Once at start: after that, every suggestion made or decided keeps its page's item. One that fails
+/// is logged, and the next start tries again.
+async fn tell_of_suggestions(database: Pool, events: EventBus) {
+    let reconciled = async {
+        let mut connection = database.get().await?;
+        let now = Utc::now();
+        let raised = page_suggestion::review_item::reconcile(&mut connection, now).await?;
+        for item in raised {
+            let item_id = item.record.id;
+            if let Err(error) = publish_item_write(&events, &mut connection, item, &[], now).await {
+                event!(
+                    name: "pages.suggestion_item.unpublished",
+                    Level::WARN,
+                    action_item.id = %item_id,
+                    error.message = %error,
+                    "a page's review item was raised but could not be announced",
+                );
+            }
+        }
+        anyhow::Ok(())
+    };
+    if let Err(error) = reconciled.await {
+        event!(
+            name: "pages.suggestion_items.reconcile_failure",
+            Level::WARN,
+            error.message = %format!("{error:#}"),
+            "could not raise the review items suggestions were missing; the next start tries again",
+        );
+    }
 }
 
 /// Pulls the workspace image and brings the workspace up ahead of the first turn, which would

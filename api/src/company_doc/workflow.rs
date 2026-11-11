@@ -1,23 +1,24 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! The company doc's review: a workflow that reads what was ingested since its last run and
-//! proposes changes to the doc, and the schedule that starts it. See `docs/engine.md`, The
+//! suggests edits to the doc, and the schedule that starts it. See `docs/engine.md`, The
 //! company doc.
 //!
 //! - **The workflow** ([`workflow`]) is one step, [`ReviewCompanyDoc`], on one source, the doc
 //!   itself, so it has one live run at a time. A run reads the timeline from where the last one
 //!   stopped (`crate::models::company_doc::review_cursor`) up to the instant in its input, in
 //!   turns of what fits one prompt (`super::review`), at most [`TURNS_PER_REVIEW`] of them; what
-//!   is left waits for the next run. Each turn's proposals and the cursor's move to the last
+//!   is left waits for the next run. Each turn's suggestions and the cursor's move to the last
 //!   record it read commit together, so a turn that runs twice, after its engine stopped, reads
-//!   its records once and proposes nothing twice.
+//!   its records once and suggests nothing twice.
 //! - **The schedule** ([`schedule`]) starts a run every [`REVIEW_INTERVAL`] while something new
-//!   was ingested, as Elysia, who proposes what it finds. People start one at once from the
-//!   Company doc page (`POST /api/v1/company-doc/review`).
+//!   was ingested, as Elysia, who suggests what it finds. People start one at once from the
+//!   Company page and its sections in the knowledge base (`POST /api/v1/company-doc/review`).
 //!
-//! Nothing a run proposes changes the doc: each proposal waits for a person to approve or reject
-//! it. A run's log names how many records it read and what it proposed to which section, never a
-//! word of the records, since every member reads every run's log and a record is its owner's.
+//! Nothing a run suggests changes the doc: each suggestion waits on its section's page for a
+//! person to accept or dismiss it (`crate::models::page_suggestion`). A run's log names how many
+//! records it read and what it suggested to which section, never a word of the records, since
+//! every member reads every run's log and a record is its owner's.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -35,14 +36,17 @@ use uuid::Uuid;
 use super::review::{self, PromptError, Suggestion};
 use crate::agent_models::AgentKind;
 use crate::database::Pool;
-use crate::models::company_doc::{
-    self, CompanyDocError, DocSection, NewProposal, Proposal, ProposalState, Proposer,
-};
+use crate::models::agent::Author;
+use crate::models::company_doc::{self, DocSection, SectionSuggestion};
 use crate::models::model_setting::ModelChoice;
+use crate::models::page_suggestion::{
+    self, NewSuggestion, Suggested, SuggestionError, SuggestionState,
+};
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::user::ELYSIA_USER_ID;
 use crate::models::workflow_run::{self, NewRun};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::EventBus;
+use crate::routes::v1::pages;
 use crate::runner::events::{RunnerEvent, TurnStatus};
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
 use crate::workflows::{self, Done, Start, Step, StepContext, StepFailure, Workflow};
@@ -94,7 +98,8 @@ pub struct ReviewWindow {
 pub struct Reviewed {
     /// Records read, in every turn.
     pub records: usize,
-    /// Proposals stored; one already pending is not counted again.
+    /// Suggestions stored; one already pending is not counted again. Named as runs have always
+    /// recorded it, so every run's output reads back.
     pub proposals: usize,
 }
 
@@ -117,8 +122,8 @@ pub fn run_for(now: DateTime<Utc>, created_by: Uuid) -> NewRun {
     })
 }
 
-/// Reads what was ingested since the last review and proposes changes to the doc. See the
-/// module's docs.
+/// Reads what was ingested since the last review and suggests edits to the doc. See the module's
+/// docs.
 #[derive(Clone)]
 pub struct ReviewCompanyDoc {
     inner: Arc<Inner>,
@@ -173,15 +178,20 @@ impl ReviewCompanyDoc {
     }
 
     /// One turn over `read`: the records after the cursor that fit one prompt, asked about and
-    /// proposed from.
+    /// suggested from.
     async fn turn(
         &self,
         read: ForTurn,
         model: &ModelChoice,
         context: &StepContext,
     ) -> Result<TurnRead, StepFailure> {
-        let prompt = review::prompt(&read.sections, &read.pending, &read.rejected, &read.records)
-            .map_err(|error| match error {
+        let prompt = review::prompt(
+            &read.sections,
+            &read.pending,
+            &read.dismissed,
+            &read.records,
+        )
+        .map_err(|error| match error {
             PromptError::DocTooLong | PromptError::NoRecords => StepFailure::permanent(error),
         })?;
         let included = &read.records[..prompt.records_included];
@@ -195,24 +205,23 @@ impl ReviewCompanyDoc {
             .map_err(|error| StepFailure::retryable(format!("The review's answer: {error}")))?;
 
         let last = included.last().expect("a prompt holds at least one record");
-        let stored = {
-            let mut connection = self.connection().await?;
-            store(
-                &mut connection,
-                &read,
-                (last.created_at, last.id),
-                suggestions,
-                context,
-            )
-            .await
-            .map_err(StepFailure::retryable)?
-        };
-        if stored.proposed > 0 {
-            self.inner.events.publish(&ServerEvent::CompanyDocChanged);
+        let mut connection = self.connection().await?;
+        let stored = store(
+            &mut connection,
+            &read,
+            (last.created_at, last.id),
+            suggestions,
+            context,
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
+        let proposed = stored.len();
+        for suggested in stored {
+            pages::announce_suggested(&self.inner.events, &mut connection, suggested).await;
         }
         Ok(TurnRead {
             records: included.len(),
-            proposed: stored.proposed,
+            proposed,
             more: included.len() < read.records.len() || read.records_full,
         })
     }
@@ -265,7 +274,7 @@ impl ReviewCompanyDoc {
 
 impl Step for ReviewCompanyDoc {
     const NAME: &'static str = "review_company_doc";
-    /// It reads what was ingested and proposes changes in one agent turn.
+    /// It reads what was ingested and suggests edits in one agent turn.
     const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Elysia);
     type Input = ReviewWindow;
     type Output = Reviewed;
@@ -314,7 +323,7 @@ impl Step for ReviewCompanyDoc {
             });
         }
         let summary = format!(
-            "Read {} records and proposed {} changes",
+            "Read {} records and suggested {} edits",
             reviewed.records, reviewed.proposals
         );
         context.log.line(&summary);
@@ -334,14 +343,14 @@ struct TurnRead {
     more: bool,
 }
 
-/// What a turn reads before it asks: the doc and its proposals, and the records after the
-/// cursor, which it started from.
+/// What a turn reads before it asks: the doc, the suggestions waiting on it and the latest
+/// dismissed, and the records after the cursor, which it started from.
 #[derive(Debug)]
 struct ForTurn {
     cursor: Option<(DateTime<Utc>, Uuid)>,
     sections: Vec<DocSection>,
-    pending: Vec<Proposal>,
-    rejected: Vec<Proposal>,
+    pending: Vec<SectionSuggestion>,
+    dismissed: Vec<SectionSuggestion>,
     records: Vec<TimelineRecord>,
     /// Whether the read stopped at [`RECORDS_PER_TURN`], so more may wait.
     records_full: bool,
@@ -367,16 +376,16 @@ async fn read_for_turn(
     Ok(Some(ForTurn {
         cursor,
         sections: company_doc::sections(connection).await?,
-        pending: company_doc::proposals(
+        pending: company_doc::latest(
             connection,
-            ProposalState::Pending,
-            Some(review::PROPOSALS_SHOWN),
+            SuggestionState::Pending,
+            review::PROPOSALS_SHOWN,
         )
         .await?,
-        rejected: company_doc::proposals(
+        dismissed: company_doc::latest(
             connection,
-            ProposalState::Rejected,
-            Some(review::PROPOSALS_SHOWN),
+            SuggestionState::Dismissed,
+            review::PROPOSALS_SHOWN,
         )
         .await?,
         records,
@@ -384,79 +393,85 @@ async fn read_for_turn(
     }))
 }
 
-/// What storing a turn's proposals did.
-#[derive(Debug, Clone, Copy)]
-struct Stored {
-    proposed: usize,
-}
-
 /// Stores `suggestions` and moves the cursor from where the turn started to `through`, in one
-/// transaction. Another attempt that moved the cursor first already stored this turn's
-/// proposals, so nothing is stored again.
+/// transaction, answering the suggestions it stored for the caller to announce once it commits.
+/// Another attempt that moved the cursor first already stored this turn's suggestions, so nothing
+/// is stored again.
 async fn store(
     connection: &mut AsyncPgConnection,
     read: &ForTurn,
     through: (DateTime<Utc>, Uuid),
     suggestions: Vec<Suggestion>,
     context: &StepContext,
-) -> anyhow::Result<Stored> {
+) -> anyhow::Result<Vec<Suggested>> {
     let log = context.log.clone();
     let run_id = context.run_id;
     let cursor = read.cursor;
-    let refused = rejected_changes(read, &suggestions);
+    let refused = dismissed_changes(read, &suggestions);
     connection
         .transaction(async move |connection| {
             if !company_doc::advance_review_cursor(connection, cursor, through).await? {
-                log.line("Another attempt already read these records; nothing was proposed");
-                return Ok(Stored { proposed: 0 });
+                log.line("Another attempt already read these records; nothing was suggested");
+                return Ok(Vec::new());
             }
-            let mut proposed = 0;
+            let mut stored = Vec::new();
             for (index, suggestion) in suggestions.into_iter().enumerate() {
                 let section = suggestion.section;
                 if refused.contains(&index) {
                     log.line(&format!(
-                        "Left out a change to {} that people already rejected",
+                        "Left out an edit to {} that people already dismissed",
                         section.as_str()
                     ));
                     continue;
                 }
-                let new = NewProposal {
-                    section,
-                    edits: suggestion.edits,
-                    reason: suggestion.reason,
-                    quote: suggestion.quote,
-                    source: suggestion.source,
+                let new = NewSuggestion::new(
+                    section.page_id(),
+                    None,
+                    suggestion.edits,
+                    &suggestion.reason,
+                    suggestion.quote.as_deref(),
+                    suggestion.source.as_deref(),
+                )
+                .map(|new| NewSuggestion {
                     timeline_record_id: suggestion.timeline_record_id,
-                };
-                let elysia = Proposer::Elysia {
                     workflow_run_id: Some(run_id),
+                    ..new
+                });
+                let elysia = Author {
+                    user_id: ELYSIA_USER_ID,
+                    agent: None,
+                    at: Utc::now(),
                 };
-                match company_doc::propose(connection, new, elysia, Utc::now()).await {
-                    Ok(stored) if stored.created => {
-                        proposed += 1;
-                        log.line(&format!("Proposed a change to {}", section.as_str()));
+                let suggested = match new {
+                    Ok(new) => page_suggestion::suggest(connection, new, elysia).await,
+                    Err(refusal) => Err(refusal),
+                };
+                match suggested {
+                    Ok(suggested) if suggested.created => {
+                        log.line(&format!("Suggested an edit to {}", section.as_str()));
+                        stored.push(suggested);
                     }
                     Ok(_already) => log.line(&format!(
-                        "The change to {} is already waiting for review",
+                        "The edit to {} is already waiting for review",
                         section.as_str()
                     )),
-                    Err(CompanyDocError::Database(error)) => return Err(error.into()),
+                    Err(SuggestionError::Database(error)) => return Err(error.into()),
                     // The model's edit missed the text, changed nothing, or ran long: its
-                    // proposal is left out, and the reason is safe to log.
+                    // suggestion is left out, and the reason is safe to log.
                     Err(refusal) => log.line(&format!(
-                        "Left out a change to {}: {refusal}",
+                        "Left out an edit to {}: {refusal}",
                         section.as_str()
                     )),
                 }
             }
-            Ok(Stored { proposed })
+            Ok(stored)
         })
         .await
 }
 
-/// The positions of `suggestions` whose change is one people already rejected: the section as
-/// the edits would leave it is the text of a rejected proposal to it.
-fn rejected_changes(read: &ForTurn, suggestions: &[Suggestion]) -> BTreeSet<usize> {
+/// The positions of `suggestions` whose change is one people already dismissed: the section as
+/// the edits would leave it is the text of a dismissed suggestion to it.
+fn dismissed_changes(read: &ForTurn, suggestions: &[Suggestion]) -> BTreeSet<usize> {
     let mut refused = BTreeSet::new();
     for (index, suggestion) in suggestions.iter().enumerate() {
         let Some(current) = read
@@ -466,13 +481,13 @@ fn rejected_changes(read: &ForTurn, suggestions: &[Suggestion]) -> BTreeSet<usiz
         else {
             continue;
         };
-        let Ok(content) = company_doc::apply_edits(&current.content, &suggestion.edits) else {
+        let Ok(content) = page_suggestion::apply_edits(&current.content, &suggestion.edits) else {
             continue;
         };
-        let was_rejected = read.rejected.iter().any(|rejected| {
-            rejected.section == suggestion.section.as_str() && rejected.content == content
+        let was_dismissed = read.dismissed.iter().any(|dismissed| {
+            dismissed.section == suggestion.section && dismissed.suggestion.body == content
         });
-        if was_rejected {
+        if was_dismissed {
             refused.insert(index);
         }
     }
@@ -555,7 +570,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::models::company_doc::{Edit, Section};
+    use crate::models::company_doc::Section;
+    use crate::models::page_suggestion::{Edit, Suggestion as StoredSuggestion};
     use crate::models::workflow_run::{WorkflowRun, WorkflowRunState};
 
     #[test]
@@ -617,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_people_rejected_is_left_out() {
+    fn an_edit_people_dismissed_is_left_out() {
         let now = Utc::now();
         let sections = Section::ALL
             .into_iter()
@@ -627,29 +643,35 @@ mod tests {
                 updated_at: now,
             })
             .collect();
-        let rejected = Proposal {
-            id: Uuid::now_v7(),
-            section: "glossary".to_owned(),
-            base_content: "- ACME".to_owned(),
-            content: "- ACME\n- Acme Corp".to_owned(),
-            reason: "Seen in mail".to_owned(),
-            quote: None,
-            source: None,
-            timeline_record_id: None,
-            workflow_run_id: None,
-            state: "rejected".to_owned(),
-            decided_by: Some(Uuid::now_v7()),
-            decided_at: Some(now),
-            created_by: ELYSIA_USER_ID,
-            agent: None,
-            agent_name: None,
-            created_at: now,
+        let dismissed = SectionSuggestion {
+            section: Section::Glossary,
+            suggestion: StoredSuggestion {
+                id: Uuid::now_v7(),
+                page_id: Section::Glossary.page_id(),
+                base_version: 2,
+                base_body: "- ACME".to_owned(),
+                body: "- ACME\n- Acme Corp".to_owned(),
+                reason: "Seen in mail".to_owned(),
+                quote: None,
+                source: None,
+                timeline_record_id: None,
+                workflow_run_id: None,
+                state: "dismissed".to_owned(),
+                accepted_changes: None,
+                dismissal_reason: Some("Acme is the client's old name".to_owned()),
+                decided_by: Some(Uuid::now_v7()),
+                decided_at: Some(now),
+                created_by: ELYSIA_USER_ID,
+                agent: None,
+                agent_name: None,
+                created_at: now,
+            },
         };
         let read = ForTurn {
             cursor: None,
             sections,
             pending: Vec::new(),
-            rejected: vec![rejected],
+            dismissed: vec![dismissed],
             records: Vec::new(),
             records_full: false,
         };
@@ -665,7 +687,7 @@ mod tests {
             timeline_record_id: None,
         };
 
-        let refused = rejected_changes(
+        let refused = dismissed_changes(
             &read,
             &[
                 suggestion(Section::Glossary, "- Acme Corp"),

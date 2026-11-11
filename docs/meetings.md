@@ -424,9 +424,9 @@ the next one still reads its input. A meeting not fetched skips it, saying "Not 
 raw transcripts are never written.
 
 - **What it reads.** Every transcript the meeting's capture has: the source's lines and, when the recording was
-  transcribed, Whisper's. The company doc whole, with its pending proposals (`company_doc::read`,
+  transcribed, Whisper's. The company doc whole, with the suggestions pending on its sections (`company_doc::read`,
   `docs/knowledge.md`), its sections in the order correction needs them (people, glossary, products, projects,
-  stakeholders, leadership, company), the lines a pending proposal would add marked as proposed. And the company's
+  stakeholders, leadership, company), the lines a pending suggestion would add marked as proposed. And the company's
   other meetings: the fixes their 30 newest corrections made, those made in the most meetings first, approved
   corrections first, and the names speakers went by in the 30 newest meetings' captures, as their sources labelled
   them, which is usually how people spell themselves. Other meetings are anyone's in the company: the names and terms a company uses are its own, as its

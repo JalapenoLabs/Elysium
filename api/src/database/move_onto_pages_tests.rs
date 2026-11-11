@@ -21,10 +21,13 @@ use uuid::{Uuid, uuid};
 use super::migrations::{self, MIGRATIONS, MigrationCommand};
 use crate::knowledge::passages;
 use crate::models::agent::{Agent, Author};
-use crate::models::company_doc::{self, ProposalState, Section};
+use crate::models::company_doc::{self, Section};
 use crate::models::knowledge_document::{self, Origin, content_sha256};
 use crate::models::learning::{self, LearningContent, LearningError};
-use crate::models::page::{self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, PageError, Placement};
+use crate::models::page::{
+    self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, PageContent, PageError, Placement, Provenance,
+};
+use crate::models::page_suggestion::{self, SuggestionError, SuggestionState};
 use crate::models::user::{CODING_AGENT_USER_ID, SYSTEM_USER_ID};
 use crate::test_support::{TEST_PERSON_ID, empty_database};
 
@@ -49,8 +52,6 @@ const LONG: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000104");
 /// A plain page from before the move, which the move must leave alone.
 const PLAIN_PAGE: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000201");
 
-/// A change that wrote two sections as one.
-const TWO_SECTIONS: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000b02");
 const PENDING: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000c01");
 const REJECTED: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000c02");
 const APPROVED: Uuid = uuid!("0199a3c5-0000-7000-8000-000000000c03");
@@ -420,13 +421,6 @@ fn person() -> Author<'static> {
     }
 }
 
-fn doc_author() -> company_doc::Author {
-    company_doc::Author {
-        user_id: TEST_PERSON_ID,
-        at: Utc::now(),
-    }
-}
-
 /// The rows of a history table in order of their ids, each its id, kind, and `data`.
 fn entry_rows(rows: &Value) -> Vec<(String, String, Value)> {
     let mut entries: Vec<(String, String, Value)> = rows
@@ -653,41 +647,50 @@ async fn the_company_doc_reads_as_it_did_with_its_history_and_proposals() {
     );
     assert_eq!(people[2].created_by, SECOND_PERSON, "whoever approved it");
 
-    let history = company_doc::history(&mut connection).await.expect("reads");
-    let read: Vec<(String, String, Value)> = history
+    // The doc's history is its sections' pages': every entry keeps its id on each section it wrote,
+    // and the approved one names what it applied, as the suggestion that proposal now is.
+    let written = rows_of(
+        &mut connection,
+        "SELECT id, page_id, created_by, created_at, data FROM page_events \
+         WHERE kind = 'published' AND page_id IN (SELECT id FROM pages \
+                                                  WHERE parent_id = '00000000-0000-0000-0001-000000000002') \
+         ORDER BY id, page_id",
+    )
+    .await;
+    let written = written.as_array().expect("rows");
+    let mut entry_ids: Vec<String> = written
         .iter()
-        .map(|entry| (entry.id.to_string(), entry.kind.clone(), entry.data.clone()))
+        .map(|row| row["id"].as_str().expect("an id").to_owned())
         .collect();
-    assert_eq!(
-        read,
-        entry_rows(&events_before),
-        "every entry reads as it did"
-    );
-    let approved = history
+    entry_ids.dedup();
+    let before: Vec<String> = entry_rows(&events_before)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(entry_ids, before, "every entry keeps its id");
+    let approved = written
         .iter()
-        .find(|entry| entry.kind == "approved")
+        .find(|row| row["data"].get("suggestionId").is_some())
         .expect("kept");
-    assert_eq!(approved.proposal_id, Some(APPROVED));
-    assert_eq!(approved.created_by, SECOND_PERSON);
-    assert_eq!(approved.created_at, at((10, 5), 12));
+    assert_eq!(approved["data"]["suggestionId"], json!(APPROVED));
+    assert_eq!(approved["created_by"], json!(SECOND_PERSON));
+    assert_eq!(approved["page_id"], json!(Section::People.page_id()));
 
-    let pending = company_doc::proposals(&mut connection, ProposalState::Pending, None)
-        .await
-        .expect("reads");
+    let pending = company_doc::pending(&mut connection).await.expect("reads");
     assert_eq!(
         pending
             .iter()
-            .map(|proposal| proposal.id)
+            .map(|suggested| suggested.suggestion.id)
             .collect::<Vec<_>>(),
         [PENDING]
     );
-    let rejected = company_doc::proposals(&mut connection, ProposalState::Rejected, None)
+    let dismissed = company_doc::latest(&mut connection, SuggestionState::Dismissed, 10)
         .await
         .expect("reads");
     assert_eq!(
-        rejected
+        dismissed
             .iter()
-            .map(|proposal| proposal.id)
+            .map(|suggested| suggested.suggestion.id)
             .collect::<Vec<_>>(),
         [REJECTED]
     );
@@ -905,20 +908,36 @@ async fn write_since_the_move(
         .await
         .expect("moved");
 
-    company_doc::edit(
+    // One change to two sections, as one entry id on both, and the suggestion pending before the
+    // move accepted.
+    let change = Provenance {
+        change: Some(Uuid::now_v7()),
+        ..Provenance::default()
+    };
+    for (section, body) in [
+        (Section::People, "- Priya Raman\n- Tom Okafor"),
+        (Section::Products, "- Elysium"),
+    ] {
+        let current = page::lock(connection, section.page_id())
+            .await
+            .expect("locked");
+        let content = PageContent {
+            body: body.to_owned(),
+            ..current.content()
+        };
+        page::publish_content(connection, &current, content, change, person())
+            .await
+            .expect("published");
+    }
+    page_suggestion::accept(
         connection,
-        [
-            (Section::People, "- Priya Raman\n- Tom Okafor".to_owned()),
-            (Section::Products, "- Elysium".to_owned()),
-        ]
-        .into(),
-        doc_author(),
+        Section::Glossary.page_id(),
+        PENDING,
+        None,
+        person(),
     )
     .await
-    .expect("edited");
-    company_doc::approve(connection, PENDING, doc_author())
-        .await
-        .expect("approved");
+    .expect("accepted");
 
     (
         saved.learning.id,
@@ -1132,32 +1151,23 @@ async fn what_was_true_of_the_doc_still_holds_on_moved_data() {
     let (url, mut connection) = laid_out_as_production().await;
     up(&url).await;
 
-    // A change to two sections undoes as one, keeping a section changed since.
-    company_doc::edit(
-        &mut connection,
-        [(Section::People, "- Priya Raman\n- Tom Okafor".to_owned())].into(),
-        doc_author(),
-    )
-    .await
-    .expect("edited");
-    let glossary_back = company_doc::undo(&mut connection, TWO_SECTIONS, doc_author())
+    // A section's version from before the move restores as any page's does.
+    let glossary = Section::Glossary.page_id();
+    page::restore_version(&mut connection, glossary, 1, person())
         .await
-        .expect("undone")
-        .expect("recorded");
-    assert_eq!(glossary_back.data["undid"], json!(TWO_SECTIONS));
+        .expect("restored");
     let sections = company_doc::sections(&mut connection).await.expect("reads");
-    let body_of = |wanted: Section| {
-        let section = sections.iter().find(|section| section.section == wanted);
-        section.expect("every section").content.clone()
-    };
-    assert_eq!(body_of(Section::Glossary), "");
-    assert_eq!(body_of(Section::People), "- Priya Raman\n- Tom Okafor");
+    let glossary_now = sections
+        .iter()
+        .find(|section| section.section == Section::Glossary)
+        .expect("every section");
+    assert_eq!(glossary_now.content, "");
 
-    // A proposal made before the move merges three ways with what changed since: here, against a
-    // section an undo emptied, its lines overlap and it stays pending.
+    // A proposal made before the move is a suggestion that merges three ways with what changed
+    // since: here, against a section emptied since, its lines overlap and it stays pending.
     assert!(matches!(
-        company_doc::approve(&mut connection, PENDING, doc_author()).await,
-        Err(company_doc::CompanyDocError::Overlaps(Section::Glossary))
+        page_suggestion::accept(&mut connection, glossary, PENDING, None, person()).await,
+        Err(SuggestionError::Overlaps)
     ));
 
     // The fixed pages keep their place, whoever asks.

@@ -103,7 +103,12 @@ function describeHit(hit: RecordSearchHit, t: TFunction<TranslationNamespace[]>)
         // find is one result.
         id: `page:${hit.id}`,
         target: { kind: 'link', href: getKnowledgePageUrl(hit.id) },
-        detail: t('knowledge:sources.page'),
+        detail: hit.pendingSuggestions
+          ? t('knowledge:result.pageSuggestions', {
+            source: t('knowledge:sources.page'),
+            count: hit.pendingSuggestions,
+          })
+          : t('knowledge:sources.page'),
       } as const
     default:
       return null
