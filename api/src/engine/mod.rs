@@ -72,6 +72,7 @@ use crate::elysia::runner::TurnRunner;
 use crate::knowledge::answerer::{Answerer, AnswererDeps};
 use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
+use crate::meeting_uploads::staging::Staging;
 use crate::meetings::align::{AlignMeeting, AlignMeetingDeps};
 use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
@@ -201,6 +202,7 @@ pub async fn run() -> Result<()> {
         storage: foundation.storage.clone(),
         workspace: meeting_workspace.clone(),
         sources: meeting_sources.clone(),
+        staging: Staging::in_workspace(meeting_workspace.clone()),
     })?);
     let whisper = services::build_whisper(&config)?;
     event!(
@@ -235,7 +237,7 @@ pub async fn run() -> Result<()> {
         cipher: Arc::clone(&cipher),
         storage: foundation.storage.clone(),
         runner: runner.clone(),
-        workspace: meeting_workspace,
+        workspace: meeting_workspace.clone(),
     }));
     steps.register(HandleRequest::new(HandleRequestDeps {
         database: database.clone(),
@@ -356,6 +358,7 @@ pub async fn run() -> Result<()> {
         activity: connector_activity.clone(),
         cipher: Arc::clone(&cipher),
         sources: meeting_sources,
+        staging: Staging::in_workspace(meeting_workspace),
     });
     loops.push(("meetings", meetings.start(shutdown.clone())));
     loops.push((

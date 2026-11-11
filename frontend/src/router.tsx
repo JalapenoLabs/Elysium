@@ -102,6 +102,7 @@ import { LearningsPage } from './pages/Knowledge/Learnings/LearningsPage'
 import { MeetingPage } from './pages/Knowledge/Meetings/MeetingPage'
 import { MeetingRedirect } from './pages/Knowledge/Meetings/MeetingRedirect'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
+import { UploadMeetingPage } from './pages/MeetingUploads/UploadMeetingPage'
 import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
 import { NewLearningPage } from './pages/Knowledge/Learnings/NewLearningPage'
 
@@ -396,6 +397,14 @@ export const workspaceRoutes: RouteObject = {
       element: <MeetingRedirect />,
     },
     // The company doc lives in the knowledge base; its old address opens the Company page.
+    {
+      path: UrlTree.meetingUploadNew,
+      element: <UploadMeetingPage />,
+    },
+    {
+      path: UrlTree.meetingCaptureUploadNew,
+      element: <UploadMeetingPage />,
+    },
     {
       path: UrlTree.settingsCompanyDoc,
       element: <Navigate to={getCompanyDocUrl()} replace />,

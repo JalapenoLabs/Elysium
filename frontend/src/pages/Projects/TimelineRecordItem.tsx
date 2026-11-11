@@ -47,12 +47,15 @@ export function TimelineRecordItem(props: Props) {
           }</span>}
         </div>
         <h3 className='mt-1 font-medium'>{record.title}</h3>
+        {/* A segment of a meeting in words alone has no span: its transcript carried no times. */}
         {media && details.meetingTitle && <p className='text-xs opacity-60'>{
-          t('segment.inMeeting', {
-            meeting: details.meetingTitle,
-            start: formatMediaPosition(media.startMs),
-            end: formatMediaPosition(media.endMs),
-          })
+          media.startMs === media.endMs
+            ? t('segment.inMeetingWords', { meeting: details.meetingTitle })
+            : t('segment.inMeeting', {
+              meeting: details.meetingTitle,
+              start: formatMediaPosition(media.startMs),
+              end: formatMediaPosition(media.endMs),
+            })
         }</p>}
       </div>
       {record.url && <Link

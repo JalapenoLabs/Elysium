@@ -1262,6 +1262,39 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_upload_files (upload_id, kind) {
+        upload_id -> Uuid,
+        kind -> Text,
+        file_name -> Text,
+        size_bytes -> Int8,
+        modified_at -> Nullable<Timestamptz>,
+        received_bytes -> Int8,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    meeting_uploads (id) {
+        id -> Uuid,
+        meeting_id -> Nullable<Uuid>,
+        title -> Nullable<Text>,
+        started_at -> Nullable<Timestamptz>,
+        storage_location_id -> Nullable<Uuid>,
+        part_bytes -> Int4,
+        transcript -> Nullable<Jsonb>,
+        capture_id -> Nullable<Uuid>,
+        finished_at -> Nullable<Timestamptz>,
+        parts_removed_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_words (id) {
         id -> Uuid,
         meeting_id -> Uuid,
@@ -2188,6 +2221,11 @@ diesel::joinable!(meeting_marks -> meeting_events (removed_by));
 diesel::joinable!(meeting_marks -> meetings (meeting_id));
 diesel::joinable!(meeting_marks -> users (created_by));
 diesel::joinable!(meeting_transcriptions -> meeting_captures (capture_id));
+diesel::joinable!(meeting_upload_files -> meeting_uploads (upload_id));
+diesel::joinable!(meeting_uploads -> meeting_captures (capture_id));
+diesel::joinable!(meeting_uploads -> meetings (meeting_id));
+diesel::joinable!(meeting_uploads -> storage_locations (storage_location_id));
+diesel::joinable!(meeting_uploads -> users (created_by));
 diesel::joinable!(meeting_words -> meeting_captures (capture_id));
 diesel::joinable!(meeting_words -> meetings (meeting_id));
 diesel::joinable!(meetings -> users (created_by));
@@ -2350,6 +2388,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_events,
     meeting_marks,
     meeting_transcriptions,
+    meeting_upload_files,
+    meeting_uploads,
     meeting_words,
     meetings,
     model_settings,

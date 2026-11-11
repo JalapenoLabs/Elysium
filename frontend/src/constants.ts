@@ -229,3 +229,12 @@ export const KNOWLEDGE_SEARCH_PAGE_LIMIT = 50
 // api/src/meetings/mod.rs names it: whether its meetings wait for their person to approve each
 // corrected transcript before Elysium acts on them.
 export const WAIT_FOR_APPROVAL_FIELD = 'waitForApproval'
+
+// How many times one part of a meeting's upload is sent before the upload stops to say why: a
+// dropped connection or a busy API is waited out, and the person resumes from the same part.
+export const MEETING_UPLOAD_PART_ATTEMPTS = 8
+
+// How long a part of a meeting's upload waits before it is sent again, doubling each time from
+// the first to the most, so seven waits cover about a minute and a half of an API away.
+export const MEETING_UPLOAD_FIRST_RETRY_DELAY_MS = 1_000
+export const MEETING_UPLOAD_MAX_RETRY_DELAY_MS = 30_000

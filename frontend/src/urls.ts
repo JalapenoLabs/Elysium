@@ -88,6 +88,9 @@ export const UrlTree = {
   settingsMeetings: '/settings/meetings',
   // A meeting's earlier address, which redirects to its page in the knowledge base.
   settingsMeeting: '/settings/meetings/:meetingId',
+  // Uploading a meeting, or a recording or transcript of one the person has (a capture of it).
+  meetingUploadNew: '/settings/meetings/new',
+  meetingCaptureUploadNew: '/settings/meetings/:meetingId/captures/new',
   // The company doc's old address in Settings, which opens the Company page: the doc lives in the
   // knowledge base.
   settingsCompanyDoc: '/settings/company-doc',
@@ -276,6 +279,10 @@ export function getWorkBatchEditUrl(batchId: string) {
 
 export function getMeetingUrl(meetingId: string) {
   return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
+}
+
+export function getMeetingCaptureUploadUrl(meetingId: string) {
+  return UrlTree.meetingCaptureUploadNew.replace(':meetingId', meetingId)
 }
 
 export function getConnectorUrl(connectorId: string) {

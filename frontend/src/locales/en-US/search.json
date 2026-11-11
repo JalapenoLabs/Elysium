@@ -52,6 +52,7 @@
     "sessions": "devices signed in browsers",
     "mcp": "connected apps clients oauth claude codex model context protocol",
     "meetings": "fireflies teams slack huddles transcripts recordings calls",
+    "meetingUpload": "add new import recording transcript video audio file obs vtt srt",
     "knowledge": "knowledge base pages docs wiki tree",
     "knowledgeSearch": "knowledge base documents mail chat messages pages meetings transcripts citations",
     "knowledgeSearchPages": "knowledge base docs wiki find titles text labels authors",

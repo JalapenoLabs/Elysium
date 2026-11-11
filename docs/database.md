@@ -789,6 +789,41 @@ inbox item asking. A decision, who made it, and when are set together (`meeting_
 | `created_by`      | `UUID`        | References `users`; the system user, which asks                              |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                   |
 
+### `meeting_uploads`
+
+Meetings people upload, while their parts arrive and once they became a capture; see `docs/meetings.md`, Uploads. A new
+meeting's upload names its title and start, and a capture's names its meeting (`meeting_uploads_new_meeting`); a
+finished one names the capture it became (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
+updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep, and
+`meeting_uploads_parts_kept` on `finished_at`, partial on finished uploads whose parts were not removed, the finished
+ones to sweep.
+
+| Column                | Type          | Notes                                                                       |
+|-----------------------|---------------|-----------------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                         |
+| `meeting_id`          | `UUID`        | References `meetings`, cascading: the meeting a capture is added to; `NULL` for a new meeting |
+| `title`, `started_at` | `TEXT`, `TIMESTAMPTZ` | A new meeting's title and when it started                           |
+| `storage_location_id` | `UUID`        | References `storage_locations`: where the recording is kept; `NULL` for a transcript alone |
+| `part_bytes`          | `INTEGER`     | How many bytes each part carries but the last, fixed when it starts         |
+| `transcript`          | `JSONB`       | The lines its transcript was read as, `{ startMs, endMs, speaker, text }` each, set when it finishes |
+| `capture_id`          | `UUID`        | References `meeting_captures`, cascading, unique: the capture it became     |
+| `finished_at`         | `TIMESTAMPTZ` | When it finished                                                            |
+| `parts_removed_at`    | `TIMESTAMPTZ` | When its staged parts were removed from the workspace; `NULL` while they may be there |
+| `created_by`          | `UUID`        | References `users`: who uploads it                                          |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger, and moved by every part, which the sweep reads |
+
+### `meeting_upload_files`
+
+An upload's files, a recording, a transcript, or one of each; a child of its upload, so it has no `created_by`.
+
+| Column           | Type          | Notes                                                                            |
+|------------------|---------------|----------------------------------------------------------------------------------|
+| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording` or `transcript`         |
+| `file_name`      | `TEXT`        | Its name, cleaned, at most 200 characters                                        |
+| `size_bytes`     | `BIGINT`      | Above zero                                                                       |
+| `modified_at`    | `TIMESTAMPTZ` | When the file last changed, as the browser read it, to resume it                 |
+| `received_bytes` | `BIGINT`      | How much of it arrived, in whole parts from its start; at most its size          |
+
 ### `meeting_transcriptions`
 
 What Elysium's own Whisper heard in a capture's recording, one per capture, written once by the meeting workflow's
@@ -832,7 +867,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, or `split`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, or `capture_added`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |
