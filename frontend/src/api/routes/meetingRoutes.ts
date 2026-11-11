@@ -57,8 +57,11 @@ export type Meeting = {
   runId: string | null
   // Whether that run is held, waiting for its person to approve the corrected transcript.
   awaitingApproval: boolean
-  // The meeting its captures were merged into, while they are: it is listed nowhere then, and
-  // they are split back out from there.
+  // The projects its topics are on: where the tree lists it beside its home under Meetings, and
+  // what the Meetings page filters it by.
+  projectIds: string[]
+  // The meeting its person merged its captures into, or null. A merged meeting lives on in that
+  // one, so it is in no list, though an event may still load it by id.
   mergedInto: string | null
   createdAt: string
   updatedAt: string

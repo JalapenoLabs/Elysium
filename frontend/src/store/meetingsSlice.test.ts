@@ -6,37 +6,47 @@ import { describe, expect, it } from 'vitest'
 // Redux
 import { createAppStore } from './index'
 import { meetingsLoaded, meetingUpserted, selectListedMeetings, selectMeetingById } from './meetingsSlice'
+import { pagesLoaded, selectKnowledgeTree } from './pagesSlice'
 
 // Misc
-import { makeMeeting } from '../testFixtures'
+import { MEETINGS_PAGE_ID } from '../constants'
+import { makeMeeting, makePageSummary } from '../testFixtures'
 
-describe('selectListedMeetings', () => {
-  it('leaves out a meeting merged into another, which its own page still reads', () => {
+describe('meetingsSlice', () => {
+  it('orders meetings newest first, the later id first between two that started together', () => {
     const store = createAppStore()
+
     store.dispatch(meetingsLoaded([
-      makeMeeting({ id: 'teams', startedAt: '2026-11-10T15:00:00Z' }),
-      makeMeeting({ id: 'fireflies', startedAt: '2026-11-10T15:01:00Z' }),
+      makeMeeting({ id: 'a', startedAt: '2026-11-09T09:00:00Z' }),
+      makeMeeting({ id: 'b', startedAt: '2026-11-10T09:00:00Z' }),
+      makeMeeting({ id: 'c', startedAt: '2026-11-09T09:00:00Z' }),
     ]))
 
-    // A merge announces both meetings, and the one merged away arrives saying where it went.
-    store.dispatch(meetingUpserted(makeMeeting({
-      id: 'fireflies',
-      startedAt: '2026-11-10T15:01:00Z',
-      mergedInto: 'teams',
-    })))
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'b', 'c', 'a' ])
+  })
 
-    const listed = selectListedMeetings(store.getState())
-    expect(listed.map((meeting) => meeting.id)).toEqual([ 'teams' ])
-    expect(selectMeetingById(store.getState(), 'fireflies')?.mergedInto).toBe('teams')
-    // Nothing changed, so a list rendering again gets the same list.
-    expect(selectListedMeetings(store.getState())).toBe(listed)
+  it('keeps a meeting loaded after it was merged away out of every list, but not out of the store', () => {
+    const store = createAppStore()
+    store.dispatch(pagesLoaded([ makePageSummary({ id: MEETINGS_PAGE_ID, title: 'Meetings', fixed: true }) ]))
+    store.dispatch(meetingsLoaded([ makeMeeting({ id: 'kept' }) ]))
 
-    // Split back out, it is listed again.
-    store.dispatch(meetingUpserted(makeMeeting({
-      id: 'fireflies',
-      startedAt: '2026-11-10T15:01:00Z',
-      mergedInto: null,
-    })))
-    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'fireflies', 'teams' ])
+    // An event about one of its old topics loads the merged meeting by id.
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', mergedInto: 'kept' })))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'kept' ])
+    const homes = selectKnowledgeTree(store.getState()).meetingsByPage.get(MEETINGS_PAGE_ID)
+    expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'kept' ])
+    expect(selectMeetingById(store.getState(), 'merged')?.mergedInto).toBe('kept')
+  })
+
+  it('lists a meeting again once its captures are split back out', () => {
+    const store = createAppStore()
+    store.dispatch(meetingsLoaded([ makeMeeting({ id: 'kept', startedAt: '2026-11-10T09:00:00Z' }) ]))
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', mergedInto: 'kept' })))
+
+    // The split announces both meetings, and the one split out arrives its own again.
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', startedAt: '2026-11-09T09:00:00Z', mergedInto: null })))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'kept', 'merged' ])
   })
 })

@@ -6,9 +6,11 @@ import type { RootState } from './index'
 // Core
 import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
-// Newest first, as the meetings list shows them.
+// Newest first, as the API lists them: the later id first between two that started together, so
+// two never tie, in the Meetings list or as siblings in the tree.
 const meetingsAdapter = createEntityAdapter<Meeting>({
-  sortComparer: (first, second) => second.startedAt.localeCompare(first.startedAt),
+  sortComparer: (first, second) => second.startedAt.localeCompare(first.startedAt)
+    || second.id.localeCompare(first.id),
 })
 
 export const meetingsSlice = createSlice({
@@ -27,10 +29,9 @@ export const {
   selectById: selectMeetingById,
 } = meetingsAdapter.getSelectors((state: RootState) => state.meetings)
 
-// The meetings a list shows: every one but those merged into another, which live on in it and
-// are listed nowhere (docs/meetings.md, Meetings and captures). A merged meeting still reaches
-// the store, from its own page or from the event a merge announces, and stays there for its page.
+// The meetings every list shows: all but those merged into another, which live on in it. An event
+// loads a merged one by id, which keeps it in the store for its own page, so the lists ask here.
 export const selectListedMeetings = createSelector(
   [ selectAllMeetings ],
-  (meetings) => meetings.filter((meeting) => !meeting.mergedInto),
+  (meetings) => meetings.filter((meeting) => meeting.mergedInto === null),
 )

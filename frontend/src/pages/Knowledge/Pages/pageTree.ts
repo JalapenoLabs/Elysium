@@ -1,21 +1,52 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Meeting } from '../../../api/routes/meetingRoutes'
 import type { KnowledgePageSummary, PagePlacement } from '../../../api/routes/pageRoutes'
 
 // Misc
+import { MEETINGS_PAGE_ID, MEETINGS_TREE_BRANCH_SIZE } from '../../../constants'
 import { scoreSearchMatch, toSearchWords } from '../../../search/searchMatch'
+
+// A meeting where the tree lists it. Meetings are no pages: each has its home under the Meetings
+// page, and a linked entry in the Meetings group of every project it has a topic on, all opening its
+// one page.
+export type MeetingTreeEntry = {
+  // Unique across the tree, since one meeting shows in several places.
+  key: string
+  meetingId: string
+  // Empty when its source named none.
+  title: string
+}
+
+// The newest meetings a branch lists, at most `MEETINGS_TREE_BRANCH_SIZE`, and how many it holds in
+// all, which the page it opens lists whole.
+export type MeetingTreeBranch = {
+  entries: MeetingTreeEntry[]
+  total: number
+}
+
+// A project's meetings, newest first, as one group under the project's brief.
+export type MeetingTreeGroup = MeetingTreeBranch & {
+  key: string
+  projectId: string
+}
 
 export type PageTree = {
   byId: Map<string, KnowledgePageSummary>
   // Each page's children in order, under its id, and the top of the tree under null. A page with
   // none has no entry.
   childrenByParent: Map<string | null, KnowledgePageSummary[]>
+  // The meetings listed under a page, after its child pages: every meeting's home entry under the
+  // Meetings page, newest first.
+  meetingsByPage: Map<string, MeetingTreeBranch>
+  // The Meetings group under a project's brief, after its child pages.
+  meetingGroupsByPage: Map<string, MeetingTreeGroup>
   // On a filtered tree, the pages kept only to show where a match sits.
   contextIds?: Set<string>
 }
 
 // Nests the flat list `GET /pages` answers, in one pass. `summaries` arrive sorted by position,
-// so each page's children keep that order.
+// so each page's children keep that order. It lists no meetings; `withMeetingEntries` adds them.
 export function buildPageTree(summaries: KnowledgePageSummary[]): PageTree {
   const byId = new Map<string, KnowledgePageSummary>()
   const childrenByParent = new Map<string | null, KnowledgePageSummary[]>()
@@ -31,7 +62,62 @@ export function buildPageTree(summaries: KnowledgePageSummary[]): PageTree {
     childrenByParent.set(summary.parentId, [ summary ])
   }
 
-  return { byId, childrenByParent }
+  return { byId, childrenByParent, meetingsByPage: new Map(), meetingGroupsByPage: new Map() }
+}
+
+// Counts `entry` into `branch`, listing it while the branch has room.
+function addToBranch(branch: MeetingTreeBranch, entry: MeetingTreeEntry) {
+  branch.total += 1
+  if (branch.entries.length < MEETINGS_TREE_BRANCH_SIZE) {
+    branch.entries.push(entry)
+  }
+}
+
+// The tree with the reader's meetings in it: each one's home under the Meetings page, and a linked
+// entry in a Meetings group under the brief of every project it has a topic on, in the order
+// `meetings` holds them, newest first. Each branch lists its newest few and counts the rest, which
+// the page it opens lists whole. Entries are never pages, so nothing moves, deletes, or drops onto
+// one, and a page keeps its own children first.
+export function withMeetingEntries(tree: PageTree, meetings: Meeting[]): PageTree {
+  const briefIdByProject = new Map<string, string>()
+  for (const page of tree.byId.values()) {
+    if (page.briefProjectId) {
+      briefIdByProject.set(page.briefProjectId, page.id)
+    }
+  }
+
+  const homes: MeetingTreeBranch = { entries: [], total: 0 }
+  const meetingGroupsByPage = new Map<string, MeetingTreeGroup>()
+  const unplacedProjectIds = new Set<string>()
+  for (const meeting of meetings) {
+    addToBranch(homes, { key: `meeting:${meeting.id}`, meetingId: meeting.id, title: meeting.title })
+
+    for (const projectId of meeting.projectIds) {
+      const briefId = briefIdByProject.get(projectId)
+      if (!briefId) {
+        unplacedProjectIds.add(projectId)
+        continue
+      }
+      let group = meetingGroupsByPage.get(briefId)
+      if (!group) {
+        group = { key: `meetings:${projectId}`, projectId, entries: [], total: 0 }
+        meetingGroupsByPage.set(briefId, group)
+      }
+      addToBranch(group, { key: `meeting:${projectId}:${meeting.id}`, meetingId: meeting.id, title: meeting.title })
+    }
+  }
+  // A project deleted since its meetings loaded, or a tree loaded before the project was made.
+  if (unplacedProjectIds.size && tree.byId.size) {
+    console.debug('withMeetingEntries found meetings on projects with no brief in the tree', {
+      projectIds: [ ...unplacedProjectIds ],
+    })
+  }
+
+  const meetingsByPage = new Map<string, MeetingTreeBranch>()
+  if (homes.total && tree.byId.has(MEETINGS_PAGE_ID)) {
+    meetingsByPage.set(MEETINGS_PAGE_ID, homes)
+  }
+  return { ...tree, meetingsByPage, meetingGroupsByPage }
 }
 
 // Where a drag let go, as React Aria names it: on a row, or just before or after one.

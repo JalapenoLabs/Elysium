@@ -1,11 +1,7 @@
 {
   "title": "Meetings",
-  "tabs": {
-    "label": "Meetings and their sources",
-    "meetings": "Recent meetings",
-    "sources": "Sources"
-  },
   "sources": {
+    "title": "Meeting sources",
     "add": "Add a source",
     "other": "Another source",
     "none": "No meeting source yet. Connect one to read your meetings:"
@@ -18,15 +14,24 @@
     "noRecording": "Transcript only",
     "awaitingApproval": "Waiting for your approval",
     "retry": "Retry",
-    "retried": "Trying this meeting again"
+    "retried": "Trying this meeting again",
+    "noMatch": "No meeting matches these filters.",
+    "waitingCount_one": "{{formattedCount}} waiting for review",
+    "waitingCount_other": "{{formattedCount}} waiting for review"
   },
   "table": {
     "meeting": "Meeting",
     "source": "Source",
     "state": "State",
+    "projects": "Projects",
     "started": "Started",
     "duration": "Duration",
     "topics": "Topics"
+  },
+  "filters": {
+    "project": "Project",
+    "noProject": "No project",
+    "waitingForReview": "Waiting for review"
   },
   "states": {
     "pending": "Reading",

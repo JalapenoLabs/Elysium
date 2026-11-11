@@ -47,6 +47,7 @@ use crate::models::meeting_correction::{self, MeetingCorrection};
 use crate::models::meeting_event::{EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark};
 use crate::models::meeting_word::{self, Word, WordChange};
+use crate::models::timeline_record;
 use crate::models::workflow_run::{self, WorkflowRun, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::learnings::AgentResponse;
@@ -128,8 +129,12 @@ pub struct MeetingResponse {
     run_id: Option<Uuid>,
     /// Whether that run is held, waiting for its person to approve the corrected transcript.
     awaiting_approval: bool,
-    /// The meeting its captures were merged into, while they are: it is listed nowhere then, and
-    /// its page points there, where they are split back out.
+    /// The projects its topics are on, in the order of their ids: where the knowledge base lists it
+    /// beside its home under Meetings, and what its Meetings page filters it by.
+    project_ids: Vec<Uuid>,
+    /// The meeting its person merged its captures into, or `null`. A merged meeting lives on in
+    /// that one, so the listing leaves it out, and a client that loads it by id, as an event names
+    /// it, keeps it out of every list too.
     merged_into: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -161,14 +166,15 @@ impl From<&MeetingCorrection> for CorrectionSummary {
 }
 
 impl MeetingResponse {
-    /// `meeting` as answered, with its first capture, its correction, and its newest run, which
-    /// segments when `run_segments`.
+    /// `meeting` as answered, with its first capture, its correction, its newest run, which
+    /// segments when `run_segments`, and the projects its topics are on.
     fn new(
         meeting: Meeting,
         capture: Option<&MeetingCapture>,
         correction: Option<&MeetingCorrection>,
         run: Option<&WorkflowRun>,
         run_segments: bool,
+        project_ids: Vec<Uuid>,
     ) -> Self {
         let processing =
             workflow::processing(meeting.state(), run.map(|run| run.state), run_segments);
@@ -188,6 +194,7 @@ impl MeetingResponse {
             run_id: run.map(|run| run.id),
             awaiting_approval: run.is_some_and(|run| run.state == WorkflowRunState::Held),
             hold_for_approval: meeting.hold_for_approval,
+            project_ids,
             merged_into: meeting.merged_into,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
@@ -206,8 +213,8 @@ impl MeetingResponse {
     }
 }
 
-/// `meetings` as answered, in their order, each with its first capture, its correction, and its
-/// newest run, read in one query each rather than one per meeting.
+/// `meetings` as answered, in their order, each with its first capture, its correction, its newest
+/// run, and the projects its topics are on, read in one query each rather than one per meeting.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -240,6 +247,7 @@ pub async fn responses(
     .collect();
     let newest: Vec<&WorkflowRun> = runs.values().collect();
     let segmenting = workflow::segmenting_runs(connection, &newest).await?;
+    let mut projects = timeline_record::projects_of_meetings(connection, &ids).await?;
     Ok(meetings
         .into_iter()
         .map(|meeting| {
@@ -247,7 +255,8 @@ pub async fn responses(
             let correction = corrections.get(&meeting.id);
             let run = runs.get(&meeting.id.to_string());
             let run_segments = run.is_some_and(|run| segmenting.contains(&run.id));
-            MeetingResponse::new(meeting, capture, correction, run, run_segments)
+            let project_ids = projects.remove(&meeting.id).unwrap_or_default();
+            MeetingResponse::new(meeting, capture, correction, run, run_segments, project_ids)
         })
         .collect())
 }

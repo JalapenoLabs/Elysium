@@ -152,6 +152,16 @@ export const MEETING_PLAYER_STORAGE_KEY = 'elysium.meetingPlayer.v1'
 // What a page dragged in the tree carries, so a drop only ever means a page moving.
 export const PAGE_DRAG_TYPE = 'application/vnd.elysium.page'
 
+// The page every meeting is listed under, as the API seeds it (`MEETINGS_PAGE_ID` in
+// api/src/models/page.rs). Meetings are no pages: the tree lists the person's under it, and the
+// page itself opens as the Meetings list.
+export const MEETINGS_PAGE_ID = '00000000-0000-0000-0001-000000000004'
+
+// The most meetings one branch of the tree lists: the newest, under Meetings or a project's group,
+// ending in a row to the page that lists them all. A tree row costs about 1.5ms to draw, and opening
+// a meeting opens the Meetings branch, so a person with thousands of meetings never pays for them all.
+export const MEETINGS_TREE_BRANCH_SIZE = 50
+
 // How long a burst of `page.changed` events gathers before its one reload (`reloadChangedPage`).
 export const PAGE_CHANGES_WINDOW_MS = 300
 

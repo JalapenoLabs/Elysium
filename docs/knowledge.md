@@ -18,7 +18,8 @@ turn (MCP, below); asking it for a written answer, every claim citing a passage,
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
 their place in the index, finding them by title and text, and the edits agents suggest to them, reviewed on the page,
-with learnings and the company doc among them (Pages, below).
+with learnings and the company doc among them (Pages, below); and the reader's meetings in that tree, under the
+Meetings page and each project's brief (Pages, The tree).
 
 ## What is indexed
 
@@ -868,6 +869,30 @@ reads them (In the web app, below). The rest of the design (Roadmap, below) is t
   leave the index. Restoring the page moves them back to the positions they left, which nothing can have taken, since a
   deleted page's children change no further; a child moved or deleted since stays where someone put it.
 
+#### Linked entries
+
+Meetings are in the tree and are no pages: a meeting is its own row (`docs/meetings.md`), so the tree lists it where it
+belongs and every row opens its one page (`/knowledge/meetings/<id>`). The web app builds these entries from the
+meetings its reader can see (`GET /api/v1/meetings`, today a person's own); no table holds them.
+
+- **Each meeting's home is the fixed Meetings page.** Every meeting is an entry under it, those on no project included.
+- **Each project's brief holds a Meetings group.** It lists every meeting with a topic on the project, as a linked entry
+  of the one meeting page, so a meeting about three projects shows in three groups and is one page. The group opens the
+  Meetings page narrowed to its project. A project with no meeting has no group, and a project deleted takes its group
+  with it, since its brief is then an ordinary page.
+- **The three rules hold for them.** An entry's place is its meeting's, under a live page: the Meetings page and a brief
+  are fixed, so neither goes while its entries show. An entry has nothing under it, so nothing is under itself. Entries
+  are siblings in one order, newest first, the later id first between two that started together, so none tie, and they
+  follow the page's own children, which keep theirs.
+- **They move with their meeting, never by hand.** Nothing drags, moves, deletes, or drops onto an entry or a group,
+  and neither has a row menu, since where a page goes is named by a page. People still put pages under Meetings and
+  under a brief, among its own children. The panel's filters narrow pages alone; the Meetings page searches meetings.
+- **A branch lists its newest 50.** Under Meetings and in each group, the tree lists the 50 newest meetings
+  (`MEETINGS_TREE_BRANCH_SIZE`), then a row naming how many there are in all, which opens the page listing every one, as
+  the group's own row does. A tree row costs about 1.5ms to draw, so a branch never costs more than a person can read.
+  Opening a meeting opens the Meetings branch to show where it sits while the branch lists it; an older meeting leaves
+  the branch as it was, since none of its rows would be the meeting.
+
 ### Versions
 
 - **Publish is the only write of a page's content.** Creating a page publishes version 1. Each publish is the next
@@ -944,8 +969,8 @@ deletion that left it in its parent's place, or the restore that took it back.
   `page_changed`, which says to read the page again and save against what that answers, and never carries the version
   itself, so an agent cannot retry without reading what it would overwrite. Without them it creates, and takes
   `parentId`, `null` for the top of the tree: required, as a move's is, so nothing lands there by accident, and open to
-  agents, since a fresh tree holds only the Learnings, Company, and Project briefs pages. Anything else is refused by
-  name.
+  agents, since a fresh tree holds only the Learnings, Company, Project briefs, and Meetings pages. Anything else is
+  refused by name.
 - **Learnings are `learning_save`'s.** `page_save` refuses a learning, and a new page directly under Learnings, with
   `409 page_is_a_learning`. In the browser a person edits one as any page, but an agent's edit would rewrite a rule
   under the evidence for the rule it replaced, and a page it created under Learnings would be an ordinary page, never
@@ -959,11 +984,12 @@ deletion that left it in its parent's place, or the restore that took it back.
   forgets to name its agent is refused all the same. A client that cannot be recorded as an agent is refused any change
   to a page first, since it would read as the person alone. No route sets it: the Company page and the doc's sections
   are the only ones that have it.
-- **Fixed pages.** The Learnings page, the Company page, the doc's seven sections, and the Project briefs page are ones
-  Elysium relies on, each at an id fixed in code, and so is each project's brief while its project exists (Projects,
-  below). They keep their place: nobody moves, deletes, or renames one, people included, with
+- **Fixed pages.** The Learnings page, the Company page, the doc's seven sections, the Project briefs page, and the
+  Meetings page are ones Elysium relies on, each at an id fixed in code, and so is each project's brief while its
+  project exists (Projects, below). They keep their place: nobody moves, deletes, or renames one, people included, with
   `409 page_fixed`. What a fixed page says is written like any page's, under its rule above. Other pages may sit
-  beside and under them.
+  beside and under them. The Meetings page opens as the Meetings list (In the web app, below), so what it says is read
+  by agents and the index, not on it.
 - Every change announces `page.changed` for each page it touched, with the page's id alone, since a guest hears every
   event (`docs/realtime.md`).
 
@@ -1136,7 +1162,8 @@ a project to any number of pages (`crate::models::page_project`, `page_projects`
   Manager reads it every turn and every batch's goal is checked against it: nobody moves, deletes, or renames it, and
   its link to its project is not taken off (`409 page_brief_linked`). Deleting the project leaves it an ordinary page,
   as every linked page stays. A publish of it by anyone but its own Project Manager or the system user wakes that
-  Project Manager in the same transaction. See `docs/autonomy.md`, The project brief.
+  Project Manager in the same transaction. See `docs/autonomy.md`, The project brief. In the tree, a brief holds its
+  project's Meetings group (The tree, Linked entries), which goes with the project.
 
 ### In the index
 
@@ -1237,6 +1264,13 @@ to what matches and the pages above it, opened. No title matching offers a searc
 above). Which branches a person leaves open stays with them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
+The tree lists the reader's meetings too (The tree, Linked entries): each under Meetings, and in the Meetings group
+under the brief of every project it has a topic on. The Meetings page opens as the list of every meeting
+(`/knowledge/meetings`), newest first, with its search, filters by source, state, and project (none among them), and a
+count of those waiting for review in its header; its address as a page lands there, and a project's group opens it
+narrowed to the project. It is where uploads start once they are built (`docs/meeting-review.md`, Uploads), and its one
+action opens Settings, Meetings, which keeps only where meetings come from. See `docs/meetings.md`, In the web app.
+
 The tree is also where people organize pages. Each row's menu adds a child page, moves the page, or deletes it. A page
 drags by pointer or by keyboard to another place among its siblings or under another page, with everything under it,
 and a target under the page itself refuses it. Where dragging cannot reach, such as on a touch screen, Move asks where
@@ -1244,7 +1278,7 @@ it goes and after which sibling. A move can be undone from its toast, and shows 
 at once, with Undo in its toast, except that a page with pages under it first asks what happens to them: left as they
 are they move up into its place, and a switch deletes them too. Whoever was reading what went is taken to its parent,
 and Undo brings them back; once its toast has gone, a deleted page's own address offers Restore. The fixed pages,
-the ten Elysium seeds and every project's brief, take children, but nobody can drag, move, or delete one; a lock on the
+the eleven Elysium seeds and every project's brief, take children, but nobody can drag, move, or delete one; a lock on the
 row and the row's menu say why. A brief names its project with no X to take it off, and the project's Docs tab offers
 no Unlink for it.
 
@@ -1292,8 +1326,11 @@ page's history restores it afterwards.
 
 ### Roadmap
 
-- **Meetings.** Meetings become pages of their own kind, public by default with private ones found only by their
-  readers, under three new fixed pages: Meetings, Projects, and Transcription. The design is `docs/meeting-review.md`.
+- **Meetings.** Meetings are listed in the tree today, their own only, under the fixed Meetings page and each brief.
+  They become public by default, with private ones found only by their readers, and a fixed Transcription page joins
+  them. The design is `docs/meeting-review.md`. `GET /meetings` answers every meeting in one list, which the tree, the
+  Meetings page, and its in-browser search and filters all read; once meetings are the whole company's, that list is
+  paged and searched on the server, and the tree asks for each branch's newest alone.
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call

@@ -3,7 +3,7 @@
 import type { ConnectorProvides } from './api/routes/connectorRoutes'
 
 // Misc
-import { COMPANY_PAGE_ID } from './constants'
+import { COMPANY_PAGE_ID, MEETINGS_PAGE_ID } from './constants'
 
 // Urls
 export const UrlTree = {
@@ -64,6 +64,12 @@ export const UrlTree = {
   knowledgeDocument: '/knowledge/documents/:documentId',
   // Every page carrying a label.
   knowledgeLabel: '/knowledge/labels/:label',
+  // Every meeting the reader can see: the Meetings page of the knowledge base, each one's home.
+  knowledgeMeetings: '/knowledge/meetings',
+  // Uploading a meeting, which the Meetings page starts, or a recording or transcript of one the
+  // person has (a capture of it), which its page starts.
+  meetingUploadNew: '/knowledge/meetings/new',
+  meetingCaptureUploadNew: '/knowledge/meetings/:meetingId/captures/new',
   // One meeting, reviewed and corrected as a page of the knowledge base.
   knowledgeMeeting: '/knowledge/meetings/:meetingId',
   // Every result of the topbar's search, for its query.
@@ -88,9 +94,6 @@ export const UrlTree = {
   settingsMeetings: '/settings/meetings',
   // A meeting's earlier address, which redirects to its page in the knowledge base.
   settingsMeeting: '/settings/meetings/:meetingId',
-  // Uploading a meeting, or a recording or transcript of one the person has (a capture of it).
-  meetingUploadNew: '/settings/meetings/new',
-  meetingCaptureUploadNew: '/settings/meetings/:meetingId/captures/new',
   // The company doc's old address in Settings, which opens the Company page: the doc lives in the
   // knowledge base.
   settingsCompanyDoc: '/settings/company-doc',
@@ -168,6 +171,9 @@ export const KNOWLEDGE_PASSAGE_PARAM = 'passage'
 export const KNOWLEDGE_PAGES_SCOPE = 'pages'
 // The page a new page goes under, chosen already when it is added from the tree.
 export const NEW_PAGE_PARENT_PARAM = 'parent'
+// The project the Meetings page lists the meetings of, as a project's Meetings group in the tree
+// opens it.
+export const MEETINGS_PROJECT_PARAM = 'project'
 
 // The query parameters the sign-in page reads: where to go afterwards, whether to ask for
 // the second factor or to confirm a recent sign-in, and a notice to show.
@@ -281,6 +287,12 @@ export function getMeetingUrl(meetingId: string) {
   return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
 }
 
+// The Meetings page, narrowed to the meetings with a topic on one project.
+export function getProjectMeetingsUrl(projectId: string) {
+  const params = new URLSearchParams({ [MEETINGS_PROJECT_PARAM]: projectId })
+  return `${UrlTree.knowledgeMeetings}?${params.toString()}`
+}
+
 // A meeting's page opened at one of its comment threads.
 export function getMeetingThreadUrl(meetingId: string, threadId: string) {
   return `${getMeetingUrl(meetingId)}?thread=${threadId}`
@@ -323,6 +335,12 @@ export function getEnvironmentVariableEditUrl(variableId: string) {
 
 export function getLearningEditUrl(learningId: string) {
   return UrlTree.knowledgeLearningEdit.replace(':learningId', learningId)
+}
+
+// The seeded pages the app shows as a page of its own rather than as their text: the tree opens each
+// there, and its address as a page lands there.
+export const pageAddressById: Readonly<Partial<Record<string, string>>> = {
+  [MEETINGS_PAGE_ID]: UrlTree.knowledgeMeetings,
 }
 
 // A page of the knowledge base, opened at one of its passages when a citation names one.
