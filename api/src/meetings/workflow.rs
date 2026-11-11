@@ -48,9 +48,12 @@ use crate::workflows::{self, Start, Step, Workflow};
 /// What a meeting's run is about, as `workflow_runs.source_kind` names it.
 pub const SOURCE_KIND: &str = "meeting";
 
+/// The meeting workflow's name, as `workflow_runs.workflow` names it.
+pub const NAME: &str = "meeting";
+
 /// The meeting workflow: every step a meeting's run goes through, first to last.
 pub fn workflow() -> Workflow<MeetingToFetch> {
-    workflows::declare("meeting")
+    workflows::declare(NAME)
         .first::<FetchMeeting>()
         .then::<TranscribeMeeting>()
         .then::<CorrectTranscript>()
@@ -95,13 +98,7 @@ pub async fn live_run(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
 ) -> diesel::QueryResult<Option<WorkflowRun>> {
-    workflow_run::find_live(
-        connection,
-        workflow().name(),
-        SOURCE_KIND,
-        &meeting_id.to_string(),
-    )
-    .await
+    workflow_run::find_live(connection, NAME, SOURCE_KIND, &meeting_id.to_string()).await
 }
 
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with

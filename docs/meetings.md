@@ -649,8 +649,10 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   stopped. A part that fails on the way is sent again, waiting longer each time, up to eight times. An upload no part
   reached for a week is removed with its parts.
 - **Parts are removed once.** The fetch removes an upload's parts once it stored them. Whatever it could not remove, and
-  the parts of an upload finished a week ago whose capture was never stored (its fetch skipped by a person), the
-  meetings loop's sweep removes, recording it (`meeting_uploads.parts_removed_at`) so it happens once.
+  the parts of an upload finished a week ago whose capture was never stored and whose meeting's run settled (its fetch
+  skipped by a person), the meetings loop's sweep removes, recording it (`meeting_uploads.parts_removed_at`) so it
+  happens once. A fetch that failed keeps its parts however long it waits for a person to retry it; a fetch that finds
+  them removed fails for good, asking for the recording again.
 - **Finishing.** Once every part arrived, finishing stores the meeting with its capture (or the capture of its meeting),
   marks the upload finished with the lines its transcript was read as, and starts the meeting's run from its fetch, as
   its person, all in one transaction; the fetch then stores the recording (Fetching, above). A new meeting's duration is

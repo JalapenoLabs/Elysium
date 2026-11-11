@@ -142,35 +142,38 @@ impl Staging {
     /// Puts `staged`, a whole send, under its part's name, replacing what was there in one step.
     ///
     /// # Errors
-    /// The workspace's refusal, which leaves the part as it was.
+    /// The workspace's refusal, or failing to reach it, which leaves the part as it was and lets
+    /// the send go.
     pub async fn place(&self, staged: StagedPart) -> Result<(), StagingError> {
-        match &self.place {
-            Place::Workspace(workspace) => {
-                let placed = workspace
-                    .run_script(
-                        AGENT_USER,
-                        PLACE_SCRIPT,
-                        &[&root().absolute(), &staged.write, &staged.part],
-                        Vec::new(),
-                        SCRIPT_TIMEOUT,
-                    )
-                    .await
-                    .map_err(FileError::from)?;
-                if placed.exit_code != Some(0) {
-                    let output = placed.output.trim().to_owned();
-                    self.discard(staged).await;
-                    return Err(StagingError::Workspace(FileError::Failed(format!(
-                        "could not put a part in place: {output}"
-                    ))));
-                }
-            }
+        let placed = match &self.place {
+            Place::Workspace(workspace) => match workspace
+                .run_script(
+                    AGENT_USER,
+                    PLACE_SCRIPT,
+                    &[&root().absolute(), &staged.write, &staged.part],
+                    Vec::new(),
+                    SCRIPT_TIMEOUT,
+                )
+                .await
+            {
+                Ok(placed) if placed.exit_code == Some(0) => Ok(()),
+                Ok(placed) => Err(StagingError::Workspace(FileError::Failed(format!(
+                    "could not put a part in place: {}",
+                    placed.output.trim()
+                )))),
+                Err(error) => Err(StagingError::Workspace(FileError::from(error))),
+            },
             #[cfg(test)]
             Place::Directory(directory) => {
                 tokio::fs::rename(directory.join(&staged.write), directory.join(&staged.part))
-                    .await?;
+                    .await
+                    .map_err(StagingError::from)
             }
+        };
+        if placed.is_err() {
+            self.discard(staged).await;
         }
-        Ok(())
+        placed
     }
 
     /// Lets `staged` go: a send that is not wanted, because another one of its part was counted

@@ -427,6 +427,13 @@ impl FetchMeeting {
                 "The upload names no storage location to keep its recording in",
             ));
         };
+        // The sweep keeps the parts while the meeting's run waits on this fetch, so this is a run
+        // started after they went: nothing is left to join.
+        if staged.upload.parts_removed_at.is_some() {
+            return Err(StepFailure::permanent(
+                "The upload's parts were removed from the workspace; upload the recording again",
+            ));
+        }
         let file_type = meeting_uploads::type_of(FileKind::Recording, &file.file_name)
             .ok_or_else(|| StepFailure::permanent("The upload's recording is of no known type"))?;
         let (location, access_key) = {

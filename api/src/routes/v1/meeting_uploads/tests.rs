@@ -1094,7 +1094,8 @@ async fn two_sends_of_a_part_or_two_finishes_at_once_keep_one() {
 }
 
 /// A finished upload's parts go once its capture is stored, whether the fetch removed them or not,
-/// and once it is a week old even if its fetch never ran, such as one a person skipped.
+/// and once it is a week old even if its fetch never stored it, such as one a person skipped, but
+/// never while its meeting's run waits for a person to retry that fetch.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn a_finished_uploads_parts_are_swept_once_they_are_not_needed() {
@@ -1141,10 +1142,10 @@ async fn a_finished_uploads_parts_are_swept_once_they_are_not_needed() {
             .await
             .expect("finishes")
             .expect("unfinished before");
-        staged.upload.id
+        (staged.upload.id, made.id, capture.id)
     };
-    let stored = finished(&mut connection, true).await;
-    let waiting = finished(&mut connection, false).await;
+    let (stored, _, _) = finished(&mut connection, true).await;
+    let (waiting, waiting_meeting, waiting_capture) = finished(&mut connection, false).await;
     let now = chrono::Utc::now();
     let week_ago = now - crate::meeting_uploads::STALE_AFTER;
 
@@ -1164,13 +1165,40 @@ async fn a_finished_uploads_parts_are_swept_once_they_are_not_needed() {
         .expect("reads");
     assert!(due.is_empty(), "parts removed are not removed again");
 
-    // A week on, the capture never fetched gives its parts up too.
-    let due = meeting_upload::finished_with_parts(
+    // A week on, a fetch that failed and waits for its retry keeps the parts it reads.
+    let started = workflow_run::start(
         &mut connection,
-        now + chrono::TimeDelta::minutes(1),
-        20,
+        workflow::run_for_upload(waiting_meeting, waiting_capture, TEST_PERSON_ID),
+        now,
     )
     .await
-    .expect("reads");
+    .expect("its run starts");
+    let set_run = async |connection: &mut AsyncPgConnection, state: WorkflowRunState| {
+        diesel::update(crate::database::schema::workflow_runs::table.find(started.settled.run.id))
+            .set((
+                crate::database::schema::workflow_runs::state.eq(state),
+                crate::database::schema::workflow_runs::finished_at.eq(Some(chrono::Utc::now())),
+                crate::database::schema::workflow_runs::error
+                    .eq((state == WorkflowRunState::Failed).then(|| "The fetch failed".to_owned())),
+            ))
+            .execute(connection)
+            .await
+            .expect("moves the run");
+    };
+    set_run(&mut connection, WorkflowRunState::Failed).await;
+    let week_on = now + chrono::TimeDelta::minutes(1);
+    let due = meeting_upload::finished_with_parts(&mut connection, week_on, 20)
+        .await
+        .expect("reads");
+    assert!(
+        due.is_empty(),
+        "a fetch waiting for its retry keeps its parts"
+    );
+
+    // Once the run settles without storing the capture, its parts go.
+    set_run(&mut connection, WorkflowRunState::Succeeded).await;
+    let due = meeting_upload::finished_with_parts(&mut connection, week_on, 20)
+        .await
+        .expect("reads");
     assert_eq!(due, vec![waiting]);
 }

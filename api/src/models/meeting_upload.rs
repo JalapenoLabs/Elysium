@@ -12,13 +12,19 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use diesel::dsl::{exists, not, sql};
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::database::schema::{meeting_captures, meeting_upload_files, meeting_uploads};
+use crate::database::schema::{
+    meeting_captures, meeting_upload_files, meeting_uploads, workflow_runs,
+};
 use crate::meeting_uploads::FileKind;
+use crate::meetings::workflow;
+use crate::models::workflow_run::WorkflowRunState;
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = meeting_uploads, check_for_backend(diesel::pg::Pg))]
@@ -372,8 +378,10 @@ pub async fn delete_unfinished(
 }
 
 /// The finished uploads whose parts may still be in the workspace and are no longer needed: those
-/// whose capture was stored, and any finished before `before`, such as one whose fetch a person
-/// skipped. At most `limit`, oldest first.
+/// whose capture was stored, and any finished before `before` whose meeting's run settled without
+/// storing it, such as one whose fetch a person skipped. A run still going, held, or failed and
+/// waiting for a person to retry its fetch keeps the parts that fetch reads, however old the
+/// upload. At most `limit`, oldest first.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -382,6 +390,12 @@ pub async fn finished_with_parts(
     before: DateTime<Utc>,
     limit: i64,
 ) -> QueryResult<Vec<Uuid>> {
+    // `meetings::workflow::live_run`, for the meeting of the capture each row names.
+    let live_meeting_run = workflow_runs::table
+        .filter(workflow_runs::workflow.eq(workflow::NAME))
+        .filter(workflow_runs::source_kind.eq(workflow::SOURCE_KIND))
+        .filter(workflow_runs::source_id.eq(sql::<Text>("meeting_captures.meeting_id::text")))
+        .filter(workflow_runs::state.ne(WorkflowRunState::Succeeded));
     meeting_uploads::table
         .inner_join(
             meeting_captures::table.on(meeting_captures::id
@@ -393,7 +407,9 @@ pub async fn finished_with_parts(
         .filter(
             meeting_captures::transcript_hash
                 .is_not_null()
-                .or(meeting_uploads::finished_at.lt(before)),
+                .or(meeting_uploads::finished_at
+                    .lt(before)
+                    .and(not(exists(live_meeting_run)))),
         )
         .order(meeting_uploads::finished_at.asc())
         .limit(limit)

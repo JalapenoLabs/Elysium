@@ -444,8 +444,9 @@ impl Meetings {
     }
 
     /// Removes the parts of finished uploads that no longer need them: each whose capture was
-    /// stored, whose fetch could not remove them, and each finished before `before`, such as one
-    /// whose fetch a person skipped. Each removal is recorded, so it happens once.
+    /// stored, whose fetch could not remove them, and each finished before `before` whose meeting's
+    /// run settled without storing it, such as one whose fetch a person skipped. A fetch that failed
+    /// and waits for its retry keeps its parts. Each removal is recorded, so it happens once.
     async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
         let finished = match self.connection().await {
             Ok(mut connection) => {
