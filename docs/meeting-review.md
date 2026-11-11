@@ -92,7 +92,8 @@ it, and it replaces what corrections learn from the 30 newest today.
   add or strengthen an entry as they are made. The page lists what it taught itself, newest first, with why, for a
   person to review and prune; people also edit it directly. Every change is a version, as for any page.
 - Every correction and every transcription reads it. A fix that names a person or a term the company doc does not know
-  is also proposed to the company doc, for a person to approve, as today.
+  is also suggested to the company doc's section, for a person to accept on its page (`crate::company_doc::propose`,
+  `docs/knowledge.md`, Pages, Suggestions).
 
 ## The meeting's page
 

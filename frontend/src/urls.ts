@@ -2,6 +2,9 @@
 
 import type { ConnectorProvides } from './api/routes/connectorRoutes'
 
+// Misc
+import { COMPANY_PAGE_ID } from './constants'
+
 // Urls
 export const UrlTree = {
   root: '/',
@@ -82,6 +85,8 @@ export const UrlTree = {
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
   settingsMeeting: '/settings/meetings/:meetingId',
+  // The company doc's old address in Settings, which opens the Company page: the doc lives in the
+  // knowledge base.
   settingsCompanyDoc: '/settings/company-doc',
   // Learnings' earlier address, which redirects to the Knowledge page's, as do the pages under it.
   settingsLearnings: '/settings/learnings',
@@ -175,6 +180,8 @@ export const TAB_PARAM = 'tab'
 // What a knowledge page's History tab shows: one version read through, or two compared. They live
 // in the address, so Back returns to the list and a comparison can be linked to.
 export const PAGE_HISTORY_TAB = 'history'
+// A knowledge page's tab reviewing the edits agents suggested to it.
+export const PAGE_SUGGESTIONS_TAB = 'suggestions'
 // The project's tab listing the pages linked to it.
 export const PROJECT_DOCS_TAB = 'docs'
 // The project's tab holding its Project Manager's conversation, where a message to it is read.
@@ -310,6 +317,15 @@ export function getKnowledgePageUrl(pageId: string, passage?: number) {
     return url
   }
   return `${url}?${KNOWLEDGE_PASSAGE_PARAM}=${passage}`
+}
+
+export function getPageSuggestionsUrl(pageId: string) {
+  return `${getKnowledgePageUrl(pageId)}?${TAB_PARAM}=${PAGE_SUGGESTIONS_TAB}`
+}
+
+// The Company page, under which the company doc's sections sit.
+export function getCompanyDocUrl() {
+  return getKnowledgePageUrl(COMPANY_PAGE_ID)
 }
 
 export function getPageHistoryUrl(pageId: string) {

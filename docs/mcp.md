@@ -141,13 +141,14 @@ Tools are named for what they act on, then what they do.
 | `meetings_list`        | `workspace:read`  | Lists the knowledge base's meetings, each with its topics' citations   |
 | `knowledge_ask`        | `workspace:read`  | Asks the knowledge base a question and answers in writing, every claim citing a passage |
 | `knowledge_ask_get`    | `workspace:read`  | Reads an ask by its id, waiting a bounded time for its answer          |
-| `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the proposals still pending   |
-| `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve              |
+| `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the suggestions still pending |
+| `company_doc_propose`  | `workspace:write` | `page_suggest` for one section, named by its key                       |
 | `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
 | `learning_delete`      | `workspace:write` | Deletes a learning softly, out of the knowledge base until restored    |
-| `page_read`            | `workspace:read`  | Reads one page whole, with its `currentVersion`                        |
+| `page_read`            | `workspace:read`  | Reads one page whole, with its `currentVersion` and the suggestions waiting |
 | `page_list`            | `workspace:read`  | Lists the tree a branch at a time, 200 pages to an answer, each with its `childCount` |
 | `page_save`            | `workspace:write` | Creates a page or publishes its next version                           |
+| `page_suggest`         | `workspace:write` | Suggests an edit to a page, which changes nothing until a person accepts it |
 | `page_move`            | `workspace:write` | Moves a page with everything under it, or reorders it                  |
 | `page_label_add`       | `workspace:write` | Puts a label on a page, which makes no version                         |
 | `page_label_remove`    | `workspace:write` | Takes a label off a page                                               |
@@ -163,14 +164,17 @@ Tools are named for what they act on, then what they do.
   among them), and citing by
   title, person, and date. The writing ones record the client as the agent
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
-  is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
-  nothing until a person approves (`docs/knowledge.md`, The company doc).
-- **Pages.** `page_read`, `page_save`, `page_move`, `page_label_add`, `page_label_remove`, `page_project_link`, and
-  `page_project_unlink` call what the page routes call (`read`, `create`, `publish`, `move_to`, `add`, `remove`, `link`,
-  and `unlink` in `api/src/routes/v1/pages/`), with the connecting
+  is logged and left out. `page_suggest` and `company_doc_propose` take edits in the form Claude Code's Edit tool takes,
+  and change nothing until a person accepts them on the page (`docs/knowledge.md`, Pages, Suggestions).
+  `company_doc_propose` is a name for `page_suggest` that names a company doc section by its key and suggests against it
+  as it reads now, kept so the agents and guidance that use it work as they did.
+- **Pages.** `page_read`, `page_save`, `page_suggest`, `page_move`, `page_label_add`, `page_label_remove`,
+  `page_project_link`, and `page_project_unlink` call what the page routes call (`read_with_suggestions`, `create`,
+  `publish`, `suggest`, `move_to`, `add`, `remove`, `link`, and `unlink` in `api/src/routes/v1/pages/`), with the connecting
   person as author and the client as the agent, and `page_list` narrows what the list route reads to one branch, at most
   200 pages to an answer (`docs/knowledge.md`, MCP). A client that cannot be
-  recorded as an agent reads pages and changes none, since its change would read as the person's own.
+  recorded as an agent reads pages and changes none, since its change would read as the person's own; it may still
+  suggest, as the person, since a suggestion changes nothing until a person accepts it.
 - **Asking.** `knowledge_ask` calls the asking route's own `ask` (`routes::v1::knowledge::asks`) with the connecting
   person, so it searches with their budget and spends one of their questions, then waits up to 20 seconds
   (`ASK_WAIT` in `api/src/mcp/knowledge.rs`) for the engine's answer, inside the 30 seconds every request has. An
