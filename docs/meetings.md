@@ -650,9 +650,9 @@ them on its own (`api/src/meetings/duplicates.rs`).
   default (`docs/meeting-review.md`, Who sees a meeting); comparing everyone's meetings comes with that.
 - **Merge** (`POST /api/v1/meetings/duplicates/{id}/merge`) moves the meeting's captures into the other, each placed
   on its clock from when the two meetings started, after its own captures. Every edit made on the merged meeting is
-  carried across with its words and its mark, the other's transcript is lined up again keeping every edit of its own,
-  and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names the one it
-  went into. Both histories record `merged`, with where each capture sat before and after.
+  carried across with its words, the words it replaced, and its mark, the other's transcript is lined up again keeping
+  every edit, and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names
+  the one it went into. Both histories record `merged`, with where each capture sat before and after.
 - **Not the same** (`POST .../not-the-same`) is remembered, so the pair is never asked about again.
 - Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. Only the meeting's
   person answers; a pair decided answers `409 duplicate_decided`, and of two answers at once the first to be written
@@ -717,9 +717,11 @@ in the meeting's history that wrote it (`introduced_by`).
   words as it gives them now with its words that stand, in order, by what each says (its text, speaker, and origin) and
   not by when, and changes only what differs: a word that says the same keeps its id, so marks over it never move, and
   takes its new times, so a capture placed anew moves its words rather than replacing them. One capture's comparison
-  that runs past two seconds settles for a larger diff. Every edit's words stand through it, the captures' words at the
-  same moment staying out, and a mark over a word it replaced moves onto the new words at the same moment. A rebuild is
-  not undone on its own; what caused it is, and that lines the transcript up again.
+  that runs past two seconds settles for a larger diff. Every edit's words stand through it. The words an edit replaced
+  are compared too: heard again, they stay out, and the edit's words move by as much as they did, so an edit goes
+  wherever its capture goes on the clock; a heard word nothing matches stays out where it lies inside an edit's time. A
+  mark over a word a rebuild replaced moves onto the new words at the same moment. A rebuild is not undone on its own;
+  what caused it is, and that lines the transcript up again.
 - **Every word it ever held.** A word is never deleted, and what it says (its text, speaker, and origin) is never
   rewritten; only its times move, with its capture's place on the clock. An edit marks the words of its range replaced
   (`superseded_by`, the change that replaced them) and writes new ones; the transcript is the words that stand, in

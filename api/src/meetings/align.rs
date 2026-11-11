@@ -183,9 +183,12 @@ impl AlignMeeting {
         }
 
         let summary = if captures.len() == 1 {
-            format!("Lined the transcript up: {words} words")
+            format!("{words} words in the transcript")
         } else {
-            format!("Lined {} captures up: {words} words", captures.len())
+            format!(
+                "{words} words in the transcript, from {} captures",
+                captures.len()
+            )
         };
         if self.waits_for_its_person(current.id, log).await? {
             return Ok(Done::Held {
@@ -426,8 +429,8 @@ impl AlignMeeting {
             .map_err(StepFailure::retryable)?;
         if let Some(built) = &built {
             log.line(&format!(
-                "{} words written, {} replaced",
-                built.data["added"], built.data["replaced"]
+                "Lined the transcript up: {} words written, {} replaced, {} moved in time",
+                built.data["added"], built.data["replaced"], built.data["retimed"]
             ));
         }
         let words = crate::models::meeting_word::standing_count(&mut connection, meeting_id)

@@ -418,8 +418,9 @@ pub async fn envelope(
             output.output.trim()
         )))
     };
-    // Removed however the read went, so a failed decode leaves nothing half written behind.
-    workspace
+    // Removed however the read went, so a failed decode leaves nothing half written behind. When
+    // the read failed, its reason is what the caller hears, not the removal's.
+    let removed = workspace
         .run_script(
             AGENT_USER,
             REMOVE_FILE_SCRIPT,
@@ -428,8 +429,10 @@ pub async fn envelope(
             SCRIPT_TIMEOUT,
         )
         .await
-        .map_err(FileError::from)?;
-    read
+        .map_err(FileError::from);
+    let envelope = read?;
+    removed?;
+    Ok(envelope)
 }
 
 /// The envelope `ffmpeg` wrote to `envelope_name` in `directory`.

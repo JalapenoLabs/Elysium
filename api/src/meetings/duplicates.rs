@@ -352,9 +352,12 @@ pub async fn merge(
             let pair = undecided_of(connection, pair_id, person).await?;
             let keeper_id = holder_of(connection, pair.same_as_id).await?;
             let (merging, keeper) = lock_both(connection, pair.meeting_id, keeper_id).await?;
-            // Read again under the locks: another merge may have moved either meeting while this
-            // one waited for them, and captures never go into a meeting merged away.
-            let moved_since = merging.merged_into.is_some() || keeper.merged_into.is_some();
+            // Read again under the locks: another merge or a split may have moved either meeting
+            // while this one waited for them, and captures go only into the meeting that holds the
+            // other's captures now.
+            let moved_since = merging.merged_into.is_some()
+                || keeper.merged_into.is_some()
+                || holder_of(connection, pair.same_as_id).await? != keeper.id;
             if moved_since || merging.id == keeper.id {
                 return Err(DecideError::Decided);
             }

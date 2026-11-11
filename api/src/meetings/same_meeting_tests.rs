@@ -427,6 +427,27 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     let (fireflies_run, held) =
         align_through_the_queue(&database, &mut connection, &fireflies).await;
     assert!(matches!(held, Done::Held { .. }), "{held:?}");
+    // Ada fixes a word only Fireflies heard, the goodbye, while it waits: the edit must travel
+    // with its capture when the merge and then aligning move that capture onto Teams' clock.
+    let goodbye = standing(&mut connection, fireflies.id)
+        .await
+        .into_iter()
+        .find(|word| word.text == "Friday.")
+        .expect("Fireflies' goodbye");
+    meeting_word::edit(
+        &mut connection,
+        fireflies.id,
+        Replacement {
+            range: Range {
+                start_word_id: goodbye.id,
+                end_word_id: goodbye.id,
+            },
+            text: "Friday!",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
     let pairs = pair_of(&mut connection, fireflies.id).await;
     let [pair] = pairs.as_slice() else {
         panic!("one pair, not {pairs:?}");
@@ -553,7 +574,28 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         !read.contains("Sheriff"),
         "a moment Teams heard reads once: {read}"
     );
-    assert!(read.ends_with("Mooreslab wants the customer interviews scheduled next week. Thanks all, see you Friday."), "{read}");
+    assert!(
+        read.ends_with(
+            "Mooreslab wants the customer interviews scheduled next week. Thanks all, see you \
+             Friday!"
+        ),
+        "the edit carried from Fireflies stands where it was said, and what it replaced stays \
+         out, though aligning moved its capture: {read}"
+    );
+    let carried = lined_up
+        .iter()
+        .find(|word| word.text == "Friday!")
+        .expect("the carried edit");
+    let you = lined_up
+        .iter()
+        .find(|word| word.text == "you" && word.capture_id == Some(fireflies_capture.id))
+        .expect("the word before it");
+    assert!(
+        carried.start_ms >= you.end_ms && carried.start_ms - you.end_ms < 1_000,
+        "the edit moved with its capture: {} after {}",
+        carried.start_ms,
+        you.end_ms
+    );
     let thanks = lined_up
         .iter()
         .find(|word| word.text == "Thanks")
@@ -777,6 +819,10 @@ async fn two_answers_at_once_leave_the_pair_saying_what_happened() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "an edit, a nudge, and both undone, with what each leaves of the words"
+)]
 async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
     let (url, mut connection) = migrated_database().await;
     let database = crate::connections::connect_postgres(&url, 4)
@@ -796,8 +842,30 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
         Done::Succeeded { .. }
     ));
     let first_word = |words: &[Word]| words[0].start_ms;
+    // An edit over the capture's words moves with them too, and what it replaced stays out.
+    let heard = standing(&mut connection, meeting.id).await;
+    let lab = heard
+        .iter()
+        .find(|word| word.text == "lab")
+        .expect("a word")
+        .clone();
+    meeting_word::edit(
+        &mut connection,
+        meeting.id,
+        Replacement {
+            range: Range {
+                start_word_id: lab.id,
+                end_word_id: lab.id,
+            },
+            text: "Lab",
+        },
+        person(),
+    )
+    .await
+    .expect("edits");
     let words_before = standing(&mut connection, meeting.id).await;
     let before = first_word(&words_before);
+    let text_before = text(&words_before);
 
     let nudged = clock::nudge(
         &mut connection,
@@ -811,6 +879,11 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
     assert_eq!(nudged.kind(), Some(EventKind::OffsetChanged));
     // Every word moves with its capture and keeps its id, so marks over them stay where they are.
     let words_after = standing(&mut connection, meeting.id).await;
+    assert_eq!(
+        text(&words_after),
+        text_before,
+        "the edit stands, and lab stays out"
+    );
     assert_eq!(
         words_after.iter().map(|word| word.id).collect::<Vec<_>>(),
         words_before.iter().map(|word| word.id).collect::<Vec<_>>()
@@ -866,10 +939,21 @@ async fn an_offset_set_by_hand_moves_its_captures_words_until_undone() {
         (back.offset_ms, back.offset_source()),
         (0, OffsetSource::Listed)
     );
-    assert_eq!(
-        first_word(&standing(&mut connection, meeting.id).await),
-        before
-    );
+    let words_back = standing(&mut connection, meeting.id).await;
+    assert_eq!(first_word(&words_back), before);
+    assert_eq!(text(&words_back), text_before);
+    // Undoing the edit now stands what it replaced up again, once, at the capture's times.
+    let edit_entry = meeting_event::history(&mut connection, meeting.id)
+        .await
+        .expect("history")
+        .into_iter()
+        .find(|entry| entry.kind() == Some(EventKind::Edited))
+        .expect("the edit");
+    history::undo(&mut connection, meeting.id, edit_entry.id, person())
+        .await
+        .expect("undoes the edit");
+    let unedited = text(&standing(&mut connection, meeting.id).await);
+    assert_eq!(unedited.matches("Moore's lab").count(), 1, "{unedited}");
     // Undone once; the undo of a change moved on since is refused.
     assert!(matches!(
         history::undo(&mut connection, meeting.id, nudged.id, person()).await,
