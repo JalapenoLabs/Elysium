@@ -10,8 +10,8 @@
 //! (summaries, action items, notes) is asked for or kept, since the model behind it is unknown;
 //! every later step reads the transcript.
 //!
-//! A meeting holds one capture, the one its source listed, until captures can be merged (#238);
-//! the step fetches that one.
+//! A meeting's run fetches the capture its source listed it with, its first: a capture merged in
+//! later was fetched by its own meeting's run.
 //!
 //! # Doing it once
 //!
@@ -83,7 +83,7 @@ pub struct MeetingToFetch {
 pub struct RecordedMeeting {
     pub meeting_id: Uuid,
     /// The capture fetched. `None` in what a run started before meetings had captures was handed,
-    /// which names the meeting alone: such a step reads the meeting's one capture
+    /// which names the meeting alone: such a step reads the meeting's first capture
     /// (`super::capture_of`).
     #[serde(default)]
     pub capture_id: Option<Uuid>,

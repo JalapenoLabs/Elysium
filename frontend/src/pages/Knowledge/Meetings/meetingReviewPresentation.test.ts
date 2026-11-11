@@ -41,6 +41,21 @@ describe('describeHistory', () => {
     expect([ rows[1].before, rows[1].after ]).toEqual([ 'Fryday.', 'Friday.' ])
   })
 
+  it('says when a recording was moved on the clock, merged in, or split out', () => {
+    const rows = describeHistory([
+      entry('offset', 'offset_changed', { captureId: 'capture' }),
+      entry('merged', 'merged', { from: 'other', into: 'this' }),
+      entry('split', 'split', { from: 'other', into: 'this' }),
+    ])
+
+    // An offset set by hand is undone from the list; a merge is undone by splitting it.
+    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'offsetChanged', true ],
+      [ 'merged', false ],
+      [ 'split', false ],
+    ])
+  })
+
   it('names the kind of a mark made or removed, and shortens a long quote', () => {
     const [ marked, edited ] = describeHistory([
       entry('marked', 'marked', { kind: 'black_out' }),

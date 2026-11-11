@@ -4,9 +4,15 @@
 //!
 //! Every step of a meeting is a step of its run of the `meeting` workflow ([`workflow`]):
 //! [`FetchMeeting`] fetches it (`pending` to `recorded`), [`TranscribeMeeting`] transcribes its
-//! recording with the local Whisper, [`CorrectTranscript`] corrects its transcript and may hold
-//! the run for its person's approval, and [`SegmentMeeting`] cuts it into topics and publishes
-//! them to the timeline (`segmented`, then `done`).
+//! recording with the local Whisper, [`AlignMeeting`] puts its captures on one clock, lines their
+//! words up, and may hold the run while its person says whether it is the same meeting as
+//! another, [`CorrectTranscript`] corrects its transcript and may hold the run for its person's
+//! approval, and [`SegmentMeeting`] cuts it into topics and publishes them to the timeline
+//! (`segmented`, then `done`).
+//!
+//! A meeting whose captures change after its run aligned them (a merge, a split) is aligned again
+//! by a run of the `meeting_alignment` workflow ([`alignment`]), the align step alone, which
+//! leaves its processing where it was.
 //!
 //! # Where its state comes from
 //!
@@ -30,11 +36,12 @@ use chrono::Utc;
 use diesel_async::AsyncPgConnection;
 use uuid::Uuid;
 
+use super::align::AlignMeeting;
 use super::correct::{CorrectTranscript, CorrectedMeeting};
 use super::fetch::{self, FetchMeeting, MeetingToFetch};
 use super::segment::{SegmentMeeting, TranscriptToSegment};
 use super::source::TranscriptLine;
-use super::transcribe::TranscribeMeeting;
+use super::transcribe::{TranscribeMeeting, TranscribedMeeting};
 use crate::models::meeting::{self, Meeting, MeetingState};
 use crate::models::meeting_capture;
 use crate::models::meeting_correction;
@@ -53,9 +60,79 @@ pub fn workflow() -> Workflow<MeetingToFetch> {
     workflows::declare("meeting")
         .first::<FetchMeeting>()
         .then::<TranscribeMeeting>()
+        .then::<AlignMeeting>()
         .then::<CorrectTranscript>()
         .then::<SegmentMeeting>()
         .build()
+}
+
+/// The meeting alignment workflow: a meeting's captures put on its clock and its transcript lined
+/// up again, alone, for a meeting whose captures changed after its own run aligned them.
+pub fn alignment() -> Workflow<TranscribedMeeting> {
+    workflows::declare("meeting_alignment")
+        .first::<AlignMeeting>()
+        .build()
+}
+
+/// What the steps before aligning hand on for fetched meeting `fetched`, read from what it holds:
+/// its first capture, that capture's transcript hash and recording, and its Whisper transcript.
+async fn transcribed(
+    connection: &mut AsyncPgConnection,
+    fetched: &Meeting,
+) -> anyhow::Result<TranscribedMeeting> {
+    let capture = meeting_capture::first_of(connection, fetched.id).await?;
+    let transcript_hash = if let Some(hash) = &capture.transcript_hash {
+        hash.clone()
+    } else {
+        // A meeting fetched before transcripts were hashed: its transcript is what was stored.
+        let lines: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())?;
+        fetch::transcript_hash(&lines)
+    };
+    let whisper = meeting_transcription::find(connection, capture.id).await?;
+    Ok(TranscribedMeeting {
+        meeting_id: fetched.id,
+        capture_id: Some(capture.id),
+        transcript_hash: Some(transcript_hash),
+        recording: capture.stored_recording(),
+        whisper_transcript_hash: whisper.map(|stored| stored.transcript_hash),
+    })
+}
+
+/// A run of the meeting alignment workflow ([`alignment`]) on fetched meeting `fetched`, started
+/// by the system.
+///
+/// # Errors
+/// Propagates any database error, and a stored transcript that does not read as its shape.
+pub async fn run_alignment(
+    connection: &mut AsyncPgConnection,
+    fetched: &Meeting,
+) -> anyhow::Result<NewRun> {
+    let input = transcribed(connection, fetched).await?;
+    Ok(alignment().new_run(Start {
+        source_kind: SOURCE_KIND.to_owned(),
+        source_id: fetched.id.to_string(),
+        input,
+        created_by: SYSTEM_USER_ID,
+    }))
+}
+
+/// A run of the meeting workflow on fetched meeting `fetched`, entering it at aligning with what
+/// the meeting holds, as the steps before would hand it on: for a meeting split back out of the
+/// one it was merged into, whose own run went through while it was merged.
+///
+/// # Errors
+/// Propagates any database error, and a stored transcript that does not read as its shape.
+pub async fn run_from_aligning(
+    connection: &mut AsyncPgConnection,
+    fetched: &Meeting,
+) -> anyhow::Result<NewRun> {
+    let input = transcribed(connection, fetched).await?;
+    Ok(workflow().new_run_at::<AlignMeeting>(Start {
+        source_kind: SOURCE_KIND.to_owned(),
+        source_id: fetched.id.to_string(),
+        input,
+        created_by: SYSTEM_USER_ID,
+    }))
 }
 
 /// A run of the meeting workflow on meeting `meeting_id`, from its fetch, which Elysium starts
@@ -79,22 +156,14 @@ pub async fn run_from_segmenting(
     connection: &mut AsyncPgConnection,
     fetched: &Meeting,
 ) -> anyhow::Result<NewRun> {
-    let capture = meeting_capture::first_of(connection, fetched.id).await?;
-    let transcript_hash = if let Some(hash) = &capture.transcript_hash {
-        hash.clone()
-    } else {
-        // A meeting fetched before transcripts were hashed: its transcript is what was stored.
-        let lines: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())?;
-        fetch::transcript_hash(&lines)
-    };
-    let whisper = meeting_transcription::find(connection, capture.id).await?;
+    let transcribed = transcribed(connection, fetched).await?;
     let correction = meeting_correction::find(connection, fetched.id).await?;
     let input = CorrectedMeeting {
-        meeting_id: fetched.id,
-        capture_id: Some(capture.id),
-        transcript_hash: Some(transcript_hash),
-        recording: capture.stored_recording(),
-        whisper_transcript_hash: whisper.map(|stored| stored.transcript_hash),
+        meeting_id: transcribed.meeting_id,
+        capture_id: transcribed.capture_id,
+        transcript_hash: transcribed.transcript_hash,
+        recording: transcribed.recording,
+        whisper_transcript_hash: transcribed.whisper_transcript_hash,
         approved: correction
             .as_ref()
             .is_some_and(|correction| correction.approved_at.is_some()),
@@ -262,10 +331,12 @@ mod tests {
             crate::meetings::sources::Sources::new(reqwest::Client::new()),
         ));
         steps.register(TranscribeMeeting::for_test(unconnected.clone(), cipher));
+        steps.register(AlignMeeting::for_test(unconnected.clone()));
         steps.register(CorrectTranscript::for_test(unconnected.clone()));
         steps.register(SegmentMeeting::for_test(unconnected));
         // Panics, as the engine would at startup, if the two drift apart.
         steps.assert_runs(&workflow().outline());
+        steps.assert_runs(&alignment().outline());
     }
 
     #[test]
@@ -279,6 +350,7 @@ mod tests {
             vec![
                 "fetch_meeting".to_owned(),
                 "transcribe_meeting".to_owned(),
+                "align_meeting".to_owned(),
                 "correct_transcript".to_owned(),
                 "segment_meeting".to_owned(),
             ]
@@ -421,6 +493,9 @@ mod tests {
         let transcribe = TranscribeMeeting::for_test(database.clone(), cipher);
         let transcribed = run_next(&mut connection, &transcribe, &database).await;
         assert!(matches!(transcribed, Done::Skipped { .. }));
+        let align = AlignMeeting::for_test(database.clone());
+        let aligned = run_next(&mut connection, &align, &database).await;
+        assert!(matches!(aligned, Done::Skipped { .. }));
         let correct = CorrectTranscript::for_test(database.clone());
         let corrected = run_next(&mut connection, &correct, &database).await;
         assert!(matches!(corrected, Done::Skipped { .. }));

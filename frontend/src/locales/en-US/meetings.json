@@ -157,8 +157,22 @@
         "held": "Held the meeting for approval",
         "released": "Stopped holding the meeting for approval",
         "approved": "Approved the corrected transcript",
+        "offsetChanged": "Moved a recording on the meeting's clock",
+        "merged": "Merged with another recording of this meeting",
+        "split": "Split a merged recording back out",
         "changed": "Changed the meeting"
       }
     }
+  },
+  "sameMeeting": {
+    "heading": "Same meeting?",
+    "untitled": "Untitled meeting",
+    "merge": "Merge",
+    "notTheSame": "Not the same",
+    "merged": "Merged on {{date}}",
+    "keptApart": "Kept apart on {{date}}",
+    "mergedToast": "Merged",
+    "keptApartToast": "Kept apart",
+    "decidedMeanwhile": "This was decided already."
   }
 }
