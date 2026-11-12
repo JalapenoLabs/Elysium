@@ -62,6 +62,7 @@ pub const NAME: &str = "meeting_attachment";
 /// Reads a PDF's text into a file. `$1` is the PDF, `$2` the text.
 const PDF_SCRIPT: &str = r#"
 set -euo pipefail
+ulimit -v 1048576
 pdftotext -enc UTF-8 -q -- "$1" "$2"
 "#;
 
@@ -73,10 +74,14 @@ pdftotext -enc UTF-8 -q -- "$1" "$2"
 /// document's body and notes, a deck's slides then their notes in order, a workbook's strings, an
 /// `OpenDocument`'s content), each at most 64 MiB unpacked and 256 MiB in all, so a zip that
 /// unpacks to far more than it holds, or a deck of thousands of slides, reads nothing past that.
-/// A part is not opened once the text is as long as `$3`. Python's own XML parser expands no
-/// external entities, and the expat it runs on refuses amplifying ones.
+/// A part is not opened once the text is as long as `$3`. The zip's directory is read from its end
+/// record before the zip is opened, and one of more than 10,000 entries or 16 MiB, or a ZIP64 one,
+/// which no document this size needs, is refused, so a directory of millions of names is never
+/// read. Python's own XML parser expands no external entities, and the expat it runs on refuses
+/// amplifying ones. Both readers run under a 1 GiB memory limit besides.
 const OFFICE_SCRIPT: &str = r#"
 set -euo pipefail
+ulimit -v 1048576
 python3 -I - "$1" "$2" "$3" <<'PYTHON'
 import re
 import sys
@@ -86,6 +91,10 @@ import xml.etree.ElementTree as tree
 source, target, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
 PART_MAX_BYTES = 64 * 1024 * 1024
 TOTAL_MAX_BYTES = 256 * 1024 * 1024
+ENTRIES_MAX = 10_000
+DIRECTORY_MAX_BYTES = 16 * 1024 * 1024
+# The end record is 22 bytes, after a comment of at most 65,535.
+END_RECORD_SEARCH_BYTES = 65_535 + 22
 # Word's, DrawingML's and OpenDocument's paragraphs and headings, and a workbook's strings.
 PARAGRAPHS = {"p", "h", "si"}
 
@@ -124,6 +133,24 @@ def paragraphs(element, found):
     for child in element:
         paragraphs(child, found)
 
+
+def directory_fits(path):
+    with open(path, "rb") as file:
+        file.seek(0, 2)
+        size = file.tell()
+        file.seek(max(0, size - END_RECORD_SEARCH_BYTES))
+        tail = file.read()
+    end = tail.rfind(b"PK\x05\x06")
+    if end < 0 or end + 22 > len(tail):
+        return False
+    entries = int.from_bytes(tail[end + 10 : end + 12], "little")
+    directory_size = int.from_bytes(tail[end + 12 : end + 16], "little")
+    # ZIP64 marks these 0xFFFF and 0xFFFFFFFF, past either limit.
+    return entries <= ENTRIES_MAX and directory_size <= DIRECTORY_MAX_BYTES
+
+
+if not directory_fits(source):
+    sys.exit(3)
 
 written = 0
 unpacked = 0

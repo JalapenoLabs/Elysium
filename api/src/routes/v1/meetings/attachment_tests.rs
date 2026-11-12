@@ -851,6 +851,14 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
         .as_str()
         .expect("an address")
         .to_owned();
+    let attached = fixture.attach(meeting_id, "Plan.txt", b"plan").await;
+    assert_eq!(attached.status, StatusCode::CREATED, "{}", attached.json());
+    let upload_id: Uuid = meeting_uploads::table
+        .filter(meeting_uploads::meeting_id.eq(meeting_id))
+        .select(meeting_uploads::id)
+        .first(&mut fixture.connection)
+        .await
+        .expect("the upload");
 
     // Someone else's private meeting, to a member it is not shared with.
     execute(
@@ -915,6 +923,15 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
         )
         .await;
     assert_eq!(upload.status, StatusCode::NOT_FOUND);
+    // Finishing the upload again answers nothing of a meeting its uploader may no longer read.
+    let finished_again = fixture
+        .json(
+            Method::POST,
+            &format!("/api/v1/meeting-uploads/{upload_id}/finish"),
+            &json!({}),
+        )
+        .await;
+    assert_eq!(finished_again.status, StatusCode::NOT_FOUND);
 
     // Made public, every member reads its files and frames, as they read its words.
     execute(

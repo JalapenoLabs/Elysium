@@ -876,7 +876,8 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   marks the upload finished with the lines its transcript was read as, and starts the meeting's run from its fetch, as
   its person, all in one transaction; the fetch then stores the recording (Fetching, above). A new meeting's duration is
   where its transcript's last line ends, when it has times, and its participants are the speakers its transcript names.
-  Finishing again, or twice at once, answers the same meeting.
+  Finishing again, or twice at once, answers the same meeting, or the same file, while its uploader may still read
+  the meeting, and `404` once they may not.
 
 ### Reading a transcript
 

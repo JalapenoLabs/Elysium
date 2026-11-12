@@ -72,7 +72,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     if let Some(capture_id) = staged.upload.capture_id {
-        return finished_before(&mut connection, capture_id, Reader::of(&current.0)).await;
+        return finished_before(&mut connection, capture_id, &current).await;
     }
     if !staged.files.iter().all(MeetingUploadFile::is_received) {
         return Err(ApiError::CodedConflict {
@@ -130,7 +130,7 @@ pub async fn handle(
             // Finished by another request while this one read its transcript: answer what it made.
             let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
             let capture_id = staged.upload.capture_id.ok_or(ApiError::NotFound)?;
-            return finished_before(&mut connection, capture_id, Reader::of(&current.0)).await;
+            return finished_before(&mut connection, capture_id, &current).await;
         }
         Err(error) => return Err(error),
     };
@@ -158,7 +158,7 @@ async fn finish_attachment(
         .await
         .context("no database connection available")?;
     if let Some(attachment_id) = staged.upload.attachment_id {
-        return attached_before(&mut connection, staged, attachment_id).await;
+        return attached_before(&mut connection, staged, attachment_id, current).await;
     }
     let upload = &staged.upload;
     let meeting_id = upload
@@ -222,7 +222,7 @@ async fn finish_attachment(
             // Finished by another request meanwhile: answer what it made.
             let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
             let attachment_id = staged.upload.attachment_id.ok_or(ApiError::NotFound)?;
-            return attached_before(&mut connection, &staged, attachment_id).await;
+            return attached_before(&mut connection, &staged, attachment_id, current).await;
         }
         Err(error) => return Err(error),
     };
@@ -244,28 +244,34 @@ async fn finish_attachment(
     ))
 }
 
-/// The answer for an upload of a file finished before, as attachment `attachment_id`.
+/// The answer for an upload of a file finished before, as attachment `attachment_id`, while its
+/// uploader may still read the meeting: one made private since, or merged into a meeting they may
+/// not read, answers `404` as any meeting route does.
 async fn attached_before(
     connection: &mut AsyncPgConnection,
     staged: &Staged,
     attachment_id: Uuid,
+    current: &CurrentUser,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let meeting_id = staged.upload.meeting_id.ok_or(ApiError::NotFound)?;
-    let attachment = meeting_attachment::find(connection, meeting_id, attachment_id).await?;
+    let (found, _access) = meetings::open(connection, meeting_id, current, Need::Read).await?;
+    let attachment = meeting_attachment::find(connection, found.id, attachment_id).await?;
     let answered = meetings::attachment_response(attachment, None);
     Ok((StatusCode::OK, Json(json!({ "attachment": answered }))))
 }
 
 /// The answer for an upload finished before, as capture `capture_id`: the meeting it became, as
-/// `reader`, who uploaded it, sees it.
+/// its uploader sees it, while they may still read it. A capture merged since into a meeting they
+/// may not read answers `404`, as any meeting route does.
 async fn finished_before(
     connection: &mut AsyncPgConnection,
     capture_id: Uuid,
-    reader: Reader,
+    current: &CurrentUser,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let capture = meeting_capture::find(connection, capture_id).await?;
-    let made = meeting::find(connection, capture.meeting_id).await?;
-    let answered = meetings::response(connection, made, reader).await?;
+    let (made, _access) =
+        meetings::open(connection, capture.meeting_id, current, Need::Read).await?;
+    let answered = meetings::response(connection, made, Reader::of(&current.0)).await?;
     Ok((StatusCode::OK, Json(json!({ "meeting": answered }))))
 }
 
