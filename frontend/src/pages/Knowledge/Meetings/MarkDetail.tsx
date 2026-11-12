@@ -85,6 +85,7 @@ export function MarkDetail(props: Props) {
 
   return <section aria-label={t(markKindLabelKeys[placed.kind])} className='flex flex-col gap-2 text-sm'>
     <p className='font-semibold'>{t(markKindLabelKeys[placed.kind])}</p>
+    {mark.excerpt && <p className='font-medium'>{mark.excerpt.title}</p>}
     <p className='text-xs opacity-70'>
       <span>{byline}</span>
       <span aria-hidden> · </span>
@@ -106,7 +107,6 @@ export function MarkDetail(props: Props) {
       }</ul>
     </div>}
 
-    {mark.excerpt && <p className='font-medium'>{mark.excerpt.title}</p>}
     {record && <RecordProjects record={record} />}
     {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
