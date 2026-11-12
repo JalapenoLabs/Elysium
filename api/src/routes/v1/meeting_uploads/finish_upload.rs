@@ -14,6 +14,12 @@
 //!
 //! Finishing a finished upload answers its meeting again, so a person whose answer was lost sees
 //! where it went.
+//!
+//! An upload of a file attached to a meeting finishes as an attachment instead: under the
+//! meeting's lock it is recorded on the meeting, as `attached` in its history, and its run of the
+//! meeting attachment workflow is started, which stores the file and reads its text
+//! (`crate::meetings::attachment_workflow`). That answers the attachment, and its history entry for
+//! the page's Undo.
 
 use anyhow::Context;
 use axum::Json;
@@ -29,12 +35,17 @@ use super::create_upload::{MEETING_MERGED, meeting_busy};
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meeting_attachments;
 use crate::meeting_uploads::{self, FileKind, transcript};
+use crate::meetings::attachment_workflow::{self, AttachmentFile};
+use crate::meetings::attachments;
 use crate::meetings::source::TranscriptLine;
 use crate::meetings::workflow;
 use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting, NewMeeting};
+use crate::models::meeting_attachment::{self, UploadedFile};
 use crate::models::meeting_capture::{self, NewMeetingCapture};
+use crate::models::meeting_mark::{self, MarkError};
 use crate::models::meeting_event::{self, Change, EventKind};
 use crate::models::meeting_upload::{self, MeetingUploadFile, Staged};
 use crate::models::{user, workflow_run};
@@ -67,6 +78,10 @@ pub async fn handle(
             code: "meeting_upload_incomplete",
             message: "some of this upload has not arrived yet",
         });
+    }
+    if staged.file(FileKind::Attachment).is_some() {
+        drop(connection);
+        return finish_attachment(&state, &current, &staged).await;
     }
     // Reading the transcript may take a moment; no connection is held while it does.
     drop(connection);
@@ -129,6 +144,117 @@ pub async fn handle(
     });
     let answered = meetings::response(&mut connection, made).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))
+}
+
+/// Finishes `staged`, an upload of one file attached to its meeting: see the module's docs.
+async fn finish_attachment(
+    state: &AppState,
+    current: &CurrentUser,
+    staged: &Staged,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    if let Some(attachment_id) = staged.upload.attachment_id {
+        return attached_before(&mut connection, staged, attachment_id).await;
+    }
+    let upload = &staged.upload;
+    let meeting_id = upload
+        .meeting_id
+        .context("an attachment's upload names its meeting")?;
+    let file = staged
+        .file(FileKind::Attachment)
+        .context("an attachment's upload holds its file")?;
+    let storage_location_id = upload
+        .storage_location_id
+        .context("an attachment's upload names where it is kept")?;
+    let uploaded = UploadedFile {
+        id: Uuid::now_v7(),
+        meeting_id,
+        storage_location_id,
+        file_name: file.file_name.clone(),
+        content_type: meeting_attachments::content_type_of(&file.file_name).to_owned(),
+        size_bytes: file.size_bytes,
+        has_text: meeting_attachments::reader_of(&file.file_name).is_some(),
+    };
+    let (id, owner) = (upload.id, current.id());
+    let finished = connection
+        .transaction(async move |connection| {
+            meeting_upload::lock_unfinished(connection, id, owner).await?;
+            let found = match meeting_mark::lock_meeting(connection, meeting_id).await {
+                Ok(()) => meeting::find(connection, meeting_id).await?,
+                Err(MarkError::Merged) => return Err(MEETING_MERGED),
+                Err(MarkError::Database(error)) => return Err(error.into()),
+                Err(_) => return Err(ApiError::NotFound),
+            };
+            if found.created_by != owner {
+                return Err(ApiError::NotFound);
+            }
+            let author = Author {
+                user_id: owner,
+                agent: None,
+                at: Utc::now(),
+            };
+            let attached = attachments::attach_file(connection, uploaded, author)
+                .await
+                .map_err(meetings::attachment_refusal)?;
+            meeting_upload::record_attached(connection, id, attached.attachment.id)
+                .await?
+                .ok_or(ApiError::NotFound)?;
+            let file = AttachmentFile {
+                attachment_id: attached.attachment.id,
+                upload_id: Some(id),
+            };
+            let started = workflow_run::start(
+                connection,
+                attachment_workflow::run_for(file, owner),
+                Utc::now(),
+            )
+            .await?;
+            Ok::<_, ApiError>((found, attached, started))
+        })
+        .await;
+    let (found, attached, started) = match finished {
+        Ok(finished) => finished,
+        Err(ApiError::NotFound) => {
+            // Finished by another request meanwhile: answer what it made.
+            let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
+            let attachment_id = staged.upload.attachment_id.ok_or(ApiError::NotFound)?;
+            return attached_before(&mut connection, &staged, attachment_id).await;
+        }
+        Err(error) => return Err(error),
+    };
+
+    workflows::announce(&state.events, &started.settled);
+    state.events.signal(&Signal::Workflows);
+    state.events.publish(&ServerEvent::MeetingChanged {
+        id: found.id,
+        state: found.state.clone(),
+        created_by: found.created_by,
+        entry_id: Some(attached.entry.id),
+    });
+    let answered = meetings::attachment_response(attached.attachment, None);
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "attachment": answered,
+            "entry": meetings::MeetingEventResponse::from(attached.entry),
+        })),
+    ))
+}
+
+/// The answer for an upload of a file finished before, as attachment `attachment_id`.
+async fn attached_before(
+    connection: &mut AsyncPgConnection,
+    staged: &Staged,
+    attachment_id: Uuid,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let meeting_id = staged.upload.meeting_id.ok_or(ApiError::NotFound)?;
+    let attachment = meeting_attachment::find(connection, meeting_id, attachment_id).await?;
+    let answered = meetings::attachment_response(attachment, None);
+    Ok((StatusCode::OK, Json(json!({ "attachment": answered }))))
 }
 
 /// The answer for an upload finished before, as capture `capture_id`: the meeting it became.

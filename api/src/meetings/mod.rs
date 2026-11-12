@@ -35,6 +35,7 @@
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
 pub mod align;
+pub mod attachment_workflow;
 pub mod attachments;
 pub mod alignment;
 pub mod clock;
@@ -458,15 +459,27 @@ impl Meetings {
         }
     }
 
-    /// Removes the parts of finished uploads that no longer need them: each whose capture was
-    /// stored, whose fetch could not remove them, and each finished before `before` whose meeting's
-    /// run settled without storing it, such as one whose fetch a person skipped. A fetch that failed
-    /// and waits for its retry keeps its parts. Each removal is recorded, so it happens once.
+    /// Removes the parts of finished uploads that no longer need them: each whose capture or
+    /// attached file was stored, whose step could not remove them, and each finished before
+    /// `before` whose run settled without storing it, such as one whose fetch a person skipped. A
+    /// step that failed and waits for its retry keeps its parts. Each removal is recorded, so it
+    /// happens once.
     async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
         let finished = match self.connection().await {
             Ok(mut connection) => {
-                meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
-                    .await
+                let captures =
+                    meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
+                        .await;
+                let attachments = meeting_upload::finished_attachments_with_parts(
+                    &mut connection,
+                    before,
+                    UPLOAD_SWEEP_BATCH,
+                )
+                .await;
+                captures
+                    .and_then(|captures| {
+                        attachments.map(|attachments| [captures, attachments].concat())
+                    })
                     .map_err(anyhow::Error::from)
             }
             Err(error) => Err(error),

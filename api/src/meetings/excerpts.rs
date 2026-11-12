@@ -92,8 +92,8 @@ pub enum ExcerptError {
     /// The range, or the mark, cannot be marked or removed (`MarkError`).
     #[error(transparent)]
     Mark(#[from] MarkError),
-    /// The mark is neither an excerpt nor a black-out; threads have routes of their own.
-    #[error("the mark is neither an excerpt nor a black-out")]
+    /// The mark is neither an excerpt, a black-out, nor a pin; threads have routes of their own.
+    #[error("the mark is neither an excerpt, a black-out, nor a pin")]
     NotAnExcerpt,
     /// An excerpt names a project that does not exist.
     #[error("a project named does not exist")]
@@ -562,9 +562,9 @@ pub async fn black_out(
         .await
 }
 
-/// Removes excerpt or black-out `mark_id` of `meeting` as `author`, recorded so its undo puts it
-/// back: an excerpt's record leaves every project and the index, and a black-out's words read
-/// again wherever they lie.
+/// Removes excerpt, black-out, or pin `mark_id` of `meeting` as `author`, recorded so its undo
+/// puts it back: an excerpt's record leaves every project and the index, a black-out's words read
+/// again wherever they lie, and a pin's attachment leaves the excerpts it was pinned in.
 ///
 /// # Errors
 /// [`ExcerptError::Mark`] when the meeting has no such mark or it was removed already,
@@ -591,6 +591,7 @@ pub async fn remove(
                 Some(MarkKind::BlackOut) => {
                     Ok(lift(connection, meeting, &mark, &[], author, None).await?)
                 }
+                Some(MarkKind::Pin) => Ok(unpin(connection, meeting, &mark, author).await?),
                 _ => Err(ExcerptError::NotAnExcerpt),
             }
         })
@@ -651,6 +652,20 @@ pub(crate) async fn undo(
         _ => None,
     };
     Ok(undo)
+}
+
+/// Removes pin `mark`: its attachment stays on the meeting, and leaves every excerpt it was
+/// carried in through this pin alone.
+async fn unpin(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    mark: &Mark,
+    author: Author<'_>,
+) -> QueryResult<MeetingEvent> {
+    let entry = meeting_mark::record_removed(connection, mark, author, None, json!({})).await?;
+    meeting_mark::remove_all(connection, &[mark.id], entry.id).await?;
+    refresh_over(connection, meeting, mark).await?;
+    Ok(entry)
 }
 
 /// Marks a change put back, as the change that removed them, for a black-out's removal to restore.

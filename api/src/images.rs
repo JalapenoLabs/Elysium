@@ -290,6 +290,22 @@ mod tests {
         slide
     }
 
+    /// nginx refuses a body past its own limit with a page of HTML, before the API can say why.
+    #[test]
+    fn nginx_lets_the_largest_frame_through() {
+        let locations = include_str!("../../nginx/locations.conf");
+        let (_before, block) = locations
+            .split_once("/frames$")
+            .expect("frames have a location of their own");
+        let megabytes: usize = block
+            .split_once("client_max_body_size ")
+            .and_then(|(_before, rest)| rest.split_once("m;"))
+            .and_then(|(limit, _after)| limit.parse().ok())
+            .expect("the location sets a limit in megabytes");
+
+        assert!(megabytes * 1_000_000 >= MAX_FRAME_UPLOAD_BYTES);
+    }
+
     #[test]
     fn a_frame_is_kept_as_webp_no_larger_than_1080p() {
         let screen = RgbaImage::from_pixel(3840, 2160, Rgba([10, 60, 120, 255]));

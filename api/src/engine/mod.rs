@@ -74,6 +74,7 @@ use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
 use crate::meeting_uploads::staging::Staging;
 use crate::meetings::align::{AlignMeeting, AlignMeetingDeps};
+use crate::meetings::attachment_workflow::{AttachmentDeps, ReadAttachmentText, StoreAttachment};
 use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::segment::{SegmentMeeting, SegmentMeetingDeps};
@@ -239,6 +240,16 @@ pub async fn run() -> Result<()> {
         runner: runner.clone(),
         workspace: meeting_workspace.clone(),
     }));
+    let attachment_deps = AttachmentDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: foundation.storage.clone(),
+        workspace: meeting_workspace.clone(),
+        staging: Staging::in_workspace(meeting_workspace.clone()),
+    };
+    steps.register(StoreAttachment::new(attachment_deps.clone()));
+    steps.register(ReadAttachmentText::new(attachment_deps));
     steps.register(HandleRequest::new(HandleRequestDeps {
         database: database.clone(),
         events: events.clone(),

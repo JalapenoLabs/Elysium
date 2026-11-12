@@ -202,6 +202,14 @@ pub fn displays_inline(content_type: &str) -> bool {
     page_attachments::displays_inline(content_type)
 }
 
+/// The extension of `file_name`, in lowercase, or `bin` for a name with none: what a copy of it is
+/// named by in the workspace, where a reader opens it.
+pub fn extension_of(file_name: &str) -> String {
+    file_name
+        .rsplit_once('.')
+        .map_or_else(|| "bin".to_owned(), |(_stem, extension)| extension.to_ascii_lowercase())
+}
+
 fn known_type_of(file_name: &str) -> Option<&'static KnownType> {
     let (_stem, extension) = file_name.rsplit_once('.')?;
     KNOWN_TYPES
@@ -377,6 +385,17 @@ mod tests {
             );
             assert!(known.image.is_none() || known.reader.is_none());
         }
+    }
+
+    /// The admin's setting starts where the design says, and the database holds it beneath the
+    /// ceiling as this module does.
+    #[test]
+    fn the_largest_file_starts_at_a_gigabyte_and_never_passes_the_ceiling() {
+        let migration = include_str!(
+            "../migrations/2026-11-12-010000-0250_attach_files_and_frames_to_meetings/up.sql"
+        );
+        assert!(migration.contains(&format!("DEFAULT {DEFAULT_MAX_BYTES}")));
+        assert!(migration.contains(&format!("BETWEEN 1 AND {MAX_BYTES_CEILING}")));
     }
 
     #[test]

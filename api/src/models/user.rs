@@ -250,6 +250,9 @@ pub struct WorkspaceSettings {
     pub worker_pool_size: Option<i32>,
     /// The storage location new page attachments go to. See `crate::page_attachments`.
     pub page_attachment_storage_location_id: Option<Uuid>,
+    /// The largest file a meeting takes, in bytes: 1 GB unless an admin chooses another. See
+    /// `crate::meeting_attachments`.
+    pub meeting_attachment_max_bytes: i64,
 }
 
 /// A partial update of the workspace settings. `None` leaves a setting as it is.
@@ -288,6 +291,7 @@ pub struct WorkspaceSettingsChanges {
         reason = "leave as it is, clear, and set are three distinct changes"
     )]
     pub page_attachment_storage_location_id: Option<Option<Uuid>>,
+    pub meeting_attachment_max_bytes: Option<i64>,
 }
 
 impl WorkspaceSettingsChanges {
@@ -299,6 +303,7 @@ impl WorkspaceSettingsChanges {
             && self.backup_storage_location_id.is_none()
             && self.worker_pool_size.is_none()
             && self.page_attachment_storage_location_id.is_none()
+            && self.meeting_attachment_max_bytes.is_none()
     }
 }
 

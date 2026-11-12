@@ -73,6 +73,8 @@ pub struct UploadResponse {
     part_bytes: u32,
     files: Vec<UploadFileResponse>,
     capture_id: Option<Uuid>,
+    /// The attachment an upload of a file attached to its meeting became, once it finished.
+    attachment_id: Option<Uuid>,
     finished_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -81,7 +83,7 @@ pub struct UploadResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadFileResponse {
-    /// `recording` or `transcript`.
+    /// `recording`, `transcript`, or `attachment`.
     kind: &'static str,
     file_name: String,
     size_bytes: u64,
@@ -114,6 +116,7 @@ impl From<Staged> for UploadResponse {
             storage_location_id: upload.storage_location_id,
             files,
             capture_id: upload.capture_id,
+            attachment_id: upload.attachment_id,
             finished_at: upload.finished_at,
             created_at: upload.created_at,
             updated_at: upload.updated_at,

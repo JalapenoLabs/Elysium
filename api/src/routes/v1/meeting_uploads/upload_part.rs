@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `PUT /api/v1/meeting-uploads/{id}/{kind}/parts/{index}`: one part of an upload's recording or
-//! transcript. The body is the part itself, sent with its `Content-Length`, and streams to the
+//! `PUT /api/v1/meeting-uploads/{id}/{kind}/parts/{index}`: one part of an upload's recording,
+//! transcript, or attached file. The body is the part itself, sent with its `Content-Length`, and streams to the
 //! upload's staging directory (`crate::meeting_uploads::staging`), so nothing holds it in memory.
 //!
 //! Parts arrive in order, each [`MeetingUpload::part_bytes`] long but the last. The part the API
@@ -9,7 +9,8 @@
 //! its file's row, so of two sends of one part at once only the one counted is kept; one it has
 //! already is acknowledged without being written, so a part resent after its answer was lost
 //! changes nothing; one past the next is refused with how far the file got, for the page to resume
-//! from. A recording's first part must open as its format does before any of it is kept, and a
+//! from. A recording's first part, and an attached image's, must open as its format does before
+//! any of it is kept (`crate::meeting_uploads::require_signature`), and a
 //! transcript's last part is counted only once the whole transcript reads as one
 //! (`super::read_transcript`).
 //!
@@ -101,8 +102,7 @@ pub async fn handle(
             message: format!("part {index} carries {expected} bytes, not {length}"),
         });
     }
-    let file_type = meeting_uploads::type_of(kind, &file.file_name)
-        .context("a stored file's name keeps the extension it was taken by")?;
+    let file_name = file.file_name.clone();
     let from = i64::try_from(received).context("a file's size fits a bigint")?;
     let to = i64::try_from(received + expected).context("a file's size fits a bigint")?;
     let is_last_of_transcript = kind == FileKind::Transcript && to == file.size_bytes;
@@ -111,9 +111,9 @@ pub async fn handle(
 
     // Limited to the route's `DefaultBodyLimit`, which a body read as a stream must ask for.
     let mut chunks = Box::pin(request.into_limited_body().into_data_stream());
-    let head = if kind == FileKind::Recording && index == 0 {
+    let head = if kind != FileKind::Transcript && index == 0 {
         let head = read_head(&mut chunks).await?;
-        file_type.require_signature(&head)?;
+        meeting_uploads::require_signature(kind, &file_name, &head)?;
         head.freeze()
     } else {
         Bytes::new()

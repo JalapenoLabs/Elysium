@@ -1,0 +1,495 @@
+// Copyright © 2026 Jalapeno Labs
+
+//! A meeting's files and frames (`docs/meetings.md`, Attachments and frames):
+//!
+//! - `GET /api/v1/meetings/{id}/attachments` lists them, in the order they arrived;
+//! - `GET .../attachments/{attachmentId}/{name}` serves one from its storage location;
+//! - `DELETE .../attachments/{attachmentId}` takes one off with its pins;
+//! - `POST .../frames` takes a still a person took from the player, with its caption;
+//! - `POST .../pins` pins one over a range of the words, which is how one is pinned to an
+//!   excerpt, and a pin is removed as any mark is (`DELETE .../marks/{markId}`).
+//!
+//! A file arrives as an upload's parts (`/api/v1/meeting-uploads`), as a recording does, since it
+//! can be a gigabyte. Every change is in the meeting's history, so it answers its entry and the
+//! marks as they now stand, for the page to apply and offer Undo (`history/{entryId}/undo`).
+//!
+//! Each answers the meeting's owner alone, as the meeting's other routes do, until meetings are
+//! public by default (`docs/meeting-review.md`, Who sees a meeting). `404` for a meeting that is
+//! not theirs, and `409 meeting_merged` for every change to one merged away.
+
+use anyhow::Context;
+use axum::Json;
+use axum::body::{Body, Bytes};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
+use diesel_async::AsyncPgConnection;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use tracing::{Level, event};
+use uuid::Uuid;
+
+use super::{MeetingEventResponse, announce, merged_refusal, transcript_change};
+use crate::auth::CurrentUser;
+use crate::errors::ApiError;
+use crate::images::{self, ImageError, MAX_FRAME_UPLOAD_BYTES};
+use crate::meeting_attachments;
+use crate::meetings::attachments::{self as meeting_attachments_change, AttachmentError};
+use crate::models::agent::Author;
+use crate::models::meeting::{self, Meeting};
+use crate::models::meeting_attachment::{self, MeetingAttachment, StoredFrame};
+use crate::models::meeting_capture;
+use crate::models::meeting_mark::{MarkError, Range};
+use crate::models::{storage_location, user};
+use crate::routes::v1::learnings::AgentResponse;
+use crate::state::AppState;
+
+/// A file's bytes never change, since a new upload is a new attachment. Only taking one off could
+/// change what its address answers, so a browser may keep it for an hour, privately, as a page's.
+const CACHE_CONTROL: HeaderValue = HeaderValue::from_static("private, max-age=3600");
+
+/// One file or frame of a meeting, as its page lists it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentResponse {
+    id: Uuid,
+    /// `file` or `frame`.
+    kind: String,
+    file_name: String,
+    content_type: String,
+    size_bytes: i64,
+    /// Where it is served, once it is stored; `null` while an upload's parts are being stored.
+    address: Option<String>,
+    /// Whether a page shows it: a proven image or a frame. Anything else downloads.
+    displays_inline: bool,
+    /// A frame's caption, capture, and moment: on that capture's clock, and on the meeting's.
+    caption: Option<String>,
+    capture_id: Option<Uuid>,
+    capture_ms: Option<i64>,
+    meeting_ms: Option<i64>,
+    /// How far reading its text got: `pending`, `read`, `none`, or `unreadable`.
+    text_state: String,
+    created_by: Uuid,
+    agent: Option<AgentResponse>,
+    created_at: DateTime<Utc>,
+}
+
+impl AttachmentResponse {
+    /// `attachment`, its moment placed on the meeting's clock by its capture's `offset_ms`.
+    pub fn new(attachment: MeetingAttachment, offset_ms: Option<i64>) -> Self {
+        let address = attachment.stored_at.map(|_| {
+            meeting_attachments::address(
+                attachment.meeting_id,
+                attachment.id,
+                &attachment.file_name,
+            )
+        });
+        Self {
+            displays_inline: meeting_attachments::displays_inline(&attachment.content_type),
+            meeting_ms: attachment
+                .capture_ms
+                .zip(offset_ms)
+                .map(|(capture_ms, offset_ms)| capture_ms + offset_ms),
+            agent: AgentResponse::new(attachment.agent, attachment.agent_name),
+            id: attachment.id,
+            kind: attachment.kind,
+            file_name: attachment.file_name,
+            content_type: attachment.content_type,
+            size_bytes: attachment.size_bytes,
+            address,
+            caption: attachment.caption,
+            capture_id: attachment.capture_id,
+            capture_ms: attachment.capture_ms,
+            text_state: attachment.text_state,
+            created_by: attachment.created_by,
+            created_at: attachment.created_at,
+        }
+    }
+}
+
+/// `attachment` as answered, its moment read from its capture.
+///
+/// # Errors
+/// Propagates any database error.
+async fn response(
+    connection: &mut AsyncPgConnection,
+    attachment: MeetingAttachment,
+) -> Result<AttachmentResponse, ApiError> {
+    let offset_ms = match attachment.capture_id {
+        Some(capture_id) => Some(meeting_capture::find(connection, capture_id).await?.offset_ms),
+        None => None,
+    };
+    Ok(AttachmentResponse::new(attachment, offset_ms))
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    path: Result<Path<Uuid>, PathRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Path(id) = path?;
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let found = readable(&mut connection, id, &current).await?;
+    let offsets: std::collections::HashMap<Uuid, i64> =
+        meeting_capture::list_of(&mut connection, found.id)
+            .await?
+            .into_iter()
+            .map(|capture| (capture.id, capture.offset_ms))
+            .collect();
+    let attachments: Vec<AttachmentResponse> =
+        meeting_attachment::of_meeting(&mut connection, found.id)
+            .await?
+            .into_iter()
+            .map(|attachment| {
+                let offset_ms = attachment
+                    .capture_id
+                    .and_then(|capture_id| offsets.get(&capture_id).copied());
+                AttachmentResponse::new(attachment, offset_ms)
+            })
+            .collect();
+    Ok(Json(json!({ "attachments": attachments })))
+}
+
+pub async fn read(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    path: Result<Path<(Uuid, Uuid, String)>, PathRejection>,
+) -> Result<Response, ApiError> {
+    let Path((id, attachment_id, _name)) = path?;
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let found = readable(&mut connection, id, &current).await?;
+    let attachment = meeting_attachment::find(&mut connection, found.id, attachment_id).await?;
+    let Some(storage_path) = attachment
+        .storage_path
+        .as_deref()
+        .filter(|_| attachment.removed_by.is_none())
+    else {
+        return Err(ApiError::NotFound);
+    };
+    let location = storage_location::find(&mut connection, attachment.storage_location_id).await?;
+    drop(connection);
+
+    let access_key = location
+        .access_key(&state.cipher)
+        .context("the storage location's access key cannot be decrypted")?;
+    let download = state
+        .storage
+        .download(&location, &access_key, storage_path)
+        .await?;
+    let content_type = HeaderValue::from_str(&attachment.content_type)
+        .context("a stored content type fits a header")?;
+    let is_inline = meeting_attachments::displays_inline(&attachment.content_type);
+    let mut response = Body::from_stream(download.body).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, content_type);
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        crate::page_attachments::content_disposition(&attachment.file_name, is_inline),
+    );
+    headers.insert(header::CACHE_CONTROL, CACHE_CONTROL);
+    if let Some(length) = download.content_length {
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
+    }
+    Ok(response)
+}
+
+pub async fn remove(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    path: Result<Path<(Uuid, Uuid)>, PathRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Path((id, attachment_id)) = path?;
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let found = editable(&mut connection, id, &current).await?;
+    let entry =
+        meeting_attachments_change::detach(&mut connection, &found, attachment_id, author_of(&current))
+            .await
+            .map_err(refusal)?;
+    let change = transcript_change(&mut connection, found.id, &entry).await?;
+    announce(&state.events, &found, &entry);
+    Ok(Json(json!({
+        "entry": MeetingEventResponse::from(entry),
+        "change": change,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrameQuery {
+    /// The capture whose video it is a still of, and its moment on that capture's clock.
+    capture_id: Uuid,
+    capture_ms: i64,
+    /// What it shows.
+    caption: String,
+    /// The words it is pinned over; both or neither. Neither pins it over the word being spoken
+    /// at its moment.
+    start_word_id: Option<Uuid>,
+    end_word_id: Option<Uuid>,
+}
+
+pub async fn take_frame(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    query: Result<Query<FrameQuery>, QueryRejection>,
+    body: Bytes,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let Path(id) = path?;
+    let Query(query) = query?;
+    let caption = meeting_attachments::caption(&query.caption)?;
+    if query.capture_ms < 0 {
+        return Err(ApiError::BadRequest(
+            "a frame's moment is on its capture's clock, from 0".to_owned(),
+        ));
+    }
+    let range = match (query.start_word_id, query.end_word_id) {
+        (Some(start_word_id), Some(end_word_id)) => Some(Range {
+            start_word_id,
+            end_word_id,
+        }),
+        (None, None) => None,
+        _ => {
+            return Err(ApiError::BadRequest(
+                "a frame is pinned over a range with both its ends, or over its moment".to_owned(),
+            ));
+        }
+    };
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let found = editable(&mut connection, id, &current).await?;
+    if found.merged_into.is_some() {
+        return Err(merged_refusal());
+    }
+    let location_id = user::workspace_settings(&mut connection)
+        .await?
+        .page_attachment_storage_location_id
+        .ok_or(NO_LOCATION)?;
+    let location = storage_location::find(&mut connection, location_id).await?;
+    // Compressing and storing take a moment; no connection is held while they do.
+    drop(connection);
+
+    let frame = tokio::task::spawn_blocking(move || images::compress_frame(&body))
+        .await
+        .context("compressing a frame panicked")?
+        .map_err(frame_refusal)?;
+    let access_key = location
+        .access_key(&state.cipher)
+        .context("the storage location's access key cannot be decrypted")?;
+    let attachment_id = Uuid::now_v7();
+    let file_name = meeting_attachments::frame_name(query.capture_ms);
+    let storage_path = meeting_attachments::storage_path(found.id, attachment_id, &file_name);
+    let size_bytes = i64::try_from(frame.webp.len()).context("a frame's size fits a bigint")?;
+    state
+        .storage
+        .upload(
+            &location,
+            &access_key,
+            &storage_path,
+            futures_util::stream::once(async move { Ok::<_, std::io::Error>(Bytes::from(frame.webp)) }),
+            u64::try_from(size_bytes).context("a frame's size is positive")?,
+            Some("image/webp"),
+        )
+        .await?;
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let stored = StoredFrame {
+        id: attachment_id,
+        meeting_id: found.id,
+        storage_location_id: location.id,
+        storage_path: storage_path.clone(),
+        file_name,
+        size_bytes,
+        capture_id: query.capture_id,
+        capture_ms: query.capture_ms,
+        caption,
+        fingerprint: frame.fingerprint,
+    };
+    let attached = match meeting_attachments_change::attach_frame(
+        &mut connection,
+        &found,
+        stored,
+        range,
+        author_of(&current),
+    )
+    .await
+    {
+        Ok(attached) => attached,
+        Err(error) => {
+            // Nothing records this file, so nothing would ever find it again.
+            if let Err(cleanup) = state
+                .storage
+                .delete(&location, &access_key, &storage_path)
+                .await
+            {
+                event!(
+                    name: "meetings.frame.orphaned",
+                    Level::WARN,
+                    file.path = storage_path,
+                    error.message = %cleanup,
+                    "a refused frame could not be deleted from its location",
+                );
+            }
+            return Err(refusal(error));
+        }
+    };
+    let change = transcript_change(&mut connection, found.id, &attached.entry).await?;
+    announce(&state.events, &found, &attached.entry);
+    let answered = response(&mut connection, attached.attachment).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "attachment": answered,
+            "entry": MeetingEventResponse::from(attached.entry),
+            "change": change,
+        })),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PinRequest {
+    attachment_id: Uuid,
+    start_word_id: Uuid,
+    end_word_id: Uuid,
+}
+
+pub async fn pin(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    path: Result<Path<Uuid>, PathRejection>,
+    body: Result<Json<PinRequest>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Path(id) = path?;
+    let Json(body) = body?;
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let found = editable(&mut connection, id, &current).await?;
+    let range = Range {
+        start_word_id: body.start_word_id,
+        end_word_id: body.end_word_id,
+    };
+    let (_mark, entry) = meeting_attachments_change::pin(
+        &mut connection,
+        &found,
+        body.attachment_id,
+        range,
+        author_of(&current),
+    )
+    .await
+    .map_err(refusal)?;
+    let change = transcript_change(&mut connection, found.id, &entry).await?;
+    announce(&state.events, &found, &entry);
+    Ok(Json(json!({
+        "entry": MeetingEventResponse::from(entry),
+        "change": change,
+    })))
+}
+
+/// The meeting `id` as `current` may read it: today their own alone, as every meeting route
+/// answers until meetings are public by default.
+async fn readable(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    current: &CurrentUser,
+) -> Result<Meeting, ApiError> {
+    Ok(meeting::find_owned(connection, id, current.id()).await?)
+}
+
+/// The meeting `id` as `current` may change it: today their own alone, as for reading.
+async fn editable(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    current: &CurrentUser,
+) -> Result<Meeting, ApiError> {
+    Ok(meeting::find_owned(connection, id, current.id()).await?)
+}
+
+fn author_of(current: &CurrentUser) -> Author<'static> {
+    Author {
+        user_id: current.id(),
+        agent: None,
+        at: Utc::now(),
+    }
+}
+
+/// What a frame is refused with until an admin chooses where page attachments go, which is where
+/// a meeting's files are kept too.
+const NO_LOCATION: ApiError = ApiError::CodedConflict {
+    code: "meeting_attachment_no_location",
+    message: "No storage location takes attachments yet. An admin chooses one in Settings, Storage.",
+};
+
+fn frame_refusal(error: ImageError) -> ApiError {
+    match error {
+        ImageError::TooLarge => ApiError::PayloadTooLarge {
+            code: "meeting_frame_too_large",
+            message: format!("a frame may be at most {MAX_FRAME_UPLOAD_BYTES} bytes"),
+        },
+        ImageError::Unsupported | ImageError::Undecodable(_) => ApiError::CodedBadRequest {
+            code: "meeting_frame_not_an_image",
+            message: "a frame is a PNG, JPEG, or WebP still of the meeting's video".to_owned(),
+        },
+        ImageError::Encoding(reason) => {
+            ApiError::Internal(anyhow::anyhow!("a frame could not be encoded: {reason}"))
+        }
+    }
+}
+
+pub(crate) fn refusal(error: AttachmentError) -> ApiError {
+    match error {
+        AttachmentError::Mark(MarkError::NotFound) | AttachmentError::NotFound => {
+            ApiError::NotFound
+        }
+        AttachmentError::Mark(MarkError::NotStanding) => ApiError::CodedConflict {
+            code: "meeting_words_changed",
+            message: "A word of that range was changed meanwhile.",
+        },
+        AttachmentError::Mark(MarkError::OutOfOrder) => {
+            ApiError::BadRequest("The range ends before it starts.".to_owned())
+        }
+        AttachmentError::Mark(MarkError::Merged) => merged_refusal(),
+        AttachmentError::Mark(
+            MarkError::EditsOwn | MarkError::Removed | MarkError::NotAnObject,
+        )
+        | AttachmentError::Removed => ApiError::CodedConflict {
+            code: "meeting_attachment_removed",
+            message: "It was taken off meanwhile.",
+        },
+        AttachmentError::TooMany => ApiError::CodedConflict {
+            code: "meeting_attachment_too_many",
+            message: "This meeting holds as many files and frames as one may. Take one off first.",
+        },
+        AttachmentError::NoRecording => ApiError::CodedBadRequest {
+            code: "meeting_frame_no_recording",
+            message: "That capture keeps no recording to take a frame from.".to_owned(),
+        },
+        AttachmentError::Mark(MarkError::Database(error)) | AttachmentError::Database(error) => {
+            error.into()
+        }
+    }
+}
