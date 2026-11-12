@@ -68,7 +68,14 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting, meetingHistoryKey, meetingThreadsKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import {
+  getMeeting,
+  isMeetingTasksKey,
+  meetingHistoryKey,
+  meetingTasksKey,
+  meetingThreadsKey,
+  meetingWordsKey,
+} from '../api/routes/meetingRoutes'
 import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
@@ -135,10 +142,12 @@ const handlers: Handlers = {
     mustReloadOnHello = true
   },
   'resync': () => reloadEverything(),
-  // An item assigned or taken back moves where its plan stands, which its page reads again.
+  // An item assigned or taken back moves where its plan stands, which its page reads again, and an
+  // item made of a meeting's task shows its state on the meeting's open bar.
   'actionItem.upserted': (event) => {
     store.dispatch(actionItemUpserted(event.data))
     void mutate(getManagerAssignmentKey(event.data.id))
+    void mutate(isMeetingTasksKey)
   },
   // The event carries only the id, so the deleted list and the item's own page reload, each
   // only if a view shows it; the page then shows the item as deleted rather than missing.
@@ -404,13 +413,15 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id, and its page's transcript, history, and threads, read only while it
-  // is open, are read again, unless the page made that change itself and applied it already.
+  // meeting is loaded by id, and its page's transcript, history, threads, and tasks, read only
+  // while it is open, are read again, unless the page made that change itself and applied it
+  // already, which never moves its tasks.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
+    void mutate(meetingTasksKey(id))
     void (async () => {
       if (entryId && await isOwnMeetingChange(id, entryId)) {
         return
@@ -427,7 +438,11 @@ const handlers: Handlers = {
       }))
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
-  'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
+  // A changeset may make or propose a meeting's task's item, which an open meeting's bar shows.
+  'changeset.upserted': (event) => {
+    store.dispatch(changesetUpserted(event.data))
+    void mutate(isMeetingTasksKey)
+  },
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
   'elysiaMessage.created': (event) => store.dispatch(elysiaMessageCreated(event.data)),
   'elysiaTurn.upserted': (event) => store.dispatch(elysiaTurnUpserted(event.data)),

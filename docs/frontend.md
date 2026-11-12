@@ -995,7 +995,9 @@ web app, and `docs/meeting-review.md`, The meeting's page).
 
 - **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
   (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates
-  all three. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
+  all three. So are its tasks (`useMeetingTasks`, the bar along the top, `MeetingTasks`), which `meeting.changed`,
+  `changeset.upserted`, and `actionItem.upserted` revalidate (`isMeetingTasksKey`), since an approved changeset or a
+  resolved item moves what came of a task. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
   page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
   announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
@@ -1245,7 +1247,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   page, with a link to the Project Manager tab (`getProjectManagerUrl`). Its plan is read through SWR
   (`useManagerPlan`), never Redux, since only the item's page shows it, and `actionItem.upserted`,
   `projectManager.changed`, and `workBatch.changed` read it again. An assigned item carries a "With its Project Manager"
-  badge (`ActionItemBadges`). `ActionItemDetailsPanel` holds priority, due date,
+  badge (`ActionItemBadges`). An item made of a task heard in a meeting links to the task's words on the meeting's page
+  (`MeetingTaskLink`, beside `MeetingThreadLink`). `ActionItemDetailsPanel` holds priority, due date,
   projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
   routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
   each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them

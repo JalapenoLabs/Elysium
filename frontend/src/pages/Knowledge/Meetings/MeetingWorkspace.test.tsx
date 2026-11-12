@@ -37,6 +37,7 @@ import {
   editMeetingWords,
   getCaptureTranscript,
   getMeetingHistory,
+  getMeetingTasks,
   getMeetingThreads,
   removeMeetingMark,
   setMeetingThreadResolved,
@@ -59,6 +60,7 @@ vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   getMeetingHistory: vi.fn(),
   getCaptureTranscript: vi.fn(),
   getMeetingThreads: vi.fn(),
+  getMeetingTasks: vi.fn(),
   startMeetingThread: vi.fn(),
   setMeetingThreadResolved: vi.fn(),
 }))
@@ -296,6 +298,7 @@ describe('MeetingWorkspace', () => {
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
     vi.mocked(getCaptureTranscript).mockReset()
     vi.mocked(getMeetingThreads).mockResolvedValue({ comments: []})
+    vi.mocked(getMeetingTasks).mockResolvedValue({ tasks: []})
     vi.mocked(startMeetingThread).mockReset()
     vi.mocked(setMeetingThreadResolved).mockReset()
     // Comment drafts are kept for the tab, which every test here shares.
@@ -798,6 +801,79 @@ describe('MeetingWorkspace', () => {
       // jsdom answers no media query, so this is a phone, whose lane is the drawer.
       const drawer = await screen.findByRole('dialog')
       expect(within(drawer).getByText('The launch moves')).toBeTruthy()
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
+  })
+
+  it<Context>('opens the words of a task a link names, from the item made of it', (context) => {
+    const tasked: MeetingWords = {
+      ...transcript,
+      marks: [ ...transcript.marks, mark('date', 'task', 'w2', 'w3') ],
+    }
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      renderWorkspace(context, tasked, '/?mark=date')
+
+      // A task is drawn along the top, not over its words, so its words are selected instead.
+      expect(wordPiece('Fryday.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Agreed.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Launch').hasAttribute('data-selected')).toBe(false)
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
+  })
+
+  it<Context>('counts its tasks along the top, each group opening its tasks and their items', async (context) => {
+    vi.mocked(getMeetingTasks).mockResolvedValue({
+      tasks: [
+        {
+          id: 'date',
+          title: 'Pick the launch date',
+          startWordId: 'w2',
+          endWordId: 'w3',
+          startMs: 2000,
+          share: { kind: 'project', projectId: 'launch' },
+          items: [],
+          proposals: [ 'changeset' ],
+          declined: null,
+        },
+        {
+          id: 'deck',
+          title: 'Send Ada the deck',
+          startWordId: 'w0',
+          endWordId: 'w1',
+          startMs: 0,
+          share: { kind: 'own' },
+          items: [{ id: 'item', title: 'Send Ada the deck', state: 'inbox' }],
+          proposals: [],
+          declined: null,
+        },
+      ],
+    })
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      renderWorkspace(context, transcript, '/', {
+        projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+      })
+
+      const tasks = within(await screen.findByRole('region', { name: 'Tasks' }))
+      expect(tasks.getByRole('button', { name: 'Yours: 1 task' })).toBeTruthy()
+      fireEvent.click(tasks.getByRole('button', { name: 'Launch site: 1 task' }))
+
+      const opened = within(await screen.findByRole('dialog'))
+      expect(opened.getByText('Pick the launch date')).toBeTruthy()
+      const proposal = opened.getByText('Proposed, waiting for approval').closest('a')
+      expect(proposal?.getAttribute('href')).toBe('/action-items/changesets/changeset')
+      const showWords = opened
+        .getAllByRole('button', { name: 'Show in the transcript' })
+        .find((element) => element.tagName === 'BUTTON')
+      fireEvent.click(showWords ?? document.body)
+
+      expect(wordPiece('Fryday.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Agreed.').hasAttribute('data-selected')).toBe(true)
     }
     finally {
       Reflect.deleteProperty(Element.prototype, 'scrollIntoView')

@@ -31,6 +31,13 @@
 //! and indexes them again ([`refresh`]) in its own transaction. Its clip is cut again only when
 //! the meeting is segmented again (`super::segment`).
 //!
+//! # Tasks
+//!
+//! Segmenting's answer names the tasks heard in a meeting too, taken last, in the same change: each
+//! a mark of kind `task` and its row (`models::meeting_task`), sent where its share says
+//! (`super::tasks`). A task read again keeps its mark, moved onto the words it was heard over, so
+//! only a task that changed reaches anyone again.
+//!
 //! # The meeting in the index
 //!
 //! Beside its excerpts, a meeting segmented at least once is a document of its own in the

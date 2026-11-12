@@ -379,7 +379,11 @@ Everything else follows these rules:
   over its words and a timeline record attributed to its projects, overlapping and nesting freely, and black-outs,
   words that leave search and everything an agent reads while they still show and play. `ffmpeg` cuts each excerpt's
   clip in the workspace container at the words Whisper heard nearest its ends. Every excerpt and black-out a person made
-  or changed stands when a meeting is segmented again, and edits refresh the excerpts over them at once. The step
+  or changed stands when a meeting is segmented again, and edits refresh the excerpts over them at once. The same turn
+  hears its tasks, each a `task` mark and its row (`crate::meetings::tasks`): a project's wakes its Project Manager,
+  which makes the action items as its changeset under the project's level of autonomy or says why not
+  (`manager_decline_task`), and everyone else's becomes an inbox item at once, for whoever owes it or the person waiting
+  on them; a meeting read again reaches anyone only with the tasks that changed. See `docs/meetings.md`, Tasks. The step
   also takes a conversation (record ids), whose messages it attributes, which is where intake enters the workflow. The
   meetings loop only lists meetings and starts their runs; a meeting keeps how far it got, and its failure or skip is
   its run's. See `docs/meetings.md`, Processing, Segmentation, and Excerpts and black-outs.
@@ -625,8 +629,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
-- It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
-  it, a person, Elysia, and someone else's edit of its brief, each written as a wake in the transaction that caused it.
+- It is woken by a record newly attributed to its project, a meeting's task for its project new or changed, a batch's
+  result, a promise, an action item a person assigned it, a person, Elysia, and someone else's edit of its brief, each
+  written as a wake in the transaction that caused it.
   Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
   restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the

@@ -55,6 +55,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}/resolved` | `200` `{ entry, change }`; opens it again, `409` (`meeting_thread_unchanged`) when it is open |
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}` | `200` `{ entry, change }`; removes it, comments and all, undoable |
 | GET    | `/api/v1/meetings/thread-items/{itemId}` | `200` `{ thread }`: `{ meetingId, threadId }` the inbox item was raised by, or `null` |
+| GET    | `/api/v1/meetings/{id}/tasks`         | `200` `{ tasks }`: every task heard in it, in the order said, each `{ id, title, startWordId, endWordId, startMs, share, items, proposals, declined }` |
+| GET    | `/api/v1/meetings/task-items/{itemId}` | `200` `{ task }`: `{ meetingId, meetingTitle, taskId }` the action item was made of, or `null` |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -485,6 +487,13 @@ starts; `409` `meeting_words_changed` for a range a word of which was replaced m
 reopening, and removing a thread are changes in its meeting's history, answered as an edit is. `thread-items` answers
 `null` for an item no thread of the caller's meetings raised, since every item's page asks. See `docs/meetings.md`,
 Comments.
+
+A task is named by its mark's id. Its `share` is whose it is, a project's before anyone's: `{ kind: "project",
+projectId }`, `{ kind: "own" }`, `{ kind: "coworker", userId, name }`, `{ kind: "waiting-on", name }` for someone not on
+Elysium, or `{ kind: "other" }`. `items` are the live action items made of it, each `{ id, title, state }`;
+`proposals` the changesets waiting for a person that would make one; and `declined` `{ reason, at }` when its Project
+Manager said why it made none, or `null`. `task-items` answers `null` for an item no task of the caller's meetings
+made. See `docs/meetings.md`, Tasks.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,

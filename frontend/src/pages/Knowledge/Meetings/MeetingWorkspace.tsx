@@ -23,6 +23,7 @@ import { FinalTranscript } from './FinalTranscript'
 import { MeetingLane } from './MeetingLane'
 import { FINAL_VIEW } from './MeetingOptions'
 import { MeetingPlayer } from './MeetingPlayer'
+import { MeetingTasks } from './MeetingTasks'
 
 // Misc
 import { useProjectsLoader, useUsersLoader } from '../../../hooks/useServerData'
@@ -93,10 +94,10 @@ function revealWord(index: number) {
 }
 
 // A meeting's review (docs/meeting-review.md, The meeting's page): the transcript, three quarters
-// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
-// and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
-// the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
-// toast, and Ctrl+Z undoes the page's last.
+// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's tasks
+// and its player; the moment a click picks is where the player seeks, and the word it is speaking
+// is underlined as it plays. Every change applies at once with Undo in its toast, and Ctrl+Z undoes
+// the page's last.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
@@ -273,15 +274,34 @@ export function MeetingWorkspace(props: Props) {
   const clear = () => setReview(NOTHING_PICKED)
 
   // A mark chosen from the lane, or from a link, selects its range and brings it into view.
-  const openMark = useCallback((markId: string) => {
-    const opened = placed.find((placedMark) => placedMark.mark.id === markId)
-    if (!opened) {
-      console.debug('MeetingWorkspace was asked to open a mark it does not hold', { markId })
+  // Selects the words from one id to another and brings them into view, as a task opened from the
+  // bar along the top or from its item's page.
+  const showWords = useCallback((startWordId: string, endWordId: string) => {
+    const start = indexById.get(startWordId)
+    const end = indexById.get(endWordId)
+    if (start === undefined || end === undefined || end < start) {
+      console.debug('MeetingWorkspace was asked to show words that do not stand', { startWordId, endWordId })
       return
     }
-    selectMarkById(markId)
-    revealWord(opened.start)
-  }, [ placed, selectMarkById ])
+    pickRange(start, end)
+    revealWord(start)
+  }, [ indexById, pickRange ])
+
+  const openMark = useCallback((markId: string) => {
+    const opened = placed.find((placedMark) => placedMark.mark.id === markId)
+    if (opened) {
+      selectMarkById(markId)
+      revealWord(opened.start)
+      return
+    }
+    // A task shows along the top rather than over its words, so a link to one selects them.
+    const task = transcript.marks.find((mark) => mark.id === markId && mark.kind === 'task')
+    if (task) {
+      showWords(task.startWordId, task.endWordId)
+      return
+    }
+    console.debug('MeetingWorkspace was asked to open a mark it does not hold', { markId })
+  }, [ placed, selectMarkById, showWords, transcript.marks ])
 
   // The mark a link names opens where it can be read: beside the transcript, or in the drawer
   // where the lane is one.
@@ -568,6 +588,7 @@ export function MeetingWorkspace(props: Props) {
   }
 
   return <>
+    <MeetingTasks meetingId={meeting.id} onShowWords={showWords} />
     <MeetingPlayer player={player} />
 
     <div className='lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(15rem,1fr)] lg:gap-8'>

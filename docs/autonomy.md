@@ -68,7 +68,7 @@ Built. Each project has one level, shown and set on its page:
 - **A batch that runs says why.** Its history's submission names the level that let it skip approval.
 - **Full autonomy is how a Project Manager writes directly.** Its changes to items and trackers apply as it makes
   them, and each is still a changeset a person can undo. At the other two levels they wait for approval, and so do
-  the action items it makes from a meeting's tasks (`docs/meeting-review.md`, Tasks).
+  the action items it makes from a meeting's tasks, each a `create-item` naming its task (`docs/meetings.md`, Tasks).
 - **Turning it applies to what comes next.** The Project Manager's next submission and next change follow the new
   level; batches already proposed or queued stay where they are, for the person to decide on the work queue.
 

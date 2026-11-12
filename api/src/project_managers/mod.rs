@@ -31,6 +31,8 @@
 
 pub mod batches;
 pub mod dispatcher;
+#[cfg(test)]
+mod meeting_task_tests;
 pub mod promises;
 pub mod prompt;
 pub mod queue;
