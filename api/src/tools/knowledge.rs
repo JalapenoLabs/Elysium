@@ -380,9 +380,9 @@ async fn run_get(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let arguments: DocumentArguments = parse_arguments(arguments)?;
-    reader(context, scope).await?;
+    let reader = reader(context, scope).await?;
     let (id, span) = arguments.into_parts();
-    let document = knowledge::open(&context.database, id, &span)
+    let document = knowledge::open(&context.database, reader, id, &span)
         .await
         .map_err(|error| tool_error(scope, "knowledge.open", error))?;
     Ok(json!({ "document": document }))
@@ -394,8 +394,8 @@ async fn run_meetings(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let request: ListMeetingsRequest = parse_arguments(arguments)?;
-    reader(context, scope).await?;
-    let meetings = knowledge::list_meetings(&context.database, request)
+    let reader = reader(context, scope).await?;
+    let meetings = knowledge::list_meetings(&context.database, reader, request)
         .await
         .map_err(|error| tool_error(scope, "knowledge.meetings", error))?;
     Ok(json!({ "meetings": meetings }))

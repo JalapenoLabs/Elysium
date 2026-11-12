@@ -43,8 +43,8 @@ type Props = {
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
   // Whether words are selected, which Edit, Comment, Assign to a project, and Black out act on.
-  // Each is null where the meeting takes no change, as one merged into another does; the words
-  // can still be selected and copied.
+  // Each is null where the meeting takes no change, as one merged into another does, or for a
+  // reader who may not change it; the words can still be selected and copied.
   hasSelection: boolean
   onEdit: (() => void) | null
   onComment: (() => void) | null

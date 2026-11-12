@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { selectIsCompanyMember, selectMe } from '../../../store/authSlice'
 import { selectConnectorById } from '../../../store/connectorsSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { meetingUpserted } from '../../../store/meetingsSlice'
@@ -38,9 +39,10 @@ type Props = {
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, Done reviewing once it was segmented, which segments it
 // again from its corrected words, holding it for approval by hand until it is corrected (unless
-// its source already waits), its run, and adding a recording or transcript as another capture. A
-// meeting merged into another offers its run alone, and says why. Privacy and sharing join them as
-// they are built (docs/meeting-review.md, Roadmap).
+// its source already waits), its run, and adding a recording or transcript as another capture.
+// Its processing is its owner's alone, so only they hold, approve, finish reviewing, and add a
+// capture (`crate::meetings::access`); a company member opens its run, as anyone of them opens any
+// run. A meeting merged into another offers its run alone, and says why.
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -50,16 +52,19 @@ export function MeetingActions(props: Props) {
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
   const [ acting, setActing ] = useState<'approve' | 'hold' | 'reviewed' | null>(null)
+  const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
+  const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
   // A meeting merged into another changes there: it holds no capture, its run goes no further,
   // and an upload into it is refused, so it offers to approve, hold, review, or add nothing.
   const isMergedAway = Boolean(meeting.mergedInto)
-  const canApprove = !isMergedAway && Boolean(meeting.correction && !meeting.correction.approvedAt)
+  const runsIt = isOwner && !isMergedAway
+  const canApprove = runsIt && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
   // Segmented once, and no run of it going, held, or failed.
-  const canFinishReview = !isMergedAway && meeting.state === 'done'
+  const canFinishReview = runsIt && meeting.state === 'done'
 
   async function approve() {
     setActing('approve')
@@ -118,7 +123,7 @@ export function MeetingActions(props: Props) {
   }
 
   const actions: PageAction[] = []
-  if (!isMergedAway && !meeting.correction && !sourceWaits) {
+  if (runsIt && !meeting.correction && !sourceWaits) {
     actions.push({
       id: 'hold',
       label: meeting.holdForApproval
@@ -132,7 +137,7 @@ export function MeetingActions(props: Props) {
       onAction: () => void toggleHold(),
     })
   }
-  if (meeting.runId) {
+  if (meeting.runId && isCompanyMember) {
     actions.push({
       id: 'run',
       label: t('page.openRun'),
@@ -140,9 +145,9 @@ export function MeetingActions(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
-  // Offered while the meeting is its own: an upload sent while its run is still going is refused,
-  // saying so.
-  if (!isMergedAway) {
+  // Offered its owner while the meeting is its own: an upload sent while its run is still going is
+  // refused, saying so.
+  if (runsIt) {
     actions.push({
       id: 'addCapture',
       label: t('upload.addCapture'),

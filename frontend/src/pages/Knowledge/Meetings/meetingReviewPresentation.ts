@@ -65,6 +65,14 @@ export const historySentenceKeys = {
   addedTranscript: 'review.history.sentences.addedTranscript',
   threadResolved: 'review.history.sentences.threadResolved',
   threadReopened: 'review.history.sentences.threadReopened',
+  opened: 'review.history.sentences.opened',
+  madePrivate: 'review.history.sentences.madePrivate',
+  leftToCorrection: 'review.history.sentences.leftToCorrection',
+  openedByCorrection: 'review.history.sentences.openedByCorrection',
+  keptPrivateByCorrection: 'review.history.sentences.keptPrivateByCorrection',
+  keptPrivateUndecided: 'review.history.sentences.keptPrivateUndecided',
+  shared: 'review.history.sentences.shared',
+  unshared: 'review.history.sentences.unshared',
   segmented: 'review.history.sentences.segmented',
   reviewDone: 'review.history.sentences.reviewDone',
   attachedFile: 'review.history.sentences.attachedFile',
@@ -86,6 +94,8 @@ export type HistoryRow = {
   before: string | null
   after: string | null
   markKind: DrawnMarkKind | null
+  // Whom a share or an unshare was about, by user id.
+  personId: string | null
   // Whether Undo applies: a change that can be undone and was not undone already.
   canUndo: boolean
 }
@@ -103,9 +113,32 @@ const UNDOABLE_KINDS = new Set([
   'offset_changed',
   'thread_resolved',
   'thread_reopened',
+  'visibility_changed',
+  'shared',
+  'unshared',
   'attached',
   'detached',
 ])
+
+// How a change to who reads a meeting reads: a person's, by what it became, and its correction's,
+// by what it decided, which nothing undoes since nothing would decide again.
+function visibilitySentence(data: Record<string, unknown>): HistorySentence {
+  if (data.correction === true) {
+    if (data.after === 'public') {
+      return 'openedByCorrection'
+    }
+    return data.undecided === true
+      ? 'keptPrivateUndecided'
+      : 'keptPrivateByCorrection'
+  }
+  if (data.after === 'public') {
+    return 'opened'
+  }
+  if (data.after === 'private') {
+    return 'madePrivate'
+  }
+  return 'leftToCorrection'
+}
 
 // Which side of a merge or split a meeting's entry was written for (`Moved` in
 // api/src/meetings/duplicates.rs): the meeting the recordings went into, or the one they came from.
@@ -202,7 +235,10 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
       before: null,
       after: null,
       markKind: null,
-      canUndo: UNDOABLE_KINDS.has(entry.kind) && !undone.has(entry.id),
+      personId: null,
+      canUndo: UNDOABLE_KINDS.has(entry.kind)
+        && !undone.has(entry.id)
+        && entry.data.correction !== true,
     }
     switch (entry.kind) {
       case 'built':
@@ -271,6 +307,17 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
         return row
       case 'thread_reopened':
         row.sentence = 'threadReopened'
+        return row
+      case 'visibility_changed':
+        row.sentence = visibilitySentence(entry.data)
+        row.after = quoted(entry.data.why)
+        return row
+      case 'shared':
+      case 'unshared':
+        row.sentence = entry.kind
+        row.personId = typeof entry.data.personId === 'string'
+          ? entry.data.personId
+          : null
         return row
       case 'segmented':
         // Segmenting took its excerpts and black-outs, each removed on its own.

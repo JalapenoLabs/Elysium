@@ -14,6 +14,7 @@ use crate::auth::MemberUser;
 use crate::findings;
 use crate::models::action_item::{self, ActionItemPriority, NewActionItem, Owner};
 use crate::models::finding::{Cost, Reporter};
+use crate::models::meeting::Reach;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager;
 use crate::models::timeline_record::{self, NewTimelineRecord};
@@ -22,6 +23,14 @@ use crate::models::work_batch::pull_request::{self, NewPullRequest};
 use crate::models::work_batch::{self, NewWorkBatch, Priority};
 use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database, person_rooted};
+
+/// The test person, a member reading the chains of batches of their own meetings.
+fn owner() -> Reader {
+    Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    }
+}
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     project::create(
@@ -157,12 +166,14 @@ fn kinds(why: &Why) -> Vec<String> {
 async fn a_chain_runs_from_what_asked_to_the_pull_request() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
+    // A segment names its meeting, whose readers alone find its document.
+    let (meeting, _capture) = crate::models::meeting::tests::stored(&mut connection).await;
     let segment = record(
         &mut connection,
         "meeting",
         "Annual pricing",
         "[00:12] Ada: We need annual pricing",
-        json!({ "meetingTitle": "Weekly sync" }),
+        json!({ "meetingId": meeting.id, "meetingTitle": "Weekly sync" }),
     )
     .await;
     let pricing = item(&mut connection, launch, "Annual pricing").await;
@@ -207,7 +218,7 @@ async fn a_chain_runs_from_what_asked_to_the_pull_request() {
     .await
     .expect("recorded");
 
-    let why = read(&mut connection, &batch).await.expect("reads");
+    let why = read(&mut connection, &batch, owner()).await.expect("reads");
     assert_eq!(
         kinds(&why),
         [
@@ -240,6 +251,98 @@ async fn a_chain_runs_from_what_asked_to_the_pull_request() {
     assert!(
         matches!(why.head(), Some(Link::Message(message)) if message.id == asked),
         "a batch's chain starts from what asked for it"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_private_meetings_quote_is_withheld_from_whoever_may_not_read_it() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    let (meeting, _capture) = crate::models::meeting::tests::stored(&mut connection).await;
+    let segment = record(
+        &mut connection,
+        "meeting",
+        "Grace's quarter",
+        "[00:12] Alex: Grace is behind this quarter",
+        json!({ "meetingId": meeting.id, "meetingTitle": "Alex and Grace" }),
+    )
+    .await;
+    let unnamed = record(
+        &mut connection,
+        "meeting",
+        "No meeting named",
+        "[00:20] Alex: This names no meeting",
+        json!({ "meetingTitle": "Somewhere" }),
+    )
+    .await;
+    let batch = submitted(
+        &mut connection,
+        NewWorkBatch {
+            source_record_ids: json!([segment, unnamed]),
+            ..new_batch(launch, "Plan the quarter")
+        },
+    )
+    .await;
+    let someone_else = Reader {
+        id: Uuid::now_v7(),
+        reach: Reach::Public,
+    };
+    let quoted = |why: &Why| -> Vec<Record> {
+        why.chain
+            .iter()
+            .filter_map(|link| match link {
+                Link::Record(record) => Some(record.clone()),
+                _other => None,
+            })
+            .collect()
+    };
+
+    // Its owner reads the quote of their meeting, still private to them.
+    let as_owner = read(&mut connection, &batch, owner()).await.expect("reads");
+    let records = quoted(&as_owner);
+    assert!(!records[0].withheld);
+    assert_eq!(
+        records[0].excerpt,
+        "[00:12] Alex: Grace is behind this quarter"
+    );
+    // Any other member is told a meeting asked, and nothing it said or is called, nor where it is.
+    let as_member = read(&mut connection, &batch, someone_else)
+        .await
+        .expect("reads");
+    assert_eq!(
+        kinds(&as_member),
+        kinds(&as_owner),
+        "the chain keeps its shape"
+    );
+    let records = quoted(&as_member);
+    assert!(records[0].withheld);
+    assert_eq!(records[0].id, segment);
+    assert_eq!(
+        (
+            records[0].title.as_str(),
+            records[0].excerpt.as_str(),
+            records[0].meeting_title.as_deref(),
+            records[0].document_id
+        ),
+        ("", "", None, None)
+    );
+    // A segment naming no meeting is withheld from everyone, its owner included.
+    assert!(quoted(&as_owner)[1].withheld);
+    // Open to the company, every member reads its quote; text leaving Elysium names it too.
+    meeting::set_visibility(&mut connection, meeting.id, meeting::Visibility::Public)
+        .await
+        .expect("opens");
+    let opened = read(&mut connection, &batch, someone_else)
+        .await
+        .expect("reads");
+    assert!(!quoted(&opened)[0].withheld);
+    let described = read(&mut connection, &batch, Reader::ANY_MEMBER)
+        .await
+        .expect("reads");
+    assert_eq!(
+        quoted(&described)[0].meeting_title.as_deref(),
+        Some("Alex and Grace")
     );
 }
 
@@ -279,7 +382,7 @@ async fn many_chains_read_at_once_and_what_is_gone_is_left_out() {
     )
     .await;
 
-    let whys = read_many(&mut connection, &[&first, &second])
+    let whys = read_many(&mut connection, &[&first, &second], owner())
         .await
         .expect("reads");
     assert_eq!(
@@ -333,7 +436,7 @@ async fn found_work_leads_with_its_finding_and_who_accepted_it() {
         .expect("accepted");
     let found = accepted.batch.batch();
 
-    let why = read(&mut connection, found).await.expect("read");
+    let why = read(&mut connection, found, owner()).await.expect("read");
     assert_eq!(kinds(&why), ["finding", "item", "batch"]);
     let Link::Finding(finding) = &why.chain[0] else {
         panic!("the chain leads with its finding: {:?}", why.chain);
@@ -349,6 +452,8 @@ async fn found_work_leads_with_its_finding_and_who_accepted_it() {
     );
 
     // The batch that reported it is not the one accepting it made, so it names no finding.
-    let reporter_why = read(&mut connection, &reporting).await.expect("read");
+    let reporter_why = read(&mut connection, &reporting, owner())
+        .await
+        .expect("read");
     assert_eq!(kinds(&reporter_why), ["batch"]);
 }

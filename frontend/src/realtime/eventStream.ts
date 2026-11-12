@@ -34,7 +34,7 @@ import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSl
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { draftRemoved, draftUpserted } from '../store/draftsSlice'
-import { meetingUpserted, selectAllMeetings } from '../store/meetingsSlice'
+import { meetingRemoved, meetingUpserted, selectAllMeetings } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
   passwordVaultStatusUpdated,
@@ -413,15 +413,14 @@ const handlers: Handlers = {
         console.debug('A changed draft could not be loaded', { error, draftId: event.data.id })
       })
   },
-  // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id, and its page's transcript, history, threads, and files, read only
-  // while it is open, are read again, unless the page made that change itself and applied it
-  // already. A file stored or read in the engine names no change, so its page always hears it.
+  // A meeting is read by whoever may read it, and the event carries no content: the meeting is
+  // loaded by id, so a meeting just opened joins every member's lists and one made private leaves
+  // the lists of those who may not read it, as its 404 says. Its page's transcript, history,
+  // threads, and files, read only while it is open, are read again, unless the page made that
+  // change itself and applied it already. A file stored or read in the engine names no change, so
+  // its page always hears it.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
-    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
-      return
-    }
     void (async () => {
       if (entryId && await isOwnMeetingChange(id, entryId)) {
         return
@@ -431,12 +430,15 @@ const handlers: Handlers = {
       void mutate(meetingThreadsKey(id))
       void mutate(meetingAttachmentsKey(id))
     })()
-    getMeeting(event.data.id)
+    getMeeting(id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))
-      .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {
-        error,
-        meetingId: event.data.id,
-      }))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(meetingRemoved(id))
+          return
+        }
+        console.debug('A changed meeting could not be loaded', { error, meetingId: id })
+      })
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),

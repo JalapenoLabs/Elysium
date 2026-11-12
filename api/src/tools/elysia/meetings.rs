@@ -141,7 +141,6 @@ pub async fn run_edit(
     context.events.publish(&ServerEvent::MeetingChanged {
         id: found.id,
         state: found.state.clone(),
-        created_by: found.created_by,
         entry_id: None,
     });
     Ok(json!({
@@ -220,7 +219,6 @@ pub async fn run_add_to_project(
         context.events.publish(&ServerEvent::MeetingChanged {
             id: found.id,
             state: found.state.clone(),
-            created_by: found.created_by,
             entry_id: None,
         });
         return Ok(json!({

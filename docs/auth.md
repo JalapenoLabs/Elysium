@@ -294,7 +294,9 @@ Three layers run in order (`api/src/routes/v1/mod.rs`):
 
 Refusals are JSON with a stable `code` beside the `message`. Admin-only routes answer `403 admin_only`. The knowledge
 base's routes and MCP tools answer admins and members alone (`MemberUser`, whose `check` the MCP server calls too),
-and a guest `403 members_only` (`docs/knowledge.md`, Who sees what).
+and a guest `403 members_only` (`docs/knowledge.md`, Who sees what). A meeting route answers `403` with `read_only`,
+`owner_or_admin`, or `owner_only` when the person may read the meeting and it takes more (`docs/meetings.md`, Who reads
+a meeting).
 
 The event stream checks its session and person every 30 seconds and closes when either loses access. The browser
 then reconnects and is refused.
@@ -307,12 +309,13 @@ then reconnects and is refused.
 |----------|---------------------------------------------|-------------------------------------------|
 | `admin`  | People                                      | Everything, including users and settings  |
 | `member` | People                                      | Everything but users and settings         |
-| `guest`  | People                                      | A member's access, but no knowledge base  |
+| `guest`  | People                                      | A member's access, but no knowledge base; reads a meeting shared with them |
 | `agent`  | Elysia and the coding agent                 | Never signs in                            |
 | `system` | The system user                             | Never signs in                            |
 
 - **Guest.** Guests are meant to see and do less than members. Today the knowledge base is the one thing refused them
-  (`is_company_member`); the rest is on the roadmap.
+  (`is_company_member`), but for a meeting shared with them, which they read and do not change (`docs/meetings.md`, Who
+  reads a meeting); the rest is on the roadmap.
 - **Machine roles.** The database ties the two machine roles to having no Kratos identity, so a machine can never
   sign in and a person can never hold a machine's role.
 - **Requests.** Requests can assign only `admin`, `member`, or `guest`.

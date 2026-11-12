@@ -852,10 +852,18 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
         .expect("an address")
         .to_owned();
 
-    // Someone else's meeting, as far as the test person is concerned.
+    // Someone else's private meeting, to a member it is not shared with.
     execute(
         &mut fixture.connection,
-        format!("UPDATE meetings SET created_by = '{SYSTEM_USER_ID}' WHERE id = '{meeting_id}'"),
+        format!("UPDATE users SET role = 'member' WHERE id = '{TEST_PERSON_ID}'"),
+    )
+    .await;
+    execute(
+        &mut fixture.connection,
+        format!(
+            "UPDATE meetings SET created_by = '{SYSTEM_USER_ID}', visibility = 'private' \
+             WHERE id = '{meeting_id}'"
+        ),
     )
     .await;
     let attachments = format!("/api/v1/meetings/{meeting_id}/attachments");
@@ -907,6 +915,20 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
         )
         .await;
     assert_eq!(upload.status, StatusCode::NOT_FOUND);
+
+    // Made public, every member reads its files and frames, as they read its words.
+    execute(
+        &mut fixture.connection,
+        format!("UPDATE meetings SET visibility = 'public' WHERE id = '{meeting_id}'"),
+    )
+    .await;
+    assert_eq!(fixture.get(&attachments).await.status, StatusCode::OK);
+    let served = fixture.get(&address).await;
+    assert_eq!(served.status, StatusCode::OK);
+    assert!(
+        served.bytes.starts_with(b"RIFF"),
+        "a frame is served as the WebP it was kept as"
+    );
 }
 
 #[tokio::test]

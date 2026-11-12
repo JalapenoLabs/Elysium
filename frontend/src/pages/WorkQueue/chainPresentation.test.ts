@@ -17,6 +17,7 @@ const SEGMENT: WorkBatchLink = {
   excerpt: '[00:12] Ada: We need annual pricing',
   meetingTitle: 'Weekly sync',
   documentId: 'document-1',
+  withheld: false,
 }
 
 const ISSUE: WorkBatchLink = {

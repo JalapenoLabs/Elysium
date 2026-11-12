@@ -148,6 +148,9 @@ export type WorkBatchLink =
     meetingTitle: string | null
     // Null until the knowledge base has indexed it.
     documentId: string | null
+    // A segment of a meeting the reader may not read: its title, excerpt, meeting, and document
+    // are empty, and the chain names it as a private meeting alone.
+    withheld: boolean
   }
   | {
     kind: 'issue'

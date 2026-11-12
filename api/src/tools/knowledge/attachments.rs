@@ -8,9 +8,8 @@
 //! them by id (`crate::meetings::attachments::agent_view`). This opens one: a frame, or a file that
 //! is a proven image, as the picture the agent sees; any other file as the text read from it.
 //!
-//! Each call checks, in the database, that the turn may read it: it travels with an excerpt of its
-//! meeting, whose words every member reads in the knowledge base, or the turn reads for whoever
-//! may read the meeting itself, today its owner (`docs/meeting-review.md`, Who sees a meeting).
+//! Each call checks, in the database, that the turn reads for someone who may read its meeting
+//! (`docs/meeting-review.md`, Who sees a meeting), as only they find the excerpts it is pinned in.
 //! Anything else answers as if there were no such attachment.
 
 use serde::Deserialize;
@@ -20,9 +19,9 @@ use uuid::Uuid;
 use super::reader;
 use crate::meeting_attachments;
 use crate::meetings::attachments::agent_view;
-use crate::models::meeting;
+use crate::models::meeting::{self, Reader};
 use crate::models::meeting_attachment::{self, AttachmentKind};
-use crate::models::storage_location;
+use crate::models::{storage_location, user};
 use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments, with_image};
 
 /// The tool's description, which the agent reads.
@@ -84,19 +83,15 @@ pub async fn run(
             Ok(_) | Err(diesel::result::Error::NotFound) => return Err(unknown()),
             Err(error) => return Err(internal(scope, "knowledge.attachment", &error)),
         };
-    let owner = meeting::find(&mut connection, attachment.meeting_id)
+    // Its meeting's readers alone reach it, as they alone find the excerpts it is pinned in.
+    let reading = user::find(&mut connection, reader_id)
         .await
-        .map_err(|error| internal(scope, "knowledge.attachment.meeting", &error))?
-        .created_by;
-    let travels = meeting_attachment::is_pinned_in_an_excerpt(
-        &mut connection,
-        attachment.meeting_id,
-        attachment.id,
-    )
-    .await
-    .map_err(|error| internal(scope, "knowledge.attachment.pinned", &error))?;
-    if !travels && owner != reader_id {
-        return Err(unknown());
+        .map_err(|error| internal(scope, "knowledge.attachment.reader", &error))?;
+    match meeting::find_readable(&mut connection, attachment.meeting_id, Reader::of(&reading)).await
+    {
+        Ok(_readable) => {}
+        Err(diesel::result::Error::NotFound) => return Err(unknown()),
+        Err(error) => return Err(internal(scope, "knowledge.attachment.meeting", &error)),
     }
     let Some(path) = attachment.storage_path.clone() else {
         return Err(ToolError::NotFound(

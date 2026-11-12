@@ -19,7 +19,8 @@ type Props = {
   isSplitting: boolean
   // Another group is splitting out, and one runs at a time.
   isDisabled: boolean
-  onSplit: () => void
+  // Null where the reader may not split it out, which only the meeting's owner and admins do.
+  onSplit: (() => void) | null
   // Its captures' rows.
   children: ReactNode
 }
@@ -29,13 +30,14 @@ type Props = {
 // same meeting twice, Splitting).
 export function MergedCaptureGroup(props: Props) {
   const { t } = useTranslation('meetings')
-  const label = props.from.title
-    ? t('review.captures.from', { title: props.from.title })
+  const { title } = props.from
+  const label = title
+    ? t('review.captures.from', { title })
     : t('review.captures.fromUntitled')
 
   // Split out is disabled while a capture of it was moved by hand, and while another group splits.
   const isButtonDisabled = !props.canSplit || props.isDisabled
-  const button = <Button
+  const button = props.onSplit && <Button
     size='sm'
     variant='outline'
     isDisabled={isButtonDisabled}
@@ -54,15 +56,19 @@ export function MergedCaptureGroup(props: Props) {
   // The meeting's name has the box's whole width, since the lane is narrow, and Split out sits at
   // its foot, under every capture it moves. A disabled button fires no hover, so while it is one the
   // tooltip's trigger wraps it, as `PageSaveButton` does; the trigger is a tab stop of its own, so it
-  // is there only then.
+  // is there only then. A reader who may not split it out reads where its captures came from alone.
   return <section aria-label={label} className='rounded-lg border border-border p-2'>
-    <p className='compact text-xs'>
-      <Link href={getMeetingUrl(props.from.meetingId)} className='text-link'>
-        <span className='break-words'>{label}</span>
-      </Link>
-    </p>
+    <p className='compact text-xs'>{
+      // A meeting the reader may not read is named as another meeting and links nowhere, since its
+      // page would answer them 404.
+      title === null
+        ? <span className='break-words'>{label}</span>
+        : <Link href={getMeetingUrl(props.from.meetingId)} className='text-link'>
+          <span className='break-words'>{label}</span>
+        </Link>
+    }</p>
     {props.children}
-    <div className='mt-2 flex justify-end'>{
+    {button && <div className='mt-2 flex justify-end'>{
       isButtonDisabled
         ? <Tooltip delay={300}>
           <Tooltip.Trigger>
@@ -74,6 +80,6 @@ export function MergedCaptureGroup(props: Props) {
           {button}
           {tip}
         </Tooltip>
-    }</div>
+    }</div>}
   </section>
 }

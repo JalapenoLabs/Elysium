@@ -6,6 +6,7 @@ import type {
   MeetingTranscriptChange,
   MeetingWords,
 } from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 import type { MarkPill } from './TranscriptFloatingBar'
 import type { DrawnMarkKind, WordRange } from './meetingTranscript'
 import type { Still } from './useMeetingPlayer'
@@ -16,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 
 // Redux
+import { selectMe } from '../../../store/authSlice'
 import { useAppSelector } from '../../../store/hooks'
 import { selectAllProjects, selectProjectEntities } from '../../../store/projectsSlice'
 import { selectTimelineRecordEntities } from '../../../store/timelineRecordsSlice'
@@ -55,6 +57,7 @@ import { useMeetingChanges } from './useMeetingChanges'
 import { isResolvedThread, threadsOf } from './meetingThreads'
 import { useMeetingHistory } from './useMeetingHistory'
 import { useMeetingPlayer } from './useMeetingPlayer'
+import { mayRead, mayUndo } from './meetingVisibility'
 import { useMeetingThreads } from './useMeetingThreads'
 import { useReviewHotkeys } from './useReviewHotkeys'
 
@@ -114,15 +117,21 @@ function revealWord(index: number) {
 // and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
 // the word it is speaking is underlined as it plays. The lane lists the meeting's files and frames,
 // and F pins the picture the player shows. Every change applies at once with Undo in its toast, and
-// Ctrl+Z undoes the page's last.
+// Ctrl+Z undoes the page's last. A meeting merged into another, and a reader who may not change
+// one, such as a guest it is shared with, read it all and are offered no change (`isReadOnly`);
+// Undo on a change shows only to whoever may undo it (`mayUndo`), and only its owner moves a
+// capture, while its owner and admins split one out.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
   const words = transcript.words
+  const readerId = useAppSelector(selectMe)?.user.id
   // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
   // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
-  // edit, comment on, or undo. Its actions say why (`MeetingActions`).
-  const isReadOnly = Boolean(meeting.mergedInto)
+  // edit, comment on, or undo. Its actions say why (`MeetingActions`). A reader who may not edit a
+  // meeting reads its page the same way.
+  const isMergedAway = Boolean(meeting.mergedInto)
+  const isReadOnly = isMergedAway || !meeting.canEdit
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -138,7 +147,9 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
-    isReadOnly,
+    // Only a merge can take from the page a change it made itself: a reader who may not edit
+    // makes none here, so has none of their own to undo.
+    isReadOnly: isMergedAway,
     applyChange: props.applyChange,
     reload: props.reload,
   })
@@ -172,11 +183,13 @@ export function MeetingWorkspace(props: Props) {
   const pins = useMemo(() => placePins(words, transcript.marks), [ words, transcript.marks ])
   const decorations = useMemo(() => decorateWords(words.length, drawn, shown), [ words.length, drawn, shown ])
   // Read only, every change stays as it is: no row of the history, nor an edit's mark, offers Undo.
+  // Otherwise Undo shows on a change only to whoever may undo it.
   const historyRows = useMemo(
-    () => isReadOnly
-      ? history.rows.map((row) => ({ ...row, canUndo: false }))
-      : history.rows,
-    [ history.rows, isReadOnly ],
+    () => history.rows.map((row) => ({
+      ...row,
+      canUndo: row.canUndo && !isReadOnly && mayUndo(meeting, readerId, row.entry.kind),
+    })),
+    [ history.rows, isReadOnly, meeting, readerId ],
   )
   const excerpts = useMemo(() => {
     const lanes = shown.has('excerpt')
@@ -524,6 +537,8 @@ export function MeetingWorkspace(props: Props) {
       : null,
   })
 
+  const mayReadMeeting = useCallback((user: User) => mayRead(meeting, user), [ meeting ])
+
   const lane = (isInDrawer: boolean) => <MeetingLane
     meeting={meeting}
     captures={transcript.captures}
@@ -553,8 +568,12 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
-    onMoveCapture={changes.moveCapture}
-    onSplitCapture={changes.splitOut}
+    onMoveCapture={!isMergedAway && meeting.ownerId === readerId
+      ? changes.moveCapture
+      : null}
+    onSplitCapture={!isMergedAway && meeting.canManage
+      ? changes.splitOut
+      : null}
     words={words}
     selectedMark={selectedMark}
     history={{
@@ -578,6 +597,7 @@ export function MeetingWorkspace(props: Props) {
         onReply: changes.reply,
         onSetResolved: changes.setResolved,
         onRemove: changes.removeThread,
+        mayRead: mayReadMeeting,
       }}
     onSelectThread={openMark}
     composing={review.isCommenting && selection

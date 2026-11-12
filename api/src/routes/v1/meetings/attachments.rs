@@ -13,9 +13,10 @@
 //! can be a gigabyte. Every change is in the meeting's history, so it answers its entry and the
 //! marks as they now stand, for the page to apply and offer Undo (`history/{entryId}/undo`).
 //!
-//! Each answers the meeting's owner alone, as the meeting's other routes do, until meetings are
-//! public by default (`docs/meeting-review.md`, Who sees a meeting). `404` for a meeting that is
-//! not theirs, and `409 meeting_merged` for every change to one merged away.
+//! Whoever reads the meeting lists and opens its files and frames, and whoever may change it
+//! attaches, pins, and takes them off, as the meeting's other routes ask (`crate::meetings::access`,
+//! `docs/meeting-review.md`, Who sees a meeting). `404` for a meeting they may not read, and
+//! `409 meeting_merged` for every change to one merged away.
 
 use std::fmt::Display;
 use std::str::FromStr;
@@ -36,14 +37,15 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, merged_refusal, transcript_change};
+use super::{MeetingEventResponse, announce, merged_refusal, open, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::images::{self, ImageError, MAX_FRAME_UPLOAD_BYTES};
 use crate::meeting_attachments;
+use crate::meetings::access::Need;
 use crate::meetings::attachments::{self as meeting_attachments_change, AttachmentError};
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting};
+use crate::models::meeting::Meeting;
 use crate::models::meeting_attachment::{self, MeetingAttachment, StoredFrame};
 use crate::models::meeting_capture;
 use crate::models::meeting_mark::{MarkError, Range};
@@ -156,7 +158,7 @@ pub async fn list(
         .get()
         .await
         .context("no database connection available")?;
-    let found = readable(&mut connection, id, &current).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     let offsets: std::collections::HashMap<Uuid, i64> =
         meeting_capture::list_of(&mut connection, found.id)
             .await?
@@ -188,7 +190,7 @@ pub async fn read(
         .get()
         .await
         .context("no database connection available")?;
-    let found = readable(&mut connection, id, &current).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     let attachment = meeting_attachment::find(&mut connection, found.id, attachment_id).await?;
     let Some(storage_path) = attachment
         .storage_path
@@ -235,7 +237,7 @@ pub async fn remove(
         .get()
         .await
         .context("no database connection available")?;
-    let found = editable(&mut connection, id, &current).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let entry = meeting_attachments_change::detach(
         &mut connection,
         &found,
@@ -277,15 +279,13 @@ pub async fn take_frame(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Path(id) = path?;
-    let form = read_frame_form(multipart.map_err(|error| ApiError::BadRequest(error.body_text()))?)
-        .await?;
-
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let found = editable(&mut connection, id, &current).await?;
+    // Who may send a frame is decided before a byte of the still is read.
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     if found.merged_into.is_some() {
         return Err(merged_refusal());
     }
@@ -294,8 +294,10 @@ pub async fn take_frame(
         .page_attachment_storage_location_id
         .ok_or(meeting_attachments::NO_LOCATION)?;
     let location = storage_location::find(&mut connection, location_id).await?;
-    // Compressing and storing take a moment; no connection is held while they do.
+    // Reading, compressing, and storing the still take a moment; no connection is held meanwhile.
     drop(connection);
+    let form = read_frame_form(multipart.map_err(|error| ApiError::BadRequest(error.body_text()))?)
+        .await?;
 
     let access_key = location
         .access_key(&state.cipher)
@@ -520,7 +522,7 @@ pub async fn pin(
         .get()
         .await
         .context("no database connection available")?;
-    let found = editable(&mut connection, id, &current).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let range = Range {
         start_word_id: body.start_word_id,
         end_word_id: body.end_word_id,
@@ -540,25 +542,6 @@ pub async fn pin(
         "entry": MeetingEventResponse::from(entry),
         "change": change,
     })))
-}
-
-/// The meeting `id` as `current` may read it: today their own alone, as every meeting route
-/// answers until meetings are public by default.
-async fn readable(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    current: &CurrentUser,
-) -> Result<Meeting, ApiError> {
-    Ok(meeting::find_owned(connection, id, current.id()).await?)
-}
-
-/// The meeting `id` as `current` may change it: today their own alone, as for reading.
-async fn editable(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    current: &CurrentUser,
-) -> Result<Meeting, ApiError> {
-    Ok(meeting::find_owned(connection, id, current.id()).await?)
 }
 
 fn author_of(current: &CurrentUser) -> Author<'static> {

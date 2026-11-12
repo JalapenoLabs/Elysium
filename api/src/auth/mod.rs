@@ -185,6 +185,13 @@ pub enum AccessRefusal {
     MembersOnly,
     /// An unsafe request from a page on another origin.
     CrossOrigin,
+    /// Someone who may read what they asked to change, and no more: a guest on a meeting shared
+    /// with them.
+    ReadOnly,
+    /// A change only its owner or an admin may make, such as who sees a meeting.
+    OwnerOrAdmin,
+    /// A change only its owner may make, such as running a meeting's processing.
+    OwnerOnly,
 }
 
 impl AccessRefusal {
@@ -206,6 +213,9 @@ impl AccessRefusal {
             Self::AdminOnly => "admin_only",
             Self::MembersOnly => "members_only",
             Self::CrossOrigin => "cross_origin",
+            Self::ReadOnly => "read_only",
+            Self::OwnerOrAdmin => "owner_or_admin",
+            Self::OwnerOnly => "owner_only",
         }
     }
 
@@ -222,6 +232,9 @@ impl AccessRefusal {
             Self::AdminOnly => "only an admin can do this",
             Self::MembersOnly => "only the company's members can reach its knowledge base",
             Self::CrossOrigin => "the request came from another site",
+            Self::ReadOnly => "you can read this but not change it",
+            Self::OwnerOrAdmin => "only its owner or an admin can do this",
+            Self::OwnerOnly => "only its owner can do this",
         }
     }
 }

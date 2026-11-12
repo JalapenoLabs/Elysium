@@ -128,7 +128,8 @@ Everything else follows these rules:
   Postgres server and credentials.
 - `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
   Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
-  `system`. Guests have a member's access, except the knowledge base, until roles are built out.
+  `system`. Guests have a member's access, except the knowledge base, until roles are built out; a guest reads a
+  meeting shared with them, and changes nothing of it.
 - The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
   sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
   deleted, only disabled.
@@ -301,7 +302,8 @@ Everything else follows these rules:
   project: only they list it, attribute it, and play its media. Its text is not: every record is indexed into the
   knowledge base for everyone in the workspace in the transaction that stores it (`timeline_record::insert_new`), a
   person's own mail and direct messages included, with no per-owner filter in any query, and guests never reach it.
-  The engine's backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
+  The one exception is a private meeting's segments, found by its readers alone (Meetings, below). The engine's
+  backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
   watcher. The first read baselines the mailbox without raising anything.
@@ -358,14 +360,14 @@ Everything else follows these rules:
 - A meeting's page is in the knowledge base (`/knowledge/meetings/:meetingId`): its final transcript with every mark
   drawn over it beside a lane of options, the mark selected, and its history. Whole words are selected and edited in
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
-  Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
-  app.
+  Save. Its routes answer whoever may read the meeting (Who reads a meeting, below). See `docs/meetings.md`, In the
+  web app.
 - Comment threads sit on ranges as marks of kind `comment`, their comments in `meeting_comments`
   (`meetings::comments`). Mentions are picked user ids, never parsed from text. Each change raises an inbox item for
   each person it concerns but its maker: whoever is mentioned, and the thread's other people for a reply, a resolve,
-  or a reopen. A person mentioning Elysia queues her `meeting-comment` turn, which answers in the thread and may edit
-  the words or attribute the topics the range lies in. A thread is indexed with the segments its range overlaps. See
-  `docs/meetings.md`, Comments.
+  or a reopen, and only those who may read the meeting are mentioned or told. A person mentioning Elysia queues her
+  `meeting-comment` turn, which answers in the thread and may edit the words or attribute the topics the range lies
+  in. A thread is indexed with the segments its range overlaps. See `docs/meetings.md`, Comments.
 - Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
   one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
   group under the brief of every project its excerpts are on, as linked entries that move nowhere. Settings, Meetings
@@ -423,8 +425,18 @@ Everything else follows these rules:
   subagents, near duplicates dropped. Each is pinned to words by a `pin` mark, so the excerpts over them carry them to
   Project Managers and workers, who open one with `meeting_attachment_get`. They live in the attachments' storage
   location, up to an admin's limit, 1 GB by default. See `docs/meetings.md`, Attachments and frames.
-- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
-  and owner, never its title or transcript.
+- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id and
+  state, never its title, owner, or transcript; every client loads it by id, and one that may not read it gets `404`.
+- Who reads a meeting: every member while it is public; its owner, the people it is shared with (`meeting_shares`),
+  and admins while it is private; a guest only one shared with them. A new meeting is `unchecked`, private to its owner,
+  until its correction's one turn judges it: open, or private and shared with whom it chose, its owner told by an inbox
+  item naming nothing of it; an answer judging nothing keeps it private. `models::meeting::readable_by` is the one rule
+  and `crate::meetings::access` what a reader may do: every route asks `open` for what it needs (read; edit, a company
+  member who reads it or its owner; manage who reads it and merges or splits, its owner or an admin; its processing,
+  its owner), `404` for a meeting someone may not read. The knowledge index finds a meeting's transcript and excerpts
+  only for its readers (`knowledge_documents.access_meeting_id`, by `meeting::readable_meeting_sql` inside each query),
+  and nothing every member reads (items, the Transcription doc, a batch's chain) names a meeting that is private as it
+  is written. See `docs/meetings.md`, Who reads a meeting.
 
 ## Storage
 
@@ -705,9 +717,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   made it. The work queue is `/work-queue`, for members.
 - Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
   for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
-  link. Every pull request a worker records carries the chain at the end of its description
-  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
-  batch exists.
+  link. A chain is read for its reader, withholding a segment of a meeting they may not read. Every pull request a
+  worker records carries the chain at the end of its description (`worker_pool::description`), quoting a public
+  meeting alone, and saying only what each link is in a public repository. See `docs/engine.md`, Why a batch exists.
 
 ## One event stream keeps the frontend current
 

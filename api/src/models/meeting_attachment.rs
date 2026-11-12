@@ -467,12 +467,6 @@ impl From<MeetingAttachment> for IndexedAttachment {
 }
 
 #[derive(Debug, QueryableByName)]
-struct ExistsRow {
-    #[diesel(sql_type = diesel::sql_types::Bool)]
-    pinned: bool,
-}
-
-#[derive(Debug, QueryableByName)]
 struct PinnedRow {
     #[diesel(sql_type = SqlUuid)]
     attachment_id: Uuid,
@@ -535,44 +529,6 @@ pub async fn pinned_over(
         .await?;
     found.sort_by_key(|attachment| ids.iter().position(|id| *id == attachment.id));
     Ok(found)
-}
-
-/// Whether standing attachment `attachment_id` of meeting `meeting_id` is pinned in one of its
-/// standing excerpts: a pin of it overlaps an excerpt's words, by the rule [`pinned_over`] carries
-/// it with. What is pinned in an excerpt travels with it, so it is read wherever the excerpt is.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn is_pinned_in_an_excerpt(
-    connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
-    attachment_id: Uuid,
-) -> QueryResult<bool> {
-    let row: ExistsRow = diesel::sql_query(format!(
-        "SELECT EXISTS (
-             SELECT 1 {PINS_OVER}
-               AND attachments.id = $4
-               AND EXISTS (
-                   SELECT 1
-                   FROM meeting_marks excerpts
-                   JOIN meeting_words excerpt_first ON excerpt_first.id = excerpts.start_word_id
-                   JOIN meeting_words excerpt_last ON excerpt_last.id = excerpts.end_word_id
-                   WHERE excerpts.meeting_id = marks.meeting_id
-                     AND excerpts.kind = 'excerpt'
-                     AND excerpts.removed_by IS NULL
-                     AND first.start_ms
-                         < GREATEST(excerpt_last.end_ms, excerpt_first.start_ms + 1)
-                     AND GREATEST(last.end_ms, first.start_ms + 1) > excerpt_first.start_ms
-               )
-         ) AS pinned"
-    ))
-    .bind::<SqlUuid, _>(meeting_id)
-    .bind::<BigInt, _>(i64::MIN)
-    .bind::<BigInt, _>(i64::MAX)
-    .bind::<SqlUuid, _>(attachment_id)
-    .get_result(connection)
-    .await?;
-    Ok(row.pinned)
 }
 
 /// Where on its meeting's clock each standing pin of attachment `attachment_id` lies, from its

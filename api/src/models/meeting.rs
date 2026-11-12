@@ -8,27 +8,42 @@
 //! and for how long, who organized it and took part) and what Elysium made of it: what segmenting read,
 //! its final transcript (`models::meeting_word`), and its history (`models::meeting_event`).
 //!
-//! A meeting belongs to whoever owns the account its first capture was read from, like every
-//! timeline record. It moves through `pending` (listed), `recorded` (its capture fetched by its
-//! run of the meeting workflow), `segmented`, and `done`, each written by a step of that run. How
-//! far it got is all it keeps of its processing: whether it failed, and why, is its run's
-//! (`crate::meetings::workflow`). What segmenting read is written once per segmenting
+//! A meeting belongs to whoever owns the account its first capture was read from, or who uploaded
+//! it, like every timeline record. It moves through `pending` (listed), `recorded` (its capture
+//! fetched by its run of the meeting workflow), `segmented`, and `done`, each written by a step of
+//! that run. How far it got is all it keeps of its processing: whether it failed, and why, is its
+//! run's (`crate::meetings::workflow`). What segmenting read is written once per segmenting
 //! ([`record_segments`]).
+//!
+//! # Who reads it
+//!
+//! A meeting is [`Visibility::Public`], read by every member; [`Visibility::Private`], read by its
+//! owner and the people it is shared with (`models::meeting_share`); or new and
+//! [`Visibility::Unchecked`], private to its owner until its correction decides. Admins read every
+//! meeting. [`readable_by`] is that rule, the one place it is written: finding a meeting
+//! ([`find_readable`]), listing them ([`list_readable`]), and telling which of some meetings a
+//! reader may read ([`readable_among`]) all ask it. The knowledge index's searches are SQL, so
+//! they ask its twin in SQL, [`readable_meeting_sql`], inside each query, which a test holds to
+//! the same answers for every reader. What a reader may change is `crate::meetings::access`'s. See
+//! `docs/meeting-review.md`, Who sees a meeting.
 //!
 //! A meeting whose captures its person merged into another one names it (`merged_into`). It
 //! holds no captures while it does, and is listed nowhere and processed no further; splitting
 //! the captures back out clears it (`crate::meetings::duplicates`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
+use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_types::Bool;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::database::schema::meetings;
+use crate::database::schema::{meeting_corrections, meeting_shares, meetings};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
+use crate::models::user::User;
 
 /// How far a meeting's processing got. Stored as `meetings.state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +77,145 @@ impl MeetingState {
     }
 }
 
+/// Who reads a meeting besides its owner, the people it is shared with, and admins. Stored as
+/// `meetings.visibility`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    /// New, and private to its owner until its correction reads it and decides
+    /// (`crate::meetings::correct`). Read exactly as [`Self::Private`] is.
+    Unchecked,
+    /// Read by its owner and the people it is shared with alone.
+    Private,
+    /// Read by every member.
+    Public,
+}
+
+impl Visibility {
+    const ALL: [Self; 3] = [Self::Unchecked, Self::Private, Self::Public];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unchecked => "unchecked",
+            Self::Private => "private",
+            Self::Public => "public",
+        }
+    }
+
+    /// The visibility stored as `text`, if it is one.
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|visibility| visibility.as_str() == text)
+    }
+}
+
+/// Someone reading meetings: who they are, and how far their reading reaches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reader {
+    pub id: Uuid,
+    pub reach: Reach,
+}
+
+/// How far a reader's reading of meetings reaches, by their role (`docs/auth.md`, Roles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// An admin, who may do everything, reads every meeting, which is how one shares or opens a
+    /// private meeting nobody shared with them.
+    Every,
+    /// A member, or one of Elysium's machines reading the knowledge base, reads every public
+    /// meeting besides its own and those shared with it.
+    Public,
+    /// A guest, and anyone without a role, reads only its own and those shared with it.
+    Shared,
+}
+
+impl Reach {
+    /// The reach as [`readable_meeting_sql`] reads it, bound beside the reader's id.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Every => "every",
+            Self::Public => "public",
+            Self::Shared => "shared",
+        }
+    }
+}
+
+impl Reader {
+    /// Anyone in the company, owning no meeting and shared none: who reads text that leaves
+    /// Elysium, such as a pull request's description, which may name a public meeting alone.
+    pub const ANY_MEMBER: Self = Self {
+        id: Uuid::nil(),
+        reach: Reach::Public,
+    };
+
+    /// `user` as a reader of meetings. Anyone who is neither a company member nor a machine
+    /// reaches only what is theirs or shared with them, so a role added later gains nothing by
+    /// accident.
+    pub fn of(user: &User) -> Self {
+        let reach = if user.is_admin() {
+            Reach::Every
+        } else if user.is_company_member() || user.is_machine() {
+            Reach::Public
+        } else {
+            Reach::Shared
+        };
+        Self { id: user.id, reach }
+    }
+}
+
+/// Whether a meeting may be read by `reader`: the one statement of who reads a meeting, which
+/// every query reading meetings for someone filters by.
+fn readable_by(reader: Reader) -> Box<dyn BoxableExpression<meetings::table, Pg, SqlType = Bool>> {
+    let shared_with = meeting_shares::table
+        .filter(meeting_shares::person_id.eq(reader.id))
+        .select(meeting_shares::meeting_id);
+    let own_or_shared = meetings::created_by
+        .eq(reader.id)
+        .or(meetings::id.eq_any(shared_with));
+    match reader.reach {
+        Reach::Every => Box::new(true.into_sql::<Bool>()),
+        Reach::Public => {
+            Box::new(own_or_shared.or(meetings::visibility.eq(Visibility::Public.as_str())))
+        }
+        Reach::Shared => Box::new(own_or_shared),
+    }
+}
+
+/// [`readable_by`] in SQL, for the knowledge index's queries, which are written as SQL: whether
+/// the meeting whose id `$meeting` names (a column) may be read by the reader whose id is bound at
+/// `$reader` and whose reach ([`Reach::as_str`]) is bound at `$reach`. It is a predicate inside
+/// each query, never a list worked out before it, so it stays as cheap however many meetings
+/// there are. The two state one rule, and `tests::its_sql_reads_meetings_as_its_query_does` holds
+/// them to the same answers for every reach.
+macro_rules! readable_meeting_sql {
+    ($meeting:literal, $reader:literal, $reach:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM meetings readable WHERE readable.id = ",
+            $meeting,
+            " AND (",
+            $reach,
+            "::text = 'every' OR readable.created_by = ",
+            $reader,
+            "::uuid OR (",
+            $reach,
+            "::text = 'public' AND readable.visibility = 'public') OR EXISTS (",
+            "SELECT 1 FROM meeting_shares shares WHERE shares.meeting_id = readable.id",
+            " AND shares.person_id = ",
+            $reader,
+            "::uuid)))"
+        )
+    };
+}
+pub(crate) use readable_meeting_sql;
+
+/// Where a page of meetings starts: after the meeting that started at `started_at` with this
+/// `id`, the last of the page before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cursor {
+    pub started_at: DateTime<Utc>,
+    pub id: Uuid,
+}
+
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = meetings, check_for_backend(diesel::pg::Pg))]
 pub struct Meeting {
@@ -84,6 +238,10 @@ pub struct Meeting {
     pub hold_for_approval: bool,
     /// The meeting its captures were merged into, while they are.
     pub merged_into: Option<Uuid>,
+    /// See [`Visibility`].
+    pub visibility: String,
+    /// The inbox item telling its owner that its correction kept it private, and why.
+    pub visibility_item_id: Option<Uuid>,
 }
 
 impl Meeting {
@@ -94,6 +252,24 @@ impl Meeting {
     /// drifted from [`MeetingState`] can cause.
     pub fn state(&self) -> MeetingState {
         MeetingState::parse(&self.state).expect("meetings_state_check allows only MeetingState")
+    }
+
+    /// Who reads the meeting.
+    ///
+    /// # Panics
+    /// Panics on a visibility `meetings_visibility_check` does not allow, which only a migration
+    /// that drifted from [`Visibility`] can cause.
+    pub fn visibility(&self) -> Visibility {
+        Visibility::parse(&self.visibility)
+            .expect("meetings_visibility_check allows only Visibility")
+    }
+
+    /// The meeting's title where everyone in the workspace reads it, such as an inbox item or the
+    /// Transcription doc: its own while it is public, and `None` while it is private, since the
+    /// title of a one-to-one or a review can be what makes it private.
+    pub fn public_title(&self) -> Option<&str> {
+        let title = self.title.trim();
+        (self.visibility() == Visibility::Public && !title.is_empty()).then_some(title)
     }
 }
 
@@ -158,38 +334,144 @@ pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<
         .await
 }
 
-/// Every one of `owner`'s meetings, newest first, the later id first between two that started
-/// together, so two never tie, but for those merged into another, which live on in it.
+/// Up to `limit` of the meetings `reader` may read, newest first, starting after `after` when
+/// given, the later id first between two that started together, so two never tie and a page never
+/// skips one. Those merged into another, which live on in it, are left out.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn list_owned(
+pub async fn list_readable(
     connection: &mut AsyncPgConnection,
-    owner: Uuid,
+    reader: Reader,
+    after: Option<Cursor>,
+    limit: i64,
 ) -> QueryResult<Vec<Meeting>> {
-    meetings::table
-        .filter(meetings::created_by.eq(owner))
+    let mut query = meetings::table
+        .filter(readable_by(reader))
         .filter(meetings::merged_into.is_null())
         .select(Meeting::as_select())
         .order((meetings::started_at.desc(), meetings::id.desc()))
+        .limit(limit)
+        .into_boxed();
+    if let Some(after) = after {
+        query = query.filter(
+            meetings::started_at
+                .lt(after.started_at)
+                .or(meetings::started_at
+                    .eq(after.started_at)
+                    .and(meetings::id.lt(after.id))),
+        );
+    }
+    query.load(connection).await
+}
+
+/// The meeting `id`, when `reader` may read it.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist or `reader` may not read it, which
+/// the routes answer alike, so a private meeting's existence is no answer either.
+pub async fn find_readable(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    reader: Reader,
+) -> QueryResult<Meeting> {
+    meetings::table
+        .filter(meetings::id.eq(id))
+        .filter(readable_by(reader))
+        .select(Meeting::as_select())
+        .first(connection)
+        .await
+}
+
+/// Which of meetings `ids` `reader` may read, such as the meetings of a knowledge document and its
+/// copies; an id no meeting has is left out.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn readable_among(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+    reader: Reader,
+) -> QueryResult<HashSet<Uuid>> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let readable: Vec<Uuid> = meetings::table
+        .filter(meetings::id.eq_any(ids))
+        .filter(readable_by(reader))
+        .select(meetings::id)
+        .load(connection)
+        .await?;
+    Ok(readable.into_iter().collect())
+}
+
+/// Sets who reads meeting `id`.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_visibility(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    visibility: Visibility,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set(meetings::visibility.eq(visibility.as_str()))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Records `item_id` as the inbox item telling meeting `id`'s owner what its correction decided.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_visibility_item(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    item_id: Uuid,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set(meetings::visibility_item_id.eq(item_id))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// The meeting whose correction raised inbox item `item_id`, asking for its review, when `reader`
+/// may read it.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reviewed_by(
+    connection: &mut AsyncPgConnection,
+    item_id: Uuid,
+    reader: Reader,
+) -> QueryResult<Vec<Meeting>> {
+    let reviewed = meeting_corrections::table
+        .filter(meeting_corrections::review_item_id.eq(item_id))
+        .select(meeting_corrections::meeting_id);
+    meetings::table
+        .filter(meetings::id.eq_any(reviewed))
+        .filter(readable_by(reader))
+        .select(Meeting::as_select())
         .load(connection)
         .await
 }
 
-/// The meeting `id`, when `owner` owns it.
+/// The meeting inbox item `item_id` told its owner was kept private, when `reader` may read it.
 ///
 /// # Errors
-/// [`diesel::result::Error::NotFound`] when it does not exist or belongs to someone else.
-pub async fn find_owned(
+/// Propagates any database error.
+pub async fn kept_private_by(
     connection: &mut AsyncPgConnection,
-    id: Uuid,
-    owner: Uuid,
-) -> QueryResult<Meeting> {
+    item_id: Uuid,
+    reader: Reader,
+) -> QueryResult<Vec<Meeting>> {
     meetings::table
-        .filter(meetings::id.eq(id))
-        .filter(meetings::created_by.eq(owner))
+        .filter(meetings::visibility_item_id.eq(item_id))
+        .filter(readable_by(reader))
         .select(Meeting::as_select())
-        .first(connection)
+        .load(connection)
         .await
 }
 
@@ -664,7 +946,11 @@ pub(crate) mod tests {
             1,
             "one listing stores it and the other finds it recorded"
         );
-        let meetings = list_owned(&mut connection, TEST_PERSON_ID)
+        let owner = Reader {
+            id: TEST_PERSON_ID,
+            reach: Reach::Public,
+        };
+        let meetings = list_readable(&mut connection, owner, None, 50)
             .await
             .expect("lists");
         assert_eq!(meetings.len(), 1, "no meeting is left without its capture");
@@ -756,5 +1042,83 @@ pub(crate) mod tests {
             assert_eq!(MeetingState::parse(state.as_str()), Some(state));
         }
         assert_eq!(MeetingState::parse("sideways"), None);
+    }
+
+    /// A meeting's id, as the SQL twin of the rule finds it.
+    #[derive(QueryableByName)]
+    struct Found {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        id: Uuid,
+    }
+
+    /// Stores a meeting of `owner`'s of `visibility`.
+    async fn meeting_of(
+        connection: &mut AsyncPgConnection,
+        owner: Uuid,
+        visibility: Visibility,
+    ) -> Uuid {
+        let (found, _) = stored(connection).await;
+        diesel::update(meetings::table.find(found.id))
+            .set((
+                meetings::created_by.eq(owner),
+                meetings::visibility.eq(visibility.as_str()),
+            ))
+            .execute(connection)
+            .await
+            .expect("updates");
+        found.id
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn its_sql_reads_meetings_as_its_query_does() {
+        let (_url, mut connection) = migrated_database().await;
+        let someone = crate::models::user::SYSTEM_USER_ID;
+        let own = meeting_of(&mut connection, TEST_PERSON_ID, Visibility::Private).await;
+        let shared = meeting_of(&mut connection, someone, Visibility::Private).await;
+        diesel::insert_into(meeting_shares::table)
+            .values((
+                meeting_shares::meeting_id.eq(shared),
+                meeting_shares::person_id.eq(TEST_PERSON_ID),
+                meeting_shares::created_by.eq(someone),
+            ))
+            .execute(&mut connection)
+            .await
+            .expect("shares");
+        let private = meeting_of(&mut connection, someone, Visibility::Private).await;
+        let public = meeting_of(&mut connection, someone, Visibility::Public).await;
+        let unchecked = meeting_of(&mut connection, someone, Visibility::Unchecked).await;
+        let every = [own, shared, private, public, unchecked];
+
+        let expected = [
+            (Reach::Every, every.to_vec()),
+            (Reach::Public, vec![own, shared, public]),
+            (Reach::Shared, vec![own, shared]),
+        ];
+        for (reach, reads) in expected {
+            let reader = Reader {
+                id: TEST_PERSON_ID,
+                reach,
+            };
+            let by_query = readable_among(&mut connection, &every, reader)
+                .await
+                .expect("reads");
+            let by_sql: HashSet<Uuid> = diesel::sql_query(concat!(
+                "SELECT candidates.id FROM meetings candidates
+                 WHERE candidates.id = ANY($1::uuid[]) AND ",
+                readable_meeting_sql!("candidates.id", "$2", "$3"),
+            ))
+            .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(&every[..])
+            .bind::<diesel::sql_types::Uuid, _>(reader.id)
+            .bind::<diesel::sql_types::Text, _>(reach.as_str())
+            .load::<Found>(&mut connection)
+            .await
+            .expect("reads")
+            .into_iter()
+            .map(|found| found.id)
+            .collect();
+            assert_eq!(by_query, reads.into_iter().collect(), "{reach:?}");
+            assert_eq!(by_sql, by_query, "{reach:?}");
+        }
     }
 }

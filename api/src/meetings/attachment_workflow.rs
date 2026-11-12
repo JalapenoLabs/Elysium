@@ -227,7 +227,6 @@ impl Inner {
         self.events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
             state: changed.state.clone(),
-            created_by: changed.created_by,
             entry_id: None,
         });
         Ok(())
