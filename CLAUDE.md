@@ -416,6 +416,13 @@ Everything else follows these rules:
   one. Files arrive in 8 MiB parts staged in the workspace, resumable, checked as they arrive; finishing starts the
   meeting's run as the person, whose fetch streams the recording to the storage location they chose. A transcript with
   no times is a meeting in words alone, segmented by its lines. See `docs/meetings.md`, Uploads.
+- A meeting keeps files and frames (`meeting_attachments`): any file a person attaches, sent in parts and stored and
+  read for search by the engine's `meeting_attachment` workflow, served as a download unless it is a proven image, and
+  stills of its video, which a person pins from the player (drawn on a canvas in the browser, encoded again by the API)
+  and segmenting pins from the stills where the screen changed most, looked at through `elysium_meeting_frames` with
+  subagents, near duplicates dropped. Each is pinned to words by a `pin` mark, so the excerpts over them carry them to
+  Project Managers and workers, who open one with `meeting_attachment_get`. They live in the attachments' storage
+  location, up to an admin's limit, 1 GB by default. See `docs/meetings.md`, Attachments and frames.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
   and owner, never its title or transcript.
 
@@ -428,8 +435,8 @@ Everything else follows these rules:
   does.
 - Coding agents reach their project's locations through the `elysium_storage` MCP tools at `/api/agent-tools`. Every
   call re-checks the location against the project in the database. See `api/src/tools/` and `docs/storage.md`.
-- Files attached to knowledge base pages go to one location an admin chooses, and each row keeps the location it landed
-  in. Limits and what a page takes are code constants (`api/src/page_attachments.rs`), served to the web app. They are
+- Files attached to knowledge base pages and to meetings go to one location an admin chooses, and each row keeps the
+  location it landed in. Limits and what a page takes are code constants (`api/src/page_attachments.rs`), served to the web app. They are
   served to members alone: a proven image displays, and anything else downloads and never renders on Elysium's origin.
   An attachment is no part of a version, and a page's text refers to one as plain Markdown. Nothing is deleted for good
   yet, so a deleted page keeps its files. See `docs/knowledge.md`, Pages, Attachments, and `docs/security.md`.

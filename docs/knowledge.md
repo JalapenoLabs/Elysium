@@ -26,7 +26,9 @@ Meetings page and each project's brief (Pages, The tree).
 - Everything on the timeline: meetings' excerpts, mail, Slack, Teams, Confluence, Jira, YouTrack, and GitHub issues
   and comments, and agent turn summaries.
 - Every meeting segmented at least once, as its whole final transcript, blacked-out words left out
-  (`docs/meetings.md`, Excerpts and black-outs), so what no excerpt took is still found.
+  (`docs/meetings.md`, Excerpts and black-outs), so what no excerpt took is still found, with the text of the files
+  attached to it and the captions of its frames; an excerpt's document carries the ones pinned over it
+  (`docs/meetings.md`, Attachments and frames).
 - Learnings that people and agents save.
 - The company doc, one document per section (The company doc, below).
 - Every other page, one document per page, reading as its newest version (Pages, below).
@@ -638,6 +640,7 @@ under the same names, descriptions, and argument schemas.
 | `page_label_remove`   | Yes | Yes  | Takes a label off a page                                              |
 | `page_project_link`   | Yes | Yes  | Links a page to a project (Projects, below)                           |
 | `page_project_unlink` | Yes | Yes  | Takes a page off a project                                            |
+| `meeting_attachment_get` | No | Yes | A file or frame pinned in a meeting's excerpt: a picture, or its text (`docs/meetings.md`, Attachments and frames) |
 
 - **One function per route.** `knowledge_search`, `knowledge_get`, and `meetings_list` call the functions the
   knowledge routes call (`search`, `open`, and `list_meetings` in `api/src/routes/v1/knowledge/`), with the same

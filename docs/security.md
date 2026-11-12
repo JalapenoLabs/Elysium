@@ -303,6 +303,24 @@ uploads chooses every byte of something a person's browser opens there. `api/src
 - **Who reads.** `MemberUser` on every route, so a guest gets `403`, and `Cache-Control: private`, kept for an hour so a
   page of images does not spend its rate limit, which is how long a browser that already read a removed file can keep it.
 
+### Meeting attachments
+
+A meeting takes any file, HTML and programs included, since what it was about can be anything, and keeps it on
+Elysium's own origin. `api/src/meeting_attachments.rs` holds the rules (`docs/meetings.md`, Attachments and frames):
+
+- **Nothing the uploader says about a file is believed.** Its type comes from its extension, through one table; any
+  file it does not name is `application/octet-stream`, and so are SVG and HTML.
+- **Only a proven image displays.** PNG, JPEG, GIF, and WebP are taken only once their first bytes match, and are
+  served `inline` with their own type; a frame is decoded and encoded again by Elysium (`images::compress_frame`), so
+  no byte a browser sent is served. Every other file is `Content-Disposition: attachment`, which a browser saves and
+  never renders, behind `/api`'s `nosniff` and sandboxing policy. Names are cleaned as page attachments' are.
+- **Text is read, never run.** A file's text is read in the workspace container, never the API's or the engine's: a
+  PDF by `pdftotext`, an Office or OpenDocument file by reading its zipped XML with Python's standard library, and
+  plain text as it is, each bounded in what it reads and keeps.
+- **Who reads.** Whoever may read the meeting, today its owner alone, `private` and kept for an hour. An agent reaches
+  one only through `meeting_attachment_get`, which checks in the database that it is pinned in an excerpt or that the
+  turn reads for the meeting's owner.
+
 ### Meeting uploads
 
 A person uploads their own meetings, gigabytes at a time, and the recording is later played on Elysium's own origin.

@@ -565,8 +565,10 @@ topics reach the projects they are about with nothing more for a workflow to do.
 
 **The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
 segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in
-projects) a project (`docs/engine.md`, Models). No tools, no settings, and nothing kept to resume. Its prompt holds
-every project's id, name, and the start of its description, and:
+projects) a project (`docs/engine.md`, Models). No tools, no settings, and nothing kept to resume. A meeting with a
+video capture is the one exception: its turn also looks at its stills, with the Task tool and the frames server alone
+(`TurnMode::TextWithSubagents`, Attachments and frames, below). Its prompt holds every project's id, name, and the
+start of its description, and:
 
 | Source       | The prompt holds                                                   | The answer names each part by |
 |--------------|--------------------------------------------------------------------|----------------------------------|
@@ -625,7 +627,8 @@ giving the CLI's reason, since every attempt would read the same prompt.
    Black-outs are taken first, so every excerpt made reads its words without them.
 4. Each excerpt with no clip, or whose words moved since its clip was cut, has its clip cut and uploaded (Clips, below),
    and the record names it. Then each new record is announced, the capture's connector records a run, and the
-   workspace's copy of the recording is removed.
+   workspace's copy of the recording is removed. The frames its answer chose are kept in storage before the
+   transaction of step 3 and pinned in it (Attachments and frames, below).
 
 **Taking an answer.** Every excerpt and black-out a person made or changed stands, whatever the answer says: one a
 person made, or an excerpt whose projects a person changed (its record's history names them). A range a person
@@ -777,6 +780,9 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
 - **Where the recording goes.** A storage location the person chooses, offered first as the one the owner already keeps
   meetings in: the meeting's first recording's for a capture, otherwise their oldest meeting source's. A transcript
   alone keeps nothing in storage.
+- **A file for a meeting.** An upload may instead carry one file attached to a meeting, alone (`attachment`), which
+  finishing attaches rather than making a capture (Attachments and frames, below). It goes into the attachments'
+  location, and nothing else here changes for it.
 - **Parts.** Every file arrives in parts of 8 MiB (`PART_BYTES`), the last one shorter, each its own request, in order
   (`PUT .../{kind}/parts/{index}`). Each streams into the workspace, `.elysium/uploads/<upload>/<kind>/<part>`
   (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own, and
@@ -961,7 +967,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `built`               | The captures it was lined up from with their offsets, what the first capture's words were lined up from (`source` or `whisper`), and how many words stand, were written, were replaced, and were kept at new times, and how many marks moved | None: what caused it is undone, and lines it up again |
 | `settled`             | Each range its correction changed, as an edit records its own, every confidence mark it made, and how many ranges it passed over because their words changed since it read them | None: a person edits what it settled, its alternatives offered on the meeting's page |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
-| `marked`, `unmarked`  | The mark, its kind, and its range; for an excerpt its record and the attributions the change wrote or removed, and for a black-out the black-outs it took in or gave back | Removes the mark, or puts it back: an excerpt's record leaves its projects or goes back on each the removal took it off, and a black-out gives back what it took in, or takes it in again |
+| `marked`, `unmarked`  | The mark, its kind, and its range; for an excerpt its record and the attributions the change wrote or removed, for a black-out the black-outs it took in or gave back, and for a pin the file or frame it pins | Removes the mark, or puts it back: an excerpt's record leaves its projects or goes back on each the removal took it off, and a black-out gives back what it took in, or takes it in again |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
 | `correction_approved` | Its person approved the corrected copy                           | None: approving let its run go on |
 | `offset_changed`      | A capture's offset and how it was found, before and after, set by hand | Puts the offset back, while nothing moved the capture since |
@@ -970,6 +976,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
 | `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
+| `attached`, `detached` | A file or frame put on the meeting or taken off: the attachment, its kind and name, and the pins that went with it | Takes it off with its pins, or puts it back with them, while it is still as that change left it |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
 
 ## Comments
@@ -1012,6 +1019,86 @@ way when it was resolved lands.
   the excerpts over its words and those holding a thread that quotes them, and lining the transcript up again from its
   captures (an offset set, a merge, a split) or settling it (Correction, above) every excerpt of the meeting, each with
   the meeting's own document and in its own transaction (`excerpts::refresh`).
+
+## Attachments and frames
+
+A meeting keeps the files it was about and the stills of its video that matter, each pinned to the words it goes with
+(`crate::meeting_attachments` for the policy, `meetings::attachments` for what a meeting does with them,
+`models::meeting_attachment` for the rows). Designed in `docs/meeting-review.md`, Attachments and frames.
+
+- **An attachment** is a row of `meeting_attachments`: a `file` a person attached, or a `frame`, a still of one
+  capture's video at a moment on that capture's clock, with its caption. Each is a frozen copy kept with its meeting,
+  so five meetings over one deck keep the version each discussed. A meeting holds at most 500 (`MAX_PER_MEETING`).
+- **Where they are kept.** In the storage location page attachments use (`docs/knowledge.md`, Pages, Attachments),
+  which an admin chooses under Settings, Storage, Attachments; until one is chosen a meeting takes none, and segmenting
+  pins no frame, saying so in its log. A file is kept at `meeting-attachments/<meeting>/<attachment>/<name>` and a
+  frame at `meeting-attachments/<meeting>/frames/<capture>-<ms>.webp`, so a frame taken twice is one object. Each row
+  keeps the location it landed in, and a location holding a meeting's file cannot be deleted
+  (`409 meeting_attachment_files`).
+- **Any file, never rendered.** A meeting takes any file, since what it was about can be anything; the largest is an
+  admin's setting (`workspace_settings.meeting_attachment_max_bytes`), 1 GB unless they choose another, up to what
+  storage takes in one upload (5 GiB). What a file is comes from its extension alone. Only an image proven by its first
+  bytes, and a frame Elysium encoded itself, display; everything else is served as a download, never rendered on
+  Elysium's origin, so a meeting can keep HTML or a program a page would refuse (`docs/security.md`).
+- **A pin** is a mark of kind `pin` over a range of the final transcript, its data `{ attachmentId }`, made, moved by
+  an edit, removed, and undone as every mark is (`marked`, `unmarked`). An excerpt carries every file and frame pinned
+  over its words, by the overlap a thread's indexing uses.
+- **Attaching a file** sends it in parts, as an upload of its own (`FileKind::Attachment`, Uploads, above):
+  `POST /meeting-uploads` with `{ meetingId, attachment: { name, sizeBytes, modifiedAt } }`, refused for a meeting the
+  person does not own, one merged away, a file past the limit (`meeting_attachment_too_large`), no location chosen
+  (`meeting_attachment_no_location`), or a meeting full (`meeting_attachment_too_many`). An image's first part must
+  prove its format. Finishing records the attachment, as the person, in the meeting's history (`attached`) under its
+  lock, and starts the engine's `meeting_attachment` workflow on it (`meetings::attachment_workflow`), whose
+  `store_attachment` step streams the parts into storage and removes them, and `read_attachment_text` reads its text.
+  The run is the file's, never the meeting's, so a file is attached while the meeting's own run goes on.
+- **Its text.** Plain text and Markdown, CSV, JSON, and source files are read as they are; a PDF through `pdftotext`
+  (poppler, in the workspace image); Word, PowerPoint, Excel, and OpenDocument files through a small reader of their
+  zipped XML in the workspace container. At most the first 200,000 characters are kept (`TEXT_MAX_CHARACTERS`), and a
+  file past 200 MB is not read. A row says where its text stands: `pending`, `read`, `none` (a kind with no reader,
+  such as an image or an archive), or `unreadable`.
+- **A person's frame.** Pin a frame on the meeting's page draws the picture the player shows on a canvas, from the
+  same-origin `<video>`, so the canvas is never tainted, and posts it as WebP (`POST /meetings/{id}/frames`, the
+  picture as the body, at most 25 MB, with `captureId`, `captureMs`, `caption`, and the words it goes over, or none
+  for the word spoken then). Drawing it in the browser rather than cutting it on the server keeps the frame exactly the
+  picture the person saw as they pressed F. The API decodes it, refusing what is not an image
+  (`meeting_frame_not_an_image`), and encodes it again itself (`images::compress_frame`: WebP at quality 88, within
+  1920 by 1080), so nothing the browser sent is ever served. A person's frame is kept even when it looks like another:
+  they chose it.
+- **Segmenting's frames.** A meeting with a video capture is offered its stills (Segmentation, above): before the turn,
+  `ffmpeg` decodes the video's key frames, at most one every five seconds, each shrunk to a 64 by 36 grey picture, and
+  `meetings::frames::changes` keeps the moments the screen changed most, at least fifteen seconds apart, up to 24, the
+  opening frame among them. The turn runs with Claude Code's Task tool and `elysium_meeting_frames`
+  (`crate::tools::frames`), whose one tool, `meeting_frame`, shows a still offered by its name, or any moment by its time
+  on the meeting's clock, as an image, from that capture alone. Its instructions ask it to judge each still against
+  what was said while it was on screen, and to hand the looking to subagents. Its answer gains
+  `frames: [{ frame, firstLine, lastLine, caption }]`, at most 12, kept only for a still it was offered or a moment
+  inside the video, over lines it was shown, with a caption. They are part of the answer stored on the meeting, so an
+  attempt that finds it stored pins the same ones.
+- **Near duplicates.** Each frame segmenting pins is taken again from the recording and encoded as a person's is, with a
+  fingerprint: its picture shrunk to 32 by 18 grey cells (`images::fingerprint`). Two frames are one picture when at
+  most three cells differ by more than 20 of 255 (`images::is_near_duplicate`), so a cursor or a ticking clock is the
+  same frame and a new line of slide text is not. A frame like one the meeting holds, a person's or an earlier
+  segmenting's, or like one pinned before it, is dropped. The frames are pinned as Elysia in the transaction that takes
+  the answer, each in a savepoint, so one whose words a person edited meanwhile is left out and the rest are pinned.
+- **Taking one off** (`DELETE /meetings/{id}/attachments/{attachmentId}`) removes it and every pin of it as one
+  `detached` change, whose undo puts both back; its file stays where it is. Undoing an `attached` change takes it off
+  again. A pin alone is removed as a mark (`DELETE .../marks/{markId}`), and one is made over an excerpt's words with
+  `POST /meetings/{id}/pins` `{ attachmentId, startWordId, endWordId }`.
+- **Who reaches them.** Every route answers whoever may read the meeting, today its owner alone, and refuses changes to a
+  meeting merged away (`meeting_merged`). `GET /meetings/{id}/attachments` lists them, each with its address,
+  `/api/v1/meetings/{id}/attachments/{attachmentId}/{name}`, which streams it from storage, privately cached for an
+  hour, as a page's attachment is.
+- **In the index.** The meeting's own document carries every file's text and every frame's caption after its threads
+  (`Attached file: <name>` or `Frame shown: <caption>`, then the text), up to 300,000 characters, and an excerpt's
+  document the ones pinned over it, up to 50,000. A file's text read, a pin made or removed, and a file taken off or
+  put back refresh what they reach (`attachments::refresh_pinned`).
+- **To Project Managers and workers.** An excerpt carries its pins: a Project Manager's prompt lists each new record's
+  (`Pinned in it:`), `manager_record` answers them as `pinned`, and `worker_batch` answers the excerpts of what the
+  batch was made from, each with its `pinned`. Each names its `attachmentId`, kind, name, caption, and whether its text
+  was read, and `meeting_attachment_get` on `elysium_knowledge` opens one: a frame or an image as the picture the agent
+  sees, any other file as its text, the first 40,000 characters. Each call checks in the database that it is pinned in
+  an excerpt, whose words every member reads, or that the turn reads for the meeting's owner; anything else answers as
+  if there were no such attachment.
 
 ## The Transcription doc
 
@@ -1158,8 +1245,18 @@ an excerpt's clip for its record's owner.
     What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
     offers Edit (E), Comment (C), Assign to a project (P, a menu of the projects, which makes a new excerpt of the
     words on the one chosen), Black out (B), and Play from here (Space) while the meeting has a recording, and clears
-    with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Pin a frame joins
-    the bar with frames (`docs/meeting-review.md`, Attachments and frames).
+    with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Pin a frame (F)
+    joins them while the player shows a picture and an attachment location is chosen.
+  - **Files and frames** (`MeetingFiles`, `ExcerptPins`, `PinFrameDialog`, `useMeetingAttachments`, read through SWR
+    and again on `meeting.changed`). The lane lists the meeting's frames in the order they were shown, each its picture,
+    moment, author, and caption, choosing one seeking the player to it and selecting the words it is pinned over, then
+    its files, each downloading as it is and saying whether its text is being read, searchable, or kept as it is. Attach
+    files, or a file dropped on the section, sends each in parts with its progress, refused first, as the API would
+    refuse it, when it is past the limit or nothing is chosen to keep it. Pin a frame, from the player, the bar, or F
+    wherever Space plays, takes the picture the player shows at once and pauses it, then asks what it shows; it is
+    pinned over the words selected, or the word spoken then. An excerpt's detail lists what it carries, with Unpin, and
+    Pin a file or frame for the meeting's others, over the excerpt's words. Each change has Undo in its toast, and the
+    history names each (`describeHistory`).
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
@@ -1220,7 +1317,8 @@ an excerpt's clip for its record's owner.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, or one of its threads was written in, resolved, reopened, or removed: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, or a file or frame was attached, stored, read, pinned, unpinned, or taken off: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, transcript, comments, or files |
+| `meetingAttachments.changed` | An admin chose the largest file a meeting takes: nothing more, and every client reads the policy again |
 | `page.changed`              | The Transcription doc learned from a correction or a person's fix, or a name was suggested to a company doc section: the page's id alone |
 | `timelineRecord.created`    | An excerpt's record was stored: segmenting took it, or a person or Elysia took a range into a project |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, an excerpt removed or put back, or a conversation segmented again |
@@ -1229,7 +1327,8 @@ an excerpt's clip for its record's owner.
 ## Roadmap
 
 - Meetings as reviewed documents in the knowledge base: tasks heard in a meeting, through each project's Project
-  Manager, attachments and frames, and meetings public by default. The design is `docs/meeting-review.md`.
+  Manager, and meetings public by default. The design is `docs/meeting-review.md`.
+- Attachments on the MCP server for external clients, beside `elysium_knowledge`'s `meeting_attachment_get`.
 - Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
