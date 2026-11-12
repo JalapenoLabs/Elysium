@@ -120,7 +120,8 @@ impl TranscribeMeeting {
         step_job_id: Uuid,
         log: &StepLog,
     ) -> Result<Done<TranscribedMeeting>, StepFailure> {
-        self.refuse_deleted(recorded.meeting_id).await?;
+        // Nothing to hear is decided from the input alone, touching nothing; a deleted meeting's
+        // run then stops at the step after this one.
         if recorded.transcript_hash.is_none() {
             log.line("The meeting's fetch was skipped");
             return Ok(Done::Skipped {
@@ -133,6 +134,7 @@ impl TranscribeMeeting {
                 reason: "No recording, so nothing to transcribe".to_owned(),
             });
         };
+        self.refuse_deleted(recorded.meeting_id).await?;
 
         let (capture_id, stored) = self.stored_transcription(&recorded).await?;
         if let Some(stored) = stored {

@@ -19,7 +19,8 @@ type Props = {
   isSplitting: boolean
   // Another group is splitting out, and one runs at a time.
   isDisabled: boolean
-  onSplit: () => void
+  // Null while the meeting is read only, which offers no Split out.
+  onSplit: (() => void) | null
   // Its captures' rows.
   children: ReactNode
 }
@@ -35,12 +36,13 @@ export function MergedCaptureGroup(props: Props) {
 
   // Split out is disabled while a capture of it was moved by hand, and while another group splits.
   const isButtonDisabled = !props.canSplit || props.isDisabled
-  const button = <Button
+  const onSplit = props.onSplit
+  const button = onSplit && <Button
     size='sm'
     variant='outline'
     isDisabled={isButtonDisabled}
     isPending={props.isSplitting}
-    onPress={props.onSplit}
+    onPress={onSplit}
   >
     <LuSplit className='size-4' aria-hidden />
     <span>{t('review.captures.split')}</span>
@@ -62,7 +64,7 @@ export function MergedCaptureGroup(props: Props) {
       </Link>
     </p>
     {props.children}
-    <div className='mt-2 flex justify-end'>{
+    {button && <div className='mt-2 flex justify-end'>{
       isButtonDisabled
         ? <Tooltip delay={300}>
           <Tooltip.Trigger>
@@ -74,6 +76,6 @@ export function MergedCaptureGroup(props: Props) {
           {button}
           {tip}
         </Tooltip>
-    }</div>
+    }</div>}
   </section>
 }

@@ -64,7 +64,7 @@ A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge
 anything indexed, never through the owner's timeline route, which answers anyone else not found. The index holds
 text: a meeting's recording and clips stay with its record and play for its owner alone. Removing a connector stops
 its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
-record.
+record, unless its person deletes the meetings it read with it, whose segments leave both until they are restored.
 
 Action items are one list for the whole workspace (`docs/action-items.md`): an inbox item raised by a
 person's mail carries the message's subject, sender, and body, and everyone signed in sees it. Making `owner`
@@ -231,8 +231,11 @@ code is
   newer one, as an overlapping read can, stays out. Versions of one page are indexed under a transaction-level
   advisory lock, so two transactions indexing them at once still leave only the newest. A record whose connector
   was removed stands on its own, since its versions can no longer be told from another site's.
-- **Deleted records** leave the index with their document, which cascades. A provider deleting a message or a page is
-  not read by any reader today, so it leaves the record, and its document, in place.
+- **Deleted records** leave the index with their document, which cascades. A record deleted softly with what it came
+  from, a meeting's segment taken with its meeting (`docs/meetings.md`, Deleting), has its document removed in the
+  transaction that deletes it, is walked past by the backfill, and is indexed again as it reads now when its meeting is
+  restored. A provider deleting a message or a page is not read by any reader today, so it leaves the record, and its
+  document, in place.
 - **The same text twice.** Two people whose connectors read the same channel or space each have the record, and the
   index has both documents, with the same `content_sha256`. Search folds them into one result (Hybrid search, The same
   text twice).

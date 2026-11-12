@@ -363,6 +363,7 @@ alone, finds a meeting's segments, and so the projects its topics are on, which 
 | `created_by`           | `UUID`        | References `users`; whose timeline it is on, or for the workspace's own the Project Managers' machine user or the coding agent's |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 | `turn_summary_session_id`, `turn_summary_turn_id` | `BIGINT`, `UUID` | Together reference `turn_summaries`, cascading: the summary a `turn_summary` record is. Set on that kind alone, both or neither (`timeline_records_turn_summary_kind`) |
+| `deleted_at`           | `TIMESTAMPTZ` | When it was deleted with what it came from, while it is: a meeting's segment, stamped with its meeting's `deleted_at`. On no timeline and out of the index; restoring the meeting clears it on the records that stamp names |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
 reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,
@@ -740,6 +741,7 @@ another for finding them (`meetings_merged_into`); a person's meetings not merge
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
+| `deleted_at`             | `TIMESTAMPTZ` | When its person deleted it, while it is; `NULL` once restored. Who did either is in `meeting_events` |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
@@ -870,7 +872,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`, `deleted`, or `restored`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |

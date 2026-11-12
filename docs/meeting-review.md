@@ -15,8 +15,9 @@ and comment threads on ranges, with mentions, resolving, and Elysia answering in
 meetings are public by default; uploads of recordings and transcripts as new meetings or captures of one; meetings in
 the knowledge base's tree, each at home under the Meetings page and in the Meetings group of every project's brief it
 is about, with the Meetings page listing, searching, and filtering them and starting uploads, Settings keeping only
-their sources; and settling the final transcript with confidences and alternatives, taught by the Transcription doc,
-which teaches itself and gives Whisper its hint words. What is built is described in `docs/meetings.md`, which this
+their sources; settling the final transcript with confidences and alternatives, taught by the Transcription doc,
+which teaches itself and gives Whisper its hint words; and deleting meetings, one, many, or with their connector,
+softly, by their owner alone until meetings are public by default, and restoring them. What is built is described in `docs/meetings.md`, which this
 design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures

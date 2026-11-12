@@ -297,6 +297,10 @@ the Runs page.
   request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. It
   takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
   (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation.
+- Built: a meeting its person deletes stops its run, since the queue has no cancel of its own: every meeting step fails
+  for good on a deleted meeting with one reason, read again under the meeting's lock before anything is raised or
+  published, and restoring the meeting retries, as its person, the step that failed after the deletion. A held run
+  stays held. See `docs/meetings.md`, Deleting.
 
 ## Conversations
 

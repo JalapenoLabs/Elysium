@@ -32,9 +32,9 @@ type Props = {
   // The words selected, or the moment a click picked, on the meeting's clock.
   span: RangeSummary | null
   momentMs: number | null
-  // Resolves whether the capture moved.
-  onMoveCapture: (captureId: string, offsetMs: number) => Promise<boolean>
-  onSplitCapture: (captureId: string) => Promise<void>
+  // Resolves whether the capture moved. Both are null while the meeting is read only.
+  onMoveCapture: ((captureId: string, offsetMs: number) => Promise<boolean>) | null
+  onSplitCapture: ((captureId: string) => Promise<void>) | null
 }
 
 // The options box at the top of a meeting's lane (docs/meeting-review.md, The meeting's page):

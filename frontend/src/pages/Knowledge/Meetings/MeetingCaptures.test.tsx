@@ -67,6 +67,27 @@ describe('MeetingCaptures', () => {
     context.onSplitCapture = vi.fn(async () => {})
   })
 
+  // #258: a deleted meeting's page offered Move, which the API refuses until it is restored.
+  it('offers neither Move nor Split out while the meeting is read only', () => {
+    const router = createMemoryRouter([{
+      path: '*',
+      element: <TestAriaRouter>
+        <MeetingCaptures
+          captures={[ capture('teams'), capture('fireflies', { sourceKind: 'fireflies', mergedFrom: fromFireflies }) ]}
+          onMoveCapture={null}
+          onSplitCapture={null}
+        />
+      </TestAriaRouter>,
+    }])
+    render(<RouterProvider router={router} />)
+
+    expect(screen.getAllByText('Starts with the meeting, as its source listed it')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Move on the meeting\'s clock' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Split out' })).toBeNull()
+    // The merge it came by still names the meeting it came from.
+    expect(screen.getByRole('link', { name: 'From “Launch review”' })).toBeTruthy()
+  })
+
   it<Context>('says where each capture starts on the meeting\'s clock, and how that was found', (context) => {
     renderCaptures(context, [
       capture('teams'),

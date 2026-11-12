@@ -16,9 +16,10 @@ import { groupCaptures } from './meetingCaptures'
 
 type Props = {
   captures: MeetingCapture[]
-  // Resolves whether the capture moved.
-  onMoveCapture: (captureId: string, offsetMs: number) => Promise<boolean>
-  onSplitCapture: (captureId: string) => Promise<void>
+  // Resolves whether the capture moved. Both are null while the meeting is read only, such as one
+  // deleted, whose captures stay where they are until it is restored.
+  onMoveCapture: ((captureId: string, offsetMs: number) => Promise<boolean>) | null
+  onSplitCapture: ((captureId: string) => Promise<void>) | null
 }
 
 // A meeting's captures in its options (docs/meeting-review.md, The meeting's page): the meeting's
@@ -32,12 +33,17 @@ export function MeetingCaptures(props: Props) {
   const groups = useMemo(() => groupCaptures(props.captures), [ props.captures ])
 
   async function move(captureId: string, offsetMs: number) {
+    if (!props.onMoveCapture) {
+      console.debug('MeetingCaptures was asked to move a capture of a meeting that is read only', { captureId })
+      return false
+    }
     const moved = await props.onMoveCapture(captureId, offsetMs)
     if (moved) {
       setEditingId(null)
     }
     return moved
   }
+  const onSplitCapture = props.onSplitCapture
 
   return <section aria-label={t('review.captures.title')}>
     <p className='compact text-xs font-semibold uppercase opacity-60'>{t('review.captures.title')}</p>
@@ -48,7 +54,9 @@ export function MeetingCaptures(props: Props) {
             key={capture.id}
             capture={capture}
             isEditing={editingId === capture.id}
-            onEdit={() => setEditingId(capture.id)}
+            onEdit={props.onMoveCapture
+              ? () => setEditingId(capture.id)
+              : null}
             onCancel={() => setEditingId(null)}
             onMove={(offsetMs) => move(capture.id, offsetMs)}
           />)
@@ -66,7 +74,9 @@ export function MeetingCaptures(props: Props) {
           canSplit={group.canSplit}
           isSplitting={splitting.pendingKey === fromId}
           isDisabled={splitting.isOtherPending(fromId)}
-          onSplit={() => void splitting.run(fromId, () => props.onSplitCapture(first.id))}
+          onSplit={onSplitCapture
+            ? () => void splitting.run(fromId, () => onSplitCapture(first.id))
+            : null}
         >
           {rows}
         </MergedCaptureGroup>

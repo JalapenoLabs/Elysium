@@ -26,7 +26,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors`                  | `201` `{ connector }`, with the new account it owns |
 | GET    | `/api/v1/connectors/{id}`             | `200` `{ connector }`                                |
 | PATCH  | `/api/v1/connectors/{id}`             | `200` `{ connector }`; `isActive`, `content`, or both |
-| DELETE | `/api/v1/connectors/{id}`             | `204`; removes its account too; its records stay on the timeline |
+| DELETE | `/api/v1/connectors/{id}`             | `204`; removes its account too; its records stay on the timeline; `deleteMeetings=true` also deletes, softly, the meetings it listed |
+| GET    | `/api/v1/connectors/{id}/meeting-count` | `200` `{ count }`: how many of the caller's meetings it listed, which removing it offers to delete |
 | GET    | `/api/v1/connectors/kinds`            | `200` `{ kinds, accounts }`: every kind's definition |
 | GET    | `/api/v1/connectors/activity`         | `200` `{ runs }`: the newest syncs worth showing     |
 | POST   | `/api/v1/connectors/options`          | `200` `{ fields }`: what each selection field can pick from |
@@ -35,13 +36,14 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
-| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, every one of the caller's, newest first; `reviewItemId` keeps the one an inbox item asks to review |
-| GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, every one of the caller's, newest first, but those deleted; `reviewItemId` keeps the one an inbox item asks to review; `deleted=true` lists the deleted ones instead |
+| POST   | `/api/v1/meetings/bulk`               | `200` `{ meetings, refused }`; body `{ meetingIds, change: { kind: "delete" \| "restore" } }`, at most 1000 ids, each changed in its own savepoint; each one refused is `{ meetingId, code, message }` (`not_found`, `meeting_merged`, `meeting_deleted`, `meeting_not_deleted`) |
+| GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`, a deleted one included (`deletedAt`) |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/media` | The capture's recording, streamed from storage: `206` for one `Range`, `416` past its end, else `200`; `404` when none is kept |
-| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile, (`meeting_merged`) once the meeting was merged into another, as every route here that changes a meeting answers |
+| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile, (`meeting_merged`) once the meeting was merged into another, and (`meeting_deleted`) while it is deleted, as every route here that changes a meeting answers |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
 | GET    | `/api/v1/meetings/{id}/threads`       | `200` `{ comments }`: every comment in its standing threads, each thread's oldest first |
@@ -453,7 +455,8 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its topics are on,
 in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
-leaves such a meeting out), `createdAt`, and `updatedAt`. `sourceKind` is
+leaves such a meeting out), `deletedAt` (when its person deleted it, or `null`; only `deleted=true` lists such a
+meeting), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
 connector was removed.
 

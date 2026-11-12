@@ -19,7 +19,8 @@ import { offsetSourceLabelKeys, offsetSourceOf, startOf } from './meetingCapture
 type Props = {
   capture: MeetingCapture
   isEditing: boolean
-  onEdit: () => void
+  // Null while the meeting is read only, which offers no Move.
+  onEdit: (() => void) | null
   onCancel: () => void
   // Resolves whether the move applied.
   onMove: (offsetMs: number) => Promise<boolean>
@@ -44,7 +45,7 @@ export function CaptureRow(props: Props) {
         <p className='text-sm'>{t(meetingSourceNameKey(capture.sourceKind))}</p>
         <p className='text-xs opacity-70'>{placed}</p>
       </div>
-      {!props.isEditing && <Tooltip delay={300}>
+      {!props.isEditing && props.onEdit && <Tooltip delay={300}>
         <Button
           isIconOnly
           size='sm'
