@@ -157,12 +157,14 @@ fn kinds(why: &Why) -> Vec<String> {
 async fn a_chain_runs_from_what_asked_to_the_pull_request() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
+    // A segment names its meeting, whose readers alone find its document.
+    let (meeting, _capture) = crate::models::meeting::tests::stored(&mut connection).await;
     let segment = record(
         &mut connection,
         "meeting",
         "Annual pricing",
         "[00:12] Ada: We need annual pricing",
-        json!({ "meetingTitle": "Weekly sync" }),
+        json!({ "meetingId": meeting.id, "meetingTitle": "Weekly sync" }),
     )
     .await;
     let pricing = item(&mut connection, launch, "Annual pricing").await;
