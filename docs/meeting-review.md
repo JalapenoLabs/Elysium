@@ -73,7 +73,8 @@ roadmap.
 - **Who changes it.** Any member who can read a meeting edits it: its words, its excerpts, its black-outs, its pins, and
   its attachments. Every change is in its history with who made it, and undoable. Only its owner and admins change
   its privacy, merge or split its captures, or delete it. Its processing (holding it for approval, approving its
-  correction, retrying its run, setting a capture's offset, and uploading another capture) stays its owner's.
+  correction, retrying its run, Done reviewing, setting a capture's offset, and uploading another capture) stays its
+  owner's, and so does each excerpt's record, whose projects only its owner changes.
 - **Where it names itself.** Whatever every member reads about a meeting names it only if it is public as that is
   written: the title of an inbox item it raises, and its links and who spoke in the Transcription doc, which learns a
   private meeting's fixes alone. Making a meeting private closes what comes next; what was written while it was public

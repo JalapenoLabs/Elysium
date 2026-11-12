@@ -8,9 +8,9 @@
 //! | Need             | Who                                      | For                               |
 //! |------------------|------------------------------------------|-----------------------------------|
 //! | [`Need::Read`]   | Whoever `readable_by` lets read it       | Its words, captures, media, history, and threads |
-//! | [`Need::Edit`]   | A reader who is a company member, and its owner | Edits, threads, and undoing them |
+//! | [`Need::Edit`]   | A reader who is a company member, and its owner | Edits, threads, excerpts and black-outs, and undoing them |
 //! | [`Need::Manage`] | Its owner, or an admin                   | Who sees it, and merging or splitting its captures |
-//! | [`Need::Own`]    | Its owner                                | Its processing: holding, approving, retrying, offsets, and captures it uploads |
+//! | [`Need::Own`]    | Its owner                                | Its processing: holding, approving, retrying, Done reviewing, offsets, and captures it uploads |
 //!
 //! A meeting someone may not read answers as one that does not exist, so a private meeting's
 //! existence is no answer either; one they read but may not change in that way names what it

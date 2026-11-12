@@ -243,9 +243,9 @@ new meeting is private to its owner until its correction reads it and decides.
 | Need     | Who                                            | For                                                    |
 |----------|------------------------------------------------|--------------------------------------------------------|
 | Read     | Whoever may read it                            | The meeting, its words, each capture as it came, its media, its history, its threads, and which thread an item was raised by |
-| Edit     | A company member who reads it, and its owner   | Edits, comment threads, and undoing them                |
+| Edit     | A company member who reads it, and its owner   | Edits, comment threads, taking a range into a project, blacking one out, removing either, and undoing them |
 | Manage   | Its owner, or an admin                         | Who reads it and whom it is shared with, merging or splitting its captures, and the inbox item asking whether two meetings are one |
-| Own      | Its owner                                      | Holding it for approval, approving its correction, retrying its run, setting a capture's offset, and uploading another capture |
+| Own      | Its owner                                      | Holding it for approval, approving its correction, retrying its run, Done reviewing, setting a capture's offset, and uploading another capture |
 
 - **What a refusal says.** A meeting someone may not read answers `404`, as one that does not exist does, so a private
   meeting's existence is no answer either. One they read and may not change that way answers `403` with the code
