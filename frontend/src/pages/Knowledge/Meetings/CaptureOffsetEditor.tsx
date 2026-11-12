@@ -98,6 +98,8 @@ export function CaptureOffsetEditor(props: Props) {
       <Button size='sm' variant='ghost' isDisabled={isPending} onPress={props.onCancel}>
         <span>{t('common:actions.cancel')}</span>
       </Button>
+      {/* While it applies the button shows pending rather than disabled, as a working button does;
+        pending already stops a second press. */}
       <Button type='submit' size='sm' isDisabled={!canApply && !isPending} isPending={isPending}>
         <LuCheck className='size-4' aria-hidden />
         <span>{t('review.captures.apply')}</span>

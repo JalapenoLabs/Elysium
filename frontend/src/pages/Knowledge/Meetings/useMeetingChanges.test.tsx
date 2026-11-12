@@ -55,12 +55,15 @@ function refusal(status: number, code: string) {
   return error
 }
 
+// The page's changes, on a meeting that takes changes until a rerender says otherwise.
 function renderChanges(context: Context) {
-  return renderHook(() => useMeetingChanges({
+  return renderHook((props: { isReadOnly: boolean }) => useMeetingChanges({
     meetingId: 'meeting',
+    isReadOnly: props.isReadOnly,
     applyChange: () => {},
     reload: context.reload,
   }), {
+    initialProps: { isReadOnly: false },
     wrapper: (props: { children: ReactNode }) => <Provider store={context.store}>{props.children}</Provider>,
   })
 }
@@ -140,6 +143,26 @@ describe('useMeetingChanges', () => {
       'A recording from that meeting was moved by hand. Undo that move, then split it out.',
     )
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it<Context>('undoes nothing once the meeting is merged away elsewhere, change made or not', async (context) => {
+    vi.mocked(setCaptureOffset).mockResolvedValue({
+      entry: entry('moved', 'offset_changed'),
+      capture: { id: 'capture', offsetMs: 1_500, offsetSource: 'hand' },
+    })
+    const { result, rerender } = renderChanges(context)
+    await act(async () => {
+      await result.current.moveCapture('capture', 1_500)
+    })
+    const toastUndo = undoInToast()
+
+    // Another tab merges it into another meeting, and the announcement makes this page read only.
+    rerender({ isReadOnly: true })
+    await act(async () => result.current.undoLast())
+    await act(async () => toastUndo.onPress())
+
+    expect(undoMeetingChange).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('Edits, comments, and approval happen in the meeting it was merged into.')
   })
 
   it<Context>('keeps a refused move out of what Ctrl+Z undoes', async (context) => {

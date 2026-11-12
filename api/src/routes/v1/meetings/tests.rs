@@ -462,6 +462,10 @@ async fn a_merged_capture_says_where_it_came_from_and_splits_back_out() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{own}");
     assert_eq!(own["code"], "capture_not_merged");
+    // A second tab splitting it again finds it is no longer merged in, not that it moved on.
+    let (status, again) = send(&state, Method::POST, &split_path, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{again}");
+    assert_eq!(again["code"], "capture_not_merged");
 
     // Undoing the split merges them again, and the capture names its meeting once more.
     let split_id = split["entry"]["id"].as_str().expect("an entry id");

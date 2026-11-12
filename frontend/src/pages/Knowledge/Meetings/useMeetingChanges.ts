@@ -8,7 +8,7 @@ import type {
 } from '../../../api/routes/meetingRoutes'
 
 // Core
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { mutate } from 'swr'
 
@@ -42,6 +42,9 @@ const splitRefusalKeys = {
 
 type Options = {
   meetingId: string
+  // Whether the meeting takes no change, as one merged into another does. It can become so while
+  // the page holds changes it made, so Ctrl+Z, and Undo on a toast still showing, refuse then.
+  isReadOnly: boolean
   // Applies what a change answered to the transcript the page holds.
   applyChange: (change: MeetingTranscriptChange) => void
   // Reads the transcript again, when a change found it behind.
@@ -56,6 +59,12 @@ export function useMeetingChanges(options: Options) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const dispatch = useAppDispatch()
   const madeHere = useRef<string[]>([])
+  // Read as Undo is pressed, not as it was offered: a toast's Undo keeps the function of the
+  // render that showed it, which saw the meeting before it was merged away.
+  const isReadOnly = useRef(options.isReadOnly)
+  useEffect(() => {
+    isReadOnly.current = options.isReadOnly
+  }, [ options.isReadOnly ])
 
   // Its own change applies from what the route answered; only the history and the threads' comments,
   // both small, are read again, since a change to a thread, or an undo of one, changes which threads
@@ -94,6 +103,11 @@ export function useMeetingChanges(options: Options) {
   }
 
   async function undo(entryId: string) {
+    if (isReadOnly.current) {
+      console.debug('useMeetingChanges left a change as it is, since the meeting takes no change now', { entryId })
+      toast(t('page.mergedReadOnly'))
+      return
+    }
     try {
       const response = await trackMeetingChange(
         options.meetingId,

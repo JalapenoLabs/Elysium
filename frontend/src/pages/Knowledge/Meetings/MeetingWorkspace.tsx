@@ -116,6 +116,7 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
+    isReadOnly,
     applyChange: props.applyChange,
     reload: props.reload,
   })

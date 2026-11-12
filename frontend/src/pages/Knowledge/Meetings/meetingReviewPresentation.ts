@@ -117,7 +117,7 @@ function sideOf(entry: MeetingHistoryEntry, meetingId: string) {
 const movedSentences = {
   merged: { kept: 'mergedIn', away: 'mergedAway' },
   split: { kept: 'splitOut', away: 'splitAway' },
-} as const satisfies Record<string, Record<'kept' | 'away', HistorySentence>>
+} as const satisfies Record<'merged' | 'split', Record<'kept' | 'away', HistorySentence>>
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
 // build reads.

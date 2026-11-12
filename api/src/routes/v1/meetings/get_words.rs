@@ -119,8 +119,13 @@ pub async fn handle(
     from_ids.sort_unstable();
     from_ids.dedup();
     // A meeting merged in is the same person's, and outlives the merge, so its title is read as
-    // it stands now.
-    let titles: HashMap<Uuid, String> = meeting::titles_of(&mut connection, &from_ids).await?;
+    // it stands now. Most meetings had nothing merged in, and their page, read on every change,
+    // asks nothing more.
+    let titles: HashMap<Uuid, String> = if from_ids.is_empty() {
+        HashMap::new()
+    } else {
+        meeting::titles_of(&mut connection, &from_ids).await?
+    };
 
     let words: Vec<WordResponse> = words.into_iter().map(WordResponse::from).collect();
     let marks: Vec<MarkResponse> = marks.into_iter().map(MarkResponse::from).collect();
