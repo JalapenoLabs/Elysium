@@ -5,7 +5,7 @@
 //! - `GET /api/v1/meetings/{id}/attachments` lists them, in the order they arrived;
 //! - `GET .../attachments/{attachmentId}/{name}` serves one from its storage location;
 //! - `DELETE .../attachments/{attachmentId}` takes one off with its pins;
-//! - `POST .../frames` takes a still a person took from the player, with its caption;
+//! - `POST .../frames` takes a still a person took from the player, with its caption, as a form;
 //! - `POST .../pins` pins one over a range of the words, which is how one is pinned to an
 //!   excerpt, and a pin is removed as any mark is (`DELETE .../marks/{markId}`).
 //!
@@ -17,11 +17,15 @@
 //! public by default (`docs/meeting-review.md`, Who sees a meeting). `404` for a meeting that is
 //! not theirs, and `409 meeting_merged` for every change to one merged away.
 
+use std::fmt::Display;
+use std::str::FromStr;
+
 use anyhow::Context;
 use axum::Json;
 use axum::body::{Body, Bytes};
-use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
-use axum::extract::{Path, Query, State};
+use axum::extract::multipart::{Field, Multipart, MultipartRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
@@ -47,6 +51,17 @@ use crate::models::storage_location::{self, StorageLocation};
 use crate::models::user;
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
+
+/// The most a frame's form carries beside its still: the capture, the moment, the words, and a
+/// caption of [`meeting_attachments::MAX_CAPTION_CHARACTERS`] in any script, with the form's own
+/// boundaries, rounded up generously.
+const FRAME_FIELDS_MAX_BYTES: usize = 64 * 1024;
+
+/// The most `POST .../frames` takes: the largest still and the fields beside it.
+pub(crate) const MAX_FRAME_FORM_BYTES: usize = MAX_FRAME_UPLOAD_BYTES + FRAME_FIELDS_MAX_BYTES;
+
+/// The most bytes an id or a moment is written in.
+const SHORT_FIELD_MAX_BYTES: usize = 64;
 
 /// A file's bytes never change, since a new upload is a new attachment. Only taking one off could
 /// change what its address answers, so a browser may keep it for an hour, privately, as a page's.
@@ -237,47 +252,33 @@ pub async fn remove(
     })))
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FrameQuery {
-    /// The capture whose video it is a still of, and its moment on that capture's clock.
+/// A frame as `POST .../frames` takes it: a `multipart/form-data` form rather than a query
+/// string, since a caption of a thousand characters in a script of three bytes a character is
+/// longer than a request line may be.
+#[derive(Debug)]
+struct FrameForm {
+    /// The capture whose video it is a still of (`captureId`), and its moment on that capture's
+    /// clock (`captureMs`).
     capture_id: Uuid,
     capture_ms: i64,
-    /// What it shows.
+    /// What it shows (`caption`), checked.
     caption: String,
-    /// The words it is pinned over; both or neither. Neither pins it over the word being spoken
-    /// at its moment.
-    start_word_id: Option<Uuid>,
-    end_word_id: Option<Uuid>,
+    /// The words it is pinned over (`startWordId` and `endWordId`, both or neither); none pins it
+    /// over the word being spoken at its moment.
+    range: Option<Range>,
+    /// The picture itself (`still`), as the browser's canvas encoded it.
+    still: Bytes,
 }
 
 pub async fn take_frame(
     State(state): State<AppState>,
     current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
-    query: Result<Query<FrameQuery>, QueryRejection>,
-    body: Bytes,
+    multipart: Result<Multipart, MultipartRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Path(id) = path?;
-    let Query(query) = query?;
-    let caption = meeting_attachments::caption(&query.caption)?;
-    if query.capture_ms < 0 {
-        return Err(ApiError::BadRequest(
-            "a frame's moment is on its capture's clock, from 0".to_owned(),
-        ));
-    }
-    let range = match (query.start_word_id, query.end_word_id) {
-        (Some(start_word_id), Some(end_word_id)) => Some(Range {
-            start_word_id,
-            end_word_id,
-        }),
-        (None, None) => None,
-        _ => {
-            return Err(ApiError::BadRequest(
-                "a frame is pinned over a range with both its ends, or over its moment".to_owned(),
-            ));
-        }
-    };
+    let form = read_frame_form(multipart.map_err(|error| ApiError::BadRequest(error.body_text()))?)
+        .await?;
 
     let mut connection = state
         .database
@@ -299,15 +300,8 @@ pub async fn take_frame(
     let access_key = location
         .access_key(&state.cipher)
         .context("the storage location's access key cannot be decrypted")?;
-    let stored = store_frame(
-        &state,
-        (&location, &access_key),
-        &found,
-        &query,
-        caption,
-        body,
-    )
-    .await?;
+    let range = form.range;
+    let stored = store_frame(&state, (&location, &access_key), &found, form).await?;
     let storage_path = stored.storage_path.clone();
 
     let mut connection = state
@@ -356,22 +350,123 @@ pub async fn take_frame(
     ))
 }
 
-/// Keeps `body`, a still of `query`'s capture of `found`, in `location`: re-encoded from its
-/// pixels as a frame (`crate::images::compress_frame`), and named for its moment.
+/// Reads a frame's form, each part checked against its own limit as it arrives.
+///
+/// # Errors
+/// `400` for an unknown or missing field, one that does not parse, a moment before 0, a range
+/// with one end alone, or a caption [`meeting_attachments::caption`] refuses; `413` for a still
+/// past [`MAX_FRAME_UPLOAD_BYTES`].
+async fn read_frame_form(mut multipart: Multipart) -> Result<FrameForm, ApiError> {
+    let (mut capture_id, mut capture_ms, mut caption) = (None, None, None);
+    let (mut start_word_id, mut end_word_id, mut still) = (None, None, None);
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ApiError::BadRequest(error.body_text()))?
+    {
+        let name = field.name().unwrap_or_default().to_owned();
+        match name.as_str() {
+            "captureId" => capture_id = Some(parsed::<Uuid>(field, &name).await?),
+            "captureMs" => capture_ms = Some(parsed::<i64>(field, &name).await?),
+            "caption" => caption = Some(text_of(field, &name, FRAME_FIELDS_MAX_BYTES).await?),
+            "startWordId" => start_word_id = Some(parsed::<Uuid>(field, &name).await?),
+            "endWordId" => end_word_id = Some(parsed::<Uuid>(field, &name).await?),
+            "still" => {
+                let bytes = bytes_of(field, MAX_FRAME_UPLOAD_BYTES)
+                    .await?
+                    .ok_or_else(|| frame_refusal(ImageError::TooLarge))?;
+                still = Some(Bytes::from(bytes));
+            }
+            other => return Err(ApiError::BadRequest(format!("unknown field `{other}`"))),
+        }
+    }
+    let missing = |name: &str| ApiError::BadRequest(format!("a frame needs its `{name}`"));
+    let capture_ms = capture_ms.ok_or_else(|| missing("captureMs"))?;
+    if capture_ms < 0 {
+        return Err(ApiError::BadRequest(
+            "a frame's moment is on its capture's clock, from 0".to_owned(),
+        ));
+    }
+    let range = match (start_word_id, end_word_id) {
+        (Some(start_word_id), Some(end_word_id)) => Some(Range {
+            start_word_id,
+            end_word_id,
+        }),
+        (None, None) => None,
+        _ => {
+            return Err(ApiError::BadRequest(
+                "a frame is pinned over a range with both its ends, or over its moment".to_owned(),
+            ));
+        }
+    };
+    Ok(FrameForm {
+        capture_id: capture_id.ok_or_else(|| missing("captureId"))?,
+        capture_ms,
+        caption: meeting_attachments::caption(&caption.ok_or_else(|| missing("caption"))?)?,
+        range,
+        still: still.ok_or_else(|| missing("still"))?,
+    })
+}
+
+/// A part's bytes, or `None` as soon as they pass `limit`, leaving the rest unread.
+async fn bytes_of(mut field: Field<'_>, limit: usize) -> Result<Option<Vec<u8>>, ApiError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|error| ApiError::BadRequest(error.body_text()))?
+    {
+        if bytes.len() + chunk.len() > limit {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(Some(bytes))
+}
+
+/// A text part of at most `limit` bytes of UTF-8.
+async fn text_of(field: Field<'_>, name: &str, limit: usize) -> Result<String, ApiError> {
+    let bytes = bytes_of(field, limit)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest(format!("`{name}` is too long")))?;
+    String::from_utf8(bytes)
+        .map_err(|error| ApiError::BadRequest(format!("`{name}` is not UTF-8 text: {error}")))
+}
+
+/// A short text part read as what it names: an id or a moment.
+async fn parsed<Parsed>(field: Field<'_>, name: &str) -> Result<Parsed, ApiError>
+where
+    Parsed: FromStr,
+    Parsed::Err: Display,
+{
+    text_of(field, name, SHORT_FIELD_MAX_BYTES)
+        .await?
+        .trim()
+        .parse()
+        .map_err(|error| ApiError::BadRequest(format!("`{name}` does not read: {error}")))
+}
+
+/// Keeps `form`'s still, of a capture of `found`, in `location`: re-encoded from its pixels as a
+/// frame (`crate::images::compress_frame`), and named for its moment.
 async fn store_frame(
     state: &AppState,
     (location, access_key): (&StorageLocation, &SecretString),
     found: &Meeting,
-    query: &FrameQuery,
-    caption: String,
-    body: Bytes,
+    form: FrameForm,
 ) -> Result<StoredFrame, ApiError> {
-    let frame = tokio::task::spawn_blocking(move || images::compress_frame(&body))
+    let FrameForm {
+        capture_id,
+        capture_ms,
+        caption,
+        still,
+        ..
+    } = form;
+    let frame = tokio::task::spawn_blocking(move || images::compress_frame(&still))
         .await
         .context("compressing a frame panicked")?
         .map_err(frame_refusal)?;
     let attachment_id = Uuid::now_v7();
-    let file_name = meeting_attachments::frame_name(query.capture_ms);
+    let file_name = meeting_attachments::frame_name(capture_ms);
     let storage_path = meeting_attachments::storage_path(found.id, attachment_id, &file_name);
     let size_bytes = i64::try_from(frame.webp.len()).context("a frame's size fits a bigint")?;
     let webp = Bytes::from(frame.webp);
@@ -393,8 +488,8 @@ async fn store_frame(
         storage_path,
         file_name,
         size_bytes,
-        capture_id: query.capture_id,
-        capture_ms: query.capture_ms,
+        capture_id,
+        capture_ms,
         caption,
         fingerprint: frame.fingerprint,
     })

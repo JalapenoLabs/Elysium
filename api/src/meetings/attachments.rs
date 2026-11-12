@@ -71,18 +71,24 @@ pub struct Attached {
     pub entry: MeetingEvent,
 }
 
-/// Records `file`, which an upload brought, as attached to its meeting by `author`, before its
+/// Records `file`, which an upload brought, as attached to `meeting` by `author`, before its
 /// parts are stored. The caller holds the meeting's lock, in the transaction that finishes the
 /// upload.
+///
+/// The meeting's own document names the file from here on, so it is found by its name at once.
+/// Its text, when its kind has any, joins the document once the engine reads it
+/// (`attachment_workflow`); a kind with no text to read, such as an image or an archive, is never
+/// read, so this is the only time it is indexed.
 ///
 /// # Errors
 /// [`AttachmentError::TooMany`] for a meeting holding [`MAX_PER_MEETING`]; any database error.
 pub async fn attach_file(
     connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
     file: UploadedFile,
     author: Author<'_>,
 ) -> Result<Attached, AttachmentError> {
-    require_room(connection, file.meeting_id).await?;
+    require_room(connection, meeting.id).await?;
     let attachment =
         meeting_attachment::insert(connection, NewAttachment::file(file, author)).await?;
     let entry = record(
@@ -94,6 +100,7 @@ pub async fn attach_file(
         None,
     )
     .await?;
+    excerpts::reindex_transcript(connection, meeting).await?;
     Ok(Attached { attachment, entry })
 }
 

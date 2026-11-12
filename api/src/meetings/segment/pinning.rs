@@ -291,6 +291,76 @@ impl SegmentMeeting {
         })
     }
 
+    /// Deletes from storage each frame of `prepared` that no attachment names, once the transaction
+    /// that pins them is over: one it left out, over words a person edited meanwhile or past the
+    /// most a meeting holds, or every one when another attempt took the answer first. A path a row
+    /// names stays, taken off or not: frames are kept at a path named by their moment, so another
+    /// attempt's frame may be the same object, and a frame taken off is served again by its undo.
+    /// Nothing here fails the step, which already took its answer; what could not be deleted is
+    /// logged.
+    pub(super) async fn forget_unpinned(&self, prepared: &[Prepared], log: &StepLog) {
+        let Some(first) = prepared.first() else {
+            return;
+        };
+        let kept = match self
+            .unnamed_frames(first.frame.storage_location_id, prepared)
+            .await
+        {
+            Ok(kept) => kept,
+            Err(error) => {
+                log.line(&format!(
+                    "Whether its frames were all pinned could not be read, so none is deleted: \
+                     {error}"
+                ));
+                return;
+            }
+        };
+        let Some((location, access_key, paths)) = kept else {
+            return;
+        };
+        let mut deleted = 0;
+        for path in &paths {
+            match self
+                .inner
+                .storage
+                .delete(&location, &access_key, path)
+                .await
+            {
+                Ok(()) => deleted += 1,
+                Err(error) => log.line(&format!(
+                    "A frame it did not pin could not be deleted, {path}: {error}"
+                )),
+            }
+        }
+        if deleted > 0 {
+            log.line(&format!("Deleted {deleted} frames it kept but did not pin"));
+        }
+    }
+
+    /// The storage paths of `prepared`'s frames, all kept in location `storage_location_id`, that
+    /// no attachment names, with the location and its key; `None` when every one is named.
+    async fn unnamed_frames(
+        &self,
+        storage_location_id: Uuid,
+        prepared: &[Prepared],
+    ) -> anyhow::Result<Option<(StorageLocation, SecretString, Vec<String>)>> {
+        let mut connection = self.inner.database.get().await?;
+        let mut paths = Vec::new();
+        for frame in prepared {
+            let path = &frame.frame.storage_path;
+            if !meeting_attachment::is_kept_at(&mut connection, storage_location_id, path).await? {
+                paths.push(path.clone());
+            }
+        }
+        if paths.is_empty() {
+            return Ok(None);
+        }
+        let (location, access_key) =
+            crate::meetings::location(&mut connection, &self.inner.cipher, storage_location_id)
+                .await?;
+        Ok(Some((location, access_key, paths)))
+    }
+
     /// The name of `recording`'s copy in `current`'s workspace directory, fetched back from storage
     /// when the workspace lost it.
     async fn local_recording(
@@ -382,7 +452,7 @@ mod tests {
     use crate::models::storage_location::{
         self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
     };
-    use crate::storage::tests::PASSWORD;
+    use crate::storage::tests::{PASSWORD, StoredFile, fake_storage};
     use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     /// A still of the capture at `capture_ms`, kept in the location and ready to pin over `range`,
@@ -529,5 +599,80 @@ mod tests {
                 .expect("reads"),
             vec![vec![0_u8; 576]]
         );
+    }
+
+    /// #250: a frame segmenting kept but did not pin leaves storage once its answer is taken, and
+    /// a frame an attachment names stays, as another attempt's pinned frame at the same path does.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn frames_kept_but_not_pinned_leave_storage_unless_an_attachment_names_them() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let cipher = std::sync::Arc::new(cipher());
+        let (storage, files) = fake_storage().await;
+        let step = SegmentMeeting::with_storage(database, std::sync::Arc::clone(&cipher), storage);
+        let (capture, words) = built_meeting(
+            &mut connection,
+            &[("Ada", "Here is the roadmap"), ("Grace", "Looks right")],
+        )
+        .await;
+        let location = storage_location::create(
+            &mut connection,
+            &cipher,
+            &NewStorageLocation {
+                created_by: TEST_PERSON_ID,
+                name: "Files".to_owned(),
+                provider: StorageProvider::Bunny {
+                    zone: "files".to_owned(),
+                    region: BunnyStorageRegion::Frankfurt,
+                },
+                path_prefix: String::new(),
+                storage_limit_bytes: None,
+                access_key: SecretString::from(PASSWORD),
+                projects: ProjectScope::All,
+            },
+        )
+        .await
+        .expect("created");
+        connection
+            .batch_execute(&format!(
+                "UPDATE meeting_captures SET storage_location_id = '{}', \
+                 recording_path = 'meetings/{}/recording.mp4', \
+                 recording_content_type = 'video/mp4' WHERE id = '{}'",
+                location.id, capture.meeting_id, capture.id
+            ))
+            .await
+            .expect("a recording");
+        let current = meeting::find(&mut connection, capture.meeting_id)
+            .await
+            .expect("found");
+        let kept = (capture.id, location.id);
+        let roadmap = range(word(&words, "Here"), word(&words, "roadmap"));
+        let frames = [
+            prepared(&current, kept, 1_000, roadmap, 0),
+            prepared(&current, kept, 3_000, roadmap, 255),
+        ];
+        for frame in &frames {
+            files.lock().expect("lock").insert(
+                frame.frame.storage_path.clone(),
+                StoredFile {
+                    headers: axum::http::HeaderMap::new(),
+                    bytes: b"webp".to_vec(),
+                },
+            );
+        }
+        // The first is pinned; the second was left out, as one over words edited meanwhile is.
+        connection
+            .transaction(async |connection| pin_frames(connection, &current, &frames[..1]).await)
+            .await
+            .expect("pins");
+
+        step.forget_unpinned(&frames, &StepLog::default()).await;
+
+        let stored = files.lock().expect("lock");
+        assert!(stored.contains_key(&frames[0].frame.storage_path));
+        assert!(!stored.contains_key(&frames[1].frame.storage_path));
     }
 }

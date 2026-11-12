@@ -197,7 +197,7 @@ async fn finish_attachment(
                 agent: None,
                 at: Utc::now(),
             };
-            let attached = attachments::attach_file(connection, uploaded, author)
+            let attached = attachments::attach_file(connection, &found, uploaded, author)
                 .await
                 .map_err(meetings::attachment_refusal)?;
             meeting_upload::record_attached(connection, id, attached.attachment.id)

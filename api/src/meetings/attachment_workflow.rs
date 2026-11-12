@@ -71,9 +71,10 @@ pdftotext -enc UTF-8 -q -- "$1" "$2"
 ///
 /// A document is a zip of XML parts. Only the parts that hold what someone wrote are read (a
 /// document's body and notes, a deck's slides then their notes in order, a workbook's strings, an
-/// `OpenDocument`'s content), each at most 64 MiB unpacked, so a zip that unpacks to far more than
-/// it holds reads nothing past that. Python's own XML parser expands no external entities, and the
-/// expat it runs on refuses amplifying ones.
+/// `OpenDocument`'s content), each at most 64 MiB unpacked and 256 MiB in all, so a zip that
+/// unpacks to far more than it holds, or a deck of thousands of slides, reads nothing past that.
+/// A part is not opened once the text is as long as `$3`. Python's own XML parser expands no
+/// external entities, and the expat it runs on refuses amplifying ones.
 const OFFICE_SCRIPT: &str = r#"
 set -euo pipefail
 python3 -I - "$1" "$2" "$3" <<'PYTHON'
@@ -84,6 +85,7 @@ import xml.etree.ElementTree as tree
 
 source, target, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
 PART_MAX_BYTES = 64 * 1024 * 1024
+TOTAL_MAX_BYTES = 256 * 1024 * 1024
 # Word's, DrawingML's and OpenDocument's paragraphs and headings, and a workbook's strings.
 PARAGRAPHS = {"p", "h", "si"}
 
@@ -124,11 +126,18 @@ def paragraphs(element, found):
 
 
 written = 0
+unpacked = 0
 with zipfile.ZipFile(source) as archive, open(target, "w", encoding="utf-8") as output:
     names = archive.namelist()
     for name in parts_of(names):
-        if archive.getinfo(name).file_size > PART_MAX_BYTES:
+        if written >= limit:
+            break
+        size = archive.getinfo(name).file_size
+        if size > PART_MAX_BYTES:
             continue
+        if unpacked + size > TOTAL_MAX_BYTES:
+            break
+        unpacked += size
         found = []
         paragraphs(tree.fromstring(archive.read(name)), found)
         for text in found:

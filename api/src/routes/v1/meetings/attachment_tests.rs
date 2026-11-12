@@ -21,6 +21,7 @@ use tower::ServiceExt as _;
 use uuid::Uuid;
 
 use crate::database::schema::{knowledge_documents, knowledge_passages, meeting_uploads};
+use crate::meeting_attachments::MAX_CAPTION_CHARACTERS;
 use crate::meeting_uploads::staging::Staging;
 use crate::meetings::attachment_workflow::{
     AttachmentDeps, AttachmentFile, ReadAttachmentText, StoreAttachment,
@@ -36,7 +37,7 @@ use crate::routes;
 use crate::state::AppState;
 use crate::storage::tests::{Files, PASSWORD, StoredFile, fake_storage};
 use crate::test_support::{
-    TEST_PERSON_ID, app_state_with_storage, migrated_database, signed_in_cookie,
+    TEST_PERSON_ID, app_state_with_storage, migrated_database, multipart_form, signed_in_cookie,
 };
 use crate::workflows::{Done, Step, StepContext};
 
@@ -160,6 +161,24 @@ impl Fixture {
             StoreAttachment::new(deps.clone()),
             ReadAttachmentText::new(deps),
         )
+    }
+
+    /// Takes `still` as a frame of meeting `meeting_id`, as the player's Pin a frame does: a form of
+    /// the frame's `fields`, each a name and its value, then the still itself.
+    async fn frame(&self, meeting_id: Uuid, fields: &[(&str, String)], still: &[u8]) -> Answer {
+        let mut parts: Vec<(&str, &[u8])> = fields
+            .iter()
+            .map(|(name, value)| (*name, value.as_bytes()))
+            .collect();
+        parts.push(("still", still));
+        let (content_type, body) = multipart_form(&parts);
+        self.send(
+            Method::POST,
+            &format!("/api/v1/meetings/{meeting_id}/frames"),
+            &content_type,
+            body,
+        )
+        .await
     }
 
     /// Attaches `bytes` named `name` to meeting `meeting_id` in parts, as the page does, and
@@ -393,6 +412,16 @@ async fn a_file_attached_in_parts_is_stored_read_and_indexed_with_its_meeting() 
         document.contains("Ship the billing page first."),
         "{document}"
     );
+
+    // A kind with no text to read is never read, so attaching it is what names it in the index.
+    let archive = fixture.attach(meeting_id, "Diagrams.zip", b"PK").await;
+    assert_eq!(archive.status, StatusCode::CREATED, "{}", archive.json());
+    assert_eq!(archive.json()["attachment"]["textState"], "none");
+    let document = indexed(&mut fixture.connection, Some(meeting_id), None).await;
+    assert!(
+        document.contains("Attached file: Diagrams.zip"),
+        "{document}"
+    );
 }
 
 #[tokio::test]
@@ -422,14 +451,16 @@ async fn a_frame_taken_from_the_player_travels_with_the_excerpt_it_is_pinned_in(
     let (roadmap, slide) = (word(&words, "roadmap"), word(&words, "slide."));
 
     let taken = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=1500&caption=The%20Q3%20roadmap%20slide&startWordId={}&endWordId={}",
-                capture.id, roadmap.id, slide.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "1500".to_owned()),
+                ("caption", "The Q3 roadmap slide".to_owned()),
+                ("startWordId", roadmap.id.to_string()),
+                ("endWordId", slide.id.to_string()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(taken.status, StatusCode::CREATED, "{}", taken.json());
@@ -587,14 +618,14 @@ async fn a_file_is_pinned_over_an_excerpts_range_and_a_frame_with_no_range_over_
 
     // Grace speaks from two seconds in, so a frame at 2.5 seconds is pinned over her first word.
     let taken = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=2500&caption=The%20demo",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "2500".to_owned()),
+                ("caption", "The demo".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(taken.status, StatusCode::CREATED, "{}", taken.json());
@@ -610,40 +641,41 @@ async fn a_file_is_pinned_over_an_excerpts_range_and_a_frame_with_no_range_over_
 
     // A range given with one end alone, or a frame of another meeting's capture, is refused.
     let half = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Half&startWordId={}",
-                capture.id, words[0].id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Half".to_owned()),
+                ("startWordId", words[0].id.to_string()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(half.status, StatusCode::BAD_REQUEST);
     let (other, _other_words) =
         built_meeting(&mut fixture.connection, &[("Ada", "Elsewhere.")]).await;
     let elsewhere = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Elsewhere",
-                other.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", other.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Elsewhere".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(elsewhere.status, StatusCode::NOT_FOUND);
     let not_an_image = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Script",
-                capture.id
-            ),
-            "image/png",
-            b"<svg onload=alert(1)>".to_vec(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Script".to_owned()),
+            ],
+            b"<svg onload=alert(1)>",
         )
         .await;
     assert_eq!(not_an_image.status, StatusCode::BAD_REQUEST);
@@ -660,6 +692,27 @@ async fn a_file_is_pinned_over_an_excerpts_range_and_a_frame_with_no_range_over_
         kept, 1,
         "the demo's frame alone; the file is still in its parts"
     );
+
+    // The caption travels in the form, never the address, so the longest one in any script fits.
+    let caption = "路线图".repeat(MAX_CAPTION_CHARACTERS / 3);
+    let captioned = fixture
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "3000".to_owned()),
+                ("caption", caption.clone()),
+            ],
+            &still(),
+        )
+        .await;
+    assert_eq!(
+        captioned.status,
+        StatusCode::CREATED,
+        "{}",
+        captioned.json()
+    );
+    assert_eq!(captioned.json()["attachment"]["caption"], caption);
 }
 
 #[tokio::test]
@@ -756,14 +809,14 @@ async fn a_meeting_takes_files_up_to_the_admins_limit_and_into_a_chosen_location
     assert_eq!(nowhere.json()["code"], "meeting_attachment_no_location");
     keep_recording(&mut fixture, capture.id).await;
     let frame = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Nowhere",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Nowhere".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(frame.status, StatusCode::CONFLICT);
@@ -778,14 +831,14 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
     let meeting_id = capture.meeting_id;
     keep_recording(&mut fixture, capture.id).await;
     let taken = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Ours",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Ours".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(taken.status, StatusCode::CREATED, "{}", taken.json());
@@ -835,14 +888,14 @@ async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
         .await;
     assert_eq!(pinned.status, StatusCode::NOT_FOUND);
     let frame = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Theirs",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Theirs".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(frame.status, StatusCode::NOT_FOUND);
@@ -865,14 +918,14 @@ async fn a_meeting_merged_away_takes_no_file_frame_or_pin() {
     let meeting_id = capture.meeting_id;
     keep_recording(&mut fixture, capture.id).await;
     let taken = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=Before",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "Before".to_owned()),
+            ],
+            &still(),
         )
         .await;
     assert_eq!(taken.status, StatusCode::CREATED, "{}", taken.json());
@@ -890,14 +943,14 @@ async fn a_meeting_merged_away_takes_no_file_frame_or_pin() {
     .await;
 
     let frame = fixture
-        .send(
-            Method::POST,
-            &format!(
-                "/api/v1/meetings/{meeting_id}/frames?captureId={}&captureMs=0&caption=After",
-                capture.id
-            ),
-            "image/png",
-            still(),
+        .frame(
+            meeting_id,
+            &[
+                ("captureId", capture.id.to_string()),
+                ("captureMs", "0".to_owned()),
+                ("caption", "After".to_owned()),
+            ],
+            &still(),
         )
         .await;
     let pinned = fixture

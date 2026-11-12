@@ -291,7 +291,8 @@ mod tests {
         slide
     }
 
-    /// nginx refuses a body past its own limit with a page of HTML, before the API can say why.
+    /// nginx refuses a body past its own limit with a page of HTML, before the API can say why. Its
+    /// `m` is a mebibyte.
     #[test]
     fn nginx_lets_the_largest_frame_through() {
         let locations = include_str!("../../nginx/locations.conf");
@@ -304,7 +305,7 @@ mod tests {
             .and_then(|(limit, _after)| limit.parse().ok())
             .expect("the location sets a limit in megabytes");
 
-        assert!(megabytes * 1_000_000 >= MAX_FRAME_UPLOAD_BYTES);
+        assert!(megabytes * 1024 * 1024 >= crate::routes::v1::meetings::MAX_FRAME_FORM_BYTES);
     }
 
     #[test]

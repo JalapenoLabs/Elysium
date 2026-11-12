@@ -145,11 +145,10 @@ export function MeetingFiles(props: Props) {
     {Boolean(props.attaching.length) && <ul className='compact flex flex-col gap-2'>{
       props.attaching.map((attaching) => <li key={attaching.key} className='text-sm'>
         <ProgressBar
-          aria-label={t('review.files.attaching', { name: attaching.name })}
           value={Math.round(attaching.progress * 100)}
           className='w-full'
         >
-          <Label className='truncate'>{attaching.name}</Label>
+          <Label className='truncate'>{t('review.files.attaching', { name: attaching.name })}</Label>
           <ProgressBar.Output />
           <ProgressBar.Track>
             <ProgressBar.Fill />

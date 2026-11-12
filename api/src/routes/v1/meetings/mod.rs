@@ -62,7 +62,9 @@ use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
 /// How a file or a frame is answered, wherever one is answered, such as by finishing its upload.
-pub(crate) use attachments::{AttachmentResponse, refusal as attachment_refusal};
+pub(crate) use attachments::{
+    AttachmentResponse, MAX_FRAME_FORM_BYTES, refusal as attachment_refusal,
+};
 
 /// `attachment` as answered, its moment placed on the meeting's clock by its capture's
 /// `offset_ms` when it has one.
@@ -74,11 +76,11 @@ pub(crate) fn attachment_response(
 }
 
 pub fn router() -> Router<AppState> {
-    // A frame arrives whole, a still a browser's canvas drew; nothing else here takes more than the
-    // API's ordinary limit.
+    // A frame arrives whole, a still a browser's canvas drew in a form with its caption; nothing
+    // else here takes more than the API's ordinary limit.
     let frames = Router::new()
         .route("/{id}/frames", post(attachments::take_frame))
-        .layer(DefaultBodyLimit::max(crate::images::MAX_FRAME_UPLOAD_BYTES));
+        .layer(DefaultBodyLimit::max(MAX_FRAME_FORM_BYTES));
     Router::new()
         .merge(frames)
         .route("/", get(list_meetings::handle))

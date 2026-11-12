@@ -323,7 +323,9 @@ impl SegmentMeeting {
         };
 
         let frames = self.prepare_frames(&current, &taken.frames, log).await?;
-        let Some((took, pinned)) = self.publish(current.id, &taken, &frames).await? else {
+        let published = self.publish(current.id, &taken, &frames).await?;
+        self.forget_unpinned(&frames, log).await;
+        let Some((took, pinned)) = published else {
             return self.published_by_another(current.id, log).await;
         };
         if !taken.frames.is_empty() {
@@ -1145,7 +1147,23 @@ impl SegmentMeeting {
         Self::with_runner(database, Runner::answering(answers))
     }
 
+    /// The step as [`Self::for_test`] builds it, over `storage`, opening locations sealed with
+    /// `cipher`: for what it keeps in storage and deletes from it.
+    pub fn with_storage(database: Pool, cipher: Arc<Cipher>, storage: Storage) -> Self {
+        Self::with_parts(database, Runner::answering(&[]), cipher, storage)
+    }
+
     fn with_runner(database: Pool, runner: Runner) -> Self {
+        let cipher = Arc::new(crate::test_support::cipher());
+        Self::with_parts(
+            database,
+            runner,
+            cipher,
+            Storage::new(reqwest::Client::new()),
+        )
+    }
+
+    fn with_parts(database: Pool, runner: Runner, cipher: Arc<Cipher>, storage: Storage) -> Self {
         let workspace = unreachable_workspace();
         let database_for_grants = database.clone();
         let events = EventBus::in_process();
@@ -1153,8 +1171,8 @@ impl SegmentMeeting {
             activity: Activity::new(database.clone(), events.clone()),
             database,
             events,
-            cipher: Arc::new(crate::test_support::cipher()),
-            storage: Storage::new(reqwest::Client::new()),
+            cipher,
+            storage,
             runner,
             workspace,
             grants: Grants::new(database_for_grants),

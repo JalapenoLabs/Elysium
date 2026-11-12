@@ -1057,9 +1057,10 @@ A meeting keeps the files it was about and the stills of its video that matter, 
   file past 200 MB is not read. A row says where its text stands: `pending`, `read`, `none` (a kind with no reader,
   such as an image or an archive), or `unreadable`.
 - **A person's frame.** Pin a frame on the meeting's page draws the picture the player shows on a canvas, from the
-  same-origin `<video>`, so the canvas is never tainted, and posts it as WebP (`POST /meetings/{id}/frames`, the
-  picture as the body, at most 25 MB, with `captureId`, `captureMs`, `caption`, and the words it goes over, or none
-  for the word spoken then). Drawing it in the browser rather than cutting it on the server keeps the frame exactly the
+  same-origin `<video>`, so the canvas is never tainted, and posts it as WebP (`POST /meetings/{id}/frames`, a form
+  of `captureId`, `captureMs`, `caption`, and the words it goes over, or none for the word spoken then, and the
+  picture last, at most 25 MB). A form, since a caption of a thousand characters in a script of three bytes a
+  character is longer than a request line may be. Drawing it in the browser rather than cutting it on the server keeps the frame exactly the
   picture the person saw as they pressed F. The API decodes it, refusing what is not an image
   (`meeting_frame_not_an_image`), and encodes it again itself (`images::compress_frame`: WebP at quality 88, within
   1920 by 1080), so nothing the browser sent is ever served. A person's frame is kept even when it looks like another:

@@ -601,23 +601,22 @@ export type TakeMeetingFrameResponse = MeetingChangeResponse & {
 
 // Pins `still`, a picture the player's video drew, as a frame of the meeting, which the API keeps
 // as it re-encodes it. `409 meeting_attachment_no_location` until an admin chooses where page
-// attachments go.
-export function takeMeetingFrame(meetingId: string, body: TakeMeetingFrameRequest, still: Blob) {
-  const searchParams: Record<string, string> = {
-    captureId: body.captureId,
-    captureMs: String(body.captureMs),
-    caption: body.caption,
+// attachments go. A form rather than a query string, since a long caption in a script of three
+// bytes a character would pass what a request line may hold; the browser sets its boundary.
+export function takeMeetingFrame(meetingId: string, request: TakeMeetingFrameRequest, still: Blob) {
+  const body = new FormData()
+  body.set('captureId', request.captureId)
+  body.set('captureMs', String(request.captureMs))
+  body.set('caption', request.caption)
+  if (request.startWordId && request.endWordId) {
+    body.set('startWordId', request.startWordId)
+    body.set('endWordId', request.endWordId)
   }
-  if (body.startWordId && body.endWordId) {
-    searchParams.startWordId = body.startWordId
-    searchParams.endWordId = body.endWordId
-  }
+  // Last, so every field is read before the picture. The API reads what it is from its pixels,
+  // so its name says nothing.
+  body.set('still', still, 'still')
   return apiClient
-    .post(`v1/meetings/${meetingId}/frames`, {
-      searchParams,
-      body: still,
-      headers: { 'Content-Type': still.type || 'application/octet-stream' },
-    })
+    .post(`v1/meetings/${meetingId}/frames`, { body })
     .json<TakeMeetingFrameResponse>()
 }
 

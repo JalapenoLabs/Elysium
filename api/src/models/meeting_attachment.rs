@@ -336,6 +336,25 @@ pub async fn standing_fingerprints(
     Ok(fingerprints.into_iter().flatten().collect())
 }
 
+/// Whether any attachment, standing or taken off, is kept at `storage_path` in location
+/// `storage_location_id`: one taken off keeps its file, which its undo serves again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn is_kept_at(
+    connection: &mut AsyncPgConnection,
+    storage_location_id: Uuid,
+    storage_path: &str,
+) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        meeting_attachments::table
+            .filter(meeting_attachments::storage_location_id.eq(storage_location_id))
+            .filter(meeting_attachments::storage_path.eq(storage_path)),
+    ))
+    .get_result(connection)
+    .await
+}
+
 /// Marks every standing attachment among `ids` removed by change `event_id`, and answers the
 /// ones it removed. The caller holds the meeting's lock.
 pub(crate) async fn remove_all(
