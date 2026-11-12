@@ -58,6 +58,13 @@ pub const MAX_CAPTION_CHARACTERS: usize = 1000;
 /// The longest a name may be, in characters, as `meeting_attachments.file_name` allows.
 const MAX_NAME_CHARACTERS: usize = 200;
 
+/// What a file or a frame is refused with until an admin chooses where page attachments go, which
+/// is where a meeting's files are kept too.
+pub const NO_LOCATION: ApiError = ApiError::CodedConflict {
+    code: "meeting_attachment_no_location",
+    message: "No storage location takes attachments yet. An admin chooses one in Settings, Storage.",
+};
+
 /// How many of a file's first bytes prove what image it is, as on pages.
 pub const SIGNATURE_BYTES: usize = page_attachments::SIGNATURE_BYTES;
 

@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `PUT /api/v1/meeting-uploads/{id}/{kind}/parts/{index}`: one part of an upload's recording,
-//! transcript, or attached file. The body is the part itself, sent with its `Content-Length`, and streams to the
-//! upload's staging directory (`crate::meeting_uploads::staging`), so nothing holds it in memory.
+//! transcript, or attached file. The body is the part itself, sent with its `Content-Length`, and
+//! streams to the upload's staging directory (`crate::meeting_uploads::staging`), so nothing holds
+//! it in memory.
 //!
 //! Parts arrive in order, each [`MeetingUpload::part_bytes`] long but the last. The part the API
 //! needs next is written under a name of its own, then put in place and counted under the lock on

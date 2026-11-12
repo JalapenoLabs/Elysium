@@ -448,11 +448,7 @@ export function MeetingWorkspace(props: Props) {
   }
 
   const attachFiles = !isReadOnly && policy
-    ? (chosen: File[]) => {
-      for (const file of chosen) {
-        void changes.attachFile(file, policy)
-      }
-    }
+    ? (chosen: File[]) => void changes.attachFiles(chosen, policy)
     : null
 
   useReviewHotkeys({

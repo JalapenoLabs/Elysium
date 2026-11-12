@@ -200,6 +200,11 @@ impl SegmentMeeting {
         let mut prepared = Vec::new();
         let mut duplicates = 0;
         for taken in frames {
+            // A turn is offered one video, so every frame it pins is a still of that capture.
+            if taken.capture_id != recording.capture.id {
+                log.line("A frame names another capture than the video it was offered, so it is left out");
+                continue;
+            }
             let still = match frames::still(
                 &self.inner.workspace,
                 current.id,

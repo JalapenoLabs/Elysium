@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::UploadResponse;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::meeting_attachments::{FileName, MAX_PER_MEETING};
+use crate::meeting_attachments::{self, FileName, MAX_PER_MEETING};
 use crate::meeting_uploads::{FileKind, PART_BYTES, upload_name};
 use crate::meetings::workflow;
 use crate::models::meeting_upload::{self, NewMeetingUpload, NewUploadFile};
@@ -189,11 +189,7 @@ async fn create_attachment(
         });
     }
     let Some(location_id) = settings.page_attachment_storage_location_id else {
-        return Err(ApiError::CodedConflict {
-            code: "meeting_attachment_no_location",
-            message: "No storage location takes attachments yet. An admin chooses one in \
-                      Settings, Storage.",
-        });
+        return Err(meeting_attachments::NO_LOCATION);
     };
     // Asked before a byte moves, and again as the upload finishes under the meeting's lock.
     if meeting_attachment::count_standing(&mut connection, found.id).await? >= MAX_PER_MEETING {

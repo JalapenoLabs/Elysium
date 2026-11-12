@@ -190,7 +190,10 @@ export function MeetingFiles(props: Props) {
 
     {Boolean(files.length) && <ul className='compact flex flex-col gap-1'>{
       files.map((file) => <li key={file.id} className='flex items-center gap-2 rounded-lg px-1 py-1 hover:bg-default'>
-        <LuFile className='size-4 shrink-0 opacity-60' aria-hidden />
+        {/* A proven image shows itself; any other file is a download. */}
+        {file.displaysInline && file.address
+          ? <img src={file.address} alt='' loading='lazy' className='size-8 shrink-0 rounded object-cover' />
+          : <LuFile className='size-4 shrink-0 opacity-60' aria-hidden />}
         <div className='min-w-0 flex-1'>
           {file.address
             ? <a href={file.address} download className='block truncate text-sm text-link hover:underline'>{

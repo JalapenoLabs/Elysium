@@ -46,8 +46,8 @@ pub const SERVER: ToolServer = ToolServer {
         "Your work batch, and how you report on it. worker_batch reads the batch: its goal, \
         the repositories it needs, the action items it works on, the meeting excerpts it came \
         from with the files and frames pinned in them, the pull requests you recorded, and any \
-        answers your Project Manager gave; meeting_attachment_get opens a pinned file or frame. worker_pull_request records a pull request you \
-        opened, right after you open it: Elysium merges it in a repository that lets it, once \
+        answers your Project Manager gave. meeting_attachment_get opens a pinned file or frame. \
+        worker_pull_request records a pull request you opened, right after you open it: Elysium merges it in a repository that lets it, once \
         every check passed and no review is left open, and a person merges it everywhere else. \
         worker_report_finding reports work you noticed that your batch does not ask for: a bug, \
         a gap, a cleanup. A person decides whether it is done; never do it, file an issue for \

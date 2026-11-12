@@ -48,7 +48,7 @@ export function ExcerptPins(props: Props) {
           return null
         }
         return <li key={pin.markId} className='flex items-center gap-2'>
-          {attachment.kind === 'frame' && attachment.address
+          {attachment.displaysInline && attachment.address
             ? <img
               src={attachment.address}
               alt=''

@@ -213,7 +213,7 @@ describe('useMeetingChanges', () => {
     const { result } = renderChanges(context)
     const file = new File([ 'abcdef' ], 'Roadmap.pdf', { lastModified: Date.parse('2026-11-10T11:00:00Z') })
 
-    await act(async () => result.current.attachFile(file, makeMeetingAttachmentPolicy()))
+    await act(async () => result.current.attachFiles([ file ], makeMeetingAttachmentPolicy()))
 
     expect(createMeetingUpload).toHaveBeenCalledWith({
       meetingId: 'meeting',
@@ -231,8 +231,8 @@ describe('useMeetingChanges', () => {
   it<Context>('refuses a file larger than a meeting takes before a byte of it is sent', async (context) => {
     const { result } = renderChanges(context)
 
-    await act(async () => result.current.attachFile(
-      new File([ 'x'.repeat(2_000) ], 'Recording.mov'),
+    await act(async () => result.current.attachFiles(
+      [ new File([ 'x'.repeat(2_000) ], 'Recording.mov') ],
       makeMeetingAttachmentPolicy({ maxBytes: 1_000 }),
     ))
 

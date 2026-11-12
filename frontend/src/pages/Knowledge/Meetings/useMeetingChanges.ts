@@ -426,19 +426,35 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
-  // Attaches `file` to the meeting, in parts as a recording is sent, refused first as the API would
-  // refuse it. Its toast's Undo takes it off again.
-  async function attachFile(file: File, policy: MeetingAttachmentPolicy) {
-    const refusal = refusalOf(file, policy)
-    if (refusal) {
-      console.debug('useMeetingChanges refused a file before sending it', { name: file.name, refusal })
-      toast.danger(t('review.files.refused', { name: file.name }), {
-        description: t(attachRefusalKeys[refusal], { size: formatBytes(policy.maxBytes) }),
-      })
-      return
+  // Attaches `files` to the meeting one after another, each in parts as a recording is sent, so a
+  // folder dropped at once sends one file at a time; each waits in the lane until its turn. A file
+  // the API would refuse is refused before any is sent. Each one's toast has Undo.
+  async function attachFiles(files: File[], policy: MeetingAttachmentPolicy) {
+    const startedAt = Date.now()
+    const queued: { file: File, key: string }[] = []
+    for (const [ index, file ] of files.entries()) {
+      const refusal = refusalOf(file, policy)
+      if (refusal) {
+        console.debug('useMeetingChanges refused a file before sending it', { name: file.name, refusal })
+        toast.danger(t('review.files.refused', { name: file.name }), {
+          description: t(attachRefusalKeys[refusal], { size: formatBytes(policy.maxBytes) }),
+        })
+        continue
+      }
+      queued.push({ file, key: `${file.name}-${startedAt}-${index}` })
     }
-    const key = `${file.name}-${file.size}-${file.lastModified}-${Date.now()}`
-    setAttaching((current) => [ ...current, { key, name: file.name, progress: 0 }])
+    setAttaching((current) => [
+      ...current,
+      ...queued.map(({ file, key }) => ({ key, name: file.name, progress: 0 })),
+    ])
+    for (const { file, key } of queued) {
+      // One at a time, by design: each file is a chain of parts.
+      await sendAttachment(file, key)
+    }
+  }
+
+  // Sends one queued file and attaches it, leaving the lane once it is attached or refused.
+  async function sendAttachment(file: File, key: string) {
     const setProgress = (progress: number) => setAttaching((current) => current.map((attachingFile) => (
       attachingFile.key === key
         ? { ...attachingFile, progress }
@@ -456,6 +472,7 @@ export function useMeetingChanges(options: Options) {
       const sent = await sendMeetingFiles({
         upload: created.upload,
         files: { attachment: file },
+        // Nothing stops a file on its way yet: it is attached whole or refused.
         signal: new AbortController().signal,
         onProgress: (upload) => {
           const { received, total } = uploadProgress(upload)
@@ -505,7 +522,7 @@ export function useMeetingChanges(options: Options) {
     takeFrame,
     pin,
     detach,
-    attachFile,
+    attachFiles,
     attaching,
     undo,
     undoLast,

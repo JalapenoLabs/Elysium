@@ -58,7 +58,6 @@ const SAMPLE_SCRIPT: &str = r#"
 set -euo pipefail
 ffmpeg -nostdin -hide_banner -loglevel error -y -skip_frame nokey -i "$1" -an \
   -vf "fps=$3,scale=$4:$5" -pix_fmt gray -f rawvideo "$2"
-stat -c %s -- "$2"
 "#;
 
 /// Takes one still. `$1` is the recording, `$2` the moment in seconds, `$3` the still, `$4` its

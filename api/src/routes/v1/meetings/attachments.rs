@@ -292,7 +292,7 @@ pub async fn take_frame(
     let location_id = user::workspace_settings(&mut connection)
         .await?
         .page_attachment_storage_location_id
-        .ok_or(NO_LOCATION)?;
+        .ok_or(meeting_attachments::NO_LOCATION)?;
     let location = storage_location::find(&mut connection, location_id).await?;
     // Compressing and storing take a moment; no connection is held while they do.
     drop(connection);
@@ -568,13 +568,6 @@ fn author_of(current: &CurrentUser) -> Author<'static> {
         at: Utc::now(),
     }
 }
-
-/// What a frame is refused with until an admin chooses where page attachments go, which is where
-/// a meeting's files are kept too.
-const NO_LOCATION: ApiError = ApiError::CodedConflict {
-    code: "meeting_attachment_no_location",
-    message: "No storage location takes attachments yet. An admin chooses one in Settings, Storage.",
-};
 
 fn frame_refusal(error: ImageError) -> ApiError {
     match error {

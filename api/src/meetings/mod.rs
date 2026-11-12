@@ -467,24 +467,31 @@ impl Meetings {
     /// happens once.
     async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
         let finished = match self.connection().await {
+            // One batch a pass in all: captures' uploads first, then attachments' in the room left.
             Ok(mut connection) => {
-                let captures = meeting_upload::finished_with_parts(
+                match meeting_upload::finished_with_parts(
                     &mut connection,
                     before,
                     UPLOAD_SWEEP_BATCH,
                 )
-                .await;
-                let attachments = meeting_upload::finished_attachments_with_parts(
-                    &mut connection,
-                    before,
-                    UPLOAD_SWEEP_BATCH,
-                )
-                .await;
-                captures
-                    .and_then(|captures| {
-                        attachments.map(|attachments| [captures, attachments].concat())
-                    })
-                    .map_err(anyhow::Error::from)
+                .await
+                {
+                    Ok(mut finished) => {
+                        let taken = i64::try_from(finished.len()).unwrap_or(UPLOAD_SWEEP_BATCH);
+                        meeting_upload::finished_attachments_with_parts(
+                            &mut connection,
+                            before,
+                            UPLOAD_SWEEP_BATCH - taken,
+                        )
+                        .await
+                        .map(|attachments| {
+                            finished.extend(attachments);
+                            finished
+                        })
+                        .map_err(anyhow::Error::from)
+                    }
+                    Err(error) => Err(error.into()),
+                }
             }
             Err(error) => Err(error),
         };

@@ -108,7 +108,8 @@ impl FileKind {
 /// which displays there. A transcript is read as text, and needs no proof.
 ///
 /// # Errors
-/// `400` with `meeting_upload_not_media` or `meeting_attachment_not_an_image`.
+/// `400` with `meeting_upload_type` for a name that is no recording, `meeting_upload_not_media`
+/// for a recording that does not open as its format, or `meeting_attachment_not_an_image`.
 pub fn require_signature(kind: FileKind, file_name: &str, head: &[u8]) -> Result<(), ApiError> {
     match kind {
         FileKind::Recording => match type_of(kind, file_name) {
