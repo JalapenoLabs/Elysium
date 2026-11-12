@@ -287,7 +287,7 @@ export function getMeetingUrl(meetingId: string) {
   return UrlTree.knowledgeMeeting.replace(':meetingId', meetingId)
 }
 
-// The Meetings page, narrowed to the meetings with a topic on one project.
+// The Meetings page, narrowed to the meetings with an excerpt on one project.
 export function getProjectMeetingsUrl(projectId: string) {
   const params = new URLSearchParams({ [MEETINGS_PROJECT_PARAM]: projectId })
   return `${UrlTree.knowledgeMeetings}?${params.toString()}`
@@ -296,6 +296,11 @@ export function getProjectMeetingsUrl(projectId: string) {
 // A meeting's page opened at one of its comment threads.
 export function getMeetingThreadUrl(meetingId: string, threadId: string) {
   return `${getMeetingUrl(meetingId)}?thread=${threadId}`
+}
+
+// A meeting's page opened at one of its marks, such as the excerpt a project's timeline lists.
+export function getMeetingMarkUrl(meetingId: string, markId: string) {
+  return `${getMeetingUrl(meetingId)}?mark=${markId}`
 }
 
 export function getMeetingCaptureUploadUrl(meetingId: string) {

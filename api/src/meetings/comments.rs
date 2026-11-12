@@ -776,12 +776,10 @@ mod tests {
 
     use super::*;
     use crate::database::schema::{knowledge_documents, knowledge_passages};
-    use crate::meetings::SEGMENT_SOURCE_KIND;
     use crate::meetings::history::{self, UndoError};
     use crate::models::meeting_capture::MeetingCapture;
     use crate::models::meeting_word::Word;
     use crate::models::meeting_word::tests::{built_meeting, person, range, word};
-    use crate::models::timeline_record::NewTimelineRecord;
     use crate::models::user::SYSTEM_USER_ID;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
@@ -851,31 +849,41 @@ mod tests {
         passages.join("\n")
     }
 
-    /// A segment record of `meeting` from `start_ms` to `end_ms`, stored and indexed.
+    /// An excerpt of `meeting` over the words that start from `start_ms` to before `end_ms`, its
+    /// record stored and indexed, as segmenting makes one.
     async fn segment(
         connection: &mut AsyncPgConnection,
         meeting: &Meeting,
         (start_ms, end_ms): (i64, i64),
     ) -> Uuid {
-        let record = NewTimelineRecord {
-            id: Uuid::now_v7(),
-            source_kind: SEGMENT_SOURCE_KIND.to_owned(),
-            connector_id: None,
-            external_id: Some(format!("meeting:{}#{start_ms}", meeting.id)),
-            occurred_at: meeting.started_at,
-            actor: "Ada".to_owned(),
-            title: "Launch date".to_owned(),
-            body: "[0:00] Ada: Jon ships Friday".to_owned(),
-            url: None,
-            media: Some(json!({ "meetingId": meeting.id, "startMs": start_ms, "endMs": end_ms })),
-            metadata: json!({ "meetingId": meeting.id, "summary": "The launch is Friday." }),
-            created_by: meeting.created_by,
-        };
-        timeline_record::insert_new(connection, record)
+        let text = excerpts::MeetingText::load(connection, meeting.id)
             .await
-            .expect("stores")
-            .expect("a new record")
-            .id
+            .expect("reads");
+        let inside: Vec<usize> = text
+            .words()
+            .iter()
+            .enumerate()
+            .filter(|(_, word)| word.start_ms >= start_ms && word.start_ms < end_ms)
+            .map(|(place, _)| place)
+            .collect();
+        let places = inside[0]..=inside[inside.len() - 1];
+        let capture = crate::models::meeting_capture::first_of(connection, meeting.id)
+            .await
+            .expect("a capture");
+        let heading = excerpts::Heading {
+            title: "Launch date".to_owned(),
+            summary: "The launch is Friday.".to_owned(),
+        };
+        let author = Author {
+            user_id: ELYSIA_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let (_mark, record) =
+            excerpts::make(connection, meeting, &capture, &text, places, &heading, author)
+                .await
+                .expect("makes");
+        record.id
     }
 
     #[tokio::test]

@@ -117,6 +117,8 @@ pub struct TimelineRecordResponse {
     projects: Vec<AttributionResponse>,
     created_by: Uuid,
     created_at: DateTime<Utc>,
+    /// The meeting excerpt it is (a mark of its meeting's), which its meeting's page opens at.
+    excerpt_mark_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +156,7 @@ impl TimelineRecordResponse {
                 .collect(),
             created_by: record.created_by,
             created_at: record.created_at,
+            excerpt_mark_id: record.excerpt_mark_id,
         }
     }
 }

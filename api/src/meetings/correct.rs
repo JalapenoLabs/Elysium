@@ -1644,6 +1644,111 @@ mod tests {
         );
     }
 
+    /// #241: a correction that leaves a range it could hardly make out (below
+    /// [`UNSURE_BELOW`]) holds the meeting for its person before segmenting, with an inbox item
+    /// saying why, while a range a capture merely heard otherwise (marked at 50) holds nothing.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_correction_unsure_of_a_range_holds_the_meeting_and_one_merely_changed_does_not() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let step = CorrectTranscript::for_test(database.clone());
+        let author = Author {
+            user_id: crate::models::user::SYSTEM_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+
+        let mut decided = Vec::new();
+        for (title, confidence) in [("Standup", 50), ("Planning", 0)] {
+            let (stored, capture) = heard_meeting(&mut connection, title).await;
+            final_transcript::rebuild(&mut connection, stored.id, author)
+                .await
+                .expect("lines up");
+            let words = crate::models::meeting_word::standing(&mut connection, stored.id)
+                .await
+                .expect("reads");
+            meeting_mark::add(
+                &mut connection,
+                stored.id,
+                MarkKind::Confidence,
+                crate::models::meeting_mark::Range {
+                    start_word_id: words[0].id,
+                    end_word_id: words[0].id,
+                },
+                json!({ "confidence": confidence, "alternatives": [] }),
+                author,
+            )
+            .await
+            .expect("marks");
+            let corrected = vec![heard_line("Jon is here")];
+            meeting_correction::record(
+                &mut connection,
+                NewMeetingCorrection {
+                    meeting_id: stored.id,
+                    transcript: serde_json::to_value(&corrected).expect("serializes"),
+                    transcript_hash: correction::transcript_hash(&corrected),
+                    based_on: "source".to_owned(),
+                    source_transcript_hash: "a".repeat(64),
+                    whisper_transcript_hash: None,
+                    changed_lines: 0,
+                    fixes: json!([]),
+                },
+            )
+            .await
+            .expect("records")
+            .expect("new");
+            let input = TranscribedMeeting {
+                meeting_id: stored.id,
+                capture_id: Some(capture.id),
+                transcript_hash: Some("a".repeat(64)),
+                recording: None,
+                whisper_transcript_hash: None,
+            };
+            let done = step
+                .run(
+                    input,
+                    StepContext::for_test::<CorrectTranscript>(database.clone()),
+                )
+                .await
+                .expect("decides");
+            decided.push((stored, done));
+        }
+
+        let (merely_changed, went_on) = &decided[0];
+        assert!(
+            matches!(went_on, Done::Succeeded { .. }),
+            "a range marked at 50 holds nothing: {went_on:?}"
+        );
+        assert_eq!(
+            meeting_correction::find(&mut connection, merely_changed.id)
+                .await
+                .expect("reads")
+                .expect("the copy")
+                .review_item_id,
+            None
+        );
+
+        let (unsure, held) = &decided[1];
+        assert!(
+            matches!(held, Done::Held { .. }),
+            "a range at 0 holds the meeting: {held:?}"
+        );
+        let item_id = meeting_correction::find(&mut connection, unsure.id)
+            .await
+            .expect("reads")
+            .expect("the copy")
+            .review_item_id
+            .expect("an inbox item asks for the review");
+        let item = action_item::find(&mut connection, item_id)
+            .await
+            .expect("the item");
+        assert_eq!(item.title, "Review the transcript of Planning");
+        assert!(item.notes.contains("1 place"), "{}", item.notes);
+    }
+
     #[test]
     fn a_prompt_too_long_for_the_model_fails_the_step_for_good() {
         let too_long = TurnOutcome::without_result(TurnStatus::Failed, "Prompt is too long");
@@ -1777,14 +1882,16 @@ mod tests {
 
         let done = step.run(input.clone(), context).await.expect("settles");
 
-        let Done::Succeeded {
+        // Nobody asked to approve it, but it could not make out one word at all, so the meeting
+        // waits for its person before anything is taken from it.
+        let Done::Held {
             output: TranscriptToSegment::Meeting(output),
             summary,
         } = done
         else {
-            panic!("nobody waits for this meeting, so its run goes on, not {done:?}");
+            panic!("a range it is unsure of holds the run, not {done:?}");
         };
-        assert_eq!(summary.as_deref(), Some("Corrected 2 of 2 lines"));
+        assert_eq!(summary, "Corrected 2 of 2 lines; waiting for approval");
 
         // The words: what the flags decided, as the correction's own, and every other word as the
         // source heard it, whatever Whisper heard.
@@ -1974,7 +2081,10 @@ mod tests {
             )
             .await
             .expect("answers what was stored");
-        assert!(matches!(again, Done::Succeeded { .. }));
+        assert!(
+            matches!(again, Done::Held { .. }),
+            "it still waits for its person: {again:?}"
+        );
         let history = meeting_event::history(&mut connection, stored.id)
             .await
             .expect("history");

@@ -62,6 +62,8 @@ export const historySentenceKeys = {
   addedTranscript: 'review.history.sentences.addedTranscript',
   threadResolved: 'review.history.sentences.threadResolved',
   threadReopened: 'review.history.sentences.threadReopened',
+  segmented: 'review.history.sentences.segmented',
+  reviewDone: 'review.history.sentences.reviewDone',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -198,6 +200,13 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
         return row
       case 'thread_reopened':
         row.sentence = 'threadReopened'
+        return row
+      case 'segmented':
+        // Segmenting took its excerpts and black-outs, each removed on its own.
+        row.sentence = 'segmented'
+        return row
+      case 'review_done':
+        row.sentence = 'reviewDone'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })
