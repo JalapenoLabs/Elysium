@@ -15,8 +15,11 @@
 //! line of its excerpt, so it gives its summary in their place, and is followed by the comment
 //! threads whose range overlaps it (`crate::meetings::comments`), each the first words of its
 //! range and its comments by their authors' names, so a meeting's comments are indexed with it
-//! and go wherever its excerpts go. A record's metadata and media are never indexed: they hold
-//! the provider's ids and where a clip is kept, not what was said.
+//! and go wherever its excerpts go. Then come the files and frames pinned over its span
+//! (`crate::meetings::attachments`): each frame's caption, and each file's name and the text read
+//! from it, so what a meeting showed travels with the excerpts that discussed it. A record's
+//! metadata and media are never indexed: they hold the provider's ids and where a clip is kept,
+//! not what was said.
 //! A body past [`BODY_MAX_CHARACTERS`] is cut there, which every source today stays inside
 //! (Confluence and sent mail keep 20,000 characters, Slack 4,000, webmail and Teams 1,000)
 //! except a long meeting excerpt.
@@ -40,6 +43,7 @@ use uuid::Uuid;
 use crate::connectors::ConnectorKind;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::knowledge_document::{IndexedDocument, KnowledgeSource};
+use crate::models::meeting_attachment::{AttachmentKind, IndexedAttachment};
 use crate::models::meeting_comment::IndexedThread;
 use crate::models::timeline_record::TimelineRecord;
 
@@ -61,10 +65,19 @@ pub const BODY_MAX_CHARACTERS: usize = 100_000;
 /// the order their ranges start, so what is left out is the last of them.
 pub const THREADS_MAX_CHARACTERS: usize = 50_000;
 
+/// The most of the files and frames pinned in an excerpt indexed after its threads, in
+/// characters, as for its threads: a long document's text pinned in one excerpt is indexed with
+/// the meeting whole, so the excerpt needs only its start to be found by it.
+pub const PINNED_MAX_CHARACTERS: usize = 50_000;
+
 /// The document `record` is indexed as, with `threads`, the comment threads over a meeting
-/// segment, after its body; `None` when it says nothing to search: no title, no sender, and no
-/// body.
-pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<IndexedDocument> {
+/// segment, after its body, and then `pinned`, the files and frames pinned over it; `None` when it
+/// says nothing to search: no title, no sender, and no body.
+pub fn document(
+    record: &TimelineRecord,
+    threads: &[IndexedThread],
+    pinned: &[IndexedAttachment],
+) -> Option<IndexedDocument> {
     let mut paragraphs: Vec<String> = vec![record.title.clone()];
     if record.source_kind == SEGMENT_SOURCE_KIND {
         if let Some(summary) = record.metadata["summary"].as_str() {
@@ -77,6 +90,7 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
     // After the body, so a comment written later changes only the passages at the document's end
     // and the rest keep their embeddings.
     paragraphs.extend(thread_paragraphs(threads));
+    paragraphs.extend(attachment_paragraphs(pinned, PINNED_MAX_CHARACTERS));
 
     let passages = passages::split(&paragraphs.join("\n\n"));
     if passages.is_empty() {
@@ -109,6 +123,35 @@ pub fn thread_paragraphs(threads: &[IndexedThread]) -> Vec<String> {
             paragraph.push_str(&comment.author);
             paragraph.push_str(": ");
             paragraph.push_str(&comment.body);
+        }
+        let length = paragraph.chars().count();
+        if length > room {
+            paragraphs.push(paragraph.chars().take(room).collect());
+            break;
+        }
+        room -= length;
+        paragraphs.push(paragraph);
+    }
+    paragraphs
+}
+
+/// `attachments` as the paragraphs a document holds after its threads, in order, up to `room`
+/// characters: a frame as its caption, and a file as its name and then the text read from it.
+pub fn attachment_paragraphs(attachments: &[IndexedAttachment], mut room: usize) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    for attachment in attachments {
+        let mut paragraph = match attachment.kind {
+            AttachmentKind::Frame => format!(
+                "Frame shown: {}",
+                attachment.caption.as_deref().unwrap_or_default()
+            ),
+            AttachmentKind::File => format!("Attached file: {}", attachment.file_name),
+        };
+        if let Some(text) = attachment.text.as_deref().map(str::trim)
+            && !text.is_empty()
+        {
+            paragraph.push_str("\n\n");
+            paragraph.push_str(text);
         }
         let length = paragraph.chars().count();
         if length > room {
@@ -192,7 +235,7 @@ mod tests {
     #[test]
     fn a_message_is_its_title_sender_and_body_attributed_to_its_owner() {
         let message = record("slack");
-        let indexed = document(&message, &[]).expect("a document");
+        let indexed = document(&message, &[], &[]).expect("a document");
 
         assert_eq!(
             indexed.passages,
@@ -216,7 +259,7 @@ mod tests {
     fn metadata_is_never_indexed() {
         let mut message = record("slack");
         message.metadata = json!({ "conversation": "C0SECRETID", "draftId": Uuid::now_v7() });
-        let indexed = document(&message, &[]).expect("a document");
+        let indexed = document(&message, &[], &[]).expect("a document");
 
         assert!(
             indexed
@@ -234,7 +277,7 @@ mod tests {
         segment.body = "[1:05] Ada: Friday works.\n[1:20] Grace: Friday it is.".to_owned();
         segment.metadata = json!({ "summary": "The launch moved to Friday.", "segmentIndex": 2 });
 
-        let indexed = document(&segment, &[]).expect("a document");
+        let indexed = document(&segment, &[], &[]).expect("a document");
 
         assert_eq!(
             indexed.passages,
@@ -264,7 +307,7 @@ mod tests {
             ],
         }];
 
-        let indexed = document(&segment, &threads).expect("a document");
+        let indexed = document(&segment, &threads, &[]).expect("a document");
 
         assert_eq!(
             indexed.passages,
@@ -291,7 +334,7 @@ mod tests {
         };
         let threads = vec![long; 5];
 
-        let indexed = document(&segment, &threads).expect("a document");
+        let indexed = document(&segment, &threads, &[]).expect("a document");
         let indexed_characters: usize = indexed
             .passages
             .iter()
@@ -308,7 +351,7 @@ mod tests {
         empty.title = String::new();
         empty.actor = " ".to_owned();
         empty.body = "\n\n".to_owned();
-        assert!(document(&empty, &[]).is_none());
+        assert!(document(&empty, &[], &[]).is_none());
     }
 
     #[test]
@@ -318,7 +361,7 @@ mod tests {
         segment.metadata = json!({});
         segment.body = "word ".repeat(BODY_MAX_CHARACTERS); // five times the limit
 
-        let indexed = document(&segment, &[]).expect("a document");
+        let indexed = document(&segment, &[], &[]).expect("a document");
         let indexed_characters: usize = indexed
             .passages
             .iter()

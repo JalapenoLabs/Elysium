@@ -22,8 +22,13 @@ impl CleanName {
     }
 
     /// The whole name, at most `max_characters` long, shortening the stem so the extension stays
-    /// and a shortened name still says what it is.
+    /// and a shortened name still says what it is. A name with no extension stays one, with no
+    /// dot added.
     pub fn into_name(self, max_characters: usize) -> String {
+        if self.extension.is_empty() {
+            let stem: String = self.stem.chars().take(max_characters).collect();
+            return stem.trim_end().to_owned();
+        }
         let room = max_characters.saturating_sub(self.extension.chars().count() + 1);
         let stem: String = self.stem.chars().take(room).collect();
         format!("{}.{}", stem.trim_end(), self.extension)
@@ -69,7 +74,6 @@ mod tests {
             ("../../etc/passwd.txt", "passwd", "txt"),
             ("C:\\Users\\Alex\\standup.MP4", "standup", "mp4"),
             ("quiet\u{202e}4pm.exe.vtt", "quiet4pm.exe", "vtt"),
-            ("noextension", "noextension", ""),
         ];
         for (raw, stem, extension) in cases {
             let cleaned = clean(raw).expect("a name");
@@ -80,6 +84,14 @@ mod tests {
                 "{raw}"
             );
         }
+    }
+
+    #[test]
+    fn a_name_with_no_extension_stays_one() {
+        let cleaned = clean("LICENSE").expect("a name");
+        assert_eq!(cleaned.extension(), "");
+        assert_eq!(cleaned.into_name(200), "LICENSE");
+        assert_eq!(clean(&"a".repeat(300)).expect("a name").into_name(200).len(), 200);
     }
 
     #[test]

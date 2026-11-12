@@ -217,6 +217,10 @@ pub fn plain_name(file_name: &str) -> String {
     }
     let plain = plain.trim_end_matches('-');
     let plain = if plain.is_empty() { "file" } else { plain };
+    // A meeting takes a file with no extension (`crate::meeting_attachments`); a page never does.
+    if extension.is_empty() {
+        return plain.to_owned();
+    }
     format!("{plain}.{}", extension.to_ascii_lowercase())
 }
 

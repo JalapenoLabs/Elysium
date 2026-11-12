@@ -62,10 +62,17 @@ pub enum EventKind {
     Segmented,
     /// Its person said they were done reviewing it, which segments it again: `{}`.
     ReviewDone,
+    /// A file or a frame was attached to it, or put back:
+    /// `{ attachmentId, attachmentKind, fileName, pins }`, the pins being the marks it was pinned
+    /// with, which its undo takes away with it (`crate::meetings::attachments`).
+    Attached,
+    /// A file or a frame was taken off it: `{ attachmentId, attachmentKind, fileName, pins }`, the
+    /// pins being the marks it took away with it, which its undo puts back.
+    Detached,
 }
 
 impl EventKind {
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -81,6 +88,8 @@ impl EventKind {
         Self::ThreadReopened,
         Self::Segmented,
         Self::ReviewDone,
+        Self::Attached,
+        Self::Detached,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -100,6 +109,8 @@ impl EventKind {
             Self::ThreadReopened => "thread_reopened",
             Self::Segmented => "segmented",
             Self::ReviewDone => "review_done",
+            Self::Attached => "attached",
+            Self::Detached => "detached",
         }
     }
 

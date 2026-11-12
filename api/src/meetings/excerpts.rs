@@ -56,6 +56,7 @@ use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::meeting::{Meeting, MeetingState};
+use crate::models::meeting_attachment::{self, IndexedAttachment};
 use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_comment;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
@@ -80,6 +81,10 @@ pub const TRANSCRIPT_INDEXED_AS: i32 = 1;
 /// speech, so every meeting is found whole, while one pathological transcript cannot hold the
 /// embedder for long. An hour's meeting is some 60,000.
 pub const TRANSCRIPT_MAX_CHARACTERS: usize = 500_000;
+
+/// The most of a meeting's files and frames its own document holds after its threads, in
+/// characters: a long specification whole, and the start of every other file beside it.
+pub const ATTACHMENTS_MAX_CHARACTERS: usize = 300_000;
 
 /// Why an excerpt or a black-out could not be made or removed.
 #[derive(Debug, thiserror::Error)]
@@ -763,12 +768,40 @@ async fn refresh_over(
     meeting: &Meeting,
     mark: &Mark,
 ) -> QueryResult<()> {
-    let ends = [mark.start_word_id, mark.end_word_id];
-    let words = meeting_word::find_many(connection, meeting.id, &ends).await?;
+    let span = span_of(connection, meeting.id, mark.range()).await?;
+    refresh(connection, meeting, span).await
+}
+
+/// Where `range` of meeting `meeting_id`'s words lies on its clock, from its first word's start
+/// to its last word's end; `None` when neither end is one of its words.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn span_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    range: Range,
+) -> QueryResult<Option<(i64, i64)>> {
+    let ends = [range.start_word_id, range.end_word_id];
+    let words = meeting_word::find_many(connection, meeting_id, &ends).await?;
     let start = words.iter().map(|word| word.start_ms).min();
     let end = words.iter().map(|word| word.end_ms).max();
-    let span = start.zip(end).map(|(start, end)| (start, end.max(start)));
-    refresh(connection, meeting, span).await
+    Ok(start.zip(end).map(|(start, end)| (start, end.max(start))))
+}
+
+/// Indexes `meeting`'s own document again ([`index_transcript`]), for a change no excerpt reads
+/// but the meeting's document does, such as a file attached and pinned nowhere.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn reindex_transcript(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+) -> QueryResult<()> {
+    let words = meeting_word::standing(connection, meeting.id).await?;
+    let marks = meeting_mark::standing(connection, meeting.id).await?;
+    let text = MeetingText::new(words, &marks);
+    index_transcript(connection, meeting, &text).await
 }
 
 /// Gives every standing excerpt of `meeting` over `span` of its clock (or every one, for `None`)
@@ -850,7 +883,12 @@ pub async fn index_transcript(
         return Ok(());
     }
     let threads = meeting_comment::indexed_over(connection, meeting.id, i64::MIN, i64::MAX).await?;
-    match transcript_document(meeting, text, &threads) {
+    let attachments: Vec<IndexedAttachment> = meeting_attachment::of_meeting(connection, meeting.id)
+        .await?
+        .into_iter()
+        .map(IndexedAttachment::from)
+        .collect();
+    match transcript_document(meeting, text, &threads, &attachments) {
         Some(document) => knowledge_document::upsert(connection, &document)
             .await
             .map(drop),
@@ -860,11 +898,13 @@ pub async fn index_transcript(
 
 /// The document `meeting`'s whole transcript is indexed as: its title, then every line of `text`,
 /// blacked-out words left out, each its own paragraph so an edit moves as few passages as it can,
-/// then `threads`. `None` when nothing in it is left to search.
+/// then `threads`, then its `attachments`, every file's text and frame's caption whether or not an
+/// excerpt carries it. `None` when nothing in it is left to search.
 pub fn transcript_document(
     meeting: &Meeting,
     text: &MeetingText,
     threads: &[meeting_comment::IndexedThread],
+    attachments: &[IndexedAttachment],
 ) -> Option<IndexedDocument> {
     let body = if text.words().is_empty() {
         String::new()
@@ -872,12 +912,16 @@ pub fn transcript_document(
         text.read(0..=text.words().len() - 1).body
     };
     let body: String = body.chars().take(TRANSCRIPT_MAX_CHARACTERS).collect();
-    if body.trim().is_empty() && threads.is_empty() {
+    if body.trim().is_empty() && threads.is_empty() && attachments.is_empty() {
         return None;
     }
     let mut paragraphs: Vec<String> = vec![meeting.title.clone()];
     paragraphs.extend(body.lines().map(ToOwned::to_owned));
     paragraphs.extend(records::thread_paragraphs(threads));
+    paragraphs.extend(records::attachment_paragraphs(
+        attachments,
+        ATTACHMENTS_MAX_CHARACTERS,
+    ));
     let passages = passages::split(&paragraphs.join("\n\n"));
     if passages.is_empty() {
         return None;
@@ -1441,7 +1485,7 @@ mod tests {
             hold_for_approval: false,
             merged_into: None,
         };
-        let document = transcript_document(&meeting, &text, &[]).expect("a document");
+        let document = transcript_document(&meeting, &text, &[], &[]).expect("a document");
         let indexed = document.passages.join("\n");
         assert!(indexed.starts_with("Weekly sync"), "{indexed}");
         assert!(
@@ -1456,7 +1500,7 @@ mod tests {
         let everything = black_out_over(&words[0], &words[7]);
         let silent = MeetingText::new(words, &[everything]);
         assert!(
-            transcript_document(&meeting, &silent, &[]).is_none(),
+            transcript_document(&meeting, &silent, &[], &[]).is_none(),
             "a meeting blacked out whole has nothing to search"
         );
     }

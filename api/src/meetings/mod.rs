@@ -35,6 +35,7 @@
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
 pub mod align;
+pub mod attachments;
 pub mod alignment;
 pub mod clock;
 pub mod comments;
