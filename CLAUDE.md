@@ -128,7 +128,8 @@ Everything else follows these rules:
   Postgres server and credentials.
 - `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
   Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
-  `system`. Guests have a member's access, except the knowledge base, until roles are built out.
+  `system`. Guests have a member's access, except the knowledge base, until roles are built out; a guest reads a
+  meeting shared with them, and changes nothing of it.
 - The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
   sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
   deleted, only disabled.
@@ -301,7 +302,8 @@ Everything else follows these rules:
   project: only they list it, attribute it, and play its media. Its text is not: every record is indexed into the
   knowledge base for everyone in the workspace in the transaction that stores it (`timeline_record::insert_new`), a
   person's own mail and direct messages included, with no per-owner filter in any query, and guests never reach it.
-  The engine's backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
+  The one exception is a private meeting's segments, found by its readers alone (Meetings, below). The engine's
+  backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
   watcher. The first read baselines the mailbox without raising anything.
@@ -407,8 +409,17 @@ Everything else follows these rules:
   one. Files arrive in 8 MiB parts staged in the workspace, resumable, checked as they arrive; finishing starts the
   meeting's run as the person, whose fetch streams the recording to the storage location they chose. A transcript with
   no times is a meeting in words alone, segmented by its lines. See `docs/meetings.md`, Uploads.
-- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
-  and owner, never its title or transcript.
+- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id and
+  state, never its title, owner, or transcript; every client loads it by id, and one that may not read it gets `404`.
+- Who reads a meeting: every member while it is public; its owner, the people it is shared with (`meeting_shares`),
+  and admins while it is private; a guest only one shared with them. A new meeting is `unchecked`, private to its owner,
+  until its correction's one turn judges it: open, or private and shared with whom it chose, its owner told by an inbox
+  item naming nothing of it; an answer judging nothing keeps it private. `models::meeting::readable_by` is the one rule
+  and `crate::meetings::access` what a reader may do: every route asks `open` for what it needs (read; edit, a company
+  member who reads it or its owner; manage who reads it and merges or splits, its owner or an admin; its processing,
+  its owner), `404` for a meeting someone may not read. The knowledge index leaves out a private meeting's segments for
+  anyone who may not read it (`knowledge_documents.meeting_id`, `meeting::hidden_from`), and nothing every member reads
+  (items, the Transcription doc) names a private meeting. See `docs/meetings.md`, Who reads a meeting.
 
 ## Storage
 

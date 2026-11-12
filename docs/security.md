@@ -142,6 +142,29 @@ See `docs/browser.md`.
 
 See `docs/connectors.md`.
 
+## Meetings
+
+A meeting is read by every member while it is public, and by its owner, the people it is shared with, and admins while
+it is private; a new one is private until its correction decides (`docs/meetings.md`, Who reads a meeting).
+
+- **One rule.** Who reads a meeting is written once (`models::meeting::readable_by`), and what a reader may do once
+  (`crate::meetings::access`); every meeting route asks the one door for what it needs and never checks an owner
+  itself. A store-backed test asks every route as a member, an admin, and a guest, each as the owner, someone it is
+  shared with, and someone else, of a private and a public meeting (`routes::v1::meetings::access_tests`).
+- **Nothing says it exists.** A meeting someone may not read answers `404`, as one that does not exist does: its words,
+  captures, media (no byte of any range), history, threads, and every change. One they read but may not change that
+  way answers `403` with what it takes.
+- **Fail closed.** A new meeting is private until its correction reads it, and an answer that judges nothing keeps it
+  private; so does a skipped correction. Meetings stored before meetings had a visibility stayed private, for their
+  owners to open.
+- **Search follows it.** A private meeting's segments are left out of every search, every opening of a document, and
+  the meetings listing for anyone who may not read it, computed as each runs (`docs/knowledge.md`, A private meeting).
+- **Nothing every member reads names it.** `meeting.changed` carries a meeting's id and state alone, so every client
+  loads it and a client that may not read it is answered `404`. An inbox item, which everyone signed in sees, names a
+  meeting only while it is public, and the one telling an owner their meeting was kept private names neither it nor
+  why. The Transcription doc learns a private meeting's fixes without its title, its speakers, or the correction's
+  reason. Mentions reach only people who may read the meeting, and replies tell only those who still may.
+
 ## Problem reports
 
 - A report is posted to `JalapenoLabs/Elysium`, fixed in code, with a GitHub token the reporter added themselves; no

@@ -18,8 +18,9 @@ turn (MCP, below); asking it for a written answer, every claim citing a passage,
 (Asking, below); the guidance every connected agent reads as its session starts, edited by admins in Settings,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
 their place in the index, finding them by title and text, and the edits agents suggest to them, reviewed on the page,
-with learnings and the company doc among them (Pages, below); and the reader's meetings in that tree, under the
-Meetings page and each project's brief (Pages, The tree).
+with learnings and the company doc among them (Pages, below); and the meetings the reader may read in that tree,
+under the Meetings page and each project's brief (Pages, The tree), a private meeting's segments found by its readers
+alone (Who sees what, below).
 
 ## What is indexed
 
@@ -47,7 +48,18 @@ answer from them. A personal connector (mail, chat, or meetings) says so where i
 Guests are outside the company and outside "everyone". A guest and their agent reach no knowledge base
 (`docs/rooms.md`), so the rule reaches a guest in two ways only: what is posted in a room they are in is indexed for
 every member, and a member's agent may repeat what it found when it answers a guest in a room, guided by the MCP
-server's instructions and the confidentiality rule rather than by a filter.
+server's instructions and the confidentiality rule rather than by a filter. A guest reads a meeting shared with them
+on its own page, outside the knowledge base (`docs/meetings.md`, Who reads a meeting).
+
+### A private meeting
+
+Meetings are the one source with a visibility of their own (`docs/meeting-review.md`, Who sees a meeting): every
+member reads a public meeting, while a private one, a one-to-one or a review, is read by its owner, the people it is
+shared with, and admins, and a new meeting is private until its correction decides. Its segments' documents name their
+meeting (`knowledge_documents.meeting_id`), and every search, every opening of a document, and the meetings listing
+leave out the documents of the meetings their reader may not read, worked out as each runs
+(`models::meeting::hidden_from`), so who reads a meeting changes what the next search finds with nothing indexed again.
+Every other source stays everyone's, as above.
 
 ### The index is shared; records stay their owner's
 
@@ -61,8 +73,9 @@ Two things carry the same text under different rules:
 - **The knowledge index** is the company's: passages made from those records' text, served to every member.
 
 A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge page), which answers any member for
-anything indexed, never through the owner's timeline route, which answers anyone else not found. The index holds
-text: a meeting's recording and clips stay with its record and play for its owner alone. Removing a connector stops
+anything indexed (but a private meeting's segments, for its readers alone), never through the owner's timeline route,
+which answers anyone else not found. The index holds text: a segment's clip stays with its record and plays for its
+owner alone, and a meeting's recordings play on the meeting's own page for whoever may read it. Removing a connector stops
 its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
 record.
 
@@ -74,7 +87,9 @@ on, not who may read it.
 ### In every query
 
 The rule is applied in the query itself, by leaving the owner out of it: search, `knowledge_get`, `knowledge_ask`,
-summaries, and citations carry no per-owner predicate on knowledge-base content. Each passage keeps whose record it
+summaries, and citations carry no per-owner predicate on knowledge-base content. The one filter on who reads is a
+private meeting's (A private meeting, above): each query leaves out the documents of the meetings its reader may not
+read, by the same rule the meeting's own routes read it by. Each passage keeps whose record it
 came from (`created_by`), for the `person` filter, for citing who said it, and for removing it with its record. The
 `person` filter is a narrowing the caller asks for, never access control.
 
@@ -218,7 +233,8 @@ code is
   is. A meeting segment names its speakers on every line of its excerpt, so it gives its summary in place of the
   actor, and its body is followed by the comment threads whose range overlaps its span, each quoted and then its
   comments by their authors' names, so a meeting's comments are indexed with it (`docs/meetings.md`, Comments). A
-  record with no title, actor, or body has no document.
+  record with no title, actor, or body has no document. A meeting segment's document also names its meeting, whose
+  readers alone find it (Who sees what, A private meeting).
 - **Content, never metadata.** A record's `metadata` and `media` are never indexed: they hold the provider's ids, where
   a reply goes, and where a clip is kept, not what was said. Nothing a connector signs in with is on a record.
 - **Size.** Sources keep their own limits: Confluence and sent mail 20,000 characters, Slack 4,000, webmail previews
@@ -654,8 +670,9 @@ under the same names, descriptions, and argument schemas.
   record carries, so a meeting's transcript is read topic by topic with `knowledge_get`. It answers each meeting's
   title, source, when its first topic began, whose source recorded it, and its topics in the order they were said,
   filtered by `from` and `to` (when it started), `person`, and `project` (a topic attributed to it), 20 unless asked
-  for up to 50. The `meetings` row itself stays its owner's and is never read for it. Two people whose sources
-  recorded one meeting have a meeting each, segmented apart, and both are listed.
+  for up to 50. A private meeting its reader may not read is left out, as its topics are from every search. The
+  `meetings` row itself is never read for it. Two people whose sources recorded one meeting have a meeting each,
+  segmented apart, and both are listed.
 - **Descriptions teach searching.** `knowledge_search`'s description says what is indexed, that exact keys and error
   strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
   narrow and `person` is whoever said it, what `searchedByMeaning: false` means, to cite by title, person, and date,
@@ -873,7 +890,7 @@ reads them (In the web app, below). The rest of the design (Roadmap, below) is t
 
 Meetings are in the tree and are no pages: a meeting is its own row (`docs/meetings.md`), so the tree lists it where it
 belongs and every row opens its one page (`/knowledge/meetings/<id>`). The web app builds these entries from the
-meetings its reader can see (`GET /api/v1/meetings`, today a person's own); no table holds them.
+meetings its reader may read (`GET /api/v1/meetings`, read a page at a time); no table holds them.
 
 - **Each meeting's home is the fixed Meetings page.** Every meeting is an entry under it, those on no project included.
 - **Each project's brief holds a Meetings group.** It lists every meeting with a topic on the project, as a linked entry
@@ -1265,7 +1282,7 @@ to what matches and the pages above it, opened. No title matching offers a searc
 above). Which branches a person leaves open stays with them on each browser. A deleted page reads
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
-The tree lists the reader's meetings too (The tree, Linked entries): each under Meetings, and in the Meetings group
+The tree lists the meetings its reader may read too (The tree, Linked entries): each under Meetings, and in the Meetings group
 under the brief of every project it has a topic on. The Meetings page opens as the list of every meeting
 (`/knowledge/meetings`), newest first, with its search, filters by source, state, and project (none among them), and a
 count of those waiting for review in its header; its address as a page lands there, and a project's group opens it
@@ -1327,11 +1344,10 @@ page's history restores it afterwards.
 
 ### Roadmap
 
-- **Meetings.** Meetings are listed in the tree today, their own only, under the fixed Meetings page and each brief.
-  They become public by default, with private ones found only by their readers. The design is
-  `docs/meeting-review.md`. `GET /meetings` answers every meeting in one list, which the tree, the Meetings page, and
-  its in-browser search and filters all read; once meetings are the whole company's, that list is paged and searched
-  on the server, and the tree asks for each branch's newest alone.
+- **Meetings.** `GET /meetings` answers a page at a time, and the web app reads every page into one list, which the
+  tree, the Meetings page, and its in-browser search and filters all read. Now that meetings are the whole company's,
+  the Meetings page is to search and filter on the server, a page at a time, and the tree to ask for each branch's
+  newest alone. The design is `docs/meeting-review.md`.
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call

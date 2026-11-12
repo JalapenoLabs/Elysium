@@ -10,14 +10,14 @@ capture, the final transcript as words with stable ids, marks anchored to ranges
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
 transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
 knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
-undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to
-its owner alone until meetings are public by default; uploads of recordings and transcripts as new meetings or
-captures of one; meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
-group of every project's brief it is about, with the Meetings page listing, searching, and filtering them and
-starting uploads, Settings keeping only their sources; and settling the final transcript with confidences and
-alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words. What is built is
-described in `docs/meetings.md`, which this
-design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
+undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them; uploads of
+recordings and transcripts as new meetings or captures of one; meetings in the knowledge base's tree, each at home
+under the Meetings page and in the Meetings group of every project's brief it is about, with the Meetings page
+listing, searching, and filtering them and starting uploads, Settings keeping only their sources; settling the final
+transcript with confidences and alternatives, taught by the Transcription doc, which teaches itself and gives Whisper
+its hint words; and who sees a meeting: public by default, private until its correction checks it, and shared by its
+owner or an admin. What is built is described in `docs/meetings.md`, which this design changes where it says so; the
+rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -39,8 +39,9 @@ captures on its own. A capture whose time overlaps another meeting's, with parti
 item for its owner: "Same meeting as" the other's title, with Merge and Not the same, and its meeting's run waits at
 aligning for the answer, so a duplicate never publishes segments of its own. Merging moves its captures into the other
 meeting and builds the final transcript again; Not the same is remembered, so the pair is never raised twice. A merge
-is undone by splitting the capture back out, and both are in the meeting's history. Until meetings are public by
-default (Who sees a meeting, below), only a person's own meetings are compared.
+is undone by splitting the capture back out, and both are in the meeting's history. Only a person's own meetings are
+compared today; comparing everyone's, now that meetings are the company's (Who sees a meeting, below), is on the
+roadmap.
 
 ## Who sees a meeting
 
@@ -49,21 +50,30 @@ default (Who sees a meeting, below), only a person's own meetings are compared.
 > Alex Navarro, 2026-11-09
 
 - **Public by default.** Every member reads every meeting: its transcripts, its media, its comments, and its
-  attachments. Guests read only a meeting shared with them. Today meetings are their owner's alone; this replaces that.
-- **Private, shared with some.** A private meeting is read by its owner and the people it is shared with alone. The
-  owner (or an admin) makes a meeting private, shares it, or opens it again, each recorded.
+  attachments. Guests read only a meeting shared with them.
+- **Private, shared with some.** A private meeting is read by its owner and the people it is shared with. Admins, who
+  may do everything (`docs/auth.md`, Roles), read every meeting, which is how one opens or shares a private meeting
+  nobody shared with them. The owner (or an admin) makes a meeting private, shares it, or opens it again, each
+  recorded and undoable.
 - **Private until checked.** A new meeting is private to its owner, and indexed for nobody else, until its correction
   has read it. If the correcting agent finds it sensitive (a one-to-one with a manager, a performance review, anything
   personal), the meeting stays private, shared with the Elysium users it judges should see it, such as the people in
   it, and the agent raises an action item for the owner saying what it decided and why, to change if they disagree.
-  Otherwise it opens to everyone. Either acts at once.
+  Otherwise it opens to everyone. Either acts at once. An answer that judges nothing keeps it private too, so a meeting
+  never opens on a guess, and a meeting someone already made private or opened is left as they set it. Action items
+  are the whole workspace's, so the owner's item names neither the meeting nor why; its page shows both to whoever may
+  read the meeting.
 - **Search follows it.** The knowledge index gains a visibility filter for meetings: a private meeting's passages are
   found only by the people who can read it. Every other source stays as it is (`docs/knowledge.md`, Who sees what).
 - **Excerpts still flow.** An excerpt of a private meeting (Excerpts, below) goes to its projects as any excerpt does,
   since it is on their topic; the rest of the meeting stays private.
 - **Who changes it.** Any member who can read a meeting edits it: its words, its excerpts, its black-outs, its pins, and
   its attachments. Every change is in its history with who made it, and undoable. Only its owner and admins change
-  its privacy, merge or split its captures, or delete it.
+  its privacy, merge or split its captures, or delete it. Its processing (holding it for approval, approving its
+  correction, retrying its run, setting a capture's offset, and uploading another capture) stays its owner's.
+- **Where it names itself.** Whatever every member reads about a meeting names it only while it is public: the title of
+  an inbox item it raises, and its links and who spoke in the Transcription doc, which learns a private meeting's fixes
+  alone.
 
 ## The final transcript
 
@@ -273,7 +283,7 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
   Settings, Meetings keeps only its Sources.
 
 Built: the Meetings page, the groups under each brief, and the tree's rules for their entries (`docs/knowledge.md`,
-The tree, Linked entries), listing a person's own meetings until meetings are public by default.
+The tree, Linked entries), listing every meeting the reader may read.
 
 ## Roadmap
 
@@ -286,7 +296,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |
 | 3     | #245  | Comments                                                                              |
-| 4     | #246  | Public by default, private until checked, and sharing                                 |
 | 5     | #248  | Teams recordings and Slack huddle transcripts                                         |
 | 5     | #250  | Attachments and frames                                                                |
 
