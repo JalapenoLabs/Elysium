@@ -74,7 +74,9 @@ pdftotext -enc UTF-8 -q -- "$1" "$2"
 /// document's body and notes, a deck's slides then their notes in order, a workbook's strings, an
 /// `OpenDocument`'s content), each at most 64 MiB unpacked and 256 MiB in all, so a zip that
 /// unpacks to far more than it holds, or a deck of thousands of slides, reads nothing past that.
-/// A part is not opened once the text is as long as `$3`. The zip's directory is read from its end
+/// A part is not opened once the text is as long as `$3`, and each is read a mebibyte at a time,
+/// so no part yields more than the directory says it holds, however far its stream would expand,
+/// and one that holds otherwise fails its checksum. The zip's directory is read from its end
 /// record before the zip is opened, and one of more than 10,000 entries or 16 MiB, or a ZIP64 one,
 /// which no document this size needs, is refused, so a directory of millions of names is never
 /// read. Python's own XML parser expands no external entities, and the expat it runs on refuses
@@ -93,6 +95,7 @@ PART_MAX_BYTES = 64 * 1024 * 1024
 TOTAL_MAX_BYTES = 256 * 1024 * 1024
 ENTRIES_MAX = 10_000
 DIRECTORY_MAX_BYTES = 16 * 1024 * 1024
+CHUNK_BYTES = 1024 * 1024
 # The end record is 22 bytes, after a comment of at most 65,535.
 END_RECORD_SEARCH_BYTES = 65_535 + 22
 # Word's, DrawingML's and OpenDocument's paragraphs and headings, and a workbook's strings.
@@ -149,6 +152,14 @@ def directory_fits(path):
     return entries <= ENTRIES_MAX and directory_size <= DIRECTORY_MAX_BYTES
 
 
+def read_part(archive, info):
+    chunks = []
+    with archive.open(info) as part:
+        while chunk := part.read(CHUNK_BYTES):
+            chunks.append(chunk)
+    return b"".join(chunks)
+
+
 if not directory_fits(source):
     sys.exit(3)
 
@@ -159,14 +170,14 @@ with zipfile.ZipFile(source) as archive, open(target, "w", encoding="utf-8") as 
     for name in parts_of(names):
         if written >= limit:
             break
-        size = archive.getinfo(name).file_size
-        if size > PART_MAX_BYTES:
+        info = archive.getinfo(name)
+        if info.file_size > PART_MAX_BYTES:
             continue
-        if unpacked + size > TOTAL_MAX_BYTES:
+        if unpacked + info.file_size > TOTAL_MAX_BYTES:
             break
-        unpacked += size
+        unpacked += info.file_size
         found = []
-        paragraphs(tree.fromstring(archive.read(name)), found)
+        paragraphs(tree.fromstring(read_part(archive, info)), found)
         for text in found:
             if written >= limit:
                 sys.exit(0)
