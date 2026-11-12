@@ -40,7 +40,9 @@ use std::fmt::Write as _;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::frames::Candidate;
 use super::source::TranscriptLine;
+use crate::meeting_attachments::MAX_CAPTION_CHARACTERS;
 use crate::models::promise::{RECIPIENT_MAX_CHARACTERS, SUMMARY_MAX_CHARACTERS};
 use crate::whisper::WhisperWord;
 
@@ -96,6 +98,14 @@ and when unsure, leave it. A black-out never covers a line of an excerpt. A line
 [blacked out] was blacked out by a person; leave it as it is. Answer with empty lists when \
 nothing in the meeting matters to a project.";
 
+/// The most frames one segmenting pins. Each is a still a person reads beside the excerpt it is
+/// pinned in, so a few that show what was discussed beat many that repeat it.
+pub const MAX_FRAMES: usize = 12;
+
+/// What a meeting's segmentation turn is told beside [`EXCERPTS_SYSTEM_PROMPT`] when the meeting has
+/// video: which frames to pin, how to look at them, and how to answer them.
+pub const FRAMES_SYSTEM_PROMPT: &str = "The meeting has video. Pin the frames that show what the lines around them discuss: a slide, a diagram, a document, a design, or a demo on screen. The prompt lists the stills where its screen changed most, each by its name; meeting_frame shows a still by its name, or any moment of the meeting by its time on the meeting's clock (\"12:04\"), when the lines speak of something shown that no still covers. Look at a still before you pin it, and judge it against the lines said while it was on screen. Hand the looking to subagents with the Task tool: give each a few stills by name and the lines around them, and have it answer which are worth pinning and what each shows, so you read their verdicts rather than every picture. Pin a frame over the lines it belongs to, adding to your answer \"frames\": [{\"frame\": string, \"firstLine\": number, \"lastLine\": number, \"caption\": string}], frame being a still's name or a moment as m:ss or h:mm:ss, and caption one or two sentences of what it shows, with its words when it shows text. Pin at most 12. Never pin faces alone, an empty or shared desktop, a loading screen, or two frames of one picture.";
+
 /// A conversation's segmentation turn's instructions: segments as runs of numbered messages, and
 /// the promises its person made in them.
 pub const CONVERSATION_SYSTEM_PROMPT: &str = "\
@@ -149,6 +159,24 @@ pub struct FoundExcerpt {
     pub title: String,
     pub summary: String,
     pub projects: Vec<SegmentProject>,
+}
+
+/// The video a meeting's segmenting is offered stills of: where its capture sits on the meeting's
+/// clock, how long it runs when that is known, and the stills where its screen changes most.
+#[derive(Debug, Clone, Copy)]
+pub struct OfferedVideo<'video> {
+    pub offset_ms: i64,
+    pub duration_ms: Option<i64>,
+    pub candidates: &'video [Candidate],
+}
+
+/// A frame a meeting's answer pins: its moment on its capture's clock, the run of lines it is
+/// pinned over, and what it shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundFrame {
+    pub capture_ms: i64,
+    pub lines: LineRun,
+    pub caption: String,
 }
 
 /// What a meeting's answer holds that holds up: its excerpts, and its black-outs.
@@ -251,6 +279,28 @@ pub fn excerpts_prompt(
         } else {
             writeln!(prompt, "[{number}] {speaker}: {}", line.text)
         };
+    }
+    prompt
+}
+
+/// What a meeting's prompt says of its video beside its transcript: every still offered, by its
+/// name and its moment on the meeting's clock, for [`parse_frames_answer`] to read back.
+pub fn frames_prompt(video: OfferedVideo<'_>) -> String {
+    let mut prompt = String::from(
+        "\nThe meeting's video. The stills where its screen changed most, each by its name, the \
+         moment it shows, and how far the screen moved there; meeting_frame shows each:\n",
+    );
+    for candidate in video.candidates {
+        let moment = clock(candidate.capture_ms + video.offset_ms);
+        let _ = if candidate.capture_ms == 0 {
+            writeln!(prompt, "[{}] at {moment}, the screen as the video opens", candidate.id)
+        } else {
+            let percent = (candidate.change * 100.0).round();
+            writeln!(prompt, "[{}] at {moment}, the screen changed {percent}%", candidate.id)
+        };
+    }
+    if video.candidates.is_empty() {
+        prompt.push_str("Its screen barely changes; ask meeting_frame for any moment.\n");
     }
     prompt
 }
@@ -473,6 +523,26 @@ struct ExcerptsAnswer {
     black_outs: Vec<AnswerRun>,
 }
 
+/// A meeting's answer's frames, when it was offered its video's stills.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FramesAnswer {
+    #[serde(default)]
+    frames: Vec<AnswerFrame>,
+}
+
+/// A frame the answer pins: a still's name or a moment, the lines it is pinned over, and what it
+/// shows.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnswerFrame {
+    frame: String,
+    first_line: i64,
+    last_line: i64,
+    #[serde(default)]
+    caption: String,
+}
+
 /// A run of numbered lines the answer names, with what an excerpt says of it.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -681,6 +751,80 @@ pub fn parse_excerpts_answer(
         reading.black_outs.push(lines);
     }
     Ok(reading)
+}
+
+/// The frames in a meeting's answer that hold up, among `line_count` numbered lines of a meeting
+/// whose `video` it was offered: each a still offered by its name, or a moment as `m:ss` or
+/// `h:mm:ss` on the meeting's clock inside the video, over a run of lines shown, with a caption,
+/// each moment once, at most [`MAX_FRAMES`]. An answer naming no frames, or not answering them in
+/// the asked-for shape, pins none, since its excerpts stand without them.
+pub fn parse_frames_answer(
+    answer: &str,
+    line_count: usize,
+    video: OfferedVideo<'_>,
+) -> Vec<FoundFrame> {
+    let Some(json) = json_object(answer) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = serde_json::from_str::<FramesAnswer>(json) else {
+        tracing::event!(
+            name: "meetings.segmentation.frames_unreadable",
+            tracing::Level::WARN,
+            "a segmentation answer's frames are not in the asked-for shape; it pins none",
+        );
+        return Vec::new();
+    };
+    let mut found: Vec<FoundFrame> = Vec::new();
+    for candidate in parsed.frames {
+        if found.len() == MAX_FRAMES {
+            break;
+        }
+        let Some(lines) = line_run(candidate.first_line, candidate.last_line, line_count) else {
+            continue;
+        };
+        let named = candidate.frame.trim();
+        let capture_ms = match video.candidates.iter().find(|offered| offered.id == named) {
+            Some(offered) => offered.capture_ms,
+            None => match moment_of(named) {
+                Some(meeting_ms) => meeting_ms - video.offset_ms,
+                None => continue,
+            },
+        };
+        let inside = capture_ms >= 0
+            && video
+                .duration_ms
+                .is_none_or(|duration_ms| capture_ms <= duration_ms);
+        let caption = one_line(&candidate.caption, MAX_CAPTION_CHARACTERS - 1);
+        if !inside || caption.is_empty() || found.iter().any(|kept| kept.capture_ms == capture_ms)
+        {
+            continue;
+        }
+        found.push(FoundFrame {
+            capture_ms,
+            lines,
+            caption,
+        });
+    }
+    found
+}
+
+/// A moment written `h:mm:ss`, `m:ss`, or as seconds, in milliseconds; `None` for anything else.
+pub(crate) fn moment_of(written: &str) -> Option<i64> {
+    let mut milliseconds: i64 = 0;
+    let parts: Vec<&str> = written.split(':').collect();
+    if parts.len() > 3 {
+        return None;
+    }
+    for part in &parts {
+        let value: f64 = part.trim().parse().ok().filter(|value: &f64| *value >= 0.0)?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a moment of a meeting is far inside an i64 of milliseconds"
+        )]
+        let part_ms = (value * 1000.0).round() as i64;
+        milliseconds = milliseconds.checked_mul(60)?.checked_add(part_ms)?;
+    }
+    Some(milliseconds)
 }
 
 /// The run from line `first` to line `last`, numbered from 1, of `count` lines, by their places

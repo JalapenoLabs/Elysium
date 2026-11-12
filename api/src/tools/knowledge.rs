@@ -245,7 +245,7 @@ fn propose_schema() -> Value {
 /// database does not answer.
 async fn reader(context: &ToolContext, scope: &CallScope) -> Result<Uuid, ToolError> {
     let session_id = match scope {
-        CallScope::Elysia(_) => return Ok(ELYSIA_USER_ID),
+        CallScope::Elysia(_) | CallScope::Segmenting(_) => return Ok(ELYSIA_USER_ID),
         CallScope::ProjectManager(_) => return Ok(PROJECT_MANAGER_USER_ID),
         // A pool worker is the coding agent at work on its batch, which a Project Manager, not
         // a person, started.
@@ -302,7 +302,7 @@ async fn writer(
         CallScope::Session(session) => Some(Agent::session(session.session_id)),
         CallScope::ProjectManager(manager) => Some(Agent::project_manager(manager.project_id)),
         CallScope::Elysia(_) => None,
-        CallScope::Worker(_) => {
+        CallScope::Worker(_) | CallScope::Segmenting(_) => {
             return Err(ToolError::WrongAgent(
                 "coding sessions, Project Managers, and Elysia; tell your Project Manager \
                  what the page should say in your worker_finish result",

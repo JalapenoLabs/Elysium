@@ -21,6 +21,7 @@
 
 pub mod elysia;
 pub mod endpoint;
+pub mod frames;
 pub mod grants;
 pub mod knowledge;
 pub mod passwords;
@@ -101,6 +102,8 @@ pub enum CallScope {
     ProjectManager(ProjectManagerScope),
     /// One turn of a pool worker, which reaches its own batch alone.
     Worker(WorkerScope),
+    /// One segmenting turn of a meeting with video, which reaches that video's stills alone.
+    Segmenting(SegmentingScope),
 }
 
 impl CallScope {
@@ -111,7 +114,7 @@ impl CallScope {
     pub fn session(&self) -> Result<&SessionScope, ToolError> {
         match self {
             Self::Session(session) => Ok(session),
-            Self::Elysia(_) | Self::ProjectManager(_) | Self::Worker(_) => {
+            Self::Elysia(_) | Self::ProjectManager(_) | Self::Worker(_) | Self::Segmenting(_) => {
                 Err(ToolError::WrongAgent("coding sessions"))
             }
         }
@@ -124,7 +127,7 @@ impl CallScope {
     pub fn elysia(&self) -> Result<&ElysiaScope, ToolError> {
         match self {
             Self::Elysia(elysia) => Ok(elysia),
-            Self::Session(_) | Self::ProjectManager(_) | Self::Worker(_) => {
+            Self::Session(_) | Self::ProjectManager(_) | Self::Worker(_) | Self::Segmenting(_) => {
                 Err(ToolError::WrongAgent("Elysia"))
             }
         }
@@ -137,7 +140,7 @@ impl CallScope {
     pub fn project_manager(&self) -> Result<&ProjectManagerScope, ToolError> {
         match self {
             Self::ProjectManager(manager) => Ok(manager),
-            Self::Session(_) | Self::Elysia(_) | Self::Worker(_) => {
+            Self::Session(_) | Self::Elysia(_) | Self::Worker(_) | Self::Segmenting(_) => {
                 Err(ToolError::WrongAgent("Project Managers"))
             }
         }
@@ -150,22 +153,51 @@ impl CallScope {
     pub fn worker(&self) -> Result<&WorkerScope, ToolError> {
         match self {
             Self::Worker(worker) => Ok(worker),
-            Self::Session(_) | Self::Elysia(_) | Self::ProjectManager(_) => {
+            Self::Session(_) | Self::Elysia(_) | Self::ProjectManager(_) | Self::Segmenting(_) => {
                 Err(ToolError::WrongAgent("the worker pool's workers"))
             }
         }
     }
 
-    /// Who called, for logs: `session:<n>`, `elysia:<turn>`, `project_manager:<turn>`, or
-    /// `worker:<batch>`.
+    /// The segmenting turn one of the frame tools runs for.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::WrongAgent`] for anyone else.
+    pub fn segmenting(&self) -> Result<&SegmentingScope, ToolError> {
+        match self {
+            Self::Segmenting(segmenting) => Ok(segmenting),
+            Self::Session(_) | Self::Elysia(_) | Self::ProjectManager(_) | Self::Worker(_) => {
+                Err(ToolError::WrongAgent("a meeting's segmenting"))
+            }
+        }
+    }
+
+    /// Who called, for logs: `session:<n>`, `elysia:<turn>`, `project_manager:<turn>`,
+    /// `worker:<batch>`, or `segmenting:<meeting>`.
     pub fn label(&self) -> String {
         match self {
             Self::Session(session) => format!("session:{}", session.session_id),
             Self::Elysia(elysia) => format!("elysia:{}", elysia.turn_id),
             Self::ProjectManager(manager) => format!("project_manager:{}", manager.turn_id),
             Self::Worker(worker) => format!("worker:{}", worker.batch_id),
+            Self::Segmenting(segmenting) => format!("segmenting:{}", segmenting.meeting_id),
         }
     }
+}
+
+/// One segmenting turn of a meeting with video: the meeting, the capture whose recording its stills
+/// are taken from, that recording's name in the meeting's workspace directory
+/// (`crate::meetings::media`), where the capture sits on the meeting's clock, how long it runs
+/// when that is known, and the stills it was offered by name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentingScope {
+    pub meeting_id: Uuid,
+    pub capture_id: Uuid,
+    pub recording_name: String,
+    pub offset_ms: i64,
+    pub duration_ms: Option<i64>,
+    pub candidates: Vec<crate::meetings::frames::Candidate>,
 }
 
 /// One turn of a pool worker: the batch it runs, and that batch's project.
@@ -245,7 +277,7 @@ pub enum Instructions {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 7] = [
+pub const SERVERS: [&ToolServer; 8] = [
     &storage::SERVER,
     &work::SERVER,
     &elysia::SERVER,
@@ -253,6 +285,7 @@ pub const SERVERS: [&ToolServer; 7] = [
     &worker::SERVER,
     &passwords::SERVER,
     &knowledge::SERVER,
+    &frames::SERVER,
 ];
 
 /// Why a call could not be carried out. `Display` is what the agent reads, so every
@@ -300,23 +333,71 @@ pub enum ToolError {
     Internal,
 }
 
+/// Where a tool's answer carries a picture it shows: [`with_image`] puts one there, and the
+/// endpoint sends it as an image of its own beside the rest of the answer's text. `$` keeps it
+/// apart from every field a tool's answer names.
+const IMAGE_FIELD: &str = "$image";
+
+/// `answer` showing `bytes`, a picture of `mime_type`, such as a frame of a meeting's video: the
+/// one way a tool answers with an image, which the agent then sees rather than reads about.
+pub fn with_image(answer: Value, mime_type: &str, bytes: &[u8]) -> Value {
+    use base64::Engine as _;
+    let mut answer = match answer {
+        Value::Object(object) => object,
+        other => {
+            let mut object = serde_json::Map::new();
+            object.insert("answer".to_owned(), other);
+            object
+        }
+    };
+    answer.insert(
+        IMAGE_FIELD.to_owned(),
+        serde_json::json!({
+            "mimeType": mime_type,
+            "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+        }),
+    );
+    Value::Object(answer)
+}
+
+/// A picture a call's answer shows: its type and its bytes as base64, as MCP carries one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolImage {
+    pub mime_type: String,
+    pub data: String,
+}
+
 /// A call's answer, ready for the endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutput {
     pub text: String,
     pub is_error: bool,
+    /// What it shows, when it shows a picture ([`with_image`]).
+    pub image: Option<ToolImage>,
 }
 
 impl From<Result<Value, ToolError>> for ToolOutput {
     fn from(result: Result<Value, ToolError>) -> Self {
         match result {
-            Ok(value) => Self {
-                text: value.to_string(),
-                is_error: false,
-            },
+            Ok(mut value) => {
+                let image = value
+                    .as_object_mut()
+                    .and_then(|object| object.remove(IMAGE_FIELD))
+                    .and_then(|image| {
+                        let mime_type = image["mimeType"].as_str()?.to_owned();
+                        let data = image["data"].as_str()?.to_owned();
+                        Some(ToolImage { mime_type, data })
+                    });
+                Self {
+                    text: value.to_string(),
+                    is_error: false,
+                    image,
+                }
+            }
             Err(error) => Self {
                 text: error.to_string(),
                 is_error: true,
+                image: None,
             },
         }
     }

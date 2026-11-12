@@ -50,6 +50,7 @@ pub mod final_transcript;
 pub mod fireflies;
 pub mod fireflies_browser;
 pub mod fixes;
+pub mod frames;
 pub mod history;
 pub mod media;
 pub mod review;
