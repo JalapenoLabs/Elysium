@@ -17,7 +17,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce_lined_up, response};
+use super::{MeetingEventResponse, announce_lined_up, merged_refusal, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::duplicates;
@@ -67,6 +67,7 @@ pub async fn handle(
         .await
         .map_err(|error| match error {
             UndoError::NotFound => ApiError::NotFound,
+            UndoError::Merged => merged_refusal(),
             UndoError::NotUndoable | UndoError::ChangedSince | UndoError::Corrected => {
                 ApiError::CodedConflict {
                     code: "meeting_changed",

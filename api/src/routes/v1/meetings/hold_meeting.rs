@@ -13,7 +13,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::response;
+use super::{merged_refusal, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::correct::{self, HoldError};
@@ -51,6 +51,7 @@ async fn set(
         .await
         .map_err(|error| match error {
             HoldError::NotFound => ApiError::NotFound,
+            HoldError::Merged => merged_refusal(),
             HoldError::Corrected => ApiError::CodedConflict {
                 code: "meeting_corrected",
                 message: "The meeting's transcript is corrected already; approve it instead.",

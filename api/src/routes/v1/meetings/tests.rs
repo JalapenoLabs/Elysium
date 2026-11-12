@@ -4,7 +4,8 @@
 //! (#235); reading its final transcript with its marks and captures, a capture as it came on the
 //! meeting's clock, an edit answering what it did, its history naming each undo, undo refusing what
 //! moved on since, and every route answering the meeting's owner alone (#234); a capture merged in
-//! saying where it came from, moved by hand, and split back out (#268).
+//! saying where it came from, moved by hand, and split back out, and a meeting merged away
+//! refusing every change (#268).
 //!
 //! They are `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs
 //! them.
@@ -590,6 +591,87 @@ async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in()
     .await;
     assert_eq!(status, StatusCode::OK, "{found}");
     assert_eq!(found["meeting"]["mergedInto"], json!(kept.meeting_id));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meeting_kept() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (kept, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    let (merged, words) = built_meeting(&mut connection, &[("Ada", "Launch is Fryday.")]).await;
+    let meeting_path = format!("/api/v1/meetings/{}", merged.meeting_id);
+    let launch = word(&words, "Launch");
+    let fryday = word(&words, "Fryday.");
+
+    // Before the merge it takes an edit and a thread like any meeting, so both have their routes.
+    let (status, edited) = send(
+        &state,
+        Method::POST,
+        &format!("{meeting_path}/edits"),
+        Some(&json!({ "startWordId": fryday.id, "endWordId": fryday.id, "text": "Friday." })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    let edit_id = edited["entry"]["id"].as_str().expect("an entry id");
+    let on_launch = json!({ "startWordId": launch.id, "endWordId": launch.id, "body": "Which?" });
+    let (status, started) = send(
+        &state,
+        Method::POST,
+        &format!("{meeting_path}/threads"),
+        Some(&on_launch),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    let thread_id = started["comment"]["threadId"]
+        .as_str()
+        .expect("a thread id");
+    meeting::set_merged_into(&mut connection, merged.meeting_id, Some(kept.meeting_id))
+        .await
+        .expect("the meeting is merged");
+
+    let edit = json!({ "startWordId": launch.id, "endWordId": launch.id, "text": "Release" });
+    let reply = json!({ "body": "Still here?" });
+    let requests = [
+        (Method::POST, format!("{meeting_path}/edits"), Some(&edit)),
+        (
+            Method::POST,
+            format!("{meeting_path}/history/{edit_id}/undo"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads"),
+            Some(&on_launch),
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads/{thread_id}/comments"),
+            Some(&reply),
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads/{thread_id}/resolved"),
+            None,
+        ),
+        (
+            Method::DELETE,
+            format!("{meeting_path}/threads/{thread_id}"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/correction/approve"),
+            None,
+        ),
+        (Method::POST, format!("{meeting_path}/hold"), None),
+        (Method::DELETE, format!("{meeting_path}/hold"), None),
+    ];
+    for (method, path, body) in requests {
+        let (status, answer) = send(&state, method, &path, body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{path}: {answer}");
+        assert_eq!(answer["code"], "meeting_merged", "{path}");
+    }
 }
 
 #[tokio::test]

@@ -199,7 +199,10 @@ is fetched or its segments are cut and published.
   organized it and took part, its segments, its hold, and how far its processing got. It belongs to its person, whose
   connector read its first capture, or who uploaded it. A meeting whose captures were merged into another names it
   (`merged_into`, answered as `mergedInto`), holds none, is listed nowhere, takes no upload, and is processed no
-  further until they are split back out; its own page still opens, saying where they went.
+  further until they are split back out; its own page still opens, saying where they went. Nothing changes it
+  meanwhile: an edit, a thread started, replied to, resolved, or removed, an undo, an approval, and a hold are
+  each refused under the meeting's lock, the lock a merge takes, with `409 meeting_merged`, and Elysia's edit
+  tool is told the same. Its merge and a split of it are undone from the meeting kept.
 - **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
   Fireflies meeting, a Teams recording, a Slack huddle), or a person's upload (Uploads, below). It keeps what its source
   gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
@@ -1036,7 +1039,8 @@ segment's clip for its record's owner.
     words select and copy, but the bar offers no Edit or Comment, E and C do nothing, its threads read without a reply,
     Resolve, or Remove, its history offers no Undo, and its actions keep its run alone, saying that edits, comments, and
     approval happen in the meeting it was merged into (`isReadOnly` in `MeetingWorkspace`). It holds no capture, so it
-    lists none. The routes themselves do not refuse changes to it yet; that is on the roadmap below.
+    lists none. The routes refuse the same changes (`meeting_merged`, Meetings and captures above), so a tab
+    that had not heard of the merge is refused too.
   - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
     at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
     paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
@@ -1141,5 +1145,3 @@ segment's clip for its record's owner.
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of
   meetings whose chats the person's Teams has not stored.
-- A meeting merged into another refusing changes on its routes, under its lock, as uploads already do: edits, comments,
-  approving, holding, and undoing. Its page offers none of them today.

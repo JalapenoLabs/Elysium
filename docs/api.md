@@ -41,7 +41,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/media` | The capture's recording, streamed from storage: `206` for one `Range`, `416` past its end, else `200`; `404` when none is kept |
-| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile |
+| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile, (`meeting_merged`) once the meeting was merged into another, as every route here that changes a meeting answers |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
 | GET    | `/api/v1/meetings/{id}/threads`       | `200` `{ comments }`: every comment in its standing threads, each thread's oldest first |
