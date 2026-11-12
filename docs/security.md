@@ -165,7 +165,9 @@ it is private; a new one is private until its correction decides (`docs/meetings
   meeting only if it was public when the item was raised, and the one telling an owner their meeting was kept private
   names neither it nor why. The Transcription doc learns a private meeting's fixes without its title, its speakers, or
   the correction's reason. Mentions reach only people who may read the meeting, and replies tell only those who still
-  may.
+  may. A capture merged in names the meeting it came from only to its readers. A batch's chain, on the work queue, its
+  page, and its pull requests' descriptions, withholds a segment of a meeting its reader may not read, saying only
+  that a private meeting asked, and a description names a public meeting alone (`docs/engine.md`, Why a batch exists).
 - **Private stops what comes next.** Making a meeting private closes it at once: its words, media, history, threads,
   and segments answer only its readers from the next request. What every member was already shown while it was public
   (an item's title, the Transcription doc's versions) stays as it was written, as any page's history does.

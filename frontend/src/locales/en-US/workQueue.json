@@ -103,6 +103,7 @@
       "messageFrom": "From {{author}}, {{time}}",
       "acceptedBy": "Accepted by {{person}}, {{time}}",
       "thisBatch": "{{title}} (this batch)",
+      "privateMeeting": "A private meeting",
       "kinds": {
         "finding": "Finding",
         "message": "Message to its Project Manager",

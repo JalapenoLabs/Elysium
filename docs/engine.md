@@ -767,6 +767,10 @@ page, at the head of its row in the work queue, and in the description of every 
   first 600 characters of what was said; for each item it works on, the issues linked to it, primary first, then the
   records that raised it not named already; the items; the batch; and its pull requests in the order its worker
   recorded them. Anything named that is gone since (a record removed with its connector, a deleted item) is left out.
+- **Read for its reader.** A chain is read for whoever is shown it (`why::read`, a `Reader`). A segment of a meeting
+  they may not read (`docs/meetings.md`, Who reads a meeting) is withheld: the link stays, saying a private meeting
+  asked, with nothing of what was said, what the topic or the meeting is called, or where its document is. A pull
+  request's description is read for any member (`Reader::ANY_MEMBER`), so it quotes a public meeting alone.
 - **Where each opens.** A record opens its knowledge base document, which any member reads (`docs/knowledge.md`, Who
   sees what); one not indexed yet is named without a link. A finding opens its project's Findings tab, a message its
   Project Manager's tab, an item and a batch their pages, an issue its tracker, and a pull request GitHub.

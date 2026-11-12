@@ -701,9 +701,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   made it. The work queue is `/work-queue`, for members.
 - Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
   for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
-  link. Every pull request a worker records carries the chain at the end of its description
-  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
-  batch exists.
+  link. A chain is read for its reader, withholding a segment of a meeting they may not read. Every pull request a
+  worker records carries the chain at the end of its description (`worker_pool::description`), quoting a public
+  meeting alone, and saying only what each link is in a public repository. See `docs/engine.md`, Why a batch exists.
 
 ## One event stream keeps the frontend current
 

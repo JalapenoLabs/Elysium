@@ -156,6 +156,10 @@ export function WorkQueueTable(props: Props) {
       if (!cause) {
         return ''
       }
+      // A segment of a meeting the reader may not read is named as a private meeting alone.
+      if (cause.kind === 'record' && cause.withheld) {
+        return t('batch.why.privateMeeting')
+      }
       return chainLinkText(cause)
     }
     // A place in the queue is where it stands in the list the server ordered, counted once.

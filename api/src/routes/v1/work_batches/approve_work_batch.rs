@@ -18,6 +18,7 @@ use uuid::Uuid;
 use super::with_history;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::work_batch::approval::Edits;
 use crate::models::work_batch::{Priority, Repository};
 use crate::state::AppState;
@@ -65,5 +66,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let batch = actions::approve(&mut connection, &state.events, id, edits, &person).await?;
-    Ok(Json(with_history(&mut connection, batch).await?))
+    Ok(Json(
+        with_history(&mut connection, batch, Reader::of(&person.0)).await?,
+    ))
 }

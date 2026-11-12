@@ -140,6 +140,13 @@ impl Reach {
 }
 
 impl Reader {
+    /// Anyone in the company, owning no meeting and shared none: who reads text that leaves
+    /// Elysium, such as a pull request's description, which may name a public meeting alone.
+    pub const ANY_MEMBER: Self = Self {
+        id: Uuid::nil(),
+        reach: Reach::Public,
+    };
+
     /// `user` as a reader of meetings. Anyone who is neither a company member nor a machine
     /// reaches only what is theirs or shared with them, so a role added later gains nothing by
     /// accident.

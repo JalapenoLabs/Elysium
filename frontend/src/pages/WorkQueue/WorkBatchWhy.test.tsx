@@ -43,6 +43,7 @@ describe('WorkBatchWhy', () => {
         excerpt: '[00:12] Ada: We need annual pricing',
         meetingTitle: 'Weekly sync',
         documentId: 'document-1',
+        withheld: false,
       },
       {
         kind: 'issue',
@@ -131,6 +132,7 @@ describe('WorkBatchWhy', () => {
         excerpt: '',
         meetingTitle: null,
         documentId: null,
+        withheld: false,
       },
       BATCH,
     ])
@@ -138,6 +140,28 @@ describe('WorkBatchWhy', () => {
     expect(screen.getByText('Can we bill yearly?')).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Can we bill yearly?' })).toBeNull()
     expect(screen.getAllByRole('listitem')[0].textContent?.startsWith('Slack')).toBe(true)
+  })
+
+  it('names a segment of a meeting its reader may not read as a private meeting alone', () => {
+    renderWhy([
+      {
+        kind: 'record',
+        id: 'record-1',
+        sourceKind: 'meeting',
+        title: '',
+        occurredAt: '2026-11-04T15:00:00Z',
+        excerpt: '',
+        meetingTitle: null,
+        documentId: null,
+        withheld: true,
+      },
+      BATCH,
+    ])
+
+    const [ segment ] = screen.getAllByRole('listitem')
+    expect(segment.textContent).toContain('A private meeting')
+    expect(segment.querySelector('a')).toBeNull()
+    expect(segment.querySelector('blockquote')).toBeNull()
   })
 
   it('leaves out a link of a kind this build does not know, and draws the rest', () => {
