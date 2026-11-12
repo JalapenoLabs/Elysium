@@ -1,10 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `PUT /api/v1/meetings/{id}/captures/{captureId}/offset`: a meeting's owner sets where one
-//! capture of it sits on its clock, by hand, `{ "offsetMs": 12500 }`. It is recorded
-//! in the meeting's history and undone from there, the transcript is lined up again at once, and
-//! aligning never moves it after. `404` for a meeting they may not read or a capture that is not
-//! its, `403` `owner_only` for anyone but its owner, `400` for an offset more than twelve hours
+//! capture of it sits on its clock, by hand, `{ "offsetMs": 12500 }`. It is recorded in the
+//! meeting's history, the transcript is lined up again at once, and aligning never moves it after.
+//! Answers the `offset_changed` entry, which the page's Undo undoes, and the capture as it now
+//! sits. `404` for a meeting they may not read or a capture that is not its, `403` `owner_only` for
+//! anyone but its owner, `400` for an offset more than twelve hours
 //! either way. See `crate::meetings::clock`.
 
 use anyhow::Context;
@@ -16,7 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{announce_lined_up, open};
+use super::{MeetingEventResponse, announce_lined_up, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -70,6 +71,7 @@ pub async fn handle(
     announce_lined_up(&state.events, &mut connection, &nudged).await?;
     let capture = meeting_capture::find(&mut connection, capture_id).await?;
     Ok(Json(json!({
+        "entry": MeetingEventResponse::from(nudged),
         "capture": {
             "id": capture.id,
             "offsetMs": capture.offset_ms,

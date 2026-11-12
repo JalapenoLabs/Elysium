@@ -98,15 +98,21 @@ function revealWord(index: number) {
 // wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
 // and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
 // the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
-// toast, and Ctrl+Z undoes the page's last. A reader who may not change the meeting, a guest it is
-// shared with, reads it all and is offered no change (`canEdit`); Undo on a change shows only to
-// whoever may undo it (`mayUndo`).
+// toast, and Ctrl+Z undoes the page's last. A meeting merged into another, and a reader who may
+// not change one, such as a guest it is shared with, read it all and are offered no change
+// (`isReadOnly`); Undo on a change shows only to whoever may undo it (`mayUndo`), and only its
+// owner moves a capture, while its owner and admins split one out.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
   const words = transcript.words
   const readerId = useAppSelector(selectMe)?.user.id
-  const canEdit = meeting.canEdit
+  // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
+  // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
+  // edit, comment on, or undo. Its actions say why (`MeetingActions`). A reader who may not edit a
+  // meeting reads its page the same way.
+  const isMergedAway = Boolean(meeting.mergedInto)
+  const isReadOnly = isMergedAway || !meeting.canEdit
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -119,6 +125,7 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
+    isReadOnly: isMergedAway,
     applyChange: props.applyChange,
     reload: props.reload,
   })
@@ -145,6 +152,15 @@ export function MeetingWorkspace(props: Props) {
   )
   const paragraphs = useMemo(() => paragraphsOf(words), [ words ])
   const decorations = useMemo(() => decorateWords(words.length, drawn, shown), [ words.length, drawn, shown ])
+  // Read only, every change stays as it is: no row of the history, nor an edit's mark, offers Undo.
+  // Otherwise Undo shows on a change only to whoever may undo it.
+  const historyRows = useMemo(
+    () => history.rows.map((row) => ({
+      ...row,
+      canUndo: row.canUndo && !isReadOnly && mayUndo(meeting, readerId, row.entry.kind),
+    })),
+    [ history.rows, isReadOnly, meeting, readerId ],
+  )
   const excerpts = useMemo(() => {
     const lanes = shown.has('excerpt')
       ? excerptLanes(placed)
@@ -284,9 +300,18 @@ export function MeetingWorkspace(props: Props) {
     }
   }, [ linkedThreadId, words.length, openThread, openDrawer ])
 
+  // Opens the words selected in place to edit them. Answers whether it did.
+  function startEdit() {
+    if (isReadOnly || view !== FINAL_VIEW || !selection || review.isEditing) {
+      return false
+    }
+    setReview({ ...review, isEditing: true, isCommenting: false })
+    return true
+  }
+
   // Starts writing a thread on the words selected; the lane holds it, so a phone opens its drawer.
   function startComment() {
-    if (!canEdit || view !== FINAL_VIEW || !selection || review.isEditing) {
+    if (isReadOnly || view !== FINAL_VIEW || !selection || review.isEditing) {
       return false
     }
     setReview({ ...review, isCommenting: true })
@@ -340,13 +365,7 @@ export function MeetingWorkspace(props: Props) {
       clear()
       return true
     },
-    onEdit: () => {
-      if (!canEdit || view !== FINAL_VIEW || !selection || review.isEditing) {
-        return false
-      }
-      setReview({ ...review, isEditing: true, isCommenting: false })
-      return true
-    },
+    onEdit: startEdit,
     onComment: startComment,
     onCycleMark: (step) => {
       if (under.length < 2) {
@@ -390,14 +409,6 @@ export function MeetingWorkspace(props: Props) {
       : null,
   })
 
-  // Undo shows on a change only to whoever may undo it.
-  const undoableRows = useMemo(
-    () => history.rows.map((row) => ({
-      ...row,
-      canUndo: row.canUndo && mayUndo(meeting, readerId, row.entry.kind),
-    })),
-    [ history.rows, meeting, readerId ],
-  )
   const mayReadMeeting = useCallback((user: User) => mayRead(meeting, user), [ meeting ])
 
   const lane = (isInDrawer: boolean) => <MeetingLane
@@ -429,10 +440,16 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
+    onMoveCapture={!isMergedAway && meeting.ownerId === readerId
+      ? changes.moveCapture
+      : null}
+    onSplitCapture={!isMergedAway && meeting.canManage
+      ? changes.splitOut
+      : null}
     words={words}
     selectedMark={selectedMark}
     history={{
-      rows: undoableRows,
+      rows: historyRows,
       isLoading: !history.entries && !history.hasFailed,
       hasFailed: history.hasFailed,
     }}
@@ -443,13 +460,14 @@ export function MeetingWorkspace(props: Props) {
       isLoading: !threadComments.comments && !threadComments.hasFailed,
       hasFailed: threadComments.hasFailed,
     }}
-    threadActions={{
-      onReply: changes.reply,
-      onSetResolved: changes.setResolved,
-      onRemove: changes.removeThread,
-      canWrite: canEdit,
-      mayRead: mayReadMeeting,
-    }}
+    threadActions={isReadOnly
+      ? null
+      : {
+        onReply: changes.reply,
+        onSetResolved: changes.setResolved,
+        onRemove: changes.removeThread,
+        mayRead: mayReadMeeting,
+      }}
     onSelectThread={openThread}
     composing={review.isCommenting && selection
       ? {
@@ -487,12 +505,12 @@ export function MeetingWorkspace(props: Props) {
       onPick={onPick}
       onDrag={(start, end) => pickRange(start, end)}
       onSelectMark={selectMarkById}
-      onEdit={canEdit
-        ? () => setReview({ ...review, isEditing: true, isCommenting: false })
-        : null}
-      onComment={canEdit
-        ? startComment
-        : null}
+      onEdit={isReadOnly
+        ? null
+        : startEdit}
+      onComment={isReadOnly
+        ? null
+        : startComment}
       onClear={clear}
       onApplyEdit={applyEdit}
       onCancelEdit={() => setReview({ ...review, isEditing: false })}

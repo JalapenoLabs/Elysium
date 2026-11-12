@@ -23,9 +23,10 @@ type Props = {
   pills: MarkPill[]
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
-  // Whether words are selected, which Edit and Comment act on.
+  // Whether words are selected, which Edit and Comment act on. Each is null where the meeting takes
+  // no change, as one merged into another does, or for a reader who may not change it; the words can
+  // still be selected and copied.
   hasSelection: boolean
-  // Null for a reader who may not change the meeting, such as a guest.
   onEdit: (() => void) | null
   onComment: (() => void) | null
   onClear: () => void

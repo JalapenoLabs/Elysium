@@ -18,6 +18,7 @@ import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 import { MeetingTopics } from './MeetingTopics'
 import { MeetingWorkspace } from './MeetingWorkspace'
+import { MergedIntoNotice } from './MergedIntoNotice'
 
 // Misc
 import { DateText } from '../../../format/DateText'
@@ -96,6 +97,8 @@ export function MeetingReview(props: Props) {
         </Link>
       </>}
     </div>
+
+    {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
 
     <PageTabs
       label={t('page.tabs.label')}

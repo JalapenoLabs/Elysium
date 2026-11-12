@@ -3,8 +3,11 @@
 //! `POST /api/v1/meetings/{id}/captures/{captureId}/split`: a meeting's owner or an admin splits a
 //! capture merged into it back out, undoing the merge that brought it: every capture that merge
 //! moved goes back to its own meeting, which is aligned and processed again, and both transcripts
-//! are lined up again. `404` for a meeting they may not read, `403` `owner_or_admin` for anyone
-//! else, `409` for a capture no merge brought, or once what the merge moved has moved on. See `crate::meetings::duplicates`.
+//! are lined up again. Answers the `split` entry, which the page's Undo undoes by merging again,
+//! and the meeting as it now stands. `404` for a meeting they may not read, `403` `owner_or_admin`
+//! for anyone else; `409` `capture_not_merged` for a capture the meeting does not hold or no merge
+//! brought, such as one split out already, and `meeting_changed` once a capture the merge moved
+//! was moved by hand since. See `crate::meetings::duplicates`.
 
 use anyhow::Context;
 use axum::Json;
@@ -14,15 +17,16 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{announce_lined_up, open, response};
+use super::{MeetingEventResponse, announce_lined_up, merged_refusal, open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
-use crate::meetings::duplicates::Moved;
+use crate::meetings::duplicates;
 use crate::meetings::history::{self, UndoError};
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Reader};
+use crate::models::meeting::Reader;
 use crate::models::meeting_event::{self, EventKind};
+use crate::models::{meeting, meeting_capture};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -37,33 +41,35 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let (owned, _access) = open(&mut connection, meeting_id, &current, Need::Manage).await?;
-    // The newest merge into the meeting that brought the capture; an older one was split since.
-    let history = meeting_event::history(&mut connection, owned.id).await?;
-    let brought_it = history.iter().rev().find(|entry| {
-        entry.kind() == Some(EventKind::Merged)
-            && serde_json::from_value::<Moved>(entry.data.clone()).is_ok_and(|moved| {
-                moved.into == owned.id
-                    && moved
-                        .captures
-                        .iter()
-                        .any(|moved_capture| moved_capture.capture_id == capture_id)
-            })
-    });
-    let Some(brought_it) = brought_it else {
-        return Err(ApiError::CodedConflict {
-            code: "capture_not_merged",
-            message: "No merge brought this capture into the meeting.",
-        });
+    let not_merged = ApiError::CodedConflict {
+        code: "capture_not_merged",
+        message: "No merge brought this capture into the meeting.",
+    };
+    // A merge's entry stays in the history once split, so only a capture the meeting still holds
+    // is looked for among its merges: one split out already, elsewhere or a moment ago, is one no
+    // standing merge brought, not one that moved on since.
+    match meeting_capture::find(&mut connection, capture_id).await {
+        Ok(capture) if capture.meeting_id == owned.id => {}
+        Ok(_) | Err(diesel::result::Error::NotFound) => return Err(not_merged),
+        Err(error) => return Err(error.into()),
+    }
+    let merges = meeting_event::of_kind(&mut connection, owned.id, EventKind::Merged).await?;
+    let Some(brought_it) = duplicates::merges_bringing(&merges, owned.id)
+        .get(&capture_id)
+        .copied()
+    else {
+        return Err(not_merged);
     };
     let author = Author {
         user_id: current.id(),
         agent: None,
         at: Utc::now(),
     };
-    let split = history::undo(&mut connection, owned.id, brought_it.id, author)
+    let split = history::undo(&mut connection, owned.id, brought_it.entry_id, author)
         .await
         .map_err(|error| match error {
             UndoError::NotFound => ApiError::NotFound,
+            UndoError::Merged => merged_refusal(),
             UndoError::NotUndoable | UndoError::ChangedSince | UndoError::Corrected => {
                 ApiError::CodedConflict {
                     code: "meeting_changed",
@@ -82,5 +88,8 @@ pub async fn handle(
     announce_lined_up(&state.events, &mut connection, &split).await?;
     let kept = meeting::find(&mut connection, owned.id).await?;
     let answered = response(&mut connection, kept, Reader::of(&current.0)).await?;
-    Ok(Json(json!({ "meeting": answered })))
+    Ok(Json(json!({
+        "entry": MeetingEventResponse::from(split),
+        "meeting": answered,
+    })))
 }

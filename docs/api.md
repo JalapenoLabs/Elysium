@@ -38,10 +38,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[], nextCursor }`, a page of those the caller may read, newest first; `limit` (1 to 200, default 100), and `afterStartedAt` with `afterId` from the last page's `nextCursor`; `reviewItemId` keeps the one an inbox item asks to review, `keptPrivateItemId` the one an item said was kept private |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
-| GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures |
+| GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/media` | The capture's recording, streamed from storage: `206` for one `Range`, `416` past its end, else `200`; `404` when none is kept |
-| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile |
+| POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile, (`meeting_merged`) once the meeting was merged into another, as every route here that changes a meeting answers |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
 | GET    | `/api/v1/meetings/{id}/threads`       | `200` `{ comments }`: every comment in its standing threads, each thread's oldest first |
@@ -57,8 +57,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
-| PUT    | `/api/v1/meetings/{id}/captures/{captureId}/offset` | `200` `{ capture: { id, offsetMs, offsetSource } }`; body `{ offsetMs }`, at most twelve hours either way (`400` `offset_out_of_range`), set by hand and lined up at once |
-| POST   | `/api/v1/meetings/{id}/captures/{captureId}/split` | `200` `{ meeting }`; splits out the merge that brought the capture, `409` (`capture_not_merged`, `meeting_changed`) when none did or it moved on since |
+| PUT    | `/api/v1/meetings/{id}/captures/{captureId}/offset` | `200` `{ entry, capture: { id, offsetMs, offsetSource } }`; body `{ offsetMs }`, at most twelve hours either way (`400` `offset_out_of_range`), set by hand and lined up at once; undoing `entry` puts it back |
+| POST   | `/api/v1/meetings/{id}/captures/{captureId}/split` | `200` `{ entry, meeting }`; splits out the merge that brought the capture, `409` (`capture_not_merged`, `meeting_changed`) when none did or it moved on since; undoing `entry` merges them again |
 | GET    | `/api/v1/meetings/duplicates?itemId=` | `200` `{ duplicate: MeetingDuplicate \| null }`: the two meetings an inbox item asks the caller about, with their titles and the source of each one's first capture |
 | POST   | `/api/v1/meetings/duplicates/{id}/merge` | `200` `{ duplicate }`; merges the meeting asked about into the other, `409` (`duplicate_decided`) once decided |
 | POST   | `/api/v1/meetings/duplicates/{id}/not-the-same` | `200` `{ duplicate }`; remembers they are not the same, `409` (`duplicate_decided`) once decided |
@@ -472,9 +472,10 @@ with the code `read_only`, `owner_or_admin`, or `owner_only`. An undo takes what
 transcript's standing words in order, each `{ id, position, text, speaker, startMs, endMs, origin, captureId }`, empty
 until it is built; `marks` are its standing marks, each `{ id, kind, startWordId, endWordId, data, createdBy, agent,
 createdAt }`, with `agent` `{ id, name }` or `null`; `captures` are `{ id, connectorId, sourceKind, url, offsetMs,
-hasRecording }`, first first. `GET .../captures/{captureId}/transcript` answers `{ basedOn, lines }` (`source`, or
-`whisper` when the source sent no lines), each line `{ startMs, endMs, speaker, text }` moved by the capture's offset,
-or `null` while nothing was heard. An edit takes `{ startWordId, endWordId, text }`: `400` with `meeting_edit_empty`
+offsetSource, hasRecording, mergedFrom }`, first first, `offsetSource` how the offset was found (`listed`, `audio`,
+`words`, or `hand`) and `mergedFrom` the meeting a standing merge brought it from, `{ meetingId, title }`, or `null`.
+`GET .../captures/{captureId}/transcript` answers `{ basedOn, lines }` (`source`, or `whisper` when the source sent no
+lines), each line `{ startMs, endMs, speaker, text }` moved by the capture's offset, or `null` while nothing was heard. An edit takes `{ startWordId, endWordId, text }`: `400` with `meeting_edit_empty`
 for text with no words, `meeting_edit_too_long` past 20,000 characters, or a range that ends before it starts. An edit
 and an undo answer `entry`, the history entry, and `change`, what it did to the transcript: `{ removedWordIds, words,
 marks }`, the words it took out, those it stood in their place, and every mark as it now stands, for the page to apply

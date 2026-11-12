@@ -32,6 +32,8 @@ function renderLane(isInDrawer: boolean) {
         onShownChange={() => {}}
         span={null}
         momentMs={null}
+        onMoveCapture={async () => false}
+        onSplitCapture={async () => {}}
         words={[]}
         selectedMark={null}
         history={{ rows: [], isLoading: false, hasFailed: false }}
@@ -41,7 +43,6 @@ function renderLane(isInDrawer: boolean) {
           onReply: async () => true,
           onSetResolved: async () => {},
           onRemove: async () => {},
-          canWrite: true,
           mayRead: () => true,
         }}
         onSelectThread={() => {}}

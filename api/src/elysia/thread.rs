@@ -228,6 +228,17 @@ pub async fn answer(
             );
             Ok(())
         }
+        Err(CommentError::Merged) => {
+            tracing::event!(
+                name: "elysia.thread.merged",
+                tracing::Level::WARN,
+                meeting.id = %found.id,
+                meeting_mark.id = %asked.thread,
+                "the meeting Elysia answered in was merged into another meanwhile; her answer was \
+                 not posted",
+            );
+            Ok(())
+        }
         Err(CommentError::Database(error)) => Err(error),
         Err(error) => {
             tracing::event!(

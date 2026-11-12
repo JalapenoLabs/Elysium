@@ -276,6 +276,25 @@ pub async fn history(
         .await
 }
 
+/// Meeting `meeting_id`'s changes of `kind` alone, oldest first, for a reader that needs one kind
+/// without reading a long history of edits.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn of_kind(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    kind: EventKind,
+) -> QueryResult<Vec<MeetingEvent>> {
+    meeting_events::table
+        .filter(meeting_events::meeting_id.eq(meeting_id))
+        .filter(meeting_events::kind.eq(kind.as_str()))
+        .order(meeting_events::id.asc())
+        .select(MeetingEvent::as_select())
+        .load(connection)
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

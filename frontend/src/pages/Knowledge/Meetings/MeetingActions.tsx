@@ -40,9 +40,9 @@ type Props = {
 // the corrected transcript waits for it, holding it for approval by hand until it is corrected
 // (unless its source already waits), its run, and adding a recording or transcript as another
 // capture. Its processing is its owner's alone, so only they hold, approve, and add a capture
-// (`crate::meetings::access`); a company member opens its run, as anyone of them opens any run.
-// Captures' offsets and Done reviewing join them as they are built (docs/meeting-review.md,
-// Roadmap).
+// (`crate::meetings::access`); a company member opens its run, as anyone of them opens any run. A
+// meeting merged into another offers its run alone, and says why. Done reviewing joins them as it
+// is built (docs/meeting-review.md, Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -57,7 +57,11 @@ export function MeetingActions(props: Props) {
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
-  const canApprove = isOwner && Boolean(meeting.correction && !meeting.correction.approvedAt)
+  // A meeting merged into another changes there: it holds no capture, its run goes no further,
+  // and an upload into it is refused, so it offers to approve, hold, or add nothing.
+  const isMergedAway = Boolean(meeting.mergedInto)
+  const runsIt = isOwner && !isMergedAway
+  const canApprove = runsIt && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
 
   async function approve() {
@@ -101,7 +105,7 @@ export function MeetingActions(props: Props) {
   }
 
   const actions: PageAction[] = []
-  if (isOwner && !meeting.correction && !sourceWaits) {
+  if (runsIt && !meeting.correction && !sourceWaits) {
     actions.push({
       id: 'hold',
       label: meeting.holdForApproval
@@ -123,9 +127,9 @@ export function MeetingActions(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
-  // Always offered its owner: an upload sent while the meeting's run is still going is refused,
-  // saying so.
-  if (isOwner) {
+  // Offered its owner while the meeting is its own: an upload sent while its run is still going is
+  // refused, saying so.
+  if (runsIt) {
     actions.push({
       id: 'addCapture',
       label: t('upload.addCapture'),
@@ -134,9 +138,12 @@ export function MeetingActions(props: Props) {
     })
   }
 
-  // Before it is corrected, whether its run will wait, and why.
+  // Why nothing changes here, or before it is corrected, whether its run will wait, and why.
   let waitsNote: string | null = null
-  if (!meeting.correction && sourceWaits) {
+  if (isMergedAway) {
+    waitsNote = t('page.mergedReadOnly')
+  }
+  else if (!meeting.correction && sourceWaits) {
     waitsNote = t('correction.sourceWaits')
   }
   else if (!meeting.correction && meeting.holdForApproval) {

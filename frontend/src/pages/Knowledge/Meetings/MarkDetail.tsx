@@ -33,9 +33,9 @@ type Props = {
   // The meeting's history, newest first, which says what an edit replaced.
   history: HistoryRow[]
   onUndo: (entryId: string) => Promise<void>
-  // A comment mark's thread, and what can be done in it.
+  // A comment mark's thread, and what can be done in it; null where the meeting takes no change.
   thread: Thread | null
-  threadActions: ThreadActions
+  threadActions: ThreadActions | null
 }
 
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
@@ -120,6 +120,6 @@ export function MarkDetail(props: Props) {
       <span>{t('review.undoEdit')}</span>
     </Button>}
 
-    {props.thread && <CommentThread thread={props.thread} {...props.threadActions} />}
+    {props.thread && <CommentThread thread={props.thread} actions={props.threadActions} />}
   </section>
 }

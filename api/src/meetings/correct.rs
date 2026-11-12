@@ -1056,6 +1056,9 @@ pub enum ApproveError {
     /// The meeting is not its person's, does not exist, or has no corrected copy yet.
     #[error("not found")]
     NotFound,
+    /// The meeting was merged into another, which is where it changes now.
+    #[error("the meeting was merged into another")]
+    Merged,
     #[error(transparent)]
     Run(#[from] StepActionError),
     #[error(transparent)]
@@ -1068,8 +1071,8 @@ pub enum ApproveError {
 /// Answers the meeting.
 ///
 /// # Errors
-/// [`ApproveError::NotFound`] when the meeting is not `owner`'s or has no corrected copy; any
-/// database error.
+/// [`ApproveError::NotFound`] when the meeting is not `owner`'s or has no corrected copy,
+/// [`ApproveError::Merged`] once it was merged into another; any database error.
 pub async fn approve(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -1082,6 +1085,10 @@ pub async fn approve(
             let current = meeting::lock(connection, meeting_id).await?;
             if current.created_by != owner {
                 return Err(ApproveError::NotFound);
+            }
+            // Merged into another, its run goes no further and its words change there.
+            if current.merged_into.is_some() {
+                return Err(ApproveError::Merged);
             }
             let already = meeting_correction::find(connection, meeting_id)
                 .await?
@@ -1155,6 +1162,9 @@ pub enum HoldError {
     /// Its corrected copy is stored: approving it, or not, is what remains.
     #[error("the meeting's transcript is corrected already")]
     Corrected,
+    /// The meeting was merged into another, which is where it changes now.
+    #[error("the meeting was merged into another")]
+    Merged,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -1167,7 +1177,7 @@ pub enum HoldError {
 ///
 /// # Errors
 /// [`HoldError::NotFound`] when the meeting is not `owner`'s, [`HoldError::Corrected`] once
-/// its copy is stored; any database error.
+/// its copy is stored, [`HoldError::Merged`] once it was merged into another; any database error.
 pub async fn hold(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -1180,6 +1190,9 @@ pub async fn hold(
             let current = meeting::lock(connection, meeting_id).await?;
             if current.created_by != owner {
                 return Err(HoldError::NotFound);
+            }
+            if current.merged_into.is_some() {
+                return Err(HoldError::Merged);
             }
             if meeting_correction::find(connection, meeting_id)
                 .await?

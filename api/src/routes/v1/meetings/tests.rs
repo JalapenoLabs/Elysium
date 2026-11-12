@@ -3,8 +3,9 @@
 //! A meeting's routes against Postgres: the list naming the projects each meeting's topics are on
 //! (#235); reading its final transcript with its marks and captures, a capture as it came on the
 //! meeting's clock, an edit answering what it did, its history naming each undo, and undo refusing
-//! what moved on since (#234). Who may read or change a meeting, route by route, is
-//! `access_tests` (#246).
+//! what moved on since (#234); a capture merged in saying where it came from, moved by hand, and
+//! split back out, and a meeting merged away refusing every change (#268). Who may read or change a
+//! meeting, route by route, is `access_tests` (#246).
 //!
 //! They are `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs
 //! them.
@@ -18,7 +19,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use crate::models::meeting;
+use crate::meetings::duplicates;
+use crate::models::meeting::{self, Reach, Reader};
+use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
 use crate::models::meeting_word::tests::{built_meeting, word};
 use crate::models::project::{self, NewProject, ProjectScope};
 use crate::models::storage_location::{
@@ -331,6 +334,174 @@ async fn a_capture_reads_as_it_came_on_the_meetings_clock() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+/// Two of the test person's meetings of one call, the second merged into the first.
+struct MergedPair {
+    kept_id: Uuid,
+    /// The capture the kept meeting was listed with.
+    kept_capture: Uuid,
+    merged_id: Uuid,
+    /// The capture the merge brought in.
+    merged_capture: Uuid,
+}
+
+/// Two meetings of one call, the second merged into the first as its person answered.
+async fn merged_pair(connection: &mut AsyncPgConnection) -> MergedPair {
+    let (kept, _) = built_meeting(connection, &[("Ada", "Launch is Friday.")]).await;
+    let (merged, _) = built_meeting(connection, &[("Ada", "Launch is Friday.")]).await;
+    execute(
+        connection,
+        format!(
+            "UPDATE meetings SET title = 'Weekly sync, recorded twice' WHERE id = '{}'",
+            merged.meeting_id
+        ),
+    )
+    .await;
+    let pair = meeting_duplicate::insert_new(
+        connection,
+        NewMeetingDuplicate {
+            id: Uuid::now_v7(),
+            meeting_id: merged.meeting_id,
+            same_as_id: kept.meeting_id,
+            action_item_id: None,
+            created_by: SYSTEM_USER_ID,
+        },
+    )
+    .await
+    .expect("records")
+    .expect("a new pair");
+    // The test person owns both, as only a person's own meetings are compared.
+    let owner = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    duplicates::merge(connection, pair.id, owner, Utc::now())
+        .await
+        .expect("merges");
+    MergedPair {
+        kept_id: kept.meeting_id,
+        kept_capture: kept.id,
+        merged_id: merged.meeting_id,
+        merged_capture: merged.id,
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_merged_capture_says_where_it_came_from_and_splits_back_out() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let MergedPair {
+        kept_id,
+        kept_capture,
+        merged_id,
+        merged_capture,
+    } = merged_pair(&mut connection).await;
+    let words_path = format!("/api/v1/meetings/{kept_id}/words");
+    let split_path = format!("/api/v1/meetings/{kept_id}/captures/{merged_capture}/split");
+
+    // The meeting's own capture came from nowhere; the one merged in names its meeting.
+    let (status, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(read["captures"][0]["id"], json!(kept_capture));
+    assert_eq!(read["captures"][0]["mergedFrom"], Value::Null);
+    assert_eq!(read["captures"][0]["offsetSource"], "listed");
+    assert_eq!(read["captures"][1]["id"], json!(merged_capture));
+    assert_eq!(
+        read["captures"][1]["mergedFrom"],
+        json!({ "meetingId": merged_id, "title": "Weekly sync, recorded twice" })
+    );
+    // The meeting merged away says where its captures went.
+    let (status, away) = send(
+        &state,
+        Method::GET,
+        &format!("/api/v1/meetings/{merged_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{away}");
+    assert_eq!(away["meeting"]["mergedInto"], json!(kept_id));
+
+    // Moved by hand, it answers the change Undo undoes, and reads as set by hand.
+    let (status, moved) = send(
+        &state,
+        Method::PUT,
+        &format!("/api/v1/meetings/{kept_id}/captures/{merged_capture}/offset"),
+        Some(&json!({ "offsetMs": 1_500 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_eq!(moved["entry"]["kind"], "offset_changed");
+    assert_eq!(moved["capture"]["offsetMs"], 1_500);
+    assert_eq!(moved["capture"]["offsetSource"], "hand");
+    let (_, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(read["captures"][1]["offsetMs"], 1_500);
+    assert_eq!(read["captures"][1]["offsetSource"], "hand");
+
+    // Splitting it now would overwrite that move, so it waits until the move is undone.
+    let (status, refused) = send(&state, Method::POST, &split_path, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["code"], "meeting_changed");
+    let moved_id = moved["entry"]["id"].as_str().expect("an entry id");
+    let (status, _) = send(
+        &state,
+        Method::POST,
+        &format!("/api/v1/meetings/{kept_id}/history/{moved_id}/undo"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Split, it answers the change and the meeting kept; both meetings are their own again.
+    let (status, split) = send(&state, Method::POST, &split_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{split}");
+    assert_eq!(split["entry"]["kind"], "split");
+    assert_eq!(split["meeting"]["id"], json!(kept_id));
+    let (_, read) = send(&state, Method::GET, &words_path, None).await;
+    let captures = read["captures"].as_array().expect("captures");
+    assert_eq!(captures.len(), 1, "{read}");
+    assert_eq!(captures[0]["id"], json!(kept_capture));
+    let (_, away) = send(
+        &state,
+        Method::GET,
+        &format!("/api/v1/meetings/{merged_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(away["meeting"]["mergedInto"], Value::Null);
+
+    // A capture the meeting was listed with was never merged in.
+    let (status, own) = send(
+        &state,
+        Method::POST,
+        &format!("/api/v1/meetings/{kept_id}/captures/{kept_capture}/split"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{own}");
+    assert_eq!(own["code"], "capture_not_merged");
+    // A second tab splitting it again finds it is no longer merged in, not that it moved on.
+    let (status, again) = send(&state, Method::POST, &split_path, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{again}");
+    assert_eq!(again["code"], "capture_not_merged");
+
+    // Undoing the split merges them again, and the capture names its meeting once more.
+    let split_id = split["entry"]["id"].as_str().expect("an entry id");
+    let (status, merged_again) = send(
+        &state,
+        Method::POST,
+        &format!("/api/v1/meetings/{kept_id}/history/{split_id}/undo"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{merged_again}");
+    assert_eq!(merged_again["entry"]["kind"], "merged");
+    let (_, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(
+        read["captures"][1]["mergedFrom"]["meetingId"],
+        json!(merged_id)
+    );
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn the_list_names_the_projects_each_meetings_topics_are_on() {
@@ -493,6 +664,87 @@ async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in()
     .await;
     assert_eq!(status, StatusCode::OK, "{found}");
     assert_eq!(found["meeting"]["mergedInto"], json!(kept.meeting_id));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meeting_kept() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (kept, _) = built_meeting(&mut connection, &[("Ada", "Launch is Friday.")]).await;
+    let (merged, words) = built_meeting(&mut connection, &[("Ada", "Launch is Fryday.")]).await;
+    let meeting_path = format!("/api/v1/meetings/{}", merged.meeting_id);
+    let launch = word(&words, "Launch");
+    let fryday = word(&words, "Fryday.");
+
+    // Before the merge it takes an edit and a thread like any meeting, so both have their routes.
+    let (status, edited) = send(
+        &state,
+        Method::POST,
+        &format!("{meeting_path}/edits"),
+        Some(&json!({ "startWordId": fryday.id, "endWordId": fryday.id, "text": "Friday." })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{edited}");
+    let edit_id = edited["entry"]["id"].as_str().expect("an entry id");
+    let on_launch = json!({ "startWordId": launch.id, "endWordId": launch.id, "body": "Which?" });
+    let (status, started) = send(
+        &state,
+        Method::POST,
+        &format!("{meeting_path}/threads"),
+        Some(&on_launch),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{started}");
+    let thread_id = started["comment"]["threadId"]
+        .as_str()
+        .expect("a thread id");
+    meeting::set_merged_into(&mut connection, merged.meeting_id, Some(kept.meeting_id))
+        .await
+        .expect("the meeting is merged");
+
+    let edit = json!({ "startWordId": launch.id, "endWordId": launch.id, "text": "Release" });
+    let reply = json!({ "body": "Still here?" });
+    let requests = [
+        (Method::POST, format!("{meeting_path}/edits"), Some(&edit)),
+        (
+            Method::POST,
+            format!("{meeting_path}/history/{edit_id}/undo"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads"),
+            Some(&on_launch),
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads/{thread_id}/comments"),
+            Some(&reply),
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/threads/{thread_id}/resolved"),
+            None,
+        ),
+        (
+            Method::DELETE,
+            format!("{meeting_path}/threads/{thread_id}"),
+            None,
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/correction/approve"),
+            None,
+        ),
+        (Method::POST, format!("{meeting_path}/hold"), None),
+        (Method::DELETE, format!("{meeting_path}/hold"), None),
+    ];
+    for (method, path, body) in requests {
+        let (status, answer) = send(&state, method, &path, body).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{path}: {answer}");
+        assert_eq!(answer["code"], "meeting_merged", "{path}");
+    }
 }
 
 #[tokio::test]

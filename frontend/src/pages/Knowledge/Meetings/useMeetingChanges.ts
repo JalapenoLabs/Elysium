@@ -1,11 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MeetingChangeResponse, MeetingTranscriptChange } from '../../../api/routes/meetingRoutes'
+import type { ParseKeys } from 'i18next'
+import type {
+  MeetingChangeResponse,
+  MeetingHistoryEntry,
+  MeetingTranscriptChange,
+} from '../../../api/routes/meetingRoutes'
 
 // Core
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { mutate } from 'swr'
+
+// Redux
+import { useAppDispatch } from '../../../store/hooks'
+import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // Misc
 import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
@@ -15,15 +24,27 @@ import {
   meetingThreadsKey,
   removeMeetingThread,
   replyInMeetingThread,
+  setCaptureOffset,
   setMeetingThreadResolved,
+  splitCapture,
   startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
 import { trackMeetingChange } from '../../../realtime/meetingChangeEchoes'
 import { toast } from '../../../toast/toast'
 
+// What a split refused says, by the API's code: the capture went back already, or a capture the
+// merge brought was moved by hand since, which splitting would overwrite.
+const splitRefusalKeys = {
+  capture_not_merged: 'review.captures.notMerged',
+  meeting_changed: 'review.captures.movedSince',
+} as const satisfies Record<string, ParseKeys<'meetings'>>
+
 type Options = {
   meetingId: string
+  // Whether the meeting takes no change, as one merged into another does. It can become so while
+  // the page holds changes it made, so Ctrl+Z, and Undo on a toast still showing, refuse then.
+  isReadOnly: boolean
   // Applies what a change answered to the transcript the page holds.
   applyChange: (change: MeetingTranscriptChange) => void
   // Reads the transcript again, when a change found it behind.
@@ -36,7 +57,14 @@ type Options = {
 // them (`undoLast`). An undo is not one of them: undoing again goes further back, never forward.
 export function useMeetingChanges(options: Options) {
   const { t } = useTranslation([ 'meetings', 'common' ])
+  const dispatch = useAppDispatch()
   const madeHere = useRef<string[]>([])
+  // Read as Undo is pressed, not as it was offered: a toast's Undo keeps the function of the
+  // render that showed it, which saw the meeting before it was merged away.
+  const isReadOnly = useRef(options.isReadOnly)
+  useEffect(() => {
+    isReadOnly.current = options.isReadOnly
+  }, [ options.isReadOnly ])
 
   // Its own change applies from what the route answered; only the history and the threads' comments,
   // both small, are read again, since a change to a thread, or an undo of one, changes which threads
@@ -47,16 +75,21 @@ export function useMeetingChanges(options: Options) {
     void mutate(meetingThreadsKey(options.meetingId))
   }
 
-  // Applies a change made here, and says so with Undo.
-  function made(response: MeetingChangeResponse, confirmation: string) {
-    madeHere.current.push(response.entry.id)
-    settle(response)
+  // Joins a change made here to what Ctrl+Z undoes, and says so with Undo.
+  function remember(entry: MeetingHistoryEntry, confirmation: string) {
+    madeHere.current.push(entry.id)
     toast.success(confirmation, {
       action: {
         label: t('review.undo'),
-        onPress: () => void undo(response.entry.id),
+        onPress: () => void undo(entry.id),
       },
     })
+  }
+
+  // Applies a change made here, and says so with Undo.
+  function made(response: MeetingChangeResponse, confirmation: string) {
+    settle(response)
+    remember(response.entry, confirmation)
   }
 
   // Tells the person a change was refused: a thread removed meanwhile reads the threads again.
@@ -70,6 +103,11 @@ export function useMeetingChanges(options: Options) {
   }
 
   async function undo(entryId: string) {
+    if (isReadOnly.current) {
+      console.debug('useMeetingChanges left a change as it is, since the meeting takes no change now', { entryId })
+      toast(t('page.mergedReadOnly'))
+      return
+    }
     try {
       const response = await trackMeetingChange(
         options.meetingId,
@@ -186,6 +224,47 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
+  // A change that moves a capture lines the whole transcript up again, which no change of words
+  // describes, so its announcement names no entry and every page holding the meeting reads it
+  // again, this one included (`announce_lined_up` in api/src/routes/v1/meetings/mod.rs). It applies
+  // nothing itself, and still joins what Ctrl+Z undoes.
+
+  // Sets where capture `captureId` starts, `offsetMs` into the meeting, by hand. Resolves whether
+  // it did; one refused keeps the editor open with what was typed.
+  async function moveCapture(captureId: string, offsetMs: number) {
+    try {
+      const response = await setCaptureOffset(options.meetingId, captureId, offsetMs)
+      remember(response.entry, t('review.captures.moved'))
+      return true
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not move a capture', { error, captureId, offsetMs })
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+      return false
+    }
+  }
+
+  // Splits the captures the merge that brought `captureId` brought back out into their own
+  // meeting. Its Undo merges them again.
+  async function splitOut(captureId: string) {
+    try {
+      const response = await splitCapture(options.meetingId, captureId)
+      dispatch(meetingUpserted(response.meeting))
+      remember(response.entry, t('review.captures.splitDone'))
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not split a capture out', { error, captureId })
+      const code = getApiErrorCode(error)
+      // The page was behind: it reads the meeting again and shows its captures as they are.
+      if (code === 'capture_not_merged' || code === 'meeting_changed') {
+        options.reload()
+        toast.warning(t(splitRefusalKeys[code]))
+        return
+      }
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+    }
+  }
+
   async function undoLast() {
     const last = madeHere.current.at(-1)
     if (!last) {
@@ -195,7 +274,17 @@ export function useMeetingChanges(options: Options) {
     await undo(last)
   }
 
-  return { edit, startThread, reply, setResolved, removeThread, undo, undoLast } as const
+  return {
+    edit,
+    startThread,
+    reply,
+    setResolved,
+    removeThread,
+    moveCapture,
+    splitOut,
+    undo,
+    undoLast,
+  } as const
 }
 
 export type MeetingChanges = ReturnType<typeof useMeetingChanges>

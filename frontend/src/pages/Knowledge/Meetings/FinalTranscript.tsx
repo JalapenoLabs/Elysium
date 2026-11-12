@@ -42,7 +42,8 @@ type Props = {
   onPick: (index: number, shiftKey: boolean) => void
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
-  // Null for a reader who may not change the meeting, such as a guest.
+  // Null where the meeting takes no change, as one merged into another does, or for a reader who may
+  // not change it, such as a guest it is shared with.
   onEdit: (() => void) | null
   onComment: (() => void) | null
   onClear: () => void

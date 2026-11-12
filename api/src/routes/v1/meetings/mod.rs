@@ -590,6 +590,16 @@ pub(crate) async fn announce_lined_up(
     Ok(())
 }
 
+/// What every route that changes a meeting answers when it was merged into another: `409
+/// meeting_merged`. Its words, marks, threads, hold, and approval change in the meeting kept, which
+/// its page links to, and a page that had not heard of the merge reads the meeting again on it.
+pub(super) fn merged_refusal() -> ApiError {
+    ApiError::CodedConflict {
+        code: "meeting_merged",
+        message: "This meeting was merged into another, so it changes there.",
+    }
+}
+
 /// Tells every client that `meeting` changed by history entry `entry`, so a page holding its
 /// transcript or history reads it again, unless it made that change itself. The event carries no
 /// content, as every meeting's does: each client loads it by id, and one that may not read it is

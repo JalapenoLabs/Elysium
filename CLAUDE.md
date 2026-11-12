@@ -341,8 +341,8 @@ Everything else follows these rules:
   first capture's, or words and times matched), lines their words up into the final transcript keeping every edit,
   and, for a meeting overlapping another of its person's with participants in common, holds the run with an inbox item
   ("Same meeting as") until they Merge or say Not the same; Elysium never merges on its own. A merge is undone by
-  splitting, both in the meetings' histories, and a hand-set offset is recorded and undoable. See `docs/meetings.md`,
-  Aligning, and The same meeting twice.
+  splitting, both in the meetings' histories, and a hand-set offset is recorded and undoable; a person does both from
+  the meeting's options. See `docs/meetings.md`, Aligning, and The same meeting twice.
 - The final transcript is words with stable ids (`meeting_words`) on the meeting's clock, each saying where it came
   from; every mark (`meeting_marks`) is a range of word ids, and an edit replaces a range with new words that the
   marks over it then cover. Words and marks are never deleted, only replaced or removed by a change. Every change to

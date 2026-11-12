@@ -127,6 +127,11 @@ pub async fn run_edit(
             EditError::TooLong => ToolError::Invalid(format!(
                 "an edit writes at most {EDIT_TEXT_MAX_CHARACTERS} characters"
             )),
+            EditError::Merged => ToolError::Invalid(
+                "this meeting was merged into another, so its words change there; nothing was \
+                 edited"
+                    .to_owned(),
+            ),
             EditError::Database(error) => internal(scope, "elysia.meeting_edit", &error),
         })?;
     // Her change is news to every page, the one the person has open included.

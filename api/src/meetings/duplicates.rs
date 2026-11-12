@@ -531,6 +531,53 @@ pub struct MovedCapture {
     pub after: Placement,
 }
 
+/// The merge that brought a capture into the meeting holding it, which splitting it undoes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BroughtBy {
+    /// The holding meeting's own `merged` entry.
+    pub entry_id: Uuid,
+    /// The meeting the capture came from, which splitting makes its own again.
+    pub from: Uuid,
+}
+
+/// Each capture a merge brought into meeting `meeting_id`, by id, with the merge that did, read
+/// from the meeting's `merges` (its `merged` entries, oldest first): the newest of them moving the
+/// capture in. An older one was split since, which put the capture back where it came from, so
+/// only the newest stands over a capture the meeting still holds. A capture no merge brought, such
+/// as the one the meeting was listed with, is not in it, and neither is one a merge took out of the
+/// meeting (an entry whose captures went into another).
+pub fn merges_bringing(merges: &[MeetingEvent], meeting_id: Uuid) -> HashMap<Uuid, BroughtBy> {
+    let mut brought = HashMap::new();
+    for entry in merges.iter().rev() {
+        if entry.kind() != Some(EventKind::Merged) {
+            continue;
+        }
+        let moved = match Moved::deserialize(&entry.data) {
+            Ok(moved) => moved,
+            Err(error) => {
+                event!(
+                    name: "meetings.history.unreadable",
+                    Level::WARN,
+                    meeting_event.id = %entry.id,
+                    error.message = %error,
+                    "a merge's entry is not in its shape; its captures read as the meeting's own",
+                );
+                continue;
+            }
+        };
+        if moved.into != meeting_id {
+            continue;
+        }
+        for capture in &moved.captures {
+            brought.entry(capture.capture_id).or_insert(BroughtBy {
+                entry_id: entry.id,
+                from: moved.from,
+            });
+        }
+    }
+    brought
+}
+
 /// Moves every capture of `merging` into `keeper`, as `author`, and records it in both histories,
 /// the keeper's entry undoing `undid` when the merge is a split's undo. Each capture is placed on
 /// the keeper's clock from when the two meetings started, after the keeper's own captures; the
@@ -949,5 +996,83 @@ mod tests {
         let quick = meeting("2026-11-10T15:00:00Z", Some(5), &["ada@example.com"]);
         let after_it = meeting("2026-11-10T15:08:00Z", Some(20), &["ada@example.com"]);
         assert!(!looks_like(&quick, &after_it));
+    }
+
+    /// A `kind` entry of meeting `meeting_id` with `data`.
+    fn entry(meeting_id: Uuid, kind: EventKind, data: Value) -> MeetingEvent {
+        MeetingEvent {
+            id: Uuid::now_v7(),
+            meeting_id,
+            kind: kind.as_str().to_owned(),
+            created_by: Uuid::now_v7(),
+            agent: None,
+            agent_name: None,
+            data,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// What a merge of `captures` from `from` into `into` records.
+    fn moved(from: Uuid, into: Uuid, captures: &[Uuid]) -> Value {
+        let placed = |meeting_id| Placement {
+            meeting_id,
+            joined_at: Utc::now(),
+            offset_ms: 0,
+            offset_source: OffsetSource::Listed,
+        };
+        serde_json::to_value(Moved {
+            from,
+            into,
+            captures: captures
+                .iter()
+                .map(|capture_id| MovedCapture {
+                    capture_id: *capture_id,
+                    before: placed(from),
+                    after: placed(into),
+                })
+                .collect(),
+        })
+        .expect("serializes")
+    }
+
+    #[test]
+    fn a_capture_is_named_by_the_newest_merge_that_brought_it_in() {
+        let kept = Uuid::now_v7();
+        let (fireflies, teams, elsewhere) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let (heard_twice, heard_once, own) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        let older = entry(
+            kept,
+            EventKind::Merged,
+            moved(fireflies, kept, &[heard_twice]),
+        );
+        // Split since, the capture went back, and a later merge brought it in again from where it
+        // had gone, with another of that meeting's.
+        let newer = entry(
+            kept,
+            EventKind::Merged,
+            moved(teams, kept, &[heard_twice, heard_once]),
+        );
+        let merges = [
+            older,
+            entry(kept, EventKind::Merged, json!({ "unreadable": true })),
+            // The kept meeting's copy of a merge that took captures out of it names none.
+            entry(kept, EventKind::Merged, moved(kept, elsewhere, &[own])),
+            newer.clone(),
+        ];
+
+        let brought = merges_bringing(&merges, kept);
+        assert_eq!(
+            brought.get(&heard_twice),
+            Some(&BroughtBy {
+                entry_id: newer.id,
+                from: teams,
+            })
+        );
+        assert_eq!(
+            brought.get(&heard_once).map(|merge| merge.from),
+            Some(teams)
+        );
+        assert_eq!(brought.get(&own), None);
+        assert_eq!(brought.len(), 2);
     }
 }

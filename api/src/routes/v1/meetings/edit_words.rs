@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, open, transcript_change};
+use super::{MeetingEventResponse, announce, merged_refusal, open, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -88,6 +88,7 @@ pub async fn handle(
 fn refusal(error: EditError) -> ApiError {
     match error {
         EditError::NotFound => ApiError::NotFound,
+        EditError::Merged => merged_refusal(),
         EditError::NotStanding => ApiError::CodedConflict {
             code: "meeting_words_changed",
             message: "A word of that range was changed meanwhile.",

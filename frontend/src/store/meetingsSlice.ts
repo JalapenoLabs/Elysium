@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { PayloadAction } from '@reduxjs/toolkit'
 import type { Meeting } from '../api/routes/meetingRoutes'
 import type { RootState } from './index'
 
@@ -17,7 +18,20 @@ export const meetingsSlice = createSlice({
   name: 'meetings',
   initialState: meetingsAdapter.getInitialState(),
   reducers: {
-    meetingsLoaded: meetingsAdapter.setAll,
+    // The list replaces every meeting it could name. It leaves out a meeting merged into another,
+    // which only its own page loads, by id, so that one stays: the knowledge base loads the list
+    // around every page, and an answer landing after the page's own would otherwise take its
+    // meeting away mid-read. A meeting split back out since is in the list again, as its own.
+    meetingsLoaded: (state, action: PayloadAction<Meeting[]>) => {
+      const listedIds = new Set(action.payload.map((meeting) => meeting.id))
+      const mergedAway: Meeting[] = []
+      for (const meeting of Object.values(state.entities)) {
+        if (meeting?.mergedInto && !listedIds.has(meeting.id)) {
+          mergedAway.push(meeting)
+        }
+      }
+      meetingsAdapter.setAll(state, [ ...action.payload, ...mergedAway ])
+    },
     meetingUpserted: meetingsAdapter.upsertOne,
     // A meeting the person may no longer read, such as one made private, leaves every list.
     meetingRemoved: meetingsAdapter.removeOne,

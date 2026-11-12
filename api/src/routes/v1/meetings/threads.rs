@@ -31,7 +31,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{CommentResponse, MeetingEventResponse, open, transcript_change};
+use super::{CommentResponse, MeetingEventResponse, merged_refusal, open, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -277,6 +277,7 @@ async fn answer(
 fn refusal(error: CommentError) -> ApiError {
     match error {
         CommentError::NotFound | CommentError::Mark(MarkError::NotFound) => ApiError::NotFound,
+        CommentError::Merged | CommentError::Mark(MarkError::Merged) => merged_refusal(),
         CommentError::Removed => ApiError::CodedConflict {
             code: "meeting_thread_removed",
             message: "That thread was removed.",
