@@ -288,7 +288,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/meetings`         | `KnowledgeMeetingsPage`  | Every meeting the person can see, its filters in the address (`?project=`); the Meetings page's own address lands here |
 | `/knowledge/meetings/new`     | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
 | `/knowledge/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
-| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane) and its topics, as tabs in `?tab=` |
+| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=` |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |

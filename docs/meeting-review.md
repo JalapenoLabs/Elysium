@@ -14,10 +14,12 @@ undoable, its player, and comment threads on ranges, with mentions, resolving, a
 its owner alone until meetings are public by default; uploads of recordings and transcripts as new meetings or
 captures of one; meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
 group of every project's brief it is about, with the Meetings page listing, searching, and filtering them and
-starting uploads, Settings keeping only their sources; and settling the final transcript with confidences and
-alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words. What is built is
-described in `docs/meetings.md`, which this
-design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
+starting uploads, Settings keeping only their sources; settling the final transcript with confidences and
+alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words; and excerpts and
+black-outs, segmenting reading the settled words, a meeting held for its person when its correction is unsure, and
+Done reviewing reading it again, keeping what people made or changed. What is built is described in
+`docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
+Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -158,15 +160,15 @@ A mark the agent made says so, and one a person made names them.
 
 ## Excerpts
 
-An excerpt is a range of words and the projects it is about. It replaces today's topics, which cut the whole meeting
-into stretches: the point is to take only what matters.
+An excerpt is a range of words and the projects it is about: the point is to take only what matters, not to cut the
+whole meeting into stretches. Built (`docs/meetings.md`, Excerpts and black-outs).
 
 - Segmenting makes them tight: each one the words that matter to a project, not the stretch of meeting around them.
   Hellos, small talk, and asides belong to no excerpt.
 - Excerpts may overlap and nest: one sentence can be its own excerpt on project B inside a topic on project A.
 - Each excerpt is a timeline record on its projects, with its clip, its words, its pins, and its attachments, its
-  history, and undo, as a segment's record is today (`docs/meetings.md`, Segment records). A project's page shows each
-  excerpt it is on, opening the meeting at it.
+  history, and undo (`docs/meetings.md`, Excerpt records). A project's page shows each excerpt it is on, opening the
+  meeting at it.
 - People select a range and assign it, change an excerpt's projects, or remove it. Elysia never overrides a person's
   assignment, as today.
 - Only excerpts reach Project Managers and workers. An agent never reads a whole meeting unless it asks for one.
@@ -176,7 +178,8 @@ into stretches: the point is to take only what matters.
 ## Black-outs
 
 A black-out is a range that truly does not matter: "is my mic on?", "how do I share my screen?", "how was your
-weekend?". Segmenting applies them on its own, and people add, change, and remove them as they review.
+weekend?". Segmenting applies them on its own, and people add, change, and remove them as they review. Built
+(`docs/meetings.md`, Excerpts and black-outs).
 
 - A black-out leaves its words out of search and out of everything an agent reads. Everything not blacked out stays
   in search, excerpt or not: what seemed irrelevant when it was said may be what a search needs later.
@@ -200,8 +203,8 @@ Threads anchored to a range, read by everyone who can read the meeting: replies,
 @mentions, each raising an inbox item for who it concerns: whoever a comment mentions, and everyone else taking part in
 the thread for a reply, a resolve, or a reopen. @Elysia in a thread is answered there, and she can do what it asks,
 such as "this was Sharath" or "this belongs to the launch". Comments are indexed with the meeting, and an excerpt's
-comments travel with it to its projects: today a meeting is indexed as its segments, and each thread with the segments
-its range overlaps, so the excerpts that replace segments carry the threads over them.
+comments travel with it to its projects: each thread is indexed with the meeting's own document and with the excerpts
+its range overlaps.
 
 ## Attachments and frames
 
@@ -227,11 +230,12 @@ The `meeting` workflow becomes:
 | `correct_transcript` | Settles the final transcript, flags what it is unsure of, and decides who sees the meeting |
 | `segment_meeting`    | Excerpts, black-outs, tasks, and frames, then hands each project its own                   |
 
-- **Held when unsure.** A meeting waits for its person before segmenting when its source asks (`waitForApproval`, as
-  today), or when the correction left a range below a confidence the code fixes (40). An action item asks them to
-  review it. Otherwise it flows on, and review comes after.
+- **Held when unsure.** A meeting waits for its person before segmenting when its source asks (`waitForApproval`),
+  or when the correction left a range below a confidence the code fixes (40). An action item asks them to review it.
+  Otherwise it flows on, and review comes after. Built (`docs/meetings.md`, Waiting for approval).
 - **Done reviewing** segments the meeting again from its corrected words. Every excerpt, black-out, and task a person
-  made or changed stands; what changed reaches the Project Managers it concerns, and nothing else wakes.
+  made or changed stands; what changed reaches the Project Managers it concerns, and nothing else wakes. Built for
+  excerpts and black-outs (`docs/meetings.md`, Done reviewing); tasks join it with #243.
 - A new capture merged into a meeting aligns and settles it again, keeping every person's edit.
 
 ## Uploads
@@ -267,8 +271,7 @@ Every doc appears in the knowledge base, meetings included. Settings keeps only 
 - **Each project's page is its brief**, under the fixed Project briefs page, made and renamed with its project
   (`docs/autonomy.md`, The project brief). Under each, a Meetings group lists every meeting with an excerpt on the
   project, newest first, as linked entries of the one meeting page, so a meeting about three projects shows in three
-  places and is one page. Deleting the project leaves its brief an ordinary page, and takes the group with it. Until
-  excerpts replace topics, a meeting is in a project's group when one of its topics is on the project.
+  places and is one page. Deleting the project leaves its brief an ordinary page, and takes the group with it.
 - The meeting's page is in the knowledge base, `/knowledge/meetings/:meetingId`, and its Settings address lands there.
   Settings, Meetings keeps only its Sources.
 
@@ -283,7 +286,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
-| 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |
 | 3     | #245  | Comments                                                                              |
 | 4     | #246  | Public by default, private until checked, and sharing                                 |

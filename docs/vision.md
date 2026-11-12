@@ -98,9 +98,9 @@ time, who, content, and optionally a span inside a recording) and lands on one t
 Elysia with a confidence the user can correct.
 
 Opening a project shows everything about it in order: every mail, chat message, note, agent turn, issue change, and
-meeting segment. When a two hour meeting spent five minutes on a project, the project shows that five minute
-segment: the recording trimmed to it, its transcript, and its summary. Segments are cut by topic from the
-timestamped transcript, trimmed with `ffmpeg`, and stored in the project's storage location.
+meeting excerpt. When a two hour meeting spent five minutes on a project, the project shows those minutes: the
+recording trimmed to them, what was said, and its summary, and nothing of the small talk around them. Excerpts are taken
+from the corrected transcript, trimmed with `ffmpeg`, and stored in the project's storage location.
 
 When a manager asks in chat for a change to a product, Elysia records it on that product's project, makes the item,
 and does the work when she can.

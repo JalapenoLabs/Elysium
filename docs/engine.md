@@ -288,15 +288,19 @@ the Runs page.
 - Built: each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops
   after correction (`Done::Held`) with an inbox item to review the diff, and continues once approved, the output
   saying so; Resume on the Runs page passes the held output on unapproved. One meeting can also be held by hand.
-- Built: segmenting, the run's `segment_meeting` step, cuts the corrected transcript into topics in one text turn, each
-  with its span, summary, and projects with Elysia's confidence, cuts each topic's clip at the words Whisper heard
-  nearest its ends, and puts every topic on the timeline as a record of its own, attributed to its projects, beside
-  agent work and every other record, so a project reads top to bottom across meetings. The person corrects what a
-  topic is about from its meeting's page or a project's timeline, every change recorded in history and undoable, and
-  Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, and the
+- Built: segmenting, the run's `segment_meeting` step, reads the settled transcript in one text turn and takes only
+  what matters: excerpts, each the words that matter to a project with Elysia's confidence, overlapping and nesting as
+  they need to, and black-outs, words that matter to nobody, which leave search and everything an agent reads. Every
+  excerpt is a record of its own on the timeline, attributed to its projects, beside agent work and every other record,
+  so a project reads top to bottom across meetings, and its clip is cut at the words Whisper heard nearest its ends. A
+  person takes a range into a project, changes an excerpt's projects, blacks a range out, or removes either from the
+  meeting's page, every change recorded in history and undoable, and Elysia never overrides them. A meeting whose
+  correction is unsure of a range waits for its person first, and Done reviewing segments a meeting again, keeping
+  what people made or changed and waking only a project whose share changed. Its input also takes a conversation, records already on a person's timeline, and the
   request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. It
   takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
-  (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation.
+  (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation, Excerpts and black-outs, and
+  Done reviewing.
 
 ## Conversations
 
@@ -456,7 +460,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
 - **What wakes it.** Seven things, each written as a wake (`project_manager_wakes`) in the same transaction as what
   caused it, so no crash or lost signal loses one:
-  - **a record newly on its project**: segmenting a meeting or a conversation attributing a topic or a message to it,
+  - **a record newly on its project**: segmenting a meeting or a conversation attributing an excerpt or a message to it,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
     (`docs/connectors.md`, The timeline). A change of how sure an attribution is wakes nothing, and a record waits once
     however often it is attributed meanwhile. Any workflow that attributes records wakes Project Managers this way,
@@ -493,7 +497,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   message, someone being there for the answer; an assignment waits like a record, so a selection assigned at once, or
   several items one after another, is one turn (`project_managers::queue`, a pure function tested alone). A turn takes
   every wake waiting for its project, up to 40 records and results and every message, so a meeting landing ten
-  segments is one turn. What arrives while it runs waits for the next.
+  excerpts is one turn. What arrives while it runs waits for the next.
 - **One at a time, durable.** A turn is created as it starts, in the transaction that takes its wakes, and the
   database refuses a project a second running turn (`project_manager_turns_one_running`). At most two Project Manager
   turns run at once across projects, since they share the runner's eight slots with sessions and Elysia. A turn the
