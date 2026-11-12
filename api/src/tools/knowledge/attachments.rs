@@ -55,7 +55,7 @@ pub fn schema() -> Value {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Arguments {
+pub(super) struct Arguments {
     attachment_id: Uuid,
 }
 
