@@ -353,7 +353,7 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
     .expect("the run starts");
     // And a meeting it looks like, the same person's, decided already, asked about by an item.
     let (same_as, _) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
-    let asked = action_item::create(
+    let duplicate_item = action_item::create(
         &mut connection,
         NewActionItem {
             title: "Same meeting as Launch sync?".to_owned(),
@@ -376,7 +376,7 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
             id: Uuid::now_v7(),
             meeting_id,
             same_as_id: same_as.meeting_id,
-            action_item_id: Some(asked.record.id),
+            action_item_id: Some(duplicate_item.record.id),
             created_by: TEST_PERSON_ID,
         },
     )
@@ -563,7 +563,10 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                 let (status, body) = ask(
                     &state,
                     Method::GET,
-                    &format!("/api/v1/meetings/duplicates?itemId={}", asked.record.id),
+                    &format!(
+                        "/api/v1/meetings/duplicates?itemId={}",
+                        duplicate_item.record.id
+                    ),
                     None,
                     None,
                 )

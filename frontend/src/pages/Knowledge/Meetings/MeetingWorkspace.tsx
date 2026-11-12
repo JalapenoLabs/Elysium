@@ -125,6 +125,8 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
+    // Only a merge can take from the page a change it made itself: a reader who may not edit
+    // makes none here, so has none of their own to undo.
     isReadOnly: isMergedAway,
     applyChange: props.applyChange,
     reload: props.reload,

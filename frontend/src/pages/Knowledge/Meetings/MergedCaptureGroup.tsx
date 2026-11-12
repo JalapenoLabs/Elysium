@@ -30,8 +30,9 @@ type Props = {
 // same meeting twice, Splitting).
 export function MergedCaptureGroup(props: Props) {
   const { t } = useTranslation('meetings')
-  const label = props.from.title
-    ? t('review.captures.from', { title: props.from.title })
+  const { title } = props.from
+  const label = title
+    ? t('review.captures.from', { title })
     : t('review.captures.fromUntitled')
 
   // Split out is disabled while a capture of it was moved by hand, and while another group splits.
@@ -57,11 +58,15 @@ export function MergedCaptureGroup(props: Props) {
   // tooltip's trigger wraps it, as `PageSaveButton` does; the trigger is a tab stop of its own, so it
   // is there only then. A reader who may not split it out reads where its captures came from alone.
   return <section aria-label={label} className='rounded-lg border border-border p-2'>
-    <p className='compact text-xs'>
-      <Link href={getMeetingUrl(props.from.meetingId)} className='text-link'>
-        <span className='break-words'>{label}</span>
-      </Link>
-    </p>
+    <p className='compact text-xs'>{
+      // A meeting the reader may not read is named as another meeting and links nowhere, since its
+      // page would answer them 404.
+      title === null
+        ? <span className='break-words'>{label}</span>
+        : <Link href={getMeetingUrl(props.from.meetingId)} className='text-link'>
+          <span className='break-words'>{label}</span>
+        </Link>
+    }</p>
     {props.children}
     {button && <div className='mt-2 flex justify-end'>{
       isButtonDisabled

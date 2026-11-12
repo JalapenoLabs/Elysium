@@ -196,4 +196,15 @@ describe('MeetingCaptures', () => {
     expect(screen.queryByRole('button', { name: 'Move on the meeting\'s clock' })).toBeNull()
     expect(screen.queryByText('Split out')).toBeNull()
   })
+
+  it<Context>('names a meeting merged in that its reader may not read as another, linking nowhere', (context) => {
+    renderCaptures(context, [
+      capture('teams'),
+      capture('fireflies', { sourceKind: 'fireflies', mergedFrom: { meetingId: 'private-meeting', title: null }}),
+    ])
+
+    const merged = screen.getByRole('region', { name: 'From another meeting' })
+    expect(within(merged).queryByRole('link')).toBeNull()
+    expect(within(merged).getAllByRole('listitem')).toHaveLength(1)
+  })
 })

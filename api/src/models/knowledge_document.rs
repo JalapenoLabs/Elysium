@@ -443,27 +443,6 @@ pub async fn get(
     let Some(row) = row else {
         return Ok(None);
     };
-    if let Some(meeting_id) = row.meeting_id
-        && meeting::readable_among(connection, &[meeting_id], reader)
-            .await?
-            .is_empty()
-    {
-        return Ok(None);
-    }
-
-    let passages: Vec<Passage> = knowledge_passages::table
-        .filter(knowledge_passages::document_id.eq(row.id))
-        .select((knowledge_passages::position, knowledge_passages::content))
-        .order(knowledge_passages::position.asc())
-        .load(connection)
-        .await?;
-
-    let projects = projects_of(connection, &row).await?;
-
-    let labels = match row.page_id {
-        Some(page_id) => page_label::of_page(connection, page_id).await?,
-        None => Vec::new(),
-    };
 
     // Through `knowledge_documents_copies`, so copies are found however large the index grows.
     // Two pages saying the same thing are two pages, so only records have copies.
@@ -486,11 +465,31 @@ pub async fn get(
         .load(connection)
         .await?;
 
-    let copy_meetings: Vec<Uuid> = copies
+    // The meetings of the document and of its copies, asked in one query.
+    let mut meeting_ids: Vec<Uuid> = copies
         .iter()
         .filter_map(|(_document_id, _person_id, _name, meeting_id)| *meeting_id)
         .collect();
-    let readable = meeting::readable_among(connection, &copy_meetings, reader).await?;
+    meeting_ids.extend(row.meeting_id);
+    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
+    let reads = |meeting_id: Option<Uuid>| meeting_id.is_none_or(|id| readable.contains(&id));
+    if !reads(row.meeting_id) {
+        return Ok(None);
+    }
+
+    let passages: Vec<Passage> = knowledge_passages::table
+        .filter(knowledge_passages::document_id.eq(row.id))
+        .select((knowledge_passages::position, knowledge_passages::content))
+        .order(knowledge_passages::position.asc())
+        .load(connection)
+        .await?;
+
+    let projects = projects_of(connection, &row).await?;
+
+    let labels = match row.page_id {
+        Some(page_id) => page_label::of_page(connection, page_id).await?,
+        None => Vec::new(),
+    };
 
     let origin = row.page_id.map_or(Origin::TimelineRecord, |page_id| {
         origin_of_page(page_id, &row.source)
@@ -516,9 +515,7 @@ pub async fn get(
         labels,
         also_recorded_by: copies
             .into_iter()
-            .filter(|(_document_id, _person_id, _name, meeting_id)| {
-                meeting_id.is_none_or(|meeting_id| readable.contains(&meeting_id))
-            })
+            .filter(|(_document_id, _person_id, _name, meeting_id)| reads(*meeting_id))
             .map(|(document_id, person_id, name, _meeting_id)| Copy {
                 document_id,
                 person: Person {

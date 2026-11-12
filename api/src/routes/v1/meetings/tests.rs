@@ -668,6 +668,56 @@ async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in()
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_merged_capture_names_its_meeting_only_to_whoever_may_read_it() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let MergedPair {
+        kept_id, merged_id, ..
+    } = merged_pair(&mut connection).await;
+
+    // A member who reads the kept meeting, open, but not the one merged away, private, is told
+    // its captures came from another meeting, never its title, which can be what made it private.
+    for (id, visibility) in [(kept_id, "public"), (merged_id, "private")] {
+        execute(
+            &mut connection,
+            format!(
+                "UPDATE meetings SET visibility = '{visibility}', created_by = '{SYSTEM_USER_ID}' \
+                 WHERE id = '{id}'"
+            ),
+        )
+        .await;
+    }
+    execute(
+        &mut connection,
+        format!("UPDATE users SET role = 'member' WHERE id = '{TEST_PERSON_ID}'"),
+    )
+    .await;
+    let words_path = format!("/api/v1/meetings/{kept_id}/words");
+    let (status, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(
+        read["captures"][1]["mergedFrom"],
+        json!({ "meetingId": merged_id, "title": null })
+    );
+
+    // Shared with them, it is named.
+    execute(
+        &mut connection,
+        format!(
+            "INSERT INTO meeting_shares (meeting_id, person_id, created_by) \
+             VALUES ('{merged_id}', '{TEST_PERSON_ID}', '{SYSTEM_USER_ID}')"
+        ),
+    )
+    .await;
+    let (_, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(
+        read["captures"][1]["mergedFrom"]["title"],
+        "Weekly sync, recorded twice"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meeting_kept() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;

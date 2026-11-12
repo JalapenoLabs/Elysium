@@ -155,7 +155,8 @@ export type MeetingCapture = {
   // Splitting it out makes that meeting its own again, with every capture the merge brought.
   mergedFrom: {
     meetingId: string
-    title: string
+    // Null for a reader who may not read that meeting, whom its page answers 404.
+    title: string | null
   } | null
 }
 

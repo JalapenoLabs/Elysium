@@ -232,8 +232,9 @@ new meeting is private to its owner until its correction reads it and decides.
 - **One rule, in one place.** Who may read a meeting is `readable_by` (`models::meeting`), the one statement of it,
   which finding a meeting (`find_readable`), listing them (`list_readable`), and telling which of some meetings a
   reader may read (`readable_among`) all filter by; the knowledge index's SQL asks its twin (`readable_meeting_sql`,
-  below), which a test holds to the same answers. What a reader may do with one is `crate::meetings::access`: every route asks `open` for the
-  meeting it names with what it needs, never checking an owner itself.
+  below), which a test holds to the same answers. What a reader may do with one is `crate::meetings::access`:
+  every route asks `open` for the meeting it names with what it needs, never checking an owner itself. A capture
+  merged in names the meeting it came from only to a reader who may read that meeting.
 
 | Need     | Who                                            | For                                                    |
 |----------|------------------------------------------------|--------------------------------------------------------|
@@ -1106,10 +1107,11 @@ segment's clip for its record's owner.
     opens its start in place as seconds into the meeting, in tenths, below zero for one that started early, applied
     with Enter or Move and left with Esc or Cancel; Enter is the browser's own submit from the field, after the field
     has taken the number typed. The captures a merge brought in (`mergedFrom`) are boxed under a link to the meeting
-    they came from, with Split out, for its owner and admins, which moves all of them back (`groupCaptures`); it
-    waits, saying why, while one of them was moved by hand since, as the API would refuse it. Moving and splitting act
-    at once with Undo in their toast and join what Ctrl+Z undoes; each lines the transcript up again, so the page reads
-    it again on the meeting's announcement rather than applying a change.
+    they came from, or under "From another meeting", unlinked, for a reader who may not read it, with Split out, for
+    its owner and admins, which moves all of them back (`groupCaptures`); it waits, saying why, while one of them was
+    moved by hand since, as the API would refuse it. Moving and splitting act at once with Undo in their toast and
+    join what Ctrl+Z undoes; each lines the transcript up again, so the page reads it again on the meeting's
+    announcement rather than applying a change.
   - **A meeting merged away** opens as its own page, saying its recordings are in the meeting it went into, named and
     linked (`MergedIntoNotice`), which is where they are split out. The page reads as the meeting stood, read only: its
     words select and copy, but the bar offers no Edit or Comment, E and C do nothing, its threads read without a reply,
