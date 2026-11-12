@@ -126,7 +126,9 @@ pub const fn need_to_undo(kind: Option<EventKind>) -> Need {
             | EventKind::CorrectionApproved
             | EventKind::CaptureAdded
             | EventKind::Segmented
-            | EventKind::ReviewDone,
+            | EventKind::ReviewDone
+            | EventKind::Attached
+            | EventKind::Detached,
         )
         | None => Need::Edit,
     }

@@ -243,6 +243,11 @@ pub enum TurnMode {
     /// and nothing kept to resume. An agent's configuration must not steer it, and a session
     /// nobody resumes would only fill the transcripts directory.
     Text { system_prompt: String },
+    /// A text turn, as [`Self::Text`], that may also hand work to subagents with Claude Code's
+    /// Task tool, its one built-in tool: for an answer that needs much looked at first, such as
+    /// segmenting a meeting whose video's stills it judges through the request's MCP servers.
+    /// Its subagents reach only those servers, as it does.
+    TextWithSubagents { system_prompt: String },
     /// A text turn whose session is kept, so the next turn of the same conversation resumes it
     /// (`TurnRequest::resume`): no built-in tools, no settings or MCP servers beyond the request's
     /// own, `system_prompt` in place of Claude Code's, as for [`Self::Text`]. For an agent that

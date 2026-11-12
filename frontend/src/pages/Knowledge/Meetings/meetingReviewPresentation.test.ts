@@ -71,6 +71,26 @@ describe('describeHistory', () => {
     expect([ settled.sentence, settled.canUndo ]).toEqual([ 'settled', false ])
   })
 
+  it('names a file attached or taken off, and reads a pin as pinning rather than a mark', () => {
+    const rows = describeHistory([
+      entry('putBack', 'attached', { attachmentKind: 'file', fileName: 'Roadmap.pdf' }, 'detached'),
+      entry('detached', 'detached', { attachmentKind: 'file', fileName: 'Roadmap.pdf' }),
+      entry('frame', 'attached', { attachmentKind: 'frame', fileName: 'Frame at 12m04s.webp' }),
+      entry('unpinned', 'unmarked', { kind: 'pin' }),
+      entry('pinned', 'marked', { kind: 'pin' }),
+      entry('excerpt', 'marked', { kind: 'excerpt' }),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.sentence, row.after, row.markKind, row.canUndo ])).toEqual([
+      [ 'attachedFile', 'Roadmap.pdf', null, true ],
+      [ 'detachedFile', 'Roadmap.pdf', null, false ],
+      [ 'attachedFrame', 'Frame at 12m04s.webp', null, true ],
+      [ 'unpinned', null, null, true ],
+      [ 'pinned', null, null, true ],
+      [ 'marked', null, 'excerpt', true ],
+    ])
+  })
+
   it('says when a recording was moved on the clock, and when that was undone', () => {
     const rows = describeHistory([
       entry('back', 'offset_changed', { captureId: 'capture' }, 'moved'),

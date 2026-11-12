@@ -37,6 +37,8 @@
 pub mod access;
 pub mod align;
 pub mod alignment;
+pub mod attachment_workflow;
+pub mod attachments;
 pub mod clock;
 pub mod comments;
 pub mod conversation;
@@ -49,6 +51,7 @@ pub mod final_transcript;
 pub mod fireflies;
 pub mod fireflies_browser;
 pub mod fixes;
+pub mod frames;
 pub mod history;
 pub mod media;
 pub mod review;
@@ -459,16 +462,38 @@ impl Meetings {
         }
     }
 
-    /// Removes the parts of finished uploads that no longer need them: each whose capture was
-    /// stored, whose fetch could not remove them, and each finished before `before` whose meeting's
-    /// run settled without storing it, such as one whose fetch a person skipped. A fetch that failed
-    /// and waits for its retry keeps its parts. Each removal is recorded, so it happens once.
+    /// Removes the parts of finished uploads that no longer need them: each whose capture or
+    /// attached file was stored, whose step could not remove them, and each finished before
+    /// `before` whose run settled without storing it, such as one whose fetch a person skipped. A
+    /// step that failed and waits for its retry keeps its parts. Each removal is recorded, so it
+    /// happens once.
     async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
         let finished = match self.connection().await {
+            // One batch a pass in all: captures' uploads first, then attachments' in the room left.
             Ok(mut connection) => {
-                meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
-                    .await
-                    .map_err(anyhow::Error::from)
+                match meeting_upload::finished_with_parts(
+                    &mut connection,
+                    before,
+                    UPLOAD_SWEEP_BATCH,
+                )
+                .await
+                {
+                    Ok(mut finished) => {
+                        let taken = i64::try_from(finished.len()).unwrap_or(UPLOAD_SWEEP_BATCH);
+                        meeting_upload::finished_attachments_with_parts(
+                            &mut connection,
+                            before,
+                            UPLOAD_SWEEP_BATCH - taken,
+                        )
+                        .await
+                        .map(|attachments| {
+                            finished.extend(attachments);
+                            finished
+                        })
+                        .map_err(anyhow::Error::from)
+                    }
+                    Err(error) => Err(error.into()),
+                }
             }
             Err(error) => Err(error),
         };

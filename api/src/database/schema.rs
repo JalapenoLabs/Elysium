@@ -1159,6 +1159,33 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_attachments (id) {
+        id -> Uuid,
+        meeting_id -> Uuid,
+        kind -> Text,
+        storage_location_id -> Uuid,
+        storage_path -> Nullable<Text>,
+        stored_at -> Nullable<Timestamptz>,
+        file_name -> Text,
+        content_type -> Text,
+        size_bytes -> Int8,
+        capture_id -> Nullable<Uuid>,
+        capture_ms -> Nullable<Int8>,
+        caption -> Nullable<Text>,
+        fingerprint -> Nullable<Bytea>,
+        text -> Nullable<Text>,
+        text_state -> Text,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+        removed_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_captures (id) {
         id -> Uuid,
         meeting_id -> Uuid,
@@ -1337,6 +1364,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        attachment_id -> Nullable<Uuid>,
     }
 }
 
@@ -2155,6 +2183,7 @@ diesel::table! {
         worker_pool_size -> Nullable<Int4>,
         page_attachment_storage_location_id -> Nullable<Uuid>,
         agent_configuration_github_credential_id -> Nullable<Uuid>,
+        meeting_attachment_max_bytes -> Int8,
     }
 }
 
@@ -2258,6 +2287,11 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
+diesel::joinable!(meeting_attachments -> meeting_captures (capture_id));
+diesel::joinable!(meeting_attachments -> meeting_events (removed_by));
+diesel::joinable!(meeting_attachments -> meetings (meeting_id));
+diesel::joinable!(meeting_attachments -> storage_locations (storage_location_id));
+diesel::joinable!(meeting_attachments -> users (created_by));
 diesel::joinable!(meeting_captures -> connectors (connector_id));
 diesel::joinable!(meeting_captures -> meetings (meeting_id));
 diesel::joinable!(meeting_captures -> storage_locations (storage_location_id));
@@ -2280,6 +2314,7 @@ diesel::joinable!(meeting_thread_items -> action_items (action_item_id));
 diesel::joinable!(meeting_thread_items -> meeting_marks (mark_id));
 diesel::joinable!(meeting_transcriptions -> meeting_captures (capture_id));
 diesel::joinable!(meeting_upload_files -> meeting_uploads (upload_id));
+diesel::joinable!(meeting_uploads -> meeting_attachments (attachment_id));
 diesel::joinable!(meeting_uploads -> meeting_captures (capture_id));
 diesel::joinable!(meeting_uploads -> meetings (meeting_id));
 diesel::joinable!(meeting_uploads -> storage_locations (storage_location_id));
@@ -2442,6 +2477,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_accounts,
     mail_domains,
     mail_servers,
+    meeting_attachments,
     meeting_captures,
     meeting_comment_mentions,
     meeting_comments,

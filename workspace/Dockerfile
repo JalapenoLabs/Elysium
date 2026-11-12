@@ -19,11 +19,14 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # ffmpeg: Elysium cuts meeting recordings into segment clips here (api/src/meetings/media.rs),
-# and agents use it for their own audio and video work. See docs/meetings.md.
+# takes stills of their video for segmenting, and agents use it for their own audio and video
+# work. poppler-utils' pdftotext reads the text of PDFs attached to meetings
+# (api/src/meetings/attachment_workflow.rs). See docs/meetings.md.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg \
+  && apt-get install -y --no-install-recommends ffmpeg poppler-utils \
   && rm -rf /var/lib/apt/lists/* \
-  && ffmpeg -version | head -n 1
+  && ffmpeg -version | head -n 1 \
+  && command -v pdftotext
 
 # Node is the web app's (frontend/.nvmrc), from nodejs.org, checked against its published sum.
 # The Workspace image check fails when the two drift.

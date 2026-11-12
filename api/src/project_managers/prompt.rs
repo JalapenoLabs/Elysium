@@ -138,6 +138,9 @@ pub struct PromptRecord {
     pub confidence: f32,
     /// Whether a person put it on the project, rather than Elysia's reading.
     pub attributed_by_person: bool,
+    /// What is pinned in a meeting's excerpt, a line each (`crate::meetings::attachments`): the
+    /// files and frames that travel with it.
+    pub pinned: Vec<String>,
 }
 
 /// A batch of its that finished.
@@ -580,6 +583,13 @@ fn render_record(prompt: &mut String, record: &PromptRecord) {
         };
         let _ = writeln!(prompt, "  {}{more}", excerpt.replace('\n', "\n  "));
     }
+    if !record.pinned.is_empty() {
+        let _ = writeln!(
+            prompt,
+            "  Pinned in it: {}. Open one with meeting_attachment_get.",
+            record.pinned.join("; ")
+        );
+    }
 }
 
 fn render_promise(prompt: &mut String, promise: &PromptPromise) {
@@ -732,6 +742,7 @@ mod tests {
             body: "[0:01] Ada: Can we show annual pricing?".to_owned(),
             confidence: 0.82,
             attributed_by_person: false,
+            pinned: Vec::new(),
         }
     }
 
@@ -1033,6 +1044,23 @@ mod tests {
         let prompt = render(&woken, now());
         assert!(prompt.contains("did not finish"));
         assert!(prompt.contains("3 more change(s) wait for your next turn"));
+    }
+
+    #[test]
+    fn what_is_pinned_in_an_excerpt_is_named_with_how_to_open_it() {
+        let mut woken = context();
+        let mut pinned = segment();
+        pinned.pinned = vec!["the frame \"The pricing table\" (attachment 7)".to_owned()];
+        woken.records.push(pinned);
+        let prompt = render(&woken, now());
+
+        assert!(prompt.contains(
+            "Pinned in it: the frame \"The pricing table\" (attachment 7). Open one with \
+             meeting_attachment_get."
+        ));
+        let mut bare = context();
+        bare.records.push(segment());
+        assert!(!render(&bare, now()).contains("Pinned in it"));
     }
 
     #[test]

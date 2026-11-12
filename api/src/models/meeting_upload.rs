@@ -20,10 +20,10 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::{
-    meeting_captures, meeting_upload_files, meeting_uploads, workflow_runs,
+    meeting_attachments, meeting_captures, meeting_upload_files, meeting_uploads, workflow_runs,
 };
 use crate::meeting_uploads::FileKind;
-use crate::meetings::workflow;
+use crate::meetings::{attachment_workflow, workflow};
 use crate::models::workflow_run::WorkflowRunState;
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -48,6 +48,8 @@ pub struct MeetingUpload {
     pub updated_at: DateTime<Utc>,
     /// When its staged parts were removed from the workspace; `None` while they may be there.
     pub parts_removed_at: Option<DateTime<Utc>>,
+    /// The attachment it became, once an upload of a file attached to its meeting finished.
+    pub attachment_id: Option<Uuid>,
 }
 
 impl MeetingUpload {
@@ -357,6 +359,28 @@ pub async fn record_finished(
         .optional()
 }
 
+/// Marks unfinished upload `id` finished as attachment `attachment_id`. Answers `None`, changing
+/// nothing, when it finished already.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_attached(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    attachment_id: Uuid,
+) -> QueryResult<Option<MeetingUpload>> {
+    diesel::update(meeting_uploads::table.find(id))
+        .filter(meeting_uploads::finished_at.is_null())
+        .set((
+            meeting_uploads::attachment_id.eq(Some(attachment_id)),
+            meeting_uploads::finished_at.eq(Some(Utc::now())),
+        ))
+        .returning(MeetingUpload::as_returning())
+        .get_result(connection)
+        .await
+        .optional()
+}
+
 /// Deletes `owner`'s unfinished upload `id` and its files' rows. Answers whether there was one.
 ///
 /// # Errors
@@ -410,6 +434,46 @@ pub async fn finished_with_parts(
                 .or(meeting_uploads::finished_at
                     .lt(before)
                     .and(not(exists(live_meeting_run)))),
+        )
+        .order(meeting_uploads::finished_at.asc())
+        .limit(limit)
+        .select(meeting_uploads::id)
+        .load(connection)
+        .await
+}
+
+/// The finished uploads of attached files whose parts may still be in the workspace and are no
+/// longer needed: those whose file was stored, whose store could not remove them, and any finished
+/// before `before` whose attachment's run settled without storing it, such as one a person
+/// skipped. A run still going, or failed and waiting for a person to retry its store, keeps the
+/// parts it reads. At most `limit`, oldest first.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn finished_attachments_with_parts(
+    connection: &mut AsyncPgConnection,
+    before: DateTime<Utc>,
+    limit: i64,
+) -> QueryResult<Vec<Uuid>> {
+    let live_attachment_run = workflow_runs::table
+        .filter(workflow_runs::workflow.eq(attachment_workflow::NAME))
+        .filter(workflow_runs::source_kind.eq(attachment_workflow::SOURCE_KIND))
+        .filter(workflow_runs::source_id.eq(sql::<Text>("meeting_attachments.id::text")))
+        .filter(workflow_runs::state.ne(WorkflowRunState::Succeeded));
+    meeting_uploads::table
+        .inner_join(
+            meeting_attachments::table.on(meeting_attachments::id
+                .nullable()
+                .eq(meeting_uploads::attachment_id)),
+        )
+        .filter(meeting_uploads::finished_at.is_not_null())
+        .filter(meeting_uploads::parts_removed_at.is_null())
+        .filter(
+            meeting_attachments::stored_at
+                .is_not_null()
+                .or(meeting_uploads::finished_at
+                    .lt(before)
+                    .and(not(exists(live_attachment_run)))),
         )
         .order(meeting_uploads::finished_at.asc())
         .limit(limit)

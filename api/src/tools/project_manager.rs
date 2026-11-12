@@ -28,6 +28,7 @@ use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
 use crate::findings::{self, FindingError, Report};
+use crate::meetings::attachments;
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
 use crate::models::finding::Reporter;
 use crate::models::page_project;
@@ -85,7 +86,9 @@ const TOOLS: [Tool; 13] = [
     },
     Tool {
         name: "manager_record",
-        description: "Reads one record on this project's timeline in full.",
+        description: "Reads one record on this project's timeline in full, with the files and \
+            frames pinned in it when it is a meeting's excerpt, each opened with \
+            meeting_attachment_get.",
         input_schema: record_schema,
         run: |context, scope, arguments| run_record(context, scope, arguments).boxed(),
     },
@@ -649,6 +652,10 @@ async fn run_record(
     };
     let mut view = record_view(record, attribution, RECORD_MAX_CHARACTERS);
     view["url"] = json!(record.url);
+    let pinned = attachments::pinned_in(&mut connection, record)
+        .await
+        .map_err(|error| internal(scope, "manager.record.pinned", &error))?;
+    view["pinned"] = pinned.iter().map(attachments::agent_view).collect();
     Ok(json!({ "record": view }))
 }
 

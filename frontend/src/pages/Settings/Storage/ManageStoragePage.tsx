@@ -29,6 +29,7 @@ const DELETE_REFUSAL_KEYS = {
   backup_destination: 'delete.backupDestination',
   attachment_destination: 'delete.attachmentDestination',
   attachment_files: 'delete.attachmentFiles',
+  meeting_attachment_files: 'delete.meetingAttachmentFiles',
 } as const
 
 const deleteRefusalKeys: Record<string, typeof DELETE_REFUSAL_KEYS[keyof typeof DELETE_REFUSAL_KEYS] | undefined>

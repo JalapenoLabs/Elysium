@@ -1,14 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { MeetingAttachmentPolicy } from '../../../api/routes/meetingAttachmentRoutes'
 import type {
   MeetingChangeResponse,
   MeetingHistoryEntry,
   MeetingTranscriptChange,
+  TakeMeetingFrameRequest,
 } from '../../../api/routes/meetingRoutes'
 
 // Core
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { mutate } from 'swr'
 
@@ -21,9 +23,12 @@ import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
 import {
   assignMeetingExcerpt,
   blackOutMeetingWords,
+  detachMeetingAttachment,
   editMeetingWords,
+  meetingAttachmentsKey,
   meetingHistoryKey,
   meetingThreadsKey,
+  pinMeetingAttachment,
   removeMeetingMark,
   removeMeetingThread,
   replyInMeetingThread,
@@ -31,11 +36,17 @@ import {
   setMeetingThreadResolved,
   splitCapture,
   startMeetingThread,
+  takeMeetingFrame,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { createMeetingUpload, finishAttachmentUpload } from '../../../api/routes/meetingUploadRoutes'
 import { timelineKeyPrefix } from '../../../api/routes/timelineRoutes'
+import { formatBytes } from '../../../format/numbers'
 import { trackMeetingChange } from '../../../realtime/meetingChangeEchoes'
 import { toast } from '../../../toast/toast'
+import { sendMeetingFiles } from '../../MeetingUploads/sendMeetingFiles'
+import { uploadProgress } from '../../MeetingUploads/meetingUpload'
+import { refusalOf } from './meetingAttachments'
 
 // What a split refused says, by the API's code: the capture went back already, or a capture the
 // merge brought was moved by hand since, which splitting would overwrite.
@@ -43,6 +54,29 @@ const splitRefusalKeys = {
   capture_not_merged: 'review.captures.notMerged',
   meeting_changed: 'review.captures.movedSince',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
+
+// A file on its way to the meeting: its name, and the share of it that has arrived, 0 to 1.
+export type AttachingFile = {
+  key: string
+  name: string
+  progress: number
+}
+
+// What can be removed as a mark from a meeting's page, each with what its toast says.
+export type RemovableMarkKind = 'excerpt' | 'black_out' | 'pin'
+
+const removedKeys = {
+  excerpt: 'review.excerpts.removed',
+  black_out: 'review.blackOuts.removed',
+  pin: 'review.files.unpinned',
+} as const satisfies Record<RemovableMarkKind, ParseKeys<'meetings'>>
+
+// Why a file is not sent, in the person's words.
+const attachRefusalKeys = {
+  empty: 'review.files.refusedEmpty',
+  tooLarge: 'review.files.refusedTooLarge',
+  nowhere: 'review.files.refusedNowhere',
+} as const satisfies Record<'empty' | 'tooLarge' | 'nowhere', ParseKeys<'meetings'>>
 
 type Options = {
   meetingId: string
@@ -63,6 +97,7 @@ export function useMeetingChanges(options: Options) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const dispatch = useAppDispatch()
   const madeHere = useRef<string[]>([])
+  const [ attaching, setAttaching ] = useState<AttachingFile[]>([])
   // Read as Undo is pressed, not as it was offered: a toast's Undo keeps the function of the
   // render that showed it, which saw the meeting before it was merged away.
   const isReadOnly = useRef(options.isReadOnly)
@@ -77,6 +112,8 @@ export function useMeetingChanges(options: Options) {
     options.applyChange(response.change)
     void mutate(meetingHistoryKey(options.meetingId))
     void mutate(meetingThreadsKey(options.meetingId))
+    // A file or frame attached, taken off, or put back, by itself or by an undo.
+    void mutate(meetingAttachmentsKey(options.meetingId))
     // An excerpt made, removed, or put back is a record on its projects' timelines.
     if (typeof response.entry.data.recordId === 'string') {
       void mutate((key) => typeof key === 'string' && key.startsWith(timelineKeyPrefix))
@@ -279,13 +316,11 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
-  // Removes excerpt or black-out `markId`; its toast's Undo puts it back.
-  async function removeMark(markId: string, kind: 'excerpt' | 'black_out') {
+  // Removes excerpt, black-out, or pin `markId`; its toast's Undo puts it back.
+  async function removeMark(markId: string, kind: RemovableMarkKind) {
     try {
       const response = await trackMeetingChange(options.meetingId, removeMeetingMark(options.meetingId, markId))
-      made(response, kind === 'excerpt'
-        ? t('review.excerpts.removed')
-        : t('review.blackOuts.removed'))
+      made(response, t(removedKeys[kind]))
     }
     catch (error) {
       console.debug('useMeetingChanges could not remove a mark', { error, markId })
@@ -338,6 +373,132 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
+  // Pins `still`, the player's picture at a moment of a capture, as a frame with what it shows,
+  // over the words selected or, with none, the word being spoken then. Resolves whether it did.
+  async function takeFrame(request: TakeMeetingFrameRequest, still: Blob) {
+    try {
+      const response = await trackMeetingChange(
+        options.meetingId,
+        takeMeetingFrame(options.meetingId, request, still),
+      )
+      made(response, t('review.files.framePinned'))
+      return true
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not pin a frame', { error, captureId: request.captureId })
+      refusedOnWords(error)
+      return false
+    }
+  }
+
+  // Pins file or frame `attachmentId` over the words from `startWordId` to `endWordId`, such as an
+  // excerpt's, which then carries it to its projects.
+  async function pin(attachmentId: string, startWordId: string, endWordId: string) {
+    try {
+      const response = await trackMeetingChange(
+        options.meetingId,
+        pinMeetingAttachment(options.meetingId, { attachmentId, startWordId, endWordId }),
+      )
+      made(response, t('review.files.pinned'))
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not pin an attachment', { error, attachmentId })
+      refusedOnWords(error)
+    }
+  }
+
+  // Takes file or frame `attachmentId` off the meeting with its pins; its Undo puts both back.
+  async function detach(attachmentId: string, name: string) {
+    try {
+      const response = await trackMeetingChange(
+        options.meetingId,
+        detachMeetingAttachment(options.meetingId, attachmentId),
+      )
+      made(response, t('review.files.detached', { name }))
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not take an attachment off', { error, attachmentId })
+      if (getApiErrorCode(error) === 'meeting_attachment_removed') {
+        void mutate(meetingAttachmentsKey(options.meetingId))
+        return
+      }
+      refused(error)
+    }
+  }
+
+  // Attaches `files` to the meeting one after another, each in parts as a recording is sent, so a
+  // folder dropped at once sends one file at a time; each waits in the lane until its turn. A file
+  // the API would refuse is refused before any is sent. Each one's toast has Undo.
+  async function attachFiles(files: File[], policy: MeetingAttachmentPolicy) {
+    const startedAt = Date.now()
+    const queued: { file: File, key: string }[] = []
+    for (const [ index, file ] of files.entries()) {
+      const refusal = refusalOf(file, policy)
+      if (refusal) {
+        console.debug('useMeetingChanges refused a file before sending it', { name: file.name, refusal })
+        toast.danger(t('review.files.refused', { name: file.name }), {
+          description: t(attachRefusalKeys[refusal], { size: formatBytes(policy.maxBytes) }),
+        })
+        continue
+      }
+      queued.push({ file, key: `${file.name}-${startedAt}-${index}` })
+    }
+    setAttaching((current) => [
+      ...current,
+      ...queued.map(({ file, key }) => ({ key, name: file.name, progress: 0 })),
+    ])
+    for (const { file, key } of queued) {
+      // One at a time, by design: each file is a chain of parts.
+      await sendAttachment(file, key)
+    }
+  }
+
+  // Sends one queued file and attaches it, leaving the lane once it is attached or refused.
+  async function sendAttachment(file: File, key: string) {
+    const setProgress = (progress: number) => setAttaching((current) => current.map((attachingFile) => (
+      attachingFile.key === key
+        ? { ...attachingFile, progress }
+        : attachingFile
+    )))
+    try {
+      const created = await createMeetingUpload({
+        meetingId: options.meetingId,
+        attachment: {
+          name: file.name,
+          sizeBytes: file.size,
+          modifiedAt: new Date(file.lastModified).toISOString(),
+        },
+      })
+      const sent = await sendMeetingFiles({
+        upload: created.upload,
+        files: { attachment: file },
+        // Nothing stops a file on its way yet: it is attached whole or refused.
+        signal: new AbortController().signal,
+        onProgress: (upload) => {
+          const { received, total } = uploadProgress(upload)
+          setProgress(total
+            ? received / total
+            : 1)
+        },
+      })
+      const finished = await finishAttachmentUpload(sent.id)
+      void mutate(meetingAttachmentsKey(options.meetingId))
+      void mutate(meetingHistoryKey(options.meetingId))
+      if (finished.entry) {
+        remember(finished.entry, t('review.files.attached', { name: finished.attachment.fileName }))
+      }
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not attach a file', { error, name: file.name })
+      toast.danger(t('review.files.refused', { name: file.name }), {
+        description: getApiErrorMessage(error) ?? t('common:errors.unexpected'),
+      })
+    }
+    finally {
+      setAttaching((current) => current.filter((attachingFile) => attachingFile.key !== key))
+    }
+  }
+
   async function undoLast() {
     const last = madeHere.current.at(-1)
     if (!last) {
@@ -358,6 +519,11 @@ export function useMeetingChanges(options: Options) {
     removeMark,
     moveCapture,
     splitOut,
+    takeFrame,
+    pin,
+    detach,
+    attachFiles,
+    attaching,
     undo,
     undoLast,
   } as const

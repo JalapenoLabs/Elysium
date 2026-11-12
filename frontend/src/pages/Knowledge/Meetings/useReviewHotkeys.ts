@@ -67,6 +67,8 @@ type Handlers = {
   // flicks between playing and paused.
   onPlayPause: (isRepeat: boolean) => boolean
   onJump: (step: 1 | -1) => boolean
+  // Pins the picture the player shows now, as the bar's Pin a frame does.
+  onPinFrame: () => boolean
   onUndo: () => void
   // What Ctrl+C copies: the words selected, or null to leave copying to the browser.
   selectedText: () => string | null
@@ -97,8 +99,9 @@ function isOnPlayback(target: EventTarget | null) {
 
 // The keys of a meeting's page (docs/frontend.md, Hotkeys), outside a text field and while no
 // dialog or menu is open: Esc clears what is picked and Ctrl+Z (Cmd+Z) undoes the page's last
-// change; on the transcript or the player (`isOnPlayback`), Space plays and pauses and the left and
-// right arrows jump back and forward; and on the transcript alone (`isOnTranscript`), E edits the
+// change; on the transcript or the player (`isOnPlayback`), Space plays and pauses, the left and
+// right arrows jump back and forward, and F pins the picture the player shows; and on the transcript
+// alone (`isOnTranscript`), E edits the
 // words selected, C starts a comment thread on them, P assigns them to a project, B blacks them
 // out, Tab moves between the marks under the word clicked, and Ctrl+C copies the words selected.
 // They listen as the key travels down, so Esc is used here before the page's own Esc goes up a
@@ -133,6 +136,11 @@ export function useReviewHotkeys(handlers: Handlers) {
     }
     const step = jumpStepByKey[event.key]
     if (step && !event.shiftKey && !isWithin(event.target, MOVES_ON_ARROWS_SELECTOR) && handlers.onJump(step)) {
+      event.preventDefault()
+      return
+    }
+    // A frame is pinned from what the player shows, so F works wherever Space plays.
+    if (event.key.toLowerCase() === 'f' && !event.shiftKey && !event.repeat && handlers.onPinFrame()) {
       event.preventDefault()
       return
     }

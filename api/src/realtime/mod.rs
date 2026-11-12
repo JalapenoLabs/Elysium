@@ -167,6 +167,10 @@ pub enum ServerEvent {
     /// Nothing more: a guest hears every event and reaches no knowledge base; members load it again.
     #[serde(rename = "pageAttachments.changed")]
     PageAttachmentsChanged,
+    /// An admin chose the largest file a meeting takes. Nothing more: clients load the policy
+    /// again.
+    #[serde(rename = "meetingAttachments.changed")]
+    MeetingAttachmentsChanged,
     /// An admin saved or restored a version of the agent guidance. Nothing more: members load it
     /// again, and agents read it as their next session starts.
     #[serde(rename = "agentGuidance.changed")]

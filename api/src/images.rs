@@ -68,6 +68,115 @@ pub fn compress_cover(upload: &[u8]) -> Result<Vec<u8>, ImageError> {
         return Err(ImageError::TooLarge);
     }
 
+    let mut decoded = decode_bounded(upload)?;
+    if decoded.width() > COVER_MAX_WIDTH || decoded.height() > COVER_MAX_HEIGHT {
+        // `resize` keeps the aspect ratio and fits the image inside the box.
+        decoded = decoded.resize(COVER_MAX_WIDTH, COVER_MAX_HEIGHT, FilterType::Lanczos3);
+    }
+
+    encode_webp(&decoded)
+}
+
+/// The largest still of a meeting's video taken, in bytes: a 4K screen share as a lossless PNG,
+/// which is the most a browser's canvas makes of one frame.
+pub const MAX_FRAME_UPLOAD_BYTES: usize = 25_000_000;
+
+/// A frame is kept at most this size, which keeps every word of a shared slide or screen
+/// readable while a meeting's frames stay small: 1080p, the most a meeting app shares.
+const FRAME_MAX_WIDTH: u32 = 1920;
+const FRAME_MAX_HEIGHT: u32 = 1080;
+
+/// Lossy WebP quality for a frame, higher than a cover's: text on a slide must stay crisp, where
+/// a photo forgives more.
+const FRAME_QUALITY: f32 = 88.0;
+
+/// The grid a fingerprint is: the frame shrunk to 32 by 18 grey cells, each the mean brightness of
+/// a 60 pixel square of a 1080p frame. A line of a slide's text crosses a row of cells and moves
+/// each a good way; encoding a frame again, or taking it a moment later, moves every cell a little.
+pub const FINGERPRINT_COLUMNS: u32 = 32;
+pub const FINGERPRINT_ROWS: u32 = 18;
+
+/// How far a cell's brightness must move, of 255, to count as changed: 8%, well past what encoding
+/// a video twice leaves, well short of what text appearing in a cell does.
+const CELL_CHANGE: u8 = 20;
+
+/// How many cells two frames may differ in and still be one picture: a cursor that moved, a
+/// notification's corner. A slide with a line of text added changes a row of cells, and another
+/// slide or window most of them.
+pub const NEAR_DUPLICATE_CELLS: usize = 3;
+
+/// A still of a meeting's video as Elysium keeps it: lossy WebP from its pixels, at most
+/// [`FRAME_MAX_WIDTH`] by [`FRAME_MAX_HEIGHT`], and its fingerprint ([`fingerprint`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Frame {
+    pub webp: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub fingerprint: Vec<u8>,
+}
+
+/// Decodes a still taken from a meeting's video, a browser's canvas or `ffmpeg` having made it,
+/// and keeps it as a [`Frame`]: scaled to fit, re-encoded from its pixels, and fingerprinted.
+///
+/// CPU-bound: call it from a blocking task.
+///
+/// # Errors
+/// [`ImageError::TooLarge`] past [`MAX_FRAME_UPLOAD_BYTES`], [`ImageError::Unsupported`] for
+/// anything but a PNG, JPEG, WebP, or GIF image, [`ImageError::Undecodable`] for corrupt or
+/// oversized images, and [`ImageError::Encoding`] if WebP encoding fails.
+pub fn compress_frame(upload: &[u8]) -> Result<Frame, ImageError> {
+    if upload.len() > MAX_FRAME_UPLOAD_BYTES {
+        return Err(ImageError::TooLarge);
+    }
+    let mut decoded = decode_bounded(upload)?;
+    if decoded.width() > FRAME_MAX_WIDTH || decoded.height() > FRAME_MAX_HEIGHT {
+        decoded = decoded.resize(FRAME_MAX_WIDTH, FRAME_MAX_HEIGHT, FilterType::Lanczos3);
+    }
+    // A frame of a video is opaque: drawn on black, as the player shows it.
+    let opaque = DynamicImage::ImageRgb8(decoded.to_rgb8());
+    let webp = webp::Encoder::from_rgb(opaque.as_bytes(), opaque.width(), opaque.height())
+        .encode_simple(false, FRAME_QUALITY)
+        .map(|memory| memory.to_vec())
+        .map_err(|error| ImageError::Encoding(format!("{error:?}")))?;
+    Ok(Frame {
+        webp,
+        width: opaque.width(),
+        height: opaque.height(),
+        fingerprint: fingerprint(&opaque),
+    })
+}
+
+/// What `image` looks like at a glance: shrunk to a [`FINGERPRINT_COLUMNS`] by
+/// [`FINGERPRINT_ROWS`] grid of grey cells, row by row, one byte a cell. Two pictures of the same
+/// thing share it but for a little brightness everywhere, whatever their size or encoding.
+///
+/// A difference hash, a bit a cell for which way brightness runs, was the first thought and the
+/// wrong one: a slide's new line of text is a dark band across a row, and inside the band the
+/// brightness runs the way it ran before, so it moved four bits of 256.
+pub fn fingerprint(image: &DynamicImage) -> Vec<u8> {
+    image
+        .resize_exact(FINGERPRINT_COLUMNS, FINGERPRINT_ROWS, FilterType::Triangle)
+        .to_luma8()
+        .into_raw()
+}
+
+/// Whether two fingerprints are one picture: at most [`NEAR_DUPLICATE_CELLS`] of their cells moved
+/// more than [`CELL_CHANGE`]. Fingerprints of different sizes, which no build makes, never are.
+pub fn is_near_duplicate(first: &[u8], second: &[u8]) -> bool {
+    if first.len() != second.len() {
+        return false;
+    }
+    let changed = first
+        .iter()
+        .zip(second)
+        .filter(|(left, right)| left.abs_diff(**right) > CELL_CHANGE)
+        .count();
+    changed <= NEAR_DUPLICATE_CELLS
+}
+
+/// Decodes `upload` as one of [`ACCEPTED_FORMATS`], read from its bytes, within the dimension and
+/// memory bounds every upload is held to.
+fn decode_bounded(upload: &[u8]) -> Result<DynamicImage, ImageError> {
     let mut reader = ImageReader::new(Cursor::new(upload))
         .with_guessed_format()
         .map_err(|error| ImageError::Undecodable(error.to_string()))?;
@@ -77,22 +186,14 @@ pub fn compress_cover(upload: &[u8]) -> Result<Vec<u8>, ImageError> {
     {
         return Err(ImageError::Unsupported);
     }
-
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_DECODED_DIMENSION);
     limits.max_image_height = Some(MAX_DECODED_DIMENSION);
     limits.max_alloc = Some(MAX_DECODE_ALLOCATION);
     reader.limits(limits);
-
-    let mut decoded = reader
+    reader
         .decode()
-        .map_err(|error| ImageError::Undecodable(error.to_string()))?;
-    if decoded.width() > COVER_MAX_WIDTH || decoded.height() > COVER_MAX_HEIGHT {
-        // `resize` keeps the aspect ratio and fits the image inside the box.
-        decoded = decoded.resize(COVER_MAX_WIDTH, COVER_MAX_HEIGHT, FilterType::Lanczos3);
-    }
-
-    encode_webp(&decoded)
+        .map_err(|error| ImageError::Undecodable(error.to_string()))
 }
 
 fn encode_webp(image: &DynamicImage) -> Result<Vec<u8>, ImageError> {
@@ -174,6 +275,82 @@ mod tests {
         assert!(matches!(
             compress_cover(&truncated),
             Err(ImageError::Undecodable(_))
+        ));
+    }
+
+    /// A slide: a pale page with dark bars of "text" at each of `lines`, one bar a line.
+    fn slide(lines: &[u32]) -> RgbaImage {
+        let mut slide = RgbaImage::from_pixel(1280, 720, Rgba([240, 240, 235, 255]));
+        for line in lines {
+            for y in (100 + line * 60)..(130 + line * 60) {
+                for x in 120..1000 {
+                    slide.put_pixel(x, y, Rgba([20, 20, 40, 255]));
+                }
+            }
+        }
+        slide
+    }
+
+    /// nginx refuses a body past its own limit with a page of HTML, before the API can say why. Its
+    /// `m` is a mebibyte.
+    #[test]
+    fn nginx_lets_the_largest_frame_through() {
+        let locations = include_str!("../../nginx/locations.conf");
+        let (_before, block) = locations
+            .split_once("/frames$")
+            .expect("frames have a location of their own");
+        let megabytes: usize = block
+            .split_once("client_max_body_size ")
+            .and_then(|(_before, rest)| rest.split_once("m;"))
+            .and_then(|(limit, _after)| limit.parse().ok())
+            .expect("the location sets a limit in megabytes");
+
+        assert!(megabytes * 1024 * 1024 >= crate::routes::v1::meetings::MAX_FRAME_FORM_BYTES);
+    }
+
+    #[test]
+    fn a_frame_is_kept_as_webp_no_larger_than_1080p() {
+        let screen = RgbaImage::from_pixel(3840, 2160, Rgba([10, 60, 120, 255]));
+        let frame = compress_frame(&png(&screen)).expect("compresses");
+
+        assert_eq!((frame.width, frame.height), (1920, 1080));
+        assert_eq!(decode_webp(&frame.webp).dimensions(), (1920, 1080));
+        assert!(matches!(
+            compress_frame(b"<svg onload=alert(1)>"),
+            Err(ImageError::Unsupported)
+        ));
+    }
+
+    #[test]
+    fn the_same_picture_encoded_again_is_a_near_duplicate_and_a_new_line_is_not() {
+        let first = compress_frame(&png(&slide(&[0, 1, 2]))).expect("compresses");
+        // The same slide as a lossy WebP of a smaller size, as a second capture might send it.
+        let small =
+            DynamicImage::ImageRgba8(slide(&[0, 1, 2])).resize(640, 360, FilterType::Nearest);
+        let again = compress_frame(&encode_webp(&small).expect("encodes")).expect("compresses");
+        let added = compress_frame(&png(&slide(&[0, 1, 2, 3]))).expect("compresses");
+
+        assert!(is_near_duplicate(&first.fingerprint, &again.fingerprint));
+        assert!(!is_near_duplicate(&first.fingerprint, &added.fingerprint));
+        assert_eq!(
+            first.fingerprint.len(),
+            (FINGERPRINT_COLUMNS * FINGERPRINT_ROWS) as usize
+        );
+    }
+
+    #[test]
+    fn a_cursor_moving_across_a_slide_leaves_it_one_picture() {
+        let mut moved = slide(&[0, 1, 2]);
+        for y in 400..424 {
+            for x in 1100..1116 {
+                moved.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let first = compress_frame(&png(&slide(&[0, 1, 2]))).expect("compresses");
+        let with_cursor = compress_frame(&png(&moved)).expect("compresses");
+        assert!(is_near_duplicate(
+            &first.fingerprint,
+            &with_cursor.fingerprint
         ));
     }
 

@@ -29,6 +29,7 @@ use crate::database::schema::{meeting_marks, timeline_record_projects, timeline_
 use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::knowledge_document::{self, KnowledgeSource};
+use crate::models::meeting_attachment::{self, IndexedAttachment};
 use crate::models::meeting_comment;
 use crate::models::meeting_mark::MarkKind;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
@@ -313,13 +314,19 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
             return knowledge_document::remove(connection, &source).await;
         }
     }
-    let threads = match segment_span(record) {
+    let (threads, pinned) = match segment_span(record) {
         Some((meeting_id, start_ms, end_ms)) => {
-            meeting_comment::indexed_over(connection, meeting_id, start_ms, end_ms).await?
+            let threads =
+                meeting_comment::indexed_over(connection, meeting_id, start_ms, end_ms).await?;
+            let pinned =
+                meeting_attachment::pinned_over(connection, meeting_id, start_ms, end_ms).await?;
+            let pinned: Vec<IndexedAttachment> =
+                pinned.into_iter().map(IndexedAttachment::from).collect();
+            (threads, pinned)
         }
-        None => Vec::new(),
+        None => (Vec::new(), Vec::new()),
     };
-    let Some(document) = records::document(record, &threads) else {
+    let Some(document) = records::document(record, &threads, &pinned) else {
         return knowledge_document::remove(connection, &source).await;
     };
     knowledge_document::upsert(connection, &document)

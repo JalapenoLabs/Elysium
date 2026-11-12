@@ -165,14 +165,16 @@ impl AttemptCommand {
             argv.push("--append-system-prompt".to_owned());
             argv.push(append.clone());
         }
-        let (system_prompt, keeps_session) = match &self.mode {
+        let (system_prompt, keeps_session, built_in_tools) = match &self.mode {
             TurnMode::Agent => return argv,
-            TurnMode::Text { system_prompt } => (system_prompt, false),
-            TurnMode::ResumableText { system_prompt } => (system_prompt, true),
+            TurnMode::Text { system_prompt } => (system_prompt, false, ""),
+            TurnMode::ResumableText { system_prompt } => (system_prompt, true, ""),
+            // Task alone: subagents to look with, and nothing that reads or runs in the workspace.
+            TurnMode::TextWithSubagents { system_prompt } => (system_prompt, false, "Task"),
         };
         argv.extend([
-            // An empty list removes every built-in tool.
-            "--tools=".to_owned(),
+            // An empty list removes every built-in tool; a list keeps those alone.
+            format!("--tools={built_in_tools}"),
             // Only the request's own MCP servers, never ones from settings or plugins.
             "--strict-mcp-config".to_owned(),
             // No user, project, or local settings: the agents' configuration repository must
@@ -329,6 +331,28 @@ mod tests {
             .position(|argument| argument == "--system-prompt")
             .expect("--system-prompt");
         assert_eq!(argv[system_prompt + 1], "Summarize the log.");
+    }
+
+    /// Checked against the CLI on 2026-11-12 (Claude Code 2.1.322): with `--tools=Task` a text
+    /// turn's subagent called the turn's MCP image tool and read the still it answered.
+    #[test]
+    fn a_text_turn_with_subagents_keeps_task_alone_and_no_settings_or_session() {
+        let argv = AttemptCommand {
+            mode: TurnMode::TextWithSubagents {
+                system_prompt: "Segment the meeting.".to_owned(),
+            },
+            ..command()
+        }
+        .argv();
+        for flag in [
+            "--tools=Task",
+            "--strict-mcp-config",
+            "--setting-sources=",
+            "--no-session-persistence",
+        ] {
+            assert!(argv.contains(&flag.to_owned()), "{flag}");
+        }
+        assert!(!argv.contains(&"--tools=".to_owned()));
     }
 
     #[test]

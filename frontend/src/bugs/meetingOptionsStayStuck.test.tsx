@@ -49,6 +49,16 @@ function renderLane(isInDrawer: boolean) {
         onSelectThread={() => {}}
         composing={null}
         isInDrawer={isInDrawer}
+        files={{
+          attachments: [],
+          hasFailed: false,
+          policy: null,
+          attaching: [],
+          onAttach: null,
+          onDetach: null,
+          onSelectFrame: () => {},
+        }}
+        pinning={{ attachments: [], pins: [], onPin: null }}
       />
     </Provider>,
   }])

@@ -127,14 +127,17 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   that brings into the index what was stored before it was indexed on write (timeline records, and turn summaries not
   yet on the timeline) is a loop for the same reason (`docs/knowledge.md`, The backfill).
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and five production
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and six production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
 `align_meeting`, `correct_transcript`, and `segment_meeting`; `meeting_alignment`, one step, `align_meeting`, which
 aligns a meeting again once its captures change after its own run aligned it (a merge, a split); `request`
 (`api/src/conversations/workflow.rs`), which starts at
 segmenting, `segment_meeting` then `handle_request`; `assigned_issue` (`api/src/action_items/assigned/workflow.rs`),
 one step, `segment_meeting`, which attributes an issue that arrived assigned to its person to its projects (source
-`action_item`, `docs/action-items.md`, Projects and the lead); and `company_doc_review`
+`action_item`, `docs/action-items.md`, Projects and the lead); `meeting_attachment`
+(`api/src/meetings/attachment_workflow.rs`), on one file attached to a meeting (source `meeting_attachment`), whose
+steps are `store_attachment`, which streams its uploaded parts into storage, and `read_attachment_text`, which reads
+its text for search (`docs/meetings.md`, Attachments and frames); and `company_doc_review`
 (`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
@@ -301,6 +304,11 @@ the Runs page.
   takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
   (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation, Excerpts and black-outs, and
   Done reviewing.
+- Built: a meeting keeps the files it was about and the stills of its video that matter, each pinned to its words and
+  carried by the excerpts over them to their Project Managers and workers. A file a person attaches is a run of
+  `meeting_attachment`, which stores it and reads its text. Segmenting a meeting with video looks at the stills where
+  its screen changed most, through `elysium_meeting_frames`, handing them to subagents, and pins the ones that show
+  what was discussed, near duplicates dropped. See `docs/meetings.md`, Attachments and frames.
 
 ## Conversations
 
