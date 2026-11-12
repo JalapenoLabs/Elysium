@@ -26,6 +26,10 @@ use crate::models::meeting;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_word;
 
+/// How many marks one insert writes. Each mark binds ten parameters, and Postgres takes at most
+/// 65,535 in one statement.
+const INSERT_CHUNK: usize = 1_000;
+
 /// What a mark is. Stored as text, so a later kind needs no migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkKind {
@@ -412,6 +416,23 @@ pub(crate) async fn insert(connection: &mut AsyncPgConnection, new: NewMark) -> 
         .returning(Mark::as_returning())
         .get_result(connection)
         .await
+}
+
+/// Inserts `marks`, made together by one change, in as few statements as Postgres takes.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn insert_all(
+    connection: &mut AsyncPgConnection,
+    marks: Vec<NewMark>,
+) -> QueryResult<()> {
+    for chunk in marks.chunks(INSERT_CHUNK) {
+        diesel::insert_into(meeting_marks::table)
+            .values(chunk)
+            .execute(connection)
+            .await?;
+    }
+    Ok(())
 }
 
 /// The meeting's lock, or [`MarkError::NotFound`] when there is no such meeting.

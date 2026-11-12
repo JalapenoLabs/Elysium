@@ -85,6 +85,7 @@ describe('useMeetingChanges', () => {
     vi.mocked(setCaptureOffset).mockReset()
     vi.mocked(splitCapture).mockReset()
     vi.mocked(undoMeetingChange).mockReset()
+    vi.mocked(toast).mockReset()
     vi.mocked(toast.success).mockReset()
     vi.mocked(toast.warning).mockReset()
     vi.mocked(toast.danger).mockReset()

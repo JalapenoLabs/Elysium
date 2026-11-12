@@ -46,6 +46,7 @@ export const historySentenceKeys = {
   builtFromCorrection: 'review.history.sentences.builtFromCorrection',
   builtFromSource: 'review.history.sentences.builtFromSource',
   builtFromWhisper: 'review.history.sentences.builtFromWhisper',
+  settled: 'review.history.sentences.settled',
   edited: 'review.history.sentences.edited',
   undidEdit: 'review.history.sentences.undidEdit',
   marked: 'review.history.sentences.marked',
@@ -120,7 +121,7 @@ const movedSentences = {
 } as const satisfies Record<'merged' | 'split', Record<'kept' | 'away', HistorySentence>>
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
-// build reads.
+// build reads. A build from a corrected copy's lines says `correction`.
 const builtSentences = [
   [ 'correction', 'builtFromCorrection' ],
   [ 'source', 'builtFromSource' ],
@@ -183,6 +184,10 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
       case 'built':
         row.sentence = builtSentences.find(([ builtFrom ]) => builtFrom === entry.data.builtFrom)?.[1]
           ?? 'changed'
+        return row
+      case 'settled':
+        // Its correction settled the transcript, flagging what it was unsure of.
+        row.sentence = 'settled'
         return row
       case 'edited':
         // An undo of an edit is an edit back: its before is the edit's after.

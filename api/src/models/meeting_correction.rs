@@ -39,8 +39,8 @@ impl BasedOn {
 }
 
 /// A corrected copy as its readers read it. What it was made from (the hashes of the
-/// transcripts it read) and its fixes are written with it and read by queries of their own
-/// ([`recent_fixes`]).
+/// transcripts it read) and its fixes are written with it, as the record of what it read and
+/// changed.
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = meeting_corrections, check_for_backend(diesel::pg::Pg))]
 pub struct MeetingCorrection {
@@ -189,36 +189,6 @@ pub async fn meetings_reviewed_by(
 }
 
 #[derive(Debug, QueryableByName)]
-struct FixesRow {
-    #[diesel(sql_type = diesel::sql_types::Jsonb)]
-    fixes: Value,
-}
-
-/// The fixes of the newest `limit` corrections of meetings other than `meeting_id`, approved
-/// ones first, each correction's as stored: what a correction learns from the company's other
-/// meetings.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn recent_fixes(
-    connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
-    limit: i32,
-) -> QueryResult<Vec<Value>> {
-    let rows: Vec<FixesRow> = diesel::sql_query(
-        "SELECT fixes FROM meeting_corrections \
-         WHERE meeting_id <> $1 AND changed_lines > 0 \
-         ORDER BY approved_at IS NULL, created_at DESC \
-         LIMIT $2",
-    )
-    .bind::<SqlUuid, _>(meeting_id)
-    .bind::<Integer, _>(limit)
-    .load(connection)
-    .await?;
-    Ok(rows.into_iter().map(|row| row.fixes).collect())
-}
-
-#[derive(Debug, QueryableByName)]
 struct SpeakerRow {
     #[diesel(sql_type = Text)]
     speaker: String,
@@ -269,7 +239,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_correction_learns_other_meetings_fixes_and_speakers_but_not_its_own() {
+    async fn a_correction_reads_other_meetings_speakers_but_not_its_own() {
         let (_url, mut connection) = migrated_database().await;
         let line =
             |speaker: &str| json!({ "startMs": 0, "endMs": 1, "speaker": speaker, "text": "Hi" });
@@ -284,43 +254,19 @@ mod tests {
         )
         .await;
         let current = stored(&mut connection, json!([line("Someone Else")])).await;
-        let fixes = json!([{ "heard": "Ely see um", "written": "Elysium" }]);
-        record(
-            &mut connection,
-            NewMeetingCorrection {
-                meeting_id: earlier.id,
-                transcript: json!([]),
-                transcript_hash: "a".repeat(64),
-                based_on: BasedOn::Source.as_str().to_owned(),
-                source_transcript_hash: "b".repeat(64),
-                whisper_transcript_hash: None,
-                changed_lines: 1,
-                fixes: fixes.clone(),
-            },
-        )
-        .await
-        .expect("records")
-        .expect("new");
 
-        assert_eq!(
-            recent_fixes(&mut connection, current.id, 30)
-                .await
-                .expect("reads"),
-            vec![fixes]
-        );
-        assert_eq!(
-            recent_fixes(&mut connection, earlier.id, 30)
-                .await
-                .expect("reads"),
-            Vec::<Value>::new(),
-            "a meeting learns nothing from its own correction"
-        );
         assert_eq!(
             recent_speakers(&mut connection, current.id, 30, 10)
                 .await
                 .expect("reads"),
             vec!["Priya Raman".to_owned(), "Jon Smith".to_owned()],
             "most often heard first, unnamed speakers left out, its own meeting's too"
+        );
+        assert!(
+            !recent_speakers(&mut connection, earlier.id, 30, 10)
+                .await
+                .expect("reads")
+                .contains(&"Priya Raman".to_owned())
         );
     }
 }

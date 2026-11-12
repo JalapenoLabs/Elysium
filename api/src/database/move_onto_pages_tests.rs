@@ -801,17 +801,19 @@ async fn down_hands_back_every_row_exactly_and_up_applies_again() {
 
     up(&url).await;
     // The pages seeded at the top of the tree take a new instant each time: Learnings and Company
-    // by this migration, and Project briefs and Meetings by later ones.
+    // by this migration, and Project briefs, Meetings, and Transcription by later ones.
     let moved_pages = "SELECT * FROM pages WHERE id NOT IN \
                        ('00000000-0000-0000-0001-000000000001', \
                         '00000000-0000-0000-0001-000000000002', \
                         '00000000-0000-0000-0001-000000000003', \
-                        '00000000-0000-0000-0001-000000000004')";
+                        '00000000-0000-0000-0001-000000000004', \
+                        '00000000-0000-0000-0001-000000000005')";
     let moved_versions = "SELECT * FROM page_versions WHERE page_id NOT IN \
                           ('00000000-0000-0000-0001-000000000001', \
                            '00000000-0000-0000-0001-000000000002', \
                            '00000000-0000-0000-0001-000000000003', \
-                           '00000000-0000-0000-0001-000000000004')";
+                           '00000000-0000-0000-0001-000000000004', \
+                           '00000000-0000-0000-0001-000000000005')";
     // A section's first entry takes a new id each time; everything else keeps its own.
     let moved_events = "SELECT * FROM page_events WHERE kind <> 'created' \
                         OR page_id NOT IN (SELECT id FROM pages WHERE parent_id IS NULL \

@@ -454,24 +454,25 @@ pub(super) async fn transcript_change(
     })
 }
 
-/// Whether history entry `entry` moved a capture, a hand-set offset or a merge or split or the
-/// undo of one, which lines the transcript up again: no change of words a page could apply comes
-/// back from it, so every page reads the transcript again ([`announce_lined_up`]).
-pub(super) fn lines_up_again(entry: &MeetingEvent) -> bool {
+/// Whether history entry `entry` changed the transcript in a way no page made and no change of words
+/// a page could apply comes back from: one that moved a capture (a hand-set offset, a merge or
+/// split, or the undo of one), which lines the transcript up again, or the correction settling it.
+/// Every page reads the transcript again ([`announce_lined_up`]).
+pub(crate) fn lines_up_again(entry: &MeetingEvent) -> bool {
     matches!(
         entry.kind(),
-        Some(EventKind::OffsetChanged | EventKind::Merged | EventKind::Split)
+        Some(EventKind::OffsetChanged | EventKind::Merged | EventKind::Split | EventKind::Settled)
     )
 }
 
-/// Tells every client that history entry `entry`, which moved a capture ([`lines_up_again`]),
-/// changed its meeting, and for a merge or a split the other meeting too, with no entry, so every
-/// page holding either reads it again, the one that asked included. A merge or a split also
-/// started runs that align the meetings again, which the engine is told of.
+/// Tells every client that history entry `entry`, one of [`lines_up_again`]'s, changed its meeting,
+/// and for a merge or a split the other meeting too, with no entry, so every page holding either
+/// reads it again, the one that asked included. A merge or a split also started runs that align
+/// the meetings again, which the engine is told of.
 ///
 /// # Errors
 /// Propagates any database error.
-pub(super) async fn announce_lined_up(
+pub(crate) async fn announce_lined_up(
     events: &EventBus,
     connection: &mut AsyncPgConnection,
     entry: &MeetingEvent,

@@ -160,7 +160,7 @@ export type MeetingTranscriptChange = {
 // Mirrors `MeetingEventResponse`: one entry of a meeting's history.
 export type MeetingHistoryEntry = {
   id: string
-  // `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
+  // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
   // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`.
   kind: string
   createdBy: string
