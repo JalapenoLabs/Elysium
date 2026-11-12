@@ -38,12 +38,12 @@ use super::final_transcript;
 use super::history::UndoError;
 use super::workflow;
 use crate::action_items::{Actor, Transition, WorkError};
+use crate::meetings::access::Access;
 use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
-use crate::meetings::access::Access;
 use crate::models::meeting::{self, Meeting, MeetingState, Reader};
 use crate::models::meeting_capture::{self, OffsetSource, Placement};
 use crate::models::meeting_duplicate::{self, Decision, MeetingDuplicate, NewMeetingDuplicate};

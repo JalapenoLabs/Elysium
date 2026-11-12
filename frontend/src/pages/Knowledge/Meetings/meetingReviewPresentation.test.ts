@@ -47,9 +47,9 @@ describe('describeHistory', () => {
       entry('shared', 'shared', { personId: 'grace' }),
       entry('opened', 'visibility_changed', { before: 'private', after: 'public' }),
       entry('back', 'visibility_changed', { before: 'public', after: 'unchecked' }),
-      entry('kept', 'visibility_changed', { before: 'unchecked', after: 'private', correction: true, why: 'A review.' }),
-      entry('unsure', 'visibility_changed', { before: 'unchecked', after: 'private', correction: true, undecided: true }),
-      entry('open', 'visibility_changed', { before: 'unchecked', after: 'public', correction: true }),
+      entry('kept', 'visibility_changed', { after: 'private', correction: true, why: 'A review.' }),
+      entry('unsure', 'visibility_changed', { after: 'private', correction: true, undecided: true }),
+      entry('open', 'visibility_changed', { after: 'public', correction: true }),
     ])
 
     expect(rows.map((row) => [ row.entry.id, row.sentence, row.canUndo, row.personId ])).toEqual([

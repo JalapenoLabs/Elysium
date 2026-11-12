@@ -784,7 +784,8 @@ fn a_judgment_opens_a_meeting_only_when_it_says_so_and_shares_only_with_whom_it_
     let offered = std::slice::from_ref(&grace);
     let stranger = Uuid::now_v7();
 
-    let open = r#"{"flags": [], "visibility": {"private": false, "shareWith": [], "why": "A standup."}}"#;
+    let open =
+        r#"{"flags": [], "visibility": {"private": false, "shareWith": [], "why": "A standup."}}"#;
     assert_eq!(parse_judgment(open, offered), Judgment::Open);
 
     let private = format!(

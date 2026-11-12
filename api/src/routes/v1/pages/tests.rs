@@ -22,9 +22,9 @@ use super::page_edit;
 use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{self, CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document;
-use crate::models::meeting::{Reach, Reader};
 use crate::models::learning::{self, LearningContent};
 use crate::models::learning_category::{self, NewCategory};
+use crate::models::meeting::{Reach, Reader};
 use crate::models::page::{
     self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, LearningFields, MEETINGS_PAGE_ID, PageEdit,
     PageError, Placement, Recorded,

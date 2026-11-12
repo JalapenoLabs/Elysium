@@ -250,7 +250,12 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&edited));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&edited)
+    );
     let edited: Value = serde_json::from_slice(&edited).expect("JSON");
     let edit_entry = edited["entry"]["id"].as_str().expect("an entry").to_owned();
     // Shared with Grace before she is mentioned, since only those who may read a meeting are.
@@ -280,9 +285,17 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::CREATED, "{}", String::from_utf8_lossy(&started));
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "{}",
+        String::from_utf8_lossy(&started)
+    );
     let started: Value = serde_json::from_slice(&started).expect("JSON");
-    let thread_id = started["comment"]["threadId"].as_str().expect("a thread").to_owned();
+    let thread_id = started["comment"]["threadId"]
+        .as_str()
+        .expect("a thread")
+        .to_owned();
     let item_id = thread_item_for(&mut connection, grace).await;
     meeting_correction::record(
         &mut connection,
@@ -345,7 +358,11 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
             format!("{meeting}/shares/{}", Uuid::now_v7()),
             Needs::Manage,
         ),
-        Asked::new(Method::POST, format!("{meeting}/correction/approve"), Needs::Own),
+        Asked::new(
+            Method::POST,
+            format!("{meeting}/correction/approve"),
+            Needs::Own,
+        ),
         Asked::new(Method::POST, format!("{meeting}/hold"), Needs::Own),
         Asked::new(Method::PUT, format!("{captured}/offset"), Needs::Own)
             .with_body(json!({ "offsetMs": 13 * 60 * 60 * 1000 })),
@@ -354,12 +371,15 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
             format!("/api/v1/meeting-uploads/policy?meetingId={meeting_id}"),
             Needs::Own,
         ),
-        Asked::new(Method::POST, "/api/v1/meeting-uploads".to_owned(), Needs::Own).with_body(
-            json!({
-                "meetingId": meeting_id,
-                "transcript": { "name": "notes.vtt", "sizeBytes": 120 },
-            }),
-        ),
+        Asked::new(
+            Method::POST,
+            "/api/v1/meeting-uploads".to_owned(),
+            Needs::Own,
+        )
+        .with_body(json!({
+            "meetingId": meeting_id,
+            "transcript": { "name": "notes.vtt", "sizeBytes": 120 },
+        })),
     ];
 
     for public in [false, true] {
@@ -378,7 +398,11 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                 let managing = [
                     Asked::new(Method::PUT, format!("{meeting}/visibility"), Needs::Manage)
                         .with_body(json!({ "visibility": own_visibility })),
-                    Asked::new(Method::PUT, format!("{meeting}/shares/{owner}"), Needs::Manage),
+                    Asked::new(
+                        Method::PUT,
+                        format!("{meeting}/shares/{owner}"),
+                        Needs::Manage,
+                    ),
                 ];
                 for asked in requests.iter().chain(&managing) {
                     let (status, body) = ask(
@@ -390,7 +414,10 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                     )
                     .await;
                     let answered = String::from_utf8_lossy(&body);
-                    let what = format!("{cell:?} {} {}: {status} {answered}", asked.method, asked.path);
+                    let what = format!(
+                        "{cell:?} {} {}: {status} {answered}",
+                        asked.method, asked.path
+                    );
                     match expected(asked.needs, role, relation, public) {
                         Expected::Allowed => assert!(
                             status != StatusCode::NOT_FOUND && status != StatusCode::FORBIDDEN,
@@ -408,8 +435,8 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                             assert_eq!(refused["code"], code, "{what}");
                         }
                     }
-                    if asked.range.is_some() && expected(asked.needs, role, relation, public)
-                        == Expected::Allowed
+                    if asked.range.is_some()
+                        && expected(asked.needs, role, relation, public) == Expected::Allowed
                     {
                         assert_eq!(status, StatusCode::PARTIAL_CONTENT, "{what}");
                         assert_eq!(body, b"2345", "{what}");
@@ -432,8 +459,7 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                 assert_eq!(opened["thread"].is_object(), reads, "{cell:?}: {opened}");
 
                 // The listing names exactly the meetings they may read.
-                let (status, body) =
-                    ask(&state, Method::GET, "/api/v1/meetings", None, None).await;
+                let (status, body) = ask(&state, Method::GET, "/api/v1/meetings", None, None).await;
                 assert_eq!(status, StatusCode::OK, "{cell:?}");
                 let listed: Value = serde_json::from_slice(&body).expect("JSON");
                 let ids: Vec<&str> = listed["meetings"]
@@ -467,7 +493,10 @@ async fn a_meeting_answers_what_its_reader_may_do_with_it_and_who_reads_it() {
     let (status, body) = ask(&state, Method::GET, &path, None, None).await;
     assert_eq!(status, StatusCode::OK);
     let answered = read(body);
-    assert_eq!(answered["meeting"]["visibility"], "unchecked", "a new meeting is unchecked");
+    assert_eq!(
+        answered["meeting"]["visibility"], "unchecked",
+        "a new meeting is unchecked"
+    );
     assert_eq!(answered["meeting"]["ownerId"], json!(TEST_PERSON_ID));
     assert_eq!(answered["meeting"]["canEdit"], true);
     assert_eq!(answered["meeting"]["canManage"], true);
@@ -496,8 +525,14 @@ async fn a_meeting_answers_what_its_reader_may_do_with_it_and_who_reads_it() {
     let opened = read(body);
     assert_eq!(opened["meeting"]["visibility"], "public");
     assert_eq!(opened["entry"]["kind"], "visibility_changed");
-    assert_eq!(opened["meeting"]["visibilityChange"]["data"]["before"], "unchecked");
-    assert_eq!(opened["meeting"]["visibilityChange"]["data"]["after"], "public");
+    assert_eq!(
+        opened["meeting"]["visibilityChange"]["data"]["before"],
+        "unchecked"
+    );
+    assert_eq!(
+        opened["meeting"]["visibilityChange"]["data"]["after"],
+        "public"
+    );
 
     // Another member reads the public meeting and edits it, but neither manages nor runs it. The
     // test person is the workspace's first, and so its admin, until now.
@@ -527,5 +562,9 @@ async fn a_meeting_answers_what_its_reader_may_do_with_it_and_who_reads_it() {
     )
     .await;
     let (status, _body) = ask(&state, Method::POST, &format!("{path}/retry"), None, None).await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "a private meeting nobody shared with them");
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a private meeting nobody shared with them"
+    );
 }

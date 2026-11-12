@@ -250,7 +250,7 @@ pub async fn decide(
         agent: None,
         at: Utc::now(),
     };
-    let (after, why, share_with) = match judgment {
+    let (after, why, chosen) = match judgment {
         Judgment::Open => (Visibility::Public, None, Vec::new()),
         Judgment::Private { share_with, why } => {
             (Visibility::Private, why.as_deref(), share_with.clone())
@@ -258,7 +258,7 @@ pub async fn decide(
         Judgment::Undecided => (Visibility::Private, None, Vec::new()),
     };
     let mut shared_with = Vec::new();
-    for person_id in share_with {
+    for person_id in chosen {
         if is_shareable(connection, current, person_id).await?
             && meeting_share::add(connection, current.id, person_id, SYSTEM_USER_ID).await?
         {
@@ -292,7 +292,9 @@ pub async fn decide(
     let item = kept_private_item(&owner.name, *judgment == Judgment::Undecided);
     let raised = action_item::create(connection, item, Actor::System, Utc::now())
         .await
-        .map_err(|error| anyhow::anyhow!("cannot raise the inbox item about who sees it: {error}"))?;
+        .map_err(|error| {
+            anyhow::anyhow!("cannot raise the inbox item about who sees it: {error}")
+        })?;
     let changed = meeting::set_visibility_item(connection, current.id, raised.record.id).await?;
     Ok(Some(Decided {
         meeting: changed,

@@ -58,10 +58,10 @@ async fn decide(
         .await
         .context("no database connection available")?;
     let now = Utc::now();
-    let decider = Reader::of(&current.0);
+    let reader = Reader::of(&current.0);
     let decided = match answer {
-        Answer::Merge => duplicates::merge(&mut connection, id, decider, now).await,
-        Answer::NotTheSame => duplicates::not_the_same(&mut connection, id, decider, now).await,
+        Answer::Merge => duplicates::merge(&mut connection, id, reader, now).await,
+        Answer::NotTheSame => duplicates::not_the_same(&mut connection, id, reader, now).await,
     }
     .map_err(|error| match error {
         DecideError::NotFound => ApiError::NotFound,

@@ -20,10 +20,10 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::meeting_duplicate::{self, MeetingDuplicate};
 use crate::meetings::access::Access;
 use crate::models::meeting::{self, Reader};
 use crate::models::meeting_capture;
+use crate::models::meeting_duplicate::{self, MeetingDuplicate};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]

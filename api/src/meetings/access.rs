@@ -182,7 +182,10 @@ mod tests {
         assert!(!member.meets(Need::Manage) && !member.meets(Need::Own));
         let admin = Access::of(&found, reader(SOMEONE, Reach::Every));
         assert!(admin.meets(Need::Edit) && admin.meets(Need::Manage));
-        assert!(!admin.meets(Need::Own), "an admin runs no one else's processing");
+        assert!(
+            !admin.meets(Need::Own),
+            "an admin runs no one else's processing"
+        );
     }
 
     #[test]
@@ -207,7 +210,10 @@ mod tests {
         assert_eq!(need_to_undo(Some(EventKind::Edited)), Need::Edit);
         assert_eq!(need_to_undo(Some(EventKind::ThreadResolved)), Need::Edit);
         assert_eq!(need_to_undo(Some(EventKind::Merged)), Need::Manage);
-        assert_eq!(need_to_undo(Some(EventKind::VisibilityChanged)), Need::Manage);
+        assert_eq!(
+            need_to_undo(Some(EventKind::VisibilityChanged)),
+            Need::Manage
+        );
         assert_eq!(need_to_undo(Some(EventKind::Unshared)), Need::Manage);
         assert_eq!(need_to_undo(Some(EventKind::HoldChanged)), Need::Own);
         assert_eq!(need_to_undo(Some(EventKind::OffsetChanged)), Need::Own);

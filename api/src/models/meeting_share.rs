@@ -25,7 +25,10 @@ pub async fn of_meetings(
     let rows: Vec<(Uuid, Uuid)> = meeting_shares::table
         .filter(meeting_shares::meeting_id.eq_any(meeting_ids))
         .select((meeting_shares::meeting_id, meeting_shares::person_id))
-        .order((meeting_shares::created_at.asc(), meeting_shares::person_id.asc()))
+        .order((
+            meeting_shares::created_at.asc(),
+            meeting_shares::person_id.asc(),
+        ))
         .load(connection)
         .await?;
     let mut shared: HashMap<Uuid, Vec<Uuid>> = HashMap::new();

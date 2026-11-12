@@ -305,9 +305,11 @@ pub async fn list_readable(
         .into_boxed();
     if let Some(after) = after {
         query = query.filter(
-            meetings::started_at.lt(after.started_at).or(meetings::started_at
-                .eq(after.started_at)
-                .and(meetings::id.lt(after.id))),
+            meetings::started_at
+                .lt(after.started_at)
+                .or(meetings::started_at
+                    .eq(after.started_at)
+                    .and(meetings::id.lt(after.id))),
         );
     }
     query.load(connection).await

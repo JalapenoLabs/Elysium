@@ -425,9 +425,7 @@ async fn the_list_pages_newest_first_and_never_skips_two_that_started_together()
             .as_array()
             .expect("meetings")
             .iter()
-            .map(|meeting| {
-                Uuid::parse_str(meeting["id"].as_str().expect("an id")).expect("a uuid")
-            })
+            .map(|meeting| Uuid::parse_str(meeting["id"].as_str().expect("an id")).expect("a uuid"))
             .collect()
     };
 
@@ -447,7 +445,11 @@ async fn the_list_pages_newest_first_and_never_skips_two_that_started_together()
     let (status, second) = send(&state, Method::GET, &next, None).await;
     assert_eq!(status, StatusCode::OK, "{second}");
     assert_eq!(listed_ids(&second), vec![ids[2]]);
-    assert_eq!(second["nextCursor"], Value::Null, "a short page is the last");
+    assert_eq!(
+        second["nextCursor"],
+        Value::Null,
+        "a short page is the last"
+    );
 
     for refused in [
         "/api/v1/meetings?limit=0",

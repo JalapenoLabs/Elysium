@@ -512,10 +512,12 @@ and a company doc section from any other page.
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
 | `created_by`         | `UUID`        | References `users`: whose record it came from, for the person filter; never access control |
+| `meeting_id`         | `UUID`        | References `meetings`, cascading: the meeting a segment's document is of, whose readers alone find it; `NULL` for every other source. Not a source of its own |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger              |
 
 `knowledge_documents_copies` on `content_sha256` finds the documents holding the same text, which two people's
 connectors reading one channel or space make (`docs/knowledge.md`, Hybrid search, The same text twice).
+`knowledge_documents_of_meeting` finds a meeting's documents (`docs/knowledge.md`, Who sees what).
 
 ### `knowledge_asks`
 
@@ -726,7 +728,8 @@ Meetings, each the one event that happened, and how far each one's processing go
 source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
 it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`), and meetings merged into
 another for finding them (`meetings_merged_into`); a person's meetings not merged away by when they started
-(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as.
+(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as; and the meeting an inbox item
+said was kept private (`meetings_visibility_items`).
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
@@ -740,6 +743,8 @@ another for finding them (`meetings_merged_into`); a person's meetings not merge
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
+| `visibility`             | `TEXT`        | Who reads it besides its owner, the people it is shared with, and admins: `unchecked` (new, private until its correction decides; the default), `private`, or `public` (every member) |
+| `visibility_item_id`     | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item telling its owner its correction kept it private |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
@@ -944,6 +949,19 @@ answers in the thread. Its author is the comment's.
 |--------------|--------|----------------------------------------------------|
 | `comment_id` | `UUID` | References `meeting_comments`, cascading           |
 | `user_id`    | `UUID` | References `users`: an active person, or Elysia    |
+
+### `meeting_shares`
+
+Whom a meeting is shared with: a private meeting is read by its owner and these people, and a guest reads only a meeting
+shared with them, public or not (`docs/meeting-review.md`, Who sees a meeting). `meeting_shares_of_person` finds the
+meetings shared with a person, which every listing and search of meetings asks.
+
+| Column       | Type          | Notes                                                                       |
+|--------------|---------------|-----------------------------------------------------------------------------|
+| `meeting_id` | `UUID`        | References `meetings`, cascading; with `person_id`, the primary key          |
+| `person_id`  | `UUID`        | References `users`: an active person other than its owner when shared        |
+| `created_by` | `UUID`        | References `users`: its owner, an admin, or the system for its correction's decision |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                                                |
 
 ### `meeting_thread_items`
 

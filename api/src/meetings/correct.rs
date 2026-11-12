@@ -2134,7 +2134,10 @@ mod tests {
         assert_eq!(entry.meetings[0].id, stored.id);
         assert!(!doc.body.contains("Launch review"), "{}", doc.body);
         assert!(!doc.body.contains("Grace's review"), "{}", doc.body);
-        assert!(doc.body.contains("The meeting's correction was 92 of 100 sure."));
+        assert!(
+            doc.body
+                .contains("The meeting's correction was 92 of 100 sure.")
+        );
     }
 
     /// #269 review: a person who fixes a word while the correction's turn runs keeps their fix, and

@@ -1326,8 +1326,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_private_meeting_tells_only_those_who_may_read_it_and_names_itself_to_nobody() {
-        let (_url, mut connection) =
-            migrated_database().await;
+        let (_url, mut connection) = migrated_database().await;
         let (found, _, words) =
             meeting_with_grace(&mut connection, &[("Ada", "Jon ships Friday")]).await;
         let jon = word(&words, "Jon");
@@ -1369,7 +1368,11 @@ mod tests {
         )
         .await
         .expect("replies");
-        assert!(told(&mut connection, &replied.announcement).await.is_empty());
+        assert!(
+            told(&mut connection, &replied.announcement)
+                .await
+                .is_empty()
+        );
 
         // Shared with her again, she is told, by an item that never names the meeting, since items
         // are the whole workspace's.

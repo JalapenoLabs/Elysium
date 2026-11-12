@@ -11,6 +11,8 @@
 //! reading it, changing it, managing who sees it and its captures, or being its owner. A meeting
 //! someone may not read answers `404`, as one that does not exist does.
 
+#[cfg(test)]
+mod access_tests;
 mod approve_correction;
 mod decide_duplicate;
 mod edit_words;
@@ -21,8 +23,6 @@ mod get_words;
 mod history;
 mod hold_meeting;
 mod list_meetings;
-#[cfg(test)]
-mod access_tests;
 mod retry_meeting;
 mod set_capture_offset;
 mod set_visibility;
@@ -145,6 +145,10 @@ pub(crate) async fn open(
 /// with.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a wire shape: each bool is a field of its own the web app reads by name"
+)]
 pub struct MeetingResponse {
     id: Uuid,
     connector_id: Option<Uuid>,

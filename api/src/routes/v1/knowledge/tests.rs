@@ -855,11 +855,28 @@ async fn a_private_meetings_topics_are_found_only_by_those_who_may_read_it() {
     set_role(&mut connection, "member").await;
     let jamie = coworker(&mut connection, "Jamie").await;
     let review = Uuid::now_v7();
-    let topic = meeting_topic(&mut connection, jamie, review, "Review", 0, at(1), "Compensation")
-        .await;
+    let topic = meeting_topic(
+        &mut connection,
+        jamie,
+        review,
+        "Review",
+        0,
+        at(1),
+        "Compensation",
+    )
+    .await;
     let document_id = document_of_record(&mut connection, topic).await;
     let standup = Uuid::now_v7();
-    meeting_topic(&mut connection, jamie, standup, "Standup", 0, at(2), "Release notes").await;
+    meeting_topic(
+        &mut connection,
+        jamie,
+        standup,
+        "Standup",
+        0,
+        at(2),
+        "Release notes",
+    )
+    .await;
     let made_private = format!("UPDATE meetings SET visibility = 'private' WHERE id = '{review}'");
     diesel::sql_query(made_private)
         .execute(&mut connection)
@@ -881,14 +898,17 @@ async fn a_private_meetings_topics_are_found_only_by_those_who_may_read_it() {
         .await
         .expect("shared");
     assert_eq!(finds(&state, document_id).await, (true, true, true));
-    diesel::sql_query(format!("DELETE FROM meeting_shares WHERE meeting_id = '{review}'"))
-        .execute(&mut connection)
-        .await
-        .expect("unshared");
+    diesel::sql_query(format!(
+        "DELETE FROM meeting_shares WHERE meeting_id = '{review}'"
+    ))
+    .execute(&mut connection)
+    .await
+    .expect("unshared");
     set_role(&mut connection, "admin").await;
     assert_eq!(finds(&state, document_id).await, (true, true, true));
     set_role(&mut connection, "member").await;
-    let owned = format!("UPDATE meetings SET created_by = '{TEST_PERSON_ID}' WHERE id = '{review}'");
+    let owned =
+        format!("UPDATE meetings SET created_by = '{TEST_PERSON_ID}' WHERE id = '{review}'");
     diesel::sql_query(owned)
         .execute(&mut connection)
         .await
