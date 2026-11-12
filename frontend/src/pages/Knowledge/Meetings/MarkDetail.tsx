@@ -43,6 +43,22 @@ type Props = {
   threadActions: ThreadActions | null
 }
 
+// The projects an excerpt is on, from its record, read as the excerpt opens, which change there as
+// any record's do.
+function ExcerptProjects({ recordId }: { recordId: string }) {
+  const { t } = useTranslation('meetings')
+  const status = useTimelineRecordLoader(recordId)
+  const record = useAppSelector((state) => selectTimelineRecordById(state, recordId))
+
+  if (record) {
+    return <RecordProjects record={record} />
+  }
+  if (status === 'failed') {
+    return <p className='text-xs text-danger'>{t('review.excerpts.loadError')}</p>
+  }
+  return <Spinner size='sm' aria-label={t('review.excerpts.loading')} />
+}
+
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
 // Clicking, selecting, and acting): what kind it is, who made it, a mark an agent made saying so,
 // the words it covers, and what its kind says: how sure a confidence is and what else it might
@@ -55,11 +71,6 @@ export function MarkDetail(props: Props) {
   const [ isRemoving, setIsRemoving ] = useState(false)
   const { placed, onRemove } = props
   const { mark } = placed
-  // An excerpt's record, read as it opens, which its projects show and change.
-  const recordStatus = useTimelineRecordLoader(mark.excerpt?.recordId ?? null)
-  const record = useAppSelector((state) => mark.excerpt
-    ? selectTimelineRecordById(state, mark.excerpt.recordId)
-    : undefined)
   const author = authorOf(mark.createdBy, mark.agent, users)
   const span = summarizeRange(props.words, placed)
 
@@ -110,11 +121,7 @@ export function MarkDetail(props: Props) {
       }</ul>
     </div>}
 
-    {record && <RecordProjects record={record} />}
-    {!record && recordStatus === 'loading' && <Spinner size='sm' aria-label={t('review.excerpts.loading')} />}
-    {!record && recordStatus === 'failed' && <p className='text-xs text-danger'>
-      {t('review.excerpts.loadError')}
-    </p>}
+    {mark.excerpt && <ExcerptProjects recordId={mark.excerpt.recordId} />}
     {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
     {editRow?.before && <p className='text-xs opacity-70'>{t('review.detail.replaced', { before: editRow.before })}</p>}

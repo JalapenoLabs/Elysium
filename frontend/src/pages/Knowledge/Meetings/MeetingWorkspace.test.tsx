@@ -291,6 +291,7 @@ describe('MeetingWorkspace', () => {
     vi.mocked(assignMeetingExcerpt).mockReset()
     vi.mocked(blackOutMeetingWords).mockReset()
     vi.mocked(removeMeetingMark).mockReset()
+    vi.mocked(getTimelineRecord).mockReset()
     vi.mocked(undoMeetingChange).mockReset()
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
     vi.mocked(getCaptureTranscript).mockReset()
@@ -326,6 +327,9 @@ describe('MeetingWorkspace', () => {
     const pills = within(screen.getByRole('radiogroup', { name: 'Marks here' }))
     expect(pills.getByRole('radio', { name: 'Confidence' }).getAttribute('aria-checked')).toBe('true')
     expect(screen.getByText('20% sure')).toBeTruthy()
+    // A mark that is no excerpt has no record, so nothing in its detail waits for one.
+    expect(screen.queryByLabelText('Loading its projects')).toBeNull()
+    expect(getTimelineRecord).not.toHaveBeenCalled()
 
     press('Tab')
     expect(pills.getByRole('radio', { name: 'Comment' }).getAttribute('aria-checked')).toBe('true')
@@ -750,6 +754,30 @@ describe('MeetingWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove excerpt' }))
     await waitFor(() => expect(removeMeetingMark).toHaveBeenCalledWith('meeting', 'launch'))
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
+  })
+
+  it<Context>('names an excerpt\'s bar by its record\'s projects once its lane holds the record', async (context) => {
+    // The words were read before the excerpt moved from Launch site to Billing; its record knows.
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'billing' ]) })
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [
+        makeProject({ id: 'launch', name: 'Launch site' }),
+        makeProject({ id: 'billing', name: 'Billing' }),
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Launch site' })).toBeTruthy()
+    fireEvent.click(wordPiece('Launch'))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Launch site' })).toBeNull())
+    expect(screen.getAllByText('Billing').length).toBeGreaterThan(0)
   })
 
   it<Context>('opens the mark a link names, such as an excerpt from a project\'s timeline', async (context) => {

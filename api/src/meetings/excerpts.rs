@@ -1820,6 +1820,71 @@ mod tests {
         );
     }
 
+    /// Whether meeting `meeting_id`'s whole transcript is a document of the index.
+    async fn transcript_indexed(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> bool {
+        use crate::database::schema::knowledge_documents;
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+
+        knowledge_documents::table
+            .filter(knowledge_documents::meeting_id.eq(meeting_id))
+            .count()
+            .get_result::<i64>(connection)
+            .await
+            .expect("counts")
+            == 1
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_merged_away_takes_its_transcript_out_of_the_index_until_it_is_split() {
+        use crate::meetings::duplicates;
+        use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
+        use crate::models::user::SYSTEM_USER_ID;
+
+        let (_url, mut connection) = migrated_database().await;
+        let keeper =
+            segmented_meeting(&mut connection, &[line(0, "Ada", "Launch is Friday.")]).await;
+        let merging =
+            segmented_meeting(&mut connection, &[line(0, "Ada", "Launch is Friday too.")]).await;
+        refresh(&mut connection, &merging, None)
+            .await
+            .expect("indexes");
+        assert!(transcript_indexed(&mut connection, merging.id).await);
+
+        let pair = meeting_duplicate::insert_new(
+            &mut connection,
+            NewMeetingDuplicate {
+                id: Uuid::now_v7(),
+                meeting_id: merging.id,
+                same_as_id: keeper.id,
+                action_item_id: None,
+                created_by: SYSTEM_USER_ID,
+            },
+        )
+        .await
+        .expect("records")
+        .expect("a new pair");
+        duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
+            .await
+            .expect("merges");
+        assert!(
+            !transcript_indexed(&mut connection, merging.id).await,
+            "its words are searched in the meeting it went into"
+        );
+
+        let merges = meeting_event::of_kind(&mut connection, keeper.id, EventKind::Merged)
+            .await
+            .expect("reads");
+        history::undo(&mut connection, keeper.id, merges[0].id, person())
+            .await
+            .expect("splits");
+        assert!(
+            transcript_indexed(&mut connection, merging.id).await,
+            "split out, it is its own again"
+        );
+    }
+
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn an_edit_refreshes_the_excerpts_over_its_words_at_once() {

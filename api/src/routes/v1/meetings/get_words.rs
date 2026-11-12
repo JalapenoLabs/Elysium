@@ -2,11 +2,10 @@
 
 //! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
 //! it reads, for its page: its standing words in order, every standing mark over them (each
-//! excerpt with its record and the projects it is on), and its
-//! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
-//! recording (`captures/{captureId}/media`), saying where it sits on the meeting's clock and how
-//! that was found, and which meeting it came from when a merge brought it, which splitting it makes
-//! its own again.
+//! excerpt with its record and the projects it is on), and its captures, each of which opens as it
+//! came (`captures/{captureId}/transcript`) and plays its recording (`captures/{captureId}/media`),
+//! saying where it sits on the meeting's clock and how that was found, and which meeting it came
+//! from when a merge brought it, which splitting it makes its own again.
 //!
 //! `words` is empty until the transcript is built, which its correction does
 //! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.

@@ -151,6 +151,11 @@ pub async fn run_edit(
     }))
 }
 
+/// What adding to a project answers for a meeting merged into another, whose excerpts, its own and
+/// any new one, change in the meeting it went into.
+const MERGED_AWAY: &str =
+    "this meeting was merged into another, so its excerpts change there; nothing was added";
+
 pub async fn run_add_to_project(
     context: &ToolContext,
     scope: &CallScope,
@@ -164,6 +169,9 @@ pub async fn run_add_to_project(
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
     let (found, mark) = asked_thread(&mut connection, scope, turn_id).await?;
+    if found.merged_into.is_some() {
+        return Err(ToolError::Invalid(MERGED_AWAY.to_owned()));
+    }
     match project::find(&mut connection, arguments.project_id).await {
         Ok(_) => {}
         Err(diesel::result::Error::NotFound) => {
@@ -193,11 +201,8 @@ pub async fn run_add_to_project(
         let made = excerpts::assign(&mut connection, &found, mark.range(), &[assigned], author)
             .await
             .map_err(|error| match error {
-                ExcerptError::Mark(MarkError::Merged) => ToolError::Invalid(
-                    "this meeting was merged into another, so its excerpts change there; nothing \
-                     was added"
-                        .to_owned(),
-                ),
+                // Merged since it was read, as the lock assigning takes says.
+                ExcerptError::Mark(MarkError::Merged) => ToolError::Invalid(MERGED_AWAY.to_owned()),
                 ExcerptError::BlackedOut => ToolError::Invalid(
                     "every word of the thread's range is blacked out, so it can be in no project; \
                      nothing was added"

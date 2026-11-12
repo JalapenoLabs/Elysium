@@ -409,14 +409,11 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
 }
 
 // One timeline record by id, such as the excerpt open in a meeting's lane, which only its owner
-// reads; `null` loads nothing. The event stream keeps it current once it is held.
-export function useTimelineRecordLoader(recordId: string | null): LoadStatus {
+// reads. The event stream keeps it current once it is held.
+export function useTimelineRecordLoader(recordId: string): LoadStatus {
   const dispatch = useAppDispatch()
-  const key = recordId
-    ? `${timelineKeyPrefix}/${recordId}`
-    : null
-  const { data, error } = useSWR(key, async () => {
-    const response = await getTimelineRecord(recordId ?? '')
+  const { data, error } = useSWR(`${timelineKeyPrefix}/${recordId}`, async () => {
+    const response = await getTimelineRecord(recordId)
     dispatch(timelineRecordUpserted(response.record))
     return response
   })

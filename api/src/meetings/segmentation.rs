@@ -613,8 +613,8 @@ fn kept_runs(
 /// lines: runs of lines that were shown (a run reaching past the last line ends there), each
 /// excerpt once and on at least one of the projects in `offered`, at most [`MAX_EXCERPTS`]; each
 /// black-out apart from every excerpt kept, those that overlap or touch joined into one, in the
-/// order they lie, at most [`MAX_BLACK_OUTS`]. An excerpt with no title takes `untitled` of its first line, by its place
-/// from 0. An answer taking nothing reads, as a meeting of small talk.
+/// order they lie, at most [`MAX_BLACK_OUTS`]. An excerpt with no title takes `untitled` of its
+/// first line, by its place from 0. An answer taking nothing reads, as a meeting of small talk.
 ///
 /// # Errors
 /// [`AnswerError`] when the answer holds no JSON object or is not the asked-for shape.

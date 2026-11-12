@@ -12,6 +12,7 @@ import { useSearchParams } from 'react-router'
 // Redux
 import { useAppSelector } from '../../../store/hooks'
 import { selectAllProjects, selectProjectEntities } from '../../../store/projectsSlice'
+import { selectTimelineRecordEntities } from '../../../store/timelineRecordsSlice'
 
 // User interface
 import { Button, Drawer, useOverlayState } from '@heroui/react'
@@ -107,6 +108,7 @@ export function MeetingWorkspace(props: Props) {
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
+  const records = useAppSelector(selectTimelineRecordEntities)
   const drawer = useOverlayState()
   const history = useMeetingHistory(meeting.id)
   const threadComments = useMeetingThreads(meeting.id)
@@ -158,14 +160,18 @@ export function MeetingWorkspace(props: Props) {
     const lanes = shown.has('excerpt')
       ? excerptLanes(placed)
       : new Map<string, number>()
-    // Each excerpt names its projects over its bar, as its record is attributed.
+    // Each excerpt names its projects over its bar, as its record is attributed: the record as the
+    // page holds it once its lane opened it, where its projects change, else as the words named it.
     const labels = new Map<string, string>()
     for (const placedMark of placed) {
-      if (placedMark.kind !== 'excerpt' || !placedMark.mark.excerpt) {
+      const excerpt = placedMark.mark.excerpt
+      if (placedMark.kind !== 'excerpt' || !excerpt) {
         continue
       }
+      const projectIds = records[excerpt.recordId]?.projects.map((attribution) => attribution.projectId)
+        ?? excerpt.projectIds
       const names: string[] = []
-      for (const projectId of placedMark.mark.excerpt.projectIds) {
+      for (const projectId of projectIds) {
         const name = projects[projectId]?.name
         if (name) {
           names.push(name)
@@ -182,7 +188,7 @@ export function MeetingWorkspace(props: Props) {
       bars: excerptBarsByParagraph(paragraphs, placed, lanes),
       labels,
     }
-  }, [ placed, paragraphs, projects, shown ])
+  }, [ placed, paragraphs, projects, records, shown ])
 
   const anchor = review.anchorId === null
     ? undefined

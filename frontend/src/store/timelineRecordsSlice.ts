@@ -25,10 +25,15 @@ export const timelineRecordsSlice = createSlice({
 
 export const { timelineRecordsLoaded, timelineRecordUpserted } = timelineRecordsSlice.actions
 
-const { selectAll, selectById } = timelineRecordsAdapter.getSelectors((state: RootState) => state.timelineRecords)
+const { selectAll, selectById, selectEntities } = timelineRecordsAdapter.getSelectors(
+  (state: RootState) => state.timelineRecords,
+)
 
-// One record, when it is loaded, such as a meeting excerpt's, which its meeting's page loads.
+// One record, when it is loaded, such as a meeting excerpt's, which its lane loads as it opens.
 export const selectTimelineRecordById = selectById
+
+// Every record loaded, by id.
+export const selectTimelineRecordEntities = selectEntities
 
 // A project's records, newest first: those attributed to it, by a person or by Elysia.
 export const selectTimelineRecordsByProjectId = createSelector(

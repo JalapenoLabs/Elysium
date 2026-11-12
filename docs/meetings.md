@@ -853,8 +853,8 @@ What segmenting takes from a meeting, and what people take or leave as they revi
   apart from its excerpts (`knowledge_documents.meeting_id`): its title, every line of its final transcript,
   blacked-out words left out, each line its own paragraph so an edit moves as few passages as it can, then its threads,
   up to 500,000 characters. So what no excerpt took is still found. It is refreshed with every change that refreshes
-  an excerpt, and leaves the index when the meeting is merged into another. The knowledge index's backfill brings in
-  the meetings segmented before it existed (`docs/knowledge.md`, The backfill).
+  an excerpt, leaves the index when the meeting is merged into another, and comes back when it is split out. The
+  knowledge index's backfill brings in the meetings segmented before it existed (`docs/knowledge.md`, The backfill).
 - **Only excerpts reach Project Managers and workers.** A Project Manager is woken by an excerpt newly on its project
   and reads its record, and an agent reads a meeting whole only by searching or opening its document.
 
