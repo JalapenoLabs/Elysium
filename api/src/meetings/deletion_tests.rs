@@ -21,17 +21,20 @@ use super::fireflies::Fireflies;
 use super::source::ListedMeeting;
 use super::sources::Sources;
 use super::{Meetings, MeetingsDeps, SEGMENT_SOURCE_KIND, correct, workflow};
+use crate::action_items::Actor;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{AccountKind, ConnectorKind};
 use crate::database::Pool;
 use crate::database::schema::knowledge_documents;
 use crate::meeting_uploads::staging::Staging;
+use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
 use crate::models::attribution::{self, Attributor};
 use crate::models::browser_session::{self, NewBrowserSession};
 use crate::models::connector::{self, AccountRef, Connector, NewConnector};
 use crate::models::meeting::tests::stored;
 use crate::models::meeting::{self, Meeting};
+use crate::models::meeting_correction::{self, NewMeetingCorrection};
 use crate::models::meeting_event::{self, EventKind};
 use crate::models::project::{self, NewProject};
 use crate::models::step_job::{self, StepJobState, StepOutcome};
@@ -347,6 +350,68 @@ async fn a_deleted_meeting_changes_no_further_and_starts_no_run() {
             .all(|waiting| waiting.id != deleted_meeting.id),
         "the meetings loop starts no run for it"
     );
+}
+
+// A deleted meeting asks nothing of its person, so the item already asking them to approve its
+// corrected transcript goes with it; restoring leaves the correction waiting, as its row says.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript() {
+    let (_url, mut connection) = migrated_database().await;
+    let (held, _) = stored(&mut connection).await;
+    meeting_correction::record(
+        &mut connection,
+        NewMeetingCorrection {
+            meeting_id: held.id,
+            transcript: json!([]),
+            transcript_hash: "b".repeat(64),
+            based_on: "source".to_owned(),
+            source_transcript_hash: "a".repeat(64),
+            whisper_transcript_hash: None,
+            changed_lines: 1,
+            fixes: json!([]),
+        },
+    )
+    .await
+    .expect("records")
+    .expect("the first copy");
+    let review = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Approve the corrected transcript of Weekly sync".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        },
+        Actor::System,
+        Utc::now(),
+    )
+    .await
+    .expect("an item");
+    meeting_correction::set_review_item(&mut connection, held.id, review.record.id)
+        .await
+        .expect("names it");
+
+    let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
+    let dismissed = deleted.changed[0].dismissed.as_ref().expect("dismissed");
+    assert_eq!(dismissed.record.id, review.record.id);
+    let item = action_item::find(&mut connection, review.record.id)
+        .await
+        .expect("found");
+    assert_eq!(item.state, ActionItemState::Dismissed);
+
+    // Restored, its correction still waits for approval, which the item no longer asks for.
+    let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
+    assert!(restored.changed[0].dismissed.is_none());
+    let correction = meeting_correction::find(&mut connection, held.id)
+        .await
+        .expect("reads")
+        .expect("kept");
+    assert_eq!(correction.approved_at, None);
 }
 
 /// One attempt at the run's next step, the fetch, which answers how it failed; recorded as the
@@ -829,6 +894,67 @@ async fn removing_a_connector_deletes_its_meetings_only_when_asked() {
     let (status, listed) = send(Method::GET, "/api/v1/meetings?deleted=true".to_owned()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(listed["meetings"].as_array().map(Vec::len), Some(2));
+}
+
+// The connector goes after its meetings, and a browser's removal reaches Docker, which answers
+// nothing here: the removal fails, and the meetings it deleted come back, so it can be tried again.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_removal_that_fails_restores_the_meetings_it_deleted() {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode, header};
+    use tower::ServiceExt as _;
+
+    use crate::test_support::{app_state, signed_in_cookie};
+
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let cookie = signed_in_cookie(&state).await;
+    let meetings = meetings_over(state.database.clone());
+    let started_at = Utc::now() - chrono::TimeDelta::hours(2);
+    let teams = connector_of(&mut connection, ConnectorKind::Teams, 59_000).await;
+    meetings
+        .store_listed(
+            &teams,
+            &[listing("one", started_at), listing("two", started_at)],
+        )
+        .await
+        .expect("stores");
+
+    let request = Request::builder()
+        .method(Method::DELETE)
+        .uri(format!(
+            "/api/v1/connectors/{}?deleteMeetings=true",
+            teams.id
+        ))
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, "http://localhost:4000")
+        .body(Body::empty())
+        .expect("a request builds");
+    let response = crate::routes::router(&state)
+        .with_state(state.clone())
+        .oneshot(request)
+        .await
+        .expect("the router answers");
+    let (status, body) = answered(response).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+
+    connector::find(&mut connection, teams.id)
+        .await
+        .expect("the connector stays");
+    let live = meeting::list_owned(&mut connection, TEST_PERSON_ID)
+        .await
+        .expect("lists");
+    assert_eq!(live.len(), 2, "its meetings are back");
+    for back in &live {
+        let kinds: Vec<Option<EventKind>> = meeting_event::history(&mut connection, back.id)
+            .await
+            .expect("history")
+            .iter()
+            .map(meeting_event::MeetingEvent::kind)
+            .collect();
+        assert_eq!(kinds, [Some(EventKind::Deleted), Some(EventKind::Restored)]);
+    }
 }
 
 /// The router's answer to a bulk change of meetings, as the test person.

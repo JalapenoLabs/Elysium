@@ -1184,6 +1184,39 @@ async fn resolve_review_item(
     }
 }
 
+/// Dismisses, as `person` at `now`, the open inbox item asking them to approve meeting
+/// `meeting_id`'s corrected copy, for a meeting they deleted: nothing asks its person to review
+/// what they deleted (`super::deletion`). A run held for the approval stays held, so the meeting's
+/// row and page still say it waits once it is restored, and Approve there lets it go on. Answers
+/// the item dismissed, if one was.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn dismiss_review(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    person: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> diesel::QueryResult<Option<Recorded<ActionItem>>> {
+    let Some(correction) = meeting_correction::find(connection, meeting_id).await? else {
+        return Ok(None);
+    };
+    let Some(item_id) = correction
+        .review_item_id
+        .filter(|_| correction.approved_at.is_none())
+    else {
+        return Ok(None);
+    };
+    let dismissing = Actor::User(person);
+    match action_item::transition(connection, item_id, Transition::Dismiss, dismissing, now).await {
+        Ok(dismissed) => Ok(Some(dismissed)),
+        Err(WorkError::Database(diesel::result::Error::NotFound)) => Ok(None),
+        Err(WorkError::Database(error)) => Err(error),
+        // Already resolved or dismissed, or deleted: the person dealt with it first.
+        Err(_refused) => Ok(None),
+    }
+}
+
 /// Resumes meeting `meeting_id`'s run when its correction step holds it, the held output
 /// marked approved, as `owner`.
 async fn resume_held_correction(

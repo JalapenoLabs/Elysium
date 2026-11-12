@@ -45,8 +45,9 @@ type Options = {
   onDeleted?: () => void
 }
 
-// The actions that run on their own; Delete asks first, and its dialog shows it working.
-type RunningAction = Exclude<ConnectorAction, 'delete'>
+// Every action is tracked while it works. Delete works only while it counts the meetings its
+// dialog offers to delete; the dialog then shows the removal working.
+type RunningAction = ConnectorAction
 
 // What the hub's gear menu does, shared by the list and a connector's page. Each action that
 // is running is tracked by connector, so its button or menu trigger can show it working
@@ -123,7 +124,7 @@ export function useConnectorActions(options: Options = {}) {
         dispatch(connectorUpserted(response.connector))
         toast.success(t('actions.saved'))
       }),
-      delete: async () => {
+      delete: () => track(connector, 'delete', async () => {
         // Named as its row names it: the kind, and the account it reads as when it shows one.
         const kindName = t(`kinds.${connector.kind}.name`)
         const accountName = accountNameOf(connector)
@@ -143,17 +144,18 @@ export function useConnectorActions(options: Options = {}) {
           switches: meetingCount
             ? [{ id: DELETE_MEETINGS_SWITCH, label: t('actions.deleteMeetings', { count: meetingCount }) }]
             : undefined,
+          // A meeting changed meanwhile is left as it is, so the toast names no count.
           onConfirm: (switchedOn) => attempt(async () => {
             const deleteMeetings = switchedOn.has(DELETE_MEETINGS_SWITCH)
             await deleteConnector(connector.id, { deleteMeetings })
             dispatch(connectorDeleted(connector.id))
             toast.success(deleteMeetings
-              ? t('actions.deletedWithMeetings', { count: meetingCount })
+              ? t('actions.deletedWithMeetings')
               : t('actions.deleted'))
             options.onDeleted?.()
           }, { action, connectorId: connector.id }),
         })
-      },
+      }),
     } as const satisfies Record<ConnectorAction, () => unknown>
     void handlers[action]()
   }

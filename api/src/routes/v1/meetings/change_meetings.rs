@@ -39,7 +39,7 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Json(body) = body?;
-    // In id order, so two changes over the same meetings lock them in the same order.
+    // Repeats count once, as `change_many` changes each meeting once.
     let mut meeting_ids = body.meeting_ids;
     meeting_ids.sort_unstable();
     meeting_ids.dedup();
@@ -68,17 +68,16 @@ pub async fn handle(
         None,
     )
     .await?;
-    deletion::announce(&state.events, &outcome);
-
     let changed = outcome
         .changed
-        .into_iter()
-        .map(|changed| changed.meeting)
+        .iter()
+        .map(|changed| changed.meeting.clone())
         .collect();
+    let refused = outcome.refused.clone();
+    deletion::announce(&state.events, &mut connection, outcome).await;
+
     let meetings = responses(&mut connection, changed).await?;
-    Ok(Json(
-        json!({ "meetings": meetings, "refused": outcome.refused }),
-    ))
+    Ok(Json(json!({ "meetings": meetings, "refused": refused })))
 }
 
 #[cfg(test)]

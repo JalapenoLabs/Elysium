@@ -87,8 +87,9 @@ pub async fn summaries(
     Ok(summaries)
 }
 
-/// How many things each connector has recorded: timeline records for those that ingest, linked
-/// issues and pull requests for Jira and GitHub. By connector id.
+/// How many things each connector has recorded: timeline records for those that ingest, but for
+/// those deleted with their meeting, and linked issues and pull requests for Jira and GitHub. By
+/// connector id.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -99,6 +100,7 @@ pub async fn record_counts(
     let ids: Vec<Uuid> = connectors.iter().map(|connector| connector.id).collect();
     let ingested: Vec<(Option<Uuid>, i64)> = timeline_records::table
         .filter(timeline_records::connector_id.eq_any(&ids))
+        .filter(timeline_records::deleted_at.is_null())
         .group_by(timeline_records::connector_id)
         .select((timeline_records::connector_id, count_star()))
         .load(connection)

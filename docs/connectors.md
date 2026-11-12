@@ -269,8 +269,10 @@ Esc lead back.
 - **Deleting** a connector confirms what goes with it: its Atlassian or GitHub account and what uses it, its key, or its
   browser and everything signed in on it. A connector whose kind provides meetings, and that listed some, adds a switch,
   off by default, to delete those meetings too, saying how many (`GET /connectors/{id}/meeting-count`); on, the
-  removal sends `?deleteMeetings=true` and they are deleted softly, as the person, and restored from the Meetings page
-  like any other (`docs/meetings.md`, Deleting). Off, they stay, naming no connector, and can be deleted like any other.
+  removal sends `?deleteMeetings=true` and they are deleted softly, as the person, before the connector goes, and
+  restored from the Meetings page like any other; a removal that fails puts them back (`docs/meetings.md`, Deleting).
+  Off, they stay, naming no connector, and can be deleted like any other. The gear shows it working while it counts
+  them. A connector's record count leaves out the records deleted with their meeting.
 
 Every form and check list is drawn from `GET /connectors/kinds`: `AccountFields` for a new account's fields (each secret
 with a reveal toggle), `ContentFields` for content, and `CheckList` for checks. Names, descriptions, check labels, count

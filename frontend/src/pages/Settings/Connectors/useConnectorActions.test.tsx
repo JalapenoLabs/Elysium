@@ -108,7 +108,7 @@ describe('useConnectorActions delete', () => {
 
     await act(async () => asked?.onConfirm(new Set([ 'deleteMeetings' ])))
     expect(routes.deleteConnector).toHaveBeenCalledWith('fireflies', { deleteMeetings: true })
-    expect(toasts.success).toHaveBeenCalledWith('Connector removed, with its 13 meetings')
+    expect(toasts.success).toHaveBeenCalledWith('Connector removed, with its meetings')
 
     await act(async () => asked?.onConfirm(new Set()))
     expect(routes.deleteConnector).toHaveBeenLastCalledWith('fireflies', { deleteMeetings: false })

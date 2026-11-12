@@ -187,8 +187,9 @@ connector read are its connector's again, so resuming it reads none of them twic
 
 Every capture a source read belongs to a connector (`connectors`), the same table mailboxes use.
 `UNIQUE (connector_id, external_id)` on both `meeting_captures` and `timeline_records` is what keeps a meeting, and each
-of its segments, from being recorded twice, a deleted meeting included (Deleting, below). A capture with no connector or no id at its source, such as an upload,
-names its segments' records by its meeting (`meeting:<id>#<index>`), which the unique key cannot hold once; what does
+of its segments, from being recorded twice, a deleted meeting included (Deleting, below). A capture with no connector or
+no id at its source, such as an upload, names its segments' records by its meeting (`meeting:<id>#<index>`), which the
+unique key cannot hold once; what does
 is that segmenting stores a meeting's records under the meeting's lock, in the transaction that marks it done, and
 stores nothing for a meeting done, so two attempts at once publish it once. A listing that stored meetings, and a
 meeting whose segments were published, is a run of its connector, and a connector is `syncing` while a meeting of its
@@ -240,8 +241,9 @@ is fetched or its segments are cut and published.
   (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
   connector's sign-in state and last error, so each read reports the latest it saw.
 - **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done`, neither merged away nor deleted,
-  that needs a run gets one, started by the system user (`workflow::run_to_start`). An upload's run is started by its person, as the upload finishes, in
-  the transaction that stores its meeting, so the loop never starts one of its own for it (Uploads, below). The same
+  that needs a run gets one, started by the system user (`workflow::run_to_start`). An upload's run is started by its
+  person, as the upload finishes, in the transaction that stores its meeting, so the loop never starts one of its own
+  for it (Uploads, below). The same
   pass removes every upload no part reached for a week (`meeting_uploads::STALE_AFTER`), and what of it arrived, and
   the parts of finished uploads that no longer need them (Uploads, below).
 
@@ -752,8 +754,10 @@ immediate, and restoring brings back all of it.
   and keeps its copy but asks nobody to review it, aligning asks nothing about a meeting recorded twice, and
   segmenting keeps its segments and clips but puts nothing on a timeline. The deletion takes the same lock, so no
   segment of a deleted meeting is ever published. A run held for its person (an approval, or the same meeting twice)
-  stays held, and a meeting with no run yet starts none. A step running when the meeting was deleted finishes its
-  attempt, and the step after it stops.
+  stays held, and a meeting with no run yet starts none. The inbox item already asking its person to approve its
+  corrected transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`): nothing asks
+  them to review what they deleted, and once it is restored its row and page say it waits for approval. A step
+  running when the meeting was deleted finishes its attempt, and the step after it stops.
 - **Never read again.** Its captures stay, so its connector's next listing finds each one known
   (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
   its key or its browser, Teams, and Slack's huddles alike. An upload is never listed; a deleted meeting takes no
@@ -774,9 +778,11 @@ immediate, and restoring brings back all of it.
   away, deleted already, or not deleted) is answered with its reason while the rest apply.
 - **With its connector.** Removing a connector that provides meetings may delete the meetings it listed: those whose
   first capture it read, neither deleted nor merged away (`meeting::listed_by`), the same ones
-  `GET /api/v1/connectors/{id}/meeting-count` counts for the removal's switch. They are named before the connector goes,
-  since removing it leaves their captures naming none, and deleted once it went, so a removal that fails deletes
-  nothing. Each is recorded as removed with it (`connectorId`), and restored like any other.
+  `GET /api/v1/connectors/{id}/meeting-count` counts for the removal's switch. The removal reaches outside Postgres (a
+  browser's container goes with it), so the two cannot share a transaction: the meetings go first, while the connector
+  still names them, in parts of at most `MAX_MEETINGS`, each its own change; then the connector goes. A part or a
+  removal that fails restores the meetings that request deleted, so it leaves the connector and its meetings as they
+  were, to be tried again. Each is recorded as removed with it (`connectorId`), and restored like any other.
 - **History.** Deleting and restoring are each a change in the meeting's history, `deleted` and `restored`, with who
   did it. Neither is undone through the history: restoring is a deletion's undo, and deleting again a restore's.
 - **What is told.** `meeting.changed` for each meeting, naming its entry, and `timelineRecord.changed` for each segment
@@ -1056,8 +1062,9 @@ segment's clip for its record's owner.
   (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed to it (`?project=`): source
   (every kind that provides meetings, such as Fireflies, Teams, and Slack's huddles, then any other source a meeting
   came from, named as the source column names it, `meetingSourceNameKey`), state, project or none, and waiting for
-  review, and deleted meetings instead of the rest. The header counts the meetings waiting for review, and holds Upload a meeting, which opens the upload
-  (`/knowledge/meetings/new`, Uploads, below), and one action, which opens Settings, Meetings. With no source
+  review, and deleted meetings instead of the rest. The header counts the meetings waiting for review, and holds Upload
+  a meeting, which opens the upload (`/knowledge/meetings/new`, Uploads, below), and one action, which opens Settings,
+  Meetings. With no source
   connected, an empty page links there.
 - **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section as Meeting sources,
   `MeetingsPage`): where the person's meetings come from, and nothing else, since meetings are daily work and live in

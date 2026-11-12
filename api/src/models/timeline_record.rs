@@ -40,6 +40,11 @@ use crate::models::knowledge_document::{self, KnowledgeSource};
 use crate::models::meeting_comment;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
 
+/// The meeting a segment record names, as SQL, spelled exactly as the index
+/// `timeline_records_meeting_segments` is, so the planner matches it in every plan it caches; a key
+/// bound as a parameter, or spelled any other way, is a different expression to it.
+const MEETING_KEY_SQL: &str = "timeline_records.metadata ->> 'meetingId'";
+
 /// The owners whose records every reader of a timeline reads besides their own: Elysium's own
 /// agents, whose records are about a project rather than any one person's feed.
 pub const SHARED_OWNERS: [Uuid; 2] = [PROJECT_MANAGER_USER_ID, CODING_AGENT_USER_ID];
@@ -545,9 +550,7 @@ pub async fn projects_of_meetings(
     meeting_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
     let keys: Vec<String> = meeting_ids.iter().map(Uuid::to_string).collect();
-    // Spelled exactly as the index `timeline_records_meeting_segments` is, so the planner matches
-    // it in every plan it caches; a key bound as a parameter is a different expression to it.
-    let meeting_key = diesel::dsl::sql::<Text>("timeline_records.metadata ->> 'meetingId'");
+    let meeting_key = diesel::dsl::sql::<Text>(MEETING_KEY_SQL);
     let rows: Vec<(String, Uuid)> = timeline_records::table
         .inner_join(timeline_record_projects::table)
         .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
@@ -588,8 +591,7 @@ pub async fn delete_of_meeting(
     meeting_id: Uuid,
     at: DateTime<Utc>,
 ) -> QueryResult<Vec<TimelineRecord>> {
-    // Spelled as `timeline_records_meeting_segments` is, so the index answers it.
-    let meeting_key = diesel::dsl::sql::<Text>("timeline_records.metadata ->> 'meetingId'");
+    let meeting_key = diesel::dsl::sql::<Text>(MEETING_KEY_SQL);
     let deleted: Vec<TimelineRecord> = diesel::update(
         timeline_records::table
             .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
@@ -622,7 +624,7 @@ pub async fn restore_of_meeting(
     meeting_id: Uuid,
     deleted_at: DateTime<Utc>,
 ) -> QueryResult<Vec<TimelineRecord>> {
-    let meeting_key = diesel::dsl::sql::<Text>("timeline_records.metadata ->> 'meetingId'");
+    let meeting_key = diesel::dsl::sql::<Text>(MEETING_KEY_SQL);
     let restored: Vec<TimelineRecord> = diesel::update(
         timeline_records::table
             .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))

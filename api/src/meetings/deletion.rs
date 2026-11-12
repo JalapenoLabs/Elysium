@@ -20,10 +20,12 @@
 //! - **Its run stops.** Every meeting step fails for good on a deleted meeting with
 //!   [`STOPPED`], at its start and again under the meeting's lock where it would raise an inbox
 //!   item or publish, so a deleted meeting asks nothing of its person and puts nothing on a
-//!   timeline. Restoring retries the step that stopped: the failed step of the meeting's newest
-//!   run of each meeting workflow that failed after the deletion, whatever it failed with, since
-//!   nobody saw a meeting that was listed nowhere. A run that failed before the deletion waits for
-//!   its person as it did, and a held run stays held.
+//!   timeline. The inbox item it raised already, asking to approve its corrected transcript, is
+//!   dismissed as the person deleting it (`correct::dismiss_review`). Restoring retries the step
+//!   that stopped: the failed step of the meeting's newest run of each meeting workflow that failed
+//!   after the deletion, whatever it failed with, since nobody saw a meeting that was listed
+//!   nowhere. A run that failed before the deletion waits for its person as it did, and a held run
+//!   stays held, its meeting's row and page saying it waits.
 //!
 //! Each deletion and restore is in the meeting's history (`deleted`, `restored`) with who did it.
 //! Neither is undone through the history: restoring is the undo of deleting, and deleting again
@@ -39,7 +41,8 @@
 //!
 //! Many meetings change in one transaction, each in a savepoint, in the order of their ids, as a
 //! bulk change to action items does (`models::action_item_bulk`): one refused is reported with
-//! its reason while the rest apply, and a fault inside Elysium writes nothing.
+//! its reason while the rest apply, and a fault inside Elysium writes nothing. One change names at
+//! most [`MAX_MEETINGS`]; a caller with more sends them in parts.
 
 use chrono::{DateTime, Utc};
 use diesel::result::Error as DieselError;
@@ -49,7 +52,9 @@ use serde_json::json;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::workflow;
+use super::{correct, workflow};
+use crate::models::action_item::ActionItem;
+use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
@@ -57,6 +62,7 @@ use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::workflow_run::{self, Actor, Settled, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::routes::v1::action_items::publish_item_write;
 use crate::workflows;
 
 /// The reason every meeting step fails with for a deleted meeting, which is what stops its run.
@@ -73,16 +79,12 @@ pub const MAX_MEETINGS: usize = 1000;
 /// What to do to every meeting named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+#[expect(
+    clippy::empty_enum_variants_with_brackets,
+    reason = "serde refuses unknown fields only on a struct variant, as on every other body"
+)]
 pub enum BulkChange {
-    #[expect(
-        clippy::empty_enum_variants_with_brackets,
-        reason = "serde refuses unknown fields only on a struct variant, as on every other body"
-    )]
     Delete {},
-    #[expect(
-        clippy::empty_enum_variants_with_brackets,
-        reason = "serde refuses unknown fields only on a struct variant, as on every other body"
-    )]
     Restore {},
 }
 
@@ -141,6 +143,8 @@ pub struct Changed {
     pub records: Vec<TimelineRecord>,
     /// The runs restoring it carried on.
     pub runs: Vec<Settled>,
+    /// The inbox item deleting it dismissed, which asked to approve its corrected transcript.
+    pub dismissed: Option<Recorded<ActionItem>>,
 }
 
 /// What a change did.
@@ -162,9 +166,10 @@ impl From<DieselError> for Failure {
     }
 }
 
-/// Applies `change` to every meeting in `meeting_ids`, which must be sorted and free of repeats,
-/// as `person` at `at`. `removed_with` names the connector the meetings are deleted with, which
-/// their history records. Nothing is announced: the caller does, once it commits ([`announce`]).
+/// Applies `change` to every meeting in `meeting_ids`, at most [`MAX_MEETINGS`], as `person` at
+/// `at`. Each is changed once, in the order of their ids, so two changes over the same meetings lock
+/// them in one order. `removed_with` names the connector the meetings are deleted with, which their
+/// history records. Nothing is announced: the caller does, once it commits ([`announce`]).
 ///
 /// # Errors
 /// Propagates any database error, which writes nothing. A meeting refused is reported in
@@ -182,10 +187,13 @@ pub async fn change_many(
         agent: None,
         at,
     };
+    let mut ordered = meeting_ids.to_vec();
+    ordered.sort_unstable();
+    ordered.dedup();
     connection
         .transaction(async move |connection| {
             let mut outcome = Outcome::default();
-            for &meeting_id in meeting_ids {
+            for meeting_id in ordered {
                 let attempt = connection
                     .transaction(async move |connection| match change {
                         BulkChange::Delete {} => {
@@ -248,6 +256,9 @@ async fn delete_one(
         .deleted_at
         .expect("a meeting just deleted has its deleted_at");
     let records = timeline_record::delete_of_meeting(connection, meeting_id, stamp).await?;
+    // Nothing asks its person to review what they deleted; a run held for it stays held.
+    let dismissed =
+        correct::dismiss_review(connection, meeting_id, author.user_id, author.at).await?;
     let entry = meeting_event::record(
         connection,
         Change {
@@ -268,6 +279,7 @@ async fn delete_one(
         entry,
         records,
         runs: Vec::new(),
+        dismissed,
     })
 }
 
@@ -306,6 +318,7 @@ async fn restore_one(
         entry,
         records,
         runs,
+        dismissed: None,
     })
 }
 
@@ -360,11 +373,12 @@ async fn carry_on(
 }
 
 /// Tells every client what `outcome` changed, once it has committed: each meeting, by its history
-/// entry, each segment that left or came back to its timelines, and each run restoring carried
-/// on, which the engine is told of too. Events carry ids, never content.
-pub fn announce(events: &EventBus, outcome: &Outcome) {
+/// entry, each segment that left or came back to its timelines, each inbox item a deletion
+/// dismissed, and each run restoring carried on, which the engine is told of too. Events carry
+/// ids, never content.
+pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, outcome: Outcome) {
     let mut carried_on = false;
-    for changed in &outcome.changed {
+    for changed in outcome.changed {
         events.publish(&ServerEvent::MeetingChanged {
             id: changed.meeting.id,
             state: changed.meeting.state.clone(),
@@ -380,6 +394,18 @@ pub fn announce(events: &EventBus, outcome: &Outcome) {
         for settled in &changed.runs {
             workflows::announce(events, settled);
             carried_on = true;
+        }
+        if let Some(item) = changed.dismissed
+            && let Err(error) = publish_item_write(events, connection, item, &[], Utc::now()).await
+        {
+            // The item is dismissed; clients that missed it read it on their next load.
+            event!(
+                name: "meetings.deletion.unpublished",
+                Level::WARN,
+                meeting.id = %changed.meeting.id,
+                error.message = %error,
+                "a deleted meeting's review item was dismissed but could not be announced",
+            );
         }
     }
     if carried_on {
