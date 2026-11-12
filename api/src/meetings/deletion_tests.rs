@@ -142,6 +142,10 @@ async fn on_timeline(connection: &mut AsyncPgConnection, project_id: Uuid) -> Ve
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one meeting deleted and restored, with everything its segment leaves and regains"
+)]
 async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_restoring_returns_them()
 {
     let (_url, mut connection) = migrated_database().await;
@@ -224,7 +228,10 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
     let entry = history.last().expect("an entry");
     assert_eq!(entry.kind(), Some(EventKind::Deleted));
     assert_eq!(entry.created_by, TEST_PERSON_ID, "who deleted it is kept");
-    assert_eq!(entry.data, json!({ "segments": 1, "connectorId": null }));
+    assert_eq!(
+        entry.data,
+        json!({ "segments": 1, "connectorId": null, "dismissedItemId": null })
+    );
 
     let restored = change(&mut connection, vec![launch.id], BulkChange::Restore {}).await;
     assert!(restored.refused.is_empty(), "{:?}", restored.refused);
@@ -247,7 +254,12 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
     assert_eq!(entry.created_by, TEST_PERSON_ID, "who restored it is kept");
     assert_eq!(
         entry.data,
-        json!({ "deletedAt": deleted_at, "segments": 1, "runRetried": false })
+        json!({
+            "deletedAt": deleted_at,
+            "segments": 1,
+            "runRetried": false,
+            "reopenedItemId": null,
+        })
     );
 }
 
@@ -352,17 +364,13 @@ async fn a_deleted_meeting_changes_no_further_and_starts_no_run() {
     );
 }
 
-// A deleted meeting asks nothing of its person, so the item already asking them to approve its
-// corrected transcript goes with it; restoring leaves the correction waiting, as its row says.
-#[tokio::test]
-#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript() {
-    let (_url, mut connection) = migrated_database().await;
-    let (held, _) = stored(&mut connection).await;
+/// Stores a corrected copy of `meeting`'s transcript waiting for approval, and the inbox item
+/// asking for it, as correction raises one. Answers the item's id.
+async fn waiting_for_review(connection: &mut AsyncPgConnection, meeting: &Meeting) -> Uuid {
     meeting_correction::record(
-        &mut connection,
+        connection,
         NewMeetingCorrection {
-            meeting_id: held.id,
+            meeting_id: meeting.id,
             transcript: json!([]),
             transcript_hash: "b".repeat(64),
             based_on: "source".to_owned(),
@@ -376,7 +384,7 @@ async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript(
     .expect("records")
     .expect("the first copy");
     let review = action_item::create(
-        &mut connection,
+        connection,
         NewActionItem {
             title: "Approve the corrected transcript of Weekly sync".to_owned(),
             notes: String::new(),
@@ -392,26 +400,103 @@ async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript(
     )
     .await
     .expect("an item");
-    meeting_correction::set_review_item(&mut connection, held.id, review.record.id)
+    meeting_correction::set_review_item(connection, meeting.id, review.record.id)
         .await
         .expect("names it");
+    review.record.id
+}
+
+async fn item_state(connection: &mut AsyncPgConnection, item_id: Uuid) -> ActionItemState {
+    action_item::find(connection, item_id)
+        .await
+        .expect("found")
+        .state
+}
+
+// A deleted meeting asks nothing of its person, so the item already asking them to approve its
+// corrected transcript is dismissed with it; restoring asks again, as the correction still waits.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript() {
+    let (_url, mut connection) = migrated_database().await;
+    let (held, _) = stored(&mut connection).await;
+    let review_id = waiting_for_review(&mut connection, &held).await;
 
     let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
-    let dismissed = deleted.changed[0].dismissed.as_ref().expect("dismissed");
-    assert_eq!(dismissed.record.id, review.record.id);
-    let item = action_item::find(&mut connection, review.record.id)
-        .await
-        .expect("found");
-    assert_eq!(item.state, ActionItemState::Dismissed);
+    let dismissed = deleted.changed[0].item.as_ref().expect("dismissed");
+    assert_eq!(dismissed.record.id, review_id);
+    assert_eq!(
+        item_state(&mut connection, review_id).await,
+        ActionItemState::Dismissed
+    );
+    assert_eq!(
+        deleted.changed[0].entry.data["dismissedItemId"],
+        json!(review_id)
+    );
 
-    // Restored, its correction still waits for approval, which the item no longer asks for.
     let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
-    assert!(restored.changed[0].dismissed.is_none());
+    let reopened = restored.changed[0].item.as_ref().expect("reopened");
+    assert_eq!(reopened.record.id, review_id);
+    assert_eq!(
+        item_state(&mut connection, review_id).await,
+        ActionItemState::Open
+    );
     let correction = meeting_correction::find(&mut connection, held.id)
         .await
         .expect("reads")
         .expect("kept");
     assert_eq!(correction.approved_at, None);
+}
+
+// An item the person dealt with by hand while the meeting was deleted stays as they left it.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn restoring_leaves_a_review_item_the_person_resolved_meanwhile() {
+    let (_url, mut connection) = migrated_database().await;
+    let (held, _) = stored(&mut connection).await;
+    let review_id = waiting_for_review(&mut connection, &held).await;
+    change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
+    action_item::transition(
+        &mut connection,
+        review_id,
+        crate::action_items::Transition::Reopen,
+        Actor::User(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("reopened by hand");
+    action_item::transition(
+        &mut connection,
+        review_id,
+        crate::action_items::Transition::Resolve,
+        Actor::User(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("resolved by hand");
+
+    let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
+    assert!(restored.changed[0].item.is_none());
+    assert_eq!(
+        item_state(&mut connection, review_id).await,
+        ActionItemState::Resolved
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn deleting_a_meeting_with_no_review_dismisses_nothing() {
+    let (_url, mut connection) = migrated_database().await;
+    let (held, _) = stored(&mut connection).await;
+
+    let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
+    assert!(deleted.changed[0].item.is_none());
+    assert_eq!(
+        deleted.changed[0].entry.data["dismissedItemId"],
+        Value::Null
+    );
+    let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
+    assert!(restored.changed[0].item.is_none());
 }
 
 /// One attempt at the run's next step, the fetch, which answers how it failed; recorded as the

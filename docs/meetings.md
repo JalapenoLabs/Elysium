@@ -755,9 +755,11 @@ immediate, and restoring brings back all of it.
   segmenting keeps its segments and clips but puts nothing on a timeline. The deletion takes the same lock, so no
   segment of a deleted meeting is ever published. A run held for its person (an approval, or the same meeting twice)
   stays held, and a meeting with no run yet starts none. The inbox item already asking its person to approve its
-  corrected transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`): nothing asks
-  them to review what they deleted, and once it is restored its row and page say it waits for approval. A step
-  running when the meeting was deleted finishes its attempt, and the step after it stops.
+  corrected transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`), so nothing
+  asks them to review what they deleted; the `deleted` entry names it, and restoring reopens that item while the copy
+  still waits and the item is still dismissed (`correct::reopen_review`), as `open`, the one way back an item has. One
+  the person dealt with by hand meanwhile stays as they left it. A step running when the meeting was deleted finishes
+  its attempt, and the step after it stops.
 - **Never read again.** Its captures stay, so its connector's next listing finds each one known
   (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
   its key or its browser, Teams, and Slack's huddles alike. An upload is never listed; a deleted meeting takes no
@@ -948,8 +950,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
 | `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
-| `deleted`             | Its person deleted it: how many segments went with it, and the connector it was removed with, if it was | None: restoring brings it back |
-| `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many segments came back, and whether the run that deletion stopped went on | None: deleting takes it again |
+| `deleted`             | Its person deleted it: how many segments went with it, the connector it was removed with, if it was, and the review item it dismissed (`dismissedItemId`), if it did | None: restoring brings it back |
+| `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many segments came back, whether the run that deletion stopped went on, and the review item it reopened (`reopenedItemId`), if it did | None: deleting takes it again |
 
 ## Comments
 

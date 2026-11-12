@@ -21,7 +21,10 @@
 //!   [`STOPPED`], at its start and again under the meeting's lock where it would raise an inbox
 //!   item or publish, so a deleted meeting asks nothing of its person and puts nothing on a
 //!   timeline. The inbox item it raised already, asking to approve its corrected transcript, is
-//!   dismissed as the person deleting it (`correct::dismiss_review`). Restoring retries the step
+//!   dismissed as the person deleting it (`correct::dismiss_review`), the `deleted` entry naming it,
+//!   and restoring reopens that item while it still waits (`correct::reopen_review`), so a
+//!   connector's removal that fails and restores what it deleted leaves the asks as they were too.
+//!   Restoring retries the step
 //!   that stopped: the failed step of the meeting's newest run of each meeting workflow that failed
 //!   after the deletion, whatever it failed with, since nobody saw a meeting that was listed
 //!   nowhere. A run that failed before the deletion waits for its person as it did, and a held run
@@ -62,7 +65,7 @@ use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::workflow_run::{self, Actor, Settled, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent, Signal};
-use crate::routes::v1::action_items::publish_item_write;
+use crate::routes::v1::action_items::publish_item_writes;
 use crate::workflows;
 
 /// The reason every meeting step fails with for a deleted meeting, which is what stops its run.
@@ -143,8 +146,9 @@ pub struct Changed {
     pub records: Vec<TimelineRecord>,
     /// The runs restoring it carried on.
     pub runs: Vec<Settled>,
-    /// The inbox item deleting it dismissed, which asked to approve its corrected transcript.
-    pub dismissed: Option<Recorded<ActionItem>>,
+    /// The inbox item asking to approve its corrected transcript, which deleting it dismissed or
+    /// restoring it reopened.
+    pub item: Option<Recorded<ActionItem>>,
 }
 
 /// What a change did.
@@ -256,7 +260,8 @@ async fn delete_one(
         .deleted_at
         .expect("a meeting just deleted has its deleted_at");
     let records = timeline_record::delete_of_meeting(connection, meeting_id, stamp).await?;
-    // Nothing asks its person to review what they deleted; a run held for it stays held.
+    // Nothing asks its person to review what they deleted; a run held for it stays held. The entry
+    // names the item, so restoring reopens exactly the one this deletion dismissed.
     let dismissed =
         correct::dismiss_review(connection, meeting_id, author.user_id, author.at).await?;
     let entry = meeting_event::record(
@@ -269,6 +274,7 @@ async fn delete_one(
             data: json!({
                 "segments": records.len(),
                 "connectorId": removed_with,
+                "dismissedItemId": dismissed.as_ref().map(|item| item.record.id),
             }),
             undid: None,
         },
@@ -279,7 +285,7 @@ async fn delete_one(
         entry,
         records,
         runs: Vec::new(),
-        dismissed,
+        item: dismissed,
     })
 }
 
@@ -297,6 +303,13 @@ async fn restore_one(
     let restored = meeting::set_deleted(connection, meeting_id, None).await?;
     let records = timeline_record::restore_of_meeting(connection, meeting_id, deleted_at).await?;
     let runs = carry_on(connection, meeting_id, deleted_at, author).await?;
+    let reopened = match dismissed_by_deletion(connection, meeting_id).await? {
+        Some(item_id) => {
+            correct::reopen_review(connection, meeting_id, item_id, author.user_id, author.at)
+                .await?
+        }
+        None => None,
+    };
     let entry = meeting_event::record(
         connection,
         Change {
@@ -308,6 +321,7 @@ async fn restore_one(
                 "deletedAt": deleted_at,
                 "segments": records.len(),
                 "runRetried": !runs.is_empty(),
+                "reopenedItemId": reopened.as_ref().map(|item| item.record.id),
             }),
             undid: None,
         },
@@ -318,8 +332,23 @@ async fn restore_one(
         entry,
         records,
         runs,
-        dismissed: None,
+        item: reopened,
     })
+}
+
+/// The review item meeting `meeting_id`'s newest deletion dismissed, as its `deleted` entry names
+/// it (`dismissedItemId`), if it dismissed one.
+async fn dismissed_by_deletion(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> Result<Option<Uuid>, DieselError> {
+    let deletions = meeting_event::of_kind(connection, meeting_id, EventKind::Deleted).await?;
+    let item_id = deletions
+        .last()
+        .and_then(|deletion| deletion.data.get("dismissedItemId"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|item_id| item_id.parse().ok());
+    Ok(item_id)
 }
 
 /// Retries, as `author`, the step that stopped each of meeting `meeting_id`'s runs while it was
@@ -373,11 +402,12 @@ async fn carry_on(
 }
 
 /// Tells every client what `outcome` changed, once it has committed: each meeting, by its history
-/// entry, each segment that left or came back to its timelines, each inbox item a deletion
-/// dismissed, and each run restoring carried on, which the engine is told of too. Events carry
-/// ids, never content.
+/// entry, each segment that left or came back to its timelines, each run restoring carried on,
+/// which the engine is told of too, and every review item dismissed or reopened, published
+/// together. Events carry ids, never content.
 pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, outcome: Outcome) {
     let mut carried_on = false;
+    let mut items = Vec::new();
     for changed in outcome.changed {
         events.publish(&ServerEvent::MeetingChanged {
             id: changed.meeting.id,
@@ -395,20 +425,23 @@ pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, out
             workflows::announce(events, settled);
             carried_on = true;
         }
-        if let Some(item) = changed.dismissed
-            && let Err(error) = publish_item_write(events, connection, item, &[], Utc::now()).await
-        {
-            // The item is dismissed; clients that missed it read it on their next load.
-            event!(
-                name: "meetings.deletion.unpublished",
-                Level::WARN,
-                meeting.id = %changed.meeting.id,
-                error.message = %error,
-                "a deleted meeting's review item was dismissed but could not be announced",
-            );
-        }
+        items.extend(changed.item);
     }
     if carried_on {
         events.signal(&Signal::Workflows);
+    }
+    if items.is_empty() {
+        return;
+    }
+    let item_ids: Vec<Uuid> = items.iter().map(|item| item.record.id).collect();
+    if let Err(error) = publish_item_writes(events, connection, items, &[], Utc::now()).await {
+        // The items are written; clients that missed them read them on their next load.
+        event!(
+            name: "meetings.deletion.unpublished",
+            Level::WARN,
+            action_item.ids = ?item_ids,
+            error.message = %error,
+            "review items a deletion or a restore changed could not be announced",
+        );
     }
 }

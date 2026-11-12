@@ -56,11 +56,13 @@ pub enum EventKind {
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
     ThreadReopened,
-    /// Its person deleted it (`crate::meetings::deletion`): `{ segments, connectorId }`, how many
-    /// segments went with it, and the connector it was removed with, `null` when it went alone.
+    /// Its person deleted it (`crate::meetings::deletion`): `{ segments, connectorId,
+    /// dismissedItemId }`, how many segments went with it, the connector it was removed with
+    /// (`null` when it went alone), and the review item it dismissed, or `null`.
     Deleted,
-    /// Its person restored it: `{ deletedAt, segments, runRetried }`, the deletion it reversed,
-    /// how many segments came back, and whether the run that deletion stopped went on.
+    /// Its person restored it: `{ deletedAt, segments, runRetried, reopenedItemId }`, the deletion
+    /// it reversed, how many segments came back, whether the run that deletion stopped went on, and
+    /// the review item it reopened, or `null`.
     Restored,
 }
 

@@ -1217,6 +1217,41 @@ pub(crate) async fn dismiss_review(
     }
 }
 
+/// Reopens, as `person` at `now`, review item `item_id` that deleting meeting `meeting_id`
+/// dismissed ([`dismiss_review`]), as the meeting is restored, while its corrected copy still waits
+/// for approval and the item is still dismissed. It reopens as `open`, the one way back an item
+/// has. Answers the item reopened, if it was.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn reopen_review(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    item_id: Uuid,
+    person: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> diesel::QueryResult<Option<Recorded<ActionItem>>> {
+    let waits = meeting_correction::find(connection, meeting_id)
+        .await?
+        .is_some_and(|correction| correction.approved_at.is_none());
+    // One the person resolved or reopened by hand meanwhile is theirs, and stays as they left it.
+    let still_dismissed = match action_item::find(connection, item_id).await {
+        Ok(item) => item.state == ActionItemState::Dismissed && item.deleted_at.is_none(),
+        Err(diesel::result::Error::NotFound) => false,
+        Err(error) => return Err(error),
+    };
+    if !waits || !still_dismissed {
+        return Ok(None);
+    }
+    let reopening = Actor::User(person);
+    match action_item::transition(connection, item_id, Transition::Reopen, reopening, now).await {
+        Ok(reopened) => Ok(Some(reopened)),
+        Err(WorkError::Database(error)) => Err(error),
+        // Changed in the instant since it was read: it stays as that change left it.
+        Err(_refused) => Ok(None),
+    }
+}
+
 /// Resumes meeting `meeting_id`'s run when its correction step holds it, the held output
 /// marked approved, as `owner`.
 async fn resume_held_correction(
