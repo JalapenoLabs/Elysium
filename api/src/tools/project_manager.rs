@@ -1018,7 +1018,6 @@ async fn run_decline_task(
     context.events.publish(&ServerEvent::MeetingChanged {
         id: found.id,
         state: found.state.clone(),
-        created_by: found.created_by,
         entry_id: None,
     });
     Ok(json!({

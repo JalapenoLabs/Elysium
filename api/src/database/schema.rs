@@ -1040,6 +1040,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         page_id -> Nullable<Uuid>,
         meeting_id -> Nullable<Uuid>,
+        access_meeting_id -> Nullable<Uuid>,
     }
 }
 
@@ -1276,6 +1277,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_shares (meeting_id, person_id) {
+        meeting_id -> Uuid,
+        person_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_task_items (action_item_id) {
         action_item_id -> Uuid,
         task_id -> Uuid,
@@ -1394,6 +1406,8 @@ diesel::table! {
         updated_at -> Timestamptz,
         hold_for_approval -> Bool,
         merged_into -> Nullable<Uuid>,
+        visibility -> Text,
+        visibility_item_id -> Nullable<Uuid>,
     }
 }
 
@@ -2263,7 +2277,6 @@ diesel::joinable!(kind_model_settings -> projects (project_id));
 diesel::joinable!(kind_model_settings -> users (created_by));
 diesel::joinable!(knowledge_asks -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
-diesel::joinable!(knowledge_documents -> meetings (meeting_id));
 diesel::joinable!(knowledge_documents -> pages (page_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
@@ -2294,6 +2307,7 @@ diesel::joinable!(meeting_events -> users (created_by));
 diesel::joinable!(meeting_marks -> meeting_events (removed_by));
 diesel::joinable!(meeting_marks -> meetings (meeting_id));
 diesel::joinable!(meeting_marks -> users (created_by));
+diesel::joinable!(meeting_shares -> meetings (meeting_id));
 diesel::joinable!(meeting_task_items -> action_items (action_item_id));
 diesel::joinable!(meeting_task_items -> meeting_tasks (task_id));
 diesel::joinable!(meeting_tasks -> meeting_marks (mark_id));
@@ -2309,6 +2323,7 @@ diesel::joinable!(meeting_uploads -> storage_locations (storage_location_id));
 diesel::joinable!(meeting_uploads -> users (created_by));
 diesel::joinable!(meeting_words -> meeting_captures (capture_id));
 diesel::joinable!(meeting_words -> meetings (meeting_id));
+diesel::joinable!(meetings -> action_items (visibility_item_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(page_attachments -> pages (page_id));
@@ -2472,6 +2487,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     meeting_duplicates,
     meeting_events,
     meeting_marks,
+    meeting_shares,
     meeting_task_items,
     meeting_tasks,
     meeting_thread_items,

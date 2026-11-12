@@ -32,7 +32,7 @@ use crate::meetings::source::TranscriptLine;
 use crate::models::action_item::{self, ActionItemState};
 use crate::models::changeset::{self, ChangesetDecision, ChangesetState};
 use crate::models::meeting::tests::fetched_with;
-use crate::models::meeting::{self, Meeting};
+use crate::models::meeting::{self, Meeting, Visibility};
 use crate::models::meeting_capture::MeetingCapture;
 use crate::models::meeting_mark::{self, MarkKind};
 use crate::models::project::{self, NewProject};
@@ -358,7 +358,7 @@ async fn drive(autonomy: Autonomy) {
         shares,
         [
             &json!({ "kind": "project", "projectId": launch }),
-            &json!({ "kind": "own" }),
+            &json!({ "kind": "own", "userId": TEST_PERSON_ID, "name": "Tester" }),
             &json!({ "kind": "waiting-on", "name": "Sharath" }),
             &json!({ "kind": "other" }),
             &json!({ "kind": "coworker", "userId": GRACE_ID, "name": "Grace Hopper" }),
@@ -414,6 +414,14 @@ async fn drive(autonomy: Autonomy) {
             .any(|note| note.starts_with("For Tester, waiting on Sharath.")),
         "{notes:?}"
     );
+    // The meeting is private until its correction checks it, and every member reads an item, so
+    // none names it.
+    assert!(
+        notes
+            .iter()
+            .all(|note| note.contains("Heard in a meeting at") && !note.contains("Weekly sync")),
+        "{notes:?}"
+    );
     let mut waiting = waiting_kinds(&mut connection, launch).await;
     waiting.sort_by_key(|kind| format!("{kind:?}"));
     assert_eq!(
@@ -440,7 +448,7 @@ async fn drive(autonomy: Autonomy) {
     assert!(
         first.prompt.contains(&format!(
             "\"Fix the login bug on the launch page\" (task {}), owed by Grace Hopper, a person on \
-             Elysium; heard in",
+             Elysium; heard in a private meeting (meeting {meeting_id})",
             login["id"].as_str().expect("an id")
         )),
         "{}",
@@ -592,8 +600,12 @@ async fn drive(autonomy: Autonomy) {
         .await
         .expect("counts");
 
-    // Done reviewing reads the meeting again: the release notes are heard over a line more, and
-    // the launch date now has Grace on it. Only that one changed.
+    // Done reviewing reads the meeting again, opened to everyone meanwhile, so its turn may name
+    // it: the release notes are heard over a line more, and the launch date now has Grace on it.
+    // Only that one changed.
+    meeting::set_visibility(&mut connection, meeting_id, Visibility::Public)
+        .await
+        .expect("opens");
     meeting::reopen_for_segmenting(&mut connection, meeting_id)
         .await
         .expect("reopens");

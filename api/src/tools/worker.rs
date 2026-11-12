@@ -28,6 +28,7 @@ use crate::findings::{self, FindingError};
 use crate::github::issues::IssueRef;
 use crate::github::pulls::PullRequest;
 use crate::models::finding::Reporter;
+use crate::models::meeting::Reader;
 use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
 use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
@@ -307,7 +308,9 @@ async fn run_pull_request(
 
     // Recorded first, since that is what lets it merge. The chain is read now and the connection
     // given back, so none is held across GitHub's round trips.
-    let why = why::read(&mut connection, &batch)
+    // A description is read by whoever reads the repository, never a meeting's readers, so it
+    // names a public meeting alone.
+    let why = why::read(&mut connection, &batch, Reader::ANY_MEMBER)
         .await
         .map_err(|error| internal(scope, "worker.pull_request.why", &error))?;
     drop(connection);

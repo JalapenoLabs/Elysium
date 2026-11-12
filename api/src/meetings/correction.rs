@@ -26,6 +26,16 @@
 //! heard as its alternatives ([`unflagged_changes`]), so nothing the transcript changed goes
 //! unseen.
 //!
+//! # Who reads it
+//!
+//! The same turn judges whether the meeting is sensitive, and so who reads it
+//! (`docs/meeting-review.md`, Who sees a meeting): beside the transcript it is told whose meeting it
+//! is and the people it can be shared with, those who took part first ([`Person`]), and it answers
+//! `visibility` beside its flags. [`parse_judgment`] reads that apart from the flags, so a garbled
+//! judgment never costs the settlement, and anything it cannot read is
+//! [`Judgment::Undecided`], which keeps the meeting private: a meeting is never opened on a guess.
+//! Only people it was offered are shared with.
+//!
 //! # Nothing the model answers is trusted
 //!
 //! A flag is kept only over words of a line it was given, found there once, overlapping no flag
@@ -63,6 +73,7 @@ use super::segmentation::clock;
 use super::source::TranscriptLine;
 use crate::company_doc::{CompanyDocResponse, SectionResponse};
 use crate::meeting_uploads;
+use crate::meetings::visibility::{self, Judgment};
 use crate::models::company_doc::Section;
 use crate::models::meeting_correction::BasedOn;
 use crate::models::meeting_word::{BuiltWord, Origin, Word};
@@ -76,6 +87,14 @@ const PARTICIPANTS_BUDGET_BYTES: usize = 2_000;
 /// The most bytes of the names other meetings' speakers went by: the company's recurring names,
 /// without crowding the meeting itself.
 const SPEAKERS_BUDGET_BYTES: usize = 4_000;
+
+/// The most bytes of the people a private meeting can be shared with: a few hundred people, those
+/// who took part listed first, so a large workspace leaves out only people the meeting never named.
+const PEOPLE_BUDGET_BYTES: usize = 12_000;
+
+/// The most people a private meeting is shared with on its correction's word: more than any
+/// meeting that needs keeping private has taking part.
+const SHARE_MAX: usize = 50;
 
 /// The most bytes of the Transcription doc's entries one prompt carries: several hundred entries,
 /// those heard in the most meetings first. The doc grows with every meeting, and a prompt past the
@@ -137,10 +156,17 @@ or the few words a name was heard as, with the right one, keeping every other wo
 add or drop words, reword, summarize, or correct grammar; never fill in what nobody said; never \
 change who spoke. Flag a run you cannot make out at 0 with no alternatives, for a person to listen \
 to. What you are sure of as it stands needs no flag. \
+Then judge who should read the meeting. Everyone in the company reads its meetings unless one is \
+sensitive: a one-to-one between a manager and someone they manage, a discussion of someone's \
+performance, pay, hiring, or leaving, or a health, family, or other personal matter. Answer \
+\"visibility\": private true for a sensitive meeting, with shareWith the ids of the people listed \
+who should read it besides its owner, such as those who took part, and why in one short sentence; \
+private false for every other meeting, with shareWith empty. \
 Answer with one JSON object and nothing else: {\"flags\": [{\"line\": number, \"heard\": string, \
-\"text\": string, \"confidence\": number, \"alternatives\": [string], \"why\": string}]}, \
-\"heard\" found exactly once in its line and \"why\" one short sentence. Answer {\"flags\": []} \
-when nothing needs a flag.";
+\"text\": string, \"confidence\": number, \"alternatives\": [string], \"why\": string}], \
+\"visibility\": {\"private\": boolean, \"shareWith\": [string], \"why\": string}}, \"heard\" found \
+exactly once in its line and each \"why\" one short sentence. Answer \"flags\": [] when nothing \
+needs a flag.";
 
 /// The transcript a capture's lines follow: the source's lines, with their speakers, or Whisper's
 /// segments when the source sent none.
@@ -198,11 +224,43 @@ pub struct Fix {
     pub written: String,
 }
 
+/// Someone on Elysium a private meeting can be shared with, as the correction is shown them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Person {
+    pub id: Uuid,
+    pub name: String,
+    pub email: Option<String>,
+}
+
+/// `people` in the order the correction is shown them: those who took part in the meeting first,
+/// the ones a participant or speaker in `took_part` names by their email or name, regardless of
+/// case, then the rest, each part in its own order.
+pub fn people_in_order(people: Vec<Person>, took_part: &[String]) -> Vec<Person> {
+    let named: HashSet<String> = took_part
+        .iter()
+        .map(|name| name.trim().to_lowercase())
+        .filter(|name| !name.is_empty())
+        .collect();
+    let (mut in_it, rest): (Vec<Person>, Vec<Person>) = people.into_iter().partition(|person| {
+        named.contains(&person.name.trim().to_lowercase())
+            || person
+                .email
+                .as_deref()
+                .is_some_and(|email| named.contains(&email.trim().to_lowercase()))
+    });
+    in_it.extend(rest);
+    in_it
+}
+
 /// What the correction reads besides the meeting's transcript.
 #[derive(Debug, Clone, Copy)]
 pub struct Background<'context> {
     pub title: &'context str,
     pub participants: &'context [String],
+    /// Whose meeting it is, by name.
+    pub owner: &'context str,
+    /// Who it can be shared with, in [`people_in_order`]'s order, its owner left out.
+    pub people: &'context [Person],
     /// The Transcription doc's entries.
     pub transcription: &'context [Entry],
     pub doc: &'context CompanyDocResponse,
@@ -257,6 +315,40 @@ pub fn background(background: Background<'_>) -> String {
     }
     text.push_str(&names);
     text.push('\n');
+
+    let _ = writeln!(
+        text,
+        "\nThe meeting belongs to {}, who reads it whatever you decide. The people on Elysium a \
+         private meeting can be shared with, as id: name <email>, those who took part first:",
+        background.owner
+    );
+    text.push_str(&people_text(background.people));
+    text
+}
+
+/// `people` as the prompt lists them, one a line in their order, within [`PEOPLE_BUDGET_BYTES`],
+/// saying how many were left out.
+fn people_text(people: &[Person]) -> String {
+    if people.is_empty() {
+        return "(nobody else)\n".to_owned();
+    }
+    let mut text = String::new();
+    let mut shown = 0;
+    for person in people {
+        let line = match &person.email {
+            Some(email) => format!("{}: {} <{email}>\n", person.id, person.name),
+            None => format!("{}: {}\n", person.id, person.name),
+        };
+        if text.len() + line.len() > PEOPLE_BUDGET_BYTES {
+            break;
+        }
+        text.push_str(&line);
+        shown += 1;
+    }
+    let left_out = people.len() - shown;
+    if left_out > 0 {
+        let _ = writeln!(text, "({left_out} more people are left out)");
+    }
     text
 }
 
@@ -1110,6 +1202,62 @@ pub fn distinct_fixes<'flags>(flags: impl IntoIterator<Item = &'flags Flag>) -> 
 pub fn transcript_hash(lines: &[TranscriptLine]) -> String {
     let serialized = serde_json::to_vec(lines).expect("transcript lines are plain fields");
     hex::encode(Sha256::digest(serialized))
+}
+
+#[derive(Debug, Deserialize)]
+struct JudgmentAnswer {
+    #[serde(default)]
+    visibility: Option<VisibilityAnswer>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VisibilityAnswer {
+    #[serde(default)]
+    private: Option<bool>,
+    #[serde(default)]
+    share_with: Vec<Value>,
+    #[serde(default)]
+    why: Option<String>,
+}
+
+/// Who the answer judged should read the meeting, of `people`, those it was offered. Anything that
+/// cannot be read as a judgment is [`Judgment::Undecided`], which keeps the meeting private; a
+/// person it names is kept only when offered, once, and at most [`SHARE_MAX`] of them, and its
+/// reason is cut to [`visibility::WHY_MAX_CHARACTERS`].
+pub fn parse_judgment(answer: &str, people: &[Person]) -> Judgment {
+    let Some(json) = json_object(answer) else {
+        return Judgment::Undecided;
+    };
+    let Ok(parsed) = serde_json::from_str::<JudgmentAnswer>(json) else {
+        return Judgment::Undecided;
+    };
+    let Some(visibility) = parsed.visibility else {
+        return Judgment::Undecided;
+    };
+    match visibility.private {
+        Some(false) => Judgment::Open,
+        Some(true) => {
+            let offered: HashSet<Uuid> = people.iter().map(|person| person.id).collect();
+            let mut share_with: Vec<Uuid> = Vec::new();
+            for named in &visibility.share_with {
+                let Some(id) = named.as_str().and_then(|id| id.trim().parse::<Uuid>().ok()) else {
+                    continue;
+                };
+                if offered.contains(&id) && !share_with.contains(&id) {
+                    share_with.push(id);
+                }
+            }
+            share_with.truncate(SHARE_MAX);
+            let why = visibility
+                .why
+                .map(|why| why.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|why| !why.is_empty())
+                .map(|why| why.chars().take(visibility::WHY_MAX_CHARACTERS).collect());
+            Judgment::Private { share_with, why }
+        }
+        None => Judgment::Undecided,
+    }
 }
 
 /// The first `{` to the last `}`: models sometimes wrap JSON in a sentence or a code fence.

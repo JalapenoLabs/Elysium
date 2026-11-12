@@ -136,7 +136,10 @@ pub struct PromptTask {
     /// Who owes it, as a sentence reads it: a person on Elysium, someone not on it, or nobody.
     pub owed_by: String,
     pub meeting_id: Uuid,
-    pub meeting_title: String,
+    /// The meeting's title while it is public, and `None` while it is private: what every member
+    /// reads, as a Project Manager's turns are, names a meeting only while it is public
+    /// (`Meeting::public_title`).
+    pub meeting_title: Option<String>,
     /// When in the meeting it was said, as `m:ss`; `None` for a meeting in words alone.
     pub heard_at: Option<String>,
     /// Its words, blacked-out ones left out, as `[m:ss] Speaker: text` lines.
@@ -607,10 +610,14 @@ fn render_task(prompt: &mut String, task: &PromptTask) {
         .as_deref()
         .map(|at| format!(" at {at}"))
         .unwrap_or_default();
+    let meeting = match &task.meeting_title {
+        Some(title) => format!("\"{title}\""),
+        None => "a private meeting".to_owned(),
+    };
     let _ = write!(
         prompt,
-        "\n- \"{}\" (task {}), owed by {}; heard in \"{}\" (meeting {}){heard_at}.\n",
-        task.title, task.id, task.owed_by, task.meeting_title, task.meeting_id,
+        "\n- \"{}\" (task {}), owed by {}; heard in {meeting} (meeting {}){heard_at}.\n",
+        task.title, task.id, task.owed_by, task.meeting_id,
     );
     let words = task.words.trim();
     if !words.is_empty() {
@@ -1069,7 +1076,7 @@ mod tests {
             title: "Fix the login bug".to_owned(),
             owed_by: "Grace Hopper, a person on Elysium".to_owned(),
             meeting_id: Uuid::nil(),
-            meeting_title: "Weekly sync".to_owned(),
+            meeting_title: Some("Weekly sync".to_owned()),
             heard_at: Some("12:04".to_owned()),
             words: "[12:04] Grace: I'll fix the login bug.\n".to_owned(),
             excerpts: Vec::new(),
@@ -1080,6 +1087,7 @@ mod tests {
         heard.tasks.push(task.clone());
         heard.tasks.push(PromptTask {
             title: "Pick the launch date".to_owned(),
+            meeting_title: None,
             heard_at: None,
             excerpts: vec![PromptTaskExcerpt {
                 record_id: Uuid::nil(),
@@ -1098,6 +1106,13 @@ mod tests {
         assert!(prompt.contains(&format!(
             "\"Fix the login bug\" (task {}), owed by Grace Hopper, a person on Elysium; heard in \
              \"Weekly sync\" (meeting {}) at 12:04.",
+            Uuid::nil(),
+            Uuid::nil()
+        )));
+        // A private meeting is named by its id alone, since its title can be what makes it private.
+        assert!(prompt.contains(&format!(
+            "\"Pick the launch date\" (task {}), owed by Grace Hopper, a person on Elysium; heard in \
+             a private meeting (meeting {}).",
             Uuid::nil(),
             Uuid::nil()
         )));

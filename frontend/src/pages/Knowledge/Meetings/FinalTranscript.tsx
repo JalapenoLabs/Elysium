@@ -42,7 +42,8 @@ type Props = {
   onPick: (index: number, shiftKey: boolean) => void
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
-  // Null where the meeting takes no change, as one merged into another does.
+  // Null where the meeting takes no change, as one merged into another does, or for a reader who may
+  // not change it, such as a guest it is shared with.
   onEdit: (() => void) | null
   onComment: (() => void) | null
   assign: AssignControl | null

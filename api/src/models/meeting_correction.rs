@@ -16,8 +16,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::database::schema::{meeting_corrections, meetings};
-use crate::models::meeting::Meeting;
+use crate::database::schema::meeting_corrections;
 
 /// Which transcript a corrected copy follows line by line. Stored as
 /// `meeting_corrections.based_on`.
@@ -169,25 +168,6 @@ pub async fn approve(
     }
 }
 
-/// `owner`'s meetings whose correction raised inbox item `item_id`: the one an item asking for
-/// a review is about.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn meetings_reviewed_by(
-    connection: &mut AsyncPgConnection,
-    item_id: Uuid,
-    owner: Uuid,
-) -> QueryResult<Vec<Meeting>> {
-    meeting_corrections::table
-        .inner_join(meetings::table)
-        .filter(meeting_corrections::review_item_id.eq(item_id))
-        .filter(meetings::created_by.eq(owner))
-        .select(Meeting::as_select())
-        .load(connection)
-        .await
-}
-
 #[derive(Debug, QueryableByName)]
 struct SpeakerRow {
     #[diesel(sql_type = Text)]
@@ -230,6 +210,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::models::meeting::Meeting;
     use crate::models::meeting::tests::fetched_with;
     use crate::test_support::migrated_database;
 

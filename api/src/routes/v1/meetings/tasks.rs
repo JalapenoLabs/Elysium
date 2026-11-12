@@ -6,8 +6,10 @@
 //! for the bar along the meeting's top. `GET /api/v1/meetings/task-items/{itemId}` answers the task
 //! an action item was made of, for the item's page to open its words.
 //!
-//! Both answer the meeting's owner alone, as the meeting's other routes do; `404` for a meeting
-//! that is not theirs.
+//! Both answer whoever may read the meeting, as its other reading routes do
+//! (`crate::meetings::access`); `404` for a meeting they may not read. A task's share is the
+//! meeting's person's: their own tasks name them, so a reader other than its person sees whose they
+//! are.
 
 use std::collections::HashMap;
 
@@ -21,19 +23,21 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use super::open;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::excerpts::MeetingText;
 use crate::meetings::tasks::{Share, share_of};
 use crate::models::action_item::ActionItemState;
-use crate::models::meeting;
+use crate::models::meeting::{self, Reader};
 use crate::models::meeting_mark;
-use crate::models::meeting_task;
+use crate::models::meeting_task::{self, TaskReading};
 use crate::models::meeting_word;
 use crate::models::user;
 use crate::state::AppState;
 
-/// Whose a task is, as the bar groups it.
+/// Whose a task is, as the bar groups it. Its own is the meeting's person's, by id and name.
 #[derive(Debug, Serialize)]
 #[serde(
     tag = "kind",
@@ -42,7 +46,7 @@ use crate::state::AppState;
 )]
 enum ShareResponse {
     Project { project_id: Uuid },
-    Own,
+    Own { user_id: Uuid, name: String },
     Coworker { user_id: Uuid, name: String },
     WaitingOn { name: String },
     Other,
@@ -94,7 +98,7 @@ pub async fn list(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     let tasks = meeting_task::standing_of(&mut connection, found.id).await?;
     let task_ids: Vec<Uuid> = tasks.keys().copied().collect();
     let mut items = meeting_task::items_of(&mut connection, &task_ids).await?;
@@ -128,7 +132,7 @@ pub async fn list(
                 start_word_id: mark.start_word_id,
                 end_word_id: mark.end_word_id,
                 start_ms: text.words()[start].start_ms,
-                share: share_response(share_of(&task.reading(), found.created_by), &names),
+                share: share_response(&task.reading(), found.created_by, &names),
                 items: items
                     .remove(&task.mark_id)
                     .unwrap_or_default()
@@ -153,14 +157,23 @@ pub async fn list(
     Ok(Json(json!({ "tasks": tasks })))
 }
 
-/// `share` as the bar names it: a coworker by their name.
-fn share_response(share: Share, names: &HashMap<Uuid, String>) -> ShareResponse {
-    match share {
+/// Whose `reading` is in a meeting whose person is `owner`, as the bar names it: the person and a
+/// coworker by their names.
+fn share_response(
+    reading: &TaskReading,
+    owner: Uuid,
+    names: &HashMap<Uuid, String>,
+) -> ShareResponse {
+    let name_of = |user_id: Uuid| names.get(&user_id).cloned().unwrap_or_default();
+    match share_of(reading, owner) {
         Share::Project(project_id) => ShareResponse::Project { project_id },
-        Share::Own => ShareResponse::Own,
+        Share::Own => ShareResponse::Own {
+            user_id: owner,
+            name: name_of(owner),
+        },
         Share::Coworker(user_id) => ShareResponse::Coworker {
             user_id,
-            name: names.get(&user_id).cloned().unwrap_or_default(),
+            name: name_of(user_id),
         },
         Share::WaitingOn(name) => ShareResponse::WaitingOn { name },
         Share::Other => ShareResponse::Other,
@@ -169,7 +182,7 @@ fn share_response(share: Share, names: &HashMap<Uuid, String>) -> ShareResponse 
 
 /// `GET /api/v1/meetings/task-items/{itemId}`: the task an action item was made of, as its meeting
 /// and its id, for the item's page to open its words. Every item's page asks, so an item no task of
-/// the signed-in person's meetings made answers `{ "task": null }`.
+/// a meeting the signed-in person may read made answers `{ "task": null }`.
 pub async fn of_item(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -185,10 +198,10 @@ pub async fn of_item(
     else {
         return Ok(Json(json!({ "task": null })));
     };
-    let owned = meeting::find_owned(&mut connection, meeting_id, current.id())
+    let readable = meeting::find_readable(&mut connection, meeting_id, Reader::of(&current.0))
         .await
         .optional()?;
-    let task = owned.map(
+    let task = readable.map(
         |found| json!({ "meetingId": found.id, "meetingTitle": found.title, "taskId": task_id }),
     );
     Ok(Json(json!({ "task": task })))

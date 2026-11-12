@@ -288,7 +288,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/meetings`         | `KnowledgeMeetingsPage`  | Every meeting the person can see, its filters in the address (`?project=`); the Meetings page's own address lands here |
 | `/knowledge/meetings/new`     | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
 | `/knowledge/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
-| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=` |
+| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=`; a guest reads one shared with them here, without the knowledge base around it |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -977,8 +977,9 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 `src/pages/Knowledge/Meetings/` is the knowledge base's Meetings page and a meeting's page (`docs/meetings.md`, In the
 web app, and `docs/meeting-review.md`, The meeting's page).
 
-- **The Meetings page** (`KnowledgeMeetingsPage`) reads the person's meetings from `meetingsSlice`, which
-  `GET /meetings` fills whole, and filters them in the browser (`filterMeetings`), from filters kept in the address
+- **The Meetings page** (`KnowledgeMeetingsPage`) reads the meetings the person may read from `meetingsSlice`, which
+  `useMeetingsLoader` fills whole, a page of `GET /meetings` at a time until its `nextCursor` is `null`, and filters them
+  in the browser (`filterMeetings`), from filters kept in the address
   (`meetingFilters.ts`), as the Initiatives list does: source, state, project or none, and waiting for review, the last
   also counted in the header whatever the filters leave. `MeetingTable` draws them, its controls in the titlebar
   (`usePageToolsContainer`), and `MeetingList` says why it is empty: the filters, no meeting yet, or no source.
@@ -1016,6 +1017,14 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   black-out's Remove, a thread's actions, and history's Undo are `null` or off, and `MeetingActions` says why, offering
   no Done reviewing. The API refuses those changes too (`meeting_merged`), so a change sent
   before the page heard of the merge is refused with the same reason.
+- **Who reads it.** `meeting.changed` names a meeting alone, so every client loads it by id: a meeting just opened joins
+  every member's lists and tree, and one made private answers `404` to those who may not read it, which drops it from
+  their store (`meetingRemoved`). What the reader may do is the meeting's own (`canEdit`, `canManage`, `ownerId`), as the
+  API decides it; `meetingVisibility.ts` mirrors only enough to offer nothing it would refuse: who may be mentioned
+  (`mayRead`) and who sees Undo on a change (`mayUndo`). A reader who may not edit (a guest it is shared with) reads the
+  page as a merged-away meeting reads (`isReadOnly`), and only the owner holds, approves, retries, moves or adds a
+  capture, while its owner and admins split one out. `MeetingVisibility` in the options shows who reads it and, to its
+  owner and admins, makes it private, opens it, and shares it, each at once with Undo in its toast.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.

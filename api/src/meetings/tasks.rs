@@ -253,10 +253,10 @@ pub async fn send(
     Ok(Some(raised))
 }
 
-/// Where a task was heard, for its item's notes: the meeting by its title, and when in it.
+/// Where a task was heard, for its item's notes: the meeting by its title while it is public, since
+/// every member reads an item (`Meeting::public_title`), and when in it.
 fn heard_in(reach: Reach<'_>, start_ms: i64) -> String {
-    let title = reach.meeting.title.trim();
-    let title = if title.is_empty() { "a meeting" } else { title };
+    let title = reach.meeting.public_title().unwrap_or("a meeting");
     if reach.timed {
         return format!("Heard in {title} at {}.", clock(start_ms));
     }

@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/meetings/{id}`: one of the signed-in person's meetings, which its page loads
-//! when `meeting.changed` names it.
+//! `GET /api/v1/meetings/{id}`: one meeting the signed-in person may read, which its page loads
+//! and every client loads when `meeting.changed` names it. `404` for one they may not read.
 
 use anyhow::Context;
 use axum::Json;
@@ -10,10 +10,11 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::response;
+use super::{open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::meeting;
+use crate::meetings::access::Need;
+use crate::models::meeting::Reader;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -27,7 +28,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
-    let answered = response(&mut connection, found).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
+    let answered = response(&mut connection, found, Reader::of(&current.0)).await?;
     Ok(Json(json!({ "meeting": answered })))
 }

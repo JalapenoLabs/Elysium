@@ -1,14 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
-//! it reads, for its page: its standing words in order, every standing mark over them (each
-//! excerpt with its record and the projects it is on), and its captures, each of which opens as it
-//! came (`captures/{captureId}/transcript`) and plays its recording (`captures/{captureId}/media`),
-//! saying where it sits on the meeting's clock and how that was found, and which meeting it came
-//! from when a merge brought it, which splitting it makes its own again.
+//! `GET /api/v1/meetings/{id}/words`: a meeting's final transcript as it reads, for its page, to
+//! anyone who may read the meeting: its standing words in order, every standing mark over them
+//! (each excerpt with its record and the projects it is on), and its captures, each of which opens
+//! as it came (`captures/{captureId}/transcript`) and plays its recording
+//! (`captures/{captureId}/media`), saying where it sits on the meeting's clock and how that was
+//! found, and which meeting it came from when a merge brought it, which splitting it makes its own
+//! again. That meeting is named only to a reader who may read it; anyone else is told the
+//! captures came from another meeting, since its title can be what made it private.
 //!
 //! `words` is empty until the transcript is built, which its correction does
-//! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.
+//! (`docs/meetings.md`, The final transcript). `404` for a meeting they may not read.
 
 use std::collections::HashMap;
 
@@ -20,11 +22,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{WordResponse, mark_responses};
+use super::{WordResponse, mark_responses, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::duplicates;
 use crate::meetings::media::media_type_of;
+use crate::models::meeting::Reader;
 use crate::models::meeting_capture::{self, CaptureSummary};
 use crate::models::meeting_event::{self, EventKind};
 use crate::models::{meeting, meeting_mark, meeting_word};
@@ -58,7 +62,8 @@ struct CaptureResponse {
 #[serde(rename_all = "camelCase")]
 struct MergedFrom {
     meeting_id: Uuid,
-    title: String,
+    /// Its title, or `null` for a reader who may not read it, whom its page answers `404`.
+    title: Option<String>,
 }
 
 impl CaptureResponse {
@@ -96,7 +101,8 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
+    let reader = Reader::of(&current.0);
     // One snapshot, so every mark answered is over words answered, however an edit lands
     // meanwhile, and every capture is named by the merges that hold it now.
     let (words, marks, captures, merges) = connection
@@ -119,12 +125,17 @@ pub async fn handle(
     from_ids.sort_unstable();
     from_ids.dedup();
     // A meeting merged in is the same person's, and outlives the merge, so its title is read as
-    // it stands now. Most meetings had nothing merged in, and their page, read on every change,
-    // asks nothing more.
+    // it stands now, for whoever may read it: it can be private while the meeting it went into is
+    // open. Most meetings had nothing merged in, and their page, read on every change, asks
+    // nothing more.
     let titles: HashMap<Uuid, String> = if from_ids.is_empty() {
         HashMap::new()
     } else {
-        meeting::titles_of(&mut connection, &from_ids).await?
+        let readable: Vec<Uuid> = meeting::readable_among(&mut connection, &from_ids, reader)
+            .await?
+            .into_iter()
+            .collect();
+        meeting::titles_of(&mut connection, &readable).await?
     };
 
     let words: Vec<WordResponse> = words.into_iter().map(WordResponse::from).collect();
@@ -132,23 +143,9 @@ pub async fn handle(
     let captures: Vec<CaptureResponse> = captures
         .into_iter()
         .map(|capture| {
-            let merged_from = brought.get(&capture.id).map(|merge| {
-                let title = titles.get(&merge.from).cloned().unwrap_or_else(|| {
-                    // Meetings are never deleted, so only a fault leaves a merge naming none; the
-                    // page then calls it untitled rather than hiding where the capture came from.
-                    tracing::event!(
-                        name: "meetings.words.merged_from_missing",
-                        tracing::Level::WARN,
-                        meeting.id = %found.id,
-                        meeting_capture.id = %capture.id,
-                        "a capture's merge names a meeting that is gone",
-                    );
-                    String::new()
-                });
-                MergedFrom {
-                    meeting_id: merge.from,
-                    title,
-                }
+            let merged_from = brought.get(&capture.id).map(|merge| MergedFrom {
+                meeting_id: merge.from,
+                title: titles.get(&merge.from).cloned(),
             });
             CaptureResponse::new(capture, merged_from)
         })

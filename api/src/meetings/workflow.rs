@@ -300,19 +300,20 @@ pub async fn segmenting_runs(
     workflow_run::naming_step(connection, &ids, SegmentMeeting::NAME).await
 }
 
-/// Tries meeting `id` of `owner` again: its newest run's failed step is queued again with a fresh
-/// set of attempts, as `owner`, and the run goes on from it. Announces both.
+/// Tries meeting `id` again as `person`, its owner, whom the caller checked: its newest run's
+/// failed step is queued again with a fresh set of attempts, as them, and the run goes on from
+/// it. Announces both.
 ///
 /// # Errors
-/// [`StepActionError::Database`] with `NotFound` when the meeting does not exist, belongs to
-/// someone else, or its newest run has not failed; any other database error.
+/// [`StepActionError::Database`] with `NotFound` when the meeting does not exist or its newest
+/// run has not failed; any other database error.
 pub async fn retry(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
     id: Uuid,
-    owner: Uuid,
+    person: Uuid,
 ) -> Result<Meeting, StepActionError> {
-    let retried = meeting::find_owned(connection, id, owner).await?;
+    let retried = meeting::find(connection, id).await?;
     let source_id = id.to_string();
     let newest = workflow_run::newest(connection, workflow().name(), SOURCE_KIND, &source_id)
         .await?
@@ -324,7 +325,7 @@ pub async fn retry(
         .find(|step| step.state == StepJobState::Failed)
         .ok_or(diesel::result::Error::NotFound)?;
     let actor = Actor {
-        user_id: owner,
+        user_id: person,
         at: Utc::now(),
     };
     let settled = step_job::retry(connection, newest.id, failed.id, actor).await?;
@@ -334,7 +335,6 @@ pub async fn retry(
     events.publish(&ServerEvent::MeetingChanged {
         id: retried.id,
         state: retried.state.clone(),
-        created_by: retried.created_by,
         entry_id: None,
     });
     Ok(retried)
@@ -738,12 +738,8 @@ mod tests {
         // It fails again, and is retried from the Meetings page this time.
         fail_next(&mut connection).await;
 
-        // Someone else cannot retry it.
-        assert!(matches!(
-            retry(&mut connection, &events, pending.id, Uuid::now_v7()).await,
-            Err(StepActionError::Database(diesel::result::Error::NotFound))
-        ));
-        // Its person can, and its run's fetch is queued again as them.
+        // Its person retries it, whom its route checks (`crate::meetings::access`), and its run's
+        // fetch is queued again as them.
         retry(&mut connection, &events, pending.id, TEST_PERSON_ID)
             .await
             .expect("retried");

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { MeetingComment } from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 import type { Thread } from './meetingThreads'
 
 // Core
@@ -26,6 +27,8 @@ export type ThreadActions = {
   onReply: (threadId: string, body: string, mentions: string[]) => Promise<boolean>
   onSetResolved: (threadId: string, resolved: boolean) => Promise<void>
   onRemove: (threadId: string) => Promise<void>
+  // Whether a person may read the meeting, and so be mentioned in it.
+  mayRead: (user: User) => boolean
 }
 
 type Props = {
@@ -95,6 +98,7 @@ export function CommentThread(props: Props) {
       label={t('review.comments.replyLabel')}
       submitLabel={t('review.comments.reply')}
       onSubmit={(body, mentions) => actions.onReply(threadId, body, mentions)}
+      mayRead={actions.mayRead}
     />}
 
     {actions && <div className='level gap-2'>

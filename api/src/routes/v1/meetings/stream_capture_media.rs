@@ -4,9 +4,9 @@
 //! player on its meeting's page, streamed from its storage location a range at a time
 //! (`routes::v1::media`), so a two hour recording seeks without being downloaded whole.
 //!
-//! It answers the meeting's owner alone, as every meeting route does, until meetings are public
-//! by default (`docs/meeting-review.md`, Who sees a meeting). `404` for a meeting that is not
-//! theirs, a capture that is not the meeting's, or one with no recording kept.
+//! It answers anyone who may read the meeting (`docs/meeting-review.md`, Who sees a meeting).
+//! `404` for a meeting they may not read, a capture that is not the meeting's, or one with no
+//! recording kept.
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -17,9 +17,11 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::media::media_type_of;
-use crate::models::{meeting, meeting_capture, storage_location};
+use crate::models::{meeting_capture, storage_location};
 use crate::routes::v1::media;
+use crate::routes::v1::meetings::open;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -35,7 +37,7 @@ pub async fn handle(
             .get()
             .await
             .context("no database connection available")?;
-        let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+        let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
         let capture = meeting_capture::find(&mut connection, capture_id).await?;
         if capture.meeting_id != found.id {
             return Err(ApiError::NotFound);

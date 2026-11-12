@@ -16,6 +16,8 @@
 //! | `merged`              | Splits the captures back out (`super::duplicates::split`)        |
 //! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
 //! | `thread_resolved`, `thread_reopened` | Opens the thread again, or resolves it again (`meetings::comments`) |
+//! | `visibility_changed`  | Puts who reads it back, while nothing changed it since (`super::visibility`); never the correction's decision |
+//! | `shared`, `unshared`  | Stops sharing it with the person, or shares it again (`super::visibility`) |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
 //! | `settled`             | None: a person edits what it settled, with its alternatives      |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
@@ -44,7 +46,8 @@ pub enum UndoError {
     /// The meeting has no such change.
     #[error("not found")]
     NotFound,
-    /// Its kind cannot be undone: a build, a settlement, or an approval.
+    /// Its kind cannot be undone: a build, a settlement, an approval, or the correction deciding
+    /// who sees the meeting.
     #[error("this change cannot be undone")]
     NotUndoable,
     /// What it changed moved on since, so undoing it would overwrite the later change.
@@ -146,6 +149,15 @@ pub async fn undo(
                         super::duplicates::merge_again(connection, &current, &undone, author)
                             .await?,
                     ),
+                    Announcement::default(),
+                ),
+                Some(EventKind::VisibilityChanged) => (
+                    super::visibility::undo_visibility(connection, &current, &undone, author)
+                        .await?,
+                    Announcement::default(),
+                ),
+                Some(EventKind::Shared | EventKind::Unshared) => (
+                    super::visibility::undo_share(connection, &current, &undone, author).await?,
                     Announcement::default(),
                 ),
                 Some(

@@ -19,6 +19,7 @@ use uuid::Uuid;
 use crate::agent_configuration::Hold;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::work_batch::lineage::Origin;
 use crate::models::work_batch::why::{self, Link, Why};
 use crate::models::work_batch::{BatchState, Priority, WorkBatch};
@@ -31,7 +32,7 @@ pub fn router() -> Router<AppState> {
 
 async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    MemberUser(member): MemberUser,
 ) -> Result<Json<Value>, ApiError> {
     let mut connection = state
         .database
@@ -50,7 +51,7 @@ async fn handle(
     .into_iter()
     .flatten()
     .collect();
-    let whys = why::read_many(&mut connection, &listed).await?;
+    let whys = why::read_many(&mut connection, &listed, Reader::of(&member)).await?;
     Ok(Json(
         json!({ "workQueue": QueueResponse::new(queue, &whys) }),
     ))

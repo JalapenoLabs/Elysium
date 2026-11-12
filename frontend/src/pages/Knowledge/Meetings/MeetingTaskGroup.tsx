@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
+import { selectMe } from '../../../store/authSlice'
 import { selectProjectEntities } from '../../../store/projectsSlice'
 
 // User interface
@@ -29,9 +30,10 @@ type ProjectEntities = ReturnType<typeof selectProjectEntities>
 export function MeetingTaskGroup(props: Props) {
   const { t } = useTranslation('meetings')
   const projects = useAppSelector(selectProjectEntities)
+  const meId = useAppSelector(selectMe)?.user.id ?? null
   const { group } = props
   const count = group.tasks.length
-  const name = nameOf(group, projects, t)
+  const name = nameOf(group, projects, meId, t)
 
   return <Popover>
     <Button
@@ -57,20 +59,26 @@ export function MeetingTaskGroup(props: Props) {
   </Popover>
 }
 
-// What a group is called: its project, the person's own, a coworker by name, or someone the person
-// waits on, who is not on Elysium.
-function nameOf(group: TaskGroup, projects: ProjectEntities, t: TFunction<'meetings'>) {
+// What a group is called: its project, the reader's own as Yours, anyone else's on Elysium by name
+// (the meeting's person's own, to anyone else who reads it), or someone the person waits on, who
+// is not on Elysium.
+function nameOf(
+  group: TaskGroup,
+  projects: ProjectEntities,
+  meId: string | null,
+  t: TFunction<'meetings'>,
+) {
   if (group.kind === 'project') {
     return projects[group.projectId]?.name ?? t('tasks.unknownProject')
   }
-  if (group.kind === 'coworker') {
-    if (group.isOnElysium) {
-      return group.name
+  if (group.kind === 'person') {
+    if (group.userId === meId) {
+      return t('tasks.own')
     }
-    return t('tasks.waitingOn', { name: group.name })
+    return group.name
   }
-  if (group.kind === 'own') {
-    return t('tasks.own')
+  if (group.kind === 'waiting-on') {
+    return t('tasks.waitingOn', { name: group.name })
   }
   return t('tasks.other')
 }

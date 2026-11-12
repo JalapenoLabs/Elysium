@@ -33,7 +33,7 @@ use crate::meeting_uploads::{self, FileKind, transcript};
 use crate::meetings::source::TranscriptLine;
 use crate::meetings::workflow;
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting, NewMeeting};
+use crate::models::meeting::{self, Meeting, NewMeeting, Reader};
 use crate::models::meeting_capture::{self, NewMeetingCapture};
 use crate::models::meeting_event::{self, Change, EventKind};
 use crate::models::meeting_upload::{self, MeetingUploadFile, Staged};
@@ -60,7 +60,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     if let Some(capture_id) = staged.upload.capture_id {
-        return finished_before(&mut connection, capture_id).await;
+        return finished_before(&mut connection, capture_id, Reader::of(&current.0)).await;
     }
     if !staged.files.iter().all(MeetingUploadFile::is_received) {
         return Err(ApiError::CodedConflict {
@@ -114,7 +114,7 @@ pub async fn handle(
             // Finished by another request while this one read its transcript: answer what it made.
             let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
             let capture_id = staged.upload.capture_id.ok_or(ApiError::NotFound)?;
-            return finished_before(&mut connection, capture_id).await;
+            return finished_before(&mut connection, capture_id, Reader::of(&current.0)).await;
         }
         Err(error) => return Err(error),
     };
@@ -124,21 +124,22 @@ pub async fn handle(
     state.events.publish(&ServerEvent::MeetingChanged {
         id: made.id,
         state: made.state.clone(),
-        created_by: made.created_by,
         entry_id: None,
     });
-    let answered = meetings::response(&mut connection, made).await?;
+    let answered = meetings::response(&mut connection, made, Reader::of(&current.0)).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))
 }
 
-/// The answer for an upload finished before, as capture `capture_id`: the meeting it became.
+/// The answer for an upload finished before, as capture `capture_id`: the meeting it became, as
+/// `reader`, who uploaded it, sees it.
 async fn finished_before(
     connection: &mut AsyncPgConnection,
     capture_id: Uuid,
+    reader: Reader,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let capture = meeting_capture::find(connection, capture_id).await?;
     let made = meeting::find(connection, capture.meeting_id).await?;
-    let answered = meetings::response(connection, made).await?;
+    let answered = meetings::response(connection, made, reader).await?;
     Ok((StatusCode::OK, Json(json!({ "meeting": answered }))))
 }
 

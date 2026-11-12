@@ -2,10 +2,10 @@
 
 //! A meeting's routes against Postgres: the list naming the projects each meeting's topics are on
 //! (#235); reading its final transcript with its marks and captures, a capture as it came on the
-//! meeting's clock, an edit answering what it did, its history naming each undo, undo refusing what
-//! moved on since, and every route answering the meeting's owner alone (#234); a capture merged in
-//! saying where it came from, moved by hand, and split back out, and a meeting merged away
-//! refusing every change (#268).
+//! meeting's clock, an edit answering what it did, its history naming each undo, and undo refusing
+//! what moved on since (#234); a capture merged in saying where it came from, moved by hand, and
+//! split back out, and a meeting merged away refusing every change (#268). Who may read or change a
+//! meeting, route by route, is `access_tests` (#246).
 //!
 //! They are `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs
 //! them.
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::meetings::duplicates;
 use crate::meetings::segmentation::SegmentProject;
 use crate::models::agent::Author;
-use crate::models::meeting;
+use crate::models::meeting::{self, Reach, Reader};
 use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
 use crate::models::meeting_mark::Range;
 use crate::models::meeting_word::{
@@ -374,7 +374,12 @@ async fn merged_pair(connection: &mut AsyncPgConnection) -> MergedPair {
     .await
     .expect("records")
     .expect("a new pair");
-    duplicates::merge(connection, pair.id, TEST_PERSON_ID, Utc::now())
+    // The test person owns both, as only a person's own meetings are compared.
+    let owner = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    duplicates::merge(connection, pair.id, owner, Utc::now())
         .await
         .expect("merges");
     MergedPair {
@@ -576,6 +581,74 @@ async fn the_list_names_the_projects_each_meetings_excerpts_are_on() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn the_list_pages_newest_first_and_never_skips_two_that_started_together() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let (capture, _words) = built_meeting(&mut connection, &[("Ada", "Hello.")]).await;
+        ids.push(capture.meeting_id);
+    }
+    // Two start together, so only their ids tell them apart; the third is the oldest.
+    execute(
+        &mut connection,
+        format!(
+            "UPDATE meetings SET started_at = '2026-11-10T09:00:00Z' WHERE id IN ('{}', '{}')",
+            ids[0], ids[1]
+        ),
+    )
+    .await;
+    execute(
+        &mut connection,
+        format!(
+            "UPDATE meetings SET started_at = '2026-11-09T09:00:00Z' WHERE id = '{}'",
+            ids[2]
+        ),
+    )
+    .await;
+    let listed_ids = |listed: &Value| -> Vec<Uuid> {
+        listed["meetings"]
+            .as_array()
+            .expect("meetings")
+            .iter()
+            .map(|meeting| Uuid::parse_str(meeting["id"].as_str().expect("an id")).expect("a uuid"))
+            .collect()
+    };
+
+    let (status, first) = send(&state, Method::GET, "/api/v1/meetings?limit=2", None).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let newest_first = vec![ids[0].max(ids[1]), ids[0].min(ids[1])];
+    assert_eq!(listed_ids(&first), newest_first);
+    let cursor = &first["nextCursor"];
+    assert_eq!(cursor["afterId"], json!(newest_first[1]));
+
+    let after = cursor["afterStartedAt"].as_str().expect("a time");
+    let next = format!(
+        "/api/v1/meetings?limit=2&afterStartedAt={}&afterId={}",
+        after.replace('+', "%2B"),
+        newest_first[1]
+    );
+    let (status, second) = send(&state, Method::GET, &next, None).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(listed_ids(&second), vec![ids[2]]);
+    assert_eq!(
+        second["nextCursor"],
+        Value::Null,
+        "a short page is the last"
+    );
+
+    for refused in [
+        "/api/v1/meetings?limit=0",
+        "/api/v1/meetings?limit=201",
+        "/api/v1/meetings?afterId=0199a3c4-0000-7000-8000-00000000beef",
+    ] {
+        let (status, answer) = send(&state, Method::GET, refused, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}: {answer}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
@@ -606,6 +679,56 @@ async fn a_merged_meeting_leaves_the_list_and_names_the_meeting_it_lives_on_in()
     .await;
     assert_eq!(status, StatusCode::OK, "{found}");
     assert_eq!(found["meeting"]["mergedInto"], json!(kept.meeting_id));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_merged_capture_names_its_meeting_only_to_whoever_may_read_it() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let MergedPair {
+        kept_id, merged_id, ..
+    } = merged_pair(&mut connection).await;
+
+    // A member who reads the kept meeting, open, but not the one merged away, private, is told
+    // its captures came from another meeting, never its title, which can be what made it private.
+    for (id, visibility) in [(kept_id, "public"), (merged_id, "private")] {
+        execute(
+            &mut connection,
+            format!(
+                "UPDATE meetings SET visibility = '{visibility}', created_by = '{SYSTEM_USER_ID}' \
+                 WHERE id = '{id}'"
+            ),
+        )
+        .await;
+    }
+    execute(
+        &mut connection,
+        format!("UPDATE users SET role = 'member' WHERE id = '{TEST_PERSON_ID}'"),
+    )
+    .await;
+    let words_path = format!("/api/v1/meetings/{kept_id}/words");
+    let (status, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(
+        read["captures"][1]["mergedFrom"],
+        json!({ "meetingId": merged_id, "title": null })
+    );
+
+    // Shared with them, it is named.
+    execute(
+        &mut connection,
+        format!(
+            "INSERT INTO meeting_shares (meeting_id, person_id, created_by) \
+             VALUES ('{merged_id}', '{TEST_PERSON_ID}', '{SYSTEM_USER_ID}')"
+        ),
+    )
+    .await;
+    let (_, read) = send(&state, Method::GET, &words_path, None).await;
+    assert_eq!(
+        read["captures"][1]["mergedFrom"]["title"],
+        "Weekly sync, recorded twice"
+    );
 }
 
 #[tokio::test]
@@ -738,96 +861,18 @@ async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meet
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn every_review_route_answers_the_meetings_owner_alone() {
-    let (url, mut connection) = migrated_database().await;
-    let state = app_state(&url).await;
-    let (capture, words) = built_meeting(&mut connection, &[("Ada", "Launch is Fryday.")]).await;
-    let meeting_id = capture.meeting_id;
-    let fryday = word(&words, "Fryday.");
-    let (status, edited) = send(
-        &state,
-        Method::POST,
-        &format!("/api/v1/meetings/{meeting_id}/edits"),
-        Some(&json!({ "startWordId": fryday.id, "endWordId": fryday.id, "text": "Friday." })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{edited}");
-    let entry_id = edited["entry"]["id"].as_str().expect("an entry id");
-
-    // Someone else's meeting, as far as the test person is concerned.
-    execute(
-        &mut connection,
-        format!("UPDATE meetings SET created_by = '{SYSTEM_USER_ID}' WHERE id = '{meeting_id}'"),
-    )
-    .await;
-    let replacement = Uuid::parse_str(
-        edited["change"]["words"][0]["id"]
-            .as_str()
-            .expect("a word id"),
-    )
-    .expect("a uuid");
-    let edit = json!({ "startWordId": replacement, "endWordId": replacement, "text": "Monday." });
-    let offset = json!({ "offsetMs": 1_000 });
-    let requests = [
-        (
-            Method::GET,
-            format!("/api/v1/meetings/{meeting_id}/words"),
-            None,
-        ),
-        (
-            Method::POST,
-            format!("/api/v1/meetings/{meeting_id}/edits"),
-            Some(&edit),
-        ),
-        (
-            Method::GET,
-            format!(
-                "/api/v1/meetings/{meeting_id}/captures/{}/transcript",
-                capture.id
-            ),
-            None,
-        ),
-        (
-            Method::GET,
-            format!("/api/v1/meetings/{meeting_id}/history"),
-            None,
-        ),
-        (
-            Method::POST,
-            format!("/api/v1/meetings/{meeting_id}/history/{entry_id}/undo"),
-            None,
-        ),
-        (
-            Method::PUT,
-            format!(
-                "/api/v1/meetings/{meeting_id}/captures/{}/offset",
-                capture.id
-            ),
-            Some(&offset),
-        ),
-        (
-            Method::POST,
-            format!(
-                "/api/v1/meetings/{meeting_id}/captures/{}/split",
-                capture.id
-            ),
-            None,
-        ),
-    ];
-    for (method, path, body) in requests {
-        let (status, answer) = send(&state, method, &path, body).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {answer}");
-    }
-}
-
-#[tokio::test]
-#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn a_thread_is_started_replied_to_resolved_and_removed_by_the_meetings_owner_alone() {
+async fn a_thread_is_started_replied_to_resolved_and_removed() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
     let grace = insert_grace(&mut connection).await;
     let (capture, words) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
     let meeting_id = capture.meeting_id;
+    // Open to every member, so Grace, who it mentions, may read it.
+    execute(
+        &mut connection,
+        format!("UPDATE meetings SET visibility = 'public' WHERE id = '{meeting_id}'"),
+    )
+    .await;
     let sheriff = word(&words, "Sheriff");
     let threads = format!("/api/v1/meetings/{meeting_id}/threads");
 
@@ -927,7 +972,7 @@ async fn a_thread_is_started_replied_to_resolved_and_removed_by_the_meetings_own
 }
 
 /// Grace Hopper, an active member someone can mention.
-async fn insert_grace(connection: &mut AsyncPgConnection) -> Uuid {
+pub(super) async fn insert_grace(connection: &mut AsyncPgConnection) -> Uuid {
     let grace = Uuid::now_v7();
     execute(
         connection,
@@ -942,7 +987,7 @@ async fn insert_grace(connection: &mut AsyncPgConnection) -> Uuid {
 }
 
 /// The inbox item a thread raised for `person`.
-async fn thread_item_for(connection: &mut AsyncPgConnection, person: Uuid) -> Uuid {
+pub(super) async fn thread_item_for(connection: &mut AsyncPgConnection, person: Uuid) -> Uuid {
     use diesel::{ExpressionMethods, QueryDsl};
 
     use crate::database::schema::meeting_thread_items;
@@ -956,7 +1001,7 @@ async fn thread_item_for(connection: &mut AsyncPgConnection, person: Uuid) -> Uu
 
 /// The recording a capture keeps in the fake zone: its storage location, and its bytes stored at
 /// the path the capture names.
-async fn keep_recording(
+pub(super) async fn keep_recording(
     state: &crate::state::AppState,
     connection: &mut AsyncPgConnection,
     files: &Files,
@@ -1030,62 +1075,7 @@ async fn play(
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn every_thread_route_answers_the_meetings_owner_alone() {
-    let (url, mut connection) = migrated_database().await;
-    let state = app_state(&url).await;
-    let grace = insert_grace(&mut connection).await;
-    let (capture, words) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
-    let meeting_id = capture.meeting_id;
-    let sheriff = word(&words, "Sheriff");
-    let threads = format!("/api/v1/meetings/{meeting_id}/threads");
-    let start = json!({
-        "startWordId": sheriff.id,
-        "endWordId": sheriff.id,
-        "body": "Grace?",
-        "mentions": [grace],
-    });
-    let (status, started) = send(&state, Method::POST, &threads, Some(&start)).await;
-    assert_eq!(status, StatusCode::CREATED, "{started}");
-    let thread_id = started["comment"]["threadId"]
-        .as_str()
-        .expect("a thread id")
-        .to_owned();
-    let item_id = thread_item_for(&mut connection, grace).await;
-    let resolved_path = format!("{threads}/{thread_id}/resolved");
-
-    // Someone else's meeting, as far as the test person is concerned.
-    execute(
-        &mut connection,
-        format!("UPDATE meetings SET created_by = '{SYSTEM_USER_ID}' WHERE id = '{meeting_id}'"),
-    )
-    .await;
-    let reply = json!({ "body": "Mine?" });
-    let requests = [
-        (Method::GET, threads.clone(), None),
-        (Method::POST, threads.clone(), Some(&start)),
-        (
-            Method::POST,
-            format!("{threads}/{thread_id}/comments"),
-            Some(&reply),
-        ),
-        (Method::POST, resolved_path.clone(), None),
-        (Method::DELETE, resolved_path, None),
-        (Method::DELETE, format!("{threads}/{thread_id}"), None),
-    ];
-    for (method, path, body) in requests {
-        let (status, answer) = send(&state, method, &path, body).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "{path}: {answer}");
-    }
-    // Every item's page asks which thread raised it, so a thread not theirs reads as none.
-    let item_path = format!("/api/v1/meetings/thread-items/{item_id}");
-    let (status, opened) = send(&state, Method::GET, &item_path, None).await;
-    assert_eq!(status, StatusCode::OK, "{opened}");
-    assert_eq!(opened, json!({ "thread": null }));
-}
-
-#[tokio::test]
-#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn a_captures_recording_plays_a_range_at_a_time_for_its_owner_alone() {
+async fn a_captures_recording_plays_a_range_at_a_time() {
     let (url, mut connection) = migrated_database().await;
     let (storage, files) = fake_storage().await;
     let state = app_state_with_storage(&url, storage).await;
@@ -1143,10 +1133,19 @@ async fn a_captures_recording_plays_a_range_at_a_time_for_its_owner_alone() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
-    // Someone else's meeting: neither the whole recording nor any part of it.
+    // Someone else's private meeting, to a member: neither the whole recording nor any part of it.
+    // The test person is the workspace's first, and so its admin, until now.
     execute(
         &mut connection,
-        format!("UPDATE meetings SET created_by = '{SYSTEM_USER_ID}' WHERE id = '{meeting_id}'"),
+        format!("UPDATE users SET role = 'member' WHERE id = '{TEST_PERSON_ID}'"),
+    )
+    .await;
+    execute(
+        &mut connection,
+        format!(
+            "UPDATE meetings SET created_by = '{SYSTEM_USER_ID}', visibility = 'private' \
+             WHERE id = '{meeting_id}'"
+        ),
     )
     .await;
     for range in [None, Some("bytes=0-"), Some("bytes=2-5"), Some("bytes=-3")] {

@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { meLoaded } from '../../../store/authSlice'
 import { projectsLoaded } from '../../../store/projectsSlice'
 import { usersLoaded } from '../../../store/usersSlice'
 
@@ -46,7 +47,7 @@ import {
 } from '../../../api/routes/meetingRoutes'
 import { getTimelineRecord } from '../../../api/routes/timelineRoutes'
 import { ELYSIA_USER_ID } from '../../../constants'
-import { makeMeeting, makeProject } from '../../../testFixtures'
+import { makeMeeting, makeProject, makeUser } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { toast } from '../../../toast/toast'
 
@@ -217,9 +218,20 @@ function renderWorkspace(
   context: Context,
   shown: MeetingWords = transcript,
   address = '/',
-  { projects = [], meeting = makeMeeting({ id: 'meeting' }) }: { projects?: Project[], meeting?: Meeting } = {},
+  {
+    projects = [],
+    meeting = makeMeeting({ id: 'meeting' }),
+    readerId = meeting.ownerId,
+  }: { projects?: Project[], meeting?: Meeting, readerId?: string } = {},
 ) {
   const store = createAppStore()
+  // The reader is the meeting's owner unless a test names another.
+  store.dispatch(meLoaded({
+    user: makeUser({ id: readerId }),
+    hasSecondFactor: false,
+    mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
+  }))
   store.dispatch(usersLoaded(people))
   store.dispatch(projectsLoaded(projects))
   let show: (next: MeetingWords) => void = () => {}
@@ -759,6 +771,26 @@ describe('MeetingWorkspace', () => {
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
   })
 
+  it<Context>('shows a reader whose record it is not the projects an excerpt is on, reading no record', (context) => {
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+      readerId: 'another-member',
+    })
+
+    fireEvent.click(wordPiece('Launch'))
+
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(within(within(detail).getByRole('list', { name: 'Its projects' })).getByText('Launch site')).toBeTruthy()
+    expect(getTimelineRecord).not.toHaveBeenCalled()
+  })
+
   it<Context>('names an excerpt\'s bar by its record\'s projects once its lane holds the record', async (context) => {
     // The words were read before the excerpt moved from Launch site to Billing; its record knows.
     vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'billing' ]) })
@@ -827,6 +859,7 @@ describe('MeetingWorkspace', () => {
   })
 
   it<Context>('counts its tasks along the top, each group opening its tasks and their items', async (context) => {
+    const meeting = makeMeeting({ id: 'meeting', ownerId: 'person' })
     vi.mocked(getMeetingTasks).mockResolvedValue({
       tasks: [
         {
@@ -846,7 +879,7 @@ describe('MeetingWorkspace', () => {
           startWordId: 'w0',
           endWordId: 'w1',
           startMs: 0,
-          share: { kind: 'own' },
+          share: { kind: 'own', userId: 'person', name: 'Ada Lovelace' },
           items: [{ id: 'item', title: 'Send Ada the deck', state: 'inbox' }],
           proposals: [],
           declined: null,
@@ -857,6 +890,7 @@ describe('MeetingWorkspace', () => {
     try {
       renderWorkspace(context, transcript, '/', {
         projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+        meeting,
       })
 
       const tasks = within(await screen.findByRole('region', { name: 'Tasks' }))
@@ -878,6 +912,39 @@ describe('MeetingWorkspace', () => {
     finally {
       Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
     }
+  })
+
+  it<Context>('names the person\'s own tasks by their name to anyone else who reads it', async (context) => {
+    const meeting = makeMeeting({ id: 'meeting', ownerId: 'person' })
+    const task = {
+      startWordId: 'w0',
+      endWordId: 'w1',
+      startMs: 0,
+      items: [],
+      proposals: [],
+      declined: null,
+    }
+    vi.mocked(getMeetingTasks).mockResolvedValue({
+      tasks: [
+        {
+          ...task,
+          id: 'deck',
+          title: 'Send Ada the deck',
+          share: { kind: 'own', userId: 'person', name: 'Ada Lovelace' },
+        },
+        {
+          ...task,
+          id: 'notes',
+          title: 'Write the release notes',
+          share: { kind: 'coworker', userId: 'grace', name: 'Grace Hopper' },
+        },
+      ],
+    })
+    renderWorkspace(context, transcript, '/', { meeting, readerId: 'grace' })
+
+    const tasks = within(await screen.findByRole('region', { name: 'Tasks' }))
+    expect(tasks.getByRole('button', { name: 'Ada Lovelace: 1 task' })).toBeTruthy()
+    expect(tasks.getByRole('button', { name: 'Yours: 1 task' })).toBeTruthy()
   })
 })
 

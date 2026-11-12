@@ -35,7 +35,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
-| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, every one of the caller's, newest first; `reviewItemId` keeps the one an inbox item asks to review |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[], nextCursor }`, a page of those the caller may read, newest first; `limit` (1 to 200, default 100), and `afterStartedAt` with `afterId` from the last page's `nextCursor`; `reviewItemId` keeps the one an inbox item asks to review, `keptPrivateItemId` the one an item said was kept private |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it (an excerpt's with `excerpt`: `{ recordId, title, projectIds }`), and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
@@ -56,7 +56,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}` | `200` `{ entry, change }`; removes it, comments and all, undoable |
 | GET    | `/api/v1/meetings/thread-items/{itemId}` | `200` `{ thread }`: `{ meetingId, threadId }` the inbox item was raised by, or `null` |
 | GET    | `/api/v1/meetings/{id}/tasks`         | `200` `{ tasks }`: every task heard in it, in the order said, each `{ id, title, startWordId, endWordId, startMs, share, items, proposals, declined }` |
-| GET    | `/api/v1/meetings/task-items/{itemId}` | `200` `{ task }`: `{ meetingId, meetingTitle, taskId }` the action item was made of, or `null` |
+| GET    | `/api/v1/meetings/task-items/{itemId}` | `200` `{ task }`: `{ meetingId, meetingTitle, taskId }` the action item was made of, or `null` when none was or the caller may not read its meeting |
+| PUT    | `/api/v1/meetings/{id}/visibility`    | `200` `{ meeting, entry }`; body `{ visibility: "private" \| "public" }`, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it is so already |
+| PUT    | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; shares it with an active person other than its owner (`400` `meeting_share_person`), its owner or an admin; `409` (`meeting_visibility_unchanged`) when shared already |
+| DELETE | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; stops sharing it with them, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it was not |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -460,11 +463,18 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its excerpts are on,
 in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
-leaves such a meeting out), `createdAt`, and `updatedAt`. `sourceKind` is
+leaves such a meeting out), `ownerId`, `visibility` (`unchecked`, `private`, or `public`), `sharedWith` (user ids, in the
+order shared), `visibilityChange` (the newest `visibility_changed` history entry, or `null`), `canEdit` and `canManage`
+(what the caller may do with it), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
 connector was removed.
 
-Every meeting route answers the meeting's owner alone, `404` for anyone else, until meetings are public by default
+Every meeting route names what it needs of its meeting (`crate::meetings::access`): reading it (every member reads a
+public meeting, its owner and the people it is shared with a private one, admins every one), changing it (a company
+member who reads it, or its owner; a guest reads only), managing it (who sees it, merging and splitting its captures:
+its owner or an admin), or being its owner (holding, approving, retrying, offsets, and uploading a capture). A meeting
+the caller may not read is `404`, as one that does not exist is; one they read but may not change that way is `403`
+with the code `read_only`, `owner_or_admin`, or `owner_only`. An undo takes what making the change took
 (`docs/meeting-review.md`, Who sees a meeting). `GET /meetings/{id}/words` reads one snapshot: `words` are its final
 transcript's standing words in order, each `{ id, position, text, speaker, startMs, endMs, origin, captureId }`, empty
 until it is built; `marks` are its standing marks, each `{ id, kind, startWordId, endWordId, data, createdBy, agent,
@@ -482,18 +492,19 @@ without reading the transcript again. A history entry is `{ id, kind, createdBy,
 A thread is named by its comment mark's id. A comment is `{ id, threadId, body, mentions, createdBy, agent, createdAt
 }`, `mentions` the user ids it names. Writing one takes `{ body, mentions }`, and starting a thread its range too:
 `400` with `meeting_comment_empty` for a blank body, `meeting_comment_too_long` past 20,000 characters,
-`meeting_comment_mention` for a mention of anyone but an active person or Elysia, or a range that ends before it
-starts; `409` `meeting_words_changed` for a range a word of which was replaced meanwhile. Starting, resolving,
+`meeting_comment_mention` for a mention of anyone but an active person who may read the meeting or Elysia, or a range
+that ends before it starts; `409` `meeting_words_changed` for a range a word of which was replaced meanwhile. Starting, resolving,
 reopening, and removing a thread are changes in its meeting's history, answered as an edit is. `thread-items` answers
-`null` for an item no thread of the caller's meetings raised, since every item's page asks. See `docs/meetings.md`,
+`null` for an item no thread of a meeting the caller may read raised, since every item's page asks. See `docs/meetings.md`,
 Comments.
 
 A task is named by its mark's id. Its `share` is whose it is, a project's before anyone's: `{ kind: "project",
-projectId }`, `{ kind: "own" }`, `{ kind: "coworker", userId, name }`, `{ kind: "waiting-on", name }` for someone not on
-Elysium, or `{ kind: "other" }`. `items` are the live action items made of it, each `{ id, title, state }`;
-`proposals` the changesets waiting for a person that would make one; and `declined` `{ reason, at }` when its Project
-Manager said why it made none, or `null`. `task-items` answers `null` for an item no task of the caller's meetings
-made. See `docs/meetings.md`, Tasks.
+projectId }`, `{ kind: "own", userId, name }` for the meeting's person, `{ kind: "coworker", userId, name }`,
+`{ kind: "waiting-on", name }` for someone not on Elysium, or `{ kind: "other" }`. `items` are the live action items
+made of it, each `{ id, title, state }`; `proposals` the changesets waiting for a person that would make one; and
+`declined` `{ reason, at }` when its Project Manager said why it made none, or `null`. Both answer whoever may read the
+meeting, and `task-items` answers `null` for an item no task of a meeting the caller may read made. See
+`docs/meetings.md`, Tasks.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
@@ -1222,7 +1233,8 @@ and `project` (ids: meetings recorded by that person's sources, or with an excer
 `limit` (1 to 50, default 20). A `KnowledgeMeeting` is `{ title, source, startedAt, person, topics }`: the meeting's
 title and the source it was read from (`fireflies`), when its first excerpt began, whose source recorded it, and its
 excerpts as `Citation`s in the order they were said (`topics`), each opened with `GET /documents/{id}`. It is gathered
-from the index's meeting excerpts alone; the meeting itself stays its owner's (`docs/knowledge.md`, MCP).
+from the index's meeting excerpts alone, leaving out a private meeting the caller may not read, whose excerpts and
+transcript no search or opening finds for them either (`docs/knowledge.md`, Who sees what, and MCP).
 
 - **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address,
   shared with their MCP clients' and their sessions' searches; past it, `429` with the code

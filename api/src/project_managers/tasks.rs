@@ -85,7 +85,7 @@ pub async fn load(
                 id: task.mark_id,
                 owed_by: owed_by_words(&task.owed_by(), found.created_by, names),
                 meeting_id,
-                meeting_title: found.title.clone(),
+                meeting_title: found.public_title().map(str::to_owned),
                 heard_at: timed.then(|| clock(reading.start_ms)),
                 words: reading.body,
                 excerpts: around,

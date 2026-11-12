@@ -38,6 +38,7 @@ fn segment(document_id: Option<Uuid>) -> Record {
         excerpt: "[00:12] Ada: We need annual pricing\n[00:15] Sam: Before the launch".to_owned(),
         meeting_title: Some("Weekly sync".to_owned()),
         document_id,
+        withheld: false,
     }
 }
 
@@ -123,6 +124,32 @@ fn a_private_repository_reads_the_whole_chain_each_a_link() {
     let item = section.find("- Action item").expect("the item");
     let batch = section.find("- Work batch").expect("the batch");
     assert!(meeting < issue && issue < item && item < batch, "in order");
+}
+
+#[test]
+fn a_private_meetings_segment_says_only_that_a_meeting_asked() {
+    let withheld = Record {
+        title: String::new(),
+        excerpt: String::new(),
+        meeting_title: None,
+        document_id: None,
+        withheld: true,
+        ..segment(None)
+    };
+    let why = Why {
+        chain: vec![Link::Record(withheld), Link::Batch(batch())],
+        parents: Vec::new(),
+    };
+    let section = section(&why, &public_url(), Audience::Company);
+
+    assert!(
+        section.contains(&format!(
+            "- Meeting: [A private meeting]({PUBLIC_URL}/work-queue/{})",
+            why.batch().id
+        )),
+        "it opens with the rest of the chain, for whoever may read it: {section}"
+    );
+    assert!(!section.contains("\n  > "), "and quotes nothing: {section}");
 }
 
 #[test]

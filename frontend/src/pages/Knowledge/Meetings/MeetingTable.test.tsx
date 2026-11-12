@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { meLoaded } from '../../../store/authSlice'
 import { meetingsLoaded } from '../../../store/meetingsSlice'
 import { projectsLoaded } from '../../../store/projectsSlice'
 
@@ -17,7 +18,7 @@ import { projectsLoaded } from '../../../store/projectsSlice'
 import { MeetingTable } from './MeetingTable'
 
 // Misc
-import { makeMeeting, makeProject } from '../../../testFixtures'
+import { makeMeeting, makeProject, makeUser } from '../../../testFixtures'
 
 // Retrying is the network boundary; toasts are watched for what they say.
 const routes = vi.hoisted(() => ({
@@ -38,8 +39,17 @@ vi.mock('../../../toast/toast', () => ({ toast: toasts }))
 
 const MINUTE = 60 * 1000
 
+// The reader is the person every fixture meeting belongs to, unless a meeting names another owner.
+const READER_ID = makeMeeting({ id: 'any' }).ownerId
+
 function renderTable(meetings: Meeting[]) {
   const store = createAppStore()
+  store.dispatch(meLoaded({
+    user: makeUser({ id: READER_ID }),
+    hasSecondFactor: false,
+    mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
+  }))
   store.dispatch(meetingsLoaded(meetings))
   render(<Provider store={store}>
     <MemoryRouter>
@@ -136,10 +146,15 @@ describe('MeetingTable', () => {
     expect(screen.getByText('Transcript only')).toBeTruthy()
   })
 
-  it('offers Retry on a failed meeting alone, and keeps what the API answers', async () => {
+  it('offers Retry on a failed meeting of the reader\'s own alone, and keeps what the API answers', async () => {
     const failed = makeMeeting({ id: 'failed', title: 'Failed', state: 'failed', lastError: 'Timed out' })
     routes.retryMeeting.mockResolvedValue({ meeting: { ...failed, state: 'pending', lastError: null }})
-    const store = renderTable([ failed, makeMeeting({ id: 'done', title: 'Done' }) ])
+    const store = renderTable([
+      failed,
+      makeMeeting({ id: 'done', title: 'Done' }),
+      // Someone else's processing is theirs to retry.
+      makeMeeting({ id: 'theirs', title: 'Theirs', state: 'failed', ownerId: 'someone-else' }),
+    ])
 
     const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
     expect(retryButtons).toHaveLength(1)

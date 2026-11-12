@@ -11,6 +11,10 @@ import type { Thread } from './meetingThreads'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectMe } from '../../../store/authSlice'
+import { useAppSelector } from '../../../store/hooks'
+
 // User interface
 import { CommentForm } from './CommentForm'
 import { MarkDetail } from './MarkDetail'
@@ -70,6 +74,8 @@ export function MeetingLane(props: Props) {
     isInDrawer,
     ...options
   } = props
+  // An excerpt's record is its meeting's owner's, so only they change its projects.
+  const ownsRecords = useAppSelector(selectMe)?.user.id === options.meeting.ownerId
   const selectedThread = selectedMark?.kind === 'comment'
     ? [ ...threads.open, ...threads.resolved ].find((thread) => thread.placed.mark.id === selectedMark.mark.id)
       ?? null
@@ -91,7 +97,10 @@ export function MeetingLane(props: Props) {
       <MeetingOptions {...options} />
     </div>
 
-    {composing && <section aria-label={t('review.comments.new')} className='rounded-xl border border-border p-4'>
+    {composing && threadActions && <section
+      aria-label={t('review.comments.new')}
+      className='rounded-xl border border-border p-4'
+    >
       <p className='compact text-sm font-semibold'>{t('review.comments.new')}</p>
       <blockquote className='compact line-clamp-3 border-l-2 border-separator pl-2 text-sm opacity-90'>{
         textOfRange(words, composing.range)
@@ -103,6 +112,7 @@ export function MeetingLane(props: Props) {
         onSubmit={composing.onPost}
         onCancel={composing.onCancel}
         focusOnOpen
+        mayRead={threadActions.mayRead}
       />
     </section>}
 
@@ -116,6 +126,7 @@ export function MeetingLane(props: Props) {
         onRemove={onRemoveMark}
         thread={selectedThread}
         threadActions={threadActions}
+        ownsRecords={ownsRecords}
       />
     </div>}
 

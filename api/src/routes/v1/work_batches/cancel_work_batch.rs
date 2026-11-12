@@ -15,6 +15,7 @@ use uuid::Uuid;
 use super::with_history;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::state::AppState;
 use crate::worker_pool::actions;
 
@@ -49,5 +50,7 @@ pub async fn handle(
         .context("no database connection available")?;
     let batch =
         actions::cancel(&mut connection, &state.events, id, None, reason, member.id).await?;
-    Ok(Json(with_history(&mut connection, batch).await?))
+    Ok(Json(
+        with_history(&mut connection, batch, Reader::of(&member)).await?,
+    ))
 }

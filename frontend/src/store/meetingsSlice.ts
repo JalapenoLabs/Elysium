@@ -33,10 +33,12 @@ export const meetingsSlice = createSlice({
       meetingsAdapter.setAll(state, [ ...action.payload, ...mergedAway ])
     },
     meetingUpserted: meetingsAdapter.upsertOne,
+    // A meeting the person may no longer read, such as one made private, leaves every list.
+    meetingRemoved: meetingsAdapter.removeOne,
   },
 })
 
-export const { meetingsLoaded, meetingUpserted } = meetingsSlice.actions
+export const { meetingsLoaded, meetingUpserted, meetingRemoved } = meetingsSlice.actions
 
 export const {
   selectAll: selectAllMeetings,
