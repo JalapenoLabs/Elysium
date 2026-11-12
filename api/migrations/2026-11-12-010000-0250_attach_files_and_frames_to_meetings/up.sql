@@ -33,9 +33,9 @@ CREATE TABLE meeting_attachments (
     capture_ms BIGINT CHECK (capture_ms >= 0),
     -- What a frame shows, as whoever pinned it put it. Indexed with the meeting.
     caption TEXT CHECK (char_length(caption) BETWEEN 1 AND 1000),
-    -- A frame's difference hash: 256 bits of which way its picture's brightness runs across a 17
-    -- by 16 grid (`crate::images::fingerprint`), which near duplicates share but for a few bits.
-    fingerprint BYTEA CHECK (octet_length(fingerprint) = 32),
+    -- What a frame looks like at a glance: 32 by 18 grey cells, a byte each
+    -- (`crate::images::fingerprint`), which near duplicates share but for a few cells.
+    fingerprint BYTEA CHECK (octet_length(fingerprint) = 576),
     -- The text read from a file, for search: `pending` until it is read, `read` once it is (an
     -- empty text for a file that holds none), `none` for a kind of file with no text to read, and
     -- `unreadable` for one that could not be read.

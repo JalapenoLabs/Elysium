@@ -11,6 +11,8 @@
 //! transcript in the knowledge base, blacked-out words left out.
 
 mod approve_correction;
+#[cfg(test)]
+mod attachment_tests;
 mod attachments;
 mod decide_duplicate;
 mod done_reviewing;

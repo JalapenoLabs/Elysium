@@ -90,25 +90,29 @@ const FRAME_MAX_HEIGHT: u32 = 1080;
 /// a photo forgives more.
 const FRAME_QUALITY: f32 = 88.0;
 
-/// The grid a fingerprint compares across: 17 columns by 16 rows gives 16 differences a row, 256
-/// bits in all. Coarse enough that a frame cut a moment later, or encoded again, keeps its bits,
-/// and fine enough that a slide with a line of text added does not.
-const FINGERPRINT_COLUMNS: u32 = 17;
-const FINGERPRINT_ROWS: u32 = 16;
+/// The grid a fingerprint is: the frame shrunk to 32 by 18 grey cells, each the mean brightness of
+/// a 60 pixel square of a 1080p frame. A line of a slide's text crosses a row of cells and moves
+/// each a good way; encoding a frame again, or taking it a moment later, moves every cell a little.
+pub const FINGERPRINT_COLUMNS: u32 = 32;
+pub const FINGERPRINT_ROWS: u32 = 18;
 
-/// How many of a fingerprint's 256 bits two frames may differ in and still be one picture: about
-/// 3%, what the noise of encoding a video twice and a cursor moving across it change, while a
-/// slide changed by a bullet or a new window differs in far more.
-pub const NEAR_DUPLICATE_BITS: u32 = 8;
+/// How far a cell's brightness must move, of 255, to count as changed: 8%, well past what encoding
+/// a video twice leaves, well short of what text appearing in a cell does.
+const CELL_CHANGE: u8 = 20;
+
+/// How many cells two frames may differ in and still be one picture: a cursor that moved, a
+/// notification's corner. A slide with a line of text added changes a row of cells, and another
+/// slide or window most of them.
+pub const NEAR_DUPLICATE_CELLS: usize = 3;
 
 /// A still of a meeting's video as Elysium keeps it: lossy WebP from its pixels, at most
-/// [`FRAME_MAX_WIDTH`] by [`FRAME_MAX_HEIGHT`], and its fingerprint.
+/// [`FRAME_MAX_WIDTH`] by [`FRAME_MAX_HEIGHT`], and its fingerprint ([`fingerprint`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
     pub webp: Vec<u8>,
     pub width: u32,
     pub height: u32,
-    pub fingerprint: [u8; 32],
+    pub fingerprint: Vec<u8>,
 }
 
 /// Decodes a still taken from a meeting's video, a browser's canvas or `ffmpeg` having made it,
@@ -142,35 +146,32 @@ pub fn compress_frame(upload: &[u8]) -> Result<Frame, ImageError> {
     })
 }
 
-/// A difference hash of `image`: shrunk to a [`FINGERPRINT_COLUMNS`] by [`FINGERPRINT_ROWS`]
-/// grey grid, each bit whether brightness falls from one cell to the next along its row. Two
-/// pictures of the same thing share it but for a few bits, whatever their size or encoding.
-pub fn fingerprint(image: &DynamicImage) -> [u8; 32] {
-    let grid = image
+/// What `image` looks like at a glance: shrunk to a [`FINGERPRINT_COLUMNS`] by
+/// [`FINGERPRINT_ROWS`] grid of grey cells, row by row, one byte a cell. Two pictures of the same
+/// thing share it but for a little brightness everywhere, whatever their size or encoding.
+///
+/// A difference hash, a bit a cell for which way brightness runs, was the first thought and the
+/// wrong one: a slide's new line of text is a dark band across a row, and inside the band the
+/// brightness runs the way it ran before, so it moved four bits of 256.
+pub fn fingerprint(image: &DynamicImage) -> Vec<u8> {
+    image
         .resize_exact(FINGERPRINT_COLUMNS, FINGERPRINT_ROWS, FilterType::Triangle)
-        .to_luma8();
-    let mut bits = [0_u8; 32];
-    let mut index = 0_usize;
-    for row in 0..FINGERPRINT_ROWS {
-        for column in 0..FINGERPRINT_COLUMNS - 1 {
-            let here = grid.get_pixel(column, row).0[0];
-            let next = grid.get_pixel(column + 1, row).0[0];
-            if here > next {
-                bits[index / 8] |= 1 << (index % 8);
-            }
-            index += 1;
-        }
-    }
-    bits
+        .to_luma8()
+        .into_raw()
 }
 
-/// How many bits two fingerprints differ in.
-pub fn fingerprint_distance(first: &[u8; 32], second: &[u8; 32]) -> u32 {
-    first
+/// Whether two fingerprints are one picture: at most [`NEAR_DUPLICATE_CELLS`] of their cells moved
+/// more than [`CELL_CHANGE`]. Fingerprints of different sizes, which no build makes, never are.
+pub fn is_near_duplicate(first: &[u8], second: &[u8]) -> bool {
+    if first.len() != second.len() {
+        return false;
+    }
+    let changed = first
         .iter()
         .zip(second)
-        .map(|(left, right)| (left ^ right).count_ones())
-        .sum()
+        .filter(|(left, right)| left.abs_diff(**right) > CELL_CHANGE)
+        .count();
+    changed <= NEAR_DUPLICATE_CELLS
 }
 
 /// Decodes `upload` as one of [`ACCEPTED_FORMATS`], read from its bytes, within the dimension and
@@ -328,16 +329,28 @@ mod tests {
         let again = compress_frame(&encode_webp(&small).expect("encodes")).expect("compresses");
         let added = compress_frame(&png(&slide(&[0, 1, 2, 3]))).expect("compresses");
 
-        let same = fingerprint_distance(&first.fingerprint, &again.fingerprint);
-        let different = fingerprint_distance(&first.fingerprint, &added.fingerprint);
-        assert!(
-            same <= NEAR_DUPLICATE_BITS,
-            "encoded again differs in {same} bits"
+        assert!(is_near_duplicate(&first.fingerprint, &again.fingerprint));
+        assert!(!is_near_duplicate(&first.fingerprint, &added.fingerprint));
+        assert_eq!(
+            first.fingerprint.len(),
+            (FINGERPRINT_COLUMNS * FINGERPRINT_ROWS) as usize
         );
-        assert!(
-            different > NEAR_DUPLICATE_BITS,
-            "a new line differs in {different} bits"
-        );
+    }
+
+    #[test]
+    fn a_cursor_moving_across_a_slide_leaves_it_one_picture() {
+        let mut moved = slide(&[0, 1, 2]);
+        for y in 400..424 {
+            for x in 1100..1116 {
+                moved.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+            }
+        }
+        let first = compress_frame(&png(&slide(&[0, 1, 2]))).expect("compresses");
+        let with_cursor = compress_frame(&png(&moved)).expect("compresses");
+        assert!(is_near_duplicate(
+            &first.fingerprint,
+            &with_cursor.fingerprint
+        ));
     }
 
     /// The CRC-32 a PNG chunk carries over its type and data.

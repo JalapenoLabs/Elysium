@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{Recording, SegmentMeeting};
-use crate::images::{self, NEAR_DUPLICATE_BITS};
+use crate::images;
 use crate::meeting_attachments;
 use crate::meetings::attachments::{self, AttachmentError};
 use crate::meetings::frames::{self, Candidate, SAMPLE_INTERVAL_MS};
@@ -223,14 +223,14 @@ impl SegmentMeeting {
                 .map_err(|error| {
                     StepFailure::retryable(format!("A still did not read: {error}"))
                 })?;
-            let is_duplicate = kept.iter().any(|fingerprint| {
-                images::fingerprint_distance(fingerprint, &frame.fingerprint) <= NEAR_DUPLICATE_BITS
-            });
+            let is_duplicate = kept
+                .iter()
+                .any(|fingerprint| images::is_near_duplicate(fingerprint, &frame.fingerprint));
             if is_duplicate {
                 duplicates += 1;
                 continue;
             }
-            kept.push(frame.fingerprint);
+            kept.push(frame.fingerprint.clone());
             let destination = (&location, &access_key);
             let stored = self
                 .keep_frame(destination, current, &recording.capture, taken, frame)
@@ -365,4 +365,165 @@ pub(super) async fn pin_frames(
         }
     }
     Ok(pinned)
+}
+
+#[cfg(test)]
+mod tests {
+    use diesel_async::SimpleAsyncConnection;
+    use serde_json::json;
+
+    use super::*;
+    use crate::models::meeting;
+    use crate::models::meeting_event::{self, EventKind};
+    use crate::models::meeting_mark::{self, MarkKind};
+    use crate::models::meeting_word::tests::{built_meeting, person, range, word};
+    use crate::models::meeting_word::{self, Replacement};
+    use crate::models::project::ProjectScope;
+    use crate::models::storage_location::{
+        self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
+    };
+    use crate::storage::tests::PASSWORD;
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
+
+    /// A still of the capture at `capture_ms`, kept in the location and ready to pin over `range`,
+    /// its fingerprint every cell `shade`.
+    fn prepared(
+        current: &Meeting,
+        (capture_id, location_id): (Uuid, Uuid),
+        capture_ms: i64,
+        range: Range,
+        shade: u8,
+    ) -> Prepared {
+        Prepared {
+            frame: StoredFrame {
+                id: Uuid::now_v7(),
+                meeting_id: current.id,
+                storage_location_id: location_id,
+                storage_path: meeting_attachments::frame_path(current.id, capture_id, capture_ms),
+                file_name: meeting_attachments::frame_name(capture_ms),
+                size_bytes: 1_024,
+                capture_id,
+                capture_ms,
+                caption: format!("The slide at {capture_ms} ms"),
+                fingerprint: vec![shade; 576],
+            },
+            range,
+        }
+    }
+
+    /// #250: segmenting pins the frames it chose as Elysia, in the transaction that takes its
+    /// answer, each in a savepoint of its own: one over words a person edited while the turn
+    /// looked at its stills is left out, and the rest are pinned, recorded, and kept for the next
+    /// segmenting to compare its stills against.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn segmenting_pins_its_frames_as_elysia_leaving_out_one_over_words_edited_since() {
+        let (_url, mut connection) = migrated_database().await;
+        let (capture, words) = built_meeting(
+            &mut connection,
+            &[("Ada", "Here is the roadmap"), ("Grace", "Looks right")],
+        )
+        .await;
+        let location = storage_location::create(
+            &mut connection,
+            &cipher(),
+            &NewStorageLocation {
+                created_by: TEST_PERSON_ID,
+                name: "Files".to_owned(),
+                provider: StorageProvider::Bunny {
+                    zone: "files".to_owned(),
+                    region: BunnyStorageRegion::Frankfurt,
+                },
+                path_prefix: String::new(),
+                storage_limit_bytes: None,
+                access_key: SecretString::from(PASSWORD),
+                projects: ProjectScope::All,
+            },
+        )
+        .await
+        .expect("created");
+        // Its capture keeps a video, which a frame is a still of.
+        connection
+            .batch_execute(&format!(
+                "UPDATE meeting_captures SET storage_location_id = '{}', \
+                 recording_path = 'meetings/{}/recording.mp4', \
+                 recording_content_type = 'video/mp4' WHERE id = '{}'",
+                location.id, capture.meeting_id, capture.id
+            ))
+            .await
+            .expect("a recording");
+        let current = meeting::find(&mut connection, capture.meeting_id)
+            .await
+            .expect("found");
+        let roadmap = range(word(&words, "Here"), word(&words, "roadmap"));
+        let agreed = range(word(&words, "Looks"), word(&words, "right"));
+        let kept = (capture.id, location.id);
+        let frames = [
+            prepared(&current, kept, 1_000, roadmap, 0),
+            prepared(&current, kept, 3_000, agreed, 255),
+        ];
+        meeting_word::edit(
+            &mut connection,
+            current.id,
+            Replacement {
+                range: agreed,
+                text: "Looks good",
+            },
+            person(),
+        )
+        .await
+        .expect("edits");
+
+        let pinned = connection
+            .transaction(async |connection| pin_frames(connection, &current, &frames).await)
+            .await
+            .expect("pins");
+
+        assert_eq!(
+            pinned, 1,
+            "the frame over the words edited meanwhile is left out"
+        );
+        let attachments = meeting_attachment::of_meeting(&mut connection, current.id)
+            .await
+            .expect("reads");
+        assert_eq!(
+            attachments
+                .iter()
+                .map(|attachment| (attachment.id, attachment.created_by))
+                .collect::<Vec<_>>(),
+            vec![(frames[0].frame.id, ELYSIA_USER_ID)]
+        );
+        let pins: Vec<_> = meeting_mark::standing(&mut connection, current.id)
+            .await
+            .expect("reads")
+            .into_iter()
+            .filter(|mark| mark.kind == MarkKind::Pin.as_str())
+            .collect();
+        assert_eq!(pins.len(), 1);
+        assert_eq!(
+            (
+                pins[0].start_word_id,
+                pins[0].end_word_id,
+                pins[0].created_by
+            ),
+            (roadmap.start_word_id, roadmap.end_word_id, ELYSIA_USER_ID)
+        );
+        assert_eq!(pins[0].data["attachmentId"], json!(frames[0].frame.id));
+        let attached = meeting_event::of_kind(&mut connection, current.id, EventKind::Attached)
+            .await
+            .expect("reads");
+        assert_eq!(
+            attached
+                .iter()
+                .map(|entry| entry.created_by)
+                .collect::<Vec<_>>(),
+            vec![ELYSIA_USER_ID]
+        );
+        assert_eq!(
+            meeting_attachment::standing_fingerprints(&mut connection, current.id)
+                .await
+                .expect("reads"),
+            vec![vec![0_u8; 576]]
+        );
+    }
 }

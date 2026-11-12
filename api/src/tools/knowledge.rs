@@ -11,6 +11,8 @@
 //!   functions (`routes::v1::knowledge`), with the same arguments and schemas the MCP server
 //!   takes, so a turn finds exactly what a member would. A search spends the budget of whoever
 //!   the turn reads for ([`reader`]).
+//! - `meeting_attachment_get` opens a file or frame pinned in a meeting's excerpt, which travels
+//!   with it to every agent that reads it ([`attachments`]).
 //! - `company_doc_read` answers every section with the suggestions waiting on it, as its
 //!   proposals; `company_doc_propose` is `page_suggest` for one section, through
 //!   `crate::company_doc::propose`, and nothing changes until a person accepts it.
@@ -66,7 +68,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 14] = [
+const TOOLS: [Tool; 15] = [
     Tool {
         name: "knowledge_search",
         description: SEARCH_DESCRIPTION,
@@ -84,6 +86,12 @@ const TOOLS: [Tool; 14] = [
         description: MEETINGS_DESCRIPTION,
         input_schema: schema_of::<ListMeetingsRequest>,
         run: |context, scope, arguments| run_meetings(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "meeting_attachment_get",
+        description: attachments::DESCRIPTION,
+        input_schema: attachments::schema,
+        run: |context, scope, arguments| attachments::run(context, scope, arguments).boxed(),
     },
     Tool {
         name: "company_doc_read",
@@ -637,5 +645,6 @@ fn link_tool_error(scope: &CallScope, operation: &'static str, error: ApiError) 
     }
 }
 
+mod attachments;
 #[cfg(test)]
 mod tests;

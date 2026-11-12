@@ -27,6 +27,9 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::models::meeting_attachment::{AttachmentKind, TextState};
+use crate::models::timeline_record::{self, TimelineRecord};
+
 use super::excerpts;
 use crate::meeting_attachments::MAX_PER_MEETING;
 use crate::models::agent::Author;
@@ -263,6 +266,53 @@ pub(crate) async fn undo(
             Ok(Some(entry))
         }
         _ => Ok(None),
+    }
+}
+
+/// The standing files and frames pinned in `record`, when it is a meeting's excerpt, in the order
+/// their pins start: what travels with it to the Project Managers and workers that read it. Any
+/// other record carries none.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn pinned_in(
+    connection: &mut AsyncPgConnection,
+    record: &TimelineRecord,
+) -> QueryResult<Vec<MeetingAttachment>> {
+    match timeline_record::segment_span(record) {
+        Some((meeting_id, start_ms, end_ms)) => {
+            meeting_attachment::pinned_over(connection, meeting_id, start_ms, end_ms).await
+        }
+        None => Ok(Vec::new()),
+    }
+}
+
+/// What an agent reads of `attachment` beside the excerpt it is pinned in: what it is and what it
+/// shows, and the id it opens it by (`meeting_attachment_get`, `crate::tools::knowledge`).
+pub fn agent_view(attachment: &MeetingAttachment) -> Value {
+    json!({
+        "attachmentId": attachment.id,
+        "kind": attachment.kind,
+        "fileName": attachment.file_name,
+        "caption": attachment.caption,
+        "sizeBytes": attachment.size_bytes,
+        "hasText": attachment.text_state() == Some(TextState::Read),
+    })
+}
+
+/// How a pinned attachment is named in a line of an agent's prompt: a frame by its caption, a
+/// file by its name, each with the id that opens it.
+pub fn prompt_line(attachment: &MeetingAttachment) -> String {
+    match attachment.kind() {
+        AttachmentKind::Frame => format!(
+            "the frame \"{}\" (attachment {})",
+            attachment.caption.as_deref().unwrap_or_default(),
+            attachment.id
+        ),
+        AttachmentKind::File => format!(
+            "the file \"{}\" (attachment {})",
+            attachment.file_name, attachment.id
+        ),
     }
 }
 

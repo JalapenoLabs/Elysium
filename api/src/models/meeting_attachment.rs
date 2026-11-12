@@ -91,7 +91,7 @@ pub struct MeetingAttachment {
     pub capture_id: Option<Uuid>,
     pub capture_ms: Option<i64>,
     pub caption: Option<String>,
-    /// A frame's fingerprint (`crate::images::fingerprint`), 32 bytes.
+    /// A frame's fingerprint (`crate::images::fingerprint`).
     pub fingerprint: Option<Vec<u8>>,
     /// The text read from a file, once read.
     pub text: Option<String>,
@@ -174,7 +174,7 @@ pub struct StoredFrame {
     pub capture_id: Uuid,
     pub capture_ms: i64,
     pub caption: String,
-    pub fingerprint: [u8; 32],
+    pub fingerprint: Vec<u8>,
 }
 
 impl NewAttachment {
@@ -225,7 +225,7 @@ impl NewAttachment {
             capture_id: Some(frame.capture_id),
             capture_ms: Some(frame.capture_ms),
             caption: Some(frame.caption),
-            fingerprint: Some(frame.fingerprint.to_vec()),
+            fingerprint: Some(frame.fingerprint),
             text_state: TextState::None.as_str().to_owned(),
             created_by: author.user_id,
             agent: author.agent.map(|agent| agent.id().to_owned()),
@@ -325,7 +325,7 @@ pub async fn find_by_id(
 pub async fn standing_fingerprints(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
-) -> QueryResult<Vec<[u8; 32]>> {
+) -> QueryResult<Vec<Vec<u8>>> {
     let fingerprints: Vec<Option<Vec<u8>>> = meeting_attachments::table
         .filter(meeting_attachments::meeting_id.eq(meeting_id))
         .filter(meeting_attachments::removed_by.is_null())
@@ -333,11 +333,7 @@ pub async fn standing_fingerprints(
         .select(meeting_attachments::fingerprint)
         .load(connection)
         .await?;
-    Ok(fingerprints
-        .into_iter()
-        .flatten()
-        .filter_map(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
-        .collect())
+    Ok(fingerprints.into_iter().flatten().collect())
 }
 
 /// Marks every standing attachment among `ids` removed by change `event_id`, and answers the
@@ -452,6 +448,12 @@ impl From<MeetingAttachment> for IndexedAttachment {
 }
 
 #[derive(Debug, QueryableByName)]
+struct ExistsRow {
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pinned: bool,
+}
+
+#[derive(Debug, QueryableByName)]
 struct PinnedRow {
     #[diesel(sql_type = SqlUuid)]
     attachment_id: Uuid,
@@ -514,6 +516,44 @@ pub async fn pinned_over(
         .await?;
     found.sort_by_key(|attachment| ids.iter().position(|id| *id == attachment.id));
     Ok(found)
+}
+
+/// Whether standing attachment `attachment_id` of meeting `meeting_id` is pinned in one of its
+/// standing excerpts: a pin of it overlaps an excerpt's words, by the rule [`pinned_over`] carries
+/// it with. What is pinned in an excerpt travels with it, so it is read wherever the excerpt is.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn is_pinned_in_an_excerpt(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    attachment_id: Uuid,
+) -> QueryResult<bool> {
+    let row: ExistsRow = diesel::sql_query(format!(
+        "SELECT EXISTS (
+             SELECT 1 {PINS_OVER}
+               AND attachments.id = $4
+               AND EXISTS (
+                   SELECT 1
+                   FROM meeting_marks excerpts
+                   JOIN meeting_words excerpt_first ON excerpt_first.id = excerpts.start_word_id
+                   JOIN meeting_words excerpt_last ON excerpt_last.id = excerpts.end_word_id
+                   WHERE excerpts.meeting_id = marks.meeting_id
+                     AND excerpts.kind = 'excerpt'
+                     AND excerpts.removed_by IS NULL
+                     AND first.start_ms
+                         < GREATEST(excerpt_last.end_ms, excerpt_first.start_ms + 1)
+                     AND GREATEST(last.end_ms, first.start_ms + 1) > excerpt_first.start_ms
+               )
+         ) AS pinned"
+    ))
+    .bind::<SqlUuid, _>(meeting_id)
+    .bind::<BigInt, _>(i64::MIN)
+    .bind::<BigInt, _>(i64::MAX)
+    .bind::<SqlUuid, _>(attachment_id)
+    .get_result(connection)
+    .await?;
+    Ok(row.pinned)
 }
 
 /// Where on its meeting's clock each standing pin of attachment `attachment_id` lies, from its
