@@ -32,6 +32,8 @@ function renderLane(isInDrawer: boolean) {
         onShownChange={() => {}}
         span={null}
         momentMs={null}
+        onMoveCapture={async () => false}
+        onSplitCapture={async () => {}}
         words={[]}
         selectedMark={null}
         history={{ rows: [], isLoading: false, hasFailed: false }}

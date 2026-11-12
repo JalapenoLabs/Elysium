@@ -16,7 +16,7 @@ export function useMeetingHistory(meetingId: string) {
     () => getMeetingHistory(meetingId),
     { keepPreviousData: true },
   )
-  const rows = useMemo(() => describeHistory(data?.entries ?? []), [ data ])
+  const rows = useMemo(() => describeHistory(data?.entries ?? [], meetingId), [ data, meetingId ])
 
   return {
     entries: data?.entries ?? null,

@@ -25,7 +25,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, transcript_change};
+use super::{MeetingEventResponse, announce, merged_refusal, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::excerpts::{self, ExcerptError};
@@ -201,6 +201,7 @@ fn refusal(error: ExcerptError) -> ApiError {
         ExcerptError::Mark(MarkError::NotAnObject) => {
             ApiError::BadRequest("A mark's data is a JSON object.".to_owned())
         }
+        ExcerptError::Mark(MarkError::Merged) => merged_refusal(),
         ExcerptError::NoProject | ExcerptError::UnknownProject => ApiError::CodedBadRequest {
             code: "meeting_excerpt_project",
             message: "An excerpt is on at least one project that exists.".to_owned(),

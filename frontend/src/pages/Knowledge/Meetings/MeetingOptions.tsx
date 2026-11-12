@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Label, Switch, ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import { MeetingActions } from './MeetingActions'
+import { MeetingCaptures } from './MeetingCaptures'
 
 // Misc
 import { formatDuration, formatMediaPosition } from '../../../format/durations'
@@ -31,11 +32,15 @@ type Props = {
   // The words selected, or the moment a click picked, on the meeting's clock.
   span: RangeSummary | null
   momentMs: number | null
+  // Resolves whether the capture moved.
+  onMoveCapture: (captureId: string, offsetMs: number) => Promise<boolean>
+  onSplitCapture: (captureId: string) => Promise<void>
 }
 
 // The options box at the top of a meeting's lane (docs/meeting-review.md, The meeting's page):
-// which transcript shows, which marks, what is selected, and the meeting's actions. It floats
-// above the rest of the lane as the page scrolls.
+// which transcript shows, which marks, what is selected, the captures with where each sits on the
+// meeting's clock, and the meeting's actions. It floats above the rest of the lane as the page
+// scrolls.
 export function MeetingOptions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
   const isFinal = props.view === FINAL_VIEW
@@ -112,6 +117,12 @@ export function MeetingOptions(props: Props) {
       <p className='compact text-xs font-semibold uppercase opacity-60'>{t('review.options.selected')}</p>
       <p className='text-sm'>{selected}</p>
     </div>}
+
+    {Boolean(props.captures.length) && <MeetingCaptures
+      captures={props.captures}
+      onMoveCapture={props.onMoveCapture}
+      onSplitCapture={props.onSplitCapture}
+    />}
 
     <MeetingActions meeting={props.meeting} />
   </section>

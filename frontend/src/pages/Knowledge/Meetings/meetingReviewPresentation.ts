@@ -55,8 +55,11 @@ export const historySentenceKeys = {
   released: 'review.history.sentences.released',
   approved: 'review.history.sentences.approved',
   offsetChanged: 'review.history.sentences.offsetChanged',
-  merged: 'review.history.sentences.merged',
-  split: 'review.history.sentences.split',
+  undidOffset: 'review.history.sentences.undidOffset',
+  mergedIn: 'review.history.sentences.mergedIn',
+  mergedAway: 'review.history.sentences.mergedAway',
+  splitOut: 'review.history.sentences.splitOut',
+  splitAway: 'review.history.sentences.splitAway',
   addedRecordingAndTranscript: 'review.history.sentences.addedRecordingAndTranscript',
   addedRecording: 'review.history.sentences.addedRecording',
   addedTranscript: 'review.history.sentences.addedTranscript',
@@ -83,8 +86,8 @@ export type HistoryRow = {
 // Long enough to recognize a phrase, short enough for a narrow lane.
 const QUOTE_MAX_CHARACTERS = 60
 
-// A merge and a split are in both meetings' histories, and undone from the one the recordings went
-// into, by splitting them back out, so the list offers no Undo for either.
+// Kinds undone wherever they are listed. A merge and a split are undone only from the meeting the
+// recordings went into (`sideOf`).
 const UNDOABLE_KINDS = new Set([
   'edited',
   'marked',
@@ -94,6 +97,30 @@ const UNDOABLE_KINDS = new Set([
   'thread_resolved',
   'thread_reopened',
 ])
+
+// Which side of a merge or split a meeting's entry was written for (`Moved` in
+// api/src/meetings/duplicates.rs): the meeting the recordings went into, or the one they came from.
+// Both meetings record it, and it is undone from the kept one alone: undoing a merge there splits
+// the recordings back out, and undoing a split merges them again. The other meeting's copy is a
+// record of it, which the API refuses to undo.
+function sideOf(entry: MeetingHistoryEntry, meetingId: string) {
+  if (entry.data.into === meetingId) {
+    return 'kept'
+  }
+  if (entry.data.from === meetingId) {
+    return 'away'
+  }
+  console.debug('describeHistory read a merge or split that names neither side as this meeting', {
+    entryId: entry.id,
+    meetingId,
+  })
+  return null
+}
+
+const movedSentences = {
+  merged: { kept: 'mergedIn', away: 'mergedAway' },
+  split: { kept: 'splitOut', away: 'splitAway' },
+} as const satisfies Record<'merged' | 'split', Record<'kept' | 'away', HistorySentence>>
 
 // What a transcript was built from (`BuiltFrom` in api/src/models/meeting_word.rs), and how its
 // build reads. A build from a corrected copy's lines says `correction`.
@@ -135,10 +162,10 @@ function addedCaptureSentence(data: Record<string, unknown>): HistorySentence {
   return 'changed'
 }
 
-// What each entry of a meeting's history says, newest first as it arrives. Entries come from
-// every version of the API, so their data is read defensively and an unknown kind reads as a
+// What each entry of meeting `meetingId`'s history says, newest first as it arrives. Entries come
+// from every version of the API, so their data is read defensively and an unknown kind reads as a
 // change.
-export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
+export function describeHistory(entries: MeetingHistoryEntry[], meetingId: string): HistoryRow[] {
   const undone = new Set<string>()
   for (const entry of entries) {
     if (entry.undid) {
@@ -186,12 +213,21 @@ export function describeHistory(entries: MeetingHistoryEntry[]): HistoryRow[] {
         row.sentence = 'approved'
         return row
       case 'offset_changed':
-        row.sentence = 'offsetChanged'
+        // An undo of a move is a move back to where the capture was.
+        row.sentence = entry.undid
+          ? 'undidOffset'
+          : 'offsetChanged'
         return row
       case 'merged':
-      case 'split':
-        row.sentence = entry.kind
+      case 'split': {
+        const side = sideOf(entry, meetingId)
+        if (!side) {
+          return row
+        }
+        row.sentence = movedSentences[entry.kind][side]
+        row.canUndo = side === 'kept' && !undone.has(entry.id)
         return row
+      }
       case 'capture_added':
         row.sentence = addedCaptureSentence(entry.data)
         return row

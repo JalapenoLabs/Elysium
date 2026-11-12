@@ -95,6 +95,9 @@ pub enum CommentError {
     /// The thread is resolved or open already.
     #[error("the thread is already so")]
     Unchanged,
+    /// The meeting was merged into another, which is where it changes now.
+    #[error("the meeting was merged into another")]
+    Merged,
     /// The range cannot be marked (`MarkError`).
     #[error(transparent)]
     Mark(MarkError),
@@ -559,6 +562,8 @@ async fn standing_thread(
     mark_id: Uuid,
 ) -> Result<Mark, CommentError> {
     match meeting::lock(connection, meeting_id).await {
+        // Read under the lock a merge takes: a meeting merged away takes no more comments.
+        Ok(locked) if locked.merged_into.is_some() => return Err(CommentError::Merged),
         Ok(_) => {}
         Err(diesel::result::Error::NotFound) => return Err(CommentError::NotFound),
         Err(error) => return Err(CommentError::Database(error)),

@@ -186,6 +186,9 @@ pub enum MarkError {
     /// Its data is not a JSON object.
     #[error("a mark's data is a JSON object")]
     NotAnObject,
+    /// The meeting was merged into another, which is where it changes now.
+    #[error("the meeting was merged into another")]
+    Merged,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -498,12 +501,17 @@ pub(crate) async fn insert_all(
     Ok(())
 }
 
-/// The meeting's lock, or [`MarkError::NotFound`] when there is no such meeting.
+/// The meeting's lock, or [`MarkError::NotFound`] when there is no such meeting and
+/// [`MarkError::Merged`] when it was merged into another, read under the lock a merge takes.
 pub(crate) async fn lock_meeting(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
 ) -> Result<(), MarkError> {
-    found(meeting::lock(connection, meeting_id).await).map(drop)
+    let locked = found(meeting::lock(connection, meeting_id).await)?;
+    if locked.merged_into.is_some() {
+        return Err(MarkError::Merged);
+    }
+    Ok(())
 }
 
 /// That `range` runs between two standing words of the meeting, in order.

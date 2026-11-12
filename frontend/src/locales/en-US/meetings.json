@@ -54,7 +54,12 @@
     "released": "This meeting no longer waits for your approval",
     "correctedMeanwhile": "This meeting was just corrected. Review its transcript and approve it.",
     "doneReviewing": "Done reviewing",
-    "reviewDone": "Taking what matters from your review"
+    "reviewDone": "Taking what matters from your review",
+    "mergedTitle": "Merged into another meeting",
+    "mergedInto": "Its recordings are in “{{title}}” now. Split them out there to make this meeting its own again.",
+    "mergedIntoUntitled": "Its recordings are in another meeting now. Split them out there to make this meeting its own again.",
+    "openMergedInto": "Open that meeting",
+    "mergedReadOnly": "Edits, comments, and approval happen in the meeting it was merged into."
   },
   "correction": {
     "status": {
@@ -143,6 +148,32 @@
       "span_other": "{{start}} to {{end}}, {{length}}, {{words}} words",
       "moment": "At {{at}}"
     },
+    "captures": {
+      "title": "Recordings",
+      "startsWith": "Starts with the meeting",
+      "startsInto": "Starts {{span}} into the meeting",
+      "startsBefore": "Starts {{span}} before the meeting",
+      "placed": "{{start}}, {{found}}",
+      "found": {
+        "listed": "as its source listed it",
+        "audio": "lined up by its audio",
+        "words": "lined up by its words",
+        "hand": "set by hand"
+      },
+      "from": "From “{{title}}”",
+      "fromUntitled": "From another meeting",
+      "move": "Move on the meeting's clock",
+      "moveLabel": "Seconds into the meeting",
+      "moveHint": "Such as 2.5, or -1.5 if it started early",
+      "apply": "Move",
+      "moved": "Recording moved on the meeting's clock",
+      "split": "Split out",
+      "splitHint": "Make that meeting its own again",
+      "splitBlocked": "A recording from it was moved by hand. Undo that move to split it out.",
+      "splitDone": "Split back out into its own meeting",
+      "notMerged": "That recording is no longer merged in. The page now shows it as it is.",
+      "movedSince": "A recording from that meeting was moved by hand. Undo that move, then split it out."
+    },
     "detail": {
       "byPerson": "By {{name}}",
       "byAgent": "By {{name}}, an agent",
@@ -201,8 +232,11 @@
         "released": "Stopped holding the meeting for approval",
         "approved": "Approved the corrected transcript",
         "offsetChanged": "Moved a recording on the meeting's clock",
-        "merged": "Merged with another recording of this meeting",
-        "split": "Split a merged recording back out",
+        "undidOffset": "Put a recording back where it was on the meeting's clock",
+        "mergedIn": "Merged in another meeting's recordings",
+        "mergedAway": "Merged its recordings into another meeting",
+        "splitOut": "Split another meeting's recordings back out",
+        "splitAway": "Became its own meeting again",
         "addedRecordingAndTranscript": "Added a recording and its transcript",
         "addedRecording": "Added a recording",
         "addedTranscript": "Added a transcript",

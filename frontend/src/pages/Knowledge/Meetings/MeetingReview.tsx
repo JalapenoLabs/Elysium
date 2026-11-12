@@ -12,6 +12,7 @@ import { LuExternalLink } from 'react-icons/lu'
 import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 import { MeetingWorkspace } from './MeetingWorkspace'
+import { MergedIntoNotice } from './MergedIntoNotice'
 
 // Misc
 import { DateText } from '../../../format/DateText'
@@ -79,6 +80,8 @@ export function MeetingReview(props: Props) {
         </Link>
       </>}
     </div>
+
+    {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
 
     {review}
   </Page>

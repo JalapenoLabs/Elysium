@@ -37,8 +37,10 @@ function capture(id: string, recordingContentType: string | null): MeetingCaptur
     sourceKind: 'fireflies',
     url: null,
     offsetMs: 0,
+    offsetSource: 'listed',
     hasRecording: recordingContentType !== null,
     recordingContentType,
+    mergedFrom: null,
   }
 }
 

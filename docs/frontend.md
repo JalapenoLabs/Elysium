@@ -1001,7 +1001,19 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
   tab knows no such entry and reads the change as news, and so does every tab for a reply, which is no history entry.
   Where a thread lies and whether it is resolved is its mark's; `meetingThreads.ts` gathers each thread's comments in
-  one pass and reads mentions, purely.
+  one pass and reads mentions, purely. A change that moves a capture (an offset set by hand, a split, or the undo of
+  either) lines the whole transcript up again, which no change of words describes, so its announcement names no entry
+  and every page holding the meeting reads it again, the one that made it included.
+- **Captures.** A capture's start opens in a `NumberField` (`CaptureOffsetEditor`), whose form leaves Enter to the
+  browser's own submit: the field takes the number typed as Enter reaches it, after a form's `submitOnEnter` would
+  already have submitted the number it held before.
+- **A meeting merged away.** The knowledge base loads the meetings list around every page, and the list leaves such a
+  meeting out, so `meetingsLoaded` replaces what the list names and keeps a merged-away meeting its page loaded by id;
+  otherwise a list answering after the page's own load would take the meeting from under it. Its page is read only
+  (`isReadOnly` in `MeetingWorkspace`): the bar's Edit, Comment, Assign to a project, and Black out, an excerpt's or a
+  black-out's Remove, a thread's actions, and history's Undo are `null` or off, and `MeetingActions` says why, offering
+  no Done reviewing. The API refuses those changes too (`meeting_merged`), so a change sent
+  before the page heard of the merge is refused with the same reason.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.

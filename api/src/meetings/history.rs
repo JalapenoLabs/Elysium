@@ -53,6 +53,9 @@ pub enum UndoError {
     /// A hold no longer changes once the meeting's transcript is corrected.
     #[error("the meeting's transcript is corrected already")]
     Corrected,
+    /// The meeting was merged into another, which is where it changes now.
+    #[error("the meeting was merged into another")]
+    Merged,
     /// Undoing a thread's resolve or reopen could not tell its people (`meetings::comments`).
     #[error(transparent)]
     Thread(#[from] CommentError),
@@ -78,7 +81,8 @@ pub struct Undone {
 /// # Errors
 /// [`UndoError::NotFound`] when the meeting has no such change, [`UndoError::NotUndoable`] for a
 /// kind that cannot be undone, [`UndoError::ChangedSince`] when what it changed moved on since,
-/// [`UndoError::Corrected`] for a hold once the transcript is corrected; any database error.
+/// [`UndoError::Corrected`] for a hold once the transcript is corrected, [`UndoError::Merged`]
+/// once the meeting was merged into another; any database error.
 pub async fn undo(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -92,6 +96,11 @@ pub async fn undo(
                 Err(diesel::result::Error::NotFound) => return Err(UndoError::NotFound),
                 Err(error) => return Err(UndoError::Database(error)),
             };
+            // A meeting merged into another changes there; its merge, and a split of it, are
+            // undone from the meeting kept, which never reads as merged.
+            if current.merged_into.is_some() {
+                return Err(UndoError::Merged);
+            }
             let undone = match meeting_event::find(connection, meeting_id, event_id).await {
                 Ok(undone) => undone,
                 Err(diesel::result::Error::NotFound) => return Err(UndoError::NotFound),

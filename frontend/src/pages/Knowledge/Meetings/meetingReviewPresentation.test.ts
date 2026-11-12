@@ -29,7 +29,7 @@ describe('describeHistory', () => {
       entry('hold', 'hold_changed', { before: false, after: true }),
       entry('built', 'built', { builtFrom: 'correction' }),
       entry('later', 'spliced'),
-    ])
+    ], 'this')
 
     expect(rows.map((row) => [ row.entry.id, row.sentence, row.canUndo ])).toEqual([
       [ 'undo', 'undidEdit', true ],
@@ -44,31 +44,57 @@ describe('describeHistory', () => {
   it('says when the correction settled the transcript, which only an edit changes', () => {
     const [ settled ] = describeHistory([
       entry('settled', 'settled', { changes: [], marksAdded: [ 'mark' ], skipped: 0 }),
-    ])
+    ], 'this')
 
     expect([ settled.sentence, settled.canUndo ]).toEqual([ 'settled', false ])
   })
 
-  it('says when a recording was moved on the clock, merged in, or split out', () => {
+  it('says when a recording was moved on the clock, and when that was undone', () => {
     const rows = describeHistory([
-      entry('offset', 'offset_changed', { captureId: 'capture' }),
-      entry('merged', 'merged', { from: 'other', into: 'this' }),
-      entry('split', 'split', { from: 'other', into: 'this' }),
+      entry('back', 'offset_changed', { captureId: 'capture' }, 'moved'),
+      entry('moved', 'offset_changed', { captureId: 'capture' }),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'undidOffset', true ],
+      [ 'offsetChanged', false ],
+    ])
+  })
+
+  it('reads a merge and a split from the side of the meeting it is listed on', () => {
+    const merge = { from: 'other', into: 'this' }
+    const entries = [
+      entry('mergedAgain', 'merged', merge, 'split'),
+      entry('split', 'split', merge, 'merged'),
+      entry('merged', 'merged', merge),
+    ]
+
+    // The meeting the recordings went into undoes either: the newest merge splits them out again.
+    const kept = describeHistory(entries, 'this')
+    expect(kept.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'mergedIn', true ],
+      [ 'splitOut', false ],
+      [ 'mergedIn', false ],
     ])
 
-    // An offset set by hand is undone from the list; a merge is undone by splitting it.
-    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
-      [ 'offsetChanged', true ],
-      [ 'merged', false ],
-      [ 'split', false ],
+    // The meeting they came from records both, and undoes neither.
+    const away = describeHistory(entries, 'other')
+    expect(away.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'mergedAway', false ],
+      [ 'splitAway', false ],
+      [ 'mergedAway', false ],
     ])
+
+    // An entry naming neither side reads as a change, with nothing to undo.
+    const [ unreadable ] = describeHistory([ entry('odd', 'merged', { from: 'a', into: 'b' }) ], 'this')
+    expect([ unreadable.sentence, unreadable.canUndo ]).toEqual([ 'changed', false ])
   })
 
   it('names the kind of a mark made or removed, and shortens a long quote', () => {
     const [ marked, edited ] = describeHistory([
       entry('marked', 'marked', { kind: 'black_out' }),
       entry('edited', 'edited', { beforeText: 'word '.repeat(40), afterText: 'short' }),
-    ])
+    ], 'this')
 
     expect(marked.markKind).toBe('black_out')
     expect(edited.before?.endsWith('…')).toBe(true)
@@ -81,7 +107,7 @@ describe('describeHistory', () => {
       entry('took', 'segmented', { made: [ 'excerpt' ], kept: [], removed: [], unanchored: 0 }),
       entry('excerpt', 'marked', { kind: 'excerpt', recordId: 'record' }),
       entry('lifted', 'unmarked', { kind: 'black_out', restored: []}),
-    ])
+    ], 'this')
 
     expect(rows.map((row) => [ row.sentence, row.markKind, row.canUndo ])).toEqual([
       [ 'reviewDone', null, false ],
@@ -96,7 +122,7 @@ describe('describeHistory', () => {
       entry('both', 'capture_added', { captureId: 'capture', recording: true, transcript: true }),
       entry('recording', 'capture_added', { recording: true, transcript: false }),
       entry('transcript', 'capture_added', { recording: false, transcript: true }),
-    ])
+    ], 'this')
 
     expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
       [ 'addedRecordingAndTranscript', false ],

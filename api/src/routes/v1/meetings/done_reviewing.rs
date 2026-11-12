@@ -17,7 +17,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, response};
+use super::{MeetingEventResponse, announce, merged_refusal, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::review::{self, ReviewError};
@@ -47,10 +47,7 @@ pub async fn handle(
                 code: "meeting_not_segmented",
                 message: "This meeting is segmented for the first time once its run gets there.",
             },
-            ReviewError::Merged => ApiError::CodedConflict {
-                code: "meeting_merged",
-                message: "This meeting was merged into another; review that one.",
-            },
+            ReviewError::Merged => merged_refusal(),
             ReviewError::Input(error) => ApiError::Internal(error),
             ReviewError::Database(error) => error.into(),
         })?;

@@ -34,11 +34,12 @@ type Props = {
   // The meeting's history, newest first, which says what an edit replaced.
   history: HistoryRow[]
   onUndo: (entryId: string) => Promise<void>
-  // Removes an excerpt, or a black-out, which its toast's Undo puts back.
-  onRemove: (markId: string, kind: 'excerpt' | 'black_out') => Promise<void>
-  // A comment mark's thread, and what can be done in it.
+  // Removes an excerpt, or a black-out, which its toast's Undo puts back; null where the meeting
+  // takes no change.
+  onRemove: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
+  // A comment mark's thread, and what can be done in it; null where the meeting takes no change.
   thread: Thread | null
-  threadActions: ThreadActions
+  threadActions: ThreadActions | null
 }
 
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
@@ -51,7 +52,7 @@ export function MarkDetail(props: Props) {
   const users = useAppSelector(selectUserEntities)
   const [ isUndoing, setIsUndoing ] = useState(false)
   const [ isRemoving, setIsRemoving ] = useState(false)
-  const { placed } = props
+  const { placed, onRemove } = props
   const { mark } = placed
   // An excerpt's record, which the meeting's page loads with its excerpts.
   const record = useAppSelector((state) => mark.excerpt
@@ -125,14 +126,14 @@ export function MarkDetail(props: Props) {
       <span>{t('review.undoEdit')}</span>
     </Button>}
 
-    {removable && <Button
+    {removable && onRemove && <Button
       size='sm'
       variant='outline'
       className='self-start'
       isPending={isRemoving}
       onPress={() => {
         setIsRemoving(true)
-        void props.onRemove(mark.id, removable).finally(() => setIsRemoving(false))
+        void onRemove(mark.id, removable).finally(() => setIsRemoving(false))
       }}
     >
       {removable === 'excerpt'
@@ -145,6 +146,6 @@ export function MarkDetail(props: Props) {
       }</span>
     </Button>}
 
-    {props.thread && <CommentThread thread={props.thread} {...props.threadActions} />}
+    {props.thread && <CommentThread thread={props.thread} actions={props.threadActions} />}
   </section>
 }

@@ -38,9 +38,9 @@ type Props = {
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, Done reviewing once it was segmented, which segments it
 // again from its corrected words, holding it for approval by hand until it is corrected (unless
-// its source already waits), its run, and adding a recording or transcript as another capture.
-// Privacy, sharing, and captures' offsets join them as they are built (docs/meeting-review.md,
-// Roadmap).
+// its source already waits), its run, and adding a recording or transcript as another capture. A
+// meeting merged into another offers its run alone, and says why. Privacy and sharing join them as
+// they are built (docs/meeting-review.md, Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -53,10 +53,13 @@ export function MeetingActions(props: Props) {
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
-  const canApprove = Boolean(meeting.correction && !meeting.correction.approvedAt)
+  // A meeting merged into another changes there: it holds no capture, its run goes no further,
+  // and an upload into it is refused, so it offers to approve, hold, review, or add nothing.
+  const isMergedAway = Boolean(meeting.mergedInto)
+  const canApprove = !isMergedAway && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
   // Segmented once, and no run of it going, held, or failed.
-  const canFinishReview = meeting.state === 'done'
+  const canFinishReview = !isMergedAway && meeting.state === 'done'
 
   async function approve() {
     setActing('approve')
@@ -115,7 +118,7 @@ export function MeetingActions(props: Props) {
   }
 
   const actions: PageAction[] = []
-  if (!meeting.correction && !sourceWaits) {
+  if (!isMergedAway && !meeting.correction && !sourceWaits) {
     actions.push({
       id: 'hold',
       label: meeting.holdForApproval
@@ -137,17 +140,23 @@ export function MeetingActions(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
-  // Always offered: an upload sent while the meeting's run is still going is refused, saying so.
-  actions.push({
-    id: 'addCapture',
-    label: t('upload.addCapture'),
-    icon: LuUpload,
-    href: getMeetingCaptureUploadUrl(meeting.id),
-  })
+  // Offered while the meeting is its own: an upload sent while its run is still going is refused,
+  // saying so.
+  if (!isMergedAway) {
+    actions.push({
+      id: 'addCapture',
+      label: t('upload.addCapture'),
+      icon: LuUpload,
+      href: getMeetingCaptureUploadUrl(meeting.id),
+    })
+  }
 
-  // Before it is corrected, whether its run will wait, and why.
+  // Why nothing changes here, or before it is corrected, whether its run will wait, and why.
   let waitsNote: string | null = null
-  if (!meeting.correction && sourceWaits) {
+  if (isMergedAway) {
+    waitsNote = t('page.mergedReadOnly')
+  }
+  else if (!meeting.correction && sourceWaits) {
     waitsNote = t('correction.sourceWaits')
   }
   else if (!meeting.correction && meeting.holdForApproval) {

@@ -38,4 +38,15 @@ describe('meetingsSlice', () => {
     expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'kept' ])
     expect(selectMeetingById(store.getState(), 'merged')?.mergedInto).toBe('kept')
   })
+
+  it('lists a meeting again once its captures are split back out', () => {
+    const store = createAppStore()
+    store.dispatch(meetingsLoaded([ makeMeeting({ id: 'kept', startedAt: '2026-11-10T09:00:00Z' }) ]))
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', mergedInto: 'kept' })))
+
+    // The split announces both meetings, and the one split out arrives its own again.
+    store.dispatch(meetingUpserted(makeMeeting({ id: 'merged', startedAt: '2026-11-09T09:00:00Z', mergedInto: null })))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'kept', 'merged' ])
+  })
 })

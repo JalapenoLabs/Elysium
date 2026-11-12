@@ -42,10 +42,11 @@ type Props = {
   onPick: (index: number, shiftKey: boolean) => void
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
-  onEdit: () => void
-  onComment: () => void
-  assign: AssignControl
-  onBlackOut: () => void
+  // Null where the meeting takes no change, as one merged into another does.
+  onEdit: (() => void) | null
+  onComment: (() => void) | null
+  assign: AssignControl | null
+  onBlackOut: (() => void) | null
   onClear: () => void
   onApplyEdit: (text: string) => Promise<boolean>
   onCancelEdit: () => void

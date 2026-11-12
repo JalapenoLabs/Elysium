@@ -13,7 +13,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::response;
+use super::{merged_refusal, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::correct::{self, ApproveError};
@@ -34,6 +34,7 @@ pub async fn handle(
         .await
         .map_err(|error| match error {
             ApproveError::NotFound => ApiError::NotFound,
+            ApproveError::Merged => merged_refusal(),
             ApproveError::Run(refused) => refused.into(),
             ApproveError::Database(database) => database.into(),
         })?;

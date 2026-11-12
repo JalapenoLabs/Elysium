@@ -42,11 +42,13 @@ type Props = {
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
   // Whether words are selected, which Edit, Comment, Assign to a project, and Black out act on.
+  // Each is null where the meeting takes no change, as one merged into another does; the words
+  // can still be selected and copied.
   hasSelection: boolean
-  onEdit: () => void
-  onComment: () => void
-  assign: AssignControl
-  onBlackOut: () => void
+  onEdit: (() => void) | null
+  onComment: (() => void) | null
+  assign: AssignControl | null
+  onBlackOut: (() => void) | null
   onClear: () => void
   // On a touch screen, which has no Shift: a moment picked offers to start a selection there,
   // which the next tap ends.
@@ -94,6 +96,37 @@ function measure(container: HTMLDivElement, anchorIndex: number, barWidth: numbe
       : Math.min(furthest, Math.max(0, box.right - rect.right)),
     isBelow,
   }
+}
+
+// Assign to a project, with its key, and the menu of projects it opens.
+function AssignMenu({ assign }: { assign: AssignControl }) {
+  const { t } = useTranslation('meetings')
+
+  return <Dropdown isOpen={assign.isOpen} onOpenChange={assign.onOpenChange}>
+    <Button size='sm' variant='ghost' isDisabled={!assign.projects.length}>
+      <LuFolderPlus className='size-4' aria-hidden />
+      <span>{t('review.bar.assign')}</span>
+      <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+        <Kbd.Content>P</Kbd.Content>
+      </Kbd>
+      <LuChevronDown className='size-4' aria-hidden />
+    </Button>
+    <Dropdown.Popover placement='bottom start' className='max-h-80 overflow-y-auto'>
+      <Dropdown.Menu
+        aria-label={t('review.bar.assignLabel')}
+        onAction={(key) => assign.onAssign(String(key))}
+      >{
+          assign.projects.map((project) => <Dropdown.Item
+            key={project.id}
+            id={project.id}
+            textValue={project.name}
+          >
+            <LuFolderPlus className='size-4' aria-hidden />
+            <Label>{project.name}</Label>
+          </Dropdown.Item>)
+        }</Dropdown.Menu>
+    </Dropdown.Popover>
+  </Dropdown>
 }
 
 // The bar beside what is picked in a meeting's transcript (docs/meeting-review.md, Clicking,
@@ -185,52 +218,28 @@ export function TranscriptFloatingBar(props: Props) {
     </Button>}
 
     {props.hasSelection && <>
-      <Button size='sm' variant='ghost' onPress={props.onEdit}>
+      {props.onEdit && <Button size='sm' variant='ghost' onPress={props.onEdit}>
         <LuPencil className='size-4' aria-hidden />
         <span>{t('review.bar.edit')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>E</Kbd.Content>
         </Kbd>
-      </Button>
-      <Button size='sm' variant='ghost' onPress={props.onComment}>
+      </Button>}
+      {props.onComment && <Button size='sm' variant='ghost' onPress={props.onComment}>
         <LuMessageSquarePlus className='size-4' aria-hidden />
         <span>{t('review.bar.comment')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>C</Kbd.Content>
         </Kbd>
-      </Button>
-      <Dropdown isOpen={props.assign.isOpen} onOpenChange={props.assign.onOpenChange}>
-        <Button size='sm' variant='ghost' isDisabled={!props.assign.projects.length}>
-          <LuFolderPlus className='size-4' aria-hidden />
-          <span>{t('review.bar.assign')}</span>
-          <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
-            <Kbd.Content>P</Kbd.Content>
-          </Kbd>
-          <LuChevronDown className='size-4' aria-hidden />
-        </Button>
-        <Dropdown.Popover placement='bottom start' className='max-h-80 overflow-y-auto'>
-          <Dropdown.Menu
-            aria-label={t('review.bar.assignLabel')}
-            onAction={(key) => props.assign.onAssign(String(key))}
-          >{
-              props.assign.projects.map((project) => <Dropdown.Item
-                key={project.id}
-                id={project.id}
-                textValue={project.name}
-              >
-                <LuFolderPlus className='size-4' aria-hidden />
-                <Label>{project.name}</Label>
-              </Dropdown.Item>)
-            }</Dropdown.Menu>
-        </Dropdown.Popover>
-      </Dropdown>
-      <Button size='sm' variant='ghost' onPress={props.onBlackOut}>
+      </Button>}
+      {props.assign && <AssignMenu assign={props.assign} />}
+      {props.onBlackOut && <Button size='sm' variant='ghost' onPress={props.onBlackOut}>
         <LuEyeOff className='size-4' aria-hidden />
         <span>{t('review.bar.blackOut')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>B</Kbd.Content>
         </Kbd>
-      </Button>
+      </Button>}
       <Tooltip delay={300}>
         <Button
           isIconOnly

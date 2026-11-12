@@ -268,6 +268,15 @@ pub struct CaptureSummary {
     pub offset_ms: i64,
     pub recording_path: Option<String>,
     pub recording_content_type: Option<String>,
+    /// An [`OffsetSource`] name: how `offset_ms` was found.
+    pub offset_source: String,
+}
+
+impl CaptureSummary {
+    /// How its offset was found, read as [`MeetingCapture::offset_source`] reads it.
+    pub fn offset_source(&self) -> OffsetSource {
+        OffsetSource::parse(&self.offset_source).unwrap_or(OffsetSource::Hand)
+    }
 }
 
 /// Every capture of meeting `meeting_id`, in the order they joined it, the first first.

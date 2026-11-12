@@ -21,12 +21,12 @@ use uuid::Uuid;
 use crate::elysia::thread::Asked;
 use crate::elysia::trigger;
 use crate::meetings::comments;
-use crate::meetings::excerpts;
+use crate::meetings::excerpts::{self, ExcerptError};
 use crate::meetings::segmentation::SegmentProject;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor, Written};
 use crate::models::meeting::{self, Meeting};
-use crate::models::meeting_mark::{self, Mark, Range};
+use crate::models::meeting_mark::{self, Mark, MarkError, Range};
 use crate::models::meeting_word::{EDIT_TEXT_MAX_CHARACTERS, EditError, Replacement};
 use crate::models::user::ELYSIA_USER_ID;
 use crate::models::{elysia, project};
@@ -130,6 +130,11 @@ pub async fn run_edit(
             EditError::TooLong => ToolError::Invalid(format!(
                 "an edit writes at most {EDIT_TEXT_MAX_CHARACTERS} characters"
             )),
+            EditError::Merged => ToolError::Invalid(
+                "this meeting was merged into another, so its words change there; nothing was \
+                 edited"
+                    .to_owned(),
+            ),
             EditError::Database(error) => internal(scope, "elysia.meeting_edit", &error),
         })?;
     // Her change is news to every page, the one the person has open included.
@@ -187,7 +192,14 @@ pub async fn run_add_to_project(
         };
         let made = excerpts::assign(&mut connection, &found, mark.range(), &[assigned], author)
             .await
-            .map_err(|error| internal(scope, "elysia.meeting_add_to_project", &error))?;
+            .map_err(|error| match error {
+                ExcerptError::Mark(MarkError::Merged) => ToolError::Invalid(
+                    "this meeting was merged into another, so its excerpts change there; nothing \
+                     was added"
+                        .to_owned(),
+                ),
+                error => internal(scope, "elysia.meeting_add_to_project", &error),
+            })?;
         context.events.publish(&ServerEvent::TimelineRecordCreated {
             id: made.record.id,
             source_kind: made.record.source_kind.clone(),

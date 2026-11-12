@@ -30,14 +30,16 @@ type Props = ComponentProps<typeof MeetingOptions> & {
     hasFailed: boolean
   }
   onUndo: (entryId: string) => Promise<void>
-  onRemoveMark: (markId: string, kind: 'excerpt' | 'black_out') => Promise<void>
+  // Null where the meeting takes no change, as one merged into another does.
+  onRemoveMark: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
   threads: {
     open: Thread[]
     resolved: Thread[]
     isLoading: boolean
     hasFailed: boolean
   }
-  threadActions: ThreadActions
+  // Null where the meeting takes no change, as one merged into another does.
+  threadActions: ThreadActions | null
   onSelectThread: (threadId: string) => void
   // The words a new thread is being started on, while one is.
   composing: {
@@ -75,13 +77,16 @@ export function MeetingLane(props: Props) {
 
   // The drawer quiets its text; the lane reads as the page does wherever it sits. Beside the
   // transcript the lane fills its grid cell, the transcript's full height, so the options box has
-  // the whole page to stay stuck in; sized to its own content, it would scroll away with it.
+  // the whole page to stay stuck in; sized to its own content, it would scroll away with it. Stuck,
+  // it is never taller than the page's scroller below the topbar, as the global search's results
+  // are not, and scrolls on its own past that, or its foot (the captures, the meeting's actions)
+  // would stay out of reach until the transcript ended.
   return <div className={[ 'flex flex-col gap-4 text-foreground', isInDrawer ? '' : 'h-full' ].join(' ')}>
     <div className={[
       'rounded-xl border border-border bg-surface p-4',
       isInDrawer
         ? ''
-        : 'sticky top-0 z-10 shadow-sm',
+        : 'sticky top-0 z-10 max-h-[calc(100dvh-5rem)] overflow-y-auto shadow-sm',
     ].join(' ')}>
       <MeetingOptions {...options} />
     </div>
