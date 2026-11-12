@@ -1060,6 +1060,61 @@ mod tests {
         assert!(prompt.contains("Ada wants yearly plans on the pricing page."));
     }
 
+    #[test]
+    fn a_meetings_task_is_told_with_its_words_its_excerpts_and_what_came_of_it() {
+        let mut heard = context();
+        assert!(!render(&heard, now()).contains("Tasks heard in meetings"));
+        let task = PromptTask {
+            id: Uuid::nil(),
+            title: "Fix the login bug".to_owned(),
+            owed_by: "Grace Hopper, a person on Elysium".to_owned(),
+            meeting_id: Uuid::nil(),
+            meeting_title: "Weekly sync".to_owned(),
+            heard_at: Some("12:04".to_owned()),
+            words: "[12:04] Grace: I'll fix the login bug.\n".to_owned(),
+            excerpts: Vec::new(),
+            items: Vec::new(),
+            proposed: Vec::new(),
+            declined: None,
+        };
+        heard.tasks.push(task.clone());
+        heard.tasks.push(PromptTask {
+            title: "Pick the launch date".to_owned(),
+            heard_at: None,
+            excerpts: vec![PromptTaskExcerpt {
+                record_id: Uuid::nil(),
+                title: "The launch".to_owned(),
+                summary: "The date is still open.".to_owned(),
+            }],
+            items: vec![(Uuid::nil(), "Pick a date".to_owned(), ActionItemState::Open)],
+            proposed: vec![Uuid::nil()],
+            declined: Some("Nobody took it on yet.".to_owned()),
+            ..task
+        });
+
+        let prompt = render(&heard, now());
+        assert!(prompt.contains("## Tasks heard in meetings (2)"));
+        assert!(prompt.contains("naming the task by its taskId"));
+        assert!(prompt.contains(&format!(
+            "\"Fix the login bug\" (task {}), owed by Grace Hopper, a person on Elysium; heard in \
+             \"Weekly sync\" (meeting {}) at 12:04.",
+            Uuid::nil(),
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("  What was said:\n  [12:04] Grace: I'll fix the login bug."));
+        assert!(prompt.contains("It lies in no excerpt on this project"));
+        assert!(prompt.contains(&format!(
+            "In the excerpt \"The launch\" (record {}): The date is still open.",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains(&format!(
+            "Already made into \"Pick a date\" (item {}), open.",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("which waits for a person"));
+        assert!(prompt.contains("You made no item of it before, saying: Nobody took it on yet."));
+    }
+
     fn promise(state: PromiseState, work: Option<PromptWork>) -> PromptPromise {
         PromptPromise {
             id: Uuid::nil(),

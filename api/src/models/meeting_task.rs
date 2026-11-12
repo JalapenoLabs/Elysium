@@ -246,8 +246,9 @@ pub async fn record_item(
         .map(drop)
 }
 
-/// Whether task `task_id` was already made into an item for `person_id`, deleted or not: a meeting
-/// read again never raises a second one for the same person.
+/// Whether task `task_id` was already made into an item for `person_id`, or by its project's
+/// Project Manager, deleted or not: a meeting read again never raises a second one for the same
+/// person, nor one beside the item a project made of a task later read onto no project.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -259,7 +260,11 @@ pub async fn has_item_for(
     diesel::select(diesel::dsl::exists(
         meeting_task_items::table
             .filter(meeting_task_items::task_id.eq(task_id))
-            .filter(meeting_task_items::person_id.eq(person_id)),
+            .filter(
+                meeting_task_items::person_id
+                    .eq(person_id)
+                    .or(meeting_task_items::person_id.is_null()),
+            ),
     ))
     .get_result(connection)
     .await

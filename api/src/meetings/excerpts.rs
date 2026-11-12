@@ -1523,6 +1523,60 @@ mod tests {
     use crate::realtime::EventBus;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
+    #[test]
+    fn what_segmenting_read_is_stored_with_its_tasks_and_reads_back_without_them() {
+        use crate::models::meeting_task::OwedBy;
+
+        let range = Range {
+            start_word_id: Uuid::now_v7(),
+            end_word_id: Uuid::now_v7(),
+        };
+        let project_id = Uuid::now_v7();
+        let taken = Taken {
+            excerpts: Vec::new(),
+            black_outs: vec![range],
+            tasks: vec![
+                TakenTask {
+                    range,
+                    reading: TaskReading {
+                        title: "Send the deck".to_owned(),
+                        owed_by: OwedBy::Named {
+                            name: "Sharath".to_owned(),
+                        },
+                        project_id: Some(project_id),
+                    },
+                },
+                TakenTask {
+                    range,
+                    reading: TaskReading {
+                        title: "Ask legal".to_owned(),
+                        owed_by: OwedBy::Nobody,
+                        project_id: None,
+                    },
+                },
+            ],
+        };
+
+        let stored = serde_json::to_value(&taken).expect("serializes");
+        assert_eq!(
+            stored["tasks"][0],
+            json!({
+                "range": range,
+                "title": "Send the deck",
+                "owedBy": { "kind": "named", "name": "Sharath" },
+                "projectId": project_id,
+            })
+        );
+        assert_eq!(stored["tasks"][1]["owedBy"], json!({ "kind": "nobody" }));
+        let read: Taken = serde_json::from_value(stored).expect("reads back");
+        assert_eq!(read, taken);
+
+        // An answer stored before tasks were read takes none.
+        let before_tasks = json!({ "excerpts": [], "blackOuts": [range] });
+        let read: Taken = serde_json::from_value(before_tasks).expect("reads");
+        assert!(read.tasks.is_empty());
+    }
+
     fn word(position: i64, speaker: &str, text: &str, start_ms: i64) -> Word {
         Word {
             id: Uuid::now_v7(),

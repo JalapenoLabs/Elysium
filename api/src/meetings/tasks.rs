@@ -178,7 +178,8 @@ pub struct Reach<'meeting> {
 
 /// Sends `task`, new or changed, where its share says, the moment its words start at `start_ms`:
 /// a project's wakes its Project Manager, and anyone else's becomes an inbox item for whoever it
-/// is for, unless one was raised for them already. Answers the item it raised, if it did. Call it
+/// is for, unless one was raised for them already or its project made one when it was a project's.
+/// Answers the item it raised, if it did. Call it
 /// in the transaction that takes the task.
 ///
 /// # Errors

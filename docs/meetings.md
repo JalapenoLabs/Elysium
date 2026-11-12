@@ -905,7 +905,8 @@ else), and its project. Its share decides where it goes, a project's before anyo
   whom they are for and where the task was heard ("For Grace Hopper. Heard in Weekly sync at 12:04."), since items are
   the whole workspace's until each person has a Next of their own (`docs/action-items.md`, Ownership). Each is kept
   beside its task with whom it is for (`meeting_task_items`), and a task raises one item a person, however often the
-  meeting is read again. They are announced as every item is.
+  meeting is read again, and none beside an item its project made of it when it was a project's. They are announced
+  as every item is.
 - **A project's task** reaches its Project Manager (`docs/engine.md`, Project Managers): its turn is told what is to
   be done, who owes it, the meeting's title, its words, blacked-out ones left out, and the excerpts on the project its
   words lie in, never the meeting whole. It answers each with `manager_make_changes`, a `create-item` naming the task
