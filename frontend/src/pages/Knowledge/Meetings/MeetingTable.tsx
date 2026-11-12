@@ -79,7 +79,7 @@ const columnLabelKeys = {
 const columnSizes = {
   meeting: 240,
   owner: 150,
-  visibility: 160,
+  visibility: 190,
   source: 140,
   state: 220,
   projects: 180,
@@ -172,7 +172,12 @@ export function MeetingTable(props: Props) {
       owner: ownerText,
       visibility: (meeting: Meeting) => {
         const Icon = visibilityIcons[meeting.visibility]
-        return <Chip size='sm' variant='soft' color={visibilityChipColors[meeting.visibility]}>
+        return <Chip
+          size='sm'
+          variant='soft'
+          color={visibilityChipColors[meeting.visibility]}
+          className='whitespace-nowrap'
+        >
           <Icon className='size-3' aria-hidden />
           <Chip.Label>{visibilityText(meeting)}</Chip.Label>
         </Chip>

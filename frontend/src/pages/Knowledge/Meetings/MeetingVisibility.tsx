@@ -4,6 +4,7 @@ import type { Meeting, MeetingVisibilityResponse } from '../../../api/routes/mee
 import type { AddPickerOption } from '../../../components/AddPicker'
 
 // Core
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -41,6 +42,9 @@ export function MeetingVisibility(props: Props) {
   const users = useAppSelector(selectAllUsers)
   const usersById = useAppSelector(selectUserEntities)
   const pending = usePendingAction<string>()
+  // The lane renders twice on a narrow screen (beside the transcript, hidden, and in its drawer), so
+  // the picker's id is generated rather than fixed, keeping ids unique on the page.
+  const pickerId = useId()
 
   const visibility = meeting.visibility
   const Icon = visibilityIcons[visibility]
@@ -166,7 +170,7 @@ export function MeetingVisibility(props: Props) {
         <span>{toggleLabel}</span>
       </Button>
       <AddPicker
-        id='meeting-share-add'
+        id={pickerId}
         className='w-44'
         label={t('visibility.share')}
         emptyLabel={t('visibility.nobodyToShareWith')}
