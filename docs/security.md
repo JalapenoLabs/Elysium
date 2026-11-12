@@ -155,8 +155,8 @@ it is private; a new one is private until its correction decides (`docs/meetings
   captures, media (no byte of any range), history, threads, and every change. One they read but may not change that
   way answers `403` with what it takes.
 - **Fail closed.** A new meeting is private until its correction reads it, and an answer that judges nothing keeps it
-  private; so does a skipped correction. Meetings stored before meetings had a visibility stayed private, for their
-  owners to open.
+  private; so does a skipped correction. A meeting no correction judged is private until its owner or an admin opens
+  it.
 - **Search follows it.** A private meeting's segments are left out of every search, every opening of a document, and
   the meetings listing for anyone who may not read it, computed as each runs (`docs/knowledge.md`, A private meeting).
 - **Nothing every member reads names it.** `meeting.changed` carries a meeting's id and state alone, so every client
