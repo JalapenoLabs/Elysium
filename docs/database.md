@@ -344,8 +344,10 @@ Indexed by conversation and arrival, and partially over what still waits on a ru
 Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
 item is recorded once per connector, and on `(turn_summary_session_id, turn_summary_turn_id)`, so a turn summary is
 one record. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was ingested, as the company
-doc's review does. `timeline_records_meeting_segments` on `metadata ->> 'meetingId'`, for `source_kind = 'meeting'`
-alone, finds a meeting's segments, and so the projects its topics are on, which listing meetings reads.
+doc's review does. A meeting's excerpts, and so the projects a meeting's excerpts are on, which listing meetings reads,
+are found through their marks (`excerpt_mark_id`, unique). Deleting a meeting finds its records, its excerpts' and the
+topics it was cut into before excerpts that name no mark, by the meeting their metadata names
+(`timeline_records_by_meeting`, on `metadata ->> 'meetingId'` where `source_kind` is `meeting`).
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
@@ -357,13 +359,14 @@ alone, finds a meeting's segments, and so the projects its topics are on, which 
 | `actor`                | `TEXT`        | Who it came from, as the provider shows them                            |
 | `title`, `body`        | `TEXT`        | Plain text                                                              |
 | `url`                  | `TEXT`        | A link to it, when there is one                                         |
-| `media`                | `JSONB`       | A span inside a recording, for a meeting segment                        |
+| `media`                | `JSONB`       | A span inside a recording, and its clip, for a meeting's excerpt        |
 | `metadata`             | `JSONB`       | Whatever else the connector keeps                                       |
 | `action_item_id`       | `UUID`        | References `action_items`: the item it raised; `NULL` when it is gone   |
 | `created_by`           | `UUID`        | References `users`; whose timeline it is on, or for the workspace's own the Project Managers' machine user or the coding agent's |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 | `turn_summary_session_id`, `turn_summary_turn_id` | `BIGINT`, `UUID` | Together reference `turn_summaries`, cascading: the summary a `turn_summary` record is. Set on that kind alone, both or neither (`timeline_records_turn_summary_kind`) |
-| `deleted_at`           | `TIMESTAMPTZ` | When it was deleted with what it came from, while it is: a meeting's segment, stamped with its meeting's `deleted_at`. On no timeline and out of the index; restoring the meeting clears it on the records that stamp names |
+| `excerpt_mark_id`      | `UUID`        | Unique; references `meeting_marks`: the excerpt a meeting's record is (`docs/meetings.md`, Excerpts and black-outs); `NULL` for every other record, and for a meeting's record that names none of its words |
+| `deleted_at`           | `TIMESTAMPTZ` | When it was deleted with what it came from, while it is: a meeting's excerpt, stamped with its meeting's `deleted_at`. On no timeline and out of the index; restoring the meeting clears it on the records that stamp names |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
 reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,
@@ -500,8 +503,8 @@ How far the company doc's review has read the timeline (`docs/engine.md`, The co
 The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
 a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
 source deletes its document and passages, a document for a source already gone is refused, and indexing a source
-again upserts its one document on that column. The sources are a timeline record and a page; `source` tells a learning
-and a company doc section from any other page.
+again upserts its one document on that column. The sources are a timeline record, a page, and a meeting's whole
+transcript; `source` tells a learning and a company doc section from any other page.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
@@ -509,6 +512,7 @@ and a company doc section from any other page.
 | `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, `learning`, `company_doc`, or `page` |
 | `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
 | `page_id`            | `UUID`        | Unique; references `pages`, cascading                                  |
+| `meeting_id`         | `UUID`        | Unique; references `meetings`, cascading: a meeting's whole transcript, its `source` `meeting` |
 | `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
@@ -545,11 +549,11 @@ hour; the partial `knowledge_asks_waiting` holds what the answerer has still to 
 ### `knowledge_backfills`
 
 How far each backfill of the knowledge index has got, one row per source that needs one, seeded by its migration as
-the system user: `timeline_record` and `turn_summary`. See `docs/knowledge.md`, The backfill.
+the system user: `timeline_record`, `turn_summary`, and `meeting`. See `docs/knowledge.md`, The backfill.
 
 | Column        | Type          | Notes                                                                        |
 |---------------|---------------|------------------------------------------------------------------------------|
-| `source`      | `TEXT`        | Primary key: `timeline_record` or `turn_summary`                             |
+| `source`      | `TEXT`        | Primary key: `timeline_record`, `turn_summary`, or `meeting`                  |
 | `version`     | `INTEGER`     | The version of how the source is indexed (`INDEXED_AS`) the walk goes to; `NULL` before the first |
 | `through_id`  | `UUID`        | The last row the walk indexed, in id order (a summary's turn id); not a reference, since the row may go |
 | `finished_at` | `TIMESTAMPTZ` | When the walk reached the end; `NULL` while it is under way                  |
@@ -737,7 +741,7 @@ another for finding them (`meetings_merged_into`); a person's meetings not merge
 | `duration_ms`            | `BIGINT`      | How long it ran, when its source says                                   |
 | `organizer`              | `TEXT`        | Who organized it, as its source shows them                              |
 | `participants`           | `JSONB`       | An array of strings                                                     |
-| `segments`               | `JSONB`       | Elysia's topic segments, written once by segmenting; `NULL` until she has read it |
+| `segments`               | `JSONB`       | What segmenting last read of it, `{ excerpts, blackOuts }` as ranges of its words, written once per segmenting; `NULL` until it is read, and again once its person is done reviewing it |
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
@@ -913,7 +917,7 @@ words that replace them.
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
 | `kind`                | `TEXT`        | `confidence`, `edit`, `excerpt`, `black_out`, `comment`, `pin`, or `task`; text, so a later kind needs no migration |
 | `start_word_id`, `end_word_id` | `UUID` | Reference `meeting_words`: the first and last word of its range |
-| `data`                | `JSONB`       | A JSON object shaped by `kind`: a confidence mark's `{ confidence, alternatives }` |
+| `data`                | `JSONB`       | A JSON object shaped by `kind`: a confidence mark's `{ confidence, alternatives }`; an excerpt's and a black-out's `{}`, an excerpt's projects being its record's |
 | `created_by`          | `UUID`        | References `users`: who made it                                   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `meeting_events`                 |
 | `created_at`          | `TIMESTAMPTZ` | Set on insert                                                     |

@@ -18,6 +18,9 @@
 //! - **Turn summaries**, each put on its session's project's timeline as writing it does
 //!   (`crate::sessions::timeline::record`), which indexes the record it writes. A summary of a
 //!   session without a project is walked past.
+//! - **Meetings**, each segmented one's whole transcript indexed as segmenting it does
+//!   (`crate::meetings::excerpts::index_transcript`); one never segmented is walked past, and
+//!   indexed as it is segmented.
 //!
 //! # The walk
 //!
@@ -37,7 +40,8 @@
 //! # Once per version
 //!
 //! Each source walks to its own version ([`version`]): timeline records to
-//! [`records::INDEXED_AS`], turn summaries to [`timeline::RECORDED_AS`]. Once a walk reaches the
+//! [`records::INDEXED_AS`], turn summaries to [`timeline::RECORDED_AS`], and meetings to
+//! [`excerpts::TRANSCRIPT_INDEXED_AS`]. Once a walk reaches the
 //! end the engine never walks that source again, until a release bumps its version because what it
 //! writes changed, and then every row of it is walked once more.
 //!
@@ -58,18 +62,24 @@ use uuid::Uuid;
 
 use super::records;
 use crate::database::Pool;
+use crate::meetings::excerpts::{self, MeetingText};
 use crate::models::knowledge_backfill::{self, BackfillSource, Walk};
-use crate::models::{timeline_record, turn_summary};
+use crate::models::{meeting, timeline_record, turn_summary};
 use crate::sessions::timeline;
 
 /// Every source the backfill walks, in the order it walks them.
-const SOURCES: [BackfillSource; 2] = [BackfillSource::TimelineRecord, BackfillSource::TurnSummary];
+const SOURCES: [BackfillSource; 3] = [
+    BackfillSource::TimelineRecord,
+    BackfillSource::TurnSummary,
+    BackfillSource::Meeting,
+];
 
 /// The version `source`'s walk goes to: what its code writes today.
 const fn version(source: BackfillSource) -> i32 {
     match source {
         BackfillSource::TimelineRecord => records::INDEXED_AS,
         BackfillSource::TurnSummary => timeline::RECORDED_AS,
+        BackfillSource::Meeting => excerpts::TRANSCRIPT_INDEXED_AS,
     }
 }
 
@@ -225,6 +235,7 @@ impl Backfill {
                 let walked = match source {
                     BackfillSource::TimelineRecord => index_records(connection, through).await?,
                     BackfillSource::TurnSummary => record_summaries(connection, through).await?,
+                    BackfillSource::Meeting => index_meetings(connection, through).await?,
                 };
                 let last = walked.last().copied();
                 if let Some(last) = last {
@@ -271,6 +282,20 @@ async fn record_summaries(
         timeline::record(connection, summary, session).await?;
     }
     Ok(batch.iter().map(|(summary, _)| summary.turn_id).collect())
+}
+
+/// Indexes the whole transcript of each of the next batch of meetings after `through` that was
+/// segmented, answering every meeting's id in order.
+async fn index_meetings(
+    connection: &mut AsyncPgConnection,
+    through: Option<Uuid>,
+) -> diesel::QueryResult<Vec<Uuid>> {
+    let batch = meeting::after_id(connection, through, BATCH_SIZE).await?;
+    for walked in &batch {
+        let text = MeetingText::load(connection, walked.id).await?;
+        excerpts::index_transcript(connection, walked, &text).await?;
+    }
+    Ok(batch.iter().map(|walked| walked.id).collect())
 }
 
 /// What one batch did.

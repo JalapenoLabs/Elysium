@@ -11,7 +11,7 @@
       "fetch_meeting": "Fetch transcript and recording",
       "transcribe_meeting": "Transcribe the recording",
       "correct_transcript": "Correct the transcript",
-      "segment_meeting": "Find topics and put them on projects",
+      "segment_meeting": "Take what matters into projects",
       "review_company_doc": "Read what was ingested and propose changes",
       "handle_request": "Find what the conversation asks of you"
     },

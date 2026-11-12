@@ -44,7 +44,8 @@ Every turn:
   system prompt;
 - gets a prompt naming its trigger and carrying what it needs: every message since her last reply, the question and
   its answer, the batched changes, the work she is revisiting, or the meeting thread she was asked in, with the
-  range's words and their ids, what was said around it, the topics it lies in, and the whole thread
+  range's words and their ids (a run of blacked-out words as one `[blacked out]`), what was said around it, the
+  excerpts it lies in, and the whole thread
   (`api/src/elysia/prompt.rs`).
 
 Her final text ends with a `Summary:` line. For a message or an answer, the text before it is posted to the
@@ -82,7 +83,7 @@ password and code it handed out before they are stored, as coding sessions' even
 | `elysia_change_batch` | Runs a waiting batch next or back in its place, changes its priority, or pauses or resumes it |
 | `elysia_cancel_batch` | Withdraws a batch no worker started on, with a reason its Project Manager is told |
 | `elysia_meeting_edit` | Replaces words of the meeting whose thread asked her, by their ids, as a person's edit does, in its history with Undo |
-| `elysia_meeting_add_to_project` | Puts the topics the thread's range lies in on a project, as her own attribution, which never replaces a person's |
+| `elysia_meeting_add_to_project` | Puts the excerpts the thread's range lies in on a project, as her own attribution, which never replaces a person's, or makes an excerpt of hers over the range when it lies in none |
 
 The two meeting tools act only in a turn a thread started, on that thread's meeting alone, read from the turn's
 trigger; any other turn is refused.

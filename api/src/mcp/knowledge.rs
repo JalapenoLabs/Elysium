@@ -80,15 +80,17 @@ pub const GET_DESCRIPTION: &str = "Opens one document of the knowledge base by a
     read around a passage a search found by its position. It also answers what the document was \
     made from (a timeline record, a learning by its learningId, a company doc section, or a page \
     by its pageId), the projects it is attributed to, and passageCount, how many passages it \
-    has in all. A meeting \
-    is in the knowledge base as its topics, each a document: list them with meetings_list.";
+    has in all. A meeting is in the knowledge base as its excerpts, each a document, and its \
+    whole transcript, a document of its own once it is done: list the excerpts with \
+    meetings_list.";
 
 /// What listing meetings answers, shared with the agents' tool of the same name.
 pub const MEETINGS_DESCRIPTION: &str = "Lists the meetings the knowledge base holds, newest \
     first: each one's title, the source it was read from, when it started, whose meeting source \
-    recorded it, and its topics in the order they were said, each a citation to open with \
-    knowledge_get. Narrow by from and to (when it started), person, or project. To find what \
-    was said about something, search with knowledge_search and sources [\"meeting\"] instead.";
+    recorded it, and its excerpts in the order they were said (under topics), each a citation \
+    to open with knowledge_get. Narrow by from and to (when it started), person, or project. To \
+    find what was said about something, search with knowledge_search and sources [\"meeting\"] \
+    instead.";
 
 #[tool_router(router = knowledge_router, vis = "pub(super)")]
 impl Workspace {

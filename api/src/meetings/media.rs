@@ -154,9 +154,17 @@ fn local_name(capture_id: Uuid, extension: &str) -> String {
     format!("capture-{capture_id}.{extension}")
 }
 
-/// Where a segment's clip is kept in its storage location.
-pub fn clip_path(meeting_id: Uuid, index: usize, extension: &str) -> String {
-    format!("meetings/{meeting_id}/segments/{index}.{extension}")
+/// Where excerpt `mark_id`'s clip of `start_ms` to `end_ms` of its recording is kept in its
+/// storage location. Named by the stretch it holds, so a clip whose excerpt's words moved is cut
+/// to a path of its own and never overwrites one a record still names, and a clip already cut for
+/// the same stretch is known by its path alone.
+pub fn excerpt_clip_path(
+    meeting_id: Uuid,
+    mark_id: Uuid,
+    (start_ms, end_ms): (i64, i64),
+    extension: &str,
+) -> String {
+    format!("meetings/{meeting_id}/excerpts/{mark_id}-{start_ms}-{end_ms}.{extension}")
 }
 
 /// The file extension for `content_type`, or the usual one for `kind` when the type is
@@ -543,8 +551,9 @@ mod tests {
             "capture-00000000-0000-0000-0000-000000000007.mp4"
         );
         assert_eq!(
-            clip_path(id, 3, "mp3"),
-            "meetings/00000000-0000-0000-0000-000000000000/segments/3.mp3"
+            excerpt_clip_path(id, capture_id, (60_400, 299_700), "mp3"),
+            "meetings/00000000-0000-0000-0000-000000000000/excerpts/\
+             00000000-0000-0000-0000-000000000007-60400-299700.mp3"
         );
         assert_eq!(extension_of("meetings/x/recording.m4a"), "m4a");
         assert_eq!(

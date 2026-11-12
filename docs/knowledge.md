@@ -23,8 +23,10 @@ Meetings page and each project's brief (Pages, The tree).
 
 ## What is indexed
 
-- Everything on the timeline: meetings (corrected transcripts and their segments), mail, Slack, Teams, Confluence,
-  Jira, YouTrack, and GitHub issues and comments, and agent turn summaries.
+- Everything on the timeline: meetings' excerpts, mail, Slack, Teams, Confluence, Jira, YouTrack, and GitHub issues
+  and comments, and agent turn summaries.
+- Every meeting segmented at least once, as its whole final transcript, blacked-out words left out
+  (`docs/meetings.md`, Excerpts and black-outs), so what no excerpt took is still found.
 - Learnings that people and agents save.
 - The company doc, one document per section (The company doc, below).
 - Every other page, one document per page, reading as its newest version (Pages, below).
@@ -64,7 +66,8 @@ A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge
 anything indexed, never through the owner's timeline route, which answers anyone else not found. The index holds
 text: a meeting's recording and clips stay with its record and play for its owner alone. Removing a connector stops
 its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
-record, unless its person deletes the meetings it read with it, whose segments leave both until they are restored.
+record, unless its person deletes the meetings it read with it, whose excerpts leave both, and whose transcripts
+leave the index, until they are restored.
 
 Action items are one list for the whole workspace (`docs/action-items.md`): an inbox item raised by a
 person's mail carries the message's subject, sender, and body, and everyone signed in sees it. Making `owner`
@@ -199,7 +202,7 @@ search logs its counts and durations at debug (`knowledge.search.answered`), nev
 ## Timeline records
 
 Every timeline record (`docs/connectors.md`, The timeline) is a source of the index: mail, Slack and Teams messages,
-Confluence pages and comments, YouTrack issues and comments, meeting segments, messages a person sent, and what
+Confluence pages and comments, YouTrack issues and comments, meetings' excerpts, messages a person sent, and what
 Elysium's agents put on a project's timeline, a Project Manager's turns and batches and a session's turn summaries. The
 code is
 `api/src/knowledge/records.rs`, which says what a record's document is, and `timeline_record::index`
@@ -210,20 +213,22 @@ code is
   record that fails to store leaves nothing indexed. `timelineRecord.created` still carries ids alone; nothing listens
   to it to index. A kind recorded later, such as Jira's or GitHub's issues, is indexed the moment it is on the
   timeline, with nothing added for it.
-- **One record, one document.** The index holds a meeting by its segments (each is a record of its own,
-  `docs/meetings.md`, Segment records), a conversation by its messages, and a page by its newest version. The
+- **One record, one document.** The index holds a meeting's excerpts as records of their own
+  (`docs/meetings.md`, Excerpt records), beside the meeting's own document of its whole transcript, a conversation by
+  its messages, and a page by its newest version. The
   document's source is the record's kind (`slack`, `meeting`, `confluence`), its title, link, and date the record's,
   and it is attributed to the record's owner (`created_by`), whose timeline it is on.
 - **Its text** is the record's title, `From <actor>`, and its body, in that order, cut into passages as every source
-  is. A meeting segment names its speakers on every line of its excerpt, so it gives its summary in place of the
+  is. A meeting's excerpt names its speakers on every line of its words, so it gives its summary in place of the
   actor, and its body is followed by the comment threads whose range overlaps its span, each quoted and then its
-  comments by their authors' names, so a meeting's comments are indexed with it (`docs/meetings.md`, Comments). A
-  record with no title, actor, or body has no document.
+  comments by their authors' names, so a meeting's comments are indexed with it (`docs/meetings.md`, Comments). Its
+  words leave out every word a black-out covers, and its text is refreshed in place as its words change. A record with
+  no title, actor, or body has no document.
 - **Content, never metadata.** A record's `metadata` and `media` are never indexed: they hold the provider's ids, where
   a reply goes, and where a clip is kept, not what was said. Nothing a connector signs in with is on a record.
 - **Size.** Sources keep their own limits: Confluence and sent mail 20,000 characters, Slack 4,000, webmail previews
   and Teams 1,000. A body is indexed up to 100,000 characters (`BODY_MAX_CHARACTERS`), about 63 passages and fifteen
-  seconds of the embedding model on four CPUs, which only a long meeting segment's excerpt reaches; past that it is
+  seconds of the embedding model on four CPUs, which only a long meeting excerpt reaches; past that it is
   cut, so one pathological body cannot hold the embedder for minutes. The record itself keeps all of it.
 - **A page's newest version.** Confluence records each version of a page or comment as a record of its own
   (`page:<id>:<version>`), so the timeline shows every edit. The index holds what the page says now: indexing a
@@ -232,9 +237,10 @@ code is
   advisory lock, so two transactions indexing them at once still leave only the newest. A record whose connector
   was removed stands on its own, since its versions can no longer be told from another site's.
 - **Deleted records** leave the index with their document, which cascades. A record deleted softly with what it came
-  from, a meeting's segment taken with its meeting (`docs/meetings.md`, Deleting), has its document removed in the
+  from, a meeting's excerpt taken with its meeting (`docs/meetings.md`, Deleting), has its document removed in the
   transaction that deletes it, is walked past by the backfill, and is indexed again as it reads now when its meeting is
-  restored. A provider deleting a message or a page is not read by any reader today, so it leaves the record, and its
+  restored. The deleted meeting's own transcript document goes in the same transaction, the backfill leaves it out
+  (`excerpts::index_transcript`), and restoring indexes it again. A provider deleting a message or a page is not read by any reader today, so it leaves the record, and its
   document, in place.
 - **The same text twice.** Two people whose connectors read the same channel or space each have the record, and the
   index has both documents, with the same `content_sha256`. Search folds them into one result (Hybrid search, The same
@@ -264,14 +270,15 @@ agents' work beside its meetings and messages, and a search finds what an agent 
 ### The backfill
 
 The engine's backfill (`api/src/knowledge/backfill.rs`) brings into the index what was stored before it was indexed
-on write: the timeline records stored before records were indexed, and the turn summaries written before they went on
-the timeline. Like the embedder it is a loop of the engine's own rather than a workflow, since it has no source of its
+on write: the timeline records stored before records were indexed, the turn summaries written before they went on
+the timeline, and the meetings segmented before their whole transcripts were indexed. Like the embedder it is a loop of the engine's own rather than a workflow, since it has no source of its
 own (`docs/engine.md`, Workflows and steps), and it never holds up the engine's start.
 
 - **Its sources.** It walks each in turn, each with its own row in `knowledge_backfills` (`docs/database.md`):
   timeline records, each indexed exactly as storing it does, then turn summaries, each put on its session's project's
-  timeline exactly as writing it does, which indexes the record. A summary of a session without a project is walked
-  past.
+  timeline exactly as writing it does, which indexes the record, then meetings, each segmented one's whole transcript
+  indexed exactly as segmenting it does (`meetings::excerpts::index_transcript`). A summary of a session without a
+  project, and a meeting never segmented, are walked past.
 - **The walk.** It takes a source's rows in id order (a summary's by its turn id), 100 at a time, and brings each in,
   in one transaction with the source's row, which records the batch's last id. An engine that stops part way resumes
   after the last batch it committed; a batch cut short is taken again, and bringing a row in twice changes nothing. A
@@ -280,7 +287,8 @@ own (`docs/engine.md`, Workflows and steps), and it never holds up the engine's 
   readers' and the API's writes. The embedder takes passages newest documents first, so what was just saved is still
   found by meaning within seconds while the backfill's older passages wait their turn.
 - **Once per version.** Each source walks to its own version: records to `INDEXED_AS` in `records.rs`, summaries to
-  `RECORDED_AS` in `api/src/sessions/timeline.rs`. A walk that reached the end is never walked again until a release
+  `RECORDED_AS` in `api/src/sessions/timeline.rs`, and meetings to `TRANSCRIPT_INDEXED_AS` in
+  `api/src/meetings/excerpts.rs`. A walk that reached the end is never walked again until a release
   changes what it writes (a record's text, how text is cut into passages, what a summary's record holds) and bumps
   that version; the next engine then walks every row of it once more, and a record whose text came out the same keeps
   its passages and their embeddings. A release rolled back to an older version leaves the newer walk's text in place.
@@ -648,16 +656,17 @@ under the same names, descriptions, and argument schemas.
 - **Citations open in the knowledge base.** Every result is a `Citation`, `documentId` first, which `knowledge_get`
   opens, never the owner's timeline route. The MCP server's instructions tell a client where a person opens one:
   `https://<host>/knowledge/documents/<documentId>`, the Knowledge page's document.
-- **A span.** A long document, such as a meeting topic's excerpt, is read in parts: a search answers each passage's
+- **A span.** A long document, such as a meeting's whole transcript, is read in parts: a search answers each passage's
   position, `knowledge_get` takes `fromPosition` and `toPosition` (both inclusive), and `passageCount` says how many
   there are in all. The route takes the same two as query parameters.
-- **Meetings.** A meeting is in the index as its topics, each a segment record's document (`docs/meetings.md`,
-  Segment records). `meetings_list` (`GET /api/v1/knowledge/meetings`, `api/src/models/knowledge_meeting.rs`) gathers
-  those documents back into their meetings by the `meetingId`, `meetingTitle`, and `meetingSource` every segment
-  record carries, so a meeting's transcript is read topic by topic with `knowledge_get`. It answers each meeting's
-  title, source, when its first topic began, whose source recorded it, and its topics in the order they were said,
-  filtered by `from` and `to` (when it started), `person`, and `project` (a topic attributed to it), 20 unless asked
-  for up to 50. The `meetings` row itself stays its owner's and is never read for it. Two people whose sources
+- **Meetings.** A meeting is in the index as its excerpts, each an excerpt record's document (`docs/meetings.md`,
+  Excerpt records), and as its own document of its whole transcript. `meetings_list` (`GET
+  /api/v1/knowledge/meetings`, `api/src/models/knowledge_meeting.rs`) gathers the excerpts' documents back into their
+  meetings by the `meetingId`, `meetingTitle`, and `meetingSource` every excerpt record carries, so what a meeting
+  took into projects is read excerpt by excerpt with `knowledge_get`; its whole transcript is found by searching. It
+  answers each meeting's title, source, when its first excerpt began, whose source recorded it, and its excerpts in
+  the order they were said (as `topics`), filtered by `from` and `to` (when it started), `person`, and `project` (an
+  excerpt attributed to it), 20 unless asked for up to 50. The `meetings` row itself stays its owner's and is never read for it. Two people whose sources
   recorded one meeting have a meeting each, segmented apart, and both are listed.
 - **Descriptions teach searching.** `knowledge_search`'s description says what is indexed, that exact keys and error
   strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
@@ -879,7 +888,7 @@ belongs and every row opens its one page (`/knowledge/meetings/<id>`). The web a
 meetings its reader can see (`GET /api/v1/meetings`, today a person's own); no table holds them.
 
 - **Each meeting's home is the fixed Meetings page.** Every meeting is an entry under it, those on no project included.
-- **Each project's brief holds a Meetings group.** It lists every meeting with a topic on the project, as a linked entry
+- **Each project's brief holds a Meetings group.** It lists every meeting with an excerpt on the project, as a linked entry
   of the one meeting page, so a meeting about three projects shows in three groups and is one page. The group opens the
   Meetings page narrowed to its project. A project with no meeting has no group, and a project deleted takes its group
   with it, since its brief is then an ordinary page.
@@ -1269,7 +1278,7 @@ above). Which branches a person leaves open stays with them on each browser. A d
 on at its address, marked deleted and off the tree. See `docs/frontend.md`, Pages.
 
 The tree lists the reader's meetings too (The tree, Linked entries): each under Meetings, and in the Meetings group
-under the brief of every project it has a topic on. The Meetings page opens as the list of every meeting
+under the brief of every project it has an excerpt on. The Meetings page opens as the list of every meeting
 (`/knowledge/meetings`), newest first, with its search, filters by source, state, and project (none among them), and a
 count of those waiting for review in its header; its address as a page lands there, and a project's group opens it
 narrowed to the project. It is where uploads start once they are built (`docs/meeting-review.md`, Uploads), and its one

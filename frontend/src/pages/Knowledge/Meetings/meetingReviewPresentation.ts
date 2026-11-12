@@ -65,6 +65,8 @@ export const historySentenceKeys = {
   addedTranscript: 'review.history.sentences.addedTranscript',
   threadResolved: 'review.history.sentences.threadResolved',
   threadReopened: 'review.history.sentences.threadReopened',
+  segmented: 'review.history.sentences.segmented',
+  reviewDone: 'review.history.sentences.reviewDone',
   deleted: 'review.history.sentences.deleted',
   deletedWithConnector: 'review.history.sentences.deletedWithConnector',
   restored: 'review.history.sentences.restored',
@@ -237,6 +239,13 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
         return row
       case 'thread_reopened':
         row.sentence = 'threadReopened'
+        return row
+      case 'segmented':
+        // Segmenting took its excerpts and black-outs, each removed on its own.
+        row.sentence = 'segmented'
+        return row
+      case 'review_done':
+        row.sentence = 'reviewDone'
         return row
       // Neither is undone here: restoring is a deletion's undo, and deleting again a restore's.
       case 'deleted':

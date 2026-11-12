@@ -288,7 +288,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/meetings`         | `KnowledgeMeetingsPage`  | Every meeting the person can see, its filters in the address (`?project=`); the Meetings page's own address lands here |
 | `/knowledge/meetings/new`     | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
 | `/knowledge/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
-| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane) and its topics, as tabs in `?tab=` |
+| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=` |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -988,9 +988,10 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   toasts with Undo. The Deleted filter swaps in `selectDeletedMeetings`, loaded by `useDeletedMeetingsLoader` only
   while it is on, and offers Restore in place of Retry and Delete. `meetingsSlice` holds every meeting loaded:
   `meetingsLoaded` keeps the merged-away and deleted ones it cannot name, `deletedMeetingsLoaded` replaces the deleted
-  ones alone, and `selectListedMeetings` leaves both out of every list and the tree. A segment deleted with its meeting
+  ones alone, and `selectListedMeetings` leaves both out of every list and the tree. An excerpt deleted with its meeting
   answers its load by id `404`, so `timelineRecord.changed` drops it from `timelineRecordsSlice`
-  (`timelineRecordRemoved`). A read-only meeting's captures offer no Move or Split out (`MeetingCaptures` takes `null`
+  (`timelineRecordRemoved`), and a deleted meeting's page shows each excerpt's projects as its transcript names them
+  rather than loading its record (`MarkDetail`). A read-only meeting's captures offer no Move or Split out (`MeetingCaptures` takes `null`
   handlers).
 - **In the tree.** `withMeetingEntries` (`pageTree.ts`) adds the meetings to the tree the panel draws
   (`selectKnowledgeTree`): every one under the Meetings page (`MEETINGS_PAGE_ID`), and a group per project under its
@@ -1020,8 +1021,9 @@ web app, and `docs/meeting-review.md`, The meeting's page).
 - **A meeting merged away.** The knowledge base loads the meetings list around every page, and the list leaves such a
   meeting out, so `meetingsLoaded` replaces what the list names and keeps a merged-away meeting its page loaded by id;
   otherwise a list answering after the page's own load would take the meeting from under it. Its page is read only
-  (`isReadOnly` in `MeetingWorkspace`): the bar's Edit and Comment, a thread's actions, and history's Undo are `null`
-  or off, and `MeetingActions` says why. The API refuses those changes too (`meeting_merged`), so a change sent
+  (`isReadOnly` in `MeetingWorkspace`): the bar's Edit, Comment, Assign to a project, and Black out, an excerpt's or a
+  black-out's Remove, a thread's actions, and history's Undo are `null` or off, and `MeetingActions` says why, offering
+  no Done reviewing. The API refuses those changes too (`meeting_merged`), so a change sent
   before the page heard of the merge is refused with the same reason.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a

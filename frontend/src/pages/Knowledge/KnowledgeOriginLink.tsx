@@ -7,10 +7,10 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { buttonVariants, Link } from '@heroui/react'
-import { LuBookOpen, LuExternalLink, LuFileText, LuLightbulb } from 'react-icons/lu'
+import { LuBookOpen, LuExternalLink, LuFileText, LuLightbulb, LuNotebookText } from 'react-icons/lu'
 
 // Misc
-import { getKnowledgePageUrl } from '../../urls'
+import { getKnowledgePageUrl, getMeetingUrl } from '../../urls'
 
 type Props = {
   document: KnowledgeDocument
@@ -18,8 +18,8 @@ type Props = {
 }
 
 // Where the document's source can be opened: its page, which a learning and a company doc section
-// have too, or the provider's own page for a record, in a new tab. A record with no link of its own
-// has none.
+// have too, a meeting's page for its whole transcript, or the provider's own page for a record, in a
+// new tab. A record with no link of its own has none.
 export function KnowledgeOriginLink(props: Props) {
   const { t } = useTranslation('knowledge')
   const { origin, citation } = props.document
@@ -41,6 +41,12 @@ export function KnowledgeOriginLink(props: Props) {
     return <Link href={getKnowledgePageUrl(origin.pageId)} className={className}>
       <LuBookOpen className='size-4' aria-hidden />
       <span>{t('document.openCompanyDoc')}</span>
+    </Link>
+  }
+  if (origin.kind === 'meeting') {
+    return <Link href={getMeetingUrl(origin.meetingId)} className={className}>
+      <LuNotebookText className='size-4' aria-hidden />
+      <span>{t('document.openMeeting')}</span>
     </Link>
   }
   if (!citation.url) {

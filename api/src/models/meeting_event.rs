@@ -56,18 +56,24 @@ pub enum EventKind {
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
     ThreadReopened,
-    /// Its person deleted it (`crate::meetings::deletion`): `{ segments, connectorId,
-    /// dismissedItemId }`, how many segments went with it, the connector it was removed with
+    /// Segmenting took its excerpts and black-outs (`crate::meetings::excerpts::take`):
+    /// `{ made, kept, removed, unanchored }`, the marks it made, the ones of its own it kept, the
+    /// ones of its own it removed, and how many of the ranges it answered no longer stood.
+    Segmented,
+    /// Its person said they were done reviewing it, which segments it again: `{}`.
+    ReviewDone,
+    /// Its person deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
+    /// dismissedItemId }`, how many excerpts went with it, the connector it was removed with
     /// (`null` when it went alone), and the review item it dismissed, or `null`.
     Deleted,
-    /// Its person restored it: `{ deletedAt, segments, runRetried, reopenedItemId }`, the deletion
-    /// it reversed, how many segments came back, whether the run that deletion stopped went on, and
+    /// Its person restored it: `{ deletedAt, excerpts, runRetried, reopenedItemId }`, the deletion
+    /// it reversed, how many excerpts came back, whether the run that deletion stopped went on, and
     /// the review item it reopened, or `null`.
     Restored,
 }
 
 impl EventKind {
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -81,6 +87,8 @@ impl EventKind {
         Self::CaptureAdded,
         Self::ThreadResolved,
         Self::ThreadReopened,
+        Self::Segmented,
+        Self::ReviewDone,
         Self::Deleted,
         Self::Restored,
     ];
@@ -100,6 +108,8 @@ impl EventKind {
             Self::CaptureAdded => "capture_added",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
+            Self::Segmented => "segmented",
+            Self::ReviewDone => "review_done",
             Self::Deleted => "deleted",
             Self::Restored => "restored",
         }

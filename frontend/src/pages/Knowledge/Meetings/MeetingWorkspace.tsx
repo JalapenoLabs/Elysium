@@ -11,7 +11,8 @@ import { useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
-import { selectProjectEntities } from '../../../store/projectsSlice'
+import { selectAllProjects, selectProjectEntities } from '../../../store/projectsSlice'
+import { selectTimelineRecordEntities } from '../../../store/timelineRecordsSlice'
 
 // User interface
 import { Button, Drawer, useOverlayState } from '@heroui/react'
@@ -108,12 +109,15 @@ export function MeetingWorkspace(props: Props) {
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
+  const records = useAppSelector(selectTimelineRecordEntities)
   const drawer = useOverlayState()
   const history = useMeetingHistory(meeting.id)
   const threadComments = useMeetingThreads(meeting.id)
-  // A link to a thread, such as from the inbox item a mention raised, opens it once its words load.
+  const allProjects = useAppSelector(selectAllProjects)
+  // A link to a mark opens it once its words load: a thread, from the inbox item a mention raised,
+  // or an excerpt, from a project's timeline.
   const [ searchParams ] = useSearchParams()
-  const linkedThreadId = searchParams.get('thread')
+  const linkedMarkId = searchParams.get('mark') ?? searchParams.get('thread')
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
@@ -128,6 +132,8 @@ export function MeetingWorkspace(props: Props) {
   const [ view, setView ] = useState(FINAL_VIEW)
   const [ shown, setShown ] = useState<ReadonlySet<DrawnMarkKind>>(() => new Set(DRAWN_MARK_KINDS))
   const [ review, setReview ] = useState(NOTHING_PICKED)
+  // Assign to a project's menu, which P opens as well as a press on it.
+  const [ isAssigning, setIsAssigning ] = useState(false)
 
   // Everything drawn is derived once per transcript and per switch of the marks shown, so a
   // selection redraws only the paragraphs it reaches.
@@ -155,17 +161,19 @@ export function MeetingWorkspace(props: Props) {
     const lanes = shown.has('excerpt')
       ? excerptLanes(placed)
       : new Map<string, number>()
-    // Each excerpt names its projects over its bar (#241 writes `projectIds`).
+    // Each excerpt names its projects over its bar, as its record is attributed: the record as the
+    // page holds it once its lane opened it, where its projects change, else as the words named it.
     const labels = new Map<string, string>()
     for (const placedMark of placed) {
-      if (placedMark.kind !== 'excerpt' || !Array.isArray(placedMark.mark.data.projectIds)) {
+      const excerpt = placedMark.mark.excerpt
+      if (placedMark.kind !== 'excerpt' || !excerpt) {
         continue
       }
+      const projectIds = records[excerpt.recordId]?.projects.map((attribution) => attribution.projectId)
+        ?? excerpt.projectIds
       const names: string[] = []
-      for (const projectId of placedMark.mark.data.projectIds) {
-        const name = typeof projectId === 'string'
-          ? projects[projectId]?.name
-          : undefined
+      for (const projectId of projectIds) {
+        const name = projects[projectId]?.name
         if (name) {
           names.push(name)
         }
@@ -181,7 +189,7 @@ export function MeetingWorkspace(props: Props) {
       bars: excerptBarsByParagraph(paragraphs, placed, lanes),
       labels,
     }
-  }, [ placed, paragraphs, projects, shown ])
+  }, [ placed, paragraphs, projects, records, shown ])
 
   const anchor = review.anchorId === null
     ? undefined
@@ -265,30 +273,30 @@ export function MeetingWorkspace(props: Props) {
 
   const clear = () => setReview(NOTHING_PICKED)
 
-  // A thread chosen from the lane, or from a link, selects its range and brings it into view.
-  const openThread = useCallback((threadId: string) => {
-    const thread = placed.find((placedMark) => placedMark.mark.id === threadId)
-    if (!thread) {
-      console.debug('MeetingWorkspace was asked to open a thread it does not hold', { threadId })
+  // A mark chosen from the lane, or from a link, selects its range and brings it into view.
+  const openMark = useCallback((markId: string) => {
+    const opened = placed.find((placedMark) => placedMark.mark.id === markId)
+    if (!opened) {
+      console.debug('MeetingWorkspace was asked to open a mark it does not hold', { markId })
       return
     }
-    selectMarkById(threadId)
-    revealWord(thread.start)
+    selectMarkById(markId)
+    revealWord(opened.start)
   }, [ placed, selectMarkById ])
 
-  // The thread a link names opens where it can be read: beside the transcript, or in the drawer
+  // The mark a link names opens where it can be read: beside the transcript, or in the drawer
   // where the lane is one.
   const { open: openDrawer } = drawer
   useEffect(() => {
-    if (!linkedThreadId || hasOpenedLink.current || !words.length) {
+    if (!linkedMarkId || hasOpenedLink.current || !words.length) {
       return
     }
     hasOpenedLink.current = true
-    openThread(linkedThreadId)
+    openMark(linkedMarkId)
     if (!window.matchMedia(LANE_BESIDE_QUERY).matches) {
       openDrawer()
     }
-  }, [ linkedThreadId, words.length, openThread, openDrawer ])
+  }, [ linkedMarkId, words.length, openMark, openDrawer ])
 
   // Opens the words selected in place to edit them. Answers whether it did.
   function startEdit() {
@@ -336,6 +344,34 @@ export function MeetingWorkspace(props: Props) {
     ? () => player.playFrom(words[playStart].startMs)
     : null
 
+  // Assign to a project and Black out act on the words selected of the final transcript, while the
+  // meeting takes changes.
+  const canActOnSelection = !isReadOnly && view === FINAL_VIEW && Boolean(selection) && !review.isEditing
+
+  async function assignTo(projectId: string) {
+    setIsAssigning(false)
+    if (!selection) {
+      console.debug('MeetingWorkspace was asked to assign with nothing selected', { projectId })
+      return
+    }
+    const name = projects[projectId]?.name ?? t('review.detail.unknownProject')
+    const assigned = await changes.assign(words[selection.start].id, words[selection.end].id, projectId, name)
+    if (assigned) {
+      clear()
+    }
+  }
+
+  async function blackOut() {
+    if (!selection) {
+      console.debug('MeetingWorkspace was asked to black out with nothing selected')
+      return
+    }
+    const blackedOut = await changes.blackOut(words[selection.start].id, words[selection.end].id)
+    if (blackedOut) {
+      clear()
+    }
+  }
+
   async function applyEdit(text: string) {
     if (!selection) {
       return false
@@ -357,6 +393,20 @@ export function MeetingWorkspace(props: Props) {
     },
     onEdit: startEdit,
     onComment: startComment,
+    onAssign: () => {
+      if (!canActOnSelection || !allProjects.length) {
+        return false
+      }
+      setIsAssigning(true)
+      return true
+    },
+    onBlackOut: () => {
+      if (!canActOnSelection) {
+        return false
+      }
+      void blackOut()
+      return true
+    },
     onCycleMark: (step) => {
       if (under.length < 2) {
         return false
@@ -442,6 +492,9 @@ export function MeetingWorkspace(props: Props) {
       hasFailed: history.hasFailed,
     }}
     onUndo={changes.undo}
+    onRemoveMark={isReadOnly
+      ? null
+      : changes.removeMark}
     threads={{
       open: threads.open,
       resolved: threads.resolved,
@@ -455,7 +508,7 @@ export function MeetingWorkspace(props: Props) {
         onSetResolved: changes.setResolved,
         onRemove: changes.removeThread,
       }}
-    onSelectThread={openThread}
+    onSelectThread={openMark}
     composing={review.isCommenting && selection
       ? {
         range: selection,
@@ -498,6 +551,17 @@ export function MeetingWorkspace(props: Props) {
       onComment={isReadOnly
         ? null
         : startComment}
+      assign={isReadOnly
+        ? null
+        : {
+          projects: allProjects,
+          isOpen: isAssigning,
+          onOpenChange: setIsAssigning,
+          onAssign: (projectId) => void assignTo(projectId),
+        }}
+      onBlackOut={isReadOnly
+        ? null
+        : () => void blackOut()}
       onClear={clear}
       onApplyEdit={applyEdit}
       onCancelEdit={() => setReview({ ...review, isEditing: false })}

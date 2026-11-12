@@ -336,9 +336,9 @@ Everything else follows these rules:
   being recorded twice. A meeting's captures are in the order they joined it, the first its clock. See
   `docs/meetings.md`, Meetings and captures.
 - A person deletes meetings, one, many, or with the connector that read them (`meetings::deletion`, `POST
-  /api/v1/meetings/bulk`), softly and at once, with Undo: a deleted meeting leaves every list, its segments leave every
-  timeline and the knowledge index (`timeline_records.deleted_at`, stamped with the meeting's own), its run stops, and
-  it changes no further (`409 meeting_deleted`). Its captures stay, so no source stores it again. Restoring brings all
+  /api/v1/meetings/bulk`), softly and at once, with Undo: a deleted meeting leaves every list, its excerpts leave every
+  timeline and the knowledge index (`timeline_records.deleted_at`, stamped with the meeting's own), and so does its
+  transcript, its run stops, and it changes no further (`409 meeting_deleted`). Its captures stay, so no source stores it again. Restoring brings all
   of it back and retries the step its deletion stopped. See `docs/meetings.md`, Deleting.
 - The run's `align_meeting` step places every capture on the meeting's clock (audio cross-correlated against the
   first capture's, or words and times matched), lines their words up into the final transcript keeping every edit,
@@ -373,18 +373,26 @@ Everything else follows these rules:
   `docs/meetings.md`, Comments.
 - Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
   one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
-  group under the brief of every project its topics are on, as linked entries that move nowhere. Settings, Meetings
+  group under the brief of every project its excerpts are on, as linked entries that move nowhere. Settings, Meetings
   keeps only their sources. See `docs/knowledge.md`, The tree, Linked entries.
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the capture's raw
   transcript with its SHA-256 and uploads its recording to the account's storage location, hashing it as it streams;
   fetching the same meeting again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is
   read or kept.
-- The run's last step, `segment_meeting`, segments the corrected transcript in one text turn on the segmenting kind's
-  model and publishes it: `ffmpeg` cuts each segment's clip in the workspace container at the words Whisper heard
-  nearest its ends, and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed
-  to its projects. The step also takes a conversation (record ids), whose messages it attributes, which is where
-  intake enters the workflow. The meetings loop only lists meetings and starts their runs; a meeting keeps how far it
-  got, and its failure or skip is its run's. See `docs/meetings.md`, Processing and Segmentation.
+- The run's last step, `segment_meeting`, reads the settled transcript's words in one text turn on the segmenting
+  kind's model, by numbered lines, and takes only what matters (`crate::meetings::excerpts`): excerpts, each a mark
+  over its words and a timeline record attributed to its projects, overlapping and nesting freely, and black-outs,
+  words that leave search and everything an agent reads while they still show and play. `ffmpeg` cuts each excerpt's
+  clip in the workspace container at the words Whisper heard nearest its ends. Every excerpt and black-out a person made
+  or changed stands when a meeting is segmented again, and edits refresh the excerpts over them at once. The step
+  also takes a conversation (record ids), whose messages it attributes, which is where intake enters the workflow. The
+  meetings loop only lists meetings and starts their runs; a meeting keeps how far it got, and its failure or skip is
+  its run's. See `docs/meetings.md`, Processing, Segmentation, and Excerpts and black-outs.
+- A person takes a range into a project, changes an excerpt's projects through its record, blacks a range out, or
+  removes either from the meeting's page, each in its history with Undo; Done reviewing segments it again from its
+  corrected words, as the person (`meetings::review`). A meeting segmented once is also a knowledge document of its own,
+  its whole transcript, blacked-out words left out. See `docs/meetings.md`, Excerpts and black-outs, and Done
+  reviewing.
 - Every change to what a record is attributed to is recorded in `timeline_record_events` and undoable; Elysia never
   overrides a person's attribution. See `docs/connectors.md`, The timeline.
 - Each meeting with audio is also transcribed by a local Whisper (faster-whisper, large-v3, pinned and checked in
@@ -398,14 +406,15 @@ Everything else follows these rules:
   confidence from 0 to 100, and up to three alternatives, each checked word by word; a range a capture heard otherwise
   with no flag is marked at 50. Settled words stand through every rebuild, and the first capture's corrected copy is
   stored beside the raw transcripts, which are never changed. A source's "Wait for my approval before acting on
-  meetings", or a meeting held by hand, holds the run with an inbox item until the person approves the copy, and
-  segmenting runs once it goes on. See `docs/meetings.md`, Correction.
+  meetings", a meeting held by hand, or a range the correction left below 40 confidence holds the run with an inbox
+  item until the person approves the copy, and segmenting runs once it goes on. See `docs/meetings.md`, Correction.
 - The Transcription doc is one fixed page (`crate::transcription_doc`) of how the company's speech is misheard: every
   correction reads it, Whisper is given its entries and the company doc's names as hint words, and a person's fix and
   the agent's confident corrections teach it at once, as versions of the page; a name the company doc lacks is
   suggested to it. See `docs/meetings.md`, The Transcription doc.
-- Nothing the segmentation answer says is trusted: segments must lie inside the meeting (or the conversation) in order,
-  and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
+- Nothing the segmentation answer says is trusted: excerpts and black-outs must be runs of lines it was shown, an
+  excerpt on at least one project that was offered, a black-out apart from every excerpt; a conversation's segments
+  must lie inside it in order; and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
   for the person to retry it from the Meetings page or the run's page.
 - A person uploads their own meetings (`api/src/meeting_uploads/`, `/api/v1/meeting-uploads`): a recording
   (`.mp3`, `.wav`, `.mp4`, `.mov`), a transcript (WebVTT, SRT, text, Markdown), or both, as a new meeting or a capture of

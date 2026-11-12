@@ -51,9 +51,9 @@ describe('describeHistory', () => {
 
   it('says who deleted and restored the meeting, offering Undo on neither', () => {
     const rows = describeHistory([
-      entry('restored', 'restored', { deletedAt: '2026-11-11T09:00:00Z', segments: 2, runRetried: true }),
-      entry('removed', 'deleted', { segments: 2, connectorId: 'fireflies' }),
-      entry('deleted', 'deleted', { segments: 2, connectorId: null }),
+      entry('restored', 'restored', { deletedAt: '2026-11-11T09:00:00Z', excerpts: 2, runRetried: true }),
+      entry('removed', 'deleted', { excerpts: 2, connectorId: 'fireflies' }),
+      entry('deleted', 'deleted', { excerpts: 2, connectorId: null }),
     ], 'this')
 
     // Restoring is a deletion's undo, and deleting again a restore's.
@@ -114,6 +114,22 @@ describe('describeHistory', () => {
     expect(marked.markKind).toBe('black_out')
     expect(edited.before?.endsWith('…')).toBe(true)
     expect(edited.before?.length).toBeLessThanOrEqual(60)
+  })
+
+  it('says when segmenting took excerpts and black-outs, or a review was done, neither undone whole', () => {
+    const rows = describeHistory([
+      entry('again', 'review_done'),
+      entry('took', 'segmented', { made: [ 'excerpt' ], kept: [], removed: [], unanchored: 0 }),
+      entry('excerpt', 'marked', { kind: 'excerpt', recordId: 'record' }),
+      entry('lifted', 'unmarked', { kind: 'black_out', restored: []}),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.sentence, row.markKind, row.canUndo ])).toEqual([
+      [ 'reviewDone', null, false ],
+      [ 'segmented', null, false ],
+      [ 'marked', 'excerpt', true ],
+      [ 'unmarked', 'black_out', true ],
+    ])
   })
 
   it('says what an added capture holds, which cannot be undone', () => {

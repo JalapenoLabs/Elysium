@@ -9,8 +9,14 @@
 -- (`meeting_events`, kinds `deleted` and `restored`).
 ALTER TABLE meetings ADD COLUMN deleted_at TIMESTAMPTZ;
 
--- When the record was deleted with what it came from, while it is: today a meeting's segment,
+-- When the record was deleted with what it came from, while it is: today a meeting's excerpt,
 -- taken with its meeting and stamped with the meeting's own `deleted_at`, so restoring the meeting
 -- brings back exactly the records its deletion took. A deleted record is on no timeline and out of
 -- the knowledge index, and keeps its attributions and their history for its return.
 ALTER TABLE timeline_records ADD COLUMN deleted_at TIMESTAMPTZ;
+
+-- Deleting a meeting finds its records by the meeting each names in its metadata, its excerpts'
+-- records and the topics recorded before excerpts that name no mark, so it reads the meeting's
+-- records alone rather than every record there is.
+CREATE INDEX timeline_records_by_meeting ON timeline_records ((metadata ->> 'meetingId'))
+    WHERE source_kind = 'meeting';

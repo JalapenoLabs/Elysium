@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Chip, Link } from '@heroui/react'
-import { LuExternalLink, LuSquareTerminal } from 'react-icons/lu'
+import { LuExternalLink, LuNotebookText, LuSquareTerminal } from 'react-icons/lu'
 import { RecordProjects } from './RecordProjects'
 import { SegmentClip } from './SegmentClip'
 import { RecordReply } from '../../replies/RecordReply'
@@ -16,17 +16,18 @@ import { RecordReply } from '../../replies/RecordReply'
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { formatMediaPosition } from '../../format/durations'
+import { getMeetingMarkUrl } from '../../urls'
 import { isWorkspaceRecord, segmentDetails, sourceLabelKey, turnSummarySession } from './timelinePresentation'
 
 type Props = {
   record: TimelineRecord
 }
 
-// One record, on a project's timeline or a meeting's topics. A meeting segment shows its
-// summary, its clip, and its transcript excerpt on request; other records show their text, and a
-// message can be answered with Reply, and an agent's turn opens its session at that turn. Below,
-// the projects it is on, which the person corrects. What Elysium's agents record is the
-// workspace's, on its own project, so it shows neither.
+// One record on a project's timeline. A meeting's excerpt shows its summary, its clip, and its
+// words on request, and opens its meeting at it; other records show their text, and a message can
+// be answered with Reply, and an agent's turn opens its session at that turn. Below, the projects
+// it is on, which the person corrects. What Elysium's agents record is the workspace's, on its own
+// project, so it shows neither.
 export function TimelineRecordItem(props: Props) {
   const { t } = useTranslation([ 'timeline', 'common' ])
   const [ showsTranscript, setShowsTranscript ] = useState(false)
@@ -66,6 +67,13 @@ export function TimelineRecordItem(props: Props) {
       >
         <span>{t('openSource')}</span>
         <LuExternalLink className='size-3.5' aria-hidden />
+      </Link>}
+      {media && record.excerptMarkId && <Link
+        href={getMeetingMarkUrl(media.meetingId, record.excerptMarkId)}
+        className='shrink-0 gap-1 text-sm'
+      >
+        <LuNotebookText className='size-3.5' aria-hidden />
+        <span>{t('segment.openInMeeting')}</span>
       </Link>}
       {turnSession && <Link
         href={turnSession.url}

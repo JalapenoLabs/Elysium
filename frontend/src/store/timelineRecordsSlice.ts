@@ -20,14 +20,22 @@ export const timelineRecordsSlice = createSlice({
   reducers: {
     timelineRecordsLoaded: timelineRecordsAdapter.upsertMany,
     timelineRecordUpserted: timelineRecordsAdapter.upsertOne,
-    // A record the API no longer answers for, such as a segment deleted with its meeting.
+    // A record the API no longer answers for, such as an excerpt deleted with its meeting.
     timelineRecordRemoved: timelineRecordsAdapter.removeOne,
   },
 })
 
 export const { timelineRecordsLoaded, timelineRecordUpserted, timelineRecordRemoved } = timelineRecordsSlice.actions
 
-const { selectAll } = timelineRecordsAdapter.getSelectors((state: RootState) => state.timelineRecords)
+const { selectAll, selectById, selectEntities } = timelineRecordsAdapter.getSelectors(
+  (state: RootState) => state.timelineRecords,
+)
+
+// One record, when it is loaded, such as a meeting excerpt's, which its lane loads as it opens.
+export const selectTimelineRecordById = selectById
+
+// Every record loaded, by id.
+export const selectTimelineRecordEntities = selectEntities
 
 // A project's records, newest first: those attributed to it, by a person or by Elysia.
 export const selectTimelineRecordsByProjectId = createSelector(
@@ -35,21 +43,6 @@ export const selectTimelineRecordsByProjectId = createSelector(
   (records, projectId) => records.filter(
     (record) => record.projects.some((attribution) => attribution.projectId === projectId),
   ),
-)
-
-// A meeting's segments in the order they were said, as its page lists its topics.
-export const selectTimelineRecordsByMeetingId = createSelector(
-  [ selectAll, (_state: RootState, meetingId: string) => meetingId ],
-  (records, meetingId) => {
-    const segments: TimelineRecord[] = []
-    for (const record of records) {
-      if (record.media?.meetingId === meetingId) {
-        segments.push(record)
-      }
-    }
-    // Every segment has its span, so the earliest start comes first.
-    return segments.sort((first, second) => (first.media?.startMs ?? 0) - (second.media?.startMs ?? 0))
-  },
 )
 
 // The record that raised an action item, if one did and it is loaded.

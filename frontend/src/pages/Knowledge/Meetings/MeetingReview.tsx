@@ -7,21 +7,17 @@ import type { PageCrumb } from '../../../layout/page/PageHeader'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Chip, Link, Spinner, Tabs } from '@heroui/react'
+import { Chip, Link, Spinner } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
-import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 import { DeletedMeetingNotice } from './DeletedMeetingNotice'
-import { MeetingTopics } from './MeetingTopics'
 import { MeetingWorkspace } from './MeetingWorkspace'
 import { MergedIntoNotice } from './MergedIntoNotice'
 
 // Misc
 import { DateText } from '../../../format/DateText'
 import { formatDuration } from '../../../format/durations'
-import { useMeetingTopicsLoader } from '../../../hooks/useServerData'
-import { useTabParam } from '../../../hooks/useTabParam'
 import {
   meetingSourceNameKey,
   meetingStateChipColors,
@@ -29,22 +25,16 @@ import {
 } from '../../Settings/Meetings/meetingsPresentation'
 import { useMeetingWords } from './useMeetingWords'
 
-// The review first; then the topics the meeting was cut into, until excerpts take their place
-// (#241), since a topic on no project or the wrong one is corrected there.
-const TABS = [ 'review', 'topics' ] as const
-
 type Props = {
   meeting: Meeting
   parents: PageCrumb[]
 }
 
 // A meeting that loaded: its title and source, when it was, for how long, and a link to it at its
-// source, then its review and its topics as tabs, the open one in `?tab=`.
+// source, then its review, where its excerpts are drawn and changed.
 export function MeetingReview(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
   const { meeting } = props
-  const [ selectedTab, selectTab ] = useTabParam(TABS)
-  const topics = useMeetingTopicsLoader(meeting.id)
   const words = useMeetingWords(meeting.id)
 
   let review = <div className='grid place-items-center py-10'><Spinner /></div>
@@ -65,14 +55,17 @@ export function MeetingReview(props: Props) {
     icon={<MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-8' />}
     parents={props.parents}
     // While its run waits for the person, its processing waits too; the correction's status in
-    // the options says so, rather than a state that reads as work under way.
-    badges={!meeting.awaitingApproval && <Chip
-      size='sm'
-      variant='soft'
-      color={meetingStateChipColors[meeting.state]}
-    >{
-        t(meetingStateLabelKeys[meeting.state])
-      }</Chip>}
+    // the options says so, rather than a state that reads as work under way. A deleted meeting's
+    // excerpts are on no timeline, however far it got, so it reads as deleted.
+    badges={meeting.deletedAt
+      ? <Chip size='sm' variant='soft' color='default'>{t('delete.state')}</Chip>
+      : !meeting.awaitingApproval && <Chip
+        size='sm'
+        variant='soft'
+        color={meetingStateChipColors[meeting.state]}
+      >{
+          t(meetingStateLabelKeys[meeting.state])
+        }</Chip>}
   >
     <div className='relaxed flex flex-wrap items-center gap-x-2 gap-y-1 text-sm'>
       <DateText value={meeting.startedAt} className='opacity-70' />
@@ -92,19 +85,6 @@ export function MeetingReview(props: Props) {
     {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
     {meeting.deletedAt && <DeletedMeetingNotice meeting={meeting} />}
 
-    <PageTabs
-      label={t('page.tabs.label')}
-      selectedKey={selectedTab}
-      onSelectionChange={selectTab}
-      tabs={[
-        { id: 'review', label: t('page.tabs.review'), count: null },
-        { id: 'topics', label: t('page.tabs.topics'), count: topics.total },
-      ]}
-    >
-      <Tabs.Panel id='review' className='mt-0 p-0'>{review}</Tabs.Panel>
-      <Tabs.Panel id='topics'>
-        <MeetingTopics meeting={meeting} status={topics.status} />
-      </Tabs.Panel>
-    </PageTabs>
+    {review}
   </Page>
 }

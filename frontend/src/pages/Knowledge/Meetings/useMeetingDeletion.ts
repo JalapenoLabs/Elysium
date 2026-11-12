@@ -100,7 +100,7 @@ export function useMeetingDeletion() {
     }
   }
 
-  // Restores `meetings`, each with the topics its deletion took, and resolves to whether any was
+  // Restores `meetings`, each with the excerpts its deletion took, and resolves to whether any was
   // restored.
   async function restore(meetings: Meeting[]) {
     const restored = await send(meetings, 'restore')

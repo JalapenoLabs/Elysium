@@ -20,7 +20,7 @@ type Props = {
 }
 
 // What a deleted meeting says on its page: when it was deleted, and Restore, which brings it back
-// with its topics and carries on the run its deletion stopped (docs/meetings.md, Deleting). The
+// with its excerpts and carries on the run its deletion stopped (docs/meetings.md, Deleting). The
 // page reads as the meeting stood, changing nothing until then.
 export function DeletedMeetingNotice(props: Props) {
   const { t } = useTranslation('meetings')

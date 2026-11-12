@@ -84,7 +84,7 @@ import {
 import { getProjectWorkerSetupKey } from '../api/routes/workerSetupRoutes'
 import { getManagerAssignmentKey, isManagerAssignmentKey } from '../api/routes/actionItemRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
-import { getTimelineRecord } from '../api/routes/timelineRoutes'
+import { getTimelineRecord, timelineKeyPrefix } from '../api/routes/timelineRoutes'
 import {
   EVENT_STREAM_PATH,
   EVENT_STREAM_RETRY_INITIAL_MS,
@@ -317,7 +317,7 @@ const handlers: Handlers = {
     if (!isOwn && !isWorkspaces) {
       return
     }
-    void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+    void mutate((key) => typeof key === 'string' && key.startsWith(timelineKeyPrefix))
   },
   // Its page loads it again, and the turns it has open with it, each only while a page holds it.
   // Its promises moved with it, so an open follow-up item's page loads its promise again too.
@@ -366,9 +366,9 @@ const handlers: Handlers = {
   },
   // A record moved between projects, or its history grew: it is loaded by id, so a project it
   // left stops listing it, and the timeline's pages and histories that are open reload, so
-  // their totals and entries follow. A meeting's topic moving changes the projects its meeting is
-  // on, so the meeting loads too, and the tree's Meetings groups follow. One that is gone, a
-  // segment deleted with its meeting, leaves every timeline; restoring the meeting brings it back
+  // their totals and entries follow. A meeting's excerpt moving changes the projects its meeting is
+  // on, so the meeting loads too, and the tree's Meetings groups follow. One that is gone, an
+  // excerpt deleted with its meeting, leaves every timeline; restoring the meeting brings it back
   // with another of these.
   'timelineRecord.changed': (event) => {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
@@ -393,7 +393,7 @@ const handlers: Handlers = {
           recordId: event.data.id,
         })
       })
-    void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+    void mutate((key) => typeof key === 'string' && key.startsWith(timelineKeyPrefix))
   },
   // A draft is its writer's alone, and the event carries no text: it is loaded by id, and one
   // that is gone was discarded.

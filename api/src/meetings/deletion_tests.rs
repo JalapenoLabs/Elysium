@@ -1,8 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Deleting meetings and restoring them, end to end against Postgres (#258): one or many at once,
-//! each refusal named; a meeting's segments leaving every timeline and the knowledge index and
-//! coming back with their attributions; its run stopping and carrying on; every source's next
+//! each refusal named; a meeting's excerpts and its transcript leaving every timeline and the
+//! knowledge index and coming back with their attributions, a removed excerpt staying removed; its run stopping and carrying on; every source's next
 //! listing leaving a deleted meeting deleted; and nothing changing it meanwhile. See
 //! `docs/meetings.md`, Deleting.
 
@@ -16,11 +16,13 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::deletion::{self, BulkChange, Outcome};
+use super::excerpts::{self, MeetingText};
 use super::fetch::FetchMeeting;
 use super::fireflies::Fireflies;
-use super::source::ListedMeeting;
+use super::segmentation::SegmentProject;
+use super::source::{ListedMeeting, TranscriptLine};
 use super::sources::Sources;
-use super::{Meetings, MeetingsDeps, SEGMENT_SOURCE_KIND, correct, workflow};
+use super::{Meetings, MeetingsDeps, SEGMENT_SOURCE_KIND, correct, final_transcript, workflow};
 use crate::action_items::Actor;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
@@ -29,16 +31,19 @@ use crate::database::Pool;
 use crate::database::schema::knowledge_documents;
 use crate::meeting_uploads::staging::Staging;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::browser_session::{self, NewBrowserSession};
 use crate::models::connector::{self, AccountRef, Connector, NewConnector};
-use crate::models::meeting::tests::stored;
+use crate::models::meeting::tests::{fetched_with, stored};
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_correction::{self, NewMeetingCorrection};
 use crate::models::meeting_event::{self, EventKind};
+use crate::models::meeting_mark::Range;
+use crate::models::meeting_word;
 use crate::models::project::{self, NewProject};
 use crate::models::step_job::{self, StepJobState, StepOutcome};
-use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery};
+use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, TimelineRecord};
 use crate::models::token_account::{self, NewTokenAccount};
 use crate::models::workflow_run::{self, WorkflowRunState};
 use crate::realtime::EventBus;
@@ -65,9 +70,81 @@ async fn change(
     .expect("the change is written")
 }
 
-/// A segment of `meeting`, stored and indexed as segmenting publishes one, and put on `project_id`
-/// by Elysia.
-async fn segment_on(
+/// The test person, now.
+fn person() -> Author<'static> {
+    Author {
+        user_id: TEST_PERSON_ID,
+        agent: None,
+        at: Utc::now(),
+    }
+}
+
+/// A segmented meeting of the test person's, its final transcript lined up from three lines and
+/// its whole transcript in the knowledge index, as segmenting leaves one.
+async fn segmented(connection: &mut AsyncPgConnection) -> Meeting {
+    let lines = [
+        TranscriptLine {
+            start_ms: 0,
+            end_ms: 2_000,
+            speaker: "Ada".to_owned(),
+            text: "The launch moves to Friday.".to_owned(),
+        },
+        TranscriptLine {
+            start_ms: 2_000,
+            end_ms: 4_000,
+            speaker: "Grace".to_owned(),
+            text: "Then the docs ship Thursday.".to_owned(),
+        },
+        TranscriptLine {
+            start_ms: 4_000,
+            end_ms: 6_000,
+            speaker: "Ada".to_owned(),
+            text: "Lunch is on me.".to_owned(),
+        },
+    ];
+    let transcript = serde_json::to_value(lines).expect("serializes");
+    let (fetched, _) = fetched_with(connection, transcript).await;
+    final_transcript::rebuild(connection, fetched.id, person())
+        .await
+        .expect("lines up");
+    let done = meeting::record_done(connection, fetched.id)
+        .await
+        .expect("done");
+    excerpts::refresh(connection, &done, None)
+        .await
+        .expect("indexes its transcript");
+    done
+}
+
+/// Takes line `line` of `meeting`, one of [`segmented`]'s, into `project_id` as an excerpt, as a
+/// person takes a range, and answers its record, which is indexed and on the project.
+async fn excerpt_on(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    line: usize,
+    project_id: Uuid,
+) -> TimelineRecord {
+    let words = meeting_word::standing(connection, meeting.id)
+        .await
+        .expect("reads");
+    // Each line is five words.
+    let range = Range {
+        start_word_id: words[line * 5].id,
+        end_word_id: words[line * 5 + 4].id,
+    };
+    let onto = [SegmentProject {
+        project_id,
+        confidence: 1.0,
+    }];
+    excerpts::assign(connection, meeting, range, &onto, person())
+        .await
+        .expect("takes it")
+        .record
+}
+
+/// A topic `meeting` was cut into before excerpts that no word of it could anchor: a record that
+/// names its meeting and no mark, still on `project_id`.
+async fn unanchored_topic_on(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
     project_id: Uuid,
@@ -121,6 +198,17 @@ async fn is_indexed(connection: &mut AsyncPgConnection, record_id: Uuid) -> bool
     documents > 0
 }
 
+/// Whether the knowledge index holds meeting `meeting_id`'s whole transcript.
+async fn is_transcript_indexed(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> bool {
+    let documents: i64 = knowledge_documents::table
+        .filter(knowledge_documents::meeting_id.eq(meeting_id))
+        .count()
+        .get_result(connection)
+        .await
+        .expect("reads the index");
+    documents > 0
+}
+
 /// The ids of the records on project `project_id`'s timeline, as its Timeline tab lists them.
 async fn on_timeline(connection: &mut AsyncPgConnection, project_id: Uuid) -> Vec<Uuid> {
     let query = TimelineQuery {
@@ -144,17 +232,29 @@ async fn on_timeline(connection: &mut AsyncPgConnection, project_id: Uuid) -> Ve
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 #[expect(
     clippy::too_many_lines,
-    reason = "one meeting deleted and restored, with everything its segment leaves and regains"
+    reason = "one meeting deleted and restored, with everything its excerpts leave and regain"
 )]
-async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_restoring_returns_them()
+async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_restoring_returns_them()
 {
     let (_url, mut connection) = migrated_database().await;
     let project_id = launch_project(&mut connection).await;
-    let (launch, _) = stored(&mut connection).await;
-    let segment_id = segment_on(&mut connection, &launch, project_id).await;
-    let (other, _) = stored(&mut connection).await;
-    let kept_id = segment_on(&mut connection, &other, project_id).await;
-    assert!(is_indexed(&mut connection, segment_id).await);
+    let launch = segmented(&mut connection).await;
+    let excerpt = excerpt_on(&mut connection, &launch, 0, project_id).await;
+    let topic_id = unanchored_topic_on(&mut connection, &launch, project_id).await;
+    // An excerpt its person removed is on no project and out of the index already.
+    let removed = excerpt_on(&mut connection, &launch, 1, project_id).await;
+    excerpts::remove(
+        &mut connection,
+        &launch,
+        removed.excerpt_mark_id.expect("an excerpt"),
+        person(),
+    )
+    .await
+    .expect("removes");
+    let other = segmented(&mut connection).await;
+    let kept = excerpt_on(&mut connection, &other, 0, project_id).await;
+    assert!(is_indexed(&mut connection, excerpt.id).await);
+    assert!(is_transcript_indexed(&mut connection, launch.id).await);
 
     let deleted = change(&mut connection, vec![launch.id], BulkChange::Delete {}).await;
     assert!(deleted.refused.is_empty(), "{:?}", deleted.refused);
@@ -162,17 +262,16 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
         panic!("one meeting changed: {:?}", deleted.changed);
     };
     let deleted_at = changed.meeting.deleted_at.expect("it is deleted");
+    let mut took: Vec<Uuid> = changed.records.iter().map(|record| record.id).collect();
+    took.sort_unstable();
+    let mut standing = vec![excerpt.id, topic_id];
+    standing.sort_unstable();
     assert_eq!(
-        changed
-            .records
-            .iter()
-            .map(|record| record.id)
-            .collect::<Vec<_>>(),
-        [segment_id],
-        "its segment went with it, and only its own"
+        took, standing,
+        "its standing excerpt and its unanchored topic went with it, and only its own"
     );
 
-    // It leaves every list but the deleted one, and its segment every reader.
+    // It leaves every list but the deleted one, and its excerpts every reader.
     let listed: Vec<Uuid> = meeting::list_owned(&mut connection, TEST_PERSON_ID)
         .await
         .expect("lists")
@@ -187,11 +286,17 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
         .map(|listed| listed.id)
         .collect();
     assert_eq!(deleted_list, [launch.id]);
-    assert_eq!(on_timeline(&mut connection, project_id).await, [kept_id]);
-    assert!(!is_indexed(&mut connection, segment_id).await);
-    assert!(is_indexed(&mut connection, kept_id).await);
+    assert_eq!(on_timeline(&mut connection, project_id).await, [kept.id]);
+    assert!(!is_indexed(&mut connection, excerpt.id).await);
+    assert!(!is_indexed(&mut connection, topic_id).await);
+    assert!(is_indexed(&mut connection, kept.id).await);
+    assert!(
+        !is_transcript_indexed(&mut connection, launch.id).await,
+        "its whole transcript is out of the index too"
+    );
+    assert!(is_transcript_indexed(&mut connection, other.id).await);
     assert!(matches!(
-        timeline_record::find_owned(&mut connection, segment_id, TEST_PERSON_ID).await,
+        timeline_record::find_owned(&mut connection, excerpt.id, TEST_PERSON_ID).await,
         Err(diesel::result::Error::NotFound)
     ));
     let read_by_manager = timeline_record::attributed_to(&mut connection, project_id, None, 50)
@@ -200,27 +305,43 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
     assert!(
         read_by_manager
             .iter()
-            .all(|(record, _)| record.id != segment_id),
-        "the project's Project Manager no longer reads it"
+            .all(|(record, _)| record.id != excerpt.id && record.id != topic_id),
+        "the project's Project Manager no longer reads them"
     );
     let projects = timeline_record::projects_of_meetings(&mut connection, &[launch.id])
         .await
         .expect("reads");
-    assert!(projects.is_empty(), "its meeting is on no project");
+    assert_eq!(
+        projects.get(&launch.id),
+        Some(&vec![project_id]),
+        "its row among the deleted says where its excerpts were"
+    );
     let walked = timeline_record::after_id(&mut connection, None, 100)
         .await
         .expect("walks");
     assert!(
-        walked.iter().all(|record| record.id != segment_id),
-        "the index's backfill walks past it, so it never comes back on its own"
+        walked
+            .iter()
+            .all(|record| record.id != excerpt.id && record.id != topic_id),
+        "the index's backfill walks past them, so they never come back on their own"
     );
-    // Its attribution waits for it.
+    let text = MeetingText::load(&mut connection, launch.id)
+        .await
+        .expect("reads");
+    excerpts::index_transcript(&mut connection, &changed.meeting, &text)
+        .await
+        .expect("walks it as the backfill does");
+    assert!(
+        !is_transcript_indexed(&mut connection, launch.id).await,
+        "the backfill leaves its transcript out"
+    );
+    // Its attributions wait for it.
     assert_eq!(
-        timeline_record::attributions_of(&mut connection, &[segment_id])
+        timeline_record::attributions_of(&mut connection, &[excerpt.id, topic_id])
             .await
             .expect("reads")
             .len(),
-        1
+        2
     );
     let history = meeting_event::history(&mut connection, launch.id)
         .await
@@ -230,7 +351,7 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
     assert_eq!(entry.created_by, TEST_PERSON_ID, "who deleted it is kept");
     assert_eq!(
         entry.data,
-        json!({ "segments": 1, "connectorId": null, "dismissedItemId": null })
+        json!({ "excerpts": 2, "connectorId": null, "dismissedItemId": null })
     );
 
     let restored = change(&mut connection, vec![launch.id], BulkChange::Restore {}).await;
@@ -238,10 +359,19 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
     assert_eq!(restored.changed[0].meeting.deleted_at, None);
     let mut on_project = on_timeline(&mut connection, project_id).await;
     on_project.sort_unstable();
-    let mut both = vec![segment_id, kept_id];
-    both.sort_unstable();
-    assert_eq!(on_project, both, "its segment is on its project again");
-    assert!(is_indexed(&mut connection, segment_id).await);
+    let mut back = vec![excerpt.id, topic_id, kept.id];
+    back.sort_unstable();
+    assert_eq!(
+        on_project, back,
+        "its excerpt and topic are on their project again"
+    );
+    assert!(is_indexed(&mut connection, excerpt.id).await);
+    assert!(is_indexed(&mut connection, topic_id).await);
+    assert!(
+        !is_indexed(&mut connection, removed.id).await,
+        "the excerpt its person removed stays removed"
+    );
+    assert!(is_transcript_indexed(&mut connection, launch.id).await);
     let projects = timeline_record::projects_of_meetings(&mut connection, &[launch.id])
         .await
         .expect("reads");
@@ -256,7 +386,7 @@ async fn a_deleted_meetings_segments_leave_every_timeline_and_the_index_and_rest
         entry.data,
         json!({
             "deletedAt": deleted_at,
-            "segments": 1,
+            "excerpts": 2,
             "runRetried": false,
             "reopenedItemId": null,
         })

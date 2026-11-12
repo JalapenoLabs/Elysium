@@ -13,14 +13,17 @@
 //!   meeting_deleted`), and is processed no further. Its captures stay, so its connector's next
 //!   listing finds it known and never stores it again; its recording and clips stay in storage,
 //!   as a deleted page keeps its files.
-//! - **Its segments** go with it, stamped with the meeting's own `deleted_at`
+//! - **Its excerpts' records** go with it, stamped with the meeting's own `deleted_at`
 //!   (`timeline_record::delete_of_meeting`): off every project's timeline, out of every Project
 //!   Manager's reading, and out of the knowledge index, each keeping its attributions and their
-//!   history. Restoring brings back exactly the records that stamp names, and indexes each again.
+//!   history. So does its whole transcript's own document in the index
+//!   (`excerpts::index_transcript`). Its marks stay as they are, a removed excerpt removed.
+//!   Restoring brings back exactly the records that stamp names and the transcript's document,
+//!   and indexes each again as it reads now.
 //! - **Its run stops.** Every meeting step fails for good on a deleted meeting with
-//!   [`STOPPED`], at its start and again under the meeting's lock where it would raise an inbox
-//!   item or publish, so a deleted meeting asks nothing of its person and puts nothing on a
-//!   timeline. The inbox item it raised already, asking to approve its corrected transcript, is
+//!   [`STOPPED`], at its start and again under the meeting's lock where it would settle words,
+//!   raise an inbox item, or take its excerpts, so a deleted meeting asks nothing of its person,
+//!   puts nothing on a timeline, and indexes nothing. The inbox item it raised already, asking to approve its corrected transcript, is
 //!   dismissed as the person deleting it (`correct::dismiss_review`), the `deleted` entry naming it,
 //!   and restoring reopens that item while it still waits (`correct::reopen_review`), so a
 //!   connector's removal that fails and restores what it deleted leaves the asks as they were too.
@@ -55,10 +58,12 @@ use serde_json::json;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use super::excerpts::{self, MeetingText};
 use super::{correct, workflow};
 use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
+use crate::models::knowledge_document::{self, KnowledgeSource};
 use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::step_job::{self, StepActionError, StepJobState};
@@ -142,7 +147,7 @@ pub struct Changed {
     pub meeting: Meeting,
     /// Its `deleted` or `restored` entry.
     pub entry: MeetingEvent,
-    /// The segments that went with it, or came back.
+    /// The excerpts' records that went with it, or came back.
     pub records: Vec<TimelineRecord>,
     /// The runs restoring it carried on.
     pub runs: Vec<Settled>,
@@ -242,7 +247,8 @@ async fn lock_changeable(
     Ok(locked)
 }
 
-/// Deletes meeting `meeting_id` with its segments, as `author`, recording it.
+/// Deletes meeting `meeting_id` with its excerpts' records and its transcript's document, as
+/// `author`, recording it.
 async fn delete_one(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -260,6 +266,7 @@ async fn delete_one(
         .deleted_at
         .expect("a meeting just deleted has its deleted_at");
     let records = timeline_record::delete_of_meeting(connection, meeting_id, stamp).await?;
+    knowledge_document::remove(connection, &KnowledgeSource::Meeting { id: meeting_id }).await?;
     // Nothing asks its person to review what they deleted; a run held for it stays held. The entry
     // names the item, so restoring reopens exactly the one this deletion dismissed.
     let dismissed =
@@ -272,7 +279,7 @@ async fn delete_one(
             kind: EventKind::Deleted,
             author,
             data: json!({
-                "segments": records.len(),
+                "excerpts": records.len(),
                 "connectorId": removed_with,
                 "dismissedItemId": dismissed.as_ref().map(|item| item.record.id),
             }),
@@ -289,8 +296,8 @@ async fn delete_one(
     })
 }
 
-/// Restores meeting `meeting_id` with the segments its deletion took, as `author`, carries on the
-/// run the deletion stopped, and records it.
+/// Restores meeting `meeting_id` with the excerpts' records and the transcript document its
+/// deletion took, as `author`, carries on the run the deletion stopped, and records it.
 async fn restore_one(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -302,6 +309,9 @@ async fn restore_one(
     };
     let restored = meeting::set_deleted(connection, meeting_id, None).await?;
     let records = timeline_record::restore_of_meeting(connection, meeting_id, deleted_at).await?;
+    // Indexed as it reads now, which is as it read when it was deleted, since nothing changed it.
+    let text = MeetingText::load(connection, meeting_id).await?;
+    excerpts::index_transcript(connection, &restored, &text).await?;
     let runs = carry_on(connection, meeting_id, deleted_at, author).await?;
     let reopened = match dismissed_by_deletion(connection, meeting_id).await? {
         Some(item_id) => {
@@ -319,7 +329,7 @@ async fn restore_one(
             author,
             data: json!({
                 "deletedAt": deleted_at,
-                "segments": records.len(),
+                "excerpts": records.len(),
                 "runRetried": !runs.is_empty(),
                 "reopenedItemId": reopened.as_ref().map(|item| item.record.id),
             }),
@@ -402,9 +412,9 @@ async fn carry_on(
 }
 
 /// Tells every client what `outcome` changed, once it has committed: each meeting, by its history
-/// entry, each segment that left or came back to its timelines, each run restoring carried on,
-/// which the engine is told of too, and every review item dismissed or reopened, published
-/// together. Events carry ids, never content.
+/// entry, each excerpt's record that left or came back to its timelines, each run restoring
+/// carried on, which the engine is told of too, and every review item dismissed or reopened,
+/// published together. Events carry ids, never content.
 pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, outcome: Outcome) {
     let mut carried_on = false;
     let mut items = Vec::new();

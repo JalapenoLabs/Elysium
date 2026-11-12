@@ -30,6 +30,7 @@ use crate::errors::ApiError;
 use crate::meetings::history::{self, UndoError};
 use crate::models::agent::Author;
 use crate::models::{meeting, meeting_event};
+use crate::realtime::{ServerEvent, Signal};
 use crate::state::AppState;
 
 pub async fn list(
@@ -75,6 +76,16 @@ pub async fn undo(
         .map_err(refusal)?;
     let entry = undone.entry;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
+    // An excerpt's undo takes its record off its projects or puts it back, which their timelines
+    // follow, and may wake their Project Managers.
+    let record_id = entry.data.get("recordId").and_then(|id| id.as_str());
+    if let Some(record_id) = record_id.and_then(|id| id.parse::<Uuid>().ok()) {
+        state.events.publish(&ServerEvent::TimelineRecordChanged {
+            id: record_id,
+            created_by: found.created_by,
+        });
+        state.events.signal(&Signal::ProjectManagers);
+    }
     if lines_up_again(&entry) {
         announce_lined_up(&state.events, &mut connection, &entry).await?;
     } else {

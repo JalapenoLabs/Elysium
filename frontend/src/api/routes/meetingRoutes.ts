@@ -28,7 +28,7 @@ export type MeetingCorrection = {
 }
 
 // A meeting read from a meeting source. Its transcript is loaded on its own page
-// (`getMeetingWords`); its segments reach the timeline. Only its owner receives it.
+// (`getMeetingWords`); its excerpts reach the timeline. Only its owner receives it.
 export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
@@ -47,8 +47,8 @@ export type Meeting = {
   // Why its run failed, while it has.
   lastError: string | null
   hasRecording: boolean
-  // How many segments Elysia found, or null before she has read it.
-  segmentCount: number | null
+  // How many excerpts it has standing, or null before it was first segmented.
+  excerptCount: number | null
   // Whether its person asked to approve its corrected transcript before it is acted on.
   holdForApproval: boolean
   // Its corrected transcript, or null before it is corrected.
@@ -57,8 +57,8 @@ export type Meeting = {
   runId: string | null
   // Whether that run is held, waiting for its person to approve the corrected transcript.
   awaitingApproval: boolean
-  // The projects its topics are on: where the tree lists it beside its home under Meetings, and
-  // what the Meetings page filters it by.
+  // The projects its excerpts are on: where the tree lists it beside its home under Meetings,
+  // and what the Meetings page filters it by.
   projectIds: string[]
   // The meeting its person merged its captures into, or null. A merged meeting lives on in that
   // one, so it is in no list, though an event may still load it by id.
@@ -104,6 +104,14 @@ export type MeetingWord = {
 export const MEETING_MARK_KINDS = [ 'confidence', 'edit', 'excerpt', 'black_out', 'comment', 'pin', 'task' ] as const
 export type MeetingMarkKind = typeof MEETING_MARK_KINDS[number]
 
+// Mirrors `ExcerptResponse`: what an excerpt is on, its timeline record and that record's
+// projects, which change through the record (`timelineRoutes`).
+export type MeetingExcerpt = {
+  recordId: string
+  title: string
+  projectIds: string[]
+}
+
 // Mirrors `MarkResponse`: one mark over a range of the final transcript, from its first word to
 // its last. Its data is shaped by its kind (docs/meetings.md, The final transcript).
 export type MeetingMark = {
@@ -116,6 +124,8 @@ export type MeetingMark = {
   // The agent that acted for whoever made it, if one did.
   agent: LearningAgent | null
   createdAt: string
+  // An excerpt's record and projects; null for every other kind.
+  excerpt: MeetingExcerpt | null
 }
 
 // Mirrors `OffsetSource` in api/src/models/meeting_capture.rs: how a capture's offset onto its
@@ -165,7 +175,7 @@ export type MeetingHistoryEntry = {
   id: string
   // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
   // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
-  // `deleted`, or `restored`.
+  // `segmented`, `review_done`, `deleted`, or `restored`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -315,6 +325,60 @@ export function editMeetingWords(meetingId: string, body: EditMeetingWordsReques
   return apiClient
     .post(`v1/meetings/${meetingId}/edits`, { json: body })
     .json<MeetingChangeResponse>()
+}
+
+type AssignExcerptRequest = {
+  startWordId: string
+  endWordId: string
+  // The projects it is about; at least one.
+  projectIds: string[]
+}
+
+// Taking a range into a project makes an excerpt: a change in the meeting's history, and a record
+// on the project's timeline.
+export type AssignExcerptResponse = MeetingChangeResponse & {
+  recordId: string
+}
+
+// Takes a range into projects as a new excerpt. `409 meeting_words_changed` when a word of it was
+// replaced meanwhile.
+export function assignMeetingExcerpt(meetingId: string, body: AssignExcerptRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/excerpts`, { json: body })
+    .json<AssignExcerptResponse>()
+}
+
+type BlackOutRequest = {
+  startWordId: string
+  endWordId: string
+}
+
+// Blacks a range out, taking in every black-out it overlaps or touches.
+export function blackOutMeetingWords(meetingId: string, body: BlackOutRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/black-outs`, { json: body })
+    .json<MeetingChangeResponse>()
+}
+
+// Removes an excerpt or a black-out; its Undo puts it back. `409 meeting_mark_removed` when it was
+// removed meanwhile.
+export function removeMeetingMark(meetingId: string, markId: string) {
+  return apiClient
+    .delete(`v1/meetings/${meetingId}/marks/${markId}`)
+    .json<MeetingChangeResponse>()
+}
+
+type DoneReviewingResponse = {
+  entry: MeetingHistoryEntry
+  meeting: Meeting
+}
+
+// Segments the meeting again from its corrected words, keeping every excerpt and black-out a
+// person made or changed. `409 meeting_processing` while a run of it is going or held.
+export function markMeetingReviewed(meetingId: string) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/done-reviewing`)
+    .json<DoneReviewingResponse>()
 }
 
 type MeetingHistoryResponse = {

@@ -13,6 +13,8 @@
 //! back with whatever hangs from it. Every change is in the meeting's history
 //! (`models::meeting_event`), made in the same transaction, under the meeting's lock.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
@@ -20,11 +22,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::database::schema::meeting_marks;
+use crate::database::schema::{meeting_events, meeting_marks};
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_word;
+use crate::models::user::MACHINE_USER_IDS;
 
 /// How many marks one insert writes. Each mark binds ten parameters, and Postgres takes at most
 /// 65,535 in one statement.
@@ -114,7 +117,7 @@ impl Mark {
 }
 
 /// A range of the final transcript, from its first word to its last, both standing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
     pub start_word_id: Uuid,
@@ -208,6 +211,66 @@ pub async fn standing(
         .select(Mark::as_select())
         .load(connection)
         .await
+}
+
+/// Meeting `meeting_id`'s marks of `kind` that a person removed, ranges segmenting leaves alone
+/// when it reads the meeting again, as their removal is that person's decision.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn removed_by_people(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    kind: MarkKind,
+) -> QueryResult<Vec<Mark>> {
+    meeting_marks::table
+        .inner_join(
+            meeting_events::table.on(meeting_marks::removed_by.eq(meeting_events::id.nullable())),
+        )
+        .filter(meeting_marks::meeting_id.eq(meeting_id))
+        .filter(meeting_marks::kind.eq(kind.as_str()))
+        .filter(meeting_events::created_by.ne_all(MACHINE_USER_IDS))
+        .select(Mark::as_select())
+        .load(connection)
+        .await
+}
+
+/// The marks among `ids` that still stand.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn standing_among(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<Vec<Uuid>> {
+    meeting_marks::table
+        .filter(meeting_marks::id.eq_any(ids))
+        .filter(meeting_marks::removed_by.is_null())
+        .select(meeting_marks::id)
+        .load(connection)
+        .await
+}
+
+/// How many standing excerpts each of `meeting_ids` has; a meeting with none has no entry.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn excerpt_counts(
+    connection: &mut AsyncPgConnection,
+    meeting_ids: &[Uuid],
+) -> QueryResult<HashMap<Uuid, usize>> {
+    let counts: Vec<(Uuid, i64)> = meeting_marks::table
+        .filter(meeting_marks::meeting_id.eq_any(meeting_ids))
+        .filter(meeting_marks::kind.eq(MarkKind::Excerpt.as_str()))
+        .filter(meeting_marks::removed_by.is_null())
+        .group_by(meeting_marks::meeting_id)
+        .select((meeting_marks::meeting_id, diesel::dsl::count_star()))
+        .load(connection)
+        .await?;
+    Ok(counts
+        .into_iter()
+        .map(|(meeting_id, count)| (meeting_id, usize::try_from(count).unwrap_or(0)))
+        .collect())
 }
 
 /// Mark `id` of meeting `meeting_id`.
@@ -444,7 +507,7 @@ pub(crate) async fn insert_all(
 /// The meeting's lock, or [`MarkError::NotFound`] when there is no such meeting and
 /// [`MarkError::Merged`] when it was merged into another and [`MarkError::Deleted`] while it is
 /// deleted, each read under the lock a merge and a deletion take.
-async fn lock_meeting(
+pub(crate) async fn lock_meeting(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
 ) -> Result<(), MarkError> {
@@ -459,7 +522,7 @@ async fn lock_meeting(
 }
 
 /// That `range` runs between two standing words of the meeting, in order.
-async fn check_range(
+pub(crate) async fn check_range(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
     range: Range,
@@ -491,24 +554,7 @@ async fn record_marked(
     author: Author<'_>,
     undid: Option<Uuid>,
 ) -> QueryResult<MeetingEvent> {
-    meeting_event::record(
-        connection,
-        Change {
-            id: Uuid::now_v7(),
-            meeting_id: mark.meeting_id,
-            kind: EventKind::Marked,
-            author,
-            data: json!({
-                "markId": mark.id,
-                "kind": mark.kind,
-                "startWordId": mark.start_word_id,
-                "endWordId": mark.end_word_id,
-                "data": mark.data,
-            }),
-            undid,
-        },
-    )
-    .await
+    record_made(connection, mark, author, undid, json!({})).await
 }
 
 /// Removes `mark` and records it (undoing `undid`, when it is an undo).
@@ -518,20 +564,73 @@ async fn record_unmarked(
     author: Author<'_>,
     undid: Option<Uuid>,
 ) -> QueryResult<MeetingEvent> {
-    let event = meeting_event::record(
+    let event = record_removed(connection, mark, author, undid, json!({})).await?;
+    remove_all(connection, &[mark.id], event.id).await?;
+    Ok(event)
+}
+
+/// Records `mark` as made, or put back undoing `undid`, with `extra`, an object, beside what every
+/// `marked` entry says: what else the change did, such as the black-outs a black-out took in,
+/// which its undo reverses.
+pub(crate) async fn record_made(
+    connection: &mut AsyncPgConnection,
+    mark: &Mark,
+    author: Author<'_>,
+    undid: Option<Uuid>,
+    extra: Value,
+) -> QueryResult<MeetingEvent> {
+    let mut data = json!({
+        "markId": mark.id,
+        "kind": mark.kind,
+        "startWordId": mark.start_word_id,
+        "endWordId": mark.end_word_id,
+        "data": mark.data,
+    });
+    merge(&mut data, extra);
+    meeting_event::record(
+        connection,
+        Change {
+            id: Uuid::now_v7(),
+            meeting_id: mark.meeting_id,
+            kind: EventKind::Marked,
+            author,
+            data,
+            undid,
+        },
+    )
+    .await
+}
+
+/// Records `mark` as removed, undoing `undid` when it is an undo, with `extra` beside what every
+/// `unmarked` entry says. The caller removes the mark, naming this entry as what removed it.
+pub(crate) async fn record_removed(
+    connection: &mut AsyncPgConnection,
+    mark: &Mark,
+    author: Author<'_>,
+    undid: Option<Uuid>,
+    extra: Value,
+) -> QueryResult<MeetingEvent> {
+    let mut data = json!({ "markId": mark.id, "kind": mark.kind });
+    merge(&mut data, extra);
+    meeting_event::record(
         connection,
         Change {
             id: Uuid::now_v7(),
             meeting_id: mark.meeting_id,
             kind: EventKind::Unmarked,
             author,
-            data: json!({ "markId": mark.id, "kind": mark.kind }),
+            data,
             undid,
         },
     )
-    .await?;
-    remove_all(connection, &[mark.id], event.id).await?;
-    Ok(event)
+    .await
+}
+
+/// Puts every field of object `extra` into object `data`.
+fn merge(data: &mut Value, extra: Value) {
+    if let (Value::Object(data), Value::Object(extra)) = (data, extra) {
+        data.extend(extra);
+    }
 }
 
 /// `result`, with a missing row as [`MarkError::NotFound`].

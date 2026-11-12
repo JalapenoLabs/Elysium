@@ -11,13 +11,16 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { useProjectsLoader, useTimelineRecordLoader } from '../../../hooks/useServerData'
 import { useAppSelector } from '../../../store/hooks'
 import { selectProjectEntities } from '../../../store/projectsSlice'
+import { selectTimelineRecordById } from '../../../store/timelineRecordsSlice'
 import { selectUserEntities } from '../../../store/usersSlice'
 
 // User interface
-import { Button } from '@heroui/react'
-import { LuUndo2 } from 'react-icons/lu'
+import { Button, Spinner } from '@heroui/react'
+import { LuEye, LuTrash2, LuUndo2 } from 'react-icons/lu'
+import { RecordProjects } from '../../Projects/RecordProjects'
 import { CommentThread } from './CommentThread'
 
 // Misc
@@ -33,21 +36,62 @@ type Props = {
   // The meeting's history, newest first, which says what an edit replaced.
   history: HistoryRow[]
   onUndo: (entryId: string) => Promise<void>
+  // Removes an excerpt, or a black-out, which its toast's Undo puts back; null where the meeting
+  // takes no change.
+  onRemove: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
   // A comment mark's thread, and what can be done in it; null where the meeting takes no change.
   thread: Thread | null
   threadActions: ThreadActions | null
+  // Whether its meeting is deleted, which takes its excerpts' records off every timeline until it
+  // is restored.
+  isDeleted: boolean
+}
+
+// The projects an excerpt is on, from its record, read as the excerpt opens, which change there as
+// any record's do.
+function ExcerptProjects({ recordId }: { recordId: string }) {
+  const { t } = useTranslation('meetings')
+  const status = useTimelineRecordLoader(recordId)
+  const record = useAppSelector((state) => selectTimelineRecordById(state, recordId))
+
+  if (record) {
+    return <RecordProjects record={record} />
+  }
+  if (status === 'failed') {
+    return <p className='text-xs text-danger'>{t('review.excerpts.loadError')}</p>
+  }
+  return <Spinner size='sm' aria-label={t('review.excerpts.loading')} />
+}
+
+// The projects a deleted meeting's excerpt was on, as its transcript names them: its record is on
+// no timeline until the meeting is restored, so it does not load, and nothing here changes them.
+function DeletedExcerptProjects({ projectIds }: { projectIds: string[] }) {
+  const { t } = useTranslation('meetings')
+  useProjectsLoader()
+  const projectsById = useAppSelector(selectProjectEntities)
+
+  if (!projectIds.length) {
+    return <p className='text-xs opacity-60'>{t('review.excerpts.onNoProject')}</p>
+  }
+  return <div className='flex flex-wrap items-center gap-2 text-xs'>{
+    projectIds.map((projectId) => <span
+      key={projectId}
+      className='rounded-full border border-separator px-2.5 py-0.5 font-medium'
+    >{projectsById[projectId]?.name ?? t('review.detail.unknownProject')}</span>)
+  }</div>
 }
 
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
 // Clicking, selecting, and acting): what kind it is, who made it, a mark an agent made saying so,
 // the words it covers, and what its kind says: how sure a confidence is and what else it might
-// be, what an edit replaced with its Undo, an excerpt's projects, and a comment's thread.
+// be, what an edit replaced with its Undo, an excerpt's title and projects, which change on its
+// record as any record's do, with Remove, a black-out's Remove, and a comment's thread.
 export function MarkDetail(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const users = useAppSelector(selectUserEntities)
-  const projects = useAppSelector(selectProjectEntities)
   const [ isUndoing, setIsUndoing ] = useState(false)
-  const { placed } = props
+  const [ isRemoving, setIsRemoving ] = useState(false)
+  const { placed, onRemove } = props
   const { mark } = placed
   const author = authorOf(mark.createdBy, mark.agent, users)
   const span = summarizeRange(props.words, placed)
@@ -71,13 +115,13 @@ export function MarkDetail(props: Props) {
   const alternatives = placed.kind === 'confidence'
     ? alternativesOf(mark)
     : []
-  // An excerpt names its projects (#241); one this person cannot see reads as unknown.
-  const projectIds = Array.isArray(mark.data.projectIds)
-    ? mark.data.projectIds.filter((projectId) => typeof projectId === 'string')
-    : []
+  const removable = placed.kind === 'excerpt' || placed.kind === 'black_out'
+    ? placed.kind
+    : null
 
   return <section aria-label={t(markKindLabelKeys[placed.kind])} className='flex flex-col gap-2 text-sm'>
     <p className='font-semibold'>{t(markKindLabelKeys[placed.kind])}</p>
+    {mark.excerpt && <p className='font-medium'>{mark.excerpt.title}</p>}
     <p className='text-xs opacity-70'>
       <span>{byline}</span>
       <span aria-hidden> · </span>
@@ -99,11 +143,10 @@ export function MarkDetail(props: Props) {
       }</ul>
     </div>}
 
-    {Boolean(projectIds.length) && <p>{
-      projectIds
-        .map((projectId) => projects[projectId]?.name ?? t('review.detail.unknownProject'))
-        .join(', ')
-    }</p>}
+    {mark.excerpt && (props.isDeleted
+      ? <DeletedExcerptProjects projectIds={mark.excerpt.projectIds} />
+      : <ExcerptProjects recordId={mark.excerpt.recordId} />)}
+    {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
     {editRow?.before && <p className='text-xs opacity-70'>{t('review.detail.replaced', { before: editRow.before })}</p>}
     {editRow?.canUndo && <Button
@@ -118,6 +161,26 @@ export function MarkDetail(props: Props) {
     >
       <LuUndo2 className='size-4' aria-hidden />
       <span>{t('review.undoEdit')}</span>
+    </Button>}
+
+    {removable && onRemove && <Button
+      size='sm'
+      variant='outline'
+      className='self-start'
+      isPending={isRemoving}
+      onPress={() => {
+        setIsRemoving(true)
+        void onRemove(mark.id, removable).finally(() => setIsRemoving(false))
+      }}
+    >
+      {removable === 'excerpt'
+        ? <LuTrash2 className='size-4' aria-hidden />
+        : <LuEye className='size-4' aria-hidden />}
+      <span>{
+        removable === 'excerpt'
+          ? t('review.excerpts.remove')
+          : t('review.blackOuts.remove')
+      }</span>
     </Button>}
 
     {props.thread && <CommentThread thread={props.thread} actions={props.threadActions} />}

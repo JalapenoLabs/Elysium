@@ -20,7 +20,7 @@ export type MeetingFilters = {
   sources: string[]
   // How far each one's processing got. Empty shows every state.
   states: MeetingState[]
-  // A project its topics are on, `NO_PROJECT` for a meeting on none, or null for any.
+  // A project its excerpts are on, `NO_PROJECT` for a meeting on none, or null for any.
   project: string | null
   // Only meetings whose run waits for the person's review of the corrected transcript.
   waitingForReview: boolean

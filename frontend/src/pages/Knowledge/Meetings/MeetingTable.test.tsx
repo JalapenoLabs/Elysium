@@ -113,7 +113,7 @@ describe('MeetingTable', () => {
     expect(source.getAttribute('href')).toBe('/settings/connectors/connector-1')
   })
 
-  it('names the projects a meeting\'s topics are on, leaving out one deleted since', () => {
+  it('names the projects a meeting\'s excerpts are on, leaving out one deleted since', () => {
     const store = createAppStore()
     store.dispatch(projectsLoaded([
       makeProject({ id: 'launch', name: 'Launch' }),
@@ -241,5 +241,22 @@ describe('MeetingTable', () => {
 
     await waitFor(() => expect(store.getState().meetings.entities.gone?.deletedAt).toBeNull())
     expect(routes.changeMeetings).toHaveBeenCalledWith([ 'gone' ], 'restore')
+  })
+
+  it('reads a deleted meeting as deleted, not as on the timeline, keeping why it failed', () => {
+    renderTable([
+      makeMeeting({ id: 'finished', title: 'Finished', state: 'done', deletedAt: DELETED_AT }),
+      makeMeeting({
+        id: 'broken',
+        title: 'Broken',
+        state: 'failed',
+        lastError: 'Fireflies refused the key',
+        deletedAt: DELETED_AT,
+      }),
+    ], true)
+
+    expect(screen.getAllByText('Deleted')).toHaveLength(2)
+    expect(screen.queryByText('On the timeline')).toBeNull()
+    expect(screen.getByText('Fireflies refused the key')).toBeTruthy()
   })
 })

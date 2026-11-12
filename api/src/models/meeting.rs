@@ -5,14 +5,15 @@
 //!
 //! A meeting is the event; its captures (`models::meeting_capture`) are the records of it, each
 //! with what its source gave. The meeting keeps the event's own fields (its title, when it started
-//! and for how long, who organized it and took part) and what Elysium made of it: its segments,
+//! and for how long, who organized it and took part) and what Elysium made of it: what segmenting read,
 //! its final transcript (`models::meeting_word`), and its history (`models::meeting_event`).
 //!
 //! A meeting belongs to whoever owns the account its first capture was read from, like every
 //! timeline record. It moves through `pending` (listed), `recorded` (its capture fetched by its
 //! run of the meeting workflow), `segmented`, and `done`, each written by a step of that run. How
 //! far it got is all it keeps of its processing: whether it failed, and why, is its run's
-//! (`crate::meetings::workflow`). Its segments are written once ([`record_segments`]).
+//! (`crate::meetings::workflow`). What segmenting read is written once per segmenting
+//! ([`record_segments`]).
 //!
 //! A meeting whose captures its person merged into another one names it (`merged_into`). It
 //! holds no captures while it does, and is listed nowhere and processed no further; splitting
@@ -42,9 +43,9 @@ pub enum MeetingState {
     /// Its capture's transcript is stored, and its recording too, unless the source keeps none or
     /// its connector names nowhere to keep it.
     Recorded,
-    /// Elysia has cut its transcript into topic segments.
+    /// Segmenting read it, and is taking its excerpts and black-outs.
     Segmented,
-    /// Its segments are on the timeline.
+    /// Its excerpts are on the timeline.
     Done,
 }
 
@@ -76,7 +77,7 @@ pub struct Meeting {
     pub organizer: String,
     /// An array of strings.
     pub participants: Value,
-    /// The segments Elysia found; see `crate::meetings::segmentation::Segment`.
+    /// What segmenting last read of it; see `crate::meetings::excerpts::Taken`.
     pub segments: Option<Value>,
     /// See [`MeetingState`].
     pub state: String,
@@ -148,7 +149,7 @@ pub async fn insert_new(
     }
 }
 
-/// Every meeting whose segments are not on the timeline yet, oldest first. Its state is
+/// Every meeting whose excerpts are not on the timeline yet, oldest first. Its state is
 /// `meetings_unfinished`'s condition, so the partial index answers it.
 ///
 /// # Errors
@@ -390,9 +391,31 @@ pub async fn record_recorded(connection: &mut AsyncPgConnection, id: Uuid) -> Qu
     }
 }
 
-/// Stores the segments Elysia found for fetched meeting `id` and moves it to `segmented`.
-/// Answers `None`, writing nothing, when it has segments already: the first answer stored is the
-/// one its clips and records are made from, so an attempt that runs again never asks twice.
+/// Up to `limit` meetings after meeting `through` in id order, or from the first when `None`,
+/// for the knowledge index's backfill to walk.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn after_id(
+    connection: &mut AsyncPgConnection,
+    through: Option<Uuid>,
+    limit: i64,
+) -> QueryResult<Vec<Meeting>> {
+    let mut statement = meetings::table
+        .select(Meeting::as_select())
+        .order(meetings::id.asc())
+        .limit(limit)
+        .into_boxed();
+    if let Some(through) = through {
+        statement = statement.filter(meetings::id.gt(through));
+    }
+    statement.load(connection).await
+}
+
+/// Stores what segmenting read of fetched meeting `id` (`crate::meetings::excerpts::Taken`) and
+/// moves it to `segmented`. Answers `None`, writing nothing, when it has an answer already: the
+/// first answer stored is the one its excerpts and black-outs are taken from, so an attempt that
+/// runs again never asks twice.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -413,13 +436,32 @@ pub async fn record_segments(
         .optional()
 }
 
-/// Moves meeting `id` to `done`: its segments are on the timeline.
+/// Moves meeting `id` to `done`: its excerpts are on the timeline.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn record_done(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
     diesel::update(meetings::table.find(id))
         .set(meetings::state.eq(MeetingState::Done.as_str()))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Moves fetched meeting `id` back to `recorded`, forgetting what segmenting read of it, so its
+/// next segmenting reads it again: Done reviewing, and a meeting read before excerpts.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reopen_for_segmenting(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set((
+            meetings::segments.eq(None::<Value>),
+            meetings::state.eq(MeetingState::Recorded.as_str()),
+        ))
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await

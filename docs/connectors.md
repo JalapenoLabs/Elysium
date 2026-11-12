@@ -640,7 +640,7 @@ person's mail is theirs even when it is about a shared project. That ownership i
 its recordings, not of the text: the knowledge base indexes every record for everyone in the workspace, in the
 transaction that stores it (`docs/knowledge.md`, Timeline records, and Who sees what).
 
-A record deleted with what it came from (`deleted_at`), today a meeting's segment taken with its meeting
+A record deleted with what it came from (`deleted_at`), today a meeting's excerpt taken with its meeting
 (`docs/meetings.md`, Deleting), is on no timeline, read by no Project Manager, answered `404` by its own routes, and out
 of the knowledge index, while it keeps its attributions and their history; restoring its meeting brings it back as it
 was.
