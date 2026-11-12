@@ -1188,7 +1188,7 @@ an excerpt's clip for its record's owner.
     opens its tasks in a popover: what is to be done, Show in the transcript, which selects its words, and what came of
     it (`taskStatus`): the items made of it, each opening its page with its state, the proposal waiting for approval,
     opening the changeset, the Project Manager's reason for making none, or that it waits for its Project Manager.
-    `meeting.changed`, a changeset, and a changed item read them again. A link to a task's mark (`?mark=`), which its
+    `meeting.changed`, a changeset, and an item changed or deleted read them again. A link to a task's mark (`?mark=`), which its
     item's page makes, selects its words, since tasks draw along the top rather than over them.
   - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
     recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is

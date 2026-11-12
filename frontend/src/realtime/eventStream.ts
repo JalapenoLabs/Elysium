@@ -155,6 +155,8 @@ const handlers: Handlers = {
     store.dispatch(actionItemDeleted(event.data.id))
     void mutate('v1/action-items?deleted=true')
     void mutate(`v1/action-items/${event.data.id}`)
+    // An item made of a meeting's task leaves the meeting's open bar.
+    void mutate(isMeetingTasksKey)
   },
   // What the provider says about the item's links is read live, so a changed link rereads
   // it, if a page shows it.

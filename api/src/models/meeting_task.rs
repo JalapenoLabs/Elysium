@@ -17,14 +17,16 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
+use crate::action_items::changesets::Operation;
 use crate::database::schema::{
     action_items, changeset_operations, changesets, meeting_marks, meeting_task_items,
     meeting_tasks,
 };
 use crate::models::action_item::ActionItem;
-use crate::models::changeset::ChangesetState;
+use crate::models::changeset::{ChangesetDecision, ChangesetState};
 
 /// The longest title a task takes, in characters, as `meeting_tasks.title` allows.
 pub const TITLE_MAX_CHARACTERS: usize = 200;
@@ -294,7 +296,8 @@ pub async fn items_of(
 }
 
 /// The changesets still waiting for a person that would make an item of each of `task_ids`, by
-/// task, oldest first.
+/// task, oldest first: each holds a create naming the task that nobody rejected. A change of
+/// another kind naming the task only says what it came from, and makes no item of it.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -302,19 +305,31 @@ pub async fn pending_proposals_of(
     connection: &mut AsyncPgConnection,
     task_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
-    let rows: Vec<(Option<Uuid>, Uuid)> = changeset_operations::table
+    let rows: Vec<(Option<Uuid>, Uuid, Value)> = changeset_operations::table
         .inner_join(changesets::table)
         .filter(changeset_operations::meeting_task_id.eq_any(task_ids))
         .filter(changesets::state.eq(ChangesetState::Pending))
+        .filter(changeset_operations::decision.ne(ChangesetDecision::Rejected))
         .order(changesets::id.asc())
-        .select((changeset_operations::meeting_task_id, changesets::id))
+        .select((
+            changeset_operations::meeting_task_id,
+            changesets::id,
+            changeset_operations::operation,
+        ))
         .load(connection)
         .await?;
     let mut by_task: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-    for (task_id, changeset_id) in rows {
+    for (task_id, changeset_id, operation) in rows {
         let Some(task_id) = task_id else {
             continue;
         };
+        let creates = matches!(
+            serde_json::from_value::<Operation>(operation),
+            Ok(Operation::CreateItem(_))
+        );
+        if !creates {
+            continue;
+        }
         let proposals = by_task.entry(task_id).or_default();
         if !proposals.contains(&changeset_id) {
             proposals.push(changeset_id);

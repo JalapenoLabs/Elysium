@@ -492,6 +492,22 @@ async fn drive(autonomy: Autonomy) {
     )
     .await;
     assert!(!refused, "{declined}");
+    // A change of another kind may name the task it came from, and makes no item of it.
+    let (refused, grouped) = call(
+        &state,
+        &bearer,
+        "manager_make_changes",
+        json!({
+            "summary": "An initiative for the launch date",
+            "operations": [{
+                "change": { "kind": "create-initiative", "name": "Launch date" },
+                "reason": "The date is still open.",
+                "taskId": date["id"],
+            }],
+        }),
+    )
+    .await;
+    assert!(!refused, "{grouped}");
     let not_its_own = titled(&tasks, "Send Ada the deck");
     let (refused, answer_text) = call(
         &state,
@@ -560,9 +576,15 @@ async fn drive(autonomy: Autonomy) {
         ActionItemState::Open
     };
     assert_eq!(item.state, expected, "{autonomy:?}");
+    let date_now = titled(&tasks, "Pick the launch date");
     assert_eq!(
-        titled(&tasks, "Pick the launch date")["declined"]["reason"],
+        date_now["declined"]["reason"],
         "Nobody took it on yet; I asked in my reply."
+    );
+    assert_eq!(
+        date_now["proposals"],
+        json!([]),
+        "an initiative naming the task proposes no item of it"
     );
     let items_before = action_items::table
         .count()

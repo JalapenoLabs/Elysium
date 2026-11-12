@@ -996,8 +996,8 @@ web app, and `docs/meeting-review.md`, The meeting's page).
 - **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
   (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates
   all three. So are its tasks (`useMeetingTasks`, the bar along the top, `MeetingTasks`), which `meeting.changed`,
-  `changeset.upserted`, and `actionItem.upserted` revalidate (`isMeetingTasksKey`), since an approved changeset or a
-  resolved item moves what came of a task. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
+  `changeset.upserted`, `actionItem.upserted`, and `actionItem.deleted` revalidate (`isMeetingTasksKey`), since an
+  approved changeset or a resolved or deleted item moves what came of a task. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
   page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
   announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
