@@ -323,14 +323,21 @@ mod tests {
     fn the_same_picture_encoded_again_is_a_near_duplicate_and_a_new_line_is_not() {
         let first = compress_frame(&png(&slide(&[0, 1, 2]))).expect("compresses");
         // The same slide as a lossy WebP of a smaller size, as a second capture might send it.
-        let small = DynamicImage::ImageRgba8(slide(&[0, 1, 2])).resize(640, 360, FilterType::Nearest);
+        let small =
+            DynamicImage::ImageRgba8(slide(&[0, 1, 2])).resize(640, 360, FilterType::Nearest);
         let again = compress_frame(&encode_webp(&small).expect("encodes")).expect("compresses");
         let added = compress_frame(&png(&slide(&[0, 1, 2, 3]))).expect("compresses");
 
         let same = fingerprint_distance(&first.fingerprint, &again.fingerprint);
         let different = fingerprint_distance(&first.fingerprint, &added.fingerprint);
-        assert!(same <= NEAR_DUPLICATE_BITS, "encoded again differs in {same} bits");
-        assert!(different > NEAR_DUPLICATE_BITS, "a new line differs in {different} bits");
+        assert!(
+            same <= NEAR_DUPLICATE_BITS,
+            "encoded again differs in {same} bits"
+        );
+        assert!(
+            different > NEAR_DUPLICATE_BITS,
+            "a new line differs in {different} bits"
+        );
     }
 
     /// The CRC-32 a PNG chunk carries over its type and data.

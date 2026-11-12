@@ -26,6 +26,7 @@ fn settings(repository: Option<&str>, github_credential_id: Option<Uuid>) -> Wor
         backup_storage_location_id: None,
         worker_pool_size: None,
         page_attachment_storage_location_id: None,
+        meeting_attachment_max_bytes: 1_000_000_000,
     }
 }
 

@@ -239,6 +239,7 @@ pub async fn run() -> Result<()> {
         storage: foundation.storage.clone(),
         runner: runner.clone(),
         workspace: meeting_workspace.clone(),
+        grants: grants.clone(),
     }));
     let attachment_deps = AttachmentDeps {
         database: database.clone(),

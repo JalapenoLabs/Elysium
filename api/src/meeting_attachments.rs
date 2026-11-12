@@ -35,10 +35,6 @@ use crate::errors::ApiError;
 use crate::file_names;
 use crate::page_attachments;
 
-/// The largest file a meeting takes unless an admin chooses another: 1 GB, room for a recorded
-/// demo or a build, as the design asks.
-pub const DEFAULT_MAX_BYTES: u64 = 1_000_000_000;
-
 /// The most an admin may let a meeting take: what a storage provider takes in one upload, since a
 /// file is kept whole (`crate::storage::MAX_UPLOAD_BYTES`).
 pub const MAX_BYTES_CEILING: u64 = crate::storage::MAX_UPLOAD_BYTES;
@@ -75,7 +71,7 @@ pub enum TextReader {
     Plain,
     /// A PDF, through `pdftotext` in the workspace.
     Pdf,
-    /// An Office Open XML or OpenDocument file, a zip of XML, read in the workspace.
+    /// An Office Open XML or `OpenDocument` file, a zip of XML, read in the workspace.
     Office,
 }
 
@@ -92,7 +88,11 @@ pub struct KnownType {
 }
 
 impl KnownType {
-    const fn image(extension: &'static str, content_type: &'static str, format: ImageFormat) -> Self {
+    const fn image(
+        extension: &'static str,
+        content_type: &'static str,
+        format: ImageFormat,
+    ) -> Self {
         Self {
             extension,
             content_type,
@@ -137,7 +137,11 @@ const KNOWN_TYPES: &[KnownType] = &[
     KnownType::read("log", "text/plain; charset=utf-8", TextReader::Plain),
     KnownType::read("md", "text/markdown; charset=utf-8", TextReader::Plain),
     KnownType::read("csv", "text/csv; charset=utf-8", TextReader::Plain),
-    KnownType::read("tsv", "text/tab-separated-values; charset=utf-8", TextReader::Plain),
+    KnownType::read(
+        "tsv",
+        "text/tab-separated-values; charset=utf-8",
+        TextReader::Plain,
+    ),
     KnownType::read("json", "application/json", TextReader::Plain),
     KnownType::read("yaml", "application/yaml", TextReader::Plain),
     KnownType::read("yml", "application/yaml", TextReader::Plain),
@@ -161,7 +165,11 @@ const KNOWN_TYPES: &[KnownType] = &[
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         TextReader::Office,
     ),
-    KnownType::read("odt", "application/vnd.oasis.opendocument.text", TextReader::Office),
+    KnownType::read(
+        "odt",
+        "application/vnd.oasis.opendocument.text",
+        TextReader::Office,
+    ),
     KnownType::read(
         "ods",
         "application/vnd.oasis.opendocument.spreadsheet",
@@ -205,9 +213,10 @@ pub fn displays_inline(content_type: &str) -> bool {
 /// The extension of `file_name`, in lowercase, or `bin` for a name with none: what a copy of it is
 /// named by in the workspace, where a reader opens it.
 pub fn extension_of(file_name: &str) -> String {
-    file_name
-        .rsplit_once('.')
-        .map_or_else(|| "bin".to_owned(), |(_stem, extension)| extension.to_ascii_lowercase())
+    file_name.rsplit_once('.').map_or_else(
+        || "bin".to_owned(),
+        |(_stem, extension)| extension.to_ascii_lowercase(),
+    )
 }
 
 fn known_type_of(file_name: &str) -> Option<&'static KnownType> {
@@ -245,10 +254,6 @@ impl FileName {
         &self.name
     }
 
-    pub fn content_type(&self) -> &'static str {
-        self.known.map_or(UNKNOWN_TYPE, |known| known.content_type)
-    }
-
     /// Refuses a file named as an image whose `head`, its first bytes, is not that image, so only a
     /// proven image ever displays.
     ///
@@ -275,6 +280,13 @@ pub fn storage_path(meeting_id: Uuid, id: Uuid, file_name: &str) -> String {
         "{STORAGE_DIRECTORY}/{meeting_id}/{id}/{}",
         page_attachments::plain_name(file_name)
     )
+}
+
+/// Where a frame segmenting pinned from capture `capture_id` at `capture_ms` into it is kept: named
+/// by its moment rather than its row, so an attempt after one cut short keeps the same picture at
+/// the same place and leaves no copy that no row names.
+pub fn frame_path(meeting_id: Uuid, capture_id: Uuid, capture_ms: i64) -> String {
+    format!("{STORAGE_DIRECTORY}/{meeting_id}/frames/{capture_id}-{capture_ms}.webp")
 }
 
 /// The address an attachment is served at. Its last segment is there for whoever reads the
@@ -328,8 +340,16 @@ mod tests {
     #[test]
     fn any_file_is_taken_and_only_a_known_type_is_served_as_itself() {
         for (raw, name, content_type) in [
-            ("Q3 Deck (final).PPTX", "Q3 Deck (final).pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
-            ("../../etc/notes.md", "notes.md", "text/markdown; charset=utf-8"),
+            (
+                "Q3 Deck (final).PPTX",
+                "Q3 Deck (final).pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            (
+                "../../etc/notes.md",
+                "notes.md",
+                "text/markdown; charset=utf-8",
+            ),
             ("build.exe", "build.exe", "application/octet-stream"),
             ("page.html", "page.html", "application/octet-stream"),
             ("diagram.svg", "diagram.svg", "application/octet-stream"),
@@ -337,27 +357,32 @@ mod tests {
         ] {
             let parsed = FileName::parse(raw).expect("a name");
             assert_eq!(parsed.as_str(), name, "{raw}");
-            assert_eq!(parsed.content_type(), content_type, "{raw}");
-            assert_eq!(content_type_of(name), content_type, "{raw}");
+            assert_eq!(content_type_of(parsed.as_str()), content_type, "{raw}");
         }
         for raw in ["", "   ", ".png", "dir/"] {
-            assert_eq!(refusal_code(FileName::parse(raw)), "meeting_attachment_name", "{raw:?}");
+            assert_eq!(
+                refusal_code(FileName::parse(raw)),
+                "meeting_attachment_name",
+                "{raw:?}"
+            );
         }
     }
 
     #[test]
     fn nothing_but_a_proven_image_displays() {
         let png = FileName::parse("slide.png").expect("a name");
-        png.require_signature(b"\x89PNG\r\n\x1a\n\0\0\0\0").expect("a PNG");
+        png.require_signature(b"\x89PNG\r\n\x1a\n\0\0\0\0")
+            .expect("a PNG");
         assert_eq!(
             refusal_code(png.require_signature(b"<html><script>")),
             "meeting_attachment_not_an_image"
         );
         // A file no image is named as needs no proof, and never displays.
         let page = FileName::parse("page.html").expect("a name");
-        page.require_signature(b"<html><script>").expect("taken as bytes");
-        assert!(!displays_inline(page.content_type()));
-        assert!(displays_inline(png.content_type()));
+        page.require_signature(b"<html><script>")
+            .expect("taken as bytes");
+        assert!(!displays_inline(content_type_of(page.as_str())));
+        assert!(displays_inline(content_type_of(png.as_str())));
         assert!(displays_inline("image/webp"));
     }
 
@@ -367,7 +392,14 @@ mod tests {
         assert_eq!(reader_of("plan.docx"), Some(TextReader::Office));
         assert_eq!(reader_of("deck.odp"), Some(TextReader::Office));
         assert_eq!(reader_of("data.csv"), Some(TextReader::Plain));
-        for name in ["slide.png", "demo.mp4", "page.html", "build.exe", "LICENSE", "old.doc"] {
+        for name in [
+            "slide.png",
+            "demo.mp4",
+            "page.html",
+            "build.exe",
+            "LICENSE",
+            "old.doc",
+        ] {
             assert_eq!(reader_of(name), None, "{name}");
         }
     }
@@ -387,14 +419,14 @@ mod tests {
         }
     }
 
-    /// The admin's setting starts where the design says, and the database holds it beneath the
-    /// ceiling as this module does.
+    /// The admin's setting starts where the design says, 1 GB, and the database holds it beneath
+    /// the ceiling as this module does.
     #[test]
     fn the_largest_file_starts_at_a_gigabyte_and_never_passes_the_ceiling() {
         let migration = include_str!(
             "../migrations/2026-11-12-010000-0250_attach_files_and_frames_to_meetings/up.sql"
         );
-        assert!(migration.contains(&format!("DEFAULT {DEFAULT_MAX_BYTES}")));
+        assert!(migration.contains("DEFAULT 1000000000"));
         assert!(migration.contains(&format!("BETWEEN 1 AND {MAX_BYTES_CEILING}")));
     }
 
@@ -423,7 +455,10 @@ mod tests {
 
     #[test]
     fn a_caption_is_trimmed_and_bounded() {
-        assert_eq!(caption("  The Q3 roadmap  ").expect("a caption"), "The Q3 roadmap");
+        assert_eq!(
+            caption("  The Q3 roadmap  ").expect("a caption"),
+            "The Q3 roadmap"
+        );
         assert_eq!(refusal_code(caption("   ")), "meeting_frame_caption");
         assert_eq!(
             refusal_code(caption(&"a".repeat(MAX_CAPTION_CHARACTERS + 1))),

@@ -208,7 +208,11 @@ pub async fn still(
     let directory = media::directory(meeting_id);
     let absolute = directory.absolute();
     let still_name = format!("still-{}.jpg", Uuid::now_v7().simple());
-    let seconds = format!("{}.{:03}", capture_ms.max(0) / 1000, capture_ms.max(0) % 1000);
+    let seconds = format!(
+        "{}.{:03}",
+        capture_ms.max(0) / 1000,
+        capture_ms.max(0) % 1000
+    );
     let output = workspace
         .run_script(
             AGENT_USER,
@@ -295,10 +299,16 @@ mod tests {
         shades.extend([120; 4]);
         let offered = changes(&samples(&shades));
 
-        let moments: Vec<i64> = offered.iter().map(|candidate| candidate.capture_ms).collect();
+        let moments: Vec<i64> = offered
+            .iter()
+            .map(|candidate| candidate.capture_ms)
+            .collect();
         assert_eq!(moments, [0, 15_000, 50_000]);
         assert_eq!(
-            offered.iter().map(|candidate| candidate.id.as_str()).collect::<Vec<_>>(),
+            offered
+                .iter()
+                .map(|candidate| candidate.id.as_str())
+                .collect::<Vec<_>>(),
             ["f1", "f2", "f3"]
         );
     }
@@ -310,7 +320,10 @@ mod tests {
         let offered = changes(&samples(&shades));
 
         assert_eq!(
-            offered.iter().map(|candidate| candidate.capture_ms).collect::<Vec<_>>(),
+            offered
+                .iter()
+                .map(|candidate| candidate.capture_ms)
+                .collect::<Vec<_>>(),
             [0, 30_000],
             "the one-shade flicker is noise, and of the build only its fuller moment is offered"
         );

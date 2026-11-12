@@ -126,20 +126,19 @@ async fn run_frame(
 /// moment on the meeting's clock inside the video.
 fn capture_ms_of(segmenting: &SegmentingScope, named: &str) -> Result<i64, ToolError> {
     let named = named.trim();
-    let capture_ms = match segmenting
+    let offered = segmenting
         .candidates
         .iter()
-        .find(|candidate| candidate.id == named)
-    {
-        Some(candidate) => candidate.capture_ms,
-        None => {
-            let meeting_ms = moment_of(named).ok_or_else(|| {
-                ToolError::Invalid(format!(
-                    "{named} is neither a still the prompt names nor a moment such as 12:04"
-                ))
-            })?;
-            meeting_ms - segmenting.offset_ms
-        }
+        .find(|candidate| candidate.id == named);
+    let capture_ms = if let Some(candidate) = offered {
+        candidate.capture_ms
+    } else {
+        let meeting_ms = moment_of(named).ok_or_else(|| {
+            ToolError::Invalid(format!(
+                "{named} is neither a still the prompt names nor a moment such as 12:04"
+            ))
+        })?;
+        meeting_ms - segmenting.offset_ms
     };
     let inside = capture_ms >= 0
         && segmenting
@@ -200,8 +199,14 @@ mod tests {
         let segmenting = segmenting();
         assert_eq!(capture_ms_of(&segmenting, "f1").expect("offered"), 30_000);
         // The video starts a minute into the meeting, so 1:30 is 30 seconds into it.
-        assert_eq!(capture_ms_of(&segmenting, " 1:30 ").expect("inside"), 30_000);
-        assert_eq!(capture_ms_of(&segmenting, "0:03:00").expect("its end"), 120_000);
+        assert_eq!(
+            capture_ms_of(&segmenting, " 1:30 ").expect("inside"),
+            30_000
+        );
+        assert_eq!(
+            capture_ms_of(&segmenting, "0:03:00").expect("its end"),
+            120_000
+        );
     }
 
     #[test]
@@ -225,6 +230,8 @@ mod tests {
         });
         let refused = elysia.segmenting().expect_err("Elysia's own turn");
         assert!(refused.to_string().contains("a meeting's segmenting"));
-        assert!(CallScope::Segmenting(segmenting()).segmenting().is_ok());
+        CallScope::Segmenting(segmenting())
+            .segmenting()
+            .expect("its own turn");
     }
 }

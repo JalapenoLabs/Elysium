@@ -26,6 +26,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{Level, event};
@@ -42,7 +43,8 @@ use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_attachment::{self, MeetingAttachment, StoredFrame};
 use crate::models::meeting_capture;
 use crate::models::meeting_mark::{MarkError, Range};
-use crate::models::{storage_location, user};
+use crate::models::storage_location::{self, StorageLocation};
+use crate::models::user;
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
@@ -118,7 +120,11 @@ async fn response(
     attachment: MeetingAttachment,
 ) -> Result<AttachmentResponse, ApiError> {
     let offset_ms = match attachment.capture_id {
-        Some(capture_id) => Some(meeting_capture::find(connection, capture_id).await?.offset_ms),
+        Some(capture_id) => Some(
+            meeting_capture::find(connection, capture_id)
+                .await?
+                .offset_ms,
+        ),
         None => None,
     };
     Ok(AttachmentResponse::new(attachment, offset_ms))
@@ -215,10 +221,14 @@ pub async fn remove(
         .await
         .context("no database connection available")?;
     let found = editable(&mut connection, id, &current).await?;
-    let entry =
-        meeting_attachments_change::detach(&mut connection, &found, attachment_id, author_of(&current))
-            .await
-            .map_err(refusal)?;
+    let entry = meeting_attachments_change::detach(
+        &mut connection,
+        &found,
+        attachment_id,
+        author_of(&current),
+    )
+    .await
+    .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;
     announce(&state.events, &found, &entry);
     Ok(Json(json!({
@@ -286,46 +296,25 @@ pub async fn take_frame(
     // Compressing and storing take a moment; no connection is held while they do.
     drop(connection);
 
-    let frame = tokio::task::spawn_blocking(move || images::compress_frame(&body))
-        .await
-        .context("compressing a frame panicked")?
-        .map_err(frame_refusal)?;
     let access_key = location
         .access_key(&state.cipher)
         .context("the storage location's access key cannot be decrypted")?;
-    let attachment_id = Uuid::now_v7();
-    let file_name = meeting_attachments::frame_name(query.capture_ms);
-    let storage_path = meeting_attachments::storage_path(found.id, attachment_id, &file_name);
-    let size_bytes = i64::try_from(frame.webp.len()).context("a frame's size fits a bigint")?;
-    state
-        .storage
-        .upload(
-            &location,
-            &access_key,
-            &storage_path,
-            futures_util::stream::once(async move { Ok::<_, std::io::Error>(Bytes::from(frame.webp)) }),
-            u64::try_from(size_bytes).context("a frame's size is positive")?,
-            Some("image/webp"),
-        )
-        .await?;
+    let stored = store_frame(
+        &state,
+        (&location, &access_key),
+        &found,
+        &query,
+        caption,
+        body,
+    )
+    .await?;
+    let storage_path = stored.storage_path.clone();
 
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let stored = StoredFrame {
-        id: attachment_id,
-        meeting_id: found.id,
-        storage_location_id: location.id,
-        storage_path: storage_path.clone(),
-        file_name,
-        size_bytes,
-        capture_id: query.capture_id,
-        capture_ms: query.capture_ms,
-        caption,
-        fingerprint: frame.fingerprint,
-    };
     let attached = match meeting_attachments_change::attach_frame(
         &mut connection,
         &found,
@@ -367,8 +356,56 @@ pub async fn take_frame(
     ))
 }
 
+/// Keeps `body`, a still of `query`'s capture of `found`, in `location`: re-encoded from its
+/// pixels as a frame (`crate::images::compress_frame`), and named for its moment.
+async fn store_frame(
+    state: &AppState,
+    (location, access_key): (&StorageLocation, &SecretString),
+    found: &Meeting,
+    query: &FrameQuery,
+    caption: String,
+    body: Bytes,
+) -> Result<StoredFrame, ApiError> {
+    let frame = tokio::task::spawn_blocking(move || images::compress_frame(&body))
+        .await
+        .context("compressing a frame panicked")?
+        .map_err(frame_refusal)?;
+    let attachment_id = Uuid::now_v7();
+    let file_name = meeting_attachments::frame_name(query.capture_ms);
+    let storage_path = meeting_attachments::storage_path(found.id, attachment_id, &file_name);
+    let size_bytes = i64::try_from(frame.webp.len()).context("a frame's size fits a bigint")?;
+    let webp = Bytes::from(frame.webp);
+    state
+        .storage
+        .upload(
+            location,
+            access_key,
+            &storage_path,
+            futures_util::stream::once(async move { Ok::<_, std::io::Error>(webp) }),
+            u64::try_from(size_bytes).context("a frame's size is positive")?,
+            Some("image/webp"),
+        )
+        .await?;
+    Ok(StoredFrame {
+        id: attachment_id,
+        meeting_id: found.id,
+        storage_location_id: location.id,
+        storage_path,
+        file_name,
+        size_bytes,
+        capture_id: query.capture_id,
+        capture_ms: query.capture_ms,
+        caption,
+        fingerprint: frame.fingerprint,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields are the request's wire names, which every range route shares"
+)]
 pub struct PinRequest {
     attachment_id: Uuid,
     start_word_id: Uuid,

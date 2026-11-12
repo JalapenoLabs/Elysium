@@ -59,6 +59,8 @@ pub async fn handle(
         file.size = body.max_bytes,
         "chose the largest file a meeting takes: {{file.size}} bytes",
     );
-    state.events.publish(&ServerEvent::MeetingAttachmentsChanged);
+    state
+        .events
+        .publish(&ServerEvent::MeetingAttachmentsChanged);
     Ok(Json(json!({ "policy": PolicyResponse::from(settings) })))
 }

@@ -82,7 +82,15 @@ pub async fn attach_file(
     require_room(connection, file.meeting_id).await?;
     let attachment =
         meeting_attachment::insert(connection, NewAttachment::file(file, author)).await?;
-    let entry = record(connection, EventKind::Attached, &attachment, &[], author, None).await?;
+    let entry = record(
+        connection,
+        EventKind::Attached,
+        &attachment,
+        &[],
+        author,
+        None,
+    )
+    .await?;
     Ok(Attached { attachment, entry })
 }
 
@@ -130,15 +138,11 @@ pub(crate) async fn frame_on(
         return Err(AttachmentError::NoRecording);
     }
     require_room(connection, meeting.id).await?;
-    let range = match range {
-        Some(range) => {
-            meeting_mark::check_range(connection, meeting.id, range).await?;
-            Some(range)
-        }
-        None => {
-            let moment = capture.offset_ms + frame.capture_ms;
-            word_at(connection, meeting.id, moment).await?
-        }
+    let range = if let Some(range) = range {
+        meeting_mark::check_range(connection, meeting.id, range).await?;
+        Some(range)
+    } else {
+        word_at(connection, meeting.id, capture.offset_ms + frame.capture_ms).await?
     };
     let attachment =
         meeting_attachment::insert(connection, NewAttachment::frame(frame, author)).await?;
@@ -183,7 +187,8 @@ pub async fn pin(
             let data = json!({ "attachmentId": attachment.id });
             let new = NewMark::new(meeting.id, MarkKind::Pin, range, data, author);
             let mark = meeting_mark::insert(connection, new).await?;
-            let entry = meeting_mark::record_made(connection, &mark, author, None, json!({})).await?;
+            let entry =
+                meeting_mark::record_made(connection, &mark, author, None, json!({})).await?;
             refresh_over_pins(connection, meeting, std::slice::from_ref(&mark)).await?;
             Ok((mark, entry))
         })
@@ -241,12 +246,9 @@ pub(crate) async fn undo(
         )),
         Some(EventKind::Detached) if attachment.removed_by == Some(undone.id) => {
             meeting_attachment::restore_all(connection, &[attachment.id], undone.id).await?;
-            let restored = meeting_mark::restore_all(
-                connection,
-                &ids_in(&undone.data, "pins"),
-                undone.id,
-            )
-            .await?;
+            let restored =
+                meeting_mark::restore_all(connection, &ids_in(&undone.data, "pins"), undone.id)
+                    .await?;
             let pins = meeting_mark::find_many(connection, meeting.id, &restored).await?;
             let entry = record(
                 connection,
@@ -358,7 +360,9 @@ async fn word_at(
         if word.start_ms <= moment && moment <= word.end_ms.max(word.start_ms) {
             0
         } else {
-            (word.start_ms - moment).abs().min((word.end_ms - moment).abs())
+            (word.start_ms - moment)
+                .abs()
+                .min((word.end_ms - moment).abs())
         }
     });
     Ok(nearest.map(|word| Range {

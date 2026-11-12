@@ -898,11 +898,12 @@ pub async fn index_transcript(
         return Ok(());
     }
     let threads = meeting_comment::indexed_over(connection, meeting.id, i64::MIN, i64::MAX).await?;
-    let attachments: Vec<IndexedAttachment> = meeting_attachment::of_meeting(connection, meeting.id)
-        .await?
-        .into_iter()
-        .map(IndexedAttachment::from)
-        .collect();
+    let attachments: Vec<IndexedAttachment> =
+        meeting_attachment::of_meeting(connection, meeting.id)
+            .await?
+            .into_iter()
+            .map(IndexedAttachment::from)
+            .collect();
     match transcript_document(meeting, text, &threads, &attachments) {
         Some(document) => knowledge_document::upsert(connection, &document)
             .await
@@ -958,6 +959,9 @@ pub fn transcript_document(
 pub struct Taken {
     pub excerpts: Vec<TakenExcerpt>,
     pub black_outs: Vec<Range>,
+    /// The frames of the meeting's video it pinned; none in an answer stored before frames were.
+    #[serde(default)]
+    pub frames: Vec<super::segment::TakenFrame>,
 }
 
 /// One excerpt segmenting took.

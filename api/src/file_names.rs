@@ -91,7 +91,13 @@ mod tests {
         let cleaned = clean("LICENSE").expect("a name");
         assert_eq!(cleaned.extension(), "");
         assert_eq!(cleaned.into_name(200), "LICENSE");
-        assert_eq!(clean(&"a".repeat(300)).expect("a name").into_name(200).len(), 200);
+        assert_eq!(
+            clean(&"a".repeat(300))
+                .expect("a name")
+                .into_name(200)
+                .len(),
+            200
+        );
     }
 
     #[test]

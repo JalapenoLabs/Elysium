@@ -293,10 +293,18 @@ pub fn frames_prompt(video: OfferedVideo<'_>) -> String {
     for candidate in video.candidates {
         let moment = clock(candidate.capture_ms + video.offset_ms);
         let _ = if candidate.capture_ms == 0 {
-            writeln!(prompt, "[{}] at {moment}, the screen as the video opens", candidate.id)
+            writeln!(
+                prompt,
+                "[{}] at {moment}, the screen as the video opens",
+                candidate.id
+            )
         } else {
             let percent = (candidate.change * 100.0).round();
-            writeln!(prompt, "[{}] at {moment}, the screen changed {percent}%", candidate.id)
+            writeln!(
+                prompt,
+                "[{}] at {moment}, the screen changed {percent}%",
+                candidate.id
+            )
         };
     }
     if video.candidates.is_empty() {
@@ -795,8 +803,7 @@ pub fn parse_frames_answer(
                 .duration_ms
                 .is_none_or(|duration_ms| capture_ms <= duration_ms);
         let caption = one_line(&candidate.caption, MAX_CAPTION_CHARACTERS - 1);
-        if !inside || caption.is_empty() || found.iter().any(|kept| kept.capture_ms == capture_ms)
-        {
+        if !inside || caption.is_empty() || found.iter().any(|kept| kept.capture_ms == capture_ms) {
             continue;
         }
         found.push(FoundFrame {
@@ -816,7 +823,11 @@ pub(crate) fn moment_of(written: &str) -> Option<i64> {
         return None;
     }
     for part in &parts {
-        let value: f64 = part.trim().parse().ok().filter(|value: &f64| *value >= 0.0)?;
+        let value: f64 = part
+            .trim()
+            .parse()
+            .ok()
+            .filter(|value: &f64| *value >= 0.0)?;
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a moment of a meeting is far inside an i64 of milliseconds"

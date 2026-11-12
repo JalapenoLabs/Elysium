@@ -94,13 +94,19 @@ use crate::runner::events::{RunnerEvent, TurnStatus};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
 use crate::storage::Storage;
+use crate::tools::grants::Grants;
+use crate::tools::{self, CallScope};
 use crate::whisper::{WhisperTranscript, WhisperWord};
 use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
 
-/// Where segmentation turns run. They use no tools, so the directory only needs to exist.
+/// Where segmentation turns run. They read and write no files, so the directory only needs to
+/// exist.
 const SEGMENTATION_DIRECTORY: &str = ".elysium/segmentation";
 
 mod item;
+mod pinning;
+
+pub use pinning::TakenFrame;
 
 /// What [`SegmentMeeting`] takes: a meeting past its correction, a conversation intake gathered,
 /// or an action item to attribute.
@@ -184,6 +190,7 @@ struct Inner {
     storage: Storage,
     runner: Runner,
     workspace: WorkspaceContainer,
+    grants: Grants,
 }
 
 impl std::fmt::Debug for SegmentMeeting {
@@ -208,6 +215,8 @@ pub struct SegmentMeetingDeps {
     pub storage: Storage,
     pub runner: Runner,
     pub workspace: WorkspaceContainer,
+    /// What a turn over a meeting's video is granted its frames tool with.
+    pub grants: Grants,
 }
 
 impl SegmentMeeting {
@@ -221,6 +230,7 @@ impl SegmentMeeting {
                 storage: deps.storage,
                 runner: deps.runner,
                 workspace: deps.workspace,
+                grants: deps.grants,
             }),
         }
     }
@@ -312,9 +322,16 @@ impl SegmentMeeting {
             }
         };
 
-        let Some(took) = self.publish(current.id, &taken).await? else {
+        let frames = self.prepare_frames(&current, &taken.frames, log).await?;
+        let Some((took, pinned)) = self.publish(current.id, &taken, &frames).await? else {
             return self.published_by_another(current.id, log).await;
         };
+        if !taken.frames.is_empty() {
+            log.line(&format!(
+                "Pinned {pinned} of the {} frames it chose",
+                taken.frames.len()
+            ));
+        }
         log.line(&format!(
             "Took {} excerpts and {} black-outs: made {}, kept {} of Elysia's own, and removed {}",
             taken.excerpts.len(),
@@ -452,15 +469,31 @@ impl SegmentMeeting {
                 .log
                 .line("The transcript carries no times, so its lines are read by number alone");
         }
-        let prompt = segmentation::excerpts_prompt(meeting_context, &prompt_lines, timed, &choices);
-        let answer = self
-            .ask(
-                format!("meeting:{}:segmentation", current.id),
-                prompt,
-                segmentation::EXCERPTS_SYSTEM_PROMPT,
-                context,
-            )
-            .await?;
+        // A meeting in words alone has no clock to show its video by.
+        let video = if timed {
+            self.offer_video(current, &context.log).await?
+        } else {
+            None
+        };
+        let mut prompt =
+            segmentation::excerpts_prompt(meeting_context, &prompt_lines, timed, &choices);
+        let label = format!("meeting:{}:segmentation", current.id);
+        let answer = match &video {
+            None => {
+                self.ask(label, prompt, segmentation::EXCERPTS_SYSTEM_PROMPT, context)
+                    .await?
+            }
+            Some(video) => {
+                prompt.push_str(&segmentation::frames_prompt(video.offered()));
+                let system_prompt = format!(
+                    "{} {}",
+                    segmentation::EXCERPTS_SYSTEM_PROMPT,
+                    segmentation::FRAMES_SYSTEM_PROMPT
+                );
+                self.ask_looking(label, prompt, system_prompt, video, context)
+                    .await?
+            }
+        };
         let untitled = |first: usize| {
             if timed {
                 format!(
@@ -483,6 +516,12 @@ impl SegmentMeeting {
         ));
         let range_of =
             |run: LineRun| text.range_of(&(lines[run.first].start..=lines[run.last].end - 1));
+        let frames = taken_frames(&answer, video.as_ref(), lines.len(), range_of);
+        if video.is_some() {
+            context
+                .log
+                .line(&format!("It chose {} frames to pin", frames.len()));
+        }
         Ok(Taken {
             excerpts: reading
                 .excerpts
@@ -497,6 +536,7 @@ impl SegmentMeeting {
                 })
                 .collect(),
             black_outs: reading.black_outs.into_iter().map(range_of).collect(),
+            frames,
         })
     }
 
@@ -743,10 +783,16 @@ impl SegmentMeeting {
             .map_err(StepFailure::retryable)
     }
 
-    /// Takes `taken` into meeting `meeting_id` and marks it done, in one transaction under its
-    /// lock, then refreshes what its excerpts and its own document read. Answers `None`, taking
-    /// nothing, when another attempt marked it done first, so two attempts at once take it once.
-    async fn publish(&self, meeting_id: Uuid, taken: &Taken) -> Result<Option<Took>, StepFailure> {
+    /// Takes `taken` into meeting `meeting_id` with its `frames` pinned, and marks it done, in one
+    /// transaction under its lock, then refreshes what its excerpts and its own document read.
+    /// Answers what it took and how many frames it pinned, or `None`, taking nothing, when another
+    /// attempt marked it done first, so two attempts at once take it once.
+    async fn publish(
+        &self,
+        meeting_id: Uuid,
+        taken: &Taken,
+        frames: &[pinning::Prepared],
+    ) -> Result<Option<(Took, usize)>, StepFailure> {
         let mut connection = self.connection().await?;
         connection
             .transaction(async move |connection| {
@@ -756,9 +802,10 @@ impl SegmentMeeting {
                 }
                 let capture = meeting_capture::first_of(connection, meeting_id).await?;
                 let took = excerpts::take(connection, &locked, &capture, taken).await?;
+                let pinned = pinning::pin_frames(connection, &locked, frames).await?;
                 let done = meeting::record_done(connection, meeting_id).await?;
                 excerpts::refresh(connection, &done, None).await?;
-                Ok::<_, diesel::result::Error>(Some(took))
+                Ok::<_, diesel::result::Error>(Some((took, pinned)))
             })
             .await
             .map_err(StepFailure::retryable)
@@ -949,6 +996,48 @@ impl SegmentMeeting {
         system_prompt: &str,
         context: &StepContext,
     ) -> Result<String, StepFailure> {
+        let mode = TurnMode::Text {
+            system_prompt: system_prompt.to_owned(),
+        };
+        self.ask_turn(label, prompt, mode, Vec::new(), context)
+            .await
+    }
+
+    /// One turn over a meeting with `video`, which looks at its stills through the frames tool,
+    /// granted over that video alone for the turn, and may hand them to subagents.
+    async fn ask_looking(
+        &self,
+        label: String,
+        prompt: String,
+        system_prompt: String,
+        video: &pinning::Video,
+        context: &StepContext,
+    ) -> Result<String, StepFailure> {
+        let scope = CallScope::Segmenting(video.scope());
+        let grant = self
+            .inner
+            .grants
+            .grant(&scope, &[&tools::frames::SERVER])
+            .await
+            .map_err(StepFailure::retryable)?;
+        let mode = TurnMode::TextWithSubagents { system_prompt };
+        let answer = self
+            .ask_turn(label, prompt, mode, grant.mcp_servers(), context)
+            .await;
+        grant.revoke().await;
+        answer
+    }
+
+    /// One turn of `mode` with `mcp_servers` on the step's model, answering the model's final
+    /// text.
+    async fn ask_turn(
+        &self,
+        label: String,
+        prompt: String,
+        mode: TurnMode,
+        mcp_servers: Vec<crate::runner::McpServer>,
+        context: &StepContext,
+    ) -> Result<String, StepFailure> {
         // Read as each turn starts, so an admin's change applies from the next one.
         let model = context.model().await?;
         let request = TurnRequest {
@@ -958,15 +1047,13 @@ impl SegmentMeeting {
             working_directory: WorkspacePath::new(SEGMENTATION_DIRECTORY)
                 .expect("the segmentation directory is a plain relative path"),
             resume: None,
-            mcp_servers: Vec::new(),
+            mcp_servers,
             allowed_tools: None,
             system_prompt_append: None,
             environment: Vec::new(),
             model: Some(model.model),
             effort: Some(model.effort),
-            mode: TurnMode::Text {
-                system_prompt: system_prompt.to_owned(),
-            },
+            mode,
         };
         let mut ticket = self
             .inner
@@ -1060,6 +1147,7 @@ impl SegmentMeeting {
 
     fn with_runner(database: Pool, runner: Runner) -> Self {
         let workspace = unreachable_workspace();
+        let database_for_grants = database.clone();
         let events = EventBus::in_process();
         Self::new(SegmentMeetingDeps {
             activity: Activity::new(database.clone(), events.clone()),
@@ -1069,6 +1157,7 @@ impl SegmentMeeting {
             storage: Storage::new(reqwest::Client::new()),
             runner,
             workspace,
+            grants: Grants::new(database_for_grants),
         })
     }
 }
@@ -1156,6 +1245,28 @@ fn uncut_clips(
         }
     }
     uncut
+}
+
+/// The frames `answer` pins of `video`, each over the range of words its run of `line_count` lines
+/// reads as; none for a meeting segmenting was offered no video of.
+fn taken_frames(
+    answer: &str,
+    video: Option<&pinning::Video>,
+    line_count: usize,
+    range_of: impl Fn(LineRun) -> crate::models::meeting_mark::Range,
+) -> Vec<TakenFrame> {
+    let Some(video) = video else {
+        return Vec::new();
+    };
+    segmentation::parse_frames_answer(answer, line_count, video.offered())
+        .into_iter()
+        .map(|found| TakenFrame {
+            capture_id: video.capture.id,
+            capture_ms: found.capture_ms,
+            range: range_of(found.lines),
+            caption: found.caption,
+        })
+        .collect()
 }
 
 /// A meeting's standing excerpts, `records` with their attributions, as the step gives them, in

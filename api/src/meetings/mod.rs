@@ -35,9 +35,9 @@
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
 pub mod align;
+pub mod alignment;
 pub mod attachment_workflow;
 pub mod attachments;
-pub mod alignment;
 pub mod clock;
 pub mod comments;
 pub mod conversation;
@@ -468,9 +468,12 @@ impl Meetings {
     async fn sweep_finished_uploads(&self, before: DateTime<Utc>) {
         let finished = match self.connection().await {
             Ok(mut connection) => {
-                let captures =
-                    meeting_upload::finished_with_parts(&mut connection, before, UPLOAD_SWEEP_BATCH)
-                        .await;
+                let captures = meeting_upload::finished_with_parts(
+                    &mut connection,
+                    before,
+                    UPLOAD_SWEEP_BATCH,
+                )
+                .await;
                 let attachments = meeting_upload::finished_attachments_with_parts(
                     &mut connection,
                     before,

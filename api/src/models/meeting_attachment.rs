@@ -123,13 +123,6 @@ impl MeetingAttachment {
     pub fn text_state(&self) -> Option<TextState> {
         TextState::parse(&self.text_state)
     }
-
-    /// A frame's fingerprint, when it is one.
-    pub fn fingerprint(&self) -> Option<[u8; 32]> {
-        self.fingerprint
-            .as_deref()
-            .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
-    }
 }
 
 /// A file or a frame to record: for a frame, where it is already stored and what it shows.
@@ -544,5 +537,8 @@ pub async fn pin_spans(
     .bind::<SqlUuid, _>(attachment_id)
     .load(connection)
     .await?;
-    Ok(rows.into_iter().map(|row| (row.start_ms, row.end_ms)).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.start_ms, row.end_ms))
+        .collect())
 }

@@ -16,7 +16,7 @@
 //! # Reading text
 //!
 //! Plain text is read as it streams from storage. A PDF is read by `pdftotext` and an Office or
-//! OpenDocument file by a short Python program, each in the workspace container, as a meeting's
+//! `OpenDocument` file by a short Python program, each in the workspace container, as a meeting's
 //! media is cut there (`super::media`): a file someone chose is read in a container of its own
 //! rather than by a parser inside the engine, and the engine's memory stays flat whatever its
 //! size. What is read is cut to `TEXT_MAX_CHARACTERS`. A file that cannot be read is recorded as
@@ -65,13 +65,13 @@ set -euo pipefail
 pdftotext -enc UTF-8 -q -- "$1" "$2"
 "#;
 
-/// Reads an Office Open XML or OpenDocument file's text into a file: every paragraph, heading,
+/// Reads an Office Open XML or `OpenDocument` file's text into a file: every paragraph, heading,
 /// and spreadsheet string, one a line, in the order the file keeps them. `$1` is the file, `$2`
 /// the text, `$3` the most characters to write.
 ///
 /// A document is a zip of XML parts. Only the parts that hold what someone wrote are read (a
 /// document's body and notes, a deck's slides then their notes in order, a workbook's strings, an
-/// OpenDocument's content), each at most 64 MiB unpacked, so a zip that unpacks to far more than
+/// `OpenDocument`'s content), each at most 64 MiB unpacked, so a zip that unpacks to far more than
 /// it holds reads nothing past that. Python's own XML parser expands no external entities, and the
 /// expat it runs on refuses amplifying ones.
 const OFFICE_SCRIPT: &str = r#"
@@ -231,7 +231,9 @@ impl std::fmt::Debug for Inner {
         reason = "project naming rule forbids std's one-letter `f`"
     )]
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("AttachmentSteps").finish_non_exhaustive()
+        formatter
+            .debug_struct("AttachmentSteps")
+            .finish_non_exhaustive()
     }
 }
 
@@ -473,7 +475,10 @@ impl ReadAttachmentText {
         };
 
         let directory = scratch_directory(attachment.id);
-        let source = format!("file.{}", meeting_attachments::extension_of(&attachment.file_name));
+        let source = format!(
+            "file.{}",
+            meeting_attachments::extension_of(&attachment.file_name)
+        );
         let written = self
             .inner
             .workspace
