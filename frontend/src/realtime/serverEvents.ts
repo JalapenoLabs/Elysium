@@ -71,6 +71,9 @@ export type ServerEvent =
   // An admin chose where page attachments go. Nothing more, for the same reason; members load it
   // again.
   | { type: 'pageAttachments.changed' }
+  // An admin chose the largest file a meeting takes. Nothing more, for the same reason; everyone
+  // loads the policy again.
+  | { type: 'meetingAttachments.changed' }
   // An admin saved or restored a version of the agent guidance. Nothing more; members load it
   // again.
   | { type: 'agentGuidance.changed' }

@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import type { Mock } from 'vitest'
 import type { MeetingHistoryEntry } from '../../../api/routes/meetingRoutes'
+import type { MeetingUpload } from '../../../api/routes/meetingUploadRoutes'
 
 // Core
 import { act, renderHook } from '@testing-library/react'
@@ -15,16 +16,29 @@ import { createAppStore } from '../../../store'
 import { selectMeetingById } from '../../../store/meetingsSlice'
 
 // Misc
-import { setCaptureOffset, splitCapture, undoMeetingChange } from '../../../api/routes/meetingRoutes'
-import { makeMeeting } from '../../../testFixtures'
+import { setCaptureOffset, splitCapture, takeMeetingFrame, undoMeetingChange } from '../../../api/routes/meetingRoutes'
+import { createMeetingUpload, finishAttachmentUpload } from '../../../api/routes/meetingUploadRoutes'
+import { makeMeeting, makeMeetingAttachment, makeMeetingAttachmentPolicy } from '../../../testFixtures'
 import { toast } from '../../../toast/toast'
+import { sendMeetingFiles } from '../../MeetingUploads/sendMeetingFiles'
 import { useMeetingChanges } from './useMeetingChanges'
 
 vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../api/routes/meetingRoutes')>(),
   setCaptureOffset: vi.fn(),
   splitCapture: vi.fn(),
+  takeMeetingFrame: vi.fn(),
   undoMeetingChange: vi.fn(),
+}))
+
+vi.mock('../../../api/routes/meetingUploadRoutes', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../api/routes/meetingUploadRoutes')>(),
+  createMeetingUpload: vi.fn(),
+  finishAttachmentUpload: vi.fn(),
+}))
+
+vi.mock('../../MeetingUploads/sendMeetingFiles', () => ({
+  sendMeetingFiles: vi.fn(),
 }))
 
 vi.mock('../../../toast/toast', () => ({
@@ -68,6 +82,24 @@ function renderChanges(context: Context) {
   })
 }
 
+// An upload carrying one file to attach to the meeting, every part of it arrived.
+function attachmentUpload(): MeetingUpload {
+  return {
+    id: 'upload',
+    meetingId: 'meeting',
+    title: null,
+    startedAt: null,
+    storageLocationId: 'location-1',
+    partBytes: 8,
+    files: [{ kind: 'attachment', fileName: 'Roadmap.pdf', sizeBytes: 6, modifiedAt: null, receivedBytes: 6 }],
+    captureId: null,
+    attachmentId: null,
+    finishedAt: null,
+    createdAt: '2026-11-10T12:00:00Z',
+    updatedAt: '2026-11-10T12:00:00Z',
+  }
+}
+
 // The Undo a change's toast offered.
 function undoInToast() {
   const [ , options ] = vi.mocked(toast.success).mock.calls.at(-1) ?? []
@@ -85,6 +117,10 @@ describe('useMeetingChanges', () => {
     vi.mocked(setCaptureOffset).mockReset()
     vi.mocked(splitCapture).mockReset()
     vi.mocked(undoMeetingChange).mockReset()
+    vi.mocked(takeMeetingFrame).mockReset()
+    vi.mocked(createMeetingUpload).mockReset()
+    vi.mocked(finishAttachmentUpload).mockReset()
+    vi.mocked(sendMeetingFiles).mockReset()
     vi.mocked(toast).mockReset()
     vi.mocked(toast.success).mockReset()
     vi.mocked(toast.warning).mockReset()
@@ -164,6 +200,74 @@ describe('useMeetingChanges', () => {
 
     expect(undoMeetingChange).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith('Edits, comments, and approval happen in the meeting it was merged into.')
+  })
+
+  it<Context>('attaches a file in parts, alone in its upload, and Ctrl+Z takes it off again', async (context) => {
+    const upload = attachmentUpload()
+    vi.mocked(createMeetingUpload).mockResolvedValue({ upload })
+    vi.mocked(sendMeetingFiles).mockResolvedValue(upload)
+    vi.mocked(finishAttachmentUpload).mockResolvedValue({
+      attachment: makeMeetingAttachment({ id: 'roadmap' }),
+      entry: entry('attached', 'attached'),
+    })
+    const { result } = renderChanges(context)
+    const file = new File([ 'abcdef' ], 'Roadmap.pdf', { lastModified: Date.parse('2026-11-10T11:00:00Z') })
+
+    await act(async () => result.current.attachFile(file, makeMeetingAttachmentPolicy()))
+
+    expect(createMeetingUpload).toHaveBeenCalledWith({
+      meetingId: 'meeting',
+      attachment: { name: 'Roadmap.pdf', sizeBytes: 6, modifiedAt: '2026-11-10T11:00:00.000Z' },
+    })
+    expect(vi.mocked(sendMeetingFiles).mock.calls[0][0].files).toEqual({ attachment: file })
+    expect(finishAttachmentUpload).toHaveBeenCalledWith('upload')
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Attached “Roadmap.pdf”')
+    expect(result.current.attaching).toEqual([])
+
+    await act(async () => result.current.undoLast())
+    expect(undoMeetingChange).toHaveBeenCalledWith('meeting', 'attached')
+  })
+
+  it<Context>('refuses a file larger than a meeting takes before a byte of it is sent', async (context) => {
+    const { result } = renderChanges(context)
+
+    await act(async () => result.current.attachFile(
+      new File([ 'x'.repeat(2_000) ], 'Recording.mov'),
+      makeMeetingAttachmentPolicy({ maxBytes: 1_000 }),
+    ))
+
+    expect(createMeetingUpload).not.toHaveBeenCalled()
+    expect(toast.danger).toHaveBeenCalledWith('Recording.mov was not attached', {
+      description: expect.stringContaining('Meetings take files up to') as string,
+    })
+  })
+
+  it<Context>('pins a still as a frame with its caption, and Undo takes it off', async (context) => {
+    vi.mocked(takeMeetingFrame).mockResolvedValue({
+      entry: entry('framed', 'attached'),
+      change: { removedWordIds: [], words: [], marks: []},
+      attachment: makeMeetingAttachment({ id: 'frame', kind: 'frame' }),
+    })
+    const { result } = renderChanges(context)
+    const still = new Blob([ 'webp' ], { type: 'image/webp' })
+    const request = {
+      captureId: 'capture',
+      captureMs: 4_000,
+      caption: 'The roadmap slide',
+      startWordId: 'w1',
+      endWordId: 'w2',
+    }
+
+    let pinned = false
+    await act(async () => {
+      pinned = await result.current.takeFrame(request, still)
+    })
+
+    expect(pinned).toBe(true)
+    expect(takeMeetingFrame).toHaveBeenCalledWith('meeting', request, still)
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Frame pinned')
+    await act(async () => undoInToast().onPress())
+    expect(undoMeetingChange).toHaveBeenCalledWith('meeting', 'framed')
   })
 
   it<Context>('keeps a refused move out of what Ctrl+Z undoes', async (context) => {

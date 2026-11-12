@@ -85,6 +85,6 @@
     "signOut": "log out logout signout leave",
     "openElysia": "assistant ai chat ask",
     "theme": "appearance colors mode",
-    "attachmentDestination": "files images uploads knowledge pages"
+    "attachmentDestination": "files images uploads knowledge pages meetings frames limit size"
   }
 }

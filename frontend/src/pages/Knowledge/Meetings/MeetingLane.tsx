@@ -3,6 +3,7 @@
 import type { ComponentProps } from 'react'
 import type { MeetingWord } from '../../../api/routes/meetingRoutes'
 import type { ThreadActions } from './CommentThread'
+import type { RemovableMarkKind } from './useMeetingChanges'
 import type { HistoryRow } from './meetingReviewPresentation'
 import type { PlacedMark, WordRange } from './meetingTranscript'
 import type { Thread } from './meetingThreads'
@@ -14,6 +15,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { CommentForm } from './CommentForm'
 import { MarkDetail } from './MarkDetail'
+import { MeetingFiles } from './MeetingFiles'
 import { MeetingHistory } from './MeetingHistory'
 import { MeetingOptions } from './MeetingOptions'
 import { MeetingThreads } from './MeetingThreads'
@@ -31,7 +33,10 @@ type Props = ComponentProps<typeof MeetingOptions> & {
   }
   onUndo: (entryId: string) => Promise<void>
   // Null where the meeting takes no change, as one merged into another does.
-  onRemoveMark: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
+  onRemoveMark: ((markId: string, kind: RemovableMarkKind) => Promise<void>) | null
+  // The meeting's files and frames, as the lane lists them and an excerpt's detail pins them.
+  files: ComponentProps<typeof MeetingFiles>
+  pinning: ComponentProps<typeof MarkDetail>['files']
   threads: {
     open: Thread[]
     resolved: Thread[]
@@ -53,7 +58,8 @@ type Props = ComponentProps<typeof MeetingOptions> & {
 
 // The right lane of a meeting's page (docs/meeting-review.md, The meeting's page): the options box
 // floating at its top, then a new thread being written or the mark selected, then the meeting's
-// comment threads, which pass under the box as they scroll by, then every change to the meeting.
+// files and frames, then its comment threads, which pass under the box as they scroll by, then
+// every change to the meeting.
 export function MeetingLane(props: Props) {
   const { t } = useTranslation('meetings')
   const [ isShowingAll, setIsShowingAll ] = useState(false)
@@ -68,6 +74,8 @@ export function MeetingLane(props: Props) {
     onSelectThread,
     composing,
     isInDrawer,
+    files,
+    pinning,
     ...options
   } = props
   const selectedThread = selectedMark?.kind === 'comment'
@@ -116,8 +124,11 @@ export function MeetingLane(props: Props) {
         onRemove={onRemoveMark}
         thread={selectedThread}
         threadActions={threadActions}
+        files={pinning}
       />
     </div>}
+
+    <MeetingFiles {...files} />
 
     <MeetingThreads
       words={words}

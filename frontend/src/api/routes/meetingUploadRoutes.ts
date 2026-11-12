@@ -1,13 +1,17 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Meeting } from './meetingRoutes'
+import type { Meeting, MeetingAttachment, MeetingHistoryEntry } from './meetingRoutes'
 
 // Misc
 import { apiClient } from '../index'
 
-// Mirrors `FileKind` in api/src/meeting_uploads/mod.rs: what one file of an upload is.
+// The files a capture is uploaded as: a recording, a transcript, or one of each.
 export const MEETING_UPLOAD_FILE_KINDS = [ 'recording', 'transcript' ] as const
 export type MeetingUploadFileKind = typeof MEETING_UPLOAD_FILE_KINDS[number]
+
+// Mirrors `FileKind` in api/src/meeting_uploads/mod.rs: what one file of an upload is, a capture's
+// or a file attached to a meeting, alone in its upload.
+export type UploadedFileKind = MeetingUploadFileKind | 'attachment'
 
 // What a meeting takes, and where its recording goes unless the person chooses another place.
 // Constants in the API's code, read from it so nothing keeps a second copy.
@@ -27,7 +31,7 @@ export type MeetingUploadFilePolicy = {
 }
 
 export type MeetingUploadFile = {
-  kind: MeetingUploadFileKind
+  kind: UploadedFileKind
   fileName: string
   sizeBytes: number
   // When the file last changed, as the browser read it.
@@ -47,6 +51,8 @@ export type MeetingUpload = {
   partBytes: number
   files: MeetingUploadFile[]
   captureId: string | null
+  // The attachment an upload of a file attached to its meeting became, once it finished.
+  attachmentId: string | null
   finishedAt: string | null
   createdAt: string
   updatedAt: string
@@ -92,6 +98,8 @@ export type CreateMeetingUploadRequest = {
   storageLocationId?: string
   recording?: NewMeetingUploadFile
   transcript?: NewMeetingUploadFile
+  // A file attached to the meeting `meetingId` names, alone.
+  attachment?: NewMeetingUploadFile
 }
 
 type MeetingUploadResponse = {
@@ -114,7 +122,7 @@ export function getMeetingUpload(uploadId: string) {
 // one past the next answers `409 meeting_upload_part_ahead`.
 export function uploadMeetingPart(
   uploadId: string,
-  kind: MeetingUploadFileKind,
+  kind: UploadedFileKind,
   index: number,
   part: Blob,
   signal: AbortSignal,
@@ -138,6 +146,21 @@ export function finishMeetingUpload(uploadId: string) {
   return apiClient
     .post(`v1/meeting-uploads/${uploadId}/finish`)
     .json<{ meeting: Meeting }>()
+}
+
+// What finishing an upload of an attached file answers: the attachment, and the history entry
+// that attached it, which Undo undoes. One finished before answers the attachment alone.
+type FinishAttachmentResponse = {
+  attachment: MeetingAttachment
+  entry?: MeetingHistoryEntry
+}
+
+// Attaches the file an upload carried to its meeting once every part arrived, and starts the run
+// that stores it and reads its text.
+export function finishAttachmentUpload(uploadId: string) {
+  return apiClient
+    .post(`v1/meeting-uploads/${uploadId}/finish`)
+    .json<FinishAttachmentResponse>()
 }
 
 // Stops an unfinished upload and removes what of it arrived.

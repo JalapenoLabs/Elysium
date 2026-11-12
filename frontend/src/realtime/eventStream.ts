@@ -68,7 +68,14 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting, meetingHistoryKey, meetingThreadsKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import { MEETING_ATTACHMENT_POLICY_KEY } from '../api/routes/meetingAttachmentRoutes'
+import {
+  getMeeting,
+  meetingAttachmentsKey,
+  meetingHistoryKey,
+  meetingThreadsKey,
+  meetingWordsKey,
+} from '../api/routes/meetingRoutes'
 import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
@@ -247,13 +254,16 @@ const handlers: Handlers = {
     }
     void mutate(LEARNING_CATEGORIES_KEY)
   },
-  // Whether a file can be attached, loaded again by the company's members only.
+  // Whether a file can be attached to a page, loaded again by the company's members only. Meetings
+  // keep their files where pages do, so whoever has a meeting open reads its policy again too.
   'pageAttachments.changed': () => {
+    void mutate(MEETING_ATTACHMENT_POLICY_KEY)
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     void mutate(PAGE_ATTACHMENT_POLICY_KEY)
   },
+  'meetingAttachments.changed': () => void mutate(MEETING_ATTACHMENT_POLICY_KEY),
   // The guidance and its versions are one answer, loaded again whole by the company's members.
   'agentGuidance.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {
@@ -404,8 +414,9 @@ const handlers: Handlers = {
       })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id, and its page's transcript, history, and threads, read only while it
-  // is open, are read again, unless the page made that change itself and applied it already.
+  // meeting is loaded by id, and its page's transcript, history, threads, and files, read only
+  // while it is open, are read again, unless the page made that change itself and applied it
+  // already. A file stored or read in the engine names no change, so its page always hears it.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
@@ -418,6 +429,7 @@ const handlers: Handlers = {
       void mutate(meetingWordsKey(id))
       void mutate(meetingHistoryKey(id))
       void mutate(meetingThreadsKey(id))
+      void mutate(meetingAttachmentsKey(id))
     })()
     getMeeting(event.data.id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))

@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MeetingUpload, MeetingUploadFileKind } from '../../api/routes/meetingUploadRoutes'
+import type { MeetingUpload, UploadedFileKind } from '../../api/routes/meetingUploadRoutes'
 
 // Core
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,7 +25,7 @@ const PART_BYTES = 4
 // received already is acknowledged, and one past the next is refused as ahead.
 type FakeApi = {
   upload: MeetingUpload
-  sent: { kind: MeetingUploadFileKind, index: number, text: string }[]
+  sent: { kind: UploadedFileKind, index: number, text: string }[]
   // Answers the next sends get instead of being taken, first to last.
   failures: unknown[]
 }
@@ -60,6 +60,7 @@ function startUpload(recordingBytes: number, received = 0, transcriptBytes?: num
     partBytes: PART_BYTES,
     files,
     captureId: null,
+    attachmentId: null,
     finishedAt: null,
     createdAt: '2026-11-09T16:00:00Z',
     updatedAt: '2026-11-09T16:00:00Z',
@@ -127,6 +128,35 @@ describe('sendMeetingFiles', () => {
     ])
     expect(progress).toEqual([ 11, 13 ])
     expect(sent.files.every((file) => file.receivedBytes === file.sizeBytes)).toBe(true)
+  })
+
+  it('sends a file attached to a meeting in parts, alone in its upload, as a recording is sent', async () => {
+    const attaching = {
+      ...startUpload(1),
+      meetingId: 'meeting',
+      files: [{
+        kind: 'attachment' as const,
+        fileName: 'Roadmap.pdf',
+        sizeBytes: 6,
+        modifiedAt: null,
+        receivedBytes: 0,
+      }],
+    }
+    const api = fake(structuredClone(attaching))
+
+    const sent = await sendMeetingFiles({
+      upload: attaching,
+      files: { attachment: new File([ 'abcdef' ], 'Roadmap.pdf') },
+      signal: new AbortController().signal,
+      onProgress: () => {},
+      wait: noWait,
+    })
+
+    expect(api.sent).toEqual([
+      { kind: 'attachment', index: 0, text: 'abcd' },
+      { kind: 'attachment', index: 1, text: 'ef' },
+    ])
+    expect(sent.files[0].receivedBytes).toBe(6)
   })
 
   it('waits out a dropped connection or a busy API, and sends the same part again', async () => {

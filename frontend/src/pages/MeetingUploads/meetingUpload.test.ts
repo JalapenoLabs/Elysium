@@ -48,6 +48,7 @@ function upload(overrides: Partial<MeetingUpload> = {}): MeetingUpload {
       },
     ],
     captureId: null,
+    attachmentId: null,
     finishedAt: null,
     createdAt: '2026-11-09T16:01:00Z',
     updatedAt: '2026-11-09T16:02:00Z',
