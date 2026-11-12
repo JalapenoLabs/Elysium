@@ -8,8 +8,9 @@
 //! batch serves), names the docs linked to it, says which of its batches and changes wait for a
 //! person, as its project's level of autonomy decides, and where its issues file ([`Writes`]), and
 //! carries everything that woke it: the messages, someone else's edits to the brief, the action
-//! items a person assigned it, the records newly on its timeline, the batches that finished, and
-//! the promises found on its project or whose work finished. Every turn also carries each promise
+//! items a person assigned it, the tasks heard in meetings for its project, the records newly on
+//! its timeline, the batches that finished, and the promises found on its project or whose work
+//! finished. Every turn also carries each promise
 //! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a plain
 //! function of its inputs, so it is tested without a runner.
 //!
@@ -33,6 +34,10 @@ pub const INSTRUCTIONS: &str = include_str!("instructions.md");
 
 /// How much of a record's body the prompt quotes, in characters.
 pub const EXCERPT_MAX_CHARACTERS: usize = 800;
+
+/// How much of a task's words the prompt quotes, in characters: a task is said in a line or two,
+/// and its excerpts carry what was said around it.
+pub const TASK_WORDS_MAX_CHARACTERS: usize = 1_200;
 
 /// How much of a project's description the prompt quotes, in characters.
 const DESCRIPTION_MAX_CHARACTERS: usize = 1_000;
@@ -122,6 +127,39 @@ pub struct PromptAssignment {
     pub links: Vec<String>,
 }
 
+/// A task heard in a meeting for its project, new or changed since a turn last read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptTask {
+    /// Its id, which a change made of it names (`taskId`).
+    pub id: Uuid,
+    pub title: String,
+    /// Who owes it, as a sentence reads it: a person on Elysium, someone not on it, or nobody.
+    pub owed_by: String,
+    pub meeting_id: Uuid,
+    pub meeting_title: String,
+    /// When in the meeting it was said, as `m:ss`; `None` for a meeting in words alone.
+    pub heard_at: Option<String>,
+    /// Its words, blacked-out ones left out, as `[m:ss] Speaker: text` lines.
+    pub words: String,
+    /// The meeting's excerpts on the project its words lie in, which its changes name as their
+    /// cause.
+    pub excerpts: Vec<PromptTaskExcerpt>,
+    /// What came of it before it changed: the items made of it, each by its id, title, and state.
+    pub items: Vec<(Uuid, String, ActionItemState)>,
+    /// The changesets still waiting for a person that would make an item of it.
+    pub proposed: Vec<Uuid>,
+    /// Why a turn before made no item of it.
+    pub declined: Option<String>,
+}
+
+/// An excerpt a task's words lie in, on its project's timeline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptTaskExcerpt {
+    pub record_id: Uuid,
+    pub title: String,
+    pub summary: String,
+}
+
 /// A record newly on its project's timeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PromptRecord {
@@ -207,6 +245,7 @@ pub struct TurnContext {
     /// Someone else's publishes of the brief, oldest first.
     pub brief_edits: Vec<PromptBriefEdit>,
     pub assignments: Vec<PromptAssignment>,
+    pub tasks: Vec<PromptTask>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
     pub promises: Vec<PromptPromise>,
@@ -261,6 +300,23 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
         );
         for assignment in &context.assignments {
             render_assignment(&mut prompt, assignment);
+        }
+    }
+
+    if !context.tasks.is_empty() {
+        let _ = write!(
+            prompt,
+            "\n## Tasks heard in meetings ({})\n\nSomeone took these on or was asked to do them in a \
+             meeting, and segmenting read them as this project's work. Make each into the action \
+             items its work needs with manager_make_changes, a create-item naming the task by its \
+             taskId and, when it has one, the excerpt it lies in as causeRecordId; or, when it needs \
+             none (it is not this project's, it is done, or an item already covers it), say why \
+             with manager_decline_task. A task that changed since you last read it says what came of \
+             it: act on what you made rather than make it again.\n",
+            context.tasks.len()
+        );
+        for task in &context.tasks {
+            render_task(&mut prompt, task);
         }
     }
 
@@ -545,6 +601,75 @@ fn render_assignment(prompt: &mut String, assignment: &PromptAssignment) {
     }
 }
 
+fn render_task(prompt: &mut String, task: &PromptTask) {
+    let heard_at = task
+        .heard_at
+        .as_deref()
+        .map(|at| format!(" at {at}"))
+        .unwrap_or_default();
+    let _ = write!(
+        prompt,
+        "\n- \"{}\" (task {}), owed by {}; heard in \"{}\" (meeting {}){heard_at}.\n",
+        task.title, task.id, task.owed_by, task.meeting_title, task.meeting_id,
+    );
+    let words = task.words.trim();
+    if !words.is_empty() {
+        let shown: String = words.chars().take(TASK_WORDS_MAX_CHARACTERS).collect();
+        let more = if shown.len() < words.len() {
+            " …"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            prompt,
+            "  What was said:\n  {}{more}",
+            shown.replace('\n', "\n  ")
+        );
+    }
+    if task.excerpts.is_empty() {
+        prompt.push_str(
+            "  It lies in no excerpt on this project: name only the task as what a change came \
+             from.\n",
+        );
+    }
+    for excerpt in &task.excerpts {
+        let summary = excerpt.summary.trim();
+        let _ = if summary.is_empty() {
+            writeln!(
+                prompt,
+                "  In the excerpt \"{}\" (record {}).",
+                excerpt.title, excerpt.record_id
+            )
+        } else {
+            writeln!(
+                prompt,
+                "  In the excerpt \"{}\" (record {}): {summary}",
+                excerpt.title, excerpt.record_id
+            )
+        };
+    }
+    for (item_id, title, state) in &task.items {
+        let _ = writeln!(
+            prompt,
+            "  Already made into \"{title}\" (item {item_id}), {}.",
+            item_state_words(*state)
+        );
+    }
+    for changeset_id in &task.proposed {
+        let _ = writeln!(
+            prompt,
+            "  Already proposed in changeset {changeset_id}, which waits for a person."
+        );
+    }
+    if let Some(reason) = &task.declined {
+        let _ = writeln!(
+            prompt,
+            "  You made no item of it before, saying: {}",
+            reason.trim()
+        );
+    }
+}
+
 fn render_record(prompt: &mut String, record: &PromptRecord) {
     let attributed = if record.attributed_by_person {
         "a person put it on the project".to_owned()
@@ -713,6 +838,7 @@ mod tests {
             messages: Vec::new(),
             brief_edits: Vec::new(),
             assignments: Vec::new(),
+            tasks: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
             promises: Vec::new(),

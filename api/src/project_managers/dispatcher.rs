@@ -34,6 +34,7 @@ use super::prompt::{
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
+use super::tasks;
 use super::timeline;
 use super::trackers::{self, TrackerSource};
 use crate::agent_configuration;
@@ -333,8 +334,10 @@ async fn load_context(
         batch_ids,
         promise_ids,
         assigned_ids,
+        task_ids,
     } = sort_wakes(wakes, &names);
     let assignments = load_assignments(connection, turn.project_id, &assigned_ids, &names).await?;
+    let tasks = tasks::load(connection, turn.project_id, &task_ids, &names).await?;
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let mut records: Vec<PromptRecord> =
@@ -400,6 +403,7 @@ async fn load_context(
         project: prompt_project(connection, project).await?,
         messages,
         assignments,
+        tasks,
         brief_edits,
         records,
         batches,
@@ -455,7 +459,7 @@ async fn load_assignments(
 }
 
 /// A turn's wakes, sorted by kind: the messages and brief edits it is told whole, and the ids of
-/// the records, batches, promises, and assigned items it reads as it starts.
+/// the records, batches, promises, assigned items, and meetings' tasks it reads as it starts.
 struct SortedWakes {
     messages: Vec<PromptMessage>,
     brief_edits: Vec<PromptBriefEdit>,
@@ -463,6 +467,7 @@ struct SortedWakes {
     batch_ids: Vec<Uuid>,
     promise_ids: Vec<Uuid>,
     assigned_ids: Vec<Uuid>,
+    task_ids: Vec<Uuid>,
 }
 
 /// Sorts `wakes` by kind in one pass, naming each message's and brief edit's author from `names`.
@@ -474,6 +479,7 @@ fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
         batch_ids: Vec::new(),
         promise_ids: Vec::new(),
         assigned_ids: Vec::new(),
+        task_ids: Vec::new(),
     };
     for wake in wakes {
         let author = || {
@@ -502,6 +508,7 @@ fn sort_wakes(wakes: &[Wake], names: &HashMap<Uuid, String>) -> SortedWakes {
                 sorted.brief_edits.extend(edit);
             }
             WakeKind::Assignment => sorted.assigned_ids.extend(wake.action_item_id),
+            WakeKind::Task => sorted.task_ids.extend(wake.meeting_task_id),
         }
     }
     sorted

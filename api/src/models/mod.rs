@@ -59,6 +59,7 @@ pub mod meeting_correction;
 pub mod meeting_duplicate;
 pub mod meeting_event;
 pub mod meeting_mark;
+pub mod meeting_task;
 pub mod meeting_transcription;
 pub mod meeting_upload;
 pub mod meeting_word;

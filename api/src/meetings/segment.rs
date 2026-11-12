@@ -67,13 +67,14 @@ use uuid::Uuid;
 
 use super::conversation;
 use super::correct::CorrectedMeeting;
-use super::excerpts::{self, Heading, MeetingText, Taken, TakenExcerpt, Took};
+use super::excerpts::{self, Heading, MeetingText, Taken, TakenExcerpt, TakenTask, Took};
 use super::final_transcript;
 use super::media;
 use super::segmentation::{
-    self, ConversationSegment, LineRun, MeetingContext, ProjectChoice, PromptLine,
+    self, ConversationSegment, LineRun, MeetingContext, PersonChoice, ProjectChoice, PromptLine,
 };
 use super::source::TranscriptLine;
+use crate::action_items::WorkError;
 use crate::agent_models::AgentKind;
 use crate::connectors::ConnectorKind;
 use crate::connectors::activity::Activity;
@@ -90,6 +91,7 @@ use crate::models::promise::{self, NewPromise, Promise};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::{project, user};
 use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::routes::v1::action_items::publish_item_writes;
 use crate::runner::events::{RunnerEvent, TurnStatus};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
@@ -299,9 +301,10 @@ impl SegmentMeeting {
         let taken = match self.stored_taken(&current, log).await? {
             Some(taken) => {
                 log.line(&format!(
-                    "Already read: {} excerpts and {} black-outs; nothing is asked again",
+                    "Already read: {} excerpts, {} black-outs, and {} tasks; nothing is asked again",
                     taken.excerpts.len(),
-                    taken.black_outs.len()
+                    taken.black_outs.len(),
+                    taken.tasks.len()
                 ));
                 taken
             }
@@ -316,20 +319,28 @@ impl SegmentMeeting {
             return self.published_by_another(current.id, log).await;
         };
         log.line(&format!(
-            "Took {} excerpts and {} black-outs: made {}, kept {} of Elysia's own, and removed {}",
+            "Took {} excerpts, {} black-outs, and {} tasks: made {}, kept {} of Elysia's own, and \
+             removed {}",
             taken.excerpts.len(),
             taken.black_outs.len(),
+            taken.tasks.len(),
             count_in(&took.entry.data, "made"),
             count_in(&took.entry.data, "kept"),
             count_in(&took.entry.data, "removed"),
         ));
+        if !took.raised.is_empty() {
+            log.line(&format!(
+                "Its tasks on no project raised {} inbox items",
+                took.raised.len()
+            ));
+        }
         let unanchored = took.entry.data["unanchored"].as_u64().unwrap_or(0);
         if unanchored > 0 {
             log.line(&format!(
                 "{unanchored} of its ranges were edited while it read them, so they were left out"
             ));
         }
-        self.announce_published(&current, &took);
+        self.announce_published(&current, took).await;
         let clipped = self.clip(&current, log).await?;
         let topics = self.topics(current.id).await?;
         if let Some(connector_id) = capture.connector_id {
@@ -429,6 +440,7 @@ impl SegmentMeeting {
         context: &StepContext,
     ) -> Result<Taken, StepFailure> {
         let choices = self.project_choices().await?;
+        let people = self.people_choices(current.created_by).await?;
         let words = text.words();
         let lines = text.lines();
         let timed = text.is_timed();
@@ -446,13 +458,15 @@ impl SegmentMeeting {
             title: &current.title,
             duration_ms: duration_of(current, text),
             participants: &participants,
+            person_id: current.created_by,
         };
         if !timed {
             context
                 .log
                 .line("The transcript carries no times, so its lines are read by number alone");
         }
-        let prompt = segmentation::excerpts_prompt(meeting_context, &prompt_lines, timed, &choices);
+        let prompt =
+            segmentation::excerpts_prompt(meeting_context, &prompt_lines, timed, &choices, &people);
         let answer = self
             .ask(
                 format!("meeting:{}:segmentation", current.id),
@@ -471,15 +485,17 @@ impl SegmentMeeting {
                 format!("From line {}", first + 1)
             }
         };
-        let reading = segmentation::parse_excerpts_answer(&answer, lines.len(), &choices, untitled)
-            .map_err(|error| {
-                StepFailure::retryable(format!("The segmentation's answer: {error}"))
-            })?;
+        let reading =
+            segmentation::parse_excerpts_answer(&answer, lines.len(), &choices, &people, untitled)
+                .map_err(|error| {
+                    StepFailure::retryable(format!("The segmentation's answer: {error}"))
+                })?;
         context.log.line(&format!(
-            "Read {} lines: {} excerpts, {} black-outs",
+            "Read {} lines: {} excerpts, {} black-outs, {} tasks",
             lines.len(),
             reading.excerpts.len(),
-            reading.black_outs.len()
+            reading.black_outs.len(),
+            reading.tasks.len()
         ));
         let range_of =
             |run: LineRun| text.range_of(&(lines[run.first].start..=lines[run.last].end - 1));
@@ -497,6 +513,14 @@ impl SegmentMeeting {
                 })
                 .collect(),
             black_outs: reading.black_outs.into_iter().map(range_of).collect(),
+            tasks: reading
+                .tasks
+                .into_iter()
+                .map(|found| TakenTask {
+                    range: range_of(found.lines),
+                    reading: found.reading,
+                })
+                .collect(),
         })
     }
 
@@ -758,14 +782,15 @@ impl SegmentMeeting {
                 let took = excerpts::take(connection, &locked, &capture, taken).await?;
                 let done = meeting::record_done(connection, meeting_id).await?;
                 excerpts::refresh(connection, &done, None).await?;
-                Ok::<_, diesel::result::Error>(Some(took))
+                Ok::<_, WorkError>(Some(took))
             })
             .await
             .map_err(StepFailure::retryable)
     }
 
-    /// Tells every client of each new excerpt's record and of the meeting that finished.
-    fn announce_published(&self, current: &Meeting, took: &Took) {
+    /// Tells every client of each new excerpt's record, of each item its tasks raised, and of the
+    /// meeting that finished, and the Project Managers that something may wait for them.
+    async fn announce_published(&self, current: &Meeting, took: Took) {
         for record in &took.created {
             self.inner
                 .events
@@ -783,8 +808,35 @@ impl SegmentMeeting {
             created_by: current.created_by,
             entry_id: None,
         });
-        // Elysia's projects each kept or taken off an excerpt changed what it is attributed to.
+        // Elysia's projects each kept or taken off an excerpt changed what it is attributed to, and
+        // a task on a project waits for its Project Manager.
         self.inner.events.signal(&Signal::ProjectManagers);
+        if took.raised.is_empty() {
+            return;
+        }
+        let announced = match self.connection().await {
+            Ok(mut connection) => publish_item_writes(
+                &self.inner.events,
+                &mut connection,
+                took.raised,
+                &[],
+                Utc::now(),
+            )
+            .await
+            .map(drop)
+            .map_err(|error| format!("{error:?}")),
+            Err(failure) => Err(format!("{failure:?}")),
+        };
+        if let Err(error) = announced {
+            // The items are stored; a page that missed them reads them on its next load.
+            tracing::event!(
+                name: "meetings.segment.items_unannounced",
+                tracing::Level::WARN,
+                meeting.id = %current.id,
+                error.message = %error,
+                "the inbox items a meeting's tasks raised were stored but could not be announced",
+            );
+        }
     }
 
     fn announce_meeting(&self, changed: &Meeting) {
@@ -923,6 +975,24 @@ impl SegmentMeeting {
         if !promised.is_empty() {
             self.inner.events.signal(&Signal::ProjectManagers);
         }
+    }
+
+    /// Every active person on Elysium, as a task may be owed by them, and `person_id`, whose meeting
+    /// it is, whatever their account's state: a task they took on is theirs.
+    async fn people_choices(&self, person_id: Uuid) -> Result<Vec<PersonChoice>, StepFailure> {
+        let mut connection = self.connection().await?;
+        let users = user::list(&mut connection)
+            .await
+            .map_err(StepFailure::retryable)?;
+        Ok(users
+            .into_iter()
+            .filter(|known| known.id == person_id || (known.is_active() && !known.is_machine()))
+            .map(|person| PersonChoice {
+                id: person.id,
+                name: person.name,
+                email: person.email,
+            })
+            .collect())
     }
 
     /// Every project, as a segment may be attributed to it.

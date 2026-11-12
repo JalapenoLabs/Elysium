@@ -44,7 +44,7 @@ use crate::models::action_item_event::{self, HistoryEntry, HistoryKind};
 use crate::models::action_item_issue_filing::{self, FiledBy, NewFiling};
 use crate::models::action_item_link::Claim;
 use crate::models::initiative::{self, NewInitiative};
-use crate::models::{action_item_comment, action_item_link, action_item_link_write};
+use crate::models::{action_item_comment, action_item_link, action_item_link_write, meeting_task};
 use crate::project_managers::timeline::{self, Write};
 
 /// Why one operation did not apply.
@@ -171,6 +171,20 @@ impl Run {
         let attempt = connection
             .transaction(async move |connection| {
                 let mut done = apply_one(connection, run, row.id, operation.clone()).await?;
+                // A create naming a meeting's task is that task's item, which its meeting's page
+                // counts and links back to the words it was heard in.
+                if let (Operation::CreateItem(_), Some(task_id), Some(item_id)) =
+                    (&operation, row.meeting_task_id, done.created)
+                {
+                    meeting_task::record_item(
+                        connection,
+                        task_id,
+                        item_id,
+                        None,
+                        run.actor.user_id(),
+                    )
+                    .await?;
+                }
                 let history = std::mem::take(&mut done.touched.history);
                 done.touched.history =
                     action_item_event::attribute(connection, history, run.changeset_id).await?;
@@ -631,6 +645,7 @@ async fn record_write(
             reason: &row.reason,
             quote: row.quote.as_deref(),
             cause_record_id: row.cause_record_id,
+            meeting_task_id: row.meeting_task_id,
             item_id,
             reviewed: run.reviewed,
             applied_at: run.now,

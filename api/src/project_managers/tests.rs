@@ -1563,6 +1563,7 @@ async fn an_accepted_suggestion_roots_its_batch_in_the_person_and_starts_the_cha
                 quote: None,
                 source: None,
                 cause_record_id: None,
+                meeting_task_id: None,
             }],
         },
         Utc::now(),

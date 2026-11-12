@@ -51,7 +51,11 @@ use uuid::Uuid;
 use super::SEGMENT_SOURCE_KIND;
 use super::correction::lines_of;
 use super::segmentation::{SegmentProject, clock};
+use super::tasks::{self, Placed, Reach};
+use crate::action_items::WorkError;
 use crate::knowledge::{passages, records};
+use crate::models::action_item::ActionItem;
+use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
@@ -60,10 +64,11 @@ use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_comment;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark, MarkError, MarkKind, NewMark, Range};
+use crate::models::meeting_task::{self, MeetingTask, TaskReading};
 use crate::models::meeting_word::{self, Word};
 use crate::models::project;
 use crate::models::timeline_record::{self, ExcerptText, NewTimelineRecord, TimelineRecord};
-use crate::models::user::ELYSIA_USER_ID;
+use crate::models::user::{self, ELYSIA_USER_ID};
 
 /// The longest `actor` a record takes: the excerpt's speakers.
 const ACTOR_MAX_CHARACTERS: usize = 512;
@@ -892,13 +897,25 @@ pub fn transcript_document(
     })
 }
 
-/// What segmenting took from a meeting, as its answer is stored: each excerpt and black-out as a
-/// range of the words it read, so an attempt that finds it stored takes the same words.
+/// What segmenting took from a meeting, as its answer is stored: each excerpt, black-out, and task
+/// as a range of the words it read, so an attempt that finds it stored takes the same words.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Taken {
     pub excerpts: Vec<TakenExcerpt>,
     pub black_outs: Vec<Range>,
+    /// Missing from an answer stored before tasks were read, which takes none.
+    #[serde(default)]
+    pub tasks: Vec<TakenTask>,
+}
+
+/// One task segmenting heard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TakenTask {
+    pub range: Range,
+    #[serde(flatten)]
+    pub reading: TaskReading,
 }
 
 /// One excerpt segmenting took.
@@ -918,6 +935,23 @@ pub struct Took {
     pub entry: MeetingEvent,
     /// The excerpts' records it made.
     pub created: Vec<TimelineRecord>,
+    /// The inbox items its tasks raised at once (`super::tasks`).
+    pub raised: Vec<Recorded<ActionItem>>,
+}
+
+/// A task the answer names, to be taken: its range, the places of its words in the transcript as
+/// it reads, and what it is.
+struct HeardTask {
+    range: Range,
+    places: RangeInclusive<usize>,
+    reading: TaskReading,
+}
+
+/// One of Elysia's own tasks standing as segmenting began, which the answer may read again.
+struct StandingTask {
+    mark_id: Uuid,
+    places: RangeInclusive<usize>,
+    reading: TaskReading,
 }
 
 /// A meeting's marks as segmenting finds them, and what taking its answer did so far.
@@ -934,16 +968,25 @@ struct Taking<'meeting> {
     records: HashMap<Uuid, TimelineRecord>,
     /// The excerpts' records whose projects a person changed, which makes the excerpts theirs.
     changed: HashSet<Uuid>,
-    /// The ranges a person removed an excerpt, or a black-out, from, which segmenting leaves be.
+    /// The ranges a person removed an excerpt, a black-out, or a task from, which segmenting
+    /// leaves be.
     removed_excerpts: HashSet<Range>,
     removed_black_outs: HashSet<Range>,
+    removed_tasks: HashSet<Range>,
+    /// Each standing task, by its mark.
+    tasks: HashMap<Uuid, MeetingTask>,
+    /// Every user's name, for whom a task's item is.
+    names: HashMap<Uuid, String>,
     /// The marks it made, Elysia's own it kept, and every standing mark the answer took again.
     made: Vec<Uuid>,
     kept: Vec<Uuid>,
     taken_again: HashSet<Uuid>,
+    /// Elysia's own tasks it moved onto the words they were heard over again.
+    moved: Vec<Uuid>,
     /// How many ranges of the answer no longer stood.
     unanchored: usize,
     created: Vec<TimelineRecord>,
+    raised: Vec<Recorded<ActionItem>>,
 }
 
 impl<'meeting> Taking<'meeting> {
@@ -976,6 +1019,10 @@ impl<'meeting> Taking<'meeting> {
             meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Excerpt).await?;
         let removed_black_outs =
             meeting_mark::removed_by_people(connection, meeting.id, MarkKind::BlackOut).await?;
+        let removed_tasks =
+            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Task).await?;
+        let tasks = meeting_task::standing_of(connection, meeting.id).await?;
+        let names = user::names(connection).await?;
         Ok(Self {
             meeting,
             capture,
@@ -991,11 +1038,16 @@ impl<'meeting> Taking<'meeting> {
             changed,
             removed_excerpts: removed_excerpts.iter().map(Mark::range).collect(),
             removed_black_outs: removed_black_outs.iter().map(Mark::range).collect(),
+            removed_tasks: removed_tasks.iter().map(Mark::range).collect(),
+            tasks,
+            names,
             made: Vec::new(),
             kept: Vec::new(),
             taken_again: HashSet::new(),
+            moved: Vec::new(),
             unanchored: 0,
             created: Vec::new(),
+            raised: Vec::new(),
         })
     }
 
@@ -1134,15 +1186,188 @@ impl<'meeting> Taking<'meeting> {
         attribute_as_elysia(connection, &record, &excerpt.projects, &self.projects).await
     }
 
+    /// Whether `mark`, standing as segmenting began, still stands once the answer is taken: a
+    /// person's, one the answer took again, or one it made. Elysia's others give way in
+    /// [`Self::finish`].
+    fn stays(&self, mark: &Mark) -> bool {
+        self.is_persons(mark) || self.taken_again.contains(&mark.id) || self.made.contains(&mark.id)
+    }
+
+    /// Tasks, after excerpts and black-outs: each range a person removed one from stays clear, a
+    /// person's over the same words stands, and one wholly in black-outs is no task. Every other
+    /// the answer names is one of Elysia's read again (`super::tasks::read_again`), moved onto the
+    /// words it was heard over and given what the answer says of it, or a new one. A new task, or
+    /// one that changed, goes where its share says (`super::tasks::send`); one read again as it was
+    /// reaches nobody, so a meeting read again wakes no Project Manager and raises no item twice.
+    async fn take_tasks(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        answered: &[TakenTask],
+    ) -> Result<(), WorkError> {
+        // Elysia's black-outs the answer gave up are on their way out, so they blank nothing.
+        let marks_now: Vec<Mark> = meeting_mark::standing(connection, self.meeting.id)
+            .await?
+            .into_iter()
+            .filter(|mark| mark.kind() != Some(MarkKind::BlackOut) || self.stays(mark))
+            .collect();
+        let text = MeetingText::new(self.words.clone(), &marks_now);
+        let heard = self.heard_tasks(&text, answered);
+        // Elysia's own standing tasks, which the answer may read again.
+        let before: Vec<StandingTask> = self
+            .marks
+            .iter()
+            .filter(|mark| mark.kind() == Some(MarkKind::Task) && !self.is_persons(mark))
+            .filter_map(|mark| {
+                Some(StandingTask {
+                    mark_id: mark.id,
+                    places: text.places_of(mark.range())?,
+                    reading: self.tasks.get(&mark.id)?.reading(),
+                })
+            })
+            .collect();
+        let matches = {
+            let heard_placed: Vec<Placed<'_>> = heard
+                .iter()
+                .map(|task| Placed {
+                    places: &task.places,
+                    reading: &task.reading,
+                })
+                .collect();
+            let before_placed: Vec<Placed<'_>> = before
+                .iter()
+                .map(|task| Placed {
+                    places: &task.places,
+                    reading: &task.reading,
+                })
+                .collect();
+            tasks::read_again(&heard_placed, &before_placed)
+        };
+        for (task, matched) in heard.iter().zip(matches) {
+            let changed = if let Some(index) = matched {
+                self.take_task_again(connection, &before[index], task)
+                    .await?
+            } else {
+                Some(self.make_task(connection, task).await?)
+            };
+            let Some(changed) = changed else {
+                continue;
+            };
+            let reach = Reach {
+                meeting: self.meeting,
+                names: &self.names,
+                timed: text.is_timed(),
+            };
+            let start_ms = text.words()[*task.places.start()].start_ms;
+            if let Some(raised) = tasks::send(connection, reach, &changed, start_ms).await? {
+                self.raised.push(raised);
+            }
+        }
+        Ok(())
+    }
+
+    /// The tasks `answered` names that are to be taken, by the places of their words in `text`:
+    /// none over a range a person removed one from or holds one over, none wholly blacked out, and
+    /// none on a project removed while the turn ran, which is then no project's.
+    fn heard_tasks(&mut self, text: &MeetingText, answered: &[TakenTask]) -> Vec<HeardTask> {
+        let mut heard = Vec::with_capacity(answered.len());
+        for task in answered {
+            let Some(places) = text.places_of(task.range) else {
+                self.unanchored += 1;
+                continue;
+            };
+            let persons_over_it = self.marks.iter().any(|mark| {
+                mark.kind() == Some(MarkKind::Task)
+                    && self.is_persons(mark)
+                    && mark.range() == task.range
+            });
+            if self.removed_tasks.contains(&task.range) || persons_over_it {
+                continue;
+            }
+            if places.clone().all(|place| text.is_blacked(place)) {
+                tracing::event!(
+                    name: "meetings.segment.task_blacked_out",
+                    tracing::Level::DEBUG,
+                    meeting.id = %self.meeting.id,
+                    "a task the answer named lies wholly in black-outs, so it was left out",
+                );
+                continue;
+            }
+            let mut reading = task.reading.clone();
+            if reading
+                .project_id
+                .is_some_and(|project_id| !self.projects.contains(&project_id))
+            {
+                reading.project_id = None;
+            }
+            heard.push(HeardTask {
+                range: task.range,
+                places,
+                reading,
+            });
+        }
+        heard
+    }
+
+    /// Takes Elysia's own task `before` again as `heard`: moved onto its words when they moved, and
+    /// given what the answer says of it. Answers the task when it changed, which then reaches
+    /// whoever it is for again, and `None` when it reads as it did.
+    async fn take_task_again(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        before: &StandingTask,
+        heard: &HeardTask,
+    ) -> Result<Option<MeetingTask>, WorkError> {
+        self.taken_again.insert(before.mark_id);
+        self.kept.push(before.mark_id);
+        if before.places != heard.places {
+            meeting_mark::set_range(connection, before.mark_id, heard.range).await?;
+            self.moved.push(before.mark_id);
+        }
+        if before.reading == heard.reading {
+            return Ok(None);
+        }
+        let task = meeting_task::set_reading(connection, before.mark_id, &heard.reading).await?;
+        Ok(tasks::changed(&before.reading, &heard.reading).then_some(task))
+    }
+
+    /// Makes `heard` a new task of Elysia's: its mark and its row.
+    async fn make_task(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        heard: &HeardTask,
+    ) -> Result<MeetingTask, WorkError> {
+        let new = NewMark::new(
+            self.meeting.id,
+            MarkKind::Task,
+            heard.range,
+            json!({}),
+            self.author,
+        );
+        let mark = meeting_mark::insert(connection, new).await?;
+        self.made.push(mark.id);
+        let task = meeting_task::insert(
+            connection,
+            mark.id,
+            self.meeting.id,
+            &heard.reading,
+            self.author.user_id,
+        )
+        .await?;
+        Ok(task)
+    }
+
     /// Records what it did as one change, and removes Elysia's own marks the answer did not take
-    /// again: an excerpt's record leaves her projects and the index.
+    /// again: an excerpt's record leaves her projects and the index. A task removed keeps the items
+    /// made of it, which are their people's to resolve or dismiss.
     async fn finish(self, connection: &mut AsyncPgConnection) -> QueryResult<Took> {
         let removed: Vec<Uuid> = self
             .marks
             .iter()
             .filter(|mark| {
-                let replaceable =
-                    matches!(mark.kind(), Some(MarkKind::Excerpt | MarkKind::BlackOut));
+                let replaceable = matches!(
+                    mark.kind(),
+                    Some(MarkKind::Excerpt | MarkKind::BlackOut | MarkKind::Task)
+                );
                 replaceable && !self.taken_again.contains(&mark.id) && !self.is_persons(mark)
             })
             .map(|mark| mark.id)
@@ -1157,6 +1382,7 @@ impl<'meeting> Taking<'meeting> {
                 data: json!({
                     "made": self.made,
                     "kept": self.kept,
+                    "moved": self.moved,
                     "removed": removed,
                     "unanchored": self.unanchored,
                 }),
@@ -1187,32 +1413,37 @@ impl<'meeting> Taking<'meeting> {
         Ok(Took {
             entry,
             created: self.created,
+            raised: self.raised,
         })
     }
 }
 
 /// Takes `taken`, segmenting's answer, into `meeting` as Elysia, from `capture`, the meeting's
-/// first: every excerpt and black-out a person made or changed stands, and so does every one the
-/// answer takes again; Elysia's others are removed and the answer's new ones made. An excerpt kept
-/// takes the answer's title, summary, and projects as Elysia's, which never override a person's
-/// (`models::attribution`), so only a project newly on an excerpt wakes its Project Manager. A
-/// black-out never covers a word of a person's excerpt. Recorded as one change. The caller holds
-/// the meeting's lock, marks it done, and then refreshes it ([`refresh`]).
+/// first: every excerpt, black-out, and task a person made or changed stands, and so does every
+/// one the answer takes again; Elysia's others are removed and the answer's new ones made. An
+/// excerpt kept takes the answer's title, summary, and projects as Elysia's, which never override
+/// a person's (`models::attribution`), so only a project newly on an excerpt wakes its Project
+/// Manager. A black-out never covers a word of a person's excerpt. A task new or changed goes
+/// where its share says (`super::tasks`). Recorded as one change. The caller holds the meeting's
+/// lock, marks it done, and then refreshes it ([`refresh`]), and announces the items its tasks
+/// raised.
 ///
 /// # Errors
-/// Propagates any database error.
+/// Propagates any database error, and any refusal of an item a task raises, which an item on no
+/// project never meets.
 pub(crate) async fn take(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
     capture: &MeetingCapture,
     taken: &Taken,
-) -> QueryResult<Took> {
+) -> Result<Took, WorkError> {
     let mut taking = Taking::read(connection, meeting, capture).await?;
     taking
         .take_black_outs(connection, &taken.black_outs)
         .await?;
     taking.take_excerpts(connection, &taken.excerpts).await?;
-    taking.finish(connection).await
+    taking.take_tasks(connection, &taken.tasks).await?;
+    Ok(taking.finish(connection).await?)
 }
 
 /// Attributes `record` to each of `projects` that still exists as Elysia, and takes it off every
