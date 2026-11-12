@@ -21,7 +21,10 @@ use crate::meetings::segmentation::SegmentProject;
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_mark::Range;
-use crate::models::meeting_word::{self, tests::{built_meeting, word}};
+use crate::models::meeting_word::{
+    self,
+    tests::{built_meeting, word},
+};
 use crate::models::project::{self, NewProject, ProjectScope};
 use crate::models::storage_location::{
     self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
@@ -378,9 +381,15 @@ async fn the_list_names_the_projects_each_meetings_excerpts_are_on() {
             start_word_id: words[place].id,
             end_word_id: words[place].id,
         };
-        crate::meetings::excerpts::assign(&mut connection, &discussed_meeting, range, &projects, author)
-            .await
-            .expect("assigns");
+        crate::meetings::excerpts::assign(
+            &mut connection,
+            &discussed_meeting,
+            range,
+            &projects,
+            author,
+        )
+        .await
+        .expect("assigns");
     }
 
     let (status, listed) = send(&state, Method::GET, "/api/v1/meetings", None).await;

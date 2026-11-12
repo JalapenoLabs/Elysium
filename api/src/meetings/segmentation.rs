@@ -665,10 +665,7 @@ pub fn parse_excerpts_answer(
             .excerpts
             .iter()
             .any(|excerpt| excerpt.lines.overlaps(lines));
-        let repeats = reading
-            .black_outs
-            .iter()
-            .any(|kept| kept.overlaps(lines));
+        let repeats = reading.black_outs.iter().any(|kept| kept.overlaps(lines));
         if covers_an_excerpt || repeats {
             continue;
         }
@@ -904,7 +901,10 @@ mod tests {
             launch.id
         )));
         assert!(prompt.contains("[1] [0:00] Ada: Hi.\n"), "{prompt}");
-        assert!(prompt.contains("[2] [1:05] Grace: Launch is Friday.\n"), "{prompt}");
+        assert!(
+            prompt.contains("[2] [1:05] Grace: Launch is Friday.\n"),
+            "{prompt}"
+        );
         assert!(
             prompt.contains("[3] [1:10] Someone: [blacked out] agreed.\n"),
             "{prompt}"
@@ -936,7 +936,11 @@ mod tests {
         let lines: Vec<PromptLine> = (0..2_400)
             .zip(["Ada", "Grace"].iter().cycle())
             .map(|(index, speaker)| {
-                meeting_line(index * 3, speaker, &format!("{index} {}", "word ".repeat(40)))
+                meeting_line(
+                    index * 3,
+                    speaker,
+                    &format!("{index} {}", "word ".repeat(40)),
+                )
             })
             .collect();
 

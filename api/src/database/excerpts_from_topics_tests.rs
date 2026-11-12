@@ -338,10 +338,20 @@ async fn every_topic_becomes_an_excerpt_over_its_words_keeping_its_record() {
     for record in [INTROS, LAUNCH, SILENCE, SPOKEN] {
         let row = &made[&record];
         assert_eq!(row.kind.as_deref(), Some("excerpt"));
-        assert_eq!(row.created_by, Some(ELYSIA_USER_ID), "segmenting was Elysia's");
+        assert_eq!(
+            row.created_by,
+            Some(ELYSIA_USER_ID),
+            "segmenting was Elysia's"
+        );
     }
-    assert_eq!(made[&INTROS].meeting_id, Some(ROADMAP.parse().expect("an id")));
-    assert_eq!(made[&SPOKEN].meeting_id, Some(UNTIMED.parse().expect("an id")));
+    assert_eq!(
+        made[&INTROS].meeting_id,
+        Some(ROADMAP.parse().expect("an id"))
+    );
+    assert_eq!(
+        made[&SPOKEN].meeting_id,
+        Some(UNTIMED.parse().expect("an id"))
+    );
     assert_eq!(
         rows_of(
             &mut connection,

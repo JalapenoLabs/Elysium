@@ -463,23 +463,26 @@ impl SegmentMeeting {
             .await?;
         let untitled = |first: usize| {
             if timed {
-                format!("From {}", segmentation::clock(words[lines[first].start].start_ms))
+                format!(
+                    "From {}",
+                    segmentation::clock(words[lines[first].start].start_ms)
+                )
             } else {
                 format!("From line {}", first + 1)
             }
         };
-        let reading =
-            segmentation::parse_excerpts_answer(&answer, lines.len(), &choices, untitled)
-                .map_err(|error| {
-                    StepFailure::retryable(format!("The segmentation's answer: {error}"))
-                })?;
+        let reading = segmentation::parse_excerpts_answer(&answer, lines.len(), &choices, untitled)
+            .map_err(|error| {
+                StepFailure::retryable(format!("The segmentation's answer: {error}"))
+            })?;
         context.log.line(&format!(
             "Read {} lines: {} excerpts, {} black-outs",
             lines.len(),
             reading.excerpts.len(),
             reading.black_outs.len()
         ));
-        let range_of = |run: LineRun| text.range_of(&(lines[run.first].start..=lines[run.last].end - 1));
+        let range_of =
+            |run: LineRun| text.range_of(&(lines[run.first].start..=lines[run.last].end - 1));
         Ok(Taken {
             excerpts: reading
                 .excerpts
@@ -637,60 +640,33 @@ impl SegmentMeeting {
                 .map_err(StepFailure::retryable)?;
             (records, captures)
         };
-        let recorded = captures.into_iter().find_map(|capture| {
-            let kept = capture.storage_location_id.zip(capture.recording_path.clone());
-            kept.map(|(location_id, path)| (capture, location_id, path))
-        });
-        let Some((capture, storage_location_id, recording_path)) = recorded else {
+        let Some(recording) = captures.into_iter().find_map(Recording::of) else {
             if !records.is_empty() {
                 log.line("No recording is kept, so the excerpts carry no clips");
             }
             return Ok(0);
         };
         let words: Vec<WhisperWord> = self
-            .whisper_transcript(&capture)
+            .whisper_transcript(&recording.capture)
             .await?
             .into_iter()
             .flat_map(|heard| heard.segments)
             .flat_map(|segment| segment.words)
             .collect();
-        let extension = media::extension_of(&recording_path).to_owned();
-        let offset_ms = capture.offset_ms;
-        // Excerpts are on the meeting's clock, and the recording on its capture's.
-        let mut uncut: Vec<(TimelineRecord, (i64, i64), String)> = Vec::new();
-        for (record, _attributions) in records {
-            let Some(mark_id) = record.excerpt_mark_id else {
-                continue;
-            };
-            let Some((_, start_ms, end_ms)) = timeline_record::segment_span(&record) else {
-                continue;
-            };
-            if end_ms <= start_ms {
-                continue;
-            }
-            let cut_at = segmentation::clip_span(start_ms - offset_ms, end_ms - offset_ms, &words);
-            let path = media::excerpt_clip_path(current.id, mark_id, cut_at, &extension);
-            let current_clip = record
-                .media
-                .as_ref()
-                .and_then(|media| media["clip"]["path"].as_str());
-            if current_clip != Some(path.as_str()) {
-                uncut.push((record, cut_at, path));
-            }
-        }
+        let uncut = uncut_clips(current.id, records, &recording, &words);
         if uncut.is_empty() {
             return Ok(0);
         }
 
-        let content_type = capture
-            .recording_content_type
-            .clone()
-            .unwrap_or_else(|| "application/octet-stream".to_owned());
         let (location, access_key) = {
             let mut connection = self.connection().await?;
-            super::location(&mut connection, &self.inner.cipher, storage_location_id)
-                .await
-                .map_err(StepFailure::retryable)?
+            super::location(
+                &mut connection,
+                &self.inner.cipher,
+                recording.storage_location_id,
+            )
+            .await
+            .map_err(StepFailure::retryable)?
         };
         let kept = media::Kept {
             storage: &self.inner.storage,
@@ -700,53 +676,72 @@ impl SegmentMeeting {
         let recording_name = media::ensure_local(
             kept,
             &self.inner.workspace,
-            (current.id, capture.id),
-            &recording_path,
+            (current.id, recording.capture.id),
+            &recording.path,
         )
         .await
         .map_err(StepFailure::retryable)?;
-        for (record, (start_ms, end_ms), path) in &uncut {
-            let clip_name = format!("excerpt-{}.{extension}", record.id);
-            media::cut(
-                &self.inner.workspace,
-                current.id,
-                &recording_name,
-                *start_ms,
-                *end_ms,
-                &clip_name,
-            )
-            .await
-            .map_err(StepFailure::retryable)?;
-            media::upload(
-                kept,
-                &self.inner.workspace,
-                &media::directory(current.id),
-                &clip_name,
-                path,
-                &content_type,
-            )
-            .await
-            .map_err(StepFailure::retryable)?;
-            let mut media = record.media.clone().unwrap_or_else(|| json!({}));
-            media["clip"] = json!({
-                "storageLocationId": storage_location_id,
-                "path": path,
-                "contentType": content_type,
-                "startMs": start_ms + offset_ms,
-                "endMs": end_ms + offset_ms,
-            });
-            let mut connection = self.connection().await?;
-            timeline_record::set_media(&mut connection, record.id, &media)
-                .await
-                .map_err(StepFailure::retryable)?;
-            log.line(&format!("Uploaded a clip to {path}"));
+        for clip in &uncut {
+            self.cut_clip(kept, current.id, &recording_name, &recording, clip)
+                .await?;
+            log.line(&format!("Uploaded a clip to {}", clip.path));
         }
         if words.is_empty() {
             log.line(&format!("Cut {} clips at the words' times", uncut.len()));
         } else {
-            log.line(&format!("Cut {} clips at Whisper's word timings", uncut.len()));
+            log.line(&format!(
+                "Cut {} clips at Whisper's word timings",
+                uncut.len()
+            ));
         }
         Ok(uncut.len())
+    }
+
+    /// Cuts `clip` from `recording`, the local copy of `from`, uploads it where `kept` says, and
+    /// gives its record the clip.
+    async fn cut_clip(
+        &self,
+        kept: media::Kept<'_>,
+        meeting_id: Uuid,
+        recording: &str,
+        from: &Recording,
+        clip: &Uncut,
+    ) -> Result<(), StepFailure> {
+        let clip_name = format!("excerpt-{}.{}", clip.record.id, from.extension());
+        let (start_ms, end_ms) = clip.span;
+        media::cut(
+            &self.inner.workspace,
+            meeting_id,
+            recording,
+            start_ms,
+            end_ms,
+            &clip_name,
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
+        media::upload(
+            kept,
+            &self.inner.workspace,
+            &media::directory(meeting_id),
+            &clip_name,
+            &clip.path,
+            from.content_type(),
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
+        let mut media = clip.record.media.clone().unwrap_or_else(|| json!({}));
+        // The clip's own stretch, on the meeting's clock as every time of a record is.
+        media["clip"] = json!({
+            "storageLocationId": from.storage_location_id,
+            "path": clip.path,
+            "contentType": from.content_type(),
+            "startMs": start_ms + from.capture.offset_ms,
+            "endMs": end_ms + from.capture.offset_ms,
+        });
+        let mut connection = self.connection().await?;
+        timeline_record::set_media(&mut connection, clip.record.id, &media)
+            .await
+            .map_err(StepFailure::retryable)
     }
 
     /// Takes `taken` into meeting `meeting_id` and marks it done, in one transaction under its
@@ -1088,6 +1083,82 @@ async fn existing_projects(
     Ok(projects.into_iter().map(|project| project.id).collect())
 }
 
+/// The recording a meeting's clips are cut from: a capture's, kept in a storage location.
+struct Recording {
+    capture: MeetingCapture,
+    storage_location_id: Uuid,
+    path: String,
+}
+
+impl Recording {
+    /// `capture`'s recording, when one is kept.
+    fn of(capture: MeetingCapture) -> Option<Self> {
+        let storage_location_id = capture.storage_location_id?;
+        let path = capture.recording_path.clone()?;
+        Some(Self {
+            capture,
+            storage_location_id,
+            path,
+        })
+    }
+
+    fn extension(&self) -> &str {
+        media::extension_of(&self.path)
+    }
+
+    /// What its clips are, as its recording is.
+    fn content_type(&self) -> &str {
+        self.capture
+            .recording_content_type
+            .as_deref()
+            .unwrap_or("application/octet-stream")
+    }
+}
+
+/// A clip to cut: its excerpt's record, the stretch of the recording on its capture's clock, and
+/// where it is kept.
+struct Uncut {
+    record: TimelineRecord,
+    span: (i64, i64),
+    path: String,
+}
+
+/// The clips of `records`, meeting `meeting_id`'s standing excerpts, not yet cut for the words each
+/// holds now: one with no clip, and one whose words moved since, its clip's path naming another
+/// stretch. Each is cut from `recording` at the Whisper `words` nearest its ends. An excerpt with no
+/// span of its own, in a meeting in words alone, has no clip.
+fn uncut_clips(
+    meeting_id: Uuid,
+    records: Vec<(TimelineRecord, Vec<Attribution>)>,
+    recording: &Recording,
+    words: &[WhisperWord],
+) -> Vec<Uncut> {
+    let offset_ms = recording.capture.offset_ms;
+    let mut uncut = Vec::new();
+    for (record, _attributions) in records {
+        let Some(mark_id) = record.excerpt_mark_id else {
+            continue;
+        };
+        let Some((_, start_ms, end_ms)) = timeline_record::segment_span(&record) else {
+            continue;
+        };
+        if end_ms <= start_ms {
+            continue;
+        }
+        // Excerpts are on the meeting's clock, and the recording on its capture's.
+        let span = segmentation::clip_span(start_ms - offset_ms, end_ms - offset_ms, words);
+        let path = media::excerpt_clip_path(meeting_id, mark_id, span, recording.extension());
+        let cut_for = record
+            .media
+            .as_ref()
+            .and_then(|media| media["clip"]["path"].as_str());
+        if cut_for != Some(path.as_str()) {
+            uncut.push(Uncut { record, span, path });
+        }
+    }
+    uncut
+}
+
 /// A meeting's standing excerpts, `records` with their attributions, as the step gives them, in
 /// the order they were said.
 fn excerpt_topics(mut records: Vec<(TimelineRecord, Vec<Attribution>)>) -> Segmented {
@@ -1186,7 +1257,12 @@ fn promises_to_keep(
 
 /// How long the meeting ran: what its source said, or where its transcript ends.
 fn duration_of(current: &Meeting, text: &MeetingText) -> i64 {
-    let spoken = text.words().iter().map(|word| word.end_ms).max().unwrap_or(0);
+    let spoken = text
+        .words()
+        .iter()
+        .map(|word| word.end_ms)
+        .max()
+        .unwrap_or(0);
     current.duration_ms.unwrap_or(0).max(spoken)
 }
 
@@ -1418,10 +1494,7 @@ mod tests {
         )
         .await;
         let fetched = heard.0.clone();
-        let read = answer(
-            &[excerpt(3, 3, "Launch", &[(launch.id, 0.8)])],
-            &[(1, 2)],
-        );
+        let read = answer(&[excerpt(3, 3, "Launch", &[(launch.id, 0.8)])], &[(1, 2)]);
         let step = SegmentMeeting::answering(database.clone(), &[&read]);
 
         let done = step
@@ -1579,11 +1652,11 @@ mod tests {
             .await
             .expect("takes");
         let by_title = |records: &[(TimelineRecord, Vec<Attribution>)], title: &str| {
-            records
+            let (record, attributions) = records
                 .iter()
                 .find(|(record, _)| record.title == title)
-                .map(|(record, attributions)| (record.clone(), attributions.clone()))
-                .unwrap_or_else(|| panic!("an excerpt titled {title}"))
+                .unwrap_or_else(|| panic!("an excerpt titled {title}"));
+            (record.clone(), attributions.clone())
         };
         let records = timeline_record::of_meeting(&mut connection, fetched.id)
             .await
@@ -1622,13 +1695,13 @@ mod tests {
         let words = meeting_word::standing(&mut connection, fetched.id)
             .await
             .expect("reads");
-        let lunch = words.last().expect("words");
+        let last_word = words.last().expect("words");
         let persons = excerpts::assign(
             &mut connection,
             &published,
             crate::models::meeting_mark::Range {
-                start_word_id: lunch.id,
-                end_word_id: lunch.id,
+                start_word_id: last_word.id,
+                end_word_id: last_word.id,
             },
             &[segmentation::SegmentProject {
                 project_id: launch.id,
@@ -1678,16 +1751,25 @@ mod tests {
         titles.sort_unstable();
         assert_eq!(
             titles,
-            ["Hiring", "Launch costs", "Launch moves", persons.record.title.as_str()],
+            [
+                "Hiring",
+                "Launch costs",
+                "Launch moves",
+                persons.record.title.as_str()
+            ],
             "Elysia's launch excerpt is kept and renamed, the one taken out stays out, and both the \
              changed one and the person's own stand"
         );
         let (kept, kept_attributions) = by_title(&records, "Launch moves");
         assert_eq!(kept.id, launch_record.id, "kept as it was, not made again");
-        assert_eq!(kept_attributions[0].confidence, 0.9);
+        assert!((kept_attributions[0].confidence - 0.9).abs() < f32::EPSILON);
         let (changed, changed_attributions) = by_title(&records, "Hiring");
         assert_eq!(changed.id, hiring_record.id);
-        assert_eq!(changed_attributions.len(), 2, "the person's project stands with hers");
+        assert_eq!(
+            changed_attributions.len(),
+            2,
+            "the person's project stands with hers"
+        );
         // Only the new excerpt woke the launch's Project Manager; the kept one did not again.
         assert_eq!(wakes_of(&mut connection, launch.id).await, 3);
         assert_eq!(wakes_of(&mut connection, budget.id).await, 2);

@@ -553,8 +553,7 @@ impl Meetings {
         let new_run = match start {
             RunToStart::FromFetch => workflow::run_for(unfinished.id),
             RunToStart::FromSegmenting => {
-                workflow::run_from_segmenting(&mut connection, &unfinished, SYSTEM_USER_ID)
-                    .await?
+                workflow::run_from_segmenting(&mut connection, &unfinished, SYSTEM_USER_ID).await?
             }
         };
         let started = workflows::start(&mut connection, &self.inner.events, new_run).await?;

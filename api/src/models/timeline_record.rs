@@ -577,9 +577,8 @@ fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> 
     }
     if let Some(meeting_id) = query.meeting_id {
         statement = statement.filter(
-            timeline_records::excerpt_mark_id.eq_any(
-                standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable()),
-            ),
+            timeline_records::excerpt_mark_id
+                .eq_any(standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable())),
         );
     }
     statement
@@ -620,9 +619,8 @@ pub async fn of_meeting(
 ) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
     let records: Vec<TimelineRecord> = timeline_records::table
         .filter(
-            timeline_records::excerpt_mark_id.eq_any(
-                standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable()),
-            ),
+            timeline_records::excerpt_mark_id
+                .eq_any(standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable())),
         )
         .select(TimelineRecord::as_select())
         .load(connection)
@@ -698,7 +696,10 @@ pub async fn projects_of_meetings(
         .filter(meeting_marks::meeting_id.eq_any(meeting_ids))
         .filter(meeting_marks::kind.eq(MarkKind::Excerpt.as_str()))
         .filter(meeting_marks::removed_by.is_null())
-        .select((meeting_marks::meeting_id, timeline_record_projects::project_id))
+        .select((
+            meeting_marks::meeting_id,
+            timeline_record_projects::project_id,
+        ))
         .distinct()
         .order_by(timeline_record_projects::project_id.asc())
         .load(connection)

@@ -349,7 +349,7 @@ pub fn metadata_of(meeting: &Meeting, capture: &MeetingCapture, heading: &Headin
 
 /// An excerpt record's media: its span on the meeting's clock and its clip, `null` until one is
 /// cut.
-pub fn media_of(meeting_id: Uuid, reading: &Reading, clip: Option<Value>) -> Value {
+pub fn media_of(meeting_id: Uuid, reading: &Reading, clip: Option<&Value>) -> Value {
     json!({
         "meetingId": meeting_id,
         "startMs": reading.start_ms,
@@ -374,8 +374,7 @@ fn text_of(meeting: &Meeting, reading: &Reading, record: &TimelineRecord) -> Exc
         .media
         .as_ref()
         .and_then(|media| media.get("clip"))
-        .filter(|clip| !clip.is_null())
-        .cloned();
+        .filter(|clip| !clip.is_null());
     ExcerptText {
         occurred_at: meeting.started_at + Duration::milliseconds(reading.start_ms),
         actor: actor_of(reading),
@@ -470,8 +469,10 @@ pub async fn assign(
             let places = text.places_of(range).ok_or(MarkError::NotStanding)?;
             let capture = meeting_capture::first_of(connection, meeting.id).await?;
             let heading = Heading::of_words(&text.read(places.clone()));
-            let (mark, record) =
-                make(connection, meeting, &capture, &text, places, &heading, author).await?;
+            let (mark, record) = make(
+                connection, meeting, &capture, &text, places, &heading, author,
+            )
+            .await?;
             let by = attributor_of(author);
             let mut attributed = Vec::new();
             for assigned in projects {
@@ -612,7 +613,17 @@ pub(crate) async fn undo(
                 ids: &absorbed,
                 removed_by: undone.id,
             };
-            Some(lift(connection, meeting, &mark, &[restore], author, Some(undone.id)).await?)
+            Some(
+                lift(
+                    connection,
+                    meeting,
+                    &mark,
+                    &[restore],
+                    author,
+                    Some(undone.id),
+                )
+                .await?,
+            )
         }
         (Some(EventKind::Unmarked), Some(MarkKind::BlackOut)) if removed_by_it => {
             Some(lay_again(connection, meeting, &mark, undone, author).await?)
@@ -642,8 +653,7 @@ async fn take_out(
         let by = attributor_of(author);
         for attribution in timeline_record::attributions_of(connection, &[record.id]).await? {
             let written =
-                attribution::unattribute(connection, record.id, attribution.project_id, by)
-                    .await?;
+                attribution::unattribute(connection, record.id, attribution.project_id, by).await?;
             unattributed.extend(written.entry().map(|entry| entry.id));
         }
         let source = KnowledgeSource::TimelineRecord {
@@ -691,22 +701,22 @@ async fn put_back(
 }
 
 /// Removes black-out `mark`, undoing `undid` when it is an undo, and puts back what each of
-/// `restores` names that it removed: the black-outs a black-out took in. Refreshes what reads its
+/// `giving_back` names that it removed: the black-outs a black-out took in. Refreshes what reads its
 /// words.
 async fn lift(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
     mark: &Mark,
-    restores: &[Restore<'_>],
+    giving_back: &[Restore<'_>],
     author: Author<'_>,
     undid: Option<Uuid>,
 ) -> QueryResult<MeetingEvent> {
-    let mut restored = Vec::new();
-    for restore in restores {
-        restored
+    let mut put_back = Vec::new();
+    for restore in giving_back {
+        put_back
             .extend(meeting_mark::restore_all(connection, restore.ids, restore.removed_by).await?);
     }
-    let extra = json!({ "restored": restored });
+    let extra = json!({ "restored": put_back });
     let entry = meeting_mark::record_removed(connection, mark, author, undid, extra).await?;
     meeting_mark::remove_all(connection, &[mark.id], entry.id).await?;
     refresh_over(connection, meeting, mark).await?;
@@ -726,8 +736,7 @@ async fn lay_again(
     let restored = ids_in(&undone.data, "restored");
     let absorbed = meeting_mark::standing_among(connection, &restored).await?;
     let extra = json!({ "absorbed": absorbed });
-    let entry =
-        meeting_mark::record_made(connection, mark, author, Some(undone.id), extra).await?;
+    let entry = meeting_mark::record_made(connection, mark, author, Some(undone.id), extra).await?;
     meeting_mark::remove_all(connection, &absorbed, entry.id).await?;
     refresh_over(connection, meeting, mark).await?;
     Ok(entry)
@@ -898,12 +907,271 @@ pub struct Took {
     pub black_outs: usize,
 }
 
-/// Elysia's own marks of one kind, which segmenting may replace: hers, and no person changed.
-struct Standing<'marks> {
-    /// Every standing mark of the kind, by range.
-    by_range: HashMap<Range, &'marks Mark>,
-    /// The ranges a person removed a mark of the kind from.
-    removed_by_people: HashSet<Range>,
+/// A meeting's marks as segmenting finds them, and what taking its answer did so far.
+struct Taking<'meeting> {
+    meeting: &'meeting Meeting,
+    capture: &'meeting MeetingCapture,
+    author: Author<'static>,
+    /// Every project now, so an attribution to one removed while the turn ran is left out.
+    projects: HashSet<Uuid>,
+    words: Vec<Word>,
+    /// Every mark standing as segmenting began.
+    marks: Vec<Mark>,
+    /// Each standing excerpt's record, by its mark.
+    records: HashMap<Uuid, TimelineRecord>,
+    /// The excerpts' records whose projects a person changed, which makes the excerpts theirs.
+    changed: HashSet<Uuid>,
+    /// The ranges a person removed an excerpt, or a black-out, from, which segmenting leaves be.
+    removed_excerpts: HashSet<Range>,
+    removed_black_outs: HashSet<Range>,
+    /// The marks it made, Elysia's own it kept, and every standing mark the answer took again.
+    made: Vec<Uuid>,
+    kept: Vec<Uuid>,
+    taken_again: HashSet<Uuid>,
+    /// How many ranges of the answer no longer stood.
+    unanchored: usize,
+    created: Vec<TimelineRecord>,
+}
+
+impl<'meeting> Taking<'meeting> {
+    async fn read(
+        connection: &mut AsyncPgConnection,
+        meeting: &'meeting Meeting,
+        capture: &'meeting MeetingCapture,
+    ) -> QueryResult<Self> {
+        let projects = project::list(connection)
+            .await?
+            .into_iter()
+            .map(|known| known.id)
+            .collect();
+        let words = meeting_word::standing(connection, meeting.id).await?;
+        let marks = meeting_mark::standing(connection, meeting.id).await?;
+        let excerpt_ids: Vec<Uuid> = marks
+            .iter()
+            .filter(|mark| mark.kind() == Some(MarkKind::Excerpt))
+            .map(|mark| mark.id)
+            .collect();
+        let records: HashMap<Uuid, TimelineRecord> =
+            timeline_record::of_excerpts(connection, &excerpt_ids)
+                .await?
+                .into_iter()
+                .filter_map(|record| record.excerpt_mark_id.map(|mark_id| (mark_id, record)))
+                .collect();
+        let record_ids: Vec<Uuid> = records.values().map(|record| record.id).collect();
+        let changed = attribution::changed_by_people(connection, &record_ids).await?;
+        let removed_excerpts =
+            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Excerpt).await?;
+        let removed_black_outs =
+            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::BlackOut).await?;
+        Ok(Self {
+            meeting,
+            capture,
+            author: Author {
+                user_id: ELYSIA_USER_ID,
+                agent: None,
+                at: Utc::now(),
+            },
+            projects,
+            words,
+            marks,
+            records,
+            changed,
+            removed_excerpts: removed_excerpts.iter().map(Mark::range).collect(),
+            removed_black_outs: removed_black_outs.iter().map(Mark::range).collect(),
+            made: Vec::new(),
+            kept: Vec::new(),
+            taken_again: HashSet::new(),
+            unanchored: 0,
+            created: Vec::new(),
+        })
+    }
+
+    /// Whether `mark` is a person's: made by one, or an excerpt whose projects one changed.
+    fn is_persons(&self, mark: &Mark) -> bool {
+        mark.created_by != ELYSIA_USER_ID
+            || self
+                .records
+                .get(&mark.id)
+                .is_some_and(|record| self.changed.contains(&record.id))
+    }
+
+    /// The standing mark of `kind` over exactly `range`, with whether it is a person's.
+    fn standing(&self, kind: MarkKind, range: Range) -> Option<(Uuid, bool)> {
+        self.marks
+            .iter()
+            .find(|mark| mark.kind() == Some(kind) && mark.range() == range)
+            .map(|mark| (mark.id, self.is_persons(mark)))
+    }
+
+    /// Black-outs first, so every excerpt made reads its words without them: each range a person
+    /// removed one from stays clear, one standing already is kept, and none covers a word of a
+    /// person's excerpt.
+    async fn take_black_outs(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        ranges: &[Range],
+    ) -> QueryResult<()> {
+        let text = MeetingText::new(self.words.clone(), &self.marks);
+        let persons_places: Vec<RangeInclusive<usize>> = self
+            .marks
+            .iter()
+            .filter(|mark| mark.kind() == Some(MarkKind::Excerpt) && self.is_persons(mark))
+            .filter_map(|mark| text.places_of(mark.range()))
+            .collect();
+        for range in ranges {
+            let Some(places) = text.places_of(*range) else {
+                self.unanchored += 1;
+                continue;
+            };
+            if self.removed_black_outs.contains(range) {
+                continue;
+            }
+            if let Some((mark_id, is_persons)) = self.standing(MarkKind::BlackOut, *range) {
+                self.taken_again.insert(mark_id);
+                if !is_persons {
+                    self.kept.push(mark_id);
+                }
+                continue;
+            }
+            let covers_persons = persons_places
+                .iter()
+                .any(|persons| persons.start() <= places.end() && places.start() <= persons.end());
+            if covers_persons {
+                continue;
+            }
+            let new = NewMark::new(
+                self.meeting.id,
+                MarkKind::BlackOut,
+                *range,
+                json!({}),
+                self.author,
+            );
+            self.made
+                .push(meeting_mark::insert(connection, new).await?.id);
+        }
+        Ok(())
+    }
+
+    /// Excerpts: each range a person removed one from stays out, a person's over the same words
+    /// stands as it is, Elysia's own over them takes the answer's title, summary, and projects,
+    /// and every other is made.
+    async fn take_excerpts(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        excerpts: &[TakenExcerpt],
+    ) -> QueryResult<()> {
+        let marks_now = meeting_mark::standing(connection, self.meeting.id).await?;
+        let text = MeetingText::new(self.words.clone(), &marks_now);
+        for excerpt in excerpts {
+            let Some(places) = text.places_of(excerpt.range) else {
+                self.unanchored += 1;
+                continue;
+            };
+            if self.removed_excerpts.contains(&excerpt.range) {
+                continue;
+            }
+            if let Some((mark_id, is_persons)) = self.standing(MarkKind::Excerpt, excerpt.range) {
+                self.taken_again.insert(mark_id);
+                if !is_persons {
+                    self.kept.push(mark_id);
+                    self.take_again(connection, mark_id, excerpt).await?;
+                }
+                continue;
+            }
+            let (mark, record) = make(
+                connection,
+                self.meeting,
+                self.capture,
+                &text,
+                places,
+                &excerpt.heading,
+                self.author,
+            )
+            .await?;
+            attribute_as_elysia(connection, &record, &excerpt.projects, &self.projects).await?;
+            self.made.push(mark.id);
+            self.created.push(record);
+        }
+        Ok(())
+    }
+
+    /// Gives Elysia's own excerpt `mark_id` what the answer says of it again.
+    async fn take_again(
+        &self,
+        connection: &mut AsyncPgConnection,
+        mark_id: Uuid,
+        excerpt: &TakenExcerpt,
+    ) -> QueryResult<()> {
+        let Some(record) = self.records.get(&mark_id) else {
+            return Ok(());
+        };
+        let metadata = metadata_of(self.meeting, self.capture, &excerpt.heading);
+        let record =
+            timeline_record::set_heading(connection, record.id, &excerpt.heading.title, &metadata)
+                .await?;
+        attribute_as_elysia(connection, &record, &excerpt.projects, &self.projects).await
+    }
+
+    /// Records what it did as one change, and removes Elysia's own marks the answer did not take
+    /// again: an excerpt's record leaves her projects and the index.
+    async fn finish(
+        self,
+        connection: &mut AsyncPgConnection,
+        black_outs: usize,
+    ) -> QueryResult<Took> {
+        let removed: Vec<Uuid> = self
+            .marks
+            .iter()
+            .filter(|mark| {
+                let replaceable =
+                    matches!(mark.kind(), Some(MarkKind::Excerpt | MarkKind::BlackOut));
+                replaceable && !self.taken_again.contains(&mark.id) && !self.is_persons(mark)
+            })
+            .map(|mark| mark.id)
+            .collect();
+        let entry = meeting_event::record(
+            connection,
+            Change {
+                id: Uuid::now_v7(),
+                meeting_id: self.meeting.id,
+                kind: EventKind::Segmented,
+                author: self.author,
+                data: json!({
+                    "made": self.made,
+                    "kept": self.kept,
+                    "removed": removed,
+                    "unanchored": self.unanchored,
+                }),
+                undid: None,
+            },
+        )
+        .await?;
+        meeting_mark::remove_all(connection, &removed, entry.id).await?;
+        for mark_id in &removed {
+            let Some(record) = self.records.get(mark_id) else {
+                continue;
+            };
+            for attribution in timeline_record::attributions_of(connection, &[record.id]).await? {
+                attribution::unattribute(
+                    connection,
+                    record.id,
+                    attribution.project_id,
+                    Attributor::Elysia,
+                )
+                .await?;
+            }
+            let source = KnowledgeSource::TimelineRecord {
+                id: record.id,
+                kind: record.source_kind.clone(),
+            };
+            knowledge_document::remove(connection, &source).await?;
+        }
+        Ok(Took {
+            entry,
+            created: self.created,
+            black_outs,
+        })
+    }
 }
 
 /// Takes `taken`, segmenting's answer, into `meeting` as Elysia, from `capture`, the meeting's
@@ -922,196 +1190,12 @@ pub(crate) async fn take(
     capture: &MeetingCapture,
     taken: &Taken,
 ) -> QueryResult<Took> {
-    let author = Author {
-        user_id: ELYSIA_USER_ID,
-        agent: None,
-        at: Utc::now(),
-    };
-    let existing: HashSet<Uuid> = project::list(connection)
-        .await?
-        .into_iter()
-        .map(|known| known.id)
-        .collect();
-    let words = meeting_word::standing(connection, meeting.id).await?;
-    let marks = meeting_mark::standing(connection, meeting.id).await?;
-    let text = MeetingText::new(words.clone(), &marks);
-
-    let excerpt_marks: Vec<&Mark> = marks
-        .iter()
-        .filter(|mark| mark.kind() == Some(MarkKind::Excerpt))
-        .collect();
-    let excerpt_ids: Vec<Uuid> = excerpt_marks.iter().map(|mark| mark.id).collect();
-    let records: HashMap<Uuid, TimelineRecord> =
-        timeline_record::of_excerpts(connection, &excerpt_ids)
-            .await?
-            .into_iter()
-            .filter_map(|record| record.excerpt_mark_id.map(|mark_id| (mark_id, record)))
-            .collect();
-    let record_ids: Vec<Uuid> = records.values().map(|record| record.id).collect();
-    let changed = attribution::changed_by_people(connection, &record_ids).await?;
-    let is_persons = |mark: &Mark| {
-        mark.created_by != ELYSIA_USER_ID
-            || records
-                .get(&mark.id)
-                .is_some_and(|record| changed.contains(&record.id))
-    };
-    let excerpts = Standing {
-        by_range: excerpt_marks.iter().map(|mark| (mark.range(), *mark)).collect(),
-        removed_by_people: ranges_of(
-            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Excerpt).await?,
-        ),
-    };
-    let black_outs = Standing {
-        by_range: marks
-            .iter()
-            .filter(|mark| mark.kind() == Some(MarkKind::BlackOut))
-            .map(|mark| (mark.range(), mark))
-            .collect(),
-        removed_by_people: ranges_of(
-            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::BlackOut).await?,
-        ),
-    };
-    // The words a person's excerpt holds, which no black-out of Elysia's may cover.
-    let persons_places: Vec<RangeInclusive<usize>> = excerpt_marks
-        .iter()
-        .filter(|mark| is_persons(mark))
-        .filter_map(|mark| text.places_of(mark.range()))
-        .collect();
-
-    let mut made: Vec<Uuid> = Vec::new();
-    let mut kept: Vec<Uuid> = Vec::new();
-    let mut unanchored = 0_usize;
-
-    // Black-outs first, so every excerpt made reads its words without them.
-    let mut kept_black_outs: HashSet<Uuid> = HashSet::new();
-    for range in &taken.black_outs {
-        let Some(places) = text.places_of(*range) else {
-            unanchored += 1;
-            continue;
-        };
-        if black_outs.removed_by_people.contains(range) {
-            continue;
-        }
-        if let Some(mark) = black_outs.by_range.get(range) {
-            kept_black_outs.insert(mark.id);
-            if mark.created_by == ELYSIA_USER_ID {
-                kept.push(mark.id);
-            }
-            continue;
-        }
-        let covers_persons = persons_places
-            .iter()
-            .any(|persons| persons.start() <= places.end() && places.start() <= persons.end());
-        if covers_persons {
-            continue;
-        }
-        let new = NewMark::new(meeting.id, MarkKind::BlackOut, *range, json!({}), author);
-        made.push(meeting_mark::insert(connection, new).await?.id);
-    }
-    let marks_now = meeting_mark::standing(connection, meeting.id).await?;
-    let text = MeetingText::new(words, &marks_now);
-
-    let mut created = Vec::new();
-    let mut kept_excerpts: HashSet<Uuid> = HashSet::new();
-    for excerpt in &taken.excerpts {
-        let Some(places) = text.places_of(excerpt.range) else {
-            unanchored += 1;
-            continue;
-        };
-        if excerpts.removed_by_people.contains(&excerpt.range) {
-            continue;
-        }
-        if let Some(mark) = excerpts.by_range.get(&excerpt.range) {
-            kept_excerpts.insert(mark.id);
-            if is_persons(mark) {
-                continue;
-            }
-            kept.push(mark.id);
-            if let Some(record) = records.get(&mark.id) {
-                let metadata = metadata_of(meeting, capture, &excerpt.heading);
-                let record = timeline_record::set_heading(
-                    connection,
-                    record.id,
-                    &excerpt.heading.title,
-                    &metadata,
-                )
-                .await?;
-                attribute_as_elysia(connection, &record, &excerpt.projects, &existing).await?;
-            }
-            continue;
-        }
-        let (mark, record) = make(
-            connection,
-            meeting,
-            capture,
-            &text,
-            places,
-            &excerpt.heading,
-            author,
-        )
+    let mut taking = Taking::read(connection, meeting, capture).await?;
+    taking
+        .take_black_outs(connection, &taken.black_outs)
         .await?;
-        attribute_as_elysia(connection, &record, &excerpt.projects, &existing).await?;
-        made.push(mark.id);
-        created.push(record);
-    }
-
-    // Elysia's own the answer no longer takes.
-    let mut removed: Vec<Uuid> = Vec::new();
-    for mark in &marks {
-        let gone = match mark.kind() {
-            Some(MarkKind::Excerpt) => !kept_excerpts.contains(&mark.id) && !is_persons(mark),
-            Some(MarkKind::BlackOut) => {
-                !kept_black_outs.contains(&mark.id) && mark.created_by == ELYSIA_USER_ID
-            }
-            _ => false,
-        };
-        if gone {
-            removed.push(mark.id);
-        }
-    }
-    let entry = meeting_event::record(
-        connection,
-        Change {
-            id: Uuid::now_v7(),
-            meeting_id: meeting.id,
-            kind: EventKind::Segmented,
-            author,
-            data: json!({
-                "made": made,
-                "kept": kept,
-                "removed": removed,
-                "unanchored": unanchored,
-            }),
-            undid: None,
-        },
-    )
-    .await?;
-    meeting_mark::remove_all(connection, &removed, entry.id).await?;
-    for mark_id in &removed {
-        let Some(record) = records.get(mark_id) else {
-            continue;
-        };
-        for attribution in timeline_record::attributions_of(connection, &[record.id]).await? {
-            attribution::unattribute(
-                connection,
-                record.id,
-                attribution.project_id,
-                Attributor::Elysia,
-            )
-            .await?;
-        }
-        let source = KnowledgeSource::TimelineRecord {
-            id: record.id,
-            kind: record.source_kind.clone(),
-        };
-        knowledge_document::remove(connection, &source).await?;
-    }
-
-    Ok(Took {
-        entry,
-        created,
-        black_outs: taken.black_outs.len(),
-    })
+    taking.take_excerpts(connection, &taken.excerpts).await?;
+    taking.finish(connection, taken.black_outs.len()).await
 }
 
 /// Attributes `record` to each of `projects` that still exists as Elysia, and takes it off every
@@ -1151,10 +1235,6 @@ async fn attribute_as_elysia(
         }
     }
     Ok(())
-}
-
-fn ranges_of(marks: Vec<Mark>) -> HashSet<Range> {
-    marks.into_iter().map(|mark| mark.range()).collect()
 }
 
 /// The id at `key` of a history entry's data.
@@ -1244,7 +1324,11 @@ mod tests {
 
         let reading = text.read(0..=7);
         assert_eq!(reading.body, "[1:01] Ada: Launch is Friday.\n");
-        assert_eq!(reading.speakers, ["Ada"], "Grace spoke only under the black-out");
+        assert_eq!(
+            reading.speakers,
+            ["Ada"],
+            "Grace spoke only under the black-out"
+        );
         assert_eq!(reading.opening, "Launch is Friday.");
         assert_eq!(
             (reading.start_ms, reading.end_ms),
@@ -1343,7 +1427,10 @@ mod tests {
         let document = transcript_document(&meeting, &text, &[]).expect("a document");
         let indexed = document.passages.join("\n");
         assert!(indexed.starts_with("Weekly sync"), "{indexed}");
-        assert!(indexed.contains("[1:01] Ada: Launch is Friday."), "{indexed}");
+        assert!(
+            indexed.contains("[1:01] Ada: Launch is Friday."),
+            "{indexed}"
+        );
         assert!(!indexed.contains("mic"), "{indexed}");
         assert_eq!(document.source, KnowledgeSource::Meeting { id: meeting.id });
         assert_eq!(document.url, None);
@@ -1390,7 +1477,10 @@ mod tests {
     }
 
     /// What the knowledge index holds of `record`, its passages in order.
-    async fn passages_of(connection: &mut AsyncPgConnection, record: &TimelineRecord) -> Vec<String> {
+    async fn passages_of(
+        connection: &mut AsyncPgConnection,
+        record: &TimelineRecord,
+    ) -> Vec<String> {
         use crate::database::schema::{knowledge_documents, knowledge_passages};
         use diesel::{ExpressionMethods, QueryDsl};
         use diesel_async::RunQueryDsl;
@@ -1514,6 +1604,10 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "three black-outs made, one taking in the others, undone, and one removed"
+    )]
     async fn a_black_out_takes_in_what_it_touches_and_its_undo_gives_it_back() {
         let (_url, mut connection) = migrated_database().await;
         let launch = project::create(
@@ -1594,7 +1688,11 @@ mod tests {
             .filter(|mark| mark.kind() == Some(MarkKind::BlackOut))
             .map(|mark| mark.range())
             .collect();
-        assert_eq!(standing.len(), 2, "the two it took in are back: {standing:?}");
+        assert_eq!(
+            standing.len(),
+            2,
+            "the two it took in are back: {standing:?}"
+        );
         assert!(standing.contains(&range(2, 2)) && standing.contains(&range(5, 5)));
 
         // Removing "um" lets its word read again.
@@ -1615,7 +1713,11 @@ mod tests {
         .await
         .expect("reads")
         .expect("its record");
-        assert!(excerpt.body.contains("We ship um sorry hold"), "{}", excerpt.body);
+        assert!(
+            excerpt.body.contains("We ship um sorry hold"),
+            "{}",
+            excerpt.body
+        );
     }
 
     #[tokio::test]
@@ -1678,7 +1780,9 @@ mod tests {
         assert_eq!(excerpt.body, "[1:01] Grace: Launch is Friday.\n");
         let passages = passages_of(&mut connection, &excerpt).await;
         assert!(
-            passages.iter().any(|passage| passage.contains("Launch is Friday.")),
+            passages
+                .iter()
+                .any(|passage| passage.contains("Launch is Friday.")),
             "{passages:?}"
         );
     }

@@ -398,7 +398,11 @@ pub async fn reindex_quoting(
     // of one instant is where threads and segments are matched.
     let end_ms = end_ms.max(start_ms + 1);
     let spans = meeting_comment::spans_over(connection, meeting.id, start_ms, end_ms).await?;
-    let start = spans.iter().map(|(start, _)| *start).min().unwrap_or(start_ms);
+    let start = spans
+        .iter()
+        .map(|(start, _)| *start)
+        .min()
+        .unwrap_or(start_ms);
     let end = spans.iter().map(|(_, end)| *end).max().unwrap_or(end_ms);
     let span = (start.min(start_ms), end.max(end_ms));
     excerpts::refresh(connection, meeting, Some(span)).await
@@ -879,10 +883,11 @@ mod tests {
             agent: None,
             at: Utc::now(),
         };
-        let (_mark, record) =
-            excerpts::make(connection, meeting, &capture, &text, places, &heading, author)
-                .await
-                .expect("makes");
+        let (_mark, record) = excerpts::make(
+            connection, meeting, &capture, &text, places, &heading, author,
+        )
+        .await
+        .expect("makes");
         record.id
     }
 

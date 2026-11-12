@@ -83,9 +83,15 @@ pub async fn assign(
             });
         }
     }
-    let assigned = excerpts::assign(&mut connection, &found, range, &projects, author_of(&current))
-        .await
-        .map_err(refusal)?;
+    let assigned = excerpts::assign(
+        &mut connection,
+        &found,
+        range,
+        &projects,
+        author_of(&current),
+    )
+    .await
+    .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &assigned.entry).await?;
     state.events.publish(&ServerEvent::TimelineRecordCreated {
         id: assigned.record.id,

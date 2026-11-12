@@ -218,7 +218,9 @@ pub async fn removed_by_people(
     kind: MarkKind,
 ) -> QueryResult<Vec<Mark>> {
     meeting_marks::table
-        .inner_join(meeting_events::table.on(meeting_marks::removed_by.eq(meeting_events::id.nullable())))
+        .inner_join(
+            meeting_events::table.on(meeting_marks::removed_by.eq(meeting_events::id.nullable())),
+        )
         .filter(meeting_marks::meeting_id.eq(meeting_id))
         .filter(meeting_marks::kind.eq(kind.as_str()))
         .filter(meeting_events::created_by.ne_all(MACHINE_USER_IDS))
