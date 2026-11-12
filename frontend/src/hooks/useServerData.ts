@@ -31,7 +31,7 @@ import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
-import { meetingsLoaded, meetingUpserted } from '../store/meetingsSlice'
+import { deletedMeetingsLoaded, meetingsLoaded, meetingUpserted } from '../store/meetingsSlice'
 import { modelSettingsLoaded } from '../store/modelSettingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { followUpPromisesLoaded } from '../store/promisesSlice'
@@ -82,7 +82,7 @@ import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { getPage, listPages, pageKey, PAGES_KEY } from '../api/routes/pageRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
-import { getMeeting, listMeetings } from '../api/routes/meetingRoutes'
+import { getMeeting, listDeletedMeetings, listMeetings } from '../api/routes/meetingRoutes'
 import { listModelSettings, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
@@ -311,6 +311,22 @@ export function useMeetingsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/meetings', async () => {
     const response = await listMeetings()
     dispatch(meetingsLoaded(response.meetings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The person's deleted meetings, loaded only while the Meetings page's Deleted filter shows them.
+// A deletion or a restore elsewhere reaches the store as `meeting.changed`, which loads the meeting
+// by id, so its `deletedAt` moves it between the lists.
+export function useDeletedMeetingsLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? 'v1/meetings?deleted=true'
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listDeletedMeetings()
+    dispatch(deletedMeetingsLoaded(response.meetings))
     return response
   })
   return toLoadStatus(data !== undefined, error)

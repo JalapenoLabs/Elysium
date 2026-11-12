@@ -239,6 +239,16 @@ pub async fn answer(
             );
             Ok(())
         }
+        Err(CommentError::Deleted) => {
+            tracing::event!(
+                name: "elysia.thread.deleted",
+                tracing::Level::WARN,
+                meeting.id = %found.id,
+                meeting_mark.id = %asked.thread,
+                "the meeting Elysia answered in was deleted meanwhile; her answer was not posted",
+            );
+            Ok(())
+        }
         Err(CommentError::Database(error)) => Err(error),
         Err(error) => {
             tracing::event!(

@@ -60,6 +60,9 @@ pub enum NudgeError {
     /// The offset lies further from the meeting's clock than [`OFFSET_MAX_MS`].
     #[error("an offset is at most twelve hours either way")]
     OutOfRange,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     /// The meeting's transcripts could not be read to line it up again.
@@ -73,7 +76,8 @@ pub enum NudgeError {
 ///
 /// # Errors
 /// [`NudgeError::NotFound`] for a capture that is not the meeting's, [`NudgeError::OutOfRange`]
-/// for an offset past [`OFFSET_MAX_MS`]; any database error.
+/// for an offset past [`OFFSET_MAX_MS`], [`NudgeError::Deleted`] while the meeting is deleted; any
+/// database error.
 pub async fn nudge(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -87,6 +91,8 @@ pub async fn nudge(
     connection
         .transaction(async |connection| {
             match meeting::lock(connection, meeting_id).await {
+                // Read under the lock a deletion takes, so no offset moves on a meeting deleted.
+                Ok(locked) if locked.deleted_at.is_some() => return Err(NudgeError::Deleted),
                 Ok(_locked) => {}
                 Err(diesel::result::Error::NotFound) => return Err(NudgeError::NotFound),
                 Err(error) => return Err(error.into()),
@@ -152,6 +158,8 @@ pub(crate) async fn undo(
         NudgeError::Database(error) => UndoError::Database(error),
         NudgeError::Transcript(error) => UndoError::Transcript(error),
         NudgeError::NotFound | NudgeError::OutOfRange => UndoError::ChangedSince,
+        // Only `nudge` reads the meeting; an undo is refused for a deleted one before it is here.
+        NudgeError::Deleted => UndoError::Deleted,
     })
 }
 

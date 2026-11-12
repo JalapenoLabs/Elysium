@@ -91,6 +91,10 @@ export const ACTION_ITEM_PERSON_MAX_CHARACTERS = 320
 // is sent in parts of this size.
 export const ACTION_ITEM_BULK_MAX_ITEMS = 1000
 
+// The most meetings one delete or restore names, matching the API's `deletion::MAX_MEETINGS`. A
+// larger selection is sent in parts of this size.
+export const MEETING_BULK_MAX_MEETINGS = 1000
+
 // The most initiatives one bulk change names, matching the API's `MAX_INITIATIVES`.
 export const INITIATIVE_BULK_MAX_INITIATIVES = 1000
 

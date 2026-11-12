@@ -49,6 +49,21 @@ describe('describeHistory', () => {
     expect([ settled.sentence, settled.canUndo ]).toEqual([ 'settled', false ])
   })
 
+  it('says who deleted and restored the meeting, offering Undo on neither', () => {
+    const rows = describeHistory([
+      entry('restored', 'restored', { deletedAt: '2026-11-11T09:00:00Z', segments: 2, runRetried: true }),
+      entry('removed', 'deleted', { segments: 2, connectorId: 'fireflies' }),
+      entry('deleted', 'deleted', { segments: 2, connectorId: null }),
+    ], 'this')
+
+    // Restoring is a deletion's undo, and deleting again a restore's.
+    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'restored', false ],
+      [ 'deletedWithConnector', false ],
+      [ 'deleted', false ],
+    ])
+  })
+
   it('says when a recording was moved on the clock, and when that was undone', () => {
     const rows = describeHistory([
       entry('back', 'offset_changed', { captureId: 'capture' }, 'moved'),

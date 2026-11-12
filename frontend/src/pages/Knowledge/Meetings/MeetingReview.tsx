@@ -12,6 +12,7 @@ import { LuExternalLink } from 'react-icons/lu'
 import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
+import { DeletedMeetingNotice } from './DeletedMeetingNotice'
 import { MeetingTopics } from './MeetingTopics'
 import { MeetingWorkspace } from './MeetingWorkspace'
 import { MergedIntoNotice } from './MergedIntoNotice'
@@ -89,6 +90,7 @@ export function MeetingReview(props: Props) {
     </div>
 
     {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
+    {meeting.deletedAt && <DeletedMeetingNotice meeting={meeting} />}
 
     <PageTabs
       label={t('page.tabs.label')}

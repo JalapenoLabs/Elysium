@@ -27,10 +27,12 @@ type Props = {
   // Whether the filters leave out any meeting, so an empty list says they did.
   isFiltered: boolean
   filters: SmartTableFilters<Meeting>
+  // Whether these are the person's deleted meetings, shown in place of the rest.
+  isDeletedView: boolean
 }
 
-// The Meetings page's list: the person's meetings as the page's one table, its search, filters,
-// Columns, and export in the titlebar.
+// The Meetings page's list: the person's meetings, or their deleted ones, as the page's one table,
+// its search, filters, Columns, and export in the titlebar.
 export function MeetingList(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const toolsContainer = usePageToolsContainer()
@@ -44,10 +46,17 @@ export function MeetingList(props: Props) {
     return <p className='text-sm text-danger'>{t('common:errors.unexpected')}</p>
   }
 
-  // Nothing to list says why: the filters left nothing, no source has read a meeting yet, or there
-  // is no source to read one.
+  // Nothing to list says why: nothing is deleted, the filters left nothing, no source has read a
+  // meeting yet, or there is no source to read one.
   let emptyNotice = <EmptyNotice>{t('list.empty')}</EmptyNotice>
-  if (props.isFiltered) {
+  if (props.isDeletedView) {
+    emptyNotice = <EmptyNotice>{
+      props.isFiltered
+        ? t('list.noMatch')
+        : t('list.emptyDeleted')
+    }</EmptyNotice>
+  }
+  else if (props.isFiltered) {
     emptyNotice = <EmptyNotice>{t('list.noMatch')}</EmptyNotice>
   }
   else if (!props.hasSources) {
@@ -59,9 +68,14 @@ export function MeetingList(props: Props) {
   }
 
   return <MeetingTable
+    // The live and deleted lists keep their own selection, so switching starts the other fresh.
+    key={props.isDeletedView
+      ? 'deleted'
+      : 'live'}
     meetings={props.meetings}
     controlsContainer={toolsContainer}
     filters={props.filters}
     emptyNotice={emptyNotice}
+    isDeletedView={props.isDeletedView}
   />
 }

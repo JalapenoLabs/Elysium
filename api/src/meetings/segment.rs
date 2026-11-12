@@ -245,7 +245,8 @@ impl SegmentMeeting {
     }
 
     /// The meeting `input` names and the capture it was corrected from, or `None` when its
-    /// captures were merged into another meeting, which leaves it nothing to segment.
+    /// captures were merged into another meeting, which leaves it nothing to segment. A meeting
+    /// its person deleted fails the step for good, stopping its run until they restore it.
     async fn meeting_and_capture(
         &self,
         input: &CorrectedMeeting,
@@ -262,6 +263,10 @@ impl SegmentMeeting {
             .map_err(gone)?;
         if current.merged_into.is_some() {
             return Ok(None);
+        }
+        // A meeting its person deleted stops its run here until they restore it.
+        if current.deleted_at.is_some() {
+            return Err(StepFailure::permanent(super::deletion::STOPPED));
         }
         let capture = super::capture_of(&mut connection, input.meeting_id, input.capture_id)
             .await
@@ -325,11 +330,17 @@ impl SegmentMeeting {
             .flat_map(|segment| segment.words)
             .collect();
         let clips = self.cut_clips(&capture, &segments, &words, log).await?;
-        let published = self
+        let published = match self
             .publish(&current, &capture, &transcript, &segments, clips)
-            .await?;
-        let Some(published) = published else {
-            return self.published_by_another(current.id, log).await;
+            .await?
+        {
+            Publishing::Published(published) => published,
+            Publishing::ByAnother => return self.published_by_another(current.id, log).await,
+            Publishing::Deleted => {
+                // Its segments and clips are kept, so restoring it publishes them from there.
+                log.line("The meeting was deleted meanwhile, so nothing was published");
+                return Err(StepFailure::permanent(super::deletion::STOPPED));
+            }
         };
         log.line(&format!(
             "Published {} topics to the timeline",
@@ -700,10 +711,11 @@ impl SegmentMeeting {
     }
 
     /// Stores every segment as a timeline record, attributed to its projects, and marks the
-    /// meeting done, in one transaction under the meeting's lock. Answers `None`, storing nothing,
-    /// when another attempt marked the meeting done first: two attempts at once publish it once,
-    /// whether or not the unique key on its records can tell them apart (a capture with no
-    /// connector cannot).
+    /// meeting done, in one transaction under the meeting's lock. Stores nothing when another
+    /// attempt marked the meeting done first: two attempts at once publish it once, whether or not
+    /// the unique key on its records can tell them apart (a capture with no connector cannot). Nor
+    /// when its person deleted it meanwhile: the deletion takes the same lock, so no segment of a
+    /// deleted meeting is ever on a timeline.
     async fn publish(
         &self,
         current: &Meeting,
@@ -711,7 +723,7 @@ impl SegmentMeeting {
         transcript: &[TranscriptLine],
         segments: &[Segment],
         clips: Vec<Option<Clip>>,
-    ) -> Result<Option<Published>, StepFailure> {
+    ) -> Result<Publishing, StepFailure> {
         let records: Vec<NewTimelineRecord> = segments
             .iter()
             .enumerate()
@@ -725,8 +737,12 @@ impl SegmentMeeting {
         let meeting_id = current.id;
         let published = connection
             .transaction(async move |connection| {
-                if meeting::lock(connection, meeting_id).await?.state() == MeetingState::Done {
-                    return Ok(None);
+                let locked = meeting::lock(connection, meeting_id).await?;
+                if locked.deleted_at.is_some() {
+                    return Ok(Publishing::Deleted);
+                }
+                if locked.state() == MeetingState::Done {
+                    return Ok(Publishing::ByAnother);
                 }
                 let existing = existing_projects(connection).await?;
                 let mut published = Published::default();
@@ -767,7 +783,7 @@ impl SegmentMeeting {
                     published.created.push(stored);
                 }
                 meeting::record_done(connection, meeting_id).await?;
-                Ok::<_, diesel::result::Error>(Some(published))
+                Ok::<_, diesel::result::Error>(Publishing::Published(published))
             })
             .await
             .map_err(StepFailure::retryable)?;
@@ -1090,6 +1106,16 @@ struct Published {
     record_ids: Vec<Option<Uuid>>,
 }
 
+/// How publishing a meeting's segments went, decided under its lock.
+enum Publishing {
+    /// This attempt stored them.
+    Published(Published),
+    /// Another attempt marked the meeting done first, so nothing was stored twice.
+    ByAnother,
+    /// Its person deleted it meanwhile, so nothing was stored and the run stops.
+    Deleted,
+}
+
 /// What a meeting's capture heard, and its corrected copy when the run named one.
 struct Heard {
     /// The transcript a correction follows: the source's lines, or Whisper's segments when the
@@ -1315,6 +1341,7 @@ mod tests {
             updated_at: Utc::now(),
             hold_for_approval: false,
             merged_into: None,
+            deleted_at: None,
         }
     }
 

@@ -68,6 +68,7 @@ async fn decide(
             code: "duplicate_decided",
             message: "Whether these are the same meeting was decided already.",
         },
+        DecideError::Deleted => super::deleted_refusal(),
         DecideError::Database(database) => database.into(),
         DecideError::Other(other) => other.into(),
     })?;

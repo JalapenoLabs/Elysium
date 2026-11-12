@@ -224,6 +224,9 @@ enum Decision {
     Hold {
         raised: bool,
     },
+    /// Its person deleted the meeting while it was corrected: the copy is kept, nobody is asked
+    /// to review it, and the run stops until they restore it, which finds the copy stored.
+    Stopped,
 }
 
 impl CorrectTranscript {
@@ -523,6 +526,9 @@ impl CorrectTranscript {
         let (decision, raised) = connection
             .transaction(async move |connection| {
                 let current = meeting::lock(connection, meeting_id).await?;
+                if current.deleted_at.is_some() {
+                    return Ok((Decision::Stopped, None));
+                }
                 let correction = meeting_correction::find(connection, meeting_id)
                     .await?
                     .ok_or_else(|| anyhow!("the meeting's corrected copy went missing"))?;
@@ -644,7 +650,7 @@ impl Step for CorrectTranscript {
                 reason: "Not fetched, so nothing to correct".to_owned(),
             });
         }
-        let (merged, stored) = {
+        let (current, stored) = {
             let mut connection = self.connection().await?;
             let current = meeting::find(&mut connection, input.meeting_id)
                 .await
@@ -652,9 +658,13 @@ impl Step for CorrectTranscript {
             let stored = meeting_correction::find(&mut connection, input.meeting_id)
                 .await
                 .map_err(StepFailure::retryable)?;
-            (current.merged_into.is_some(), stored)
+            (current, stored)
         };
-        if merged {
+        // A meeting its person deleted stops its run here until they restore it.
+        if current.deleted_at.is_some() {
+            return Err(StepFailure::permanent(super::deletion::STOPPED));
+        }
+        if current.merged_into.is_some() {
             context
                 .log
                 .line("The meeting's captures were merged into another meeting");
@@ -711,6 +721,12 @@ impl Step for CorrectTranscript {
                     output: output(false),
                     summary: format!("{summary}; waiting for approval"),
                 })
+            }
+            Decision::Stopped => {
+                context.log.line(&format!(
+                    "{summary}; the meeting was deleted meanwhile, so the run stops here"
+                ));
+                Err(StepFailure::permanent(super::deletion::STOPPED))
             }
         }
     }
@@ -970,6 +986,9 @@ pub enum ApproveError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Run(#[from] StepActionError),
     #[error(transparent)]
@@ -983,7 +1002,8 @@ pub enum ApproveError {
 ///
 /// # Errors
 /// [`ApproveError::NotFound`] when the meeting is not `owner`'s or has no corrected copy,
-/// [`ApproveError::Merged`] once it was merged into another; any database error.
+/// [`ApproveError::Merged`] once it was merged into another, [`ApproveError::Deleted`] while it
+/// is deleted; any database error.
 pub async fn approve(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -1000,6 +1020,10 @@ pub async fn approve(
             // Merged into another, its run goes no further and its words change there.
             if current.merged_into.is_some() {
                 return Err(ApproveError::Merged);
+            }
+            // Deleted, its run is stopped until it is restored.
+            if current.deleted_at.is_some() {
+                return Err(ApproveError::Deleted);
             }
             let already = meeting_correction::find(connection, meeting_id)
                 .await?
@@ -1077,6 +1101,9 @@ pub enum HoldError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -1089,7 +1116,8 @@ pub enum HoldError {
 ///
 /// # Errors
 /// [`HoldError::NotFound`] when the meeting is not `owner`'s, [`HoldError::Corrected`] once
-/// its copy is stored, [`HoldError::Merged`] once it was merged into another; any database error.
+/// its copy is stored, [`HoldError::Merged`] once it was merged into another,
+/// [`HoldError::Deleted`] while it is deleted; any database error.
 pub async fn hold(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -1105,6 +1133,9 @@ pub async fn hold(
             }
             if current.merged_into.is_some() {
                 return Err(HoldError::Merged);
+            }
+            if current.deleted_at.is_some() {
+                return Err(HoldError::Deleted);
             }
             if meeting_correction::find(connection, meeting_id)
                 .await?

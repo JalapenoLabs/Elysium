@@ -4,7 +4,7 @@ import type { Meeting } from '../../../api/routes/meetingRoutes'
 
 // Core
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import { MemoryRouter } from 'react-router'
 
@@ -19,9 +19,11 @@ import { MeetingTable } from './MeetingTable'
 // Misc
 import { makeMeeting, makeProject } from '../../../testFixtures'
 
-// Retrying is the network boundary; toasts are watched for what they say.
+// Retrying, deleting, and restoring are the network boundary; toasts are watched for what they
+// say.
 const routes = vi.hoisted(() => ({
   retryMeeting: vi.fn(),
+  changeMeetings: vi.fn(),
 }))
 
 vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
@@ -31,22 +33,34 @@ vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
 
 const toasts = vi.hoisted(() => ({
   success: vi.fn(),
+  warning: vi.fn(),
   danger: vi.fn(),
 }))
 
 vi.mock('../../../toast/toast', () => ({ toast: toasts }))
 
 const MINUTE = 60 * 1000
+const DELETED_AT = '2026-11-11T09:00:00Z'
 
-function renderTable(meetings: Meeting[]) {
+function renderTable(meetings: Meeting[], isDeletedView = false) {
   const store = createAppStore()
   store.dispatch(meetingsLoaded(meetings))
   render(<Provider store={store}>
     <MemoryRouter>
-      <MeetingTable meetings={meetings} controlsContainer={null} emptyNotice={<p>No meetings</p>} />
+      <MeetingTable
+        meetings={meetings}
+        controlsContainer={null}
+        emptyNotice={<p>No meetings</p>}
+        isDeletedView={isDeletedView}
+      />
     </MemoryRouter>
   </Provider>)
   return store
+}
+
+// What the API answers to a change of `meetings`: each as it now stands, deleted or not.
+function answerWith(meetings: Meeting[], deletedAt: string | null) {
+  return { meetings: meetings.map((meeting) => ({ ...meeting, deletedAt })), refused: []}
 }
 
 // Presses a column's header until it sorts ascending: number columns start descending.
@@ -71,7 +85,9 @@ function rowOrder(titles: string[]) {
 describe('MeetingTable', () => {
   beforeEach(() => {
     routes.retryMeeting.mockReset()
+    routes.changeMeetings.mockReset()
     toasts.success.mockReset()
+    toasts.warning.mockReset()
     toasts.danger.mockReset()
   })
 
@@ -106,7 +122,12 @@ describe('MeetingTable', () => {
     const meeting = makeMeeting({ id: 'planning', projectIds: [ 'launch', 'gone', 'billing' ]})
     render(<Provider store={store}>
       <MemoryRouter>
-        <MeetingTable meetings={[ meeting ]} controlsContainer={null} emptyNotice={<p>No meetings</p>} />
+        <MeetingTable
+          meetings={[ meeting ]}
+          controlsContainer={null}
+          emptyNotice={<p>No meetings</p>}
+          isDeletedView={false}
+        />
       </MemoryRouter>
     </Provider>)
 
@@ -163,5 +184,62 @@ describe('MeetingTable', () => {
     renderTable([])
 
     expect(screen.getByText('No meetings')).toBeTruthy()
+  })
+
+  // #258: there was no way to delete a meeting.
+  it('deletes a meeting from its row at once, with Undo restoring it', async () => {
+    const meeting = makeMeeting({ id: 'duplicate', title: 'Duplicate sync' })
+    routes.changeMeetings.mockResolvedValueOnce(answerWith([ meeting ], DELETED_AT))
+    const store = renderTable([ meeting ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(store.getState().meetings.entities.duplicate?.deletedAt).toBe(DELETED_AT))
+    expect(routes.changeMeetings).toHaveBeenCalledWith([ 'duplicate' ], 'delete')
+    const [ message, options ] = toasts.success.mock.calls[0]
+    expect(message).toBe('Deleted “Duplicate sync”.')
+    expect(options.action.label).toBe('Undo')
+
+    routes.changeMeetings.mockResolvedValueOnce(answerWith([ meeting ], null))
+    options.action.onPress()
+    await waitFor(() => expect(store.getState().meetings.entities.duplicate?.deletedAt).toBeNull())
+    expect(routes.changeMeetings).toHaveBeenLastCalledWith([ 'duplicate' ], 'restore')
+    expect(toasts.success).toHaveBeenLastCalledWith('Restored “Duplicate sync”.')
+  })
+
+  it('deletes a selection from the floating bar, naming what changed meanwhile', async () => {
+    const first = makeMeeting({ id: 'first', title: 'First' })
+    const second = makeMeeting({ id: 'second', title: 'Second' })
+    routes.changeMeetings.mockResolvedValueOnce({
+      meetings: [{ ...first, deletedAt: DELETED_AT }],
+      refused: [{ meetingId: 'second', code: 'meeting_merged', message: 'merged' }],
+    })
+    renderTable([ first, second ])
+
+    for (const checkbox of screen.getAllByRole('checkbox', { name: 'Select row' })) {
+      fireEvent.click(checkbox)
+    }
+    const bar = await screen.findByRole('toolbar', { name: 'Selection' })
+    fireEvent.click(within(bar).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(routes.changeMeetings).toHaveBeenCalled())
+    expect([ ...routes.changeMeetings.mock.calls[0][0] ].sort()).toEqual([ 'first', 'second' ])
+    expect(routes.changeMeetings.mock.calls[0][1]).toBe('delete')
+    await waitFor(() => expect(toasts.success).toHaveBeenCalled())
+    expect(toasts.success.mock.calls[0][0]).toBe('Deleted “First”.')
+    expect(toasts.warning).toHaveBeenCalledWith('Left “Second” as it is, since it changed meanwhile.')
+  })
+
+  it('offers Restore alone on a deleted meeting', async () => {
+    const deleted = makeMeeting({ id: 'gone', title: 'Gone', state: 'failed', deletedAt: DELETED_AT })
+    routes.changeMeetings.mockResolvedValueOnce(answerWith([ deleted ], null))
+    const store = renderTable([ deleted ], true)
+
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+
+    await waitFor(() => expect(store.getState().meetings.entities.gone?.deletedAt).toBeNull())
+    expect(routes.changeMeetings).toHaveBeenCalledWith([ 'gone' ], 'restore')
   })
 })

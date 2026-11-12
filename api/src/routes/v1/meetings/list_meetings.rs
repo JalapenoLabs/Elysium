@@ -8,7 +8,9 @@
 //! are on, `projectIds`, which both read.
 //!
 //! `reviewItemId` keeps the meeting whose corrected transcript an inbox item asks to review,
-//! which the item's page links to.
+//! which the item's page links to. `deleted=true` lists the person's deleted meetings instead, in
+//! the same order, which the Meetings page's Deleted filter restores from; no other listing holds
+//! them.
 
 use anyhow::Context;
 use axum::Json;
@@ -28,6 +30,8 @@ use crate::state::AppState;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Filters {
     review_item_id: Option<Uuid>,
+    #[serde(default)]
+    deleted: bool,
 }
 
 pub async fn handle(
@@ -41,11 +45,12 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let meetings = match filters.review_item_id {
-        Some(item_id) => {
+    let meetings = match (filters.review_item_id, filters.deleted) {
+        (Some(item_id), _) => {
             meeting_correction::meetings_reviewed_by(&mut connection, item_id, current.id()).await?
         }
-        None => meeting::list_owned(&mut connection, current.id()).await?,
+        (None, true) => meeting::list_deleted(&mut connection, current.id()).await?,
+        (None, false) => meeting::list_owned(&mut connection, current.id()).await?,
     };
     let answered = responses(&mut connection, meetings).await?;
     Ok(Json(json!({ "meetings": answered })))

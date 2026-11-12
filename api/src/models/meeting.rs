@@ -17,6 +17,11 @@
 //! A meeting whose captures its person merged into another one names it (`merged_into`). It
 //! holds no captures while it does, and is listed nowhere and processed no further; splitting
 //! the captures back out clears it (`crate::meetings::duplicates`).
+//!
+//! A meeting its person deleted keeps when (`deleted_at`) until they restore it. It is listed
+//! nowhere but among their deleted meetings ([`list_deleted`]), processed no further, and changes
+//! no further; its captures stay, so its connector never stores it again
+//! (`crate::meetings::deletion`).
 
 use std::collections::HashMap;
 
@@ -26,7 +31,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::database::schema::meetings;
+use crate::database::schema::{meeting_captures, meetings};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
 
 /// How far a meeting's processing got. Stored as `meetings.state`.
@@ -83,6 +88,8 @@ pub struct Meeting {
     pub hold_for_approval: bool,
     /// The meeting its captures were merged into, while they are.
     pub merged_into: Option<Uuid>,
+    /// When its person deleted it, while it is deleted (`crate::meetings::deletion`).
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Meeting {
@@ -141,16 +148,18 @@ pub async fn insert_new(
     }
 }
 
-/// Every meeting whose segments are not on the timeline yet, oldest first. The condition is
-/// `meetings_unfinished`'s own, so the partial index answers it.
+/// Every meeting whose segments are not on the timeline yet, oldest first. Its state is
+/// `meetings_unfinished`'s condition, so the partial index answers it.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Meeting>> {
     meetings::table
         .filter(meetings::state.ne(MeetingState::Done.as_str()))
-        // A meeting merged into another has nothing of its own left to process.
+        // A meeting merged into another has nothing of its own left to process, and one deleted
+        // goes no further until it is restored.
         .filter(meetings::merged_into.is_null())
+        .filter(meetings::deleted_at.is_null())
         .select(Meeting::as_select())
         .order(meetings::created_at.asc())
         .load(connection)
@@ -158,7 +167,8 @@ pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<
 }
 
 /// Every one of `owner`'s meetings, newest first, the later id first between two that started
-/// together, so two never tie, but for those merged into another, which live on in it.
+/// together, so two never tie, but for those merged into another, which live on in it, and those
+/// deleted ([`list_deleted`]).
 ///
 /// # Errors
 /// Propagates any database error.
@@ -169,10 +179,63 @@ pub async fn list_owned(
     meetings::table
         .filter(meetings::created_by.eq(owner))
         .filter(meetings::merged_into.is_null())
+        .filter(meetings::deleted_at.is_null())
         .select(Meeting::as_select())
         .order((meetings::started_at.desc(), meetings::id.desc()))
         .load(connection)
         .await
+}
+
+/// Every one of `owner`'s deleted meetings, in [`list_owned`]'s order: where they are restored
+/// from. A meeting is deleted only while it holds its own captures, so none is merged away.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_deleted(
+    connection: &mut AsyncPgConnection,
+    owner: Uuid,
+) -> QueryResult<Vec<Meeting>> {
+    meetings::table
+        .filter(meetings::created_by.eq(owner))
+        .filter(meetings::deleted_at.is_not_null())
+        .select(Meeting::as_select())
+        .order((meetings::started_at.desc(), meetings::id.desc()))
+        .load(connection)
+        .await
+}
+
+/// The ids of `owner`'s meetings that connector `connector_id` listed, in id order, the order a
+/// change to many meetings locks them in: those whose first capture, the one each is shown as
+/// from, it read, but for meetings deleted or merged into another. What removing the connector
+/// offers to delete with it, and how many it says.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn listed_by(
+    connection: &mut AsyncPgConnection,
+    connector_id: Uuid,
+    owner: Uuid,
+) -> QueryResult<Vec<Uuid>> {
+    // The meetings holding any capture of the connector's, then only those whose first capture it
+    // is: a meeting it read a later capture of was listed by another source.
+    let holding: Vec<Uuid> = meetings::table
+        .inner_join(meeting_captures::table)
+        .filter(meetings::created_by.eq(owner))
+        .filter(meetings::merged_into.is_null())
+        .filter(meetings::deleted_at.is_null())
+        .filter(meeting_captures::connector_id.eq(connector_id))
+        .select(meetings::id)
+        .distinct()
+        .load(connection)
+        .await?;
+    let mut listed: Vec<Uuid> = meeting_capture::first_of_each(connection, &holding)
+        .await?
+        .into_iter()
+        .filter(|first| first.connector_id == Some(connector_id))
+        .map(|first| first.meeting_id)
+        .collect();
+    listed.sort_unstable();
+    Ok(listed)
 }
 
 /// The meeting `id`, when `owner` owns it.
@@ -269,8 +332,24 @@ pub async fn set_merged_into(
         .await
 }
 
-/// `owner`'s meetings other than `except`, not merged into another, that started between `from`
-/// and `to`, oldest first: where a meeting looks for one it may be the same as.
+/// Records meeting `id` as deleted at `at`, or, given `None`, as restored.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_deleted(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    at: Option<DateTime<Utc>>,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set(meetings::deleted_at.eq(at))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// `owner`'s meetings other than `except`, neither merged into another nor deleted, that started
+/// between `from` and `to`, oldest first: where a meeting looks for one it may be the same as.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -284,6 +363,7 @@ pub async fn started_between(
         .filter(meetings::created_by.eq(owner))
         .filter(meetings::id.ne(except))
         .filter(meetings::merged_into.is_null())
+        .filter(meetings::deleted_at.is_null())
         .filter(meetings::started_at.between(from, to))
         .select(Meeting::as_select())
         .order((meetings::started_at.asc(), meetings::id.asc()))

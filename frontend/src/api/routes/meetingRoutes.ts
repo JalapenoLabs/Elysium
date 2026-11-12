@@ -63,6 +63,9 @@ export type Meeting = {
   // The meeting its person merged its captures into, or null. A merged meeting lives on in that
   // one, so it is in no list, though an event may still load it by id.
   mergedInto: string | null
+  // When its person deleted it, or null. A deleted meeting is listed only among their deleted ones
+  // (`listDeletedMeetings`), and its page reads as it stood, with Restore.
+  deletedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -161,7 +164,8 @@ export type MeetingTranscriptChange = {
 export type MeetingHistoryEntry = {
   id: string
   // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`.
+  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
+  // `deleted`, or `restored`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -208,6 +212,38 @@ export function listMeetings() {
   return apiClient
     .get('v1/meetings')
     .json<ListMeetingsResponse>()
+}
+
+// The person's deleted meetings, which no other listing holds, for the Meetings page's Deleted
+// filter to restore from.
+export function listDeletedMeetings() {
+  return apiClient
+    .get('v1/meetings', { searchParams: { deleted: true }})
+    .json<ListMeetingsResponse>()
+}
+
+// Mirrors `BulkChange` in api/src/meetings/deletion.rs.
+export type MeetingBulkChange = 'delete' | 'restore'
+
+// A meeting a change did not apply to, and why, as `Refusal` there names it.
+export type MeetingRefusal = {
+  meetingId: string
+  code: string
+  message: string
+}
+
+type ChangeMeetingsResponse = {
+  // Each meeting changed, as it now stands.
+  meetings: Meeting[]
+  refused: MeetingRefusal[]
+}
+
+// Deletes or restores the meetings named, at most `MEETING_BULK_MAX_MEETINGS` at once. Each one
+// refused is answered with its reason while the rest change.
+export function changeMeetings(meetingIds: string[], change: MeetingBulkChange) {
+  return apiClient
+    .post('v1/meetings/bulk', { json: { meetingIds, change: { kind: change }}})
+    .json<ChangeMeetingsResponse>()
 }
 
 type MeetingResponse = {

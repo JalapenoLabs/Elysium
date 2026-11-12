@@ -1363,6 +1363,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         hold_for_approval -> Bool,
         merged_into -> Nullable<Uuid>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -1905,6 +1906,7 @@ diesel::table! {
         created_at -> Timestamptz,
         turn_summary_session_id -> Nullable<Int8>,
         turn_summary_turn_id -> Nullable<Uuid>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 

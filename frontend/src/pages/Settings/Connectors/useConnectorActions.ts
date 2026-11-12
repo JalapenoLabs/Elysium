@@ -17,12 +17,17 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { accountNameOf } from './connectorPresentation'
 import {
   deleteConnector,
+  getConnectorMeetingCount,
   runConnectorChecks,
   syncConnector,
   updateConnector,
 } from '../../../api/routes/connectorRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { toast } from '../../../toast/toast'
+import { useConnectorKinds } from './useConnectorKinds'
+
+// The removal dialog's switch that deletes the meetings the connector listed along with it.
+const DELETE_MEETINGS_SWITCH = 'deleteMeetings'
 
 // What removing a connector removes with it, by the account it owns.
 const deleteBodyKeyByAccount = {
@@ -51,6 +56,7 @@ export function useConnectorActions(options: Options = {}) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
+  const kinds = useConnectorKinds()
   const [ runningKeys, setRunningKeys ] = useState<ReadonlySet<string>>(() => new Set())
 
   async function attempt(action: () => Promise<void>, context: Record<string, unknown>) {
@@ -82,6 +88,25 @@ export function useConnectorActions(options: Options = {}) {
     }
   }
 
+  // How many meetings the connector listed, which its removal offers to delete with it: none for a
+  // kind that provides no meetings, which is not asked. While the kinds are still loading it is
+  // asked anyway, since the API counts none for such a kind. A count that cannot be read offers
+  // nothing, and the removal still asks, leaving the meetings as they are.
+  async function countMeetingsOf(connector: Connector) {
+    const definition = kinds.kindOf(connector.kind)
+    if (definition && !definition.provides.includes('meetings')) {
+      return 0
+    }
+    try {
+      const response = await getConnectorMeetingCount(connector.id)
+      return response.count
+    }
+    catch (error) {
+      console.debug('The meetings a connector listed could not be counted', { error, connectorId: connector.id })
+      return 0
+    }
+  }
+
   function act(connector: Connector, action: ConnectorAction) {
     const handlers = {
       runChecks: () => track(connector, 'runChecks', async () => {
@@ -98,13 +123,14 @@ export function useConnectorActions(options: Options = {}) {
         dispatch(connectorUpserted(response.connector))
         toast.success(t('actions.saved'))
       }),
-      delete: () => {
+      delete: async () => {
         // Named as its row names it: the kind, and the account it reads as when it shows one.
         const kindName = t(`kinds.${connector.kind}.name`)
         const accountName = accountNameOf(connector)
         const name = accountName
           ? t('actions.deleteName', { kind: kindName, account: accountName })
           : kindName
+        const meetingCount = await countMeetingsOf(connector)
 
         confirm({
           title: t('actions.deleteTitle', { name }),
@@ -112,10 +138,18 @@ export function useConnectorActions(options: Options = {}) {
           message: t(deleteBodyKeyByAccount[connector.account?.kind ?? 'browser'], { name }),
           isIrreversible: true,
           confirmText: t('actions.delete'),
-          onConfirm: () => attempt(async () => {
-            await deleteConnector(connector.id)
+          // Its meetings stay unless asked; deleted with it, they are restored from the Meetings
+          // page like any other, so the switch makes nothing irreversible.
+          switches: meetingCount
+            ? [{ id: DELETE_MEETINGS_SWITCH, label: t('actions.deleteMeetings', { count: meetingCount }) }]
+            : undefined,
+          onConfirm: (switchedOn) => attempt(async () => {
+            const deleteMeetings = switchedOn.has(DELETE_MEETINGS_SWITCH)
+            await deleteConnector(connector.id, { deleteMeetings })
             dispatch(connectorDeleted(connector.id))
-            toast.success(t('actions.deleted'))
+            toast.success(deleteMeetings
+              ? t('actions.deletedWithMeetings', { count: meetingCount })
+              : t('actions.deleted'))
             options.onDeleted?.()
           }, { action, connectorId: connector.id }),
         })

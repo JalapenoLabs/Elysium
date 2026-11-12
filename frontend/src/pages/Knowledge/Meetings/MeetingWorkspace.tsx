@@ -102,8 +102,9 @@ export function MeetingWorkspace(props: Props) {
   const words = transcript.words
   // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
   // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
-  // edit, comment on, or undo. Its actions say why (`MeetingActions`).
-  const isReadOnly = Boolean(meeting.mergedInto)
+  // edit, comment on, or undo. Its actions say why (`MeetingActions`). So does a deleted meeting,
+  // until its notice restores it (`DeletedMeetingNotice`).
+  const isReadOnly = Boolean(meeting.mergedInto || meeting.deletedAt)
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)

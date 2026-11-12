@@ -1,11 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CsvValue, DataTableAction, SmartTableFilters } from '@jalapenolabs/uikit'
+import type { CsvValue, DataTableAction, DataTableSelectionAction, SmartTableFilters } from '@jalapenolabs/uikit'
+import type { RowSelectionState } from '@tanstack/react-table'
 import type { ReactNode } from 'react'
 import type { Meeting } from '../../../api/routes/meetingRoutes'
 
 // Core
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -16,7 +17,7 @@ import { selectProjectEntities } from '../../../store/projectsSlice'
 // User interface
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
-import { LuRotateCcw } from 'react-icons/lu'
+import { LuRotateCcw, LuTrash2, LuUndo2 } from 'react-icons/lu'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
 
 // Misc
@@ -34,6 +35,7 @@ import {
   meetingStateChipColors,
   meetingStateLabelKeys,
 } from '../../Settings/Meetings/meetingsPresentation'
+import { useMeetingDeletion } from './useMeetingDeletion'
 
 type Props = {
   // Newest first.
@@ -45,6 +47,9 @@ type Props = {
   emptyNotice: ReactNode
   // The page's filters, which it applies itself; the table draws their drawer and tags.
   filters?: SmartTableFilters<Meeting>
+  // Whether these are the person's deleted meetings, which offer Restore in place of everything
+  // a live meeting offers.
+  isDeletedView: boolean
 }
 
 const MEETING_COLUMN_KEYS = [ 'meeting', 'source', 'state', 'projects', 'started', 'duration', 'topics' ] as const
@@ -77,13 +82,19 @@ const COLUMN_MIN_SIZE = 100
 // The person's meetings in a table: each one's title (opening its page, with its transcript and
 // corrections), the source it came from, how far its processing got and why it failed or what it
 // waits for, the projects its topics are on, when it was, how long it ran, and how many topics
-// Elysia found. A failed one can be tried again from its row. A click on a row expands it, which is
-// how a long failure reads in full; its title is the link.
+// Elysia found. A failed one can be tried again from its row, and any deleted from its row or as a
+// selection on the floating bar (`~/.claude/docs/ux.md`, Table multi-select), with Undo in its
+// toast; deleted ones are restored the same ways. A click on a row expands it, which is how a long
+// failure reads in full; its title is the link.
 export function MeetingTable(props: Props) {
   const { t, i18n } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const labels = useSmartTableLabels()
   const projectsById = useAppSelector(selectProjectEntities)
+  const deletion = useMeetingDeletion()
+  // The kit draws the checkboxes and the selection bar, and turns both off on a phone; the
+  // selection itself is held here.
+  const [ rowSelection, setRowSelection ] = useState<RowSelectionState>({})
   const hasMeetings = props.meetings.length > 0
 
   const managedColumns = useMemo(() => {
@@ -222,9 +233,9 @@ export function MeetingTable(props: Props) {
     })
   }, [ t, i18n.language, projectsById ])
 
-  // A failed meeting resumes from the step it failed at. The promise spins the button until the
+  // A failed meeting resumes from the step it failed at. Each promise spins its button until the
   // API answers.
-  const rowActions: DataTableAction<Meeting>[] = [{
+  const retryAction: DataTableAction<Meeting> = {
     id: 'retry',
     label: t('list.retry'),
     icon: <LuRotateCcw className='size-4' aria-hidden />,
@@ -240,7 +251,46 @@ export function MeetingTable(props: Props) {
         toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
       }
     },
-  }]
+  }
+  const deleteIcon = <LuTrash2 className='size-4' aria-hidden />
+  const restoreIcon = <LuUndo2 className='size-4' aria-hidden />
+  const rowActions: DataTableAction<Meeting>[] = props.isDeletedView
+    ? [{
+      id: 'restore',
+      label: t('delete.restore'),
+      icon: restoreIcon,
+      onPress: async (row) => {
+        await deletion.restore([ row.original ])
+      },
+    }]
+    : [ retryAction, {
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: deleteIcon,
+      isDanger: true,
+      onPress: async (row) => {
+        await deletion.remove([ row.original ])
+      },
+    }]
+  // Destructive last, as in every menu.
+  const selectionActions: DataTableSelectionAction<Meeting>[] = props.isDeletedView
+    ? [{
+      id: 'restore',
+      label: t('delete.restore'),
+      icon: restoreIcon,
+      onPress: async (rows) => {
+        await deletion.restore(rows)
+      },
+    }]
+    : [{
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: deleteIcon,
+      isDanger: true,
+      onPress: async (rows) => {
+        await deletion.remove(rows)
+      },
+    }]
 
   return <>
     <SmartTable
@@ -259,6 +309,10 @@ export function MeetingTable(props: Props) {
       controls={{ container: props.controlsContainer }}
       filters={props.filters}
       rowActions={rowActions}
+      enableSelection
+      rowSelection={rowSelection}
+      onRowSelectionChange={setRowSelection}
+      selectionActions={selectionActions}
       csvExport={{ fileName: 'meetings' }}
       pagination={{ show: true }}
       enableSorting

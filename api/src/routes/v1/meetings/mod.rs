@@ -8,8 +8,13 @@
 //! A meeting belongs to whoever owns the account it was read from, and every route answers
 //! them alone, until meetings are public by default (`docs/meeting-review.md`, Who sees a
 //! meeting). What a meeting said reaches everyone else as its segments on the timeline.
+//!
+//! A meeting its person deleted (`crate::meetings::deletion`) still answers its reads, so its page
+//! reads as it stood with Restore, and every route that would change it answers `409
+//! meeting_deleted` until it is restored.
 
 mod approve_correction;
+mod change_meetings;
 mod decide_duplicate;
 mod edit_words;
 mod get_capture_transcript;
@@ -57,6 +62,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_meetings::handle))
+        .route("/bulk", post(change_meetings::handle))
         .route("/{id}", get(get_meeting::handle))
         .route("/{id}/retry", post(retry_meeting::handle))
         .route("/{id}/words", get(get_words::handle))
@@ -137,6 +143,9 @@ pub struct MeetingResponse {
     /// that one, so the listing leaves it out, and a client that loads it by id, as an event names
     /// it, keeps it out of every list too.
     merged_into: Option<Uuid>,
+    /// When its person deleted it, or `null`. A deleted meeting is listed only among their deleted
+    /// ones (`?deleted=true`), and its page reads as it stood, with Restore.
+    deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -197,6 +206,7 @@ impl MeetingResponse {
             hold_for_approval: meeting.hold_for_approval,
             project_ids,
             merged_into: meeting.merged_into,
+            deleted_at: meeting.deleted_at,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
             source_kind: capture
@@ -506,6 +516,16 @@ pub(super) fn merged_refusal() -> ApiError {
     ApiError::CodedConflict {
         code: "meeting_merged",
         message: "This meeting was merged into another, so it changes there.",
+    }
+}
+
+/// What every route that changes a meeting answers while it is deleted: `409 meeting_deleted`.
+/// It changes no further until its person restores it, and a page that had not heard of the
+/// deletion reads the meeting again on it.
+pub(crate) fn deleted_refusal() -> ApiError {
+    ApiError::CodedConflict {
+        code: "meeting_deleted",
+        message: "This meeting is deleted. Restore it to change it.",
     }
 }
 

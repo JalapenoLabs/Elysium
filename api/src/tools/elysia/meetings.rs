@@ -35,6 +35,11 @@ use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments}
 /// the person confirms with one click.
 const ASKED_CONFIDENCE: f32 = 0.9;
 
+/// What both tools answer for a meeting its person deleted, which changes no further until they
+/// restore it.
+const DELETED_REFUSAL: &str = "this meeting was deleted, so nothing changes it until its person restores it; nothing was \
+     changed";
+
 pub fn edit_schema() -> Value {
     json!({
         "type": "object",
@@ -132,6 +137,7 @@ pub async fn run_edit(
                  edited"
                     .to_owned(),
             ),
+            EditError::Deleted => ToolError::Invalid(DELETED_REFUSAL.to_owned()),
             EditError::Database(error) => internal(scope, "elysia.meeting_edit", &error),
         })?;
     // Her change is news to every page, the one the person has open included.
@@ -233,6 +239,11 @@ async fn asked_thread(
         })?;
     let gone = || ToolError::NotFound("the thread, or its meeting, is gone".to_owned());
     let found = match meeting::find(connection, asked.meeting).await {
+        // Its person deleted it after asking: nothing changes it until they restore it. An edit
+        // that races the deletion is refused again under the meeting's lock.
+        Ok(found) if found.deleted_at.is_some() => {
+            return Err(ToolError::Invalid(DELETED_REFUSAL.to_owned()));
+        }
         Ok(found) => found,
         Err(diesel::result::Error::NotFound) => return Err(gone()),
         Err(error) => return Err(internal(scope, "elysia.meeting_thread", &error)),

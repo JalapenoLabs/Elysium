@@ -14,7 +14,7 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip } from '@heroui/react'
-import { LuCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuHand, LuPlay, LuTrash2, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageActions } from '../../../layout/page/PageActions'
 
 // Misc
@@ -24,12 +24,13 @@ import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { toast } from '../../../toast/toast'
-import { getMeetingCaptureUploadUrl, getRunViewUrl } from '../../../urls'
+import { getMeetingCaptureUploadUrl, getRunViewUrl, UrlTree } from '../../../urls'
 import {
   correctionStatusChipColors,
   correctionStatusLabelKeys,
   correctionStatusOf,
 } from '../../Settings/Meetings/meetingsPresentation'
+import { useMeetingDeletion } from './useMeetingDeletion'
 
 type Props = {
   meeting: Meeting
@@ -37,25 +38,31 @@ type Props = {
 
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, holding it for approval by hand until it is corrected
-// (unless its source already waits), its run, and adding a recording or transcript as another
-// capture. A meeting merged into another offers its run alone, and says why. Privacy, sharing, and
-// Done reviewing join them as they are built (docs/meeting-review.md, Roadmap).
+// (unless its source already waits), its run, adding a recording or transcript as another
+// capture, and Delete, last. A meeting merged into another offers its run alone, and says why, as
+// does one deleted, which its notice restores (`DeletedMeetingNotice`). Privacy, sharing, and Done
+// reviewing join them as they are built (docs/meeting-review.md, Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const userNames = useUserNames()
+  const deletion = useMeetingDeletion()
   const meeting = props.meeting
   const source = useAppSelector((state) => meeting.connectorId
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
-  const [ acting, setActing ] = useState<'approve' | 'hold' | null>(null)
+  const [ acting, setActing ] = useState<'approve' | 'hold' | 'delete' | null>(null)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
   // A meeting merged into another changes there: it holds no capture, its run goes no further,
-  // and an upload into it is refused, so it offers to approve, hold, or add nothing.
+  // and an upload into it is refused, so it offers to approve, hold, add, or delete nothing; the
+  // meeting it went into is the one to delete. A deleted one changes no further until it is
+  // restored.
   const isMergedAway = Boolean(meeting.mergedInto)
-  const canApprove = !isMergedAway && Boolean(meeting.correction && !meeting.correction.approvedAt)
+  const isDeleted = Boolean(meeting.deletedAt)
+  const isOwn = !isMergedAway && !isDeleted
+  const canApprove = isOwn && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
 
   async function approve() {
@@ -98,8 +105,18 @@ export function MeetingActions(props: Props) {
     }
   }
 
+  // Soft, so at once, with Undo in its toast, which comes back here (`useMeetingDeletion`).
+  async function remove() {
+    setActing('delete')
+    const wasDeleted = await deletion.remove([ meeting ], UrlTree.knowledgeMeetings)
+    // Gone from here on success; stays to be tried again otherwise.
+    if (!wasDeleted) {
+      setActing(null)
+    }
+  }
+
   const actions: PageAction[] = []
-  if (!isMergedAway && !meeting.correction && !sourceWaits) {
+  if (isOwn && !meeting.correction && !sourceWaits) {
     actions.push({
       id: 'hold',
       label: meeting.holdForApproval
@@ -123,12 +140,21 @@ export function MeetingActions(props: Props) {
   }
   // Offered while the meeting is its own: an upload sent while its run is still going is refused,
   // saying so.
-  if (!isMergedAway) {
+  if (isOwn) {
     actions.push({
       id: 'addCapture',
       label: t('upload.addCapture'),
       icon: LuUpload,
       href: getMeetingCaptureUploadUrl(meeting.id),
+    })
+    actions.push({
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: LuTrash2,
+      isDanger: true,
+      isPending: acting === 'delete',
+      isDisabled: acting !== null,
+      onAction: () => void remove(),
     })
   }
 
@@ -136,6 +162,9 @@ export function MeetingActions(props: Props) {
   let waitsNote: string | null = null
   if (isMergedAway) {
     waitsNote = t('page.mergedReadOnly')
+  }
+  else if (isDeleted) {
+    waitsNote = t('delete.readOnly')
   }
   else if (!meeting.correction && sourceWaits) {
     waitsNote = t('correction.sourceWaits')

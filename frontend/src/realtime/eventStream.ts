@@ -49,7 +49,7 @@ import { storageLocationDeleted, storageLocationUpserted } from '../store/storag
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
 import { studioItemDeleted, studioItemUpserted } from '../store/studioItemsSlice'
-import { timelineRecordUpserted } from '../store/timelineRecordsSlice'
+import { timelineRecordRemoved, timelineRecordUpserted } from '../store/timelineRecordsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { buildRead } from '../store/versionSlice'
@@ -367,7 +367,9 @@ const handlers: Handlers = {
   // A record moved between projects, or its history grew: it is loaded by id, so a project it
   // left stops listing it, and the timeline's pages and histories that are open reload, so
   // their totals and entries follow. A meeting's topic moving changes the projects its meeting is
-  // on, so the meeting loads too, and the tree's Meetings groups follow.
+  // on, so the meeting loads too, and the tree's Meetings groups follow. One that is gone, a
+  // segment deleted with its meeting, leaves every timeline; restoring the meeting brings it back
+  // with another of these.
   'timelineRecord.changed': (event) => {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
@@ -381,10 +383,16 @@ const handlers: Handlers = {
           store.dispatch(meetingUpserted(meeting.meeting))
         }
       })
-      .catch((error: unknown) => console.debug('A changed record, or its meeting, could not be loaded', {
-        error,
-        recordId: event.data.id,
-      }))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(timelineRecordRemoved(event.data.id))
+          return
+        }
+        console.debug('A changed record, or its meeting, could not be loaded', {
+          error,
+          recordId: event.data.id,
+        })
+      })
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
   },
   // A draft is its writer's alone, and the event carries no text: it is loaded by id, and one

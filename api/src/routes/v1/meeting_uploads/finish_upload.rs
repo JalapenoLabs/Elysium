@@ -25,7 +25,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::create_upload::{MEETING_MERGED, meeting_busy};
+use super::create_upload::{MEETING_DELETED, MEETING_MERGED, meeting_busy};
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
@@ -191,6 +191,11 @@ async fn store_capture(
     // Merged into another since the upload began.
     if current.merged_into.is_some() {
         return Err(MEETING_MERGED);
+    }
+    // Deleted since the upload began: under the lock the deletion takes, so the meeting gains no
+    // capture and starts no run while it is deleted.
+    if current.deleted_at.is_some() {
+        return Err(MEETING_DELETED);
     }
     let captured = meeting_capture::insert_new(connection, capture(meeting_id))
         .await?

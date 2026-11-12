@@ -186,6 +186,9 @@ pub enum MarkError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -439,7 +442,8 @@ pub(crate) async fn insert_all(
 }
 
 /// The meeting's lock, or [`MarkError::NotFound`] when there is no such meeting and
-/// [`MarkError::Merged`] when it was merged into another, read under the lock a merge takes.
+/// [`MarkError::Merged`] when it was merged into another and [`MarkError::Deleted`] while it is
+/// deleted, each read under the lock a merge and a deletion take.
 async fn lock_meeting(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -447,6 +451,9 @@ async fn lock_meeting(
     let locked = found(meeting::lock(connection, meeting_id).await)?;
     if locked.merged_into.is_some() {
         return Err(MarkError::Merged);
+    }
+    if locked.deleted_at.is_some() {
+        return Err(MarkError::Deleted);
     }
     Ok(())
 }

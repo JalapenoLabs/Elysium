@@ -235,8 +235,27 @@ export function updateConnector(connectorId: string, body: UpdateConnectorReques
     .json<ConnectorResponse>()
 }
 
-export function deleteConnector(connectorId: string) {
-  return apiClient.delete(`v1/connectors/${connectorId}`)
+type DeleteConnectorOptions = {
+  // Also delete, softly, the meetings it listed, which stay restorable from the Meetings page.
+  deleteMeetings?: boolean
+}
+
+export function deleteConnector(connectorId: string, options: DeleteConnectorOptions = {}) {
+  const searchParams = options.deleteMeetings
+    ? { deleteMeetings: true }
+    : undefined
+  return apiClient.delete(`v1/connectors/${connectorId}`, { searchParams })
+}
+
+type ConnectorMeetingCountResponse = {
+  count: number
+}
+
+// How many of the person's meetings the connector listed, which removing it offers to delete.
+export function getConnectorMeetingCount(connectorId: string) {
+  return apiClient
+    .get(`v1/connectors/${connectorId}/meeting-count`)
+    .json<ConnectorMeetingCountResponse>()
 }
 
 export function syncConnector(connectorId: string) {

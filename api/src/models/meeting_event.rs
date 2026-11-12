@@ -56,10 +56,16 @@ pub enum EventKind {
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
     ThreadReopened,
+    /// Its person deleted it (`crate::meetings::deletion`): `{ segments, connectorId }`, how many
+    /// segments went with it, and the connector it was removed with, `null` when it went alone.
+    Deleted,
+    /// Its person restored it: `{ deletedAt, segments, runRetried }`, the deletion it reversed,
+    /// how many segments came back, and whether the run that deletion stopped went on.
+    Restored,
 }
 
 impl EventKind {
-    const ALL: [Self; 13] = [
+    const ALL: [Self; 15] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -73,6 +79,8 @@ impl EventKind {
         Self::CaptureAdded,
         Self::ThreadResolved,
         Self::ThreadReopened,
+        Self::Deleted,
+        Self::Restored,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -90,6 +98,8 @@ impl EventKind {
             Self::CaptureAdded => "capture_added",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
+            Self::Deleted => "deleted",
+            Self::Restored => "restored",
         }
     }
 

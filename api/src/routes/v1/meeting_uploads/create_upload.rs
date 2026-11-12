@@ -88,6 +88,9 @@ pub async fn handle(
         if found.merged_into.is_some() {
             return Err(MEETING_MERGED);
         }
+        if found.deleted_at.is_some() {
+            return Err(MEETING_DELETED);
+        }
         if let Some(run) = workflow::live_run(&mut connection, meeting_id).await? {
             return Err(meeting_busy(&run));
         }
@@ -138,6 +141,13 @@ pub async fn handle(
 pub const MEETING_MERGED: ApiError = ApiError::CodedConflict {
     code: "meeting_merged",
     message: "this meeting was merged into another; add to that one",
+};
+
+/// The refusal for a capture of a meeting its person deleted, which takes none until they restore
+/// it.
+pub const MEETING_DELETED: ApiError = ApiError::CodedConflict {
+    code: "meeting_deleted",
+    message: "this meeting is deleted; restore it to add to it",
 };
 
 /// The refusal for a capture of a meeting whose run is still its `run`: one that failed waits for

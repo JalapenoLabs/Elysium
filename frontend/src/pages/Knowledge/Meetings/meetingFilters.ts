@@ -24,6 +24,9 @@ export type MeetingFilters = {
   project: string | null
   // Only meetings whose run waits for the person's review of the corrected transcript.
   waitingForReview: boolean
+  // Deleted meetings only, instead of the rest, which is where they are restored from. In the
+  // drawer this is Yes; Any and No both list the live meetings, the plain list.
+  deleted: boolean
 }
 
 // Each filter's id in the drawer, which is also its parameter in the address.
@@ -32,6 +35,7 @@ export const MEETING_FILTER_IDS = {
   states: 'state',
   project: MEETINGS_PROJECT_PARAM,
   waitingForReview: 'review',
+  deleted: 'deleted',
 } as const satisfies Record<keyof MeetingFilters, string>
 
 // A source is any kind a meeting names, connector or not, so the address keeps whatever it held; one
@@ -50,6 +54,7 @@ export function readMeetingFilters(params: URLSearchParams): MeetingFilters {
     states: readStates(params.get(MEETING_FILTER_IDS.states)?.split(',') ?? []),
     project: params.get(MEETING_FILTER_IDS.project),
     waitingForReview: params.get(MEETING_FILTER_IDS.waitingForReview) === 'true',
+    deleted: params.get(MEETING_FILTER_IDS.deleted) === 'true',
   }
 }
 
@@ -68,10 +73,14 @@ export function writeMeetingFilters(filters: MeetingFilters) {
   if (filters.waitingForReview) {
     params.set(MEETING_FILTER_IDS.waitingForReview, 'true')
   }
+  if (filters.deleted) {
+    params.set(MEETING_FILTER_IDS.deleted, 'true')
+  }
   return params
 }
 
-// The filters as the drawer and its tags show them.
+// The filters as the drawer and its tags show them. Showing live meetings is the plain list, so
+// only showing deleted ones has a tag.
 export function toMeetingFilterValues(filters: MeetingFilters): SmartTableFilterValues {
   return {
     [MEETING_FILTER_IDS.sources]: filters.sources.length
@@ -82,6 +91,7 @@ export function toMeetingFilterValues(filters: MeetingFilters): SmartTableFilter
       : null,
     [MEETING_FILTER_IDS.project]: filters.project,
     [MEETING_FILTER_IDS.waitingForReview]: filters.waitingForReview || null,
+    [MEETING_FILTER_IDS.deleted]: filters.deleted || null,
   }
 }
 
@@ -102,6 +112,7 @@ export function fromMeetingFilterValues(values: SmartTableFilterValues): Meeting
       ? projectValue
       : null,
     waitingForReview: values[MEETING_FILTER_IDS.waitingForReview] === true,
+    deleted: values[MEETING_FILTER_IDS.deleted] === true,
   }
 }
 
@@ -123,7 +134,8 @@ export function listMeetingSourceKinds(definitions: ConnectorKindDefinition[], m
 }
 
 // The meetings that pass every filter, in the order given, and how many of all of them wait for
-// review, which the page counts whatever the filters leave, in one pass.
+// review, which the page counts whatever the filters leave, in one pass. `meetings` are either the
+// live or the deleted ones, as `filters.deleted` chose; this does not check deletion again.
 export function filterMeetings(meetings: Meeting[], filters: MeetingFilters) {
   const matches: Meeting[] = []
   let waitingCount = 0
