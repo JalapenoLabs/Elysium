@@ -306,6 +306,10 @@ async fn keep_recording(fixture: &mut Fixture, capture_id: Uuid) {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a file sent in parts, stored, read, served, and indexed, then one with no text"
+)]
 async fn a_file_attached_in_parts_is_stored_read_and_indexed_with_its_meeting() {
     let mut fixture = fixture().await;
     let (capture, _words) = built_meeting(
@@ -426,6 +430,10 @@ async fn a_file_attached_in_parts_is_stored_read_and_indexed_with_its_meeting() 
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a frame taken, carried by its excerpt, unpinned, taken off, and each put back"
+)]
 async fn a_frame_taken_from_the_player_travels_with_the_excerpt_it_is_pinned_in() {
     let mut fixture = fixture().await;
     let launch = project::create(
@@ -586,6 +594,10 @@ async fn a_frame_taken_from_the_player_travels_with_the_excerpt_it_is_pinned_in(
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "each way a pin is made, and each one refused"
+)]
 async fn a_file_is_pinned_over_an_excerpts_range_and_a_frame_with_no_range_over_its_moment() {
     let mut fixture = fixture().await;
     let (capture, words) = built_meeting(
@@ -825,6 +837,10 @@ async fn a_meeting_takes_files_up_to_the_admins_limit_and_into_a_chosen_location
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "every route asked of a meeting private to someone else, then public"
+)]
 async fn only_whoever_reads_a_meeting_reaches_its_files_and_frames() {
     let mut fixture = fixture().await;
     let (capture, words) = built_meeting(&mut fixture.connection, &[("Ada", "Private.")]).await;
