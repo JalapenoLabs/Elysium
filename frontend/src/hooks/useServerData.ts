@@ -420,11 +420,17 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
 
 // A meeting's segments, its topics, which its page lists. A meeting has fewer segments than a
 // page of the timeline holds, so one page is all of them. Records merge into Redux, so the
-// buffered copy may be applied too.
-export function useMeetingTopicsLoader(meetingId: string) {
+// buffered copy may be applied too. A segment is its owner's alone, so `meetingId` is null for any
+// other reader, who would be answered none, and nothing is asked.
+export function useMeetingTopicsLoader(meetingId: string | null) {
   const dispatch = useAppDispatch()
-  const query = { meetingId, limit: TIMELINE_PAGE_SIZE }
-  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
+  const query = { meetingId: meetingId ?? '', limit: TIMELINE_PAGE_SIZE }
+  const { data, error } = useSWR(
+    meetingId
+      ? timelineKey(query)
+      : null,
+    () => listTimeline(query),
+  )
   useEffect(() => {
     if (data) {
       dispatch(timelineRecordsLoaded(data.records))

@@ -72,9 +72,10 @@ roadmap.
   its attachments. Every change is in its history with who made it, and undoable. Only its owner and admins change
   its privacy, merge or split its captures, or delete it. Its processing (holding it for approval, approving its
   correction, retrying its run, setting a capture's offset, and uploading another capture) stays its owner's.
-- **Where it names itself.** Whatever every member reads about a meeting names it only while it is public: the title of
-  an inbox item it raises, and its links and who spoke in the Transcription doc, which learns a private meeting's fixes
-  alone.
+- **Where it names itself.** Whatever every member reads about a meeting names it only if it is public as that is
+  written: the title of an inbox item it raises, and its links and who spoke in the Transcription doc, which learns a
+  private meeting's fixes alone. Making a meeting private closes what comes next; what was written while it was public
+  stays as it was.
 
 ## The final transcript
 

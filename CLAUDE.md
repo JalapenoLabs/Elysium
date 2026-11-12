@@ -417,9 +417,10 @@ Everything else follows these rules:
   item naming nothing of it; an answer judging nothing keeps it private. `models::meeting::readable_by` is the one rule
   and `crate::meetings::access` what a reader may do: every route asks `open` for what it needs (read; edit, a company
   member who reads it or its owner; manage who reads it and merges or splits, its owner or an admin; its processing,
-  its owner), `404` for a meeting someone may not read. The knowledge index leaves out a private meeting's segments for
-  anyone who may not read it (`knowledge_documents.meeting_id`, `meeting::hidden_from`), and nothing every member reads
-  (items, the Transcription doc) names a private meeting. See `docs/meetings.md`, Who reads a meeting.
+  its owner), `404` for a meeting someone may not read. The knowledge index finds a meeting's segments only for its
+  readers (`knowledge_documents.meeting_id`, by `meeting::readable_meeting_sql` inside each query), and nothing every
+  member reads (items, the Transcription doc) names a meeting that is private as it is written. See `docs/meetings.md`,
+  Who reads a meeting.
 
 ## Storage
 

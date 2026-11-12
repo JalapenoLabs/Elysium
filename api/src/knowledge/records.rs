@@ -62,9 +62,16 @@ pub const BODY_MAX_CHARACTERS: usize = 100_000;
 pub const THREADS_MAX_CHARACTERS: usize = 50_000;
 
 /// The document `record` is indexed as, with `threads`, the comment threads over a meeting
-/// segment, after its body; `None` when it says nothing to search: no title, no sender, and no
-/// body.
+/// segment, after its body; `None` when it says nothing to search (no title, no sender, and no
+/// body), and for a meeting segment that names no meeting, which nobody could be told may read it.
 pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<IndexedDocument> {
+    // A segment is found only by its meeting's readers, so one naming no meeting is indexed for
+    // nobody rather than for every member.
+    let meeting_id = if record.source_kind == SEGMENT_SOURCE_KIND {
+        Some(meeting_of(record)?)
+    } else {
+        None
+    };
     let mut paragraphs: Vec<String> = vec![record.title.clone()];
     if record.source_kind == SEGMENT_SOURCE_KIND {
         if let Some(summary) = record.metadata["summary"].as_str() {
@@ -108,17 +115,15 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
         occurred_at: record.occurred_at,
         // Whose timeline it is on: whose connector read it, or who sent it.
         created_by: record.created_by,
-        meeting_id: meeting_of(record),
+        meeting_id,
         passages,
     })
 }
 
-/// The meeting `record` is a segment of, as its metadata names it, whose readers alone find its
-/// document (`docs/knowledge.md`, Who sees what); `None` for every other record.
+/// The meeting `record`, a segment, is of, as its metadata names it, whose readers alone find its
+/// document (`docs/knowledge.md`, Who sees what). `segment.rs` names it on every segment it
+/// writes, so `None` is a fault, and the segment is left out of the index.
 fn meeting_of(record: &TimelineRecord) -> Option<Uuid> {
-    if record.source_kind != SEGMENT_SOURCE_KIND {
-        return None;
-    }
     let meeting_id = record.metadata["meetingId"]
         .as_str()
         .and_then(|meeting_id| meeting_id.parse().ok());
@@ -127,7 +132,7 @@ fn meeting_of(record: &TimelineRecord) -> Option<Uuid> {
             name: "knowledge.records.meeting_unnamed",
             Level::WARN,
             timeline_record.id = %record.id,
-            "a meeting segment names no meeting, so every member finds it",
+            "a meeting segment names no meeting, so nobody finds it",
         );
     }
     meeting_id
@@ -243,7 +248,12 @@ mod tests {
         segment.actor = "Ada, Grace".to_owned();
         segment.title = "Launch date".to_owned();
         segment.body = "[1:05] Ada: Friday works.\n[1:20] Grace: Friday it is.".to_owned();
-        segment.metadata = json!({ "summary": "The launch moved to Friday.", "segmentIndex": 2 });
+        let meeting_id = Uuid::now_v7();
+        segment.metadata = json!({
+            "meetingId": meeting_id,
+            "summary": "The launch moved to Friday.",
+            "segmentIndex": 2,
+        });
 
         let indexed = document(&segment, &[]).expect("a document");
 
@@ -253,6 +263,25 @@ mod tests {
                  [1:05] Ada: Friday works.\n[1:20] Grace: Friday it is."]
         );
         assert_eq!(indexed.source.label(), "meeting");
+        assert_eq!(
+            indexed.meeting_id,
+            Some(meeting_id),
+            "found by its readers alone"
+        );
+    }
+
+    #[test]
+    fn a_segment_naming_no_meeting_is_indexed_for_nobody() {
+        let mut segment = record(SEGMENT_SOURCE_KIND);
+        segment.metadata = json!({ "summary": "The launch moved to Friday." });
+
+        assert!(document(&segment, &[]).is_none());
+        assert_eq!(
+            document(&record("slack"), &[])
+                .expect("a document")
+                .meeting_id,
+            None
+        );
     }
 
     #[test]
@@ -260,7 +289,8 @@ mod tests {
         let mut segment = record(SEGMENT_SOURCE_KIND);
         segment.title = "Launch date".to_owned();
         segment.body = "[1:05] Sheriff: Friday works.".to_owned();
-        segment.metadata = json!({ "summary": "The launch moved to Friday." });
+        segment.metadata =
+            json!({ "meetingId": Uuid::now_v7(), "summary": "The launch moved to Friday." });
         let threads = [IndexedThread {
             quote: "Sheriff: Friday works.".to_owned(),
             comments: vec![
@@ -292,7 +322,7 @@ mod tests {
         let mut segment = record(SEGMENT_SOURCE_KIND);
         segment.title = String::new();
         segment.body = String::new();
-        segment.metadata = json!({});
+        segment.metadata = json!({ "meetingId": Uuid::now_v7() });
         let long = IndexedThread {
             quote: "Friday".to_owned(),
             comments: vec![IndexedComment {
@@ -326,7 +356,7 @@ mod tests {
     fn a_long_body_is_indexed_up_to_its_limit() {
         let mut segment = record(SEGMENT_SOURCE_KIND);
         segment.title = String::new();
-        segment.metadata = json!({});
+        segment.metadata = json!({ "meetingId": Uuid::now_v7() });
         segment.body = "word ".repeat(BODY_MAX_CHARACTERS); // five times the limit
 
         let indexed = document(&segment, &[]).expect("a document");

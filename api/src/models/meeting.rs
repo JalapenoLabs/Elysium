@@ -20,15 +20,17 @@
 //! owner and the people it is shared with (`models::meeting_share`); or new and
 //! [`Visibility::Unchecked`], private to its owner until its correction decides. Admins read every
 //! meeting. [`readable_by`] is that rule, the one place it is written: finding a meeting
-//! ([`find_readable`]), listing them ([`list_readable`]), and leaving the meetings someone cannot
-//! read out of the knowledge index ([`hidden_from`]) all ask it. What a reader may change is
-//! `crate::meetings::access`'s. See `docs/meeting-review.md`, Who sees a meeting.
+//! ([`find_readable`]), listing them ([`list_readable`]), and telling which of some meetings a
+//! reader may read ([`readable_among`]) all ask it. The knowledge index's searches are SQL, so
+//! they ask its twin in SQL, [`readable_meeting_sql`], inside each query, which a test holds to
+//! the same answers for every reader. What a reader may change is `crate::meetings::access`'s. See
+//! `docs/meeting-review.md`, Who sees a meeting.
 //!
 //! A meeting whose captures its person merged into another one names it (`merged_into`). It
 //! holds no captures while it does, and is listed nowhere and processed no further; splitting
 //! the captures back out clears it (`crate::meetings::duplicates`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
@@ -126,6 +128,17 @@ pub enum Reach {
     Shared,
 }
 
+impl Reach {
+    /// The reach as [`readable_meeting_sql`] reads it, bound beside the reader's id.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Every => "every",
+            Self::Public => "public",
+            Self::Shared => "shared",
+        }
+    }
+}
+
 impl Reader {
     /// `user` as a reader of meetings. Anyone who is neither a company member nor a machine
     /// reaches only what is theirs or shared with them, so a role added later gains nothing by
@@ -159,6 +172,33 @@ fn readable_by(reader: Reader) -> Box<dyn BoxableExpression<meetings::table, Pg,
         Reach::Shared => Box::new(own_or_shared),
     }
 }
+
+/// [`readable_by`] in SQL, for the knowledge index's queries, which are written as SQL: whether
+/// the meeting whose id `$meeting` names (a column) may be read by the reader whose id is bound at
+/// `$reader` and whose reach ([`Reach::as_str`]) is bound at `$reach`. It is a predicate inside
+/// each query, never a list worked out before it, so it stays as cheap however many meetings
+/// there are. The two state one rule, and `tests::its_sql_reads_meetings_as_its_query_does` holds
+/// them to the same answers for every reach.
+macro_rules! readable_meeting_sql {
+    ($meeting:literal, $reader:literal, $reach:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM meetings readable WHERE readable.id = ",
+            $meeting,
+            " AND (",
+            $reach,
+            "::text = 'every' OR readable.created_by = ",
+            $reader,
+            "::uuid OR (",
+            $reach,
+            "::text = 'public' AND readable.visibility = 'public') OR EXISTS (",
+            "SELECT 1 FROM meeting_shares shares WHERE shares.meeting_id = readable.id",
+            " AND shares.person_id = ",
+            $reader,
+            "::uuid)))"
+        )
+    };
+}
+pub(crate) use readable_meeting_sql;
 
 /// Where a page of meetings starts: after the meeting that started at `started_at` with this
 /// `id`, the last of the page before.
@@ -335,24 +375,26 @@ pub async fn find_readable(
         .await
 }
 
-/// The ids of every meeting `reader` may not read: what the knowledge index leaves out of their
-/// searches, the documents of each one's segments (`docs/knowledge.md`, Who sees what). Few, since
-/// only private meetings nobody shared with them are.
+/// Which of meetings `ids` `reader` may read, such as the meetings of a knowledge document and its
+/// copies; an id no meeting has is left out.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn hidden_from(
+pub async fn readable_among(
     connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
     reader: Reader,
-) -> QueryResult<Vec<Uuid>> {
-    if reader.reach == Reach::Every {
-        return Ok(Vec::new());
+) -> QueryResult<HashSet<Uuid>> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
     }
-    meetings::table
-        .filter(diesel::dsl::not(readable_by(reader)))
+    let readable: Vec<Uuid> = meetings::table
+        .filter(meetings::id.eq_any(ids))
+        .filter(readable_by(reader))
         .select(meetings::id)
         .load(connection)
-        .await
+        .await?;
+    Ok(readable.into_iter().collect())
 }
 
 /// Sets who reads meeting `id`.
@@ -951,5 +993,83 @@ pub(crate) mod tests {
             assert_eq!(MeetingState::parse(state.as_str()), Some(state));
         }
         assert_eq!(MeetingState::parse("sideways"), None);
+    }
+
+    /// A meeting's id, as the SQL twin of the rule finds it.
+    #[derive(QueryableByName)]
+    struct Found {
+        #[diesel(sql_type = diesel::sql_types::Uuid)]
+        id: Uuid,
+    }
+
+    /// Stores a meeting of `owner`'s of `visibility`.
+    async fn meeting_of(
+        connection: &mut AsyncPgConnection,
+        owner: Uuid,
+        visibility: Visibility,
+    ) -> Uuid {
+        let (found, _) = stored(connection).await;
+        diesel::update(meetings::table.find(found.id))
+            .set((
+                meetings::created_by.eq(owner),
+                meetings::visibility.eq(visibility.as_str()),
+            ))
+            .execute(connection)
+            .await
+            .expect("updates");
+        found.id
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn its_sql_reads_meetings_as_its_query_does() {
+        let (_url, mut connection) = migrated_database().await;
+        let someone = crate::models::user::SYSTEM_USER_ID;
+        let own = meeting_of(&mut connection, TEST_PERSON_ID, Visibility::Private).await;
+        let shared = meeting_of(&mut connection, someone, Visibility::Private).await;
+        diesel::insert_into(meeting_shares::table)
+            .values((
+                meeting_shares::meeting_id.eq(shared),
+                meeting_shares::person_id.eq(TEST_PERSON_ID),
+                meeting_shares::created_by.eq(someone),
+            ))
+            .execute(&mut connection)
+            .await
+            .expect("shares");
+        let private = meeting_of(&mut connection, someone, Visibility::Private).await;
+        let public = meeting_of(&mut connection, someone, Visibility::Public).await;
+        let unchecked = meeting_of(&mut connection, someone, Visibility::Unchecked).await;
+        let every = [own, shared, private, public, unchecked];
+
+        let expected = [
+            (Reach::Every, every.to_vec()),
+            (Reach::Public, vec![own, shared, public]),
+            (Reach::Shared, vec![own, shared]),
+        ];
+        for (reach, reads) in expected {
+            let reader = Reader {
+                id: TEST_PERSON_ID,
+                reach,
+            };
+            let by_query = readable_among(&mut connection, &every, reader)
+                .await
+                .expect("reads");
+            let by_sql: HashSet<Uuid> = diesel::sql_query(concat!(
+                "SELECT candidates.id FROM meetings candidates
+                 WHERE candidates.id = ANY($1::uuid[]) AND ",
+                readable_meeting_sql!("candidates.id", "$2", "$3"),
+            ))
+            .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(&every[..])
+            .bind::<diesel::sql_types::Uuid, _>(reader.id)
+            .bind::<diesel::sql_types::Text, _>(reach.as_str())
+            .load::<Found>(&mut connection)
+            .await
+            .expect("reads")
+            .into_iter()
+            .map(|found| found.id)
+            .collect();
+            assert_eq!(by_query, reads.into_iter().collect(), "{reach:?}");
+            assert_eq!(by_sql, by_query, "{reach:?}");
+        }
     }
 }

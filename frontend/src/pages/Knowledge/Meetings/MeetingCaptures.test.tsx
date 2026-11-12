@@ -19,6 +19,11 @@ type Context = {
   onSplitCapture: Mock<(captureId: string) => Promise<void>>
 }
 
+// What the captures are offered: null for a reader who may not move or split one.
+type Callbacks = {
+  [Key in keyof Context]: Context[Key] | null
+}
+
 function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCapture {
   return {
     id,
@@ -36,7 +41,7 @@ function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCa
 
 const fromFireflies = { meetingId: 'fireflies-meeting', title: 'Launch review' }
 
-function renderCaptures(context: Context, captures: MeetingCapture[]) {
+function renderCaptures(context: Callbacks, captures: MeetingCapture[]) {
   const router = createMemoryRouter([{
     path: '*',
     element: <TestAriaRouter>
@@ -177,5 +182,18 @@ describe('MeetingCaptures', () => {
     expect(split.hasAttribute('disabled')).toBe(true)
     fireEvent.click(split)
     expect(context.onSplitCapture).not.toHaveBeenCalled()
+  })
+
+  it('offers a reader who may not move or split a capture where each came from alone', () => {
+    // Moving is its owner's alone, and splitting its owner's and admins' (`crate::meetings::access`).
+    renderCaptures({ onMoveCapture: null, onSplitCapture: null }, [
+      capture('teams'),
+      capture('fireflies', { sourceKind: 'fireflies', mergedFrom: fromFireflies }),
+    ])
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'From “Launch review”' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Move on the meeting\'s clock' })).toBeNull()
+    expect(screen.queryByText('Split out')).toBeNull()
   })
 })

@@ -20,9 +20,9 @@
 //! # A meeting's documents
 //!
 //! A meeting's segments name their meeting (`meeting_id`), and are found only by whoever may read
-//! it: a private meeting's are left out for everyone else, by the meetings they may not read
-//! (`models::meeting::hidden_from`), as a search or an opening runs. Every other source is every
-//! member's (`docs/knowledge.md`, Who sees what).
+//! it: a private meeting's are left out for everyone else as a search or an opening runs, by the
+//! rule `models::meeting` keeps. Every other source is every member's (`docs/knowledge.md`, Who
+//! sees what).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -421,8 +421,6 @@ pub async fn get(
     id: Uuid,
     reader: Reader,
 ) -> QueryResult<Option<DocumentView>> {
-    let hidden = meeting::hidden_from(connection, reader).await?;
-    let is_hidden = |meeting_id: Option<Uuid>| meeting_id.is_some_and(|id| hidden.contains(&id));
     let row: Option<DocumentRow> = knowledge_documents::table
         .inner_join(users::table)
         .filter(knowledge_documents::id.eq(id))
@@ -442,9 +440,16 @@ pub async fn get(
         .first(connection)
         .await
         .optional()?;
-    let Some(row) = row.filter(|row| !is_hidden(row.meeting_id)) else {
+    let Some(row) = row else {
         return Ok(None);
     };
+    if let Some(meeting_id) = row.meeting_id
+        && meeting::readable_among(connection, &[meeting_id], reader)
+            .await?
+            .is_empty()
+    {
+        return Ok(None);
+    }
 
     let passages: Vec<Passage> = knowledge_passages::table
         .filter(knowledge_passages::document_id.eq(row.id))
@@ -481,6 +486,12 @@ pub async fn get(
         .load(connection)
         .await?;
 
+    let copy_meetings: Vec<Uuid> = copies
+        .iter()
+        .filter_map(|(_document_id, _person_id, _name, meeting_id)| *meeting_id)
+        .collect();
+    let readable = meeting::readable_among(connection, &copy_meetings, reader).await?;
+
     let origin = row.page_id.map_or(Origin::TimelineRecord, |page_id| {
         origin_of_page(page_id, &row.source)
     });
@@ -505,7 +516,9 @@ pub async fn get(
         labels,
         also_recorded_by: copies
             .into_iter()
-            .filter(|(_document_id, _person_id, _name, meeting_id)| !is_hidden(*meeting_id))
+            .filter(|(_document_id, _person_id, _name, meeting_id)| {
+                meeting_id.is_none_or(|meeting_id| readable.contains(&meeting_id))
+            })
             .map(|(document_id, person_id, name, _meeting_id)| Copy {
                 document_id,
                 person: Person {

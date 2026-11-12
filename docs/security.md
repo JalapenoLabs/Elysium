@@ -158,12 +158,17 @@ it is private; a new one is private until its correction decides (`docs/meetings
   private; so does a skipped correction. A meeting no correction judged is private until its owner or an admin opens
   it.
 - **Search follows it.** A private meeting's segments are left out of every search, every opening of a document, and
-  the meetings listing for anyone who may not read it, computed as each runs (`docs/knowledge.md`, A private meeting).
+  the meetings listing for anyone who may not read it, by a predicate inside each query (`docs/knowledge.md`, A private
+  meeting). A segment that names no meeting is indexed for nobody.
 - **Nothing every member reads names it.** `meeting.changed` carries a meeting's id and state alone, so every client
   loads it and a client that may not read it is answered `404`. An inbox item, which everyone signed in sees, names a
-  meeting only while it is public, and the one telling an owner their meeting was kept private names neither it nor
-  why. The Transcription doc learns a private meeting's fixes without its title, its speakers, or the correction's
-  reason. Mentions reach only people who may read the meeting, and replies tell only those who still may.
+  meeting only if it was public when the item was raised, and the one telling an owner their meeting was kept private
+  names neither it nor why. The Transcription doc learns a private meeting's fixes without its title, its speakers, or
+  the correction's reason. Mentions reach only people who may read the meeting, and replies tell only those who still
+  may.
+- **Private stops what comes next.** Making a meeting private closes it at once: its words, media, history, threads,
+  and segments answer only its readers from the next request. What every member was already shown while it was public
+  (an item's title, the Transcription doc's versions) stays as it was written, as any page's history does.
 
 ## Problem reports
 

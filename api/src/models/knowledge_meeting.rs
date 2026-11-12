@@ -17,13 +17,13 @@
 use chrono::{DateTime, Utc};
 use diesel::QueryableByName;
 use diesel::result::QueryResult;
-use diesel::sql_types::{Array, BigInt, Nullable, Text, Timestamptz, Uuid as SqlUuid};
+use diesel::sql_types::{BigInt, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::models::knowledge_document::{Citation, Person};
-use crate::models::meeting::{self, Reader};
+use crate::models::meeting::{Reader, readable_meeting_sql};
 
 /// What a listing narrows to. Every filter narrows, and none is access control.
 #[derive(Debug, Clone, Default)]
@@ -81,11 +81,12 @@ struct TopicRow {
     person_name: String,
 }
 
-/// Every meeting topic in the index but those of the meetings `$6` names, which the reader may not
-/// read, then the newest `$5` meetings under the filters (`$1` the person, `$2` and `$3` the period
-/// of its start, `$4` the project), then their topics in order. Topics are ordered by when each
-/// began, which is the order the segmenting gave them.
-const MEETINGS: &str = "
+/// Every meeting topic in the index of a meeting the reader may read (`$6` the reader, `$7` their
+/// reach, `models::meeting::readable_meeting_sql`), then the newest `$5` meetings under the filters
+/// (`$1` the person, `$2` and `$3` the period of its start, `$4` the project), then their topics in
+/// order. Topics are ordered by when each began, which is the order the segmenting gave them.
+const MEETINGS: &str = concat!(
+    "
     WITH topics AS (
         SELECT documents.id AS document_id, documents.source, documents.title, documents.url,
             documents.occurred_at, documents.created_by, people.name AS person_name,
@@ -103,9 +104,12 @@ const MEETINGS: &str = "
         WHERE documents.source = 'meeting'
             AND records.metadata->>'meetingId' IS NOT NULL
             AND ($1::uuid IS NULL OR documents.created_by = $1::uuid)
-            AND (documents.meeting_id IS NULL OR documents.meeting_id <> ALL($6::uuid[]))
+            AND (documents.meeting_id IS NULL OR ",
+    readable_meeting_sql!("documents.meeting_id", "$6", "$7"),
+    "
+            )
     ),
-    meetings AS (
+    newest AS (
         SELECT meeting_key, min(occurred_at) AS started_at
         FROM topics
         GROUP BY meeting_key
@@ -115,13 +119,14 @@ const MEETINGS: &str = "
         ORDER BY started_at DESC, meeting_key DESC
         LIMIT $5
     )
-    SELECT topics.meeting_key, topics.meeting_title, topics.meeting_source, meetings.started_at,
+    SELECT topics.meeting_key, topics.meeting_title, topics.meeting_source, newest.started_at,
         topics.document_id, topics.source, topics.title, topics.url, topics.occurred_at,
         topics.created_by, topics.person_name
     FROM topics
-    JOIN meetings ON meetings.meeting_key = topics.meeting_key
-    ORDER BY meetings.started_at DESC, meetings.meeting_key DESC, topics.occurred_at,
-        topics.document_id";
+    JOIN newest ON newest.meeting_key = topics.meeting_key
+    ORDER BY newest.started_at DESC, newest.meeting_key DESC, topics.occurred_at,
+        topics.document_id"
+);
 
 /// The newest `limit` meetings in the index under `filters` that `reader` may read, newest first,
 /// each with its topics in order.
@@ -137,14 +142,14 @@ pub async fn list(
     reader: Reader,
     limit: i64,
 ) -> QueryResult<Vec<MeetingView>> {
-    let hidden = meeting::hidden_from(connection, reader).await?;
     let rows: Vec<TopicRow> = diesel::sql_query(MEETINGS)
         .bind::<Nullable<SqlUuid>, _>(filters.person_id)
         .bind::<Nullable<Timestamptz>, _>(filters.started_from)
         .bind::<Nullable<Timestamptz>, _>(filters.started_before)
         .bind::<Nullable<SqlUuid>, _>(filters.project_id)
         .bind::<BigInt, _>(limit)
-        .bind::<Array<SqlUuid>, _>(&hidden)
+        .bind::<SqlUuid, _>(reader.id)
+        .bind::<Text, _>(reader.reach.as_str())
         .load(connection)
         .await?;
     Ok(gather(rows))

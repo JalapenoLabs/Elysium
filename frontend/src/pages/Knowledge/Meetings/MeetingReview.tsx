@@ -53,7 +53,9 @@ export function MeetingReview(props: Props) {
   const [ selectedTab, selectTab ] = useTabParam(isOwner
     ? OWNER_TABS
     : READER_TABS)
-  const topics = useMeetingTopicsLoader(meeting.id)
+  const topics = useMeetingTopicsLoader(isOwner
+    ? meeting.id
+    : null)
   const words = useMeetingWords(meeting.id)
 
   let review = <div className='grid place-items-center py-10'><Spinner /></div>

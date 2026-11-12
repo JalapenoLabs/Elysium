@@ -57,9 +57,11 @@ Meetings are the one source with a visibility of their own (`docs/meeting-review
 member reads a public meeting, while a private one, a one-to-one or a review, is read by its owner, the people it is
 shared with, and admins, and a new meeting is private until its correction decides. Its segments' documents name their
 meeting (`knowledge_documents.meeting_id`), and every search, every opening of a document, and the meetings listing
-leave out the documents of the meetings their reader may not read, worked out as each runs
-(`models::meeting::hidden_from`), so who reads a meeting changes what the next search finds with nothing indexed again.
-Every other source stays everyone's, as above.
+find a meeting's documents only for a reader who may read the meeting, by a predicate inside each query
+(`models::meeting::readable_meeting_sql`, the SQL twin of the rule its routes read by, which a test holds to the same
+answers), so who reads a meeting changes what the next search finds with nothing indexed again, and it costs the same
+however many meetings there are. A segment that names no meeting is indexed for nobody. Every other source stays
+everyone's, as above.
 
 ### The index is shared; records stay their owner's
 

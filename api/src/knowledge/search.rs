@@ -61,9 +61,10 @@
 //!
 //! Nothing here limits results by whose record a passage came from: every member reads
 //! everything indexed (`docs/knowledge.md`, Who sees what), but for a private meeting's segments,
-//! which only its readers find. Each search leaves out the segments of every meeting its reader may
-//! not read (`models::meeting::hidden_from`), in both rankings, so a meeting made private is gone
-//! from the next search at once. Callers check the caller's role; the person filter only narrows.
+//! which only its readers find. Each search finds a meeting's segments only for a reader who may
+//! read the meeting (`models::meeting::readable_meeting_sql`), in both rankings, so a meeting made
+//! private is gone from the next search at once. Callers check the caller's role; the person filter
+//! only narrows.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -86,7 +87,7 @@ use crate::database::Pool;
 use crate::embeddings::{Embedding, Embeddings, MODEL};
 use crate::middleware::rate_limit::{Decision, Limiter, Rate};
 use crate::models::knowledge_document::{Citation, Copy, Passage, Person};
-use crate::models::meeting::{self, Reader};
+use crate::models::meeting::{Reader, readable_meeting_sql};
 use crate::models::{page_suggestion, user};
 
 /// The longest query searched, in characters: a search box's few words, or an agent's
@@ -263,12 +264,13 @@ impl Candidate {
     }
 }
 
-/// The filters both rankings apply, binding `$2` to `$7` in [`SearchFilters`]' order, and `$8`,
-/// the meetings whose segments the reader may not find. A macro, so each query stays one string
-/// literal.
+/// The filters both rankings apply, binding `$2` to `$7` in [`SearchFilters`]' order, and `$8`
+/// and `$9`, the reader and their reach, whom a meeting's segments are found by only if they may
+/// read it. A macro, so each query stays one string literal.
 macro_rules! filters {
     () => {
-        "AND (cardinality($2::text[]) = 0 OR documents.source = ANY($2::text[]))
+        concat!(
+            "AND (cardinality($2::text[]) = 0 OR documents.source = ANY($2::text[]))
          AND ($3::uuid IS NULL
              OR documents.timeline_record_id IN (
                  SELECT timeline_record_id FROM timeline_record_projects WHERE project_id = $3::uuid
@@ -282,7 +284,10 @@ macro_rules! filters {
          AND ($7::text IS NULL OR documents.page_id IN (
              SELECT page_id FROM page_labels WHERE label = $7::text
          ))
-         AND (documents.meeting_id IS NULL OR documents.meeting_id <> ALL($8::uuid[]))"
+         AND (documents.meeting_id IS NULL OR ",
+            readable_meeting_sql!("documents.meeting_id", "$8", "$9"),
+            ")"
+        )
     };
 }
 
@@ -308,13 +313,13 @@ const BY_WORDS: &str = concat!(
     filters!(),
     " ORDER BY ts_rank_cd(passages.search_vector, query) DESC,
          passages.document_id DESC, passages.position
-     LIMIT $9"
+     LIMIT $10"
 );
 
 /// The passages nearest `$1`, an embedding in pgvector's text form, by cosine distance through
-/// the HNSW index, among those embedded by `$10`. The scan is iterative (`hnsw.iterative_scan`),
+/// the HNSW index, among those embedded by `$11`. The scan is iterative (`hnsw.iterative_scan`),
 /// so filters that leave out most neighbours still answer the full limit; its order is then
-/// relaxed, so the outer query orders again. Those farther than `$11` are left out after the
+/// relaxed, so the outer query orders again. Those farther than `$12` are left out after the
 /// scan, never during it, which would make it read on in search of more.
 const BY_MEANING: &str = concat!(
     "WITH nearest AS MATERIALIZED (
@@ -322,10 +327,10 @@ const BY_MEANING: &str = concat!(
              passages.embedding <=> $1::vector AS distance
          FROM knowledge_passages passages
          JOIN knowledge_documents documents ON documents.id = passages.document_id
-         WHERE passages.embedding_model = $10 ",
+         WHERE passages.embedding_model = $11 ",
     filters!(),
     " ORDER BY distance
-         LIMIT $9
+         LIMIT $10
      )
      SELECT ",
     candidate_columns!(),
@@ -334,7 +339,7 @@ const BY_MEANING: &str = concat!(
          ON passages.document_id = nearest.document_id AND passages.position = nearest.position
      JOIN knowledge_documents documents ON documents.id = passages.document_id
      JOIN users people ON people.id = documents.created_by
-     WHERE nearest.distance <= $11
+     WHERE nearest.distance <= $12
      ORDER BY nearest.distance, passages.document_id DESC, passages.position"
 );
 
@@ -402,7 +407,6 @@ impl KnowledgeSearch {
         let (by_words, by_meaning) = connection
             .transaction(async |connection| {
                 let reader = Reader::of(&user::find(connection, request.reader).await?);
-                let hidden = meeting::hidden_from(connection, reader).await?;
                 let by_words = diesel::sql_query(BY_WORDS)
                     .bind::<Text, _>(query)
                     .bind::<Array<Text>, _>(&filters.sources)
@@ -411,7 +415,8 @@ impl KnowledgeSearch {
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_from)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_before)
                     .bind::<Nullable<Text>, _>(&filters.label)
-                    .bind::<Array<SqlUuid>, _>(&hidden)
+                    .bind::<SqlUuid, _>(reader.id)
+                    .bind::<Text, _>(reader.reach.as_str())
                     .bind::<BigInt, _>(CANDIDATES)
                     .load::<Candidate>(connection)
                     .await?;
@@ -436,7 +441,8 @@ impl KnowledgeSearch {
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_from)
                     .bind::<Nullable<Timestamptz>, _>(filters.occurred_before)
                     .bind::<Nullable<Text>, _>(&filters.label)
-                    .bind::<Array<SqlUuid>, _>(&hidden)
+                    .bind::<SqlUuid, _>(reader.id)
+                    .bind::<Text, _>(reader.reach.as_str())
                     .bind::<BigInt, _>(CANDIDATES)
                     .bind::<Text, _>(MODEL)
                     .bind::<Double, _>(MAX_MEANING_DISTANCE)

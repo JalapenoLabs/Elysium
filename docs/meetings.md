@@ -230,8 +230,9 @@ every meeting; and a guest reads only a meeting shared with them (`docs/meeting-
 new meeting is private to its owner until its correction reads it and decides.
 
 - **One rule, in one place.** Who may read a meeting is `readable_by` (`models::meeting`), the one statement of it,
-  which finding a meeting (`find_readable`), listing them (`list_readable`), and the knowledge index (`hidden_from`,
-  below) all filter by. What a reader may do with one is `crate::meetings::access`: every route asks `open` for the
+  which finding a meeting (`find_readable`), listing them (`list_readable`), and telling which of some meetings a
+  reader may read (`readable_among`) all filter by; the knowledge index's SQL asks its twin (`readable_meeting_sql`,
+  below), which a test holds to the same answers. What a reader may do with one is `crate::meetings::access`: every route asks `open` for the
   meeting it names with what it needs, never checking an owner itself.
 
 | Need     | Who                                            | For                                                    |
@@ -250,7 +251,9 @@ new meeting is private to its owner until its correction reads it and decides.
 - **Its owner or an admin** makes it private or opens it (`PUT /meetings/{id}/visibility`) and shares it or stops
   (`PUT` and `DELETE /meetings/{id}/shares/{personId}`), each under the meeting's lock and recorded in its history
   (`visibility_changed`, `shared`, `unshared`), and undone from there while nothing changed it since
-  (`crate::meetings::visibility`). Once a person chooses, its correction leaves it as they chose.
+  (`crate::meetings::visibility`): a share is undone back only to someone it may still be shared with. Once a person
+  chooses, its correction leaves it as they chose; undoing that choice makes it `unchecked` again only while its
+  correction has yet to run, and private after, since nothing would decide again.
 - **Its correction decides.** The correction's one turn also judges whether the meeting is sensitive (Correction,
   below) and, in the transaction that settles its transcript, opens it or keeps it private, shared with the people it
   chose, while it is still `unchecked`. Kept private, its owner is told by an inbox item, "Elysia kept a meeting
@@ -266,8 +269,10 @@ new meeting is private to its owner until its correction reads it and decides.
   item or the doc said while the meeting was public stays as it was written.
 - **The knowledge index** finds a private meeting's segments for its readers alone: each segment's document names its
   meeting (`knowledge_documents.meeting_id`), and every search, every opening of a document, and the meetings listing
-  leave out the documents of the meetings their reader may not read (`meeting::hidden_from`), as they run, so a change
-  of who reads it applies to the next search with nothing indexed again (`docs/knowledge.md`, Who sees what). Its
+  find a meeting's documents only for a reader who may read it, by a predicate inside each query
+  (`meeting::readable_meeting_sql`), so a change of who reads it applies to the next search with nothing indexed
+  again, however many meetings there are (`docs/knowledge.md`, Who sees what). A segment that names no meeting is
+  indexed for nobody. Its
   segments' records stay their owner's, and still go to their projects and wake their Project Managers, since they are
   on their topics.
 - **Events.** `meeting.changed` carries a meeting's id, state, and the entry a person's change made, never its owner

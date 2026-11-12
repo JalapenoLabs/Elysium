@@ -10,8 +10,8 @@
 //! instead.
 //!
 //! Nothing here touches the knowledge index: a private meeting's segments are left out of a
-//! search as it runs, by who may read the meeting then (`models::meeting::hidden_from`), so a
-//! change applies to the next search at once.
+//! search as it runs, by who may read the meeting then (`models::meeting::readable_meeting_sql`),
+//! so a change applies to the next search at once.
 //!
 //! # The correction's decision
 //!
@@ -36,6 +36,7 @@ use crate::models::action_item::{
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::meeting::{self, Meeting, Visibility};
+use crate::models::meeting_correction;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_share;
 use crate::models::user::{self, SYSTEM_USER_ID};
@@ -332,7 +333,9 @@ fn kept_private_item(owner: &str, undecided: bool) -> NewActionItem {
 }
 
 /// Puts `current`'s visibility back to what `undone`, a person's change, changed it from, while it
-/// still holds what `undone` set. `None` when it changed since.
+/// still holds what `undone` set. `None` when it changed since. A meeting goes back to waiting on its
+/// correction only while its correction has yet to run; after, nothing would decide for it, so it
+/// goes back to private, as a meeting waiting reads.
 ///
 /// # Errors
 /// [`UndoError::NotUndoable`] for the correction's decision, which nothing would make again; any
@@ -360,13 +363,22 @@ pub(crate) async fn undo_visibility(
     if current.visibility() != after {
         return Ok(None);
     }
-    meeting::set_visibility(connection, current.id, before).await?;
+    let restored = if before == Visibility::Unchecked
+        && meeting_correction::find(connection, current.id)
+            .await?
+            .is_some()
+    {
+        Visibility::Private
+    } else {
+        before
+    };
+    meeting::set_visibility(connection, current.id, restored).await?;
     Ok(Some(
         record(
             connection,
             current.id,
             EventKind::VisibilityChanged,
-            json!({ "before": after.as_str(), "after": before.as_str() }),
+            json!({ "before": after.as_str(), "after": restored.as_str() }),
             author,
             Some(undone.id),
         )
@@ -375,7 +387,8 @@ pub(crate) async fn undo_visibility(
 }
 
 /// Takes back `undone`, a share or an unshare: stops sharing the meeting with its person, or shares
-/// it with them again, while it is still as `undone` left it. `None` when it changed since.
+/// it with them again, while it is still as `undone` left it and they may still be shared with, as
+/// [`share`] asks. `None` when it changed since, such as a person disabled since.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -399,10 +412,9 @@ pub(crate) async fn undo_share(
             EventKind::Unshared,
         )
     } else {
-        (
-            meeting_share::add(connection, current.id, person_id, author.user_id).await?,
-            EventKind::Shared,
-        )
+        let shares_again = is_shareable(connection, current, person_id).await?
+            && meeting_share::add(connection, current.id, person_id, author.user_id).await?;
+        (shares_again, EventKind::Shared)
     };
     if !undid_by {
         return Ok(None);
@@ -581,7 +593,8 @@ mod tests {
             .expect("found");
         assert_eq!(current.visibility(), Visibility::Public);
 
-        // Undoing the person's choice puts it back as it was, unchecked, for its correction.
+        // Undoing the person's choice before its correction runs puts it back as it was,
+        // unchecked, for its correction.
         let undone = history::undo(&mut connection, found.id, opened.entry.id, person())
             .await
             .expect("undoes");
@@ -590,6 +603,36 @@ mod tests {
             .await
             .expect("found");
         assert_eq!(current.visibility(), Visibility::Unchecked);
+
+        // Once its correction ran and left the person's choice, nothing would decide again, so
+        // undoing that choice leaves it private rather than waiting on a check that never comes.
+        let reopened = set(&mut connection, found.id, Visibility::Public, person())
+            .await
+            .expect("opens");
+        meeting_correction::record(
+            &mut connection,
+            meeting_correction::NewMeetingCorrection {
+                meeting_id: found.id,
+                transcript: json!([]),
+                transcript_hash: "b".repeat(64),
+                based_on: "source".to_owned(),
+                source_transcript_hash: "a".repeat(64),
+                whisper_transcript_hash: None,
+                changed_lines: 0,
+                fixes: json!([]),
+            },
+        )
+        .await
+        .expect("records")
+        .expect("the first copy");
+        let undone = history::undo(&mut connection, found.id, reopened.entry.id, person())
+            .await
+            .expect("undoes");
+        assert_eq!(undone.entry.data["after"], "private");
+        let current = meeting::find(&mut connection, found.id)
+            .await
+            .expect("found");
+        assert_eq!(current.visibility(), Visibility::Private);
 
         // Shares come and go the same way, each undone while it still stands.
         let shared = share(&mut connection, found.id, grace, person())
@@ -649,9 +692,25 @@ mod tests {
             .await
             .expect("shares with the guest");
         assert!(reads(&mut connection, found.id, as_guest).await);
-        let hidden = meeting::hidden_from(&mut connection, as_guest)
+        let readable = meeting::readable_among(&mut connection, &[found.id], as_guest)
             .await
             .expect("reads");
-        assert!(!hidden.contains(&found.id));
+        assert!(readable.contains(&found.id));
+
+        // Undoing a stop shares again only with someone it may still be shared with.
+        let stopped = unshare(&mut connection, found.id, guest, person())
+            .await
+            .expect("stops sharing");
+        diesel::sql_query(format!(
+            "UPDATE users SET status = 'disabled' WHERE id = '{guest}'"
+        ))
+        .execute(&mut connection)
+        .await
+        .expect("disables the guest");
+        assert!(matches!(
+            history::undo(&mut connection, found.id, stopped.entry.id, person()).await,
+            Err(UndoError::ChangedSince)
+        ));
+        assert!(!reads(&mut connection, found.id, as_guest).await);
     }
 }

@@ -8,8 +8,9 @@
 //! they read but may not change in that way names what it takes.
 //!
 //! A request allowed through is sent so it then fails its own checks (an empty edit, the meeting's
-//! own visibility again, an offset out of range), so the matrix can run every cell against one
-//! meeting without changing what it decides. They are `#[ignore]`d so `cargo test` stays
+//! own visibility again, an offset out of range, a pair of meetings decided already), so the matrix
+//! can run every cell against one meeting without changing what it decides; a retry is the one that
+//! acts, so its run is failed again before each. They are `#[ignore]`d so `cargo test` stays
 //! hermetic; `api/scripts/verify-migrations.sh` runs them.
 
 use axum::body::Body;
@@ -20,15 +21,21 @@ use tower::ServiceExt as _;
 use uuid::Uuid;
 
 use super::tests::{insert_grace, keep_recording, thread_item_for};
-use crate::meetings::visibility;
+use crate::action_items::Actor;
+use crate::meetings::{visibility, workflow};
+use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
 use crate::models::meeting_correction::{self, NewMeetingCorrection};
+use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
 use crate::models::meeting_word::tests::{built_meeting, word};
+use crate::models::step_job::{self, StepOutcome};
+use crate::realtime::EventBus;
 use crate::routes;
 use crate::state::AppState;
 use crate::storage::tests::fake_storage;
 use crate::test_support::{
     TEST_PERSON_ID, app_state_with_storage, migrated_database, signed_in_cookie,
 };
+use crate::workflows;
 
 /// The signed-in test person's role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,11 +181,32 @@ async fn execute(connection: &mut AsyncPgConnection, statement: String) {
         .expect("the statement runs");
 }
 
-/// Makes the meeting `meeting_id` what this cell of the matrix needs: the test person of `role`,
+/// Fails whatever step of a run is queued, as the engine records a step that failed for good, so
+/// the meeting's run is failed for a retry to take.
+async fn fail_what_is_queued(connection: &mut AsyncPgConnection) {
+    let at = chrono::Utc::now();
+    let claimed = step_job::claim(connection, at, 1).await.expect("claims");
+    for claim in &claimed.claims {
+        step_job::finish(
+            connection,
+            claim,
+            StepOutcome::Failed {
+                reason: "Fireflies refused the key".to_owned(),
+                retryable: false,
+            },
+            at,
+        )
+        .await
+        .expect("records")
+        .expect("the claim holds");
+    }
+}
+
+/// Makes each of `meeting_ids` what this cell of the matrix needs: the test person of `role`,
 /// related to it as `relation`, and it public or private. Its other owner is `someone`.
 async fn arrange(
     connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
+    meeting_ids: &[Uuid],
     someone: Uuid,
     (role, relation, public): (Role, Relation, bool),
 ) {
@@ -198,26 +226,28 @@ async fn arrange(
     .await;
     execute(
         connection,
-        format!(
-            "UPDATE meetings SET created_by = '{owner}', visibility = '{visibility}' \
-             WHERE id = '{meeting_id}'"
-        ),
-    )
-    .await;
-    execute(
-        connection,
         format!("DELETE FROM meeting_shares WHERE person_id = '{TEST_PERSON_ID}'"),
     )
     .await;
-    if relation == Relation::SharedWith {
+    for meeting_id in meeting_ids {
         execute(
             connection,
             format!(
-                "INSERT INTO meeting_shares (meeting_id, person_id, created_by) \
-                 VALUES ('{meeting_id}', '{TEST_PERSON_ID}', '{someone}')"
+                "UPDATE meetings SET created_by = '{owner}', visibility = '{visibility}' \
+                 WHERE id = '{meeting_id}'"
             ),
         )
         .await;
+        if relation == Relation::SharedWith {
+            execute(
+                connection,
+                format!(
+                    "INSERT INTO meeting_shares (meeting_id, person_id, created_by) \
+                     VALUES ('{meeting_id}', '{TEST_PERSON_ID}', '{someone}')"
+                ),
+            )
+            .await;
+        }
     }
 }
 
@@ -313,6 +343,55 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
     .await
     .expect("records")
     .expect("the first copy");
+    // Its run, failed, for a retry to take.
+    workflows::start(
+        &mut connection,
+        &EventBus::in_process(),
+        workflow::run_for(meeting_id),
+    )
+    .await
+    .expect("the run starts");
+    // And a meeting it looks like, the same person's, decided already, asked about by an item.
+    let (same_as, _) = built_meeting(&mut connection, &[("Ada", "Sheriff ships Friday")]).await;
+    let asked = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: "Same meeting as Launch sync?".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        },
+        Actor::System,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("an item");
+    let pair = meeting_duplicate::insert_new(
+        &mut connection,
+        NewMeetingDuplicate {
+            id: Uuid::now_v7(),
+            meeting_id,
+            same_as_id: same_as.meeting_id,
+            action_item_id: Some(asked.record.id),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("records")
+    .expect("a new pair");
+    execute(
+        &mut connection,
+        format!(
+            "UPDATE meeting_duplicates SET decision = 'not_the_same', decided_by = '{grace}', \
+             decided_at = now() WHERE id = '{}'",
+            pair.id
+        ),
+    )
+    .await;
 
     let meeting = format!("/api/v1/meetings/{meeting_id}");
     let captured = format!("{meeting}/captures/{}", capture.id);
@@ -364,6 +443,17 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
             Needs::Own,
         ),
         Asked::new(Method::POST, format!("{meeting}/hold"), Needs::Own),
+        Asked::new(Method::POST, format!("{meeting}/retry"), Needs::Own),
+        Asked::new(
+            Method::POST,
+            format!("/api/v1/meetings/duplicates/{}/merge", pair.id),
+            Needs::Manage,
+        ),
+        Asked::new(
+            Method::POST,
+            format!("/api/v1/meetings/duplicates/{}/not-the-same", pair.id),
+            Needs::Manage,
+        ),
         Asked::new(Method::PUT, format!("{captured}/offset"), Needs::Own)
             .with_body(json!({ "offsetMs": 13 * 60 * 60 * 1000 })),
         Asked::new(
@@ -386,7 +476,13 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         for relation in [Relation::Owner, Relation::SharedWith, Relation::Other] {
             for role in [Role::Member, Role::Admin, Role::Guest] {
                 let cell = (role, relation, public);
-                arrange(&mut connection, meeting_id, grace, cell).await;
+                arrange(
+                    &mut connection,
+                    &[meeting_id, same_as.meeting_id],
+                    grace,
+                    cell,
+                )
+                .await;
                 // Asked of the meeting's own visibility again, and of its owner, so each
                 // reaches its own refusal once through.
                 let owner = if relation == Relation::Owner {
@@ -405,6 +501,9 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                     ),
                 ];
                 for asked in requests.iter().chain(&managing) {
+                    if asked.path.ends_with("/retry") {
+                        fail_what_is_queued(&mut connection).await;
+                    }
                     let (status, body) = ask(
                         &state,
                         asked.method.clone(),
@@ -457,6 +556,25 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                 assert_eq!(status, StatusCode::OK, "{cell:?}");
                 let opened: Value = serde_json::from_slice(&body).expect("JSON");
                 assert_eq!(opened["thread"].is_object(), reads, "{cell:?}: {opened}");
+
+                // The item asking whether two meetings are one offers them only to whoever may
+                // answer it, reading both and managing the one it asks about.
+                let manages = expected(Needs::Manage, role, relation, public) == Expected::Allowed;
+                let (status, body) = ask(
+                    &state,
+                    Method::GET,
+                    &format!("/api/v1/meetings/duplicates?itemId={}", asked.record.id),
+                    None,
+                    None,
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{cell:?}");
+                let offered: Value = serde_json::from_slice(&body).expect("JSON");
+                assert_eq!(
+                    offered["duplicate"].is_object(),
+                    manages,
+                    "{cell:?}: {offered}"
+                );
 
                 // The listing names exactly the meetings they may read.
                 let (status, body) = ask(&state, Method::GET, "/api/v1/meetings", None, None).await;
