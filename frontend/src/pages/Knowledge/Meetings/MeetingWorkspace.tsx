@@ -100,6 +100,10 @@ export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
   const words = transcript.words
+  // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
+  // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
+  // edit, comment on, or undo. Its actions say why (`MeetingActions`).
+  const isReadOnly = Boolean(meeting.mergedInto)
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -112,6 +116,7 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
+    isReadOnly,
     applyChange: props.applyChange,
     reload: props.reload,
   })
@@ -138,6 +143,13 @@ export function MeetingWorkspace(props: Props) {
   )
   const paragraphs = useMemo(() => paragraphsOf(words), [ words ])
   const decorations = useMemo(() => decorateWords(words.length, drawn, shown), [ words.length, drawn, shown ])
+  // Read only, every change stays as it is: no row of the history, nor an edit's mark, offers Undo.
+  const historyRows = useMemo(
+    () => isReadOnly
+      ? history.rows.map((row) => ({ ...row, canUndo: false }))
+      : history.rows,
+    [ history.rows, isReadOnly ],
+  )
   const excerpts = useMemo(() => {
     const lanes = shown.has('excerpt')
       ? excerptLanes(placed)
@@ -277,9 +289,18 @@ export function MeetingWorkspace(props: Props) {
     }
   }, [ linkedThreadId, words.length, openThread, openDrawer ])
 
+  // Opens the words selected in place to edit them. Answers whether it did.
+  function startEdit() {
+    if (isReadOnly || view !== FINAL_VIEW || !selection || review.isEditing) {
+      return false
+    }
+    setReview({ ...review, isEditing: true, isCommenting: false })
+    return true
+  }
+
   // Starts writing a thread on the words selected; the lane holds it, so a phone opens its drawer.
   function startComment() {
-    if (view !== FINAL_VIEW || !selection || review.isEditing) {
+    if (isReadOnly || view !== FINAL_VIEW || !selection || review.isEditing) {
       return false
     }
     setReview({ ...review, isCommenting: true })
@@ -333,13 +354,7 @@ export function MeetingWorkspace(props: Props) {
       clear()
       return true
     },
-    onEdit: () => {
-      if (view !== FINAL_VIEW || !selection || review.isEditing) {
-        return false
-      }
-      setReview({ ...review, isEditing: true, isCommenting: false })
-      return true
-    },
+    onEdit: startEdit,
     onComment: startComment,
     onCycleMark: (step) => {
       if (under.length < 2) {
@@ -412,10 +427,12 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
+    onMoveCapture={changes.moveCapture}
+    onSplitCapture={changes.splitOut}
     words={words}
     selectedMark={selectedMark}
     history={{
-      rows: history.rows,
+      rows: historyRows,
       isLoading: !history.entries && !history.hasFailed,
       hasFailed: history.hasFailed,
     }}
@@ -426,11 +443,13 @@ export function MeetingWorkspace(props: Props) {
       isLoading: !threadComments.comments && !threadComments.hasFailed,
       hasFailed: threadComments.hasFailed,
     }}
-    threadActions={{
-      onReply: changes.reply,
-      onSetResolved: changes.setResolved,
-      onRemove: changes.removeThread,
-    }}
+    threadActions={isReadOnly
+      ? null
+      : {
+        onReply: changes.reply,
+        onSetResolved: changes.setResolved,
+        onRemove: changes.removeThread,
+      }}
     onSelectThread={openThread}
     composing={review.isCommenting && selection
       ? {
@@ -468,8 +487,12 @@ export function MeetingWorkspace(props: Props) {
       onPick={onPick}
       onDrag={(start, end) => pickRange(start, end)}
       onSelectMark={selectMarkById}
-      onEdit={() => setReview({ ...review, isEditing: true, isCommenting: false })}
-      onComment={startComment}
+      onEdit={isReadOnly
+        ? null
+        : startEdit}
+      onComment={isReadOnly
+        ? null
+        : startComment}
       onClear={clear}
       onApplyEdit={applyEdit}
       onCancelEdit={() => setReview({ ...review, isEditing: false })}

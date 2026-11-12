@@ -9,14 +9,14 @@ This doc is the design. Built so far: meetings and their captures, one clock wit
 capture, the final transcript as words with stable ids, marks anchored to ranges of them, edits, and every change in a
 meeting's history, undoable; aligning every capture onto the clock and lining their words up into the final
 transcript, and asking before merging a meeting recorded twice, with merging and splitting; the meeting's page in the
-knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
-undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to
-its owner alone until meetings are public by default; uploads of recordings and transcripts as new meetings or
-captures of one; meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
-group of every project's brief it is about, with the Meetings page listing, searching, and filtering them and
-starting uploads, Settings keeping only their sources; and settling the final transcript with confidences and
-alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words. What is built is
-described in `docs/meetings.md`, which this
+knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, its captures
+moved on the clock by hand and a merged meeting split back out from its options, each change undoable, its player,
+and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to its owner alone until
+meetings are public by default; uploads of recordings and transcripts as new meetings or captures of one; meetings in
+the knowledge base's tree, each at home under the Meetings page and in the Meetings group of every project's brief it
+is about, with the Meetings page listing, searching, and filtering them and starting uploads, Settings keeping only
+their sources; and settling the final transcript with confidences and alternatives, taught by the Transcription doc,
+which teaches itself and gives Whisper its hint words. What is built is described in `docs/meetings.md`, which this
 design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures

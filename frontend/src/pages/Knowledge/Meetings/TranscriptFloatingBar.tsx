@@ -23,10 +23,11 @@ type Props = {
   pills: MarkPill[]
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
-  // Whether words are selected, which Edit and Comment act on.
+  // Whether words are selected, which Edit and Comment act on. Each is null where the meeting takes
+  // no change, as one merged into another does; the words can still be selected and copied.
   hasSelection: boolean
-  onEdit: () => void
-  onComment: () => void
+  onEdit: (() => void) | null
+  onComment: (() => void) | null
   onClear: () => void
   // On a touch screen, which has no Shift: a moment picked offers to start a selection there,
   // which the next tap ends.
@@ -166,20 +167,20 @@ export function TranscriptFloatingBar(props: Props) {
     </Button>}
 
     {props.hasSelection && <>
-      <Button size='sm' variant='ghost' onPress={props.onEdit}>
+      {props.onEdit && <Button size='sm' variant='ghost' onPress={props.onEdit}>
         <LuPencil className='size-4' aria-hidden />
         <span>{t('review.bar.edit')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>E</Kbd.Content>
         </Kbd>
-      </Button>
-      <Button size='sm' variant='ghost' onPress={props.onComment}>
+      </Button>}
+      {props.onComment && <Button size='sm' variant='ghost' onPress={props.onComment}>
         <LuMessageSquarePlus className='size-4' aria-hidden />
         <span>{t('review.bar.comment')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>C</Kbd.Content>
         </Kbd>
-      </Button>
+      </Button>}
       <Tooltip delay={300}>
         <Button
           isIconOnly

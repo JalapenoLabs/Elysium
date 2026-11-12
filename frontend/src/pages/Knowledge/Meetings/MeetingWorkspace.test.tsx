@@ -2,6 +2,7 @@
 
 import type { Mock } from 'vitest'
 import type {
+  Meeting,
   MeetingComment,
   MeetingHistoryEntry,
   MeetingMark,
@@ -111,8 +112,10 @@ const transcript: MeetingWords = {
     sourceKind: 'fireflies',
     url: null,
     offsetMs: 0,
+    offsetSource: 'listed',
     hasRecording: false,
     recordingContentType: null,
+    mergedFrom: null,
   }],
 }
 
@@ -173,6 +176,7 @@ function comment(id: string, threadId: string, body: string): MeetingComment {
 
 type HarnessProps = {
   context: Context
+  meeting: Meeting
   initial: MeetingWords
   // Hands the test a way to read the transcript again, as `meeting.changed` does.
   onReady: (show: (next: MeetingWords) => void) => void
@@ -182,16 +186,21 @@ function Harness(props: HarnessProps) {
   const [ shown, setShown ] = useState(props.initial)
   props.onReady(setShown)
   return <MeetingWorkspace
-    meeting={makeMeeting({ id: 'meeting' })}
+    meeting={props.meeting}
     transcript={shown}
     applyChange={props.context.applyChange}
     reload={() => {}}
   />
 }
 
-// Renders the workspace on `shown` at `address`, and answers a way to show it another transcript in
-// the same session.
-function renderWorkspace(context: Context, shown: MeetingWords = transcript, address = '/') {
+// Renders `meeting`'s workspace on `shown` at `address`, and answers a way to show it another
+// transcript in the same session.
+function renderWorkspace(
+  context: Context,
+  shown: MeetingWords = transcript,
+  address = '/',
+  meeting: Meeting = makeMeeting({ id: 'meeting' }),
+) {
   const store = createAppStore()
   store.dispatch(usersLoaded(people))
   let show: (next: MeetingWords) => void = () => {}
@@ -202,6 +211,7 @@ function renderWorkspace(context: Context, shown: MeetingWords = transcript, add
         <TestAriaRouter>
           <Harness
             context={context}
+            meeting={meeting}
             initial={shown}
             onReady={(setShown) => {
               show = setShown
@@ -557,6 +567,53 @@ describe('MeetingWorkspace', () => {
     expect((await screen.findAllByRole('button', { name: '1 resolved' })).length).toBeGreaterThan(0)
   })
 
+  it<Context>('reads a meeting merged into another as it stood, offering nothing to change', async (context) => {
+    vi.mocked(getMeetingThreads).mockResolvedValue({ comments: [ comment('first', 'note', 'Is this Friday?') ]})
+    // A hold is undone wherever it is listed, but not on a meeting that changes elsewhere now.
+    vi.mocked(getMeetingHistory).mockResolvedValue({ entries: [ entry('hold', 'hold_changed') ]})
+    const mergedAway = makeMeeting({
+      id: 'meeting',
+      mergedInto: 'kept',
+      // A corrected copy waiting for approval, which its own meeting would offer to approve.
+      correction: {
+        changedLines: 2,
+        approvedAt: null,
+        approvedBy: null,
+        reviewItemId: null,
+        createdAt: '2026-11-10T12:00:00Z',
+      },
+    })
+    renderWorkspace(context, transcript, '/', mergedAway)
+
+    // Its actions say why, where Approve, holding, and adding a recording would be.
+    expect(await screen.findByText('Edits, comments, and approval happen in the meeting it was merged into.'))
+      .toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    expect(screen.queryByText('Wait for my approval')).toBeNull()
+    expect(screen.queryByText('Add a recording or transcript')).toBeNull()
+    expect(await screen.findByText('Stopped holding the meeting for approval')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+
+    // Its words still select, and copy, but nothing edits them or starts a thread on them.
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('is'), { shiftKey: true })
+    const bar = screen.getByRole('toolbar', { name: 'What to do with the words selected' })
+    expect(within(bar).queryByRole('button', { name: /Edit/ })).toBeNull()
+    expect(within(bar).queryByRole('button', { name: /Comment/ })).toBeNull()
+    press('e')
+    press('c')
+    expect(screen.queryByRole('textbox', { name: 'What these words should say' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+
+    // A thread reads alone, with no reply, Resolve, or Remove.
+    press('Escape')
+    fireEvent.click(wordPiece('is'))
+    expect((await screen.findAllByText('Is this Friday?')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Reply' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove thread' })).toBeNull()
+  })
+
   it<Context>('reads a capture exactly as it came from the options', async (context) => {
     vi.mocked(getCaptureTranscript).mockResolvedValue({
       transcript: {
@@ -585,8 +642,10 @@ const recorded: MeetingWords = {
       sourceKind: 'fireflies',
       url: null,
       offsetMs: 5000,
+      offsetSource: 'audio',
       hasRecording: true,
       recordingContentType: 'audio/mpeg',
+      mergedFrom: null,
     },
     {
       id: 'video',
@@ -594,8 +653,10 @@ const recorded: MeetingWords = {
       sourceKind: 'fireflies',
       url: null,
       offsetMs: 0,
+      offsetSource: 'listed',
       hasRecording: true,
       recordingContentType: 'video/mp4',
+      mergedFrom: null,
     },
   ],
 }

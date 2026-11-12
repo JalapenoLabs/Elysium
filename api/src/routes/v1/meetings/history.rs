@@ -20,7 +20,9 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce_lined_up, lines_up_again, transcript_change};
+use super::{
+    MeetingEventResponse, announce_lined_up, lines_up_again, merged_refusal, transcript_change,
+};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::history::{self, UndoError};
@@ -92,6 +94,7 @@ pub async fn undo(
 fn refusal(error: UndoError) -> ApiError {
     match error {
         UndoError::NotFound => ApiError::NotFound,
+        UndoError::Merged => merged_refusal(),
         UndoError::NotUndoable => ApiError::CodedConflict {
             code: "meeting_change_not_undoable",
             message: "This change cannot be undone.",
