@@ -26,6 +26,11 @@ export type ThreadActions = {
   onReply: (threadId: string, body: string, mentions: string[]) => Promise<boolean>
   onSetResolved: (threadId: string, resolved: boolean) => Promise<void>
   onRemove: (threadId: string) => Promise<void>
+  // Whether the reader may write in threads: a guest reads a meeting shared with them and changes
+  // nothing.
+  canWrite: boolean
+  // Whether a person may read the meeting, and so be mentioned in it.
+  mayRead: (user: User) => boolean
 }
 
 type Props = ThreadActions & {
@@ -87,14 +92,15 @@ export function CommentThread(props: Props) {
     }</ol>
     {awaitsElysia(thread.comments) && <p className='text-xs opacity-70'>{t('review.comments.elysiaAsked')}</p>}
 
-    {!thread.isResolved && <CommentForm
+    {props.canWrite && !thread.isResolved && <CommentForm
       draftName={`meeting-thread-reply.${threadId}`}
       label={t('review.comments.replyLabel')}
       submitLabel={t('review.comments.reply')}
       onSubmit={(body, mentions) => props.onReply(threadId, body, mentions)}
+      mayRead={props.mayRead}
     />}
 
-    <div className='level gap-2'>
+    {props.canWrite && <div className='level gap-2'>
       <Button
         size='sm'
         variant='outline'
@@ -124,6 +130,6 @@ export function CommentThread(props: Props) {
         </Button>
         <Tooltip.Content>{t('review.comments.remove')}</Tooltip.Content>
       </Tooltip>
-    </div>
+    </div>}
   </div>
 }

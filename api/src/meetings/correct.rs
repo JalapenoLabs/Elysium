@@ -1305,13 +1305,48 @@ mod tests {
         title: &str,
     ) -> (Meeting, MeetingCapture) {
         let (stored, capture) = fetched_with(connection, json!([heard_line("Jon is here")])).await;
+        // Open, as its correction would have left it with the copy it stored, so an item may name
+        // it.
         let titled = diesel::update(crate::database::schema::meetings::table.find(stored.id))
-            .set(crate::database::schema::meetings::title.eq(title))
+            .set((
+                crate::database::schema::meetings::title.eq(title),
+                crate::database::schema::meetings::visibility.eq("public"),
+            ))
             .returning(Meeting::as_returning())
             .get_result(connection)
             .await
             .expect("titled");
         (titled, capture)
+    }
+
+    #[test]
+    fn a_review_item_names_a_meeting_only_while_it_is_public() {
+        let mut current = Meeting {
+            id: Uuid::now_v7(),
+            title: "Ada and Grace, one to one".to_owned(),
+            started_at: Utc::now(),
+            duration_ms: None,
+            organizer: String::new(),
+            participants: json!([]),
+            segments: None,
+            state: "recorded".to_owned(),
+            created_by: TEST_PERSON_ID,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hold_for_approval: true,
+            merged_into: None,
+            visibility: "private".to_owned(),
+            visibility_item_id: None,
+        };
+        assert_eq!(
+            review_item(&current).title,
+            "Approve a meeting's corrected transcript"
+        );
+        current.visibility = "public".to_owned();
+        assert_eq!(
+            review_item(&current).title,
+            "Approve the corrected transcript of Ada and Grace, one to one"
+        );
     }
 
     #[test]
@@ -1777,7 +1812,7 @@ mod tests {
             {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 60},
             {"line": 1, "heard": "ships Friday", "text": "ships Friday at noon", "confidence": 90},
             {"line": 1, "heard": "Friday", "text": "Friday", "confidence": 0}
-        ]}"#;
+        ], "visibility": {"private": false, "shareWith": [], "why": "A launch review."}}"#;
         let step = CorrectTranscript::new(CorrectTranscriptDeps {
             database: database.clone(),
             events: EventBus::in_process(),
@@ -1879,9 +1914,15 @@ mod tests {
             .await
             .expect("history");
         let kinds: Vec<&str> = history.iter().map(|entry| entry.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["built", "settled"]);
+        assert_eq!(kinds, vec!["built", "settled", "visibility_changed"]);
         assert_eq!(history[1].data["changes"].as_array().map(Vec::len), Some(2));
         assert_eq!(history[1].data["skipped"], 0);
+        // Nothing in it is sensitive, so its correction opened it to every member.
+        let opened = meeting::find(&mut connection, stored.id)
+            .await
+            .expect("found");
+        assert_eq!(opened.visibility(), meeting::Visibility::Public);
+        assert_eq!(history[2].data["correction"], true);
 
         // The copy segmenting reads: the source's lines, the settled text in place.
         let copy = corrected_lines(&mut connection, &output)
@@ -2010,6 +2051,90 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// #246: a meeting its correction reads as sensitive stays private, shared with whom it chose,
+    /// its owner told by an item that names nothing of it, and the Transcription doc, every
+    /// member's page, learns its fixes alone.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_sensitive_meeting_stays_private_and_teaches_the_transcription_doc_nothing_of_it() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let grace = Uuid::now_v7();
+        diesel::sql_query(format!(
+            "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+             VALUES ('{grace}', gen_random_uuid(), 'grace@example.com', 'Grace Hopper', 'member', \
+             'active', now())"
+        ))
+        .execute(&mut connection)
+        .await
+        .expect("Grace is created");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let answer = format!(
+            r#"{{"flags": [
+                {{"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92,
+                 "why": "Grace's review names Sharath."}}
+            ], "visibility": {{"private": true, "shareWith": ["{grace}"],
+                "why": "Grace's performance review."}}}}"#
+        );
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::answering(&[answer.as_str()]),
+        });
+        // A run of its own, which the name it suggests to the company doc names.
+        let run = workflows::start(
+            &mut connection,
+            &EventBus::in_process(),
+            super::super::workflow::run_for(stored.id),
+        )
+        .await
+        .expect("a run");
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+        let mut context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        context.run_id = run.settled.run.id;
+        let done = step.run(input, context).await.expect("settles");
+        assert!(matches!(done, Done::Succeeded { .. }), "{done:?}");
+
+        let kept = meeting::find(&mut connection, stored.id)
+            .await
+            .expect("found");
+        assert_eq!(kept.visibility(), meeting::Visibility::Private);
+        let shared = crate::models::meeting_share::of_meetings(&mut connection, &[stored.id])
+            .await
+            .expect("reads");
+        assert_eq!(shared.get(&stored.id), Some(&vec![grace]));
+        let item_id = kept.visibility_item_id.expect("its owner is told");
+        let item = action_item::find(&mut connection, item_id)
+            .await
+            .expect("the item");
+        assert_eq!(item.title, "Elysia kept a meeting private");
+        assert!(!item.notes.contains("Launch review") && !item.notes.contains("performance"));
+
+        // The doc learns the fix, linked to the meeting by no title, with neither who spoke nor
+        // the reason the correction gave.
+        let doc = transcription_doc::read(&mut connection)
+            .await
+            .expect("the doc");
+        let entry = &doc.entries[0];
+        assert_eq!(
+            (entry.heard.as_str(), entry.written.as_str()),
+            ("Sheriff", "Sharath")
+        );
+        assert!(entry.speakers.is_empty(), "{:?}", entry.speakers);
+        assert_eq!(entry.meetings[0].id, stored.id);
+        assert!(!doc.body.contains("Launch review"), "{}", doc.body);
+        assert!(!doc.body.contains("Grace's review"), "{}", doc.body);
+        assert!(doc.body.contains("The meeting's correction was 92 of 100 sure."));
     }
 
     /// #269 review: a person who fixes a word while the correction's turn runs keeps their fix, and

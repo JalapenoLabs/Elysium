@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Label, Switch, ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import { MeetingActions } from './MeetingActions'
+import { MeetingVisibility } from './MeetingVisibility'
 
 // Misc
 import { formatDuration, formatMediaPosition } from '../../../format/durations'
@@ -112,6 +113,8 @@ export function MeetingOptions(props: Props) {
       <p className='compact text-xs font-semibold uppercase opacity-60'>{t('review.options.selected')}</p>
       <p className='text-sm'>{selected}</p>
     </div>}
+
+    <MeetingVisibility meeting={props.meeting} />
 
     <MeetingActions meeting={props.meeting} />
   </section>

@@ -8,7 +8,7 @@
 //! | Need             | Who                                      | For                               |
 //! |------------------|------------------------------------------|-----------------------------------|
 //! | [`Need::Read`]   | Whoever `readable_by` lets read it       | Its words, captures, media, history, and threads |
-//! | [`Need::Edit`]   | A reader who is a company member         | Edits, threads, and undoing them  |
+//! | [`Need::Edit`]   | A reader who is a company member, and its owner | Edits, threads, and undoing them |
 //! | [`Need::Manage`] | Its owner, or an admin                   | Who sees it, and merging or splitting its captures |
 //! | [`Need::Own`]    | Its owner                                | Its processing: holding, approving, retrying, offsets, and captures it uploads |
 //!
@@ -35,7 +35,8 @@ pub enum Need {
 /// What `reader` may do with one meeting they may read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Access {
-    /// Changes its words and its threads: any company member who reads it. A guest reads only.
+    /// Changes its words and its threads: any company member who reads it, and its owner. A guest
+    /// reads a meeting shared with them and changes nothing.
     pub edits: bool,
     /// Changes who sees it, and merges or splits its captures: its owner, and admins.
     pub manages: bool,
@@ -48,7 +49,7 @@ impl Access {
     pub fn of(meeting: &Meeting, reader: Reader) -> Self {
         let owns = meeting.created_by == reader.id;
         Self {
-            edits: matches!(reader.reach, Reach::Every | Reach::Public),
+            edits: owns || matches!(reader.reach, Reach::Every | Reach::Public),
             manages: owns || reader.reach == Reach::Every,
             owns,
         }
@@ -190,6 +191,14 @@ mod tests {
         assert!(guest.meets(Need::Read));
         for need in [Need::Edit, Need::Manage, Need::Own] {
             assert!(!guest.meets(need), "{need:?}");
+        }
+    }
+
+    #[test]
+    fn a_guest_who_owns_a_meeting_does_everything_its_owner_does() {
+        let owner = Access::of(&meeting(), reader(OWNER, Reach::Shared));
+        for need in [Need::Read, Need::Edit, Need::Manage, Need::Own] {
+            assert!(owner.meets(need), "{need:?}");
         }
     }
 

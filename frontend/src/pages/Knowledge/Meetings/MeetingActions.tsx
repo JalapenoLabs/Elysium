@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { selectIsCompanyMember, selectMe } from '../../../store/authSlice'
 import { selectConnectorById } from '../../../store/connectorsSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { meetingUpserted } from '../../../store/meetingsSlice'
@@ -38,8 +39,10 @@ type Props = {
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, holding it for approval by hand until it is corrected
 // (unless its source already waits), its run, and adding a recording or transcript as another
-// capture. Privacy, sharing, captures' offsets, and Done reviewing join them as they are built
-// (docs/meeting-review.md, Roadmap).
+// capture. Its processing is its owner's alone, so only they hold, approve, and add a capture
+// (`crate::meetings::access`); a company member opens its run, as anyone of them opens any run.
+// Captures' offsets and Done reviewing join them as they are built (docs/meeting-review.md,
+// Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -49,10 +52,12 @@ export function MeetingActions(props: Props) {
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
   const [ acting, setActing ] = useState<'approve' | 'hold' | null>(null)
+  const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
+  const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
-  const canApprove = Boolean(meeting.correction && !meeting.correction.approvedAt)
+  const canApprove = isOwner && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
 
   async function approve() {
@@ -96,7 +101,7 @@ export function MeetingActions(props: Props) {
   }
 
   const actions: PageAction[] = []
-  if (!meeting.correction && !sourceWaits) {
+  if (isOwner && !meeting.correction && !sourceWaits) {
     actions.push({
       id: 'hold',
       label: meeting.holdForApproval
@@ -110,7 +115,7 @@ export function MeetingActions(props: Props) {
       onAction: () => void toggleHold(),
     })
   }
-  if (meeting.runId) {
+  if (meeting.runId && isCompanyMember) {
     actions.push({
       id: 'run',
       label: t('page.openRun'),
@@ -118,13 +123,16 @@ export function MeetingActions(props: Props) {
       href: getRunViewUrl(meeting.runId),
     })
   }
-  // Always offered: an upload sent while the meeting's run is still going is refused, saying so.
-  actions.push({
-    id: 'addCapture',
-    label: t('upload.addCapture'),
-    icon: LuUpload,
-    href: getMeetingCaptureUploadUrl(meeting.id),
-  })
+  // Always offered its owner: an upload sent while the meeting's run is still going is refused,
+  // saying so.
+  if (isOwner) {
+    actions.push({
+      id: 'addCapture',
+      label: t('upload.addCapture'),
+      icon: LuUpload,
+      href: getMeetingCaptureUploadUrl(meeting.id),
+    })
+  }
 
   // Before it is corrected, whether its run will wait, and why.
   let waitsNote: string | null = null

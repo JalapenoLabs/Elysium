@@ -156,9 +156,15 @@ mod tests {
             ],
         )
         .await;
-        let found = crate::models::meeting::find(&mut connection, capture.meeting_id)
-            .await
-            .expect("the meeting");
+        // Open to every member, so the doc may name it and who spoke; a private meeting teaches
+        // its fixes alone (`meetings::correct`'s tests).
+        let found = crate::models::meeting::set_visibility(
+            &mut connection,
+            capture.meeting_id,
+            crate::models::meeting::Visibility::Public,
+        )
+        .await
+        .expect("the meeting opens");
         let sheriff = word(&words, "Sheriff");
         let one_word = Range {
             start_word_id: sheriff.id,

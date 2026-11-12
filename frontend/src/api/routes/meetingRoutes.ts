@@ -27,8 +27,14 @@ export type MeetingCorrection = {
   createdAt: string
 }
 
-// A meeting read from a meeting source. Its transcript is loaded on its own page
-// (`getMeetingWords`); its segments reach the timeline. Only its owner receives it.
+// Mirrors `Visibility` in api/src/models/meeting.rs: who reads a meeting besides its owner, the
+// people it is shared with, and admins. `unchecked` is a new meeting's, private to its owner until
+// its correction decides (docs/meeting-review.md, Who sees a meeting).
+export const MEETING_VISIBILITIES = [ 'unchecked', 'private', 'public' ] as const
+export type MeetingVisibility = typeof MEETING_VISIBILITIES[number]
+
+// A meeting read from a meeting source or uploaded. Its transcript is loaded on its own page
+// (`getMeetingWords`); its segments reach the timeline. Everyone who may read it receives it.
 export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
@@ -63,6 +69,18 @@ export type Meeting = {
   // The meeting its person merged its captures into, or null. A merged meeting lives on in that
   // one, so it is in no list, though an event may still load it by id.
   mergedInto: string | null
+  // Whose meeting it is: whose source read it, or who uploaded it.
+  ownerId: string
+  visibility: MeetingVisibility
+  // The people it is shared with, by user id, in the order they were shared with.
+  sharedWith: string[]
+  // The newest change to who reads it, with who made it and, when its correction decided, why;
+  // null for a meeting nobody decided for.
+  visibilityChange: MeetingHistoryEntry | null
+  // Whether the reader may change its words and threads.
+  canEdit: boolean
+  // Whether the reader may change who sees it, and merge or split its captures.
+  canManage: boolean
   createdAt: string
   updatedAt: string
 }
@@ -148,7 +166,8 @@ export type MeetingTranscriptChange = {
 export type MeetingHistoryEntry = {
   id: string
   // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`.
+  // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
+  // `visibility_changed`, `shared`, or `unshared`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -187,13 +206,22 @@ export type MeetingComment = {
   createdAt: string
 }
 
-type ListMeetingsResponse = {
-  meetings: Meeting[]
+// Where the next page of meetings starts: after the last meeting of this one.
+export type MeetingsCursor = {
+  afterStartedAt: string
+  afterId: string
 }
 
-export function listMeetings() {
+type ListMeetingsResponse = {
+  meetings: Meeting[]
+  // Null on the last page.
+  nextCursor: MeetingsCursor | null
+}
+
+// One page of the meetings the signed-in person may read, newest first, starting after `after`.
+export function listMeetings(after: MeetingsCursor | null) {
   return apiClient
-    .get('v1/meetings')
+    .get('v1/meetings', { searchParams: after ?? {}})
     .json<ListMeetingsResponse>()
 }
 
@@ -207,12 +235,45 @@ export function getMeeting(meetingId: string) {
     .json<MeetingResponse>()
 }
 
-// The meeting whose corrected transcript an inbox item asks its person to review, if it is the
-// signed-in person's.
+// The meeting whose corrected transcript an inbox item asks its person to review, if the
+// signed-in person may read it.
 export function listMeetingsReviewedBy(itemId: string) {
   return apiClient
     .get('v1/meetings', { searchParams: { reviewItemId: itemId }})
     .json<ListMeetingsResponse>()
+}
+
+// The meeting an inbox item told its owner its correction kept private, if the signed-in person
+// may read it.
+export function listMeetingsKeptPrivateBy(itemId: string) {
+  return apiClient
+    .get('v1/meetings', { searchParams: { keptPrivateItemId: itemId }})
+    .json<ListMeetingsResponse>()
+}
+
+// What a change to who sees a meeting answers: the meeting as it now reads, and its history entry,
+// whose Undo puts it back.
+export type MeetingVisibilityResponse = {
+  meeting: Meeting
+  entry: MeetingHistoryEntry
+}
+
+// Makes a meeting private or opens it to every member; its owner or an admin alone. `409
+// meeting_visibility_unchanged` when it is so already.
+export function setMeetingVisibility(meetingId: string, visibility: 'private' | 'public') {
+  return apiClient
+    .put(`v1/meetings/${meetingId}/visibility`, { json: { visibility }})
+    .json<MeetingVisibilityResponse>()
+}
+
+// Shares a meeting with a person, or stops sharing it with them; its owner or an admin alone.
+// `400 meeting_share_person` for anyone but an active person other than its owner.
+export function setMeetingShared(meetingId: string, personId: string, shared: boolean) {
+  const path = `v1/meetings/${meetingId}/shares/${personId}`
+  const request = shared
+    ? apiClient.put(path)
+    : apiClient.delete(path)
+  return request.json<MeetingVisibilityResponse>()
 }
 
 // Resumes a failed meeting from the step it failed at.
@@ -315,7 +376,8 @@ export type StartMeetingThreadResponse = MeetingChangeResponse & {
 }
 
 // `409 meeting_words_changed` when a word of the range was replaced meanwhile; `400
-// meeting_comment_mention` for a mention of anyone but an active person or Elysia.
+// meeting_comment_mention` for a mention of anyone but an active person who may read the meeting,
+// or Elysia.
 export function startMeetingThread(meetingId: string, body: StartMeetingThreadRequest) {
   return apiClient
     .post(meetingThreadsKey(meetingId), { json: body })
@@ -356,7 +418,7 @@ type ThreadOfItemResponse = {
   } | null
 }
 
-// The thread an inbox item was raised by, when one of the signed-in person's meetings raised it.
+// The thread an inbox item was raised by, when a meeting the signed-in person may read raised it.
 export function getThreadOfItem(itemId: string) {
   return apiClient
     .get(`v1/meetings/thread-items/${itemId}`)
@@ -402,8 +464,8 @@ type MeetingDuplicateResponse = {
   duplicate: MeetingDuplicate | null
 }
 
-// The two meetings an inbox item asks the signed-in person about, or null when it asks about
-// none of theirs.
+// The two meetings an inbox item asks about, or null when the signed-in person may not answer it:
+// only the asking meeting's owner or an admin, reading both, does.
 export function getMeetingDuplicateAskedBy(itemId: string) {
   return apiClient
     .get('v1/meetings/duplicates', { searchParams: { itemId }})

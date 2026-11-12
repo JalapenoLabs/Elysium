@@ -50,7 +50,7 @@ use crate::models::action_item::{
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::elysia::{self, NewTurn, Turn};
-use crate::models::meeting::{self, Meeting};
+use crate::models::meeting::{self, Meeting, Reader};
 use crate::models::meeting_comment::{self, BODY_MAX_CHARACTERS, WrittenComment};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark, MarkError, MarkKind, Range};
@@ -87,7 +87,8 @@ pub enum CommentError {
     /// The comment is longer than [`BODY_MAX_CHARACTERS`].
     #[error("a comment is at most {BODY_MAX_CHARACTERS} characters")]
     TooLong,
-    /// A mention names nobody who can be mentioned: an active person, or Elysia.
+    /// A mention names nobody who can be mentioned: an active person who may read the meeting, or
+    /// Elysia.
     #[error("a mention names nobody who can be mentioned")]
     Unmentionable,
     /// The thread is resolved or open already.
@@ -147,7 +148,7 @@ pub async fn start(
     let body = checked_body(writing.body)?;
     connection
         .transaction(async |connection| {
-            let named = mentionable(connection, writing.mentions, author.user_id).await?;
+            let named = mentionable(connection, meeting, writing.mentions, author.user_id).await?;
             // The mark takes the meeting's lock, within this transaction.
             let (mark, entry) = meeting_mark::add(
                 connection,
@@ -200,7 +201,7 @@ pub async fn reply(
     connection
         .transaction(async |connection| {
             let mark = standing_thread(connection, meeting.id, mark_id).await?;
-            let named = mentionable(connection, writing.mentions, author.user_id).await?;
+            let named = mentionable(connection, meeting, writing.mentions, author.user_id).await?;
             let taking_part = meeting_comment::participants(connection, mark.id).await?;
             let written =
                 meeting_comment::insert(connection, mark.id, body, &named.all, author).await?;
@@ -676,9 +677,11 @@ struct Named {
     author_is_person: bool,
 }
 
-/// Checks that every one of `mentions` is an active person or Elysia.
+/// Checks that every one of `mentions` is an active person who may read `meeting`, or Elysia: a
+/// person who may not read it is never told of a thread on it.
 async fn mentionable(
     connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
     mentions: &[Uuid],
     author_id: Uuid,
 ) -> Result<Named, CommentError> {
@@ -695,7 +698,11 @@ async fn mentionable(
     for mention in &unique {
         let found = users.iter().find(|candidate| candidate.id == *mention);
         match found {
-            Some(person) if !person.is_machine() && person.is_active() => {
+            Some(person)
+                if !person.is_machine()
+                    && person.is_active()
+                    && reads(connection, meeting, person).await? =>
+            {
                 if person.id != author_id {
                     people.push(person.id);
                 }
@@ -714,8 +721,22 @@ async fn mentionable(
     })
 }
 
-/// Raises an inbox item for each person in `told` but `author_id`, saying why, for thread
-/// `mark_id` of `meeting`. Answers the items raised.
+/// Whether `person` may read `meeting` now.
+async fn reads(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    person: &User,
+) -> diesel::QueryResult<bool> {
+    match meeting::find_readable(connection, meeting.id, Reader::of(person)).await {
+        Ok(_readable) => Ok(true),
+        Err(diesel::result::Error::NotFound) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Raises an inbox item for each person in `told` but `author_id` who may still read `meeting`,
+/// saying why, for thread `mark_id` of it: someone who took part before it was made private is not
+/// told of it after. Answers the items raised.
 async fn tell(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
@@ -738,6 +759,9 @@ async fn tell(
             // Elysia and the other machines take part in threads without an inbox.
             continue;
         };
+        if !reads(connection, meeting, person).await? {
+            continue;
+        }
         let item = thread_item(meeting, &author_name, &person.name, *telling);
         let written = action_item::create(connection, item, Actor::System, Utc::now()).await?;
         meeting_comment::record_item(connection, written.record.id, mark_id, person.id, author_id)
@@ -806,6 +830,7 @@ mod tests {
     use crate::database::schema::{knowledge_documents, knowledge_passages};
     use crate::meetings::SEGMENT_SOURCE_KIND;
     use crate::meetings::history::{self, UndoError};
+    use crate::models::meeting::Visibility;
     use crate::models::meeting_capture::MeetingCapture;
     use crate::models::meeting_word::Word;
     use crate::models::meeting_word::tests::{built_meeting, person, range, word};
@@ -830,9 +855,10 @@ mod tests {
         .await
         .expect("Grace is created");
         let (capture, words) = built_meeting(connection, lines).await;
-        let found = meeting::find(connection, capture.meeting_id)
+        // Open to every member, so Grace may read it and be told of its threads.
+        let found = meeting::set_visibility(connection, capture.meeting_id, Visibility::Public)
             .await
-            .expect("the meeting");
+            .expect("the meeting opens");
         (found, capture, words)
     }
 
@@ -1294,6 +1320,68 @@ mod tests {
             indexed_text(&mut connection, second)
                 .await
                 .contains("Comment on \"Then\"")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_private_meeting_tells_only_those_who_may_read_it_and_names_itself_to_nobody() {
+        let (_url, mut connection) =
+            migrated_database().await;
+        let (found, _, words) =
+            meeting_with_grace(&mut connection, &[("Ada", "Jon ships Friday")]).await;
+        let jon = word(&words, "Jon");
+
+        // Grace takes part while it is open to every member.
+        let started = start(
+            &mut connection,
+            &found,
+            range(jon, jon),
+            writing("Is this John, @Grace?", &[GRACE_ID]),
+            person(),
+        )
+        .await
+        .expect("starts");
+        let mark_id = started.comment.as_ref().expect("a comment").comment.mark_id;
+
+        // Made private and shared with nobody, it may no longer mention her, nor tell her of a
+        // reply in a thread she took part in.
+        let private = meeting::set_visibility(&mut connection, found.id, Visibility::Private)
+            .await
+            .expect("made private");
+        assert!(matches!(
+            reply(
+                &mut connection,
+                &private,
+                mark_id,
+                writing("@Grace, still there?", &[GRACE_ID]),
+                person(),
+            )
+            .await,
+            Err(CommentError::Unmentionable)
+        ));
+        let replied = reply(
+            &mut connection,
+            &private,
+            mark_id,
+            writing("It is.", &[]),
+            person(),
+        )
+        .await
+        .expect("replies");
+        assert!(told(&mut connection, &replied.announcement).await.is_empty());
+
+        // Shared with her again, she is told, by an item that never names the meeting, since items
+        // are the whole workspace's.
+        crate::models::meeting_share::add(&mut connection, found.id, GRACE_ID, TEST_PERSON_ID)
+            .await
+            .expect("shared");
+        let resolved = set_resolved(&mut connection, &private, mark_id, true, person())
+            .await
+            .expect("resolves");
+        assert_eq!(
+            told(&mut connection, &resolved.announcement).await,
+            vec![(GRACE_ID, "Tester resolved a thread on a meeting".to_owned())]
         );
     }
 }

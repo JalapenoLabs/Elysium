@@ -735,12 +735,8 @@ mod tests {
         // It fails again, and is retried from the Meetings page this time.
         fail_next(&mut connection).await;
 
-        // Someone else cannot retry it.
-        assert!(matches!(
-            retry(&mut connection, &events, pending.id, Uuid::now_v7()).await,
-            Err(StepActionError::Database(diesel::result::Error::NotFound))
-        ));
-        // Its person can, and its run's fetch is queued again as them.
+        // Its person retries it, whom its route checks (`crate::meetings::access`), and its run's
+        // fetch is queued again as them.
         retry(&mut connection, &events, pending.id, TEST_PERSON_ID)
             .await
             .expect("retried");

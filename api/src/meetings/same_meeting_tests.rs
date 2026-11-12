@@ -371,6 +371,10 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
     .await;
     let aligned = align(&database, &mut connection, &teams).await;
     assert!(matches!(aligned, Done::Succeeded { .. }), "{aligned:?}");
+    // Its correction opened it, so an item may name it.
+    meeting::set_visibility(&mut connection, teams.id, meeting::Visibility::Public)
+        .await
+        .expect("opens");
     let teams_words = standing(&mut connection, teams.id).await;
     assert!(text(&teams_words).starts_with("Morning everyone, thanks for joining"));
     // Whisper timed the words where it heard them; the source named who spoke.

@@ -42,8 +42,9 @@ type Props = {
   onPick: (index: number, shiftKey: boolean) => void
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
-  onEdit: () => void
-  onComment: () => void
+  // Null for a reader who may not change the meeting, such as a guest.
+  onEdit: (() => void) | null
+  onComment: (() => void) | null
   onClear: () => void
   onApplyEdit: (text: string) => Promise<boolean>
   onCancelEdit: () => void

@@ -21,6 +21,8 @@ mod get_words;
 mod history;
 mod hold_meeting;
 mod list_meetings;
+#[cfg(test)]
+mod access_tests;
 mod retry_meeting;
 mod set_capture_offset;
 mod set_visibility;

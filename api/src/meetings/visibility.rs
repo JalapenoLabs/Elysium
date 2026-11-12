@@ -440,3 +440,216 @@ async fn record(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use diesel_async::RunQueryDsl;
+
+    use super::*;
+    use crate::meetings::history;
+    use crate::models::meeting::tests::stored;
+    use crate::models::meeting::{Reach, Reader};
+    use crate::models::meeting_word::tests::person;
+    use crate::test_support::{TEST_PERSON_ID, migrated_database};
+
+    /// Someone on Elysium with `role`, active, by name.
+    async fn insert_person(connection: &mut AsyncPgConnection, name: &str, role: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        diesel::sql_query(format!(
+            "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+             VALUES ('{id}', gen_random_uuid(), '{id}@example.com', '{name}', '{role}', 'active', \
+             now())"
+        ))
+        .execute(connection)
+        .await
+        .expect("the person is created");
+        id
+    }
+
+    fn member(id: Uuid) -> Reader {
+        Reader {
+            id,
+            reach: Reach::Public,
+        }
+    }
+
+    async fn reads(connection: &mut AsyncPgConnection, meeting_id: Uuid, reader: Reader) -> bool {
+        meeting::find_readable(connection, meeting_id, reader)
+            .await
+            .is_ok()
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn its_correction_opens_a_meeting_or_keeps_it_private_shared_with_whom_it_chose() {
+        let (_url, mut connection) = migrated_database().await;
+        let grace = insert_person(&mut connection, "Grace Hopper", "member").await;
+        let jordan = insert_person(&mut connection, "Jordan Lee", "member").await;
+
+        // New, it is its owner's alone, and found by nobody else.
+        let (opened, _) = stored(&mut connection).await;
+        assert_eq!(opened.visibility(), Visibility::Unchecked);
+        assert!(!reads(&mut connection, opened.id, member(grace)).await);
+        let decided = decide(&mut connection, &opened, &Judgment::Open)
+            .await
+            .expect("decides")
+            .expect("the correction's to decide");
+        assert_eq!(decided.meeting.visibility(), Visibility::Public);
+        assert!(decided.raised.is_none(), "an open meeting tells nobody");
+        assert!(reads(&mut connection, opened.id, member(grace)).await);
+
+        // Sensitive, it stays private, shared with whom the correction chose, and its owner is told
+        // by an item naming neither the meeting nor why.
+        let (sensitive, _) = stored(&mut connection).await;
+        let judgment = Judgment::Private {
+            share_with: vec![grace, TEST_PERSON_ID],
+            why: Some("A one-to-one about Grace's goals.".to_owned()),
+        };
+        let decided = decide(&mut connection, &sensitive, &judgment)
+            .await
+            .expect("decides")
+            .expect("the correction's to decide");
+        assert_eq!(decided.meeting.visibility(), Visibility::Private);
+        assert!(reads(&mut connection, sensitive.id, member(grace)).await);
+        assert!(!reads(&mut connection, sensitive.id, member(jordan)).await);
+        let raised = decided.raised.expect("its owner is told");
+        assert_eq!(raised.record.title, "Elysia kept a meeting private");
+        assert!(!raised.record.notes.contains(&sensitive.title));
+        assert!(!raised.record.notes.contains("goals"));
+        assert_eq!(decided.meeting.visibility_item_id, Some(raised.record.id));
+        let history = meeting_event::history(&mut connection, sensitive.id)
+            .await
+            .expect("reads");
+        let entry = history.last().expect("an entry");
+        assert_eq!(entry.kind(), Some(EventKind::VisibilityChanged));
+        assert_eq!(entry.data["why"], "A one-to-one about Grace's goals.");
+        assert_eq!(
+            entry.data["sharedWith"],
+            json!([grace]),
+            "its owner reads it anyway, so it is shared with Grace alone"
+        );
+        // Nothing would decide again, so the correction's decision is changed, never undone.
+        assert!(matches!(
+            history::undo(&mut connection, sensitive.id, entry.id, person()).await,
+            Err(UndoError::NotUndoable)
+        ));
+
+        // A judgment it could not read keeps the meeting private to its owner, and says so.
+        let (undecided, _) = stored(&mut connection).await;
+        let decided = decide(&mut connection, &undecided, &Judgment::Undecided)
+            .await
+            .expect("decides")
+            .expect("the correction's to decide");
+        assert_eq!(decided.meeting.visibility(), Visibility::Private);
+        let raised = decided.raised.expect("its owner is told");
+        assert!(raised.record.notes.contains("could not tell"));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_person_who_chose_first_keeps_their_choice_and_can_undo_it() {
+        let (_url, mut connection) = migrated_database().await;
+        let grace = insert_person(&mut connection, "Grace Hopper", "member").await;
+        let (found, _) = stored(&mut connection).await;
+
+        let opened = set(&mut connection, found.id, Visibility::Public, person())
+            .await
+            .expect("opens");
+        assert_eq!(opened.meeting.visibility(), Visibility::Public);
+        assert!(matches!(
+            set(&mut connection, found.id, Visibility::Public, person()).await,
+            Err(VisibilityError::Unchanged)
+        ));
+        // Its correction, reading it after, leaves it as its person set it.
+        let judged = Judgment::Private {
+            share_with: Vec::new(),
+            why: None,
+        };
+        let current = meeting::find(&mut connection, found.id)
+            .await
+            .expect("found");
+        assert!(
+            decide(&mut connection, &current, &judged)
+                .await
+                .expect("decides")
+                .is_none()
+        );
+        let current = meeting::find(&mut connection, found.id)
+            .await
+            .expect("found");
+        assert_eq!(current.visibility(), Visibility::Public);
+
+        // Undoing the person's choice puts it back as it was, unchecked, for its correction.
+        let undone = history::undo(&mut connection, found.id, opened.entry.id, person())
+            .await
+            .expect("undoes");
+        assert_eq!(undone.entry.kind(), Some(EventKind::VisibilityChanged));
+        let current = meeting::find(&mut connection, found.id)
+            .await
+            .expect("found");
+        assert_eq!(current.visibility(), Visibility::Unchecked);
+
+        // Shares come and go the same way, each undone while it still stands.
+        let shared = share(&mut connection, found.id, grace, person())
+            .await
+            .expect("shares");
+        assert!(reads(&mut connection, found.id, member(grace)).await);
+        assert!(matches!(
+            share(&mut connection, found.id, grace, person()).await,
+            Err(VisibilityError::Unchanged)
+        ));
+        history::undo(&mut connection, found.id, shared.entry.id, person())
+            .await
+            .expect("undoes the share");
+        assert!(!reads(&mut connection, found.id, member(grace)).await);
+        assert!(matches!(
+            history::undo(&mut connection, found.id, shared.entry.id, person()).await,
+            Err(UndoError::ChangedSince)
+        ));
+        assert!(matches!(
+            unshare(&mut connection, found.id, grace, person()).await,
+            Err(VisibilityError::Unchanged)
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_is_shared_with_active_people_alone_and_a_guest_reads_only_what_is_shared() {
+        let (_url, mut connection) = migrated_database().await;
+        let guest = insert_person(&mut connection, "Gus Guest", "guest").await;
+        let (found, _) = stored(&mut connection).await;
+        set(&mut connection, found.id, Visibility::Public, person())
+            .await
+            .expect("opens");
+        let as_guest = Reader {
+            id: guest,
+            reach: Reach::Shared,
+        };
+        assert!(
+            !reads(&mut connection, found.id, as_guest).await,
+            "a guest reads no public meeting"
+        );
+
+        for nobody in [
+            TEST_PERSON_ID,
+            crate::models::user::ELYSIA_USER_ID,
+            Uuid::now_v7(),
+        ] {
+            assert!(
+                matches!(
+                    share(&mut connection, found.id, nobody, person()).await,
+                    Err(VisibilityError::NotShareable)
+                ),
+                "{nobody}"
+            );
+        }
+        share(&mut connection, found.id, guest, person())
+            .await
+            .expect("shares with the guest");
+        assert!(reads(&mut connection, found.id, as_guest).await);
+        let hidden = meeting::hidden_from(&mut connection, as_guest)
+            .await
+            .expect("reads");
+        assert!(!hidden.contains(&found.id));
+    }
+}

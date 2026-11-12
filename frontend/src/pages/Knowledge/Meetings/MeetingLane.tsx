@@ -96,6 +96,7 @@ export function MeetingLane(props: Props) {
         onSubmit={composing.onPost}
         onCancel={composing.onCancel}
         focusOnOpen
+        mayRead={threadActions.mayRead}
       />
     </section>}
 

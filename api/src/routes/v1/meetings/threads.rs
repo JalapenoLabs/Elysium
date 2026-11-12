@@ -18,7 +18,7 @@
 //! resolved or open already, and `meeting_words_changed` for a range a word of which was replaced
 //! meanwhile; `400` `meeting_comment_empty`, `meeting_comment_too_long` past
 //! [`BODY_MAX_CHARACTERS`], `meeting_comment_mention` for a mention of anyone but an active person
-//! or Elysia, and for a range that ends before it starts.
+//! who may read the meeting or Elysia, and for a range that ends before it starts.
 
 use anyhow::Context;
 use axum::Json;
@@ -295,7 +295,8 @@ fn refusal(error: CommentError) -> ApiError {
         },
         CommentError::Unmentionable => ApiError::CodedBadRequest {
             code: "meeting_comment_mention",
-            message: "Only active people and Elysia can be mentioned.".to_owned(),
+            message: "Only active people who can read the meeting, and Elysia, can be mentioned."
+                .to_owned(),
         },
         CommentError::Mark(MarkError::NotStanding) => ApiError::CodedConflict {
             code: "meeting_words_changed",
