@@ -36,6 +36,7 @@ function renderLane(isInDrawer: boolean) {
         selectedMark={null}
         history={{ rows: [], isLoading: false, hasFailed: false }}
         onUndo={async () => {}}
+        onRemoveMark={async () => {}}
         threads={{ open: [], resolved: [], isLoading: false, hasFailed: false }}
         threadActions={{
           onReply: async () => true,

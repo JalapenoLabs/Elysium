@@ -408,10 +408,10 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
   } as const
 }
 
-// A meeting's segments, its topics, which its page lists. A meeting has fewer segments than a
-// page of the timeline holds, so one page is all of them. Records merge into Redux, so the
-// buffered copy may be applied too.
-export function useMeetingTopicsLoader(meetingId: string) {
+// A meeting's standing excerpts' records, whose projects its page shows and changes. A meeting has
+// fewer excerpts than a page of the timeline holds, so one page is all of them. Records merge into
+// Redux, so the buffered copy may be applied too.
+export function useMeetingExcerptsLoader(meetingId: string) {
   const dispatch = useAppDispatch()
   const query = { meetingId, limit: TIMELINE_PAGE_SIZE }
   const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))

@@ -14,12 +14,12 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip } from '@heroui/react'
-import { LuCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuCheckCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageActions } from '../../../layout/page/PageActions'
 
 // Misc
 import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
-import { approveMeetingCorrection, setMeetingHold } from '../../../api/routes/meetingRoutes'
+import { approveMeetingCorrection, markMeetingReviewed, setMeetingHold } from '../../../api/routes/meetingRoutes'
 import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
@@ -36,10 +36,11 @@ type Props = {
 }
 
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
-// the corrected transcript waits for it, holding it for approval by hand until it is corrected
-// (unless its source already waits), its run, and adding a recording or transcript as another
-// capture. Privacy, sharing, captures' offsets, and Done reviewing join them as they are built
-// (docs/meeting-review.md, Roadmap).
+// the corrected transcript waits for it, Done reviewing once it was segmented, which segments it
+// again from its corrected words, holding it for approval by hand until it is corrected (unless
+// its source already waits), its run, and adding a recording or transcript as another capture.
+// Privacy, sharing, and captures' offsets join them as they are built (docs/meeting-review.md,
+// Roadmap).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -48,12 +49,14 @@ export function MeetingActions(props: Props) {
   const source = useAppSelector((state) => meeting.connectorId
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
-  const [ acting, setActing ] = useState<'approve' | 'hold' | null>(null)
+  const [ acting, setActing ] = useState<'approve' | 'hold' | 'reviewed' | null>(null)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
   const canApprove = Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
+  // Segmented once, and no run of it going, held, or failed.
+  const canFinishReview = meeting.state === 'done'
 
   async function approve() {
     setActing('approve')
@@ -64,6 +67,22 @@ export function MeetingActions(props: Props) {
     }
     catch (error) {
       console.debug('MeetingActions could not approve a correction', { error, meetingId: meeting.id })
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+    }
+    finally {
+      setActing(null)
+    }
+  }
+
+  async function finishReview() {
+    setActing('reviewed')
+    try {
+      const response = await markMeetingReviewed(meeting.id)
+      dispatch(meetingUpserted(response.meeting))
+      toast.success(t('page.reviewDone'))
+    }
+    catch (error) {
+      console.debug('MeetingActions could not finish a review', { error, meetingId: meeting.id })
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     finally {
@@ -157,6 +176,16 @@ export function MeetingActions(props: Props) {
       >
         <LuCheck className='size-4' aria-hidden />
         <span>{t('page.approve')}</span>
+      </Button>}
+      {canFinishReview && <Button
+        size='sm'
+        variant='primary'
+        isPending={acting === 'reviewed'}
+        isDisabled={acting !== null}
+        onPress={() => void finishReview()}
+      >
+        <LuCheckCheck className='size-4' aria-hidden />
+        <span>{t('page.doneReviewing')}</span>
       </Button>}
       <PageActions actions={actions} />
     </div>

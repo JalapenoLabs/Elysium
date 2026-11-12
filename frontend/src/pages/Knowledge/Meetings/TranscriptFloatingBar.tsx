@@ -7,12 +7,30 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Kbd, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
-import { LuMessageSquarePlus, LuPencil, LuPlay, LuTextSelect, LuX } from 'react-icons/lu'
+import { Button, Dropdown, Kbd, Label, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
+import {
+  LuChevronDown,
+  LuEyeOff,
+  LuFolderPlus,
+  LuMessageSquarePlus,
+  LuPencil,
+  LuPlay,
+  LuTextSelect,
+  LuX,
+} from 'react-icons/lu'
 
 export type MarkPill = {
   markId: string
   label: string
+}
+
+// Assign to a project: the projects the words selected may be taken into, and its menu, which P
+// opens as well as a press.
+export type AssignControl = {
+  projects: { id: string, name: string }[]
+  isOpen: boolean
+  onOpenChange: (isOpen: boolean) => void
+  onAssign: (projectId: string) => void
 }
 
 type Props = {
@@ -23,10 +41,12 @@ type Props = {
   pills: MarkPill[]
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
-  // Whether words are selected, which Edit and Comment act on.
+  // Whether words are selected, which Edit, Comment, Assign to a project, and Black out act on.
   hasSelection: boolean
   onEdit: () => void
   onComment: () => void
+  assign: AssignControl
+  onBlackOut: () => void
   onClear: () => void
   // On a touch screen, which has no Shift: a moment picked offers to start a selection there,
   // which the next tap ends.
@@ -79,8 +99,7 @@ function measure(container: HTMLDivElement, anchorIndex: number, barWidth: numbe
 // The bar beside what is picked in a meeting's transcript (docs/meeting-review.md, Clicking,
 // selecting, and acting): the marks under the word clicked as pills, which Tab moves between, then
 // what can be done to the words selected, each with its key, and Play from here while the meeting
-// has a recording. Actions whose features are not built yet (Assign to a project, Black out, Pin
-// a frame) join it with them.
+// has a recording. Pin a frame joins it with frames (#250).
 export function TranscriptFloatingBar(props: Props) {
   const { t } = useTranslation('meetings')
   const [ position, setPosition ] = useState<Position | null>(null)
@@ -178,6 +197,38 @@ export function TranscriptFloatingBar(props: Props) {
         <span>{t('review.bar.comment')}</span>
         <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
           <Kbd.Content>C</Kbd.Content>
+        </Kbd>
+      </Button>
+      <Dropdown isOpen={props.assign.isOpen} onOpenChange={props.assign.onOpenChange}>
+        <Button size='sm' variant='ghost' isDisabled={!props.assign.projects.length}>
+          <LuFolderPlus className='size-4' aria-hidden />
+          <span>{t('review.bar.assign')}</span>
+          <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+            <Kbd.Content>P</Kbd.Content>
+          </Kbd>
+          <LuChevronDown className='size-4' aria-hidden />
+        </Button>
+        <Dropdown.Popover placement='bottom start' className='max-h-80 overflow-y-auto'>
+          <Dropdown.Menu
+            aria-label={t('review.bar.assignLabel')}
+            onAction={(key) => props.assign.onAssign(String(key))}
+          >{
+              props.assign.projects.map((project) => <Dropdown.Item
+                key={project.id}
+                id={project.id}
+                textValue={project.name}
+              >
+                <LuFolderPlus className='size-4' aria-hidden />
+                <Label>{project.name}</Label>
+              </Dropdown.Item>)
+            }</Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown>
+      <Button size='sm' variant='ghost' onPress={props.onBlackOut}>
+        <LuEyeOff className='size-4' aria-hidden />
+        <span>{t('review.bar.blackOut')}</span>
+        <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+          <Kbd.Content>B</Kbd.Content>
         </Kbd>
       </Button>
       <Tooltip delay={300}>

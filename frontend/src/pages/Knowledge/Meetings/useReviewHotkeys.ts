@@ -100,9 +100,9 @@ function isOnPlayback(target: EventTarget | null) {
 // change; on the transcript or the player (`isOnPlayback`), Space plays and pauses and the left and
 // right arrows jump back and forward; and on the transcript alone (`isOnTranscript`), E edits the
 // words selected, C starts a comment thread on them, P assigns them to a project, B blacks them
-// out, Tab moves between the marks under the word clicked, and Ctrl+C copies the words selected. They listen as the key travels down, so Esc is
-// used here before the page's own Esc goes up a level, which a used key never does
-// (`readPageShortcut`).
+// out, Tab moves between the marks under the word clicked, and Ctrl+C copies the words selected.
+// They listen as the key travels down, so Esc is used here before the page's own Esc goes up a
+// level, which a used key never does (`readPageShortcut`).
 export function useReviewHotkeys(handlers: Handlers) {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.altKey || ownsKeys(event.target) || isModalOpen()) {

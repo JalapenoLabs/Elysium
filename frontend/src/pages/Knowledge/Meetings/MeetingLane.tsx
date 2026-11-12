@@ -30,6 +30,7 @@ type Props = ComponentProps<typeof MeetingOptions> & {
     hasFailed: boolean
   }
   onUndo: (entryId: string) => Promise<void>
+  onRemoveMark: (markId: string, kind: 'excerpt' | 'black_out') => Promise<void>
   threads: {
     open: Thread[]
     resolved: Thread[]
@@ -59,6 +60,7 @@ export function MeetingLane(props: Props) {
     selectedMark,
     history,
     onUndo,
+    onRemoveMark,
     threads,
     threadActions,
     onSelectThread,
@@ -106,6 +108,7 @@ export function MeetingLane(props: Props) {
         placed={selectedMark}
         history={history.rows}
         onUndo={onUndo}
+        onRemove={onRemoveMark}
         thread={selectedThread}
         threadActions={threadActions}
       />
