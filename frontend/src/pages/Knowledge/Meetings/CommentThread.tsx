@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { MeetingComment } from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 import type { Thread } from './meetingThreads'
 
 // Core

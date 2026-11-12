@@ -1,8 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { IconType } from 'react-icons'
 import type { Meeting, MeetingHistoryEntry, MeetingVisibility } from '../../../api/routes/meetingRoutes'
 import type { User } from '../../../api/routes/userRoutes'
+
+// User interface
+import { LuGlobe, LuLock, LuLockKeyhole } from 'react-icons/lu'
 
 // Who reads a meeting, as its page shows it (docs/meeting-review.md, Who sees a meeting). The API
 // decides who may read and change one; these only say so, and keep a page from offering what the
@@ -20,12 +24,11 @@ export const visibilityChipColors = {
   public: 'success',
 } as const satisfies Record<MeetingVisibility, 'warning' | 'default' | 'success'>
 
-// Each names an icon `MeetingVisibility` draws.
 export const visibilityIcons = {
-  unchecked: 'lockKeyhole',
-  private: 'lock',
-  public: 'globe',
-} as const satisfies Record<MeetingVisibility, string>
+  unchecked: LuLockKeyhole,
+  private: LuLock,
+  public: LuGlobe,
+} as const satisfies Record<MeetingVisibility, IconType>
 
 const decisionKeys = {
   opened: 'visibility.decisions.opened',

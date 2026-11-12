@@ -41,6 +41,8 @@ function renderLane(isInDrawer: boolean) {
           onReply: async () => true,
           onSetResolved: async () => {},
           onRemove: async () => {},
+          canWrite: true,
+          mayRead: () => true,
         }}
         onSelectThread={() => {}}
         composing={null}

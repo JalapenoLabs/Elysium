@@ -13,7 +13,7 @@ import { selectAllUsers, selectUserEntities } from '../../../store/usersSlice'
 
 // User interface
 import { Button, Chip, Tooltip } from '@heroui/react'
-import { LuGlobe, LuLock, LuLockKeyhole, LuX } from 'react-icons/lu'
+import { LuGlobe, LuLock, LuX } from 'react-icons/lu'
 import { AddPicker } from '../../../components/AddPicker'
 
 // Misc
@@ -27,12 +27,6 @@ import { correctionDecisionOf, visibilityChipColors, visibilityIcons, visibility
 type Props = {
   meeting: Meeting
 }
-
-const ICONS = {
-  globe: LuGlobe,
-  lock: LuLock,
-  lockKeyhole: LuLockKeyhole,
-} as const satisfies Record<(typeof visibilityIcons)[keyof typeof visibilityIcons], unknown>
 
 // Who reads the meeting, among its options (docs/meeting-review.md, Who sees a meeting): open to
 // everyone, private to its owner and the people it is shared with, or new and private until its
@@ -49,7 +43,7 @@ export function MeetingVisibility(props: Props) {
   const pending = usePendingAction<string>()
 
   const visibility = meeting.visibility
-  const Icon = ICONS[visibilityIcons[visibility]]
+  const Icon = visibilityIcons[visibility]
   const decision = correctionDecisionOf(meeting.visibilityChange)
   const ownerName = usersById[meeting.ownerId]?.name ?? t('common:table.someone')
   const nameOf = (personId: string) => usersById[personId]?.name ?? t('common:table.someone')
@@ -118,7 +112,10 @@ export function MeetingVisibility(props: Props) {
       t(decision.key, { why: decision.why ?? '' })
     }</p>}
 
-    {Boolean(meeting.sharedWith.length) && <ul aria-label={t('visibility.sharedWith')} className='compact flex flex-wrap items-center gap-1.5'>{
+    {Boolean(meeting.sharedWith.length) && <ul
+      aria-label={t('visibility.sharedWith')}
+      className='compact flex flex-wrap items-center gap-1.5'
+    >{
       meeting.sharedWith.map((personId) => {
         const name = nameOf(personId)
         const stopLabel = t('visibility.stopSharing', { person: name })

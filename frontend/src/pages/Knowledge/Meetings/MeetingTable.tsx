@@ -9,6 +9,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { selectMe } from '../../../store/authSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { meetingUpserted } from '../../../store/meetingsSlice'
 import { selectProjectEntities } from '../../../store/projectsSlice'
@@ -27,6 +28,7 @@ import { formatDateTime } from '../../../format/dates'
 import { formatDuration } from '../../../format/durations'
 import { formatNumber } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import { getConnectorUrl, getMeetingUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
 import {
@@ -34,6 +36,7 @@ import {
   meetingStateChipColors,
   meetingStateLabelKeys,
 } from '../../Settings/Meetings/meetingsPresentation'
+import { visibilityChipColors, visibilityIcons, visibilityLabelKeys } from './meetingVisibility'
 
 type Props = {
   // Newest first.
@@ -47,11 +50,23 @@ type Props = {
   filters?: SmartTableFilters<Meeting>
 }
 
-const MEETING_COLUMN_KEYS = [ 'meeting', 'source', 'state', 'projects', 'started', 'duration', 'topics' ] as const
+const MEETING_COLUMN_KEYS = [
+  'meeting',
+  'owner',
+  'visibility',
+  'source',
+  'state',
+  'projects',
+  'started',
+  'duration',
+  'topics',
+] as const
 type MeetingColumnKey = typeof MEETING_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   meeting: 'table.meeting',
+  owner: 'table.owner',
+  visibility: 'table.visibility',
   source: 'table.source',
   state: 'table.state',
   projects: 'table.projects',
@@ -63,6 +78,8 @@ const columnLabelKeys = {
 // Starting widths in pixels, summing to less than the content column at md.
 const columnSizes = {
   meeting: 240,
+  owner: 150,
+  visibility: 160,
   source: 140,
   state: 220,
   projects: 180,
@@ -74,16 +91,19 @@ const columnSizes = {
 // uikit holds a column to 160 pixels unless it sets its own floor, and most of these need less.
 const COLUMN_MIN_SIZE = 100
 
-// The person's meetings in a table: each one's title (opening its page, with its transcript and
-// corrections), the source it came from, how far its processing got and why it failed or what it
-// waits for, the projects its topics are on, when it was, how long it ran, and how many topics
-// Elysia found. A failed one can be tried again from its row. A click on a row expands it, which is
-// how a long failure reads in full; its title is the link.
+// The meetings the person may read in a table: each one's title (opening its page, with its
+// transcript and corrections), whose it is and who reads it, the source it came from, how far its
+// processing got and why it failed or what it waits for, the projects its topics are on, when it
+// was, how long it ran, and how many topics Elysia found. A failed one of the person's own can be
+// tried again from its row. A click on a row expands it, which is how a long failure reads in
+// full; its title is the link.
 export function MeetingTable(props: Props) {
   const { t, i18n } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const labels = useSmartTableLabels()
   const projectsById = useAppSelector(selectProjectEntities)
+  const userNames = useUserNames()
+  const readerId = useAppSelector(selectMe)?.user.id
   const hasMeetings = props.meetings.length > 0
 
   const managedColumns = useMemo(() => {
@@ -103,6 +123,12 @@ export function MeetingTable(props: Props) {
     }
     function sourceText(meeting: Meeting) {
       return t(meetingSourceNameKey(meeting.sourceKind))
+    }
+    function ownerText(meeting: Meeting) {
+      return userNames[meeting.ownerId] ?? t('common:table.someone')
+    }
+    function visibilityText(meeting: Meeting) {
+      return t(visibilityLabelKeys[meeting.visibility])
     }
     function stateText(meeting: Meeting) {
       return t(meetingStateLabelKeys[meeting.state])
@@ -143,6 +169,14 @@ export function MeetingTable(props: Props) {
       >{
           titleText(meeting)
         }</Link>,
+      owner: ownerText,
+      visibility: (meeting: Meeting) => {
+        const Icon = visibilityIcons[meeting.visibility]
+        return <Chip size='sm' variant='soft' color={visibilityChipColors[meeting.visibility]}>
+          <Icon className='size-3' aria-hidden />
+          <Chip.Label>{visibilityText(meeting)}</Chip.Label>
+        </Chip>
+      },
       // The connector is gone once removed; its kind still names where the meeting came from.
       source: (meeting: Meeting) => <span className='inline-flex items-center gap-1.5'>
         <MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-4' />
@@ -173,6 +207,8 @@ export function MeetingTable(props: Props) {
     // Search matches what the user sees.
     const searchValue = {
       meeting: titleText,
+      owner: ownerText,
+      visibility: visibilityText,
       source: sourceText,
       state: (meeting: Meeting) => `${stateText(meeting)} ${stateNote(meeting)}`,
       projects: projectsText,
@@ -185,6 +221,8 @@ export function MeetingTable(props: Props) {
     // with a length or a count not known yet last.
     const sortValue = {
       meeting: (meeting: Meeting) => titleText(meeting).toLocaleLowerCase(i18n.language),
+      owner: (meeting: Meeting) => ownerText(meeting).toLocaleLowerCase(i18n.language),
+      visibility: visibilityText,
       source: (meeting: Meeting) => sourceText(meeting).toLocaleLowerCase(i18n.language),
       state: (meeting: Meeting) => MEETING_STATES.indexOf(meeting.state),
       projects: (meeting: Meeting) => projectsText(meeting).toLocaleLowerCase(i18n.language),
@@ -197,6 +235,8 @@ export function MeetingTable(props: Props) {
     // writes it, and the topics as a number.
     const exportValue = {
       meeting: titleText,
+      owner: ownerText,
+      visibility: visibilityText,
       source: sourceText,
       state: stateText,
       projects: projectsText,
@@ -220,15 +260,15 @@ export function MeetingTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, i18n.language, projectsById ])
+  }, [ t, i18n.language, projectsById, userNames ])
 
-  // A failed meeting resumes from the step it failed at. The promise spins the button until the
-  // API answers.
+  // A failed meeting of the person's own resumes from the step it failed at, since its processing
+  // is its owner's alone. The promise spins the button until the API answers.
   const rowActions: DataTableAction<Meeting>[] = [{
     id: 'retry',
     label: t('list.retry'),
     icon: <LuRotateCcw className='size-4' aria-hidden />,
-    isVisible: (row) => row.original.state === 'failed',
+    isVisible: (row) => row.original.state === 'failed' && row.original.ownerId === readerId,
     onPress: async (row) => {
       try {
         const response = await retryMeeting(row.original.id)
@@ -246,7 +286,7 @@ export function MeetingTable(props: Props) {
     <SmartTable
       ids={{
         tableElementId: 'meetings-table',
-        tableLocalStorageId: 'elysium.knowledge.meetings.table.v1',
+        tableLocalStorageId: 'elysium.knowledge.meetings.table.v2',
       }}
       className={hasMeetings
         ? undefined

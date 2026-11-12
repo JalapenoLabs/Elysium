@@ -41,6 +41,28 @@ describe('describeHistory', () => {
     expect([ rows[1].before, rows[1].after ]).toEqual([ 'Fryday.', 'Friday.' ])
   })
 
+  it('says who reads it and whom it was shared with, the correction\'s decision never undone', () => {
+    const rows = describeHistory([
+      entry('unshared', 'unshared', { personId: 'grace' }),
+      entry('shared', 'shared', { personId: 'grace' }),
+      entry('opened', 'visibility_changed', { before: 'private', after: 'public' }),
+      entry('back', 'visibility_changed', { before: 'public', after: 'unchecked' }),
+      entry('kept', 'visibility_changed', { before: 'unchecked', after: 'private', correction: true, why: 'A review.' }),
+      entry('unsure', 'visibility_changed', { before: 'unchecked', after: 'private', correction: true, undecided: true }),
+      entry('open', 'visibility_changed', { before: 'unchecked', after: 'public', correction: true }),
+    ])
+
+    expect(rows.map((row) => [ row.entry.id, row.sentence, row.canUndo, row.personId ])).toEqual([
+      [ 'unshared', 'unshared', true, 'grace' ],
+      [ 'shared', 'shared', true, 'grace' ],
+      [ 'opened', 'opened', true, null ],
+      [ 'back', 'leftToCorrection', true, null ],
+      [ 'kept', 'keptPrivateByCorrection', false, null ],
+      [ 'unsure', 'keptPrivateUndecided', false, null ],
+      [ 'open', 'openedByCorrection', false, null ],
+    ])
+  })
+
   it('says when the correction settled the transcript, which only an edit changes', () => {
     const [ settled ] = describeHistory([
       entry('settled', 'settled', { changes: [], marksAdded: [ 'mark' ], skipped: 0 }),

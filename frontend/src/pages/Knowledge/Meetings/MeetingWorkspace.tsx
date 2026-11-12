@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Meeting, MeetingTranscriptChange, MeetingWords } from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 import type { MarkPill } from './TranscriptFloatingBar'
 import type { DrawnMarkKind, WordRange } from './meetingTranscript'
 
@@ -10,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 
 // Redux
+import { selectMe } from '../../../store/authSlice'
 import { useAppSelector } from '../../../store/hooks'
 import { selectProjectEntities } from '../../../store/projectsSlice'
 
@@ -44,6 +46,7 @@ import { useMeetingChanges } from './useMeetingChanges'
 import { isResolvedThread, threadsOf } from './meetingThreads'
 import { useMeetingHistory } from './useMeetingHistory'
 import { useMeetingPlayer } from './useMeetingPlayer'
+import { mayRead, mayUndo } from './meetingVisibility'
 import { useMeetingThreads } from './useMeetingThreads'
 import { useReviewHotkeys } from './useReviewHotkeys'
 
@@ -95,11 +98,15 @@ function revealWord(index: number) {
 // wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
 // and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
 // the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
-// toast, and Ctrl+Z undoes the page's last.
+// toast, and Ctrl+Z undoes the page's last. A reader who may not change the meeting, a guest it is
+// shared with, reads it all and is offered no change (`canEdit`); Undo on a change shows only to
+// whoever may undo it (`mayUndo`).
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
   const words = transcript.words
+  const readerId = useAppSelector(selectMe)?.user.id
+  const canEdit = meeting.canEdit
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -279,7 +286,7 @@ export function MeetingWorkspace(props: Props) {
 
   // Starts writing a thread on the words selected; the lane holds it, so a phone opens its drawer.
   function startComment() {
-    if (view !== FINAL_VIEW || !selection || review.isEditing) {
+    if (!canEdit || view !== FINAL_VIEW || !selection || review.isEditing) {
       return false
     }
     setReview({ ...review, isCommenting: true })
@@ -334,7 +341,7 @@ export function MeetingWorkspace(props: Props) {
       return true
     },
     onEdit: () => {
-      if (view !== FINAL_VIEW || !selection || review.isEditing) {
+      if (!canEdit || view !== FINAL_VIEW || !selection || review.isEditing) {
         return false
       }
       setReview({ ...review, isEditing: true, isCommenting: false })
@@ -383,6 +390,16 @@ export function MeetingWorkspace(props: Props) {
       : null,
   })
 
+  // Undo shows on a change only to whoever may undo it.
+  const undoableRows = useMemo(
+    () => history.rows.map((row) => ({
+      ...row,
+      canUndo: row.canUndo && mayUndo(meeting, readerId, row.entry.kind),
+    })),
+    [ history.rows, meeting, readerId ],
+  )
+  const mayReadMeeting = useCallback((user: User) => mayRead(meeting, user), [ meeting ])
+
   const lane = (isInDrawer: boolean) => <MeetingLane
     meeting={meeting}
     captures={transcript.captures}
@@ -415,7 +432,7 @@ export function MeetingWorkspace(props: Props) {
     words={words}
     selectedMark={selectedMark}
     history={{
-      rows: history.rows,
+      rows: undoableRows,
       isLoading: !history.entries && !history.hasFailed,
       hasFailed: history.hasFailed,
     }}
@@ -430,6 +447,8 @@ export function MeetingWorkspace(props: Props) {
       onReply: changes.reply,
       onSetResolved: changes.setResolved,
       onRemove: changes.removeThread,
+      canWrite: canEdit,
+      mayRead: mayReadMeeting,
     }}
     onSelectThread={openThread}
     composing={review.isCommenting && selection
@@ -468,8 +487,12 @@ export function MeetingWorkspace(props: Props) {
       onPick={onPick}
       onDrag={(start, end) => pickRange(start, end)}
       onSelectMark={selectMarkById}
-      onEdit={() => setReview({ ...review, isEditing: true, isCommenting: false })}
-      onComment={startComment}
+      onEdit={canEdit
+        ? () => setReview({ ...review, isEditing: true, isCommenting: false })
+        : null}
+      onComment={canEdit
+        ? startComment
+        : null}
       onClear={clear}
       onApplyEdit={applyEdit}
       onCancelEdit={() => setReview({ ...review, isEditing: false })}

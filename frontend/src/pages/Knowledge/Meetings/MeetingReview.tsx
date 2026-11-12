@@ -6,6 +6,10 @@ import type { PageCrumb } from '../../../layout/page/PageHeader'
 // Core
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectMe } from '../../../store/authSlice'
+import { useAppSelector } from '../../../store/hooks'
+
 // User interface
 import { Chip, Link, Spinner, Tabs } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
@@ -28,8 +32,11 @@ import {
 import { useMeetingWords } from './useMeetingWords'
 
 // The review first; then the topics the meeting was cut into, until excerpts take their place
-// (#241), since a topic on no project or the wrong one is corrected there.
-const TABS = [ 'review', 'topics' ] as const
+// (#241), since a topic on no project or the wrong one is corrected there. A topic is a timeline
+// record, which is its owner's alone (docs/knowledge.md, Who sees what), so only the meeting's
+// owner has the tab.
+const OWNER_TABS = [ 'review', 'topics' ] as const
+const READER_TABS = [ 'review' ] as const
 
 type Props = {
   meeting: Meeting
@@ -41,7 +48,10 @@ type Props = {
 export function MeetingReview(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
   const { meeting } = props
-  const [ selectedTab, selectTab ] = useTabParam(TABS)
+  const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
+  const [ selectedTab, selectTab ] = useTabParam(isOwner
+    ? OWNER_TABS
+    : READER_TABS)
   const topics = useMeetingTopicsLoader(meeting.id)
   const words = useMeetingWords(meeting.id)
 
@@ -91,15 +101,17 @@ export function MeetingReview(props: Props) {
       label={t('page.tabs.label')}
       selectedKey={selectedTab}
       onSelectionChange={selectTab}
-      tabs={[
-        { id: 'review', label: t('page.tabs.review'), count: null },
-        { id: 'topics', label: t('page.tabs.topics'), count: topics.total },
-      ]}
+      tabs={isOwner
+        ? [
+          { id: 'review', label: t('page.tabs.review'), count: null },
+          { id: 'topics', label: t('page.tabs.topics'), count: topics.total },
+        ]
+        : [{ id: 'review', label: t('page.tabs.review'), count: null }]}
     >
       <Tabs.Panel id='review' className='mt-0 p-0'>{review}</Tabs.Panel>
-      <Tabs.Panel id='topics'>
+      {isOwner && <Tabs.Panel id='topics'>
         <MeetingTopics meeting={meeting} status={topics.status} />
-      </Tabs.Panel>
+      </Tabs.Panel>}
     </PageTabs>
   </Page>
 }
