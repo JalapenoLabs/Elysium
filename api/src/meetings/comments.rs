@@ -24,17 +24,18 @@
 //!
 //! A person's comment that mentions Elysia queues a turn of hers (`elysia::trigger::MEETING_COMMENT`)
 //! naming it. She answers in the thread, as Elysia, and may edit the meeting's words or put the
-//! topics the range lies in on a project (`crate::elysia::dispatcher`, `tools::elysia`).
+//! range on a project (`crate::elysia::dispatcher`, `tools::elysia`).
 //!
 //! # The index
 //!
-//! A meeting is in the knowledge index as its segments (`docs/meetings.md`, Segment records), so
-//! a thread is indexed with each segment whose span its range overlaps (`knowledge::records`),
-//! and goes wherever that segment goes: its projects' searches, and the agents reading it. Every
-//! change here indexes again the segments the thread's range overlaps ([`reindex_over`]), and an
-//! edit of words a thread quotes the segments holding that thread ([`reindex_quoting`]), in the
-//! change's own transaction; a segment's text that came out
-//! the same writes nothing.
+//! A meeting is in the knowledge index as its whole transcript and as its excerpts
+//! (`super::excerpts`), so a thread is indexed with the meeting's own document and with each
+//! excerpt whose span its range overlaps (`knowledge::records`), and goes wherever that excerpt
+//! goes: its projects' searches, and the agents reading it. Every change here refreshes the
+//! excerpts the thread's range overlaps and the meeting's document (`super::excerpts::refresh`),
+//! and an edit of words a thread quotes the excerpts holding that thread too
+//! ([`reindex_quoting`]), in the change's own transaction; a document whose text came out the same
+//! writes nothing.
 
 use chrono::Utc;
 use diesel::QueryResult;
@@ -44,6 +45,7 @@ use uuid::Uuid;
 
 use crate::action_items::{Actor, WorkError};
 use crate::elysia::trigger;
+use crate::meetings::excerpts;
 use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
 };
@@ -175,7 +177,7 @@ pub async fn start(
             let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
             let turn = queue_elysia(connection, meeting, &written, named.author_is_person).await?;
             let span = span_of(connection, &mark).await?;
-            reindex_over(connection, meeting, span).await?;
+            excerpts::refresh(connection, meeting, Some(span)).await?;
             Ok(Outcome {
                 entry: Some(entry),
                 comment: Some(written),
@@ -221,7 +223,7 @@ pub async fn reply(
             let raised = tell(connection, meeting, mark.id, author.user_id, &told).await?;
             let turn = queue_elysia(connection, meeting, &written, named.author_is_person).await?;
             let span = span_of(connection, &mark).await?;
-            reindex_over(connection, meeting, span).await?;
+            excerpts::refresh(connection, meeting, Some(span)).await?;
             Ok(Outcome {
                 entry: None,
                 comment: Some(written),
@@ -285,7 +287,7 @@ pub async fn remove(
                     MarkError::Removed => CommentError::Removed,
                     _ => CommentError::NotFound,
                 })?;
-            reindex_over(connection, meeting, span).await?;
+            excerpts::refresh(connection, meeting, Some(span)).await?;
             Ok(Outcome {
                 entry: Some(entry),
                 comment: None,
@@ -354,8 +356,9 @@ pub(crate) async fn undo_resolution(
     Ok(Some(undo))
 }
 
-/// Replaces a range of `meeting`'s words as `author` (`meeting_word::edit`), and indexes again,
-/// in the same transaction, the segments holding a thread that quotes them.
+/// Replaces a range of `meeting`'s words as `author` (`meeting_word::edit`), and refreshes, in
+/// the same transaction, the excerpts over them and those holding a thread that quotes them, and
+/// the meeting's own document.
 ///
 /// # Errors
 /// As `meeting_word::edit`; any database error.
@@ -381,45 +384,11 @@ pub async fn edit_words(
         .await
 }
 
-/// Indexes again `meeting`'s segments over `span` of its clock, so each holds the threads over it
-/// as they stand. Call it in the transaction that changed a thread there. A segment whose text
-/// came out the same writes nothing.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn reindex_over(
-    connection: &mut AsyncPgConnection,
-    meeting: &Meeting,
-    span: (i64, i64),
-) -> QueryResult<()> {
-    for (record, _) in segments_over(connection, meeting, span).await? {
-        timeline_record::index(connection, &record).await?;
-    }
-    Ok(())
-}
-
-/// Indexes again every one of `meeting`'s segments, for a change that can move any of its words:
-/// lining its transcript up again from its captures (`final_transcript::rebuild`).
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn reindex_meeting(
-    connection: &mut AsyncPgConnection,
-    meeting: &Meeting,
-) -> QueryResult<()> {
-    let segments = timeline_record::of_meeting(connection, meeting.created_by, meeting.id).await?;
-    for (record, _) in segments {
-        timeline_record::index(connection, &record).await?;
-    }
-    Ok(())
-}
-
-/// Indexes again the segments holding a thread that overlaps `span` of `meeting`'s clock, whose
-/// words changed, and every segment over the span itself. A thread quotes the words in every
-/// segment it lies in, which can reach past the span; and a thread an undo moved back off the
-/// span's far ends, onto words it was on before, still has its old text in the segments it left,
-/// all of which lie inside the span. With no thread there, nothing is indexed, since a segment's
-/// own text never changes with an edit.
+/// Refreshes the excerpts over `span` of `meeting`'s clock, whose words changed, and every
+/// excerpt holding a thread that overlaps it, then the meeting's own document. A thread quotes the
+/// words in every excerpt it lies in, which can reach past the span; and a thread an undo moved
+/// back off the span's far ends, onto words it was on before, still has its old text in the
+/// excerpts it left, all of which lie inside the span.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -432,12 +401,14 @@ pub async fn reindex_quoting(
     // of one instant is where threads and segments are matched.
     let end_ms = end_ms.max(start_ms + 1);
     let spans = meeting_comment::spans_over(connection, meeting.id, start_ms, end_ms).await?;
-    let start = spans.iter().map(|(start, _)| *start).min();
-    let end = spans.iter().map(|(_, end)| *end).max();
-    let Some((start, end)) = start.zip(end) else {
-        return Ok(());
-    };
-    reindex_over(connection, meeting, (start.min(start_ms), end.max(end_ms))).await
+    let start = spans
+        .iter()
+        .map(|(start, _)| *start)
+        .min()
+        .unwrap_or(start_ms);
+    let end = spans.iter().map(|(_, end)| *end).max().unwrap_or(end_ms);
+    let span = (start.min(start_ms), end.max(end_ms));
+    excerpts::refresh(connection, meeting, Some(span)).await
 }
 
 /// Where words `word_ids` of meeting `meeting_id` lie on its clock, from the earliest start to the
@@ -528,22 +499,22 @@ pub async fn span_of(connection: &mut AsyncPgConnection, mark: &Mark) -> QueryRe
     }
 }
 
-/// `meeting`'s segments whose span overlaps `start_ms` to `end_ms`, each with what it is
-/// attributed to, in the order they were said: the topics a thread there lies in.
+/// `meeting`'s standing excerpts whose span overlaps `start_ms` to `end_ms`, each with what it is
+/// attributed to, in the order they were said: the excerpts a thread there lies in.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn segments_over(
+pub async fn excerpts_over(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
     (start_ms, end_ms): (i64, i64),
 ) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
     let mut over: Vec<(TimelineRecord, Vec<Attribution>)> =
-        timeline_record::of_meeting(connection, meeting.created_by, meeting.id)
+        timeline_record::of_meeting(connection, meeting.id)
             .await?
             .into_iter()
             // A range the time of one instant, a word with no time of its own, still lies in the
-            // segment around it, as `meeting_comment::indexed_over` reads it.
+            // excerpt around it, as `meeting_comment::indexed_over` reads it.
             .filter(|(record, _)| {
                 timeline_record::segment_span(record).is_some_and(
                     |(_, segment_start, segment_end)| {
@@ -814,12 +785,10 @@ mod tests {
 
     use super::*;
     use crate::database::schema::{knowledge_documents, knowledge_passages};
-    use crate::meetings::SEGMENT_SOURCE_KIND;
     use crate::meetings::history::{self, UndoError};
     use crate::models::meeting_capture::MeetingCapture;
     use crate::models::meeting_word::Word;
     use crate::models::meeting_word::tests::{built_meeting, person, range, word};
-    use crate::models::timeline_record::NewTimelineRecord;
     use crate::models::user::SYSTEM_USER_ID;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
@@ -889,31 +858,42 @@ mod tests {
         passages.join("\n")
     }
 
-    /// A segment record of `meeting` from `start_ms` to `end_ms`, stored and indexed.
+    /// An excerpt of `meeting` over the words that start from `start_ms` to before `end_ms`, its
+    /// record stored and indexed, as segmenting makes one.
     async fn segment(
         connection: &mut AsyncPgConnection,
         meeting: &Meeting,
         (start_ms, end_ms): (i64, i64),
     ) -> Uuid {
-        let record = NewTimelineRecord {
-            id: Uuid::now_v7(),
-            source_kind: SEGMENT_SOURCE_KIND.to_owned(),
-            connector_id: None,
-            external_id: Some(format!("meeting:{}#{start_ms}", meeting.id)),
-            occurred_at: meeting.started_at,
-            actor: "Ada".to_owned(),
-            title: "Launch date".to_owned(),
-            body: "[0:00] Ada: Jon ships Friday".to_owned(),
-            url: None,
-            media: Some(json!({ "meetingId": meeting.id, "startMs": start_ms, "endMs": end_ms })),
-            metadata: json!({ "meetingId": meeting.id, "summary": "The launch is Friday." }),
-            created_by: meeting.created_by,
-        };
-        timeline_record::insert_new(connection, record)
+        let text = excerpts::MeetingText::load(connection, meeting.id)
             .await
-            .expect("stores")
-            .expect("a new record")
-            .id
+            .expect("reads");
+        let inside: Vec<usize> = text
+            .words()
+            .iter()
+            .enumerate()
+            .filter(|(_, word)| word.start_ms >= start_ms && word.start_ms < end_ms)
+            .map(|(place, _)| place)
+            .collect();
+        let places = inside[0]..=inside[inside.len() - 1];
+        let capture = crate::models::meeting_capture::first_of(connection, meeting.id)
+            .await
+            .expect("a capture");
+        let heading = excerpts::Heading {
+            title: "Launch date".to_owned(),
+            summary: "The launch is Friday.".to_owned(),
+        };
+        let author = Author {
+            user_id: ELYSIA_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let (_mark, record) = excerpts::make(
+            connection, meeting, &capture, &text, places, &heading, author,
+        )
+        .await
+        .expect("makes");
+        record.id
     }
 
     #[tokio::test]

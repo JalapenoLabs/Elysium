@@ -41,7 +41,7 @@ import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 import { studioAssetsLoaded } from '../store/studioAssetsSlice'
 import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
 import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
-import { timelineRecordsLoaded } from '../store/timelineRecordsSlice'
+import { timelineRecordsLoaded, timelineRecordUpserted } from '../store/timelineRecordsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
@@ -104,7 +104,7 @@ import {
 } from '../api/routes/workQueueRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
-import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
+import { getTimelineRecord, listTimeline, timelineKey, timelineKeyPrefix } from '../api/routes/timelineRoutes'
 import { TIMELINE_PAGE_SIZE } from '../constants'
 import { getUpdates } from '../api/routes/updateRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
@@ -408,22 +408,16 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
   } as const
 }
 
-// A meeting's segments, its topics, which its page lists. A meeting has fewer segments than a
-// page of the timeline holds, so one page is all of them. Records merge into Redux, so the
-// buffered copy may be applied too.
-export function useMeetingTopicsLoader(meetingId: string) {
+// One timeline record by id, such as the excerpt open in a meeting's lane, which only its owner
+// reads. The event stream keeps it current once it is held.
+export function useTimelineRecordLoader(recordId: string): LoadStatus {
   const dispatch = useAppDispatch()
-  const query = { meetingId, limit: TIMELINE_PAGE_SIZE }
-  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
-  useEffect(() => {
-    if (data) {
-      dispatch(timelineRecordsLoaded(data.records))
-    }
-  }, [ data, dispatch ])
-  return {
-    status: toLoadStatus(data !== undefined, error),
-    total: data?.total ?? null,
-  } as const
+  const { data, error } = useSWR(`${timelineKeyPrefix}/${recordId}`, async () => {
+    const response = await getTimelineRecord(recordId)
+    dispatch(timelineRecordUpserted(response.record))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
 }
 
 export function useGithubCredentialsLoader(): LoadStatus {

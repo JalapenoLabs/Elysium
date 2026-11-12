@@ -29,10 +29,12 @@
 //! # Waiting for approval
 //!
 //! Approving a correction is optional, unless the meeting's source has "Wait for my approval
-//! before acting on meetings" on (`super::waits_for_approval`) or its person held the meeting by
-//! hand (`meetings.hold_for_approval`). Then a copy not yet approved holds the run
-//! ([`Done::Held`]), with an inbox item asking for the review, raised in the same transaction
-//! that records it on the copy, so an attempt that runs again holds without raising a second.
+//! before acting on meetings" on (`super::waits_for_approval`), its person held the meeting by
+//! hand (`meetings.hold_for_approval`), or the correction left a range it is unsure of, a
+//! confidence below [`UNSURE_BELOW`], for a person to listen to before anything is taken from it.
+//! Then a copy not yet approved holds the run ([`Done::Held`]), with an inbox item asking for the
+//! review, raised in the same transaction that records it on the copy, so an attempt that runs
+//! again holds without raising a second.
 //! Approving it (`approve`) resumes the run with the step's output saying so. Resuming it from
 //! the Runs page instead lets the run go on with the copy unapproved, and leaves the item for
 //! its person to resolve.
@@ -55,7 +57,6 @@ use uuid::Uuid;
 use super::correction::{self, Background, Base, Changed, Flag, Transcript, Version};
 use super::final_transcript;
 use super::segment::TranscriptToSegment;
-use super::source::TranscriptLine;
 use super::transcribe::TranscribedMeeting;
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::agent_models::AgentKind;
@@ -71,6 +72,7 @@ use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_capture::{self, StoredRecording};
 use crate::models::meeting_correction::{self, MeetingCorrection, NewMeetingCorrection};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
+use crate::models::meeting_mark::{self, MarkKind};
 use crate::models::meeting_word::{self, Origin, SettledRange, Word};
 use crate::models::model_setting::ModelChoice;
 use crate::models::page_suggestion::Suggested;
@@ -105,13 +107,21 @@ const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 /// person's own fix teaches it whatever the agent thought.
 pub const TEACHING_CONFIDENCE: u8 = 80;
 
+/// The confidence below which a range of a settled transcript holds the meeting for its person
+/// before segmenting (`docs/meeting-review.md`, The flow). Low enough that only what the
+/// correction could hardly make out holds it: a range it cannot tell at all is flagged at 0, and
+/// what a capture merely heard otherwise, such as fillers a tidier source left out, is marked at
+/// 50 and never holds anything.
+pub const UNSURE_BELOW: f64 = 40.0;
+
 /// A meeting past its correction: everything the transcription gave, and which corrected copy
 /// the meeting has. [`CorrectTranscript`] gives it as segmenting's input
 /// ([`TranscriptToSegment::Meeting`]), whose JSON is this struct's own.
 ///
 /// A [`TranscribedMeeting`] reads as one with no copy, which is what the step after receives
-/// when this one is skipped, by a person or because nothing was said. Read the copy it names
-/// with [`corrected_lines`].
+/// when this one is skipped, by a person or because nothing was said. Segmenting reads the final
+/// transcript's words, which the correction settled, rather than the copy, which keeps the first
+/// capture's lines as they were corrected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CorrectedMeeting {
@@ -224,6 +234,15 @@ enum Decision {
     Hold {
         raised: bool,
     },
+}
+
+/// Why a meeting waits for its person before segmenting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Waiting {
+    /// Its source, or its person by hand, asked to approve every correction.
+    Asked,
+    /// The correction left this many ranges below [`UNSURE_BELOW`].
+    Unsure { ranges: usize },
 }
 
 impl CorrectTranscript {
@@ -452,9 +471,9 @@ impl CorrectTranscript {
                     return anyhow::Ok(Stored::ByAnother(stored));
                 }
                 let settled = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
-                // Settling rewrites words a comment thread may quote, as an edit does, so the
-                // segments that index the threads over them are indexed again.
-                super::comments::reindex_meeting(connection, &heard.meeting).await?;
+                // Settling rewrites words, as an edit does, so what reads them (the excerpts over
+                // them, the threads quoting them, the meeting's own document) is refreshed.
+                super::excerpts::refresh(connection, &heard.meeting, None).await?;
                 // The flags are the first ranges (`settled_ranges`), so the first answers are
                 // theirs. A flag whose words changed since the turn read them was passed over, and
                 // so is left out of the copy as of the words.
@@ -529,13 +548,18 @@ impl CorrectTranscript {
                 if correction.approved_at.is_some() {
                     return Ok((Decision::GoOn { approved: true }, None));
                 }
-                if !waits_for_approval(connection, &current).await? {
-                    return Ok((Decision::GoOn { approved: false }, None));
-                }
+                let waiting = if waits_for_approval(connection, &current).await? {
+                    Waiting::Asked
+                } else {
+                    match unsure_ranges(connection, meeting_id).await? {
+                        0 => return Ok((Decision::GoOn { approved: false }, None)),
+                        ranges => Waiting::Unsure { ranges },
+                    }
+                };
                 if correction.review_item_id.is_some() {
                     return Ok((Decision::Hold { raised: false }, None));
                 }
-                let item = review_item(&current);
+                let item = review_item(&current, waiting);
                 let raised = action_item::create(connection, item, Actor::System, Utc::now())
                     .await
                     .map_err(|error| anyhow!("cannot raise the review's inbox item: {error}"))?;
@@ -910,24 +934,60 @@ async fn waits_for_approval(
     }
 }
 
-/// The inbox item asking `current`'s person to review its corrected transcript. Items are the
-/// whole workspace's, so it carries the meeting's title, as an item a person's mail raises
-/// carries its subject (`docs/knowledge.md`, Who sees what), and nothing that was said.
-fn review_item(current: &Meeting) -> NewActionItem {
-    let title = if current.title.trim().is_empty() {
-        "Approve a meeting's corrected transcript".to_owned()
-    } else {
-        format!(
-            "Approve the corrected transcript of {}",
-            current.title.trim()
-        )
+/// How many of meeting `meeting_id`'s standing confidence marks are below [`UNSURE_BELOW`].
+async fn unsure_ranges(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> diesel::QueryResult<usize> {
+    let marks = meeting_mark::standing(connection, meeting_id).await?;
+    Ok(marks
+        .iter()
+        .filter(|mark| mark.kind() == Some(MarkKind::Confidence))
+        .filter(|mark| {
+            mark.data
+                .get("confidence")
+                .and_then(Value::as_f64)
+                .is_some_and(|confidence| confidence < UNSURE_BELOW)
+        })
+        .count())
+}
+
+/// The inbox item asking `current`'s person to review its corrected transcript, saying why it
+/// waits. Items are the whole workspace's, so it carries the meeting's title, as an item a
+/// person's mail raises carries its subject (`docs/knowledge.md`, Who sees what), and nothing
+/// that was said.
+fn review_item(current: &Meeting, waiting: Waiting) -> NewActionItem {
+    let named = current.title.trim();
+    let (title, notes) = match waiting {
+        Waiting::Asked => (
+            if named.is_empty() {
+                "Approve a meeting's corrected transcript".to_owned()
+            } else {
+                format!("Approve the corrected transcript of {named}")
+            },
+            "The meeting waits for your approval of its corrected transcript before Elysium \
+             takes anything from it. Its page in the knowledge base, under Meetings, shows what \
+             correction changed, with Approve."
+                .to_owned(),
+        ),
+        Waiting::Unsure { ranges } => (
+            if named.is_empty() {
+                "Review a meeting's transcript".to_owned()
+            } else {
+                format!("Review the transcript of {named}")
+            },
+            format!(
+                "Correction could hardly make out {ranges} {places} of this meeting, so Elysium \
+                 waits for you before taking anything from it. On its page in the knowledge base, \
+                 under Meetings, listen to the words shown in red, fix what was misheard, and \
+                 Approve.",
+                places = if ranges == 1 { "place" } else { "places" },
+            ),
+        ),
     };
     NewActionItem {
         title: title.chars().take(ITEM_TITLE_MAX_CHARACTERS).collect(),
-        notes: "The meeting waits for your approval of its corrected transcript before Elysium \
-                acts on it. Its page under Settings, Meetings shows what correction changed, \
-                with Approve."
-            .to_owned(),
+        notes,
         state: ActionItemState::Inbox,
         priority: ActionItemPriority::Normal,
         due_at: None,
@@ -937,16 +997,16 @@ fn review_item(current: &Meeting) -> NewActionItem {
     }
 }
 
-/// The lines of the corrected copy `corrected` names, when it names one that is stored: what a
-/// step after the correction reads in place of the raw transcript. `None` when the meeting was
-/// not corrected, and the raw transcript is what there is.
+/// The lines of the corrected copy `corrected` names, when it names one that is stored, for tests
+/// to read what a correction kept. `None` when the meeting was not corrected.
 ///
 /// # Errors
 /// Propagates any database error, and a stored copy that does not read as transcript lines.
+#[cfg(test)]
 pub async fn corrected_lines(
     connection: &mut AsyncPgConnection,
     corrected: &CorrectedMeeting,
-) -> anyhow::Result<Option<Vec<TranscriptLine>>> {
+) -> anyhow::Result<Option<Vec<super::source::TranscriptLine>>> {
     let Some(hash) = &corrected.corrected_transcript_hash else {
         return Ok(None);
     };
@@ -1203,6 +1263,8 @@ async fn resume_held_correction(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    use crate::meetings::source::TranscriptLine;
 
     use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
     use diesel_async::RunQueryDsl;
@@ -1595,6 +1657,111 @@ mod tests {
         );
     }
 
+    /// #241: a correction that leaves a range it could hardly make out (below
+    /// [`UNSURE_BELOW`]) holds the meeting for its person before segmenting, with an inbox item
+    /// saying why, while a range a capture merely heard otherwise (marked at 50) holds nothing.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_correction_unsure_of_a_range_holds_the_meeting_and_one_merely_changed_does_not() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let step = CorrectTranscript::for_test(database.clone());
+        let author = Author {
+            user_id: crate::models::user::SYSTEM_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+
+        let mut decided = Vec::new();
+        for (title, confidence) in [("Standup", 50), ("Planning", 0)] {
+            let (stored, capture) = heard_meeting(&mut connection, title).await;
+            final_transcript::rebuild(&mut connection, stored.id, author)
+                .await
+                .expect("lines up");
+            let words = crate::models::meeting_word::standing(&mut connection, stored.id)
+                .await
+                .expect("reads");
+            meeting_mark::add(
+                &mut connection,
+                stored.id,
+                MarkKind::Confidence,
+                crate::models::meeting_mark::Range {
+                    start_word_id: words[0].id,
+                    end_word_id: words[0].id,
+                },
+                json!({ "confidence": confidence, "alternatives": [] }),
+                author,
+            )
+            .await
+            .expect("marks");
+            let corrected = vec![heard_line("Jon is here")];
+            meeting_correction::record(
+                &mut connection,
+                NewMeetingCorrection {
+                    meeting_id: stored.id,
+                    transcript: serde_json::to_value(&corrected).expect("serializes"),
+                    transcript_hash: correction::transcript_hash(&corrected),
+                    based_on: "source".to_owned(),
+                    source_transcript_hash: "a".repeat(64),
+                    whisper_transcript_hash: None,
+                    changed_lines: 0,
+                    fixes: json!([]),
+                },
+            )
+            .await
+            .expect("records")
+            .expect("new");
+            let input = TranscribedMeeting {
+                meeting_id: stored.id,
+                capture_id: Some(capture.id),
+                transcript_hash: Some("a".repeat(64)),
+                recording: None,
+                whisper_transcript_hash: None,
+            };
+            let done = step
+                .run(
+                    input,
+                    StepContext::for_test::<CorrectTranscript>(database.clone()),
+                )
+                .await
+                .expect("decides");
+            decided.push((stored, done));
+        }
+
+        let (merely_changed, went_on) = &decided[0];
+        assert!(
+            matches!(went_on, Done::Succeeded { .. }),
+            "a range marked at 50 holds nothing: {went_on:?}"
+        );
+        assert_eq!(
+            meeting_correction::find(&mut connection, merely_changed.id)
+                .await
+                .expect("reads")
+                .expect("the copy")
+                .review_item_id,
+            None
+        );
+
+        let (unsure, held) = &decided[1];
+        assert!(
+            matches!(held, Done::Held { .. }),
+            "a range at 0 holds the meeting: {held:?}"
+        );
+        let item_id = meeting_correction::find(&mut connection, unsure.id)
+            .await
+            .expect("reads")
+            .expect("the copy")
+            .review_item_id
+            .expect("an inbox item asks for the review");
+        let item = action_item::find(&mut connection, item_id)
+            .await
+            .expect("the item");
+        assert_eq!(item.title, "Review the transcript of Planning");
+        assert!(item.notes.contains("1 place"), "{}", item.notes);
+    }
+
     #[test]
     fn a_prompt_too_long_for_the_model_fails_the_step_for_good() {
         let too_long = TurnOutcome::without_result(TurnStatus::Failed, "Prompt is too long");
@@ -1728,14 +1895,16 @@ mod tests {
 
         let done = step.run(input.clone(), context).await.expect("settles");
 
-        let Done::Succeeded {
+        // Nobody asked to approve it, but it could not make out one word at all, so the meeting
+        // waits for its person before anything is taken from it.
+        let Done::Held {
             output: TranscriptToSegment::Meeting(output),
             summary,
         } = done
         else {
-            panic!("nobody waits for this meeting, so its run goes on, not {done:?}");
+            panic!("a range it is unsure of holds the run, not {done:?}");
         };
-        assert_eq!(summary.as_deref(), Some("Corrected 2 of 2 lines"));
+        assert_eq!(summary, "Corrected 2 of 2 lines; waiting for approval");
 
         // The words: what the flags decided, as the correction's own, and every other word as the
         // source heard it, whatever Whisper heard.
@@ -1925,7 +2094,10 @@ mod tests {
             )
             .await
             .expect("answers what was stored");
-        assert!(matches!(again, Done::Succeeded { .. }));
+        assert!(
+            matches!(again, Done::Held { .. }),
+            "it still waits for its person: {again:?}"
+        );
         let history = meeting_event::history(&mut connection, stored.id)
             .await
             .expect("history");

@@ -22,6 +22,7 @@ fn passage(label: usize, title: &str, content: &str) -> OfferedPassage {
             title: title.to_owned(),
             url: None,
             page_id: None,
+            meeting_id: None,
             occurred_at: when(),
             person: Person {
                 id: Uuid::now_v7(),

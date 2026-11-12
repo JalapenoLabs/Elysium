@@ -220,6 +220,7 @@ mod tests {
             action_item_id: None,
             created_by: uuid::Uuid::now_v7(),
             created_at: Utc::now(),
+            excerpt_mark_id: None,
         }
     }
 

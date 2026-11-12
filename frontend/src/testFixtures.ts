@@ -486,6 +486,7 @@ export function makeTimelineRecord(
     projects: [],
     createdBy: CREATED_BY,
     createdAt: CREATED_AT,
+    excerptMarkId: null,
     ...overrides,
   }
 }
@@ -555,7 +556,7 @@ export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): 
     state: 'done',
     lastError: null,
     hasRecording: true,
-    segmentCount: 3,
+    excerptCount: 3,
     holdForApproval: false,
     correction: null,
     runId: null,

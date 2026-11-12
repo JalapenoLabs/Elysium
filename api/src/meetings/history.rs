@@ -10,7 +10,7 @@
 //! | Change                | Its undo                                                         |
 //! |-----------------------|------------------------------------------------------------------|
 //! | `edited`              | Stands the replaced words up again and moves its marks back (`models::meeting_word`) |
-//! | `marked`, `unmarked`  | Removes the mark, or puts it back (`models::meeting_mark`)        |
+//! | `marked`, `unmarked`  | Removes the mark, or puts it back (`models::meeting_mark`); an excerpt's record leaves its projects or goes back on them, and a black-out gives back what it took in (`meetings::excerpts`) |
 //! | `hold_changed`        | Sets the hold back, while the transcript is not yet corrected, as holding does |
 //! | `offset_changed`      | Puts the capture's offset back, while nothing moved it since (`super::clock`) |
 //! | `merged`              | Splits the captures back out (`super::duplicates::split`)        |
@@ -20,6 +20,8 @@
 //! | `settled`             | None: a person edits what it settled, with its alternatives      |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
 //! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
+//! | `segmented`           | None: each excerpt and black-out it took is removed on its own   |
+//! | `review_done`         | None: segmenting it again is under way                          |
 //!
 //! A merge and a split are recorded in both meetings' histories, and undone from the history of
 //! the meeting the captures went into.
@@ -109,6 +111,14 @@ pub async fn undo(
                     meeting_word::undo(connection, &undone, author).await?,
                     Announcement::default(),
                 ),
+                Some(EventKind::Marked | EventKind::Unmarked)
+                    if is_excerpt_or_black_out(&undone) =>
+                {
+                    (
+                        super::excerpts::undo(connection, &current, &undone, author).await?,
+                        Announcement::default(),
+                    )
+                }
                 Some(EventKind::Marked | EventKind::Unmarked) => (
                     meeting_mark::undo(connection, &undone, author).await?,
                     Announcement::default(),
@@ -142,7 +152,9 @@ pub async fn undo(
                     EventKind::Built
                     | EventKind::Settled
                     | EventKind::CorrectionApproved
-                    | EventKind::CaptureAdded,
+                    | EventKind::CaptureAdded
+                    | EventKind::Segmented
+                    | EventKind::ReviewDone,
                 )
                 | None => {
                     return Err(UndoError::NotUndoable);
@@ -158,8 +170,16 @@ pub async fn undo(
         .await
 }
 
-/// Indexes again what undoing `undone` changed in `current`'s segments: a thread put back or
-/// taken away, or words a thread quotes. Every other change leaves the index as it was.
+/// Whether `undone`, a `marked` or `unmarked` entry, is about an excerpt or a black-out, whose undo
+/// reaches past the mark (`super::excerpts`).
+fn is_excerpt_or_black_out(undone: &MeetingEvent) -> bool {
+    let kind = undone.data.get("kind").and_then(Value::as_str);
+    kind == Some(MarkKind::Excerpt.as_str()) || kind == Some(MarkKind::BlackOut.as_str())
+}
+
+/// Refreshes what undoing `undone` changed in what reads `current`'s words: words an edit put back,
+/// or a thread put back or taken away. An excerpt's or a black-out's undo refreshes what it
+/// changed itself; every other change leaves the index as it was.
 async fn reindex_undone(
     connection: &mut AsyncPgConnection,
     current: &Meeting,
@@ -191,7 +211,7 @@ async fn reindex_undone(
             };
             let mark = meeting_mark::find(connection, current.id, mark_id).await?;
             let span = comments::span_of(connection, &mark).await?;
-            comments::reindex_over(connection, current, span).await
+            super::excerpts::refresh(connection, current, Some(span)).await
         }
         _ => Ok(()),
     }

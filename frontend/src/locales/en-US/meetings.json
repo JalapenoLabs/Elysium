@@ -26,7 +26,7 @@
     "projects": "Projects",
     "started": "Started",
     "duration": "Duration",
-    "topics": "Topics"
+    "excerpts": "Excerpts"
   },
   "filters": {
     "project": "Project",
@@ -35,7 +35,7 @@
   },
   "states": {
     "pending": "Reading",
-    "recorded": "Finding topics",
+    "recorded": "Finding what matters",
     "segmented": "Cutting clips",
     "done": "On the timeline",
     "skipped": "Skipped",
@@ -53,16 +53,13 @@
     "held": "This meeting waits for your approval",
     "released": "This meeting no longer waits for your approval",
     "correctedMeanwhile": "This meeting was just corrected. Review its transcript and approve it.",
+    "doneReviewing": "Done reviewing",
+    "reviewDone": "Taking what matters from your review",
     "mergedTitle": "Merged into another meeting",
     "mergedInto": "Its recordings are in “{{title}}” now. Split them out there to make this meeting its own again.",
     "mergedIntoUntitled": "Its recordings are in another meeting now. Split them out there to make this meeting its own again.",
     "openMergedInto": "Open that meeting",
-    "mergedReadOnly": "Edits, comments, and approval happen in the meeting it was merged into.",
-    "tabs": {
-      "label": "Its review and topics",
-      "review": "Review",
-      "topics": "Topics"
-    }
+    "mergedReadOnly": "Edits, comments, and approval happen in the meeting it was merged into."
   },
   "correction": {
     "status": {
@@ -74,11 +71,6 @@
     "approvedBy": "By {{who}}",
     "sourceWaits": "Its source waits for your approval before acting on meetings.",
     "heldByHand": "Waits for your approval once corrected."
-  },
-  "topics": {
-    "empty": "No topics yet",
-    "none": "No topics in this meeting",
-    "loadError": "Its topics could not be loaded."
   },
   "review": {
     "heading": "Meeting",
@@ -110,10 +102,27 @@
       "tapToEnd": "Tap where it ends",
       "edit": "Edit",
       "comment": "Comment",
+      "assign": "Assign to a project",
+      "assignLabel": "Projects to take these words into",
+      "assignNoProjects": "Make a project first, then take words into it here.",
+      "blackOut": "Black out",
       "playFromHere": "Play from here",
       "spaceKey": "Space",
       "clear": "Clear the selection",
       "clearHint": "Clear the selection (Esc)"
+    },
+    "excerpts": {
+      "assigned": "Taken into {{project}}",
+      "loading": "Loading its projects",
+      "loadError": "Its projects could not be loaded.",
+      "remove": "Remove excerpt",
+      "removed": "Excerpt removed"
+    },
+    "blackOuts": {
+      "made": "Blacked out",
+      "remove": "Bring back into search",
+      "removed": "Back in search",
+      "explained": "Left out of search and of what agents read. It still shows and plays."
     },
     "player": {
       "label": "Meeting recording",
@@ -236,6 +245,8 @@
         "addedTranscript": "Added a transcript",
         "threadResolved": "Resolved a comment thread",
         "threadReopened": "Reopened a comment thread",
+        "segmented": "Took its excerpts and black-outs",
+        "reviewDone": "Finished reviewing it, so it is read again",
         "changed": "Changed the meeting"
       }
     }

@@ -23,6 +23,7 @@ function result(
       title,
       url: null,
       pageId,
+      meetingId: null,
       occurredAt: '2026-11-01T10:00:00Z',
       person: { id: 'u1', name: 'Maya Chen' },
     },

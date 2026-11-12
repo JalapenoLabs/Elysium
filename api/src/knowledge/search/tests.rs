@@ -24,6 +24,7 @@ fn passage(document: Uuid, position: i32, sha: &str) -> Candidate {
         title: format!("Document {document}"),
         url: None,
         page_id: None,
+        meeting_id: None,
         occurred_at: at(0),
         created_by: Uuid::nil(),
         person_name: "Alex".to_owned(),

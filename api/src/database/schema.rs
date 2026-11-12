@@ -1038,6 +1038,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         page_id -> Nullable<Uuid>,
+        meeting_id -> Nullable<Uuid>,
     }
 }
 
@@ -1905,6 +1906,7 @@ diesel::table! {
         created_at -> Timestamptz,
         turn_summary_session_id -> Nullable<Int8>,
         turn_summary_turn_id -> Nullable<Uuid>,
+        excerpt_mark_id -> Nullable<Uuid>,
     }
 }
 
@@ -2229,6 +2231,7 @@ diesel::joinable!(kind_model_settings -> projects (project_id));
 diesel::joinable!(kind_model_settings -> users (created_by));
 diesel::joinable!(knowledge_asks -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
+diesel::joinable!(knowledge_documents -> meetings (meeting_id));
 diesel::joinable!(knowledge_documents -> pages (page_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
@@ -2344,6 +2347,7 @@ diesel::joinable!(timeline_record_projects -> projects (project_id));
 diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_records -> action_items (action_item_id));
 diesel::joinable!(timeline_records -> connectors (connector_id));
+diesel::joinable!(timeline_records -> meeting_marks (excerpt_mark_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));

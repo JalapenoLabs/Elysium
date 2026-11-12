@@ -97,7 +97,7 @@ describe('MeetingTable', () => {
     expect(source.getAttribute('href')).toBe('/settings/connectors/connector-1')
   })
 
-  it('names the projects a meeting\'s topics are on, leaving out one deleted since', () => {
+  it('names the projects a meeting\'s excerpts are on, leaving out one deleted since', () => {
     const store = createAppStore()
     store.dispatch(projectsLoaded([
       makeProject({ id: 'launch', name: 'Launch' }),

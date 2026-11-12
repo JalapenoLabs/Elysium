@@ -102,11 +102,11 @@ pub async fn rebuild(
             .collect(),
     };
     let rebuilt = meeting_word::rebuild(connection, built, author).await?;
-    // Lining the words up again can move them, and the comment threads anchored to them, across
-    // the meeting's segments, which index the threads over them.
+    // Lining the words up again can move them, and the comment threads anchored to them, under
+    // the meeting's excerpts, which read their words and index the threads over them.
     if rebuilt.is_some() {
         let current = meeting::find(connection, meeting_id).await?;
-        super::comments::reindex_meeting(connection, &current).await?;
+        super::excerpts::refresh(connection, &current, None).await?;
     }
     Ok(rebuilt)
 }

@@ -17,20 +17,20 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use diesel::dsl::jsonb_set;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::sql_types::Text;
+use diesel::sql_types::{Array, Jsonb, Nullable, Text};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
-use tracing::{Level, event};
 use uuid::Uuid;
 
-use crate::database::schema::{timeline_record_projects, timeline_records};
+use crate::database::schema::{meeting_marks, timeline_record_projects, timeline_records};
 use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
-use crate::meetings::segmentation::MAX_SEGMENTS;
 use crate::models::knowledge_document::{self, KnowledgeSource};
 use crate::models::meeting_comment;
+use crate::models::meeting_mark::MarkKind;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// The owners whose records every reader of a timeline reads besides their own: Elysium's own
@@ -54,6 +54,10 @@ pub struct TimelineRecord {
     pub action_item_id: Option<Uuid>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
+    /// The excerpt of a meeting this record is (`models::meeting_mark`, kind `excerpt`), whose
+    /// words it reads; `None` for every other record, and for a meeting's topic recorded before
+    /// excerpts that no word of its meeting could anchor.
+    pub excerpt_mark_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -82,6 +86,26 @@ struct NewTurnSummaryRecord {
     record: NewTimelineRecord,
     turn_summary_session_id: i64,
     turn_summary_turn_id: Uuid,
+}
+
+/// An excerpt's record: the record, and the mark it is, which keeps it one record per excerpt.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = timeline_records)]
+struct NewExcerptRecord {
+    #[diesel(embed)]
+    record: NewTimelineRecord,
+    excerpt_mark_id: Uuid,
+}
+
+/// What an excerpt's record reads of its words, which an edit, a black-out, or lining the
+/// transcript up again changes in place (`crate::meetings::excerpts`).
+#[derive(Debug, Clone, PartialEq, AsChangeset)]
+#[diesel(table_name = timeline_records)]
+pub struct ExcerptText {
+    pub occurred_at: DateTime<Utc>,
+    pub actor: String,
+    pub body: String,
+    pub media: Option<Value>,
 }
 
 /// Which projects a record is about, with how sure the attribution is.
@@ -127,6 +151,93 @@ pub async fn insert_new(
             }
             Ok(stored)
         })
+        .await
+}
+
+/// Stores `record` as the record of excerpt `mark_id`, and indexes it ([`index`]) in the same
+/// transaction. The mark is new, so the record is too.
+///
+/// # Errors
+/// Propagates any database error, including a unique violation for a mark that has a record.
+pub async fn insert_excerpt(
+    connection: &mut AsyncPgConnection,
+    record: NewTimelineRecord,
+    mark_id: Uuid,
+) -> QueryResult<TimelineRecord> {
+    connection
+        .transaction(async |connection| {
+            let stored = diesel::insert_into(timeline_records::table)
+                .values(NewExcerptRecord {
+                    record,
+                    excerpt_mark_id: mark_id,
+                })
+                .returning(TimelineRecord::as_returning())
+                .get_result(connection)
+                .await?;
+            index(connection, &stored).await?;
+            Ok(stored)
+        })
+        .await
+}
+
+/// Gives excerpt record `id` what its words read now, and answers it as it then reads. The caller
+/// indexes it again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_excerpt_text(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    text: &ExcerptText,
+) -> QueryResult<TimelineRecord> {
+    diesel::update(timeline_records::table.find(id))
+        .set(text)
+        .returning(TimelineRecord::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Gives excerpt record `id` its `clip` once it is cut, written onto its media's `clip` alone:
+/// cutting takes a while, and a refresh of the excerpt's span landing meanwhile keeps what it
+/// wrote. Media is never indexed, so nothing is indexed again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_clip(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    clip: &Value,
+) -> QueryResult<()> {
+    let media = jsonb_set::<Nullable<Jsonb>, Array<Text>, _, _, _>(
+        timeline_records::media,
+        vec!["clip"],
+        Some(clip.clone()),
+    );
+    diesel::update(timeline_records::table.find(id))
+        .set(timeline_records::media.eq(media))
+        .execute(connection)
+        .await
+        .map(drop)
+}
+
+/// Gives record `id` its `title`, and `metadata`, as segmenting reads an excerpt again, and answers
+/// it as it then reads. The caller indexes it again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_heading(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    title: &str,
+    metadata: &Value,
+) -> QueryResult<TimelineRecord> {
+    diesel::update(timeline_records::table.find(id))
+        .set((
+            timeline_records::title.eq(title),
+            timeline_records::metadata.eq(metadata),
+        ))
+        .returning(TimelineRecord::as_returning())
+        .get_result(connection)
         .await
 }
 
@@ -183,9 +294,9 @@ pub async fn upsert_turn_summary(
 /// so the index holds what the page says now. Two transactions indexing versions of one page
 /// wait for each other, so whichever commits last still leaves the newest one alone indexed.
 ///
-/// A meeting segment is indexed with the comment threads over its span, read as they stand
+/// A meeting's excerpt is indexed with the comment threads over its span, read as they stand
 /// (`models::meeting_comment::indexed_over`), so a thread written before its meeting was
-/// segmented is indexed as the segments are stored.
+/// segmented is indexed as its excerpts are made.
 ///
 /// Call it inside the transaction that stores or changes the record, or one of its threads.
 ///
@@ -216,7 +327,7 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
         .map(drop)
 }
 
-/// The meeting a segment record is of, and its span on the meeting's clock (`media`'s
+/// The meeting an excerpt's record is of, and its span on the meeting's clock (`media`'s
 /// `meetingId`, `startMs`, and `endMs`); `None` for any other record.
 pub(crate) fn segment_span(record: &TimelineRecord) -> Option<(Uuid, i64, i64)> {
     if record.source_kind != SEGMENT_SOURCE_KIND {
@@ -442,7 +553,7 @@ pub struct TimelineQuery {
     pub project_id: Option<Uuid>,
     /// Only the record that raised this action item.
     pub action_item_id: Option<Uuid>,
-    /// Only this meeting's segments.
+    /// Only this meeting's standing excerpts.
     pub meeting_id: Option<Uuid>,
     /// Only records that happened before this, for the next page.
     pub before: Option<DateTime<Utc>>,
@@ -473,13 +584,10 @@ fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> 
         statement = statement.filter(timeline_records::action_item_id.eq(action_item_id));
     }
     if let Some(meeting_id) = query.meeting_id {
-        statement = statement
-            .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
-            .filter(
-                timeline_records::metadata
-                    .retrieve_as_text("meetingId")
-                    .eq(meeting_id.to_string()),
-            );
+        statement = statement.filter(
+            timeline_records::excerpt_mark_id
+                .eq_any(standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable())),
+        );
     }
     statement
 }
@@ -499,31 +607,86 @@ pub async fn find_many(
         .await
 }
 
-/// Meeting `meeting_id`'s segments on `owner`'s timeline, each with its attributions, in no
-/// particular order; each names its place in the meeting in `metadata.segmentIndex`.
+/// Meeting `meeting_id`'s standing excerpts, the marks of kind `excerpt` no change removed.
+fn standing_excerpts_of(meeting_id: Uuid) -> meeting_marks::BoxedQuery<'static, Pg> {
+    meeting_marks::table
+        .filter(meeting_marks::meeting_id.eq(meeting_id))
+        .filter(meeting_marks::kind.eq(MarkKind::Excerpt.as_str()))
+        .filter(meeting_marks::removed_by.is_null())
+        .into_boxed()
+}
+
+/// Meeting `meeting_id`'s standing excerpts' records, each with its attributions, in no
+/// particular order. An excerpt's record is its meeting's owner's. There is no cap: a person may
+/// make any number beside segmenting's own, and each excerpt covers words of the meeting, so the
+/// meeting's length bounds them.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn of_meeting(
     connection: &mut AsyncPgConnection,
-    owner: Uuid,
     meeting_id: Uuid,
 ) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
-    let query = TimelineQuery {
-        owner,
-        shared: false,
-        project_id: None,
-        action_item_id: None,
-        meeting_id: Some(meeting_id),
-        before: None,
-        limit: i64::try_from(MAX_SEGMENTS).expect("a meeting's segments are few"),
-    };
-    list(connection, query).await
+    let records: Vec<TimelineRecord> = timeline_records::table
+        .filter(
+            timeline_records::excerpt_mark_id
+                .eq_any(standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable())),
+        )
+        .select(TimelineRecord::as_select())
+        .load(connection)
+        .await?;
+    let ids: Vec<Uuid> = records.iter().map(|record| record.id).collect();
+    let mut by_record: HashMap<Uuid, Vec<Attribution>> = HashMap::new();
+    for attribution in attributions_of(connection, &ids).await? {
+        by_record
+            .entry(attribution.timeline_record_id)
+            .or_default()
+            .push(attribution);
+    }
+    Ok(records
+        .into_iter()
+        .map(|record| {
+            let attributions = by_record.remove(&record.id).unwrap_or_default();
+            (record, attributions)
+        })
+        .collect())
 }
 
-/// The projects each of `meeting_ids` has a topic on: every project one of its segments' records is
-/// attributed to, once each, in the order of their ids. A meeting with no topic on a project has no
-/// entry. A segment's record is its meeting's owner's, so this reads nobody else's.
+/// The record of excerpt `mark_id`, standing or removed; `None` for a mark that is no excerpt.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn of_excerpt(
+    connection: &mut AsyncPgConnection,
+    mark_id: Uuid,
+) -> QueryResult<Option<TimelineRecord>> {
+    timeline_records::table
+        .filter(timeline_records::excerpt_mark_id.eq(mark_id))
+        .select(TimelineRecord::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
+/// The records of excerpts `mark_ids`, standing or removed, in no particular order.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn of_excerpts(
+    connection: &mut AsyncPgConnection,
+    mark_ids: &[Uuid],
+) -> QueryResult<Vec<TimelineRecord>> {
+    timeline_records::table
+        .filter(timeline_records::excerpt_mark_id.eq_any(mark_ids))
+        .select(TimelineRecord::as_select())
+        .load(connection)
+        .await
+}
+
+/// The projects each of `meeting_ids` has an excerpt on: every project one of its standing
+/// excerpts' records is attributed to, once each, in the order of their ids. A meeting with no
+/// excerpt on a project has no entry. An excerpt's record is its meeting's owner's, so this reads
+/// nobody else's.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -531,33 +694,29 @@ pub async fn projects_of_meetings(
     connection: &mut AsyncPgConnection,
     meeting_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
-    let keys: Vec<String> = meeting_ids.iter().map(Uuid::to_string).collect();
-    // Spelled exactly as the index `timeline_records_meeting_segments` is, so the planner matches
-    // it in every plan it caches; a key bound as a parameter is a different expression to it.
-    let meeting_key = diesel::dsl::sql::<Text>("timeline_records.metadata ->> 'meetingId'");
-    let rows: Vec<(String, Uuid)> = timeline_records::table
-        .inner_join(timeline_record_projects::table)
-        .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
-        .filter(meeting_key.clone().eq_any(&keys))
-        .select((meeting_key, timeline_record_projects::project_id))
+    let rows: Vec<(Uuid, Uuid)> = meeting_marks::table
+        .inner_join(
+            timeline_records::table
+                .on(timeline_records::excerpt_mark_id.eq(meeting_marks::id.nullable())),
+        )
+        .inner_join(
+            timeline_record_projects::table
+                .on(timeline_record_projects::timeline_record_id.eq(timeline_records::id)),
+        )
+        .filter(meeting_marks::meeting_id.eq_any(meeting_ids))
+        .filter(meeting_marks::kind.eq(MarkKind::Excerpt.as_str()))
+        .filter(meeting_marks::removed_by.is_null())
+        .select((
+            meeting_marks::meeting_id,
+            timeline_record_projects::project_id,
+        ))
         .distinct()
         .order_by(timeline_record_projects::project_id.asc())
         .load(connection)
         .await?;
 
     let mut by_meeting: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-    for (key, project_id) in rows {
-        // Every segment's record is written with its meeting's id; a key that is not one names no
-        // meeting asked for.
-        let Ok(meeting_id) = Uuid::parse_str(&key) else {
-            event!(
-                name: "timeline.segment.meeting_id_unreadable",
-                Level::WARN,
-                project.id = %project_id,
-                "a segment record names a meeting by an id that does not read; it is left out",
-            );
-            continue;
-        };
+    for (meeting_id, project_id) in rows {
         by_meeting.entry(meeting_id).or_default().push(project_id);
     }
     Ok(by_meeting)

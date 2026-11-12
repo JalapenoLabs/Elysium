@@ -19,9 +19,12 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 // Misc
 import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
 import {
+  assignMeetingExcerpt,
+  blackOutMeetingWords,
   editMeetingWords,
   meetingHistoryKey,
   meetingThreadsKey,
+  removeMeetingMark,
   removeMeetingThread,
   replyInMeetingThread,
   setCaptureOffset,
@@ -30,6 +33,7 @@ import {
   startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { timelineKeyPrefix } from '../../../api/routes/timelineRoutes'
 import { trackMeetingChange } from '../../../realtime/meetingChangeEchoes'
 import { toast } from '../../../toast/toast'
 
@@ -73,6 +77,10 @@ export function useMeetingChanges(options: Options) {
     options.applyChange(response.change)
     void mutate(meetingHistoryKey(options.meetingId))
     void mutate(meetingThreadsKey(options.meetingId))
+    // An excerpt made, removed, or put back is a record on its projects' timelines.
+    if (typeof response.entry.data.recordId === 'string') {
+      void mutate((key) => typeof key === 'string' && key.startsWith(timelineKeyPrefix))
+    }
   }
 
   // Joins a change made here to what Ctrl+Z undoes, and says so with Undo.
@@ -224,6 +232,71 @@ export function useMeetingChanges(options: Options) {
     }
   }
 
+  // Tells the person a change to a range was refused: words changed meanwhile read the transcript
+  // again, as an edit's do.
+  function refusedOnWords(error: unknown) {
+    if (getApiErrorCode(error) === 'meeting_words_changed') {
+      options.reload()
+      toast.warning(t('review.wordsChanged'))
+      return
+    }
+    refused(error)
+  }
+
+  // Takes the words from `startWordId` to `endWordId` into project `projectId` as a new excerpt.
+  // Resolves whether it did.
+  async function assign(startWordId: string, endWordId: string, projectId: string, projectName: string) {
+    try {
+      const response = await trackMeetingChange(
+        options.meetingId,
+        assignMeetingExcerpt(options.meetingId, { startWordId, endWordId, projectIds: [ projectId ]}),
+      )
+      made(response, t('review.excerpts.assigned', { project: projectName }))
+      return true
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not assign words', { error, startWordId, endWordId })
+      refusedOnWords(error)
+      return false
+    }
+  }
+
+  // Blacks out the words from `startWordId` to `endWordId`, with any black-out they touch.
+  // Resolves whether it did.
+  async function blackOut(startWordId: string, endWordId: string) {
+    try {
+      const response = await trackMeetingChange(
+        options.meetingId,
+        blackOutMeetingWords(options.meetingId, { startWordId, endWordId }),
+      )
+      made(response, t('review.blackOuts.made'))
+      return true
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not black words out', { error, startWordId, endWordId })
+      refusedOnWords(error)
+      return false
+    }
+  }
+
+  // Removes excerpt or black-out `markId`; its toast's Undo puts it back.
+  async function removeMark(markId: string, kind: 'excerpt' | 'black_out') {
+    try {
+      const response = await trackMeetingChange(options.meetingId, removeMeetingMark(options.meetingId, markId))
+      made(response, kind === 'excerpt'
+        ? t('review.excerpts.removed')
+        : t('review.blackOuts.removed'))
+    }
+    catch (error) {
+      console.debug('useMeetingChanges could not remove a mark', { error, markId })
+      if (getApiErrorCode(error) === 'meeting_mark_removed') {
+        options.reload()
+        return
+      }
+      refused(error)
+    }
+  }
+
   // A change that moves a capture lines the whole transcript up again, which no change of words
   // describes, so its announcement names no entry and every page holding the meeting reads it
   // again, this one included (`announce_lined_up` in api/src/routes/v1/meetings/mod.rs). It applies
@@ -280,6 +353,9 @@ export function useMeetingChanges(options: Options) {
     reply,
     setResolved,
     removeThread,
+    assign,
+    blackOut,
+    removeMark,
     moveCapture,
     splitOut,
     undo,

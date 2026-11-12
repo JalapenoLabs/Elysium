@@ -10,6 +10,8 @@ import type {
   MeetingWord,
   MeetingWords,
 } from '../../../api/routes/meetingRoutes'
+import type { Project } from '../../../api/routes/projectRoutes'
+import type { TimelineRecord } from '../../../api/routes/timelineRoutes'
 import type { User } from '../../../api/routes/userRoutes'
 
 // Core
@@ -22,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { projectsLoaded } from '../../../store/projectsSlice'
 import { usersLoaded } from '../../../store/usersSlice'
 
 // User interface
@@ -29,28 +32,40 @@ import { MeetingWorkspace } from './MeetingWorkspace'
 
 // Misc
 import {
+  assignMeetingExcerpt,
+  blackOutMeetingWords,
   editMeetingWords,
   getCaptureTranscript,
   getMeetingHistory,
   getMeetingThreads,
+  removeMeetingMark,
   setMeetingThreadResolved,
   startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { getTimelineRecord } from '../../../api/routes/timelineRoutes'
 import { ELYSIA_USER_ID } from '../../../constants'
-import { makeMeeting } from '../../../testFixtures'
+import { makeMeeting, makeProject } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { toast } from '../../../toast/toast'
 
 vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../api/routes/meetingRoutes')>(),
   editMeetingWords: vi.fn(),
+  assignMeetingExcerpt: vi.fn(),
+  blackOutMeetingWords: vi.fn(),
+  removeMeetingMark: vi.fn(),
   undoMeetingChange: vi.fn(),
   getMeetingHistory: vi.fn(),
   getCaptureTranscript: vi.fn(),
   getMeetingThreads: vi.fn(),
   startMeetingThread: vi.fn(),
   setMeetingThreadResolved: vi.fn(),
+}))
+
+vi.mock('../../../api/routes/timelineRoutes', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../api/routes/timelineRoutes')>(),
+  getTimelineRecord: vi.fn(),
 }))
 
 vi.mock('../../../hooks/useServerData', async (importOriginal) => ({
@@ -92,6 +107,7 @@ function mark(id: string, kind: string, startWordId: string, endWordId: string, 
     createdBy: 'person',
     agent: null,
     createdAt: '2026-11-10T12:00:00Z',
+    excerpt: null,
   }
 }
 
@@ -193,16 +209,17 @@ function Harness(props: HarnessProps) {
   />
 }
 
-// Renders `meeting`'s workspace on `shown` at `address`, and answers a way to show it another
-// transcript in the same session.
+// Renders `meeting`'s workspace on `shown` at `address`, with `projects` loaded, and answers a way
+// to show it another transcript in the same session.
 function renderWorkspace(
   context: Context,
   shown: MeetingWords = transcript,
   address = '/',
-  meeting: Meeting = makeMeeting({ id: 'meeting' }),
+  { projects = [], meeting = makeMeeting({ id: 'meeting' }) }: { projects?: Project[], meeting?: Meeting } = {},
 ) {
   const store = createAppStore()
   store.dispatch(usersLoaded(people))
+  store.dispatch(projectsLoaded(projects))
   let show: (next: MeetingWords) => void = () => {}
   const router = createMemoryRouter([{
     path: '*',
@@ -225,6 +242,33 @@ function renderWorkspace(
   return (next: MeetingWords) => act(() => show(next))
 }
 
+// Excerpt `launch`'s record, on `projectIds`, as its lane reads it.
+function excerptRecord(projectIds: string[]): TimelineRecord {
+  return {
+    id: 'record',
+    sourceKind: 'meeting',
+    connectorId: null,
+    externalId: 'excerpt:launch',
+    occurredAt: '2026-11-10T12:00:00Z',
+    actor: 'Ada',
+    title: 'The launch moves',
+    body: '[0:00] Ada: Launch is\n',
+    url: null,
+    media: null,
+    metadata: {},
+    actionItemId: null,
+    projects: projectIds.map((projectId) => ({
+      projectId,
+      confidence: 1,
+      attributedBy: 'user:person',
+      createdAt: '2026-11-10T12:00:00Z',
+    })),
+    createdBy: 'person',
+    createdAt: '2026-11-10T12:00:00Z',
+    excerptMarkId: 'launch',
+  }
+}
+
 // The word as the transcript draws it, by what it says.
 function wordPiece(text: string) {
   const piece = screen.getAllByText(text).find((element) => element.hasAttribute('data-word-index'))
@@ -244,6 +288,10 @@ describe('MeetingWorkspace', () => {
     vi.stubGlobal('ResizeObserver', InertObserver)
     context.applyChange = vi.fn()
     vi.mocked(editMeetingWords).mockReset()
+    vi.mocked(assignMeetingExcerpt).mockReset()
+    vi.mocked(blackOutMeetingWords).mockReset()
+    vi.mocked(removeMeetingMark).mockReset()
+    vi.mocked(getTimelineRecord).mockReset()
     vi.mocked(undoMeetingChange).mockReset()
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
     vi.mocked(getCaptureTranscript).mockReset()
@@ -279,6 +327,9 @@ describe('MeetingWorkspace', () => {
     const pills = within(screen.getByRole('radiogroup', { name: 'Marks here' }))
     expect(pills.getByRole('radio', { name: 'Confidence' }).getAttribute('aria-checked')).toBe('true')
     expect(screen.getByText('20% sure')).toBeTruthy()
+    // A mark that is no excerpt has no record, so nothing in its detail waits for one.
+    expect(screen.queryByLabelText('Loading its projects')).toBeNull()
+    expect(getTimelineRecord).not.toHaveBeenCalled()
 
     press('Tab')
     expect(pills.getByRole('radio', { name: 'Comment' }).getAttribute('aria-checked')).toBe('true')
@@ -583,27 +634,33 @@ describe('MeetingWorkspace', () => {
         createdAt: '2026-11-10T12:00:00Z',
       },
     })
-    renderWorkspace(context, transcript, '/', mergedAway)
+    renderWorkspace(context, transcript, '/', { meeting: mergedAway })
 
     // Its actions say why, where Approve, holding, and adding a recording would be.
     expect(await screen.findByText('Edits, comments, and approval happen in the meeting it was merged into.'))
       .toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Done reviewing' })).toBeNull()
     expect(screen.queryByText('Wait for my approval')).toBeNull()
     expect(screen.queryByText('Add a recording or transcript')).toBeNull()
     expect(await screen.findByText('Stopped holding the meeting for approval')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
 
-    // Its words still select, and copy, but nothing edits them or starts a thread on them.
+    // Its words still select, and copy, but nothing edits them, starts a thread on them, takes them
+    // into a project, or blacks them out.
     fireEvent.click(wordPiece('Launch'))
     fireEvent.click(wordPiece('is'), { shiftKey: true })
     const bar = screen.getByRole('toolbar', { name: 'What to do with the words selected' })
-    expect(within(bar).queryByRole('button', { name: /Edit/ })).toBeNull()
-    expect(within(bar).queryByRole('button', { name: /Comment/ })).toBeNull()
-    press('e')
-    press('c')
+    for (const action of [ /Edit/, /Comment/, /Assign to a project/, /Black out/ ]) {
+      expect(within(bar).queryByRole('button', { name: action })).toBeNull()
+    }
+    for (const key of [ 'e', 'c', 'p', 'b' ]) {
+      press(key)
+    }
     expect(screen.queryByRole('textbox', { name: 'What these words should say' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(blackOutMeetingWords).not.toHaveBeenCalled()
 
     // A thread reads alone, with no reply, Resolve, or Remove.
     press('Escape')
@@ -628,6 +685,123 @@ describe('MeetingWorkspace', () => {
     expect(await screen.findByText('Launch is Fryday.')).toBeTruthy()
     expect(getCaptureTranscript).toHaveBeenCalledWith('meeting', 'capture')
     expect(document.querySelector('[data-word-index]')).toBeNull()
+  })
+  it<Context>('blacks out the words selected with B, applying what the route answered', async (context) => {
+    vi.mocked(blackOutMeetingWords).mockResolvedValue({
+      entry: { ...entry('blacked', 'marked'), data: { kind: 'black_out', absorbed: []}},
+      change: { removedWordIds: [], words: [], marks: []},
+    })
+    renderWorkspace(context)
+
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('is'), { shiftKey: true })
+    press('b')
+
+    await waitFor(() => expect(blackOutMeetingWords).toHaveBeenCalledWith('meeting', {
+      startWordId: 'w0',
+      endWordId: 'w1',
+    }))
+    expect(context.applyChange).toHaveBeenCalledWith({ removedWordIds: [], words: [], marks: []})
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Blacked out')
+    expect(vi.mocked(toast.success).mock.calls[0][1]?.action?.label).toBe('Undo')
+  })
+
+  it<Context>('takes the words selected into the project chosen from Assign to a project', async (context) => {
+    vi.mocked(assignMeetingExcerpt).mockResolvedValue({
+      entry: { ...entry('assigned', 'marked'), data: { kind: 'excerpt', recordId: 'record' }},
+      change: { removedWordIds: [], words: [], marks: []},
+      recordId: 'record',
+    })
+    renderWorkspace(context, transcript, '/', { projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ]})
+
+    fireEvent.click(wordPiece('Launch'))
+    fireEvent.click(wordPiece('is'), { shiftKey: true })
+    press('p')
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Launch site' }))
+
+    await waitFor(() => expect(assignMeetingExcerpt).toHaveBeenCalledWith('meeting', {
+      startWordId: 'w0',
+      endWordId: 'w1',
+      projectIds: [ 'launch' ],
+    }))
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Taken into Launch site')
+  })
+
+  it<Context>('opens an excerpt with its title and projects, and removes it', async (context) => {
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'launch' ]) })
+    vi.mocked(removeMeetingMark).mockResolvedValue({
+      entry: { ...entry('removed', 'unmarked'), data: { kind: 'excerpt', recordId: 'record' }},
+      change: { removedWordIds: [], words: [], marks: []},
+    })
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', { projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ]})
+
+    fireEvent.click(wordPiece('Launch'))
+
+    expect(screen.getByText('The launch moves')).toBeTruthy()
+    // Its bar in the gutter is named by its projects.
+    expect(screen.getByRole('button', { name: 'Launch site' })).toBeTruthy()
+    // Its record, read as it opens, shows the projects it is on.
+    await waitFor(() => expect(getTimelineRecord).toHaveBeenCalledWith('record'))
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(await within(detail).findByText('Launch site')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove excerpt' }))
+    await waitFor(() => expect(removeMeetingMark).toHaveBeenCalledWith('meeting', 'launch'))
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
+  })
+
+  it<Context>('names an excerpt\'s bar by its record\'s projects once its lane holds the record', async (context) => {
+    // The words were read before the excerpt moved from Launch site to Billing; its record knows.
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'billing' ]) })
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [
+        makeProject({ id: 'launch', name: 'Launch site' }),
+        makeProject({ id: 'billing', name: 'Billing' }),
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Launch site' })).toBeTruthy()
+    fireEvent.click(wordPiece('Launch'))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Launch site' })).toBeNull())
+    expect(screen.getAllByText('Billing').length).toBeGreaterThan(0)
+  })
+
+  it<Context>('opens the mark a link names, such as an excerpt from a project\'s timeline', async (context) => {
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([]) })
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: []},
+      }],
+    }
+    // jsdom lays nothing out, so it has no scrolling to bring the excerpt's words into view.
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      renderWorkspace(context, excerpted, '/?mark=launch')
+
+      expect(wordPiece('Launch').hasAttribute('data-selected')).toBe(true)
+      // jsdom answers no media query, so this is a phone, whose lane is the drawer.
+      const drawer = await screen.findByRole('dialog')
+      expect(within(drawer).getByText('The launch moves')).toBeTruthy()
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
   })
 })
 

@@ -37,6 +37,14 @@ pub const CODING_AGENT_USER_ID: Uuid = uuid!("00000000-0000-0000-0000-0000000000
 /// person's (`crate::models::timeline_record`).
 pub const PROJECT_MANAGER_USER_ID: Uuid = uuid!("00000000-0000-0000-0000-000000000004");
 
+/// Every seeded machine, for telling what a person did from what Elysium did.
+pub const MACHINE_USER_IDS: [Uuid; 4] = [
+    SYSTEM_USER_ID,
+    ELYSIA_USER_ID,
+    CODING_AGENT_USER_ID,
+    PROJECT_MANAGER_USER_ID,
+];
+
 /// Serializes the first sign-up: two people signing up at once must not both become the
 /// first admin. The value is arbitrary but constant; it spells "Users" in ASCII.
 const PROVISION_LOCK_ID: i64 = 0x0055_7365_7273;

@@ -229,6 +229,8 @@ struct Candidate {
     url: Option<String>,
     #[diesel(sql_type = Nullable<SqlUuid>)]
     page_id: Option<Uuid>,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    meeting_id: Option<Uuid>,
     #[diesel(sql_type = Timestamptz)]
     occurred_at: DateTime<Utc>,
     #[diesel(sql_type = SqlUuid)]
@@ -247,6 +249,7 @@ impl Candidate {
             title: self.title.clone(),
             url: self.url.clone(),
             page_id: self.page_id,
+            meeting_id: self.meeting_id,
             occurred_at: self.occurred_at,
             person: Person {
                 id: self.created_by,
@@ -281,7 +284,8 @@ macro_rules! filters {
 macro_rules! candidate_columns {
     () => {
         "passages.document_id, passages.position, passages.content, documents.source,
-         documents.title, documents.url, documents.page_id, documents.occurred_at,
+         documents.title, documents.url, documents.page_id, documents.meeting_id,
+         documents.occurred_at,
          documents.created_by, people.name AS person_name, documents.content_sha256"
     };
 }
@@ -551,10 +555,11 @@ fn fuse(by_words: Vec<Candidate>, by_meaning: Vec<Candidate>, limit: usize) -> V
     // place in the tree, where two people's records of one message are one thing said.
     let mut gathered: HashMap<(String, String, Option<Uuid>), Gathered> = HashMap::new();
     for (score, candidate) in scored.into_values() {
+        // A meeting's whole transcript is its own place too, the meeting's page.
         let key = (
             candidate.source.clone(),
             candidate.content_sha256.clone(),
-            candidate.page_id,
+            candidate.page_id.or(candidate.meeting_id),
         );
         let result = gathered.entry(key).or_default();
         result.score = result.score.max(score);

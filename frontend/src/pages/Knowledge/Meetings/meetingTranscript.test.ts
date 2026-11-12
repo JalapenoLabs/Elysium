@@ -48,6 +48,7 @@ function markOf(id: string, kind: string, startWordId: string, endWordId: string
     createdBy: 'ada',
     agent: null,
     createdAt: '2026-11-10T12:00:00Z',
+    excerpt: null,
   }
 }
 

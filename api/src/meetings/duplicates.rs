@@ -34,6 +34,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::align::AlignMeeting;
+use super::excerpts;
 use super::final_transcript;
 use super::history::UndoError;
 use super::workflow;
@@ -619,7 +620,10 @@ async fn merge_captures(
         meeting_capture::place(connection, capture.capture_id, capture.after).await?;
     }
     meeting_word::carry_edits(connection, (merging.id, keeper.id), shift_ms, entry.id).await?;
-    meeting::set_merged_into(connection, merging.id, Some(keeper.id)).await?;
+    let merged = meeting::set_merged_into(connection, merging.id, Some(keeper.id)).await?;
+    // Its words are searched in the keeper now, so its own transcript leaves the index; a split
+    // rebuilds it, which puts it back.
+    excerpts::refresh(connection, &merged, None).await?;
     final_transcript::rebuild(connection, keeper.id, author).await?;
     Ok(entry)
 }
@@ -699,6 +703,9 @@ pub(crate) async fn split(
     }
     meeting_word::withdraw_carried(connection, keeper.id, undone.id, entry.id).await?;
     let merging = meeting::set_merged_into(connection, merging.id, None).await?;
+    // Its own again, its transcript is searched as its own, which the merge took out of the index;
+    // building it again below refreshes it only if its words changed.
+    excerpts::refresh(connection, &merging, None).await?;
     decide_pairs(
         connection,
         (keeper.id, merging.id),

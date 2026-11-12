@@ -57,7 +57,7 @@ fn validate_span(span: &PassageSpan) -> Result<(), ValidationError> {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentArguments {
-    /// The document's id: a citation's `documentId`, from a search or a meeting's topics.
+    /// The document's id: a citation's `documentId`, from a search or a meeting's excerpts.
     pub document_id: Uuid,
     /// The first passage to answer, by its position, which a search gives beside each passage
     /// it found. From the first passage when left out.

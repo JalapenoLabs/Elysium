@@ -171,10 +171,10 @@ const TOOLS: [Tool; 12] = [
     },
     Tool {
         name: "elysia_meeting_add_to_project",
-        description: "Puts the topics the thread's range lies in on a project (\"this belongs \
-            to the launch\"), as your attribution, which a person confirms or undoes and which \
-            never replaces theirs. Answers what happened to each topic. Only in a turn a thread \
-            started.",
+        description: "Puts the excerpts the thread's range lies in on a project (\"this \
+            belongs to the launch\"), as your attribution, which a person confirms or undoes and \
+            which never replaces theirs; a range in no excerpt becomes an excerpt of yours on the \
+            project. Answers what happened to each excerpt. Only in a turn a thread started.",
         input_schema: meetings::add_to_project_schema,
         run: |context, scope, arguments| {
             meetings::run_add_to_project(context, scope, arguments).boxed()

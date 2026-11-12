@@ -8,8 +8,9 @@
 //! trigger names it, so a turn about anything else is refused. Each does what a person does on the
 //! meeting's page, as hers. An edit replaces words exactly as a person's does
 //! (`meetings::comments::edit_words`), in the meeting's history with Undo. Putting the range on a
-//! project attributes the topics it lies in, each a segment's timeline record, as her own
-//! attribution (`models::attribution`), which never overrides a person's.
+//! project attributes the excerpts it lies in, each a timeline record, as her own attribution
+//! (`models::attribution`), which never overrides a person's; a range in no excerpt becomes one of
+//! hers on the project (`meetings::excerpts::assign`), which a person removes with Undo.
 
 use chrono::Utc;
 use diesel_async::AsyncPgConnection;
@@ -20,10 +21,12 @@ use uuid::Uuid;
 use crate::elysia::thread::Asked;
 use crate::elysia::trigger;
 use crate::meetings::comments;
+use crate::meetings::excerpts::{self, ExcerptError};
+use crate::meetings::segmentation::SegmentProject;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor, Written};
 use crate::models::meeting::{self, Meeting};
-use crate::models::meeting_mark::{self, Mark, Range};
+use crate::models::meeting_mark::{self, Mark, MarkError, Range};
 use crate::models::meeting_word::{EDIT_TEXT_MAX_CHARACTERS, EditError, Replacement};
 use crate::models::user::ELYSIA_USER_ID;
 use crate::models::{elysia, project};
@@ -148,6 +151,11 @@ pub async fn run_edit(
     }))
 }
 
+/// What adding to a project answers for a meeting merged into another, whose excerpts, its own and
+/// any new one, change in the meeting it went into.
+const MERGED_AWAY: &str =
+    "this meeting was merged into another, so its excerpts change there; nothing was added";
+
 pub async fn run_add_to_project(
     context: &ToolContext,
     scope: &CallScope,
@@ -161,6 +169,9 @@ pub async fn run_add_to_project(
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
     let (found, mark) = asked_thread(&mut connection, scope, turn_id).await?;
+    if found.merged_into.is_some() {
+        return Err(ToolError::Invalid(MERGED_AWAY.to_owned()));
+    }
     match project::find(&mut connection, arguments.project_id).await {
         Ok(_) => {}
         Err(diesel::result::Error::NotFound) => {
@@ -173,19 +184,52 @@ pub async fn run_add_to_project(
     let span = comments::span_of(&mut connection, &mark)
         .await
         .map_err(|error| internal(scope, "elysia.meeting_add_to_project", &error))?;
-    let topics = comments::segments_over(&mut connection, &found, span)
+    let over = comments::excerpts_over(&mut connection, &found, span)
         .await
         .map_err(|error| internal(scope, "elysia.meeting_add_to_project", &error))?;
-    if topics.is_empty() {
-        return Err(ToolError::Invalid(
-            "the range lies in none of the meeting's topics yet, so there is nothing to put on \
-             a project until it is segmented"
-                .to_owned(),
-        ));
+    if over.is_empty() {
+        // The range lies in no excerpt, so it becomes one of hers on the project.
+        let author = Author {
+            user_id: ELYSIA_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let assigned = SegmentProject {
+            project_id: arguments.project_id,
+            confidence: ASKED_CONFIDENCE,
+        };
+        let made = excerpts::assign(&mut connection, &found, mark.range(), &[assigned], author)
+            .await
+            .map_err(|error| match error {
+                // Merged since it was read, as the lock assigning takes says.
+                ExcerptError::Mark(MarkError::Merged) => ToolError::Invalid(MERGED_AWAY.to_owned()),
+                ExcerptError::BlackedOut => ToolError::Invalid(
+                    "every word of the thread's range is blacked out, so it can be in no project; \
+                     nothing was added"
+                        .to_owned(),
+                ),
+                error => internal(scope, "elysia.meeting_add_to_project", &error),
+            })?;
+        context.events.publish(&ServerEvent::TimelineRecordCreated {
+            id: made.record.id,
+            source_kind: made.record.source_kind.clone(),
+            created_by: made.record.created_by,
+            action_item_id: None,
+            conversation_id: None,
+        });
+        context.events.publish(&ServerEvent::MeetingChanged {
+            id: found.id,
+            state: found.state.clone(),
+            created_by: found.created_by,
+            entry_id: None,
+        });
+        return Ok(json!({
+            "excerpts": [{ "excerpt": made.record.title, "outcome": "made, on the project" }],
+        }));
     }
 
-    let mut answered = Vec::with_capacity(topics.len());
-    for (record, _) in topics {
+    let mut answered = Vec::with_capacity(over.len());
+    for (record, _) in over {
         let written = attribution::attribute(
             &mut connection,
             record.id,
@@ -206,9 +250,9 @@ pub async fn run_add_to_project(
             Written::Unchanged => "already on it",
             Written::PersonDecided => "left as a person decided it",
         };
-        answered.push(json!({ "topic": record.title, "outcome": outcome }));
+        answered.push(json!({ "excerpt": record.title, "outcome": outcome }));
     }
-    Ok(json!({ "topics": answered }))
+    Ok(json!({ "excerpts": answered }))
 }
 
 /// The meeting and thread turn `turn_id` was started by, standing, or a refusal saying that this
