@@ -104,6 +104,7 @@
       "comment": "Comment",
       "assign": "Assign to a project",
       "assignLabel": "Projects to take these words into",
+      "assignNoProjects": "Make a project first, then take words into it here.",
       "blackOut": "Black out",
       "playFromHere": "Play from here",
       "spaceKey": "Space",
@@ -112,6 +113,8 @@
     },
     "excerpts": {
       "assigned": "Taken into {{project}}",
+      "loading": "Loading its projects",
+      "loadError": "Its projects could not be loaded.",
       "remove": "Remove excerpt",
       "removed": "Excerpt removed"
     },

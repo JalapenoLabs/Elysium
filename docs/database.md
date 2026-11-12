@@ -363,7 +363,7 @@ are found through their marks (`excerpt_mark_id`, unique).
 | `created_by`           | `UUID`        | References `users`; whose timeline it is on, or for the workspace's own the Project Managers' machine user or the coding agent's |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 | `turn_summary_session_id`, `turn_summary_turn_id` | `BIGINT`, `UUID` | Together reference `turn_summaries`, cascading: the summary a `turn_summary` record is. Set on that kind alone, both or neither (`timeline_records_turn_summary_kind`) |
-| `excerpt_mark_id`      | `UUID`        | Unique; references `meeting_marks`: the excerpt a meeting's record is (`docs/meetings.md`, Excerpts and black-outs); `NULL` for every other record, and for a topic from before excerpts that no word anchored |
+| `excerpt_mark_id`      | `UUID`        | Unique; references `meeting_marks`: the excerpt a meeting's record is (`docs/meetings.md`, Excerpts and black-outs); `NULL` for every other record, and for a meeting's record that names none of its words |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
 reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,

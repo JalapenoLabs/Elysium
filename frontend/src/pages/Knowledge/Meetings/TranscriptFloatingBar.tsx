@@ -98,19 +98,33 @@ function measure(container: HTMLDivElement, anchorIndex: number, barWidth: numbe
   }
 }
 
-// Assign to a project, with its key, and the menu of projects it opens.
+// Assign to a project, with its key, and the menu of projects it opens. With no project yet it is
+// off, and its tooltip says why; a disabled button takes no hover, so the tooltip's trigger wraps it.
 function AssignMenu({ assign }: { assign: AssignControl }) {
   const { t } = useTranslation('meetings')
+  const hasProjects = Boolean(assign.projects.length)
+  const button = <Button size='sm' variant='ghost' isDisabled={!hasProjects}>
+    <LuFolderPlus className='size-4' aria-hidden />
+    <span>{t('review.bar.assign')}</span>
+    <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+      <Kbd.Content>P</Kbd.Content>
+    </Kbd>
+    <LuChevronDown className='size-4' aria-hidden />
+  </Button>
+
+  if (!hasProjects) {
+    return <Tooltip delay={300}>
+      <Tooltip.Trigger>
+        <div>{button}</div>
+      </Tooltip.Trigger>
+      <Tooltip.Content className='max-w-xs break-normal'>
+        <span>{t('review.bar.assignNoProjects')}</span>
+      </Tooltip.Content>
+    </Tooltip>
+  }
 
   return <Dropdown isOpen={assign.isOpen} onOpenChange={assign.onOpenChange}>
-    <Button size='sm' variant='ghost' isDisabled={!assign.projects.length}>
-      <LuFolderPlus className='size-4' aria-hidden />
-      <span>{t('review.bar.assign')}</span>
-      <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
-        <Kbd.Content>P</Kbd.Content>
-      </Kbd>
-      <LuChevronDown className='size-4' aria-hidden />
-    </Button>
+    {button}
     <Dropdown.Popover placement='bottom start' className='max-h-80 overflow-y-auto'>
       <Dropdown.Menu
         aria-label={t('review.bar.assignLabel')}

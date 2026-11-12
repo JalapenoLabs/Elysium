@@ -96,6 +96,9 @@ pub enum ExcerptError {
     /// An excerpt names no project, which is no excerpt at all.
     #[error("an excerpt is on at least one project")]
     NoProject,
+    /// Every word of the range is blacked out, so an excerpt of it would read nothing.
+    #[error("every word of the range is blacked out")]
+    BlackedOut,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -438,8 +441,8 @@ pub struct Assigned {
 ///
 /// # Errors
 /// [`ExcerptError::NoProject`] for no project, [`ExcerptError::UnknownProject`] for one that does
-/// not exist, [`ExcerptError::Mark`] for a range that is not one of the transcript as it reads;
-/// any database error.
+/// not exist, [`ExcerptError::Mark`] for a range that is not one of the transcript as it reads,
+/// [`ExcerptError::BlackedOut`] for one whose every word is blacked out; any database error.
 pub async fn assign(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
@@ -467,6 +470,9 @@ pub async fn assign(
             }
             let text = MeetingText::load(connection, meeting.id).await?;
             let places = text.places_of(range).ok_or(MarkError::NotStanding)?;
+            if places.clone().all(|place| text.is_blacked(place)) {
+                return Err(ExcerptError::BlackedOut);
+            }
             let capture = meeting_capture::first_of(connection, meeting.id).await?;
             let heading = Heading::of_words(&text.read(places.clone()));
             let (mark, record) = make(
@@ -513,20 +519,29 @@ pub async fn black_out(
             let marks = meeting_mark::standing(connection, meeting.id).await?;
             let text = MeetingText::new(words, &marks);
             let places = text.places_of(range).ok_or(MarkError::NotStanding)?;
+            let mut others: Vec<(Uuid, RangeInclusive<usize>)> = marks
+                .iter()
+                .filter(|mark| mark.kind() == Some(MarkKind::BlackOut))
+                .filter_map(|mark| text.places_of(mark.range()).map(|other| (mark.id, other)))
+                .collect();
             let (mut start, mut end) = (*places.start(), *places.end());
             let mut absorbed: Vec<Uuid> = Vec::new();
-            for mark in &marks {
-                if mark.kind() != Some(MarkKind::BlackOut) {
-                    continue;
-                }
-                let Some(other) = text.places_of(mark.range()) else {
-                    continue;
-                };
-                // Touching counts, so two black-outs side by side become one.
-                if *other.start() <= end + 1 && *other.end() + 1 >= start {
-                    start = start.min(*other.start());
-                    end = end.max(*other.end());
-                    absorbed.push(mark.id);
+            // Taking one in can bring another within reach on either side, so the stretch grows
+            // until none is left that overlaps or touches it. Touching counts, so two black-outs
+            // side by side become one.
+            loop {
+                let before = absorbed.len();
+                others.retain(|(mark_id, other)| {
+                    let reaches = *other.start() <= end + 1 && *other.end() + 1 >= start;
+                    if reaches {
+                        start = start.min(*other.start());
+                        end = end.max(*other.end());
+                        absorbed.push(*mark_id);
+                    }
+                    !reaches
+                });
+                if absorbed.len() == before {
+                    break;
                 }
             }
             let union = text.range_of(&(start..=end));
@@ -903,8 +918,6 @@ pub struct Took {
     pub entry: MeetingEvent,
     /// The excerpts' records it made.
     pub created: Vec<TimelineRecord>,
-    /// How many black-outs the answer took.
-    pub black_outs: usize,
 }
 
 /// A meeting's marks as segmenting finds them, and what taking its answer did so far.
@@ -1070,6 +1083,15 @@ impl<'meeting> Taking<'meeting> {
             if self.removed_excerpts.contains(&excerpt.range) {
                 continue;
             }
+            if places.clone().all(|place| text.is_blacked(place)) {
+                tracing::event!(
+                    name: "meetings.segment.excerpt_blacked_out",
+                    tracing::Level::DEBUG,
+                    meeting.id = %self.meeting.id,
+                    "an excerpt the answer named lies wholly in black-outs, so it was left out",
+                );
+                continue;
+            }
             if let Some((mark_id, is_persons)) = self.standing(MarkKind::Excerpt, excerpt.range) {
                 self.taken_again.insert(mark_id);
                 if !is_persons {
@@ -1114,11 +1136,7 @@ impl<'meeting> Taking<'meeting> {
 
     /// Records what it did as one change, and removes Elysia's own marks the answer did not take
     /// again: an excerpt's record leaves her projects and the index.
-    async fn finish(
-        self,
-        connection: &mut AsyncPgConnection,
-        black_outs: usize,
-    ) -> QueryResult<Took> {
+    async fn finish(self, connection: &mut AsyncPgConnection) -> QueryResult<Took> {
         let removed: Vec<Uuid> = self
             .marks
             .iter()
@@ -1169,7 +1187,6 @@ impl<'meeting> Taking<'meeting> {
         Ok(Took {
             entry,
             created: self.created,
-            black_outs,
         })
     }
 }
@@ -1195,7 +1212,7 @@ pub(crate) async fn take(
         .take_black_outs(connection, &taken.black_outs)
         .await?;
     taking.take_excerpts(connection, &taken.excerpts).await?;
-    taking.finish(connection, taken.black_outs.len()).await
+    taking.finish(connection).await
 }
 
 /// Attributes `record` to each of `projects` that still exists as Elysia, and takes it off every
@@ -1717,6 +1734,89 @@ mod tests {
             excerpt.body.contains("We ship um sorry hold"),
             "{}",
             excerpt.body
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_black_out_takes_in_a_touching_chain_whole_and_no_excerpt_reads_blacked_out_words_alone()
+     {
+        let (_url, mut connection) = migrated_database().await;
+        let launch = project::create(
+            &mut connection,
+            &NewProject {
+                name: "Launch".to_owned(),
+                description: String::new(),
+                created_by: TEST_PERSON_ID,
+            },
+        )
+        .await
+        .expect("a project");
+        let current = segmented_meeting(
+            &mut connection,
+            &[line(0, "Ada", "One two three four five six seven.")],
+        )
+        .await;
+        let words = meeting_word::standing(&mut connection, current.id)
+            .await
+            .expect("reads");
+        let range = |first: usize, last: usize| Range {
+            start_word_id: words[first].id,
+            end_word_id: words[last].id,
+        };
+        // Two black-outs side by side, as segmenting makes them, the first made first: it touches
+        // the new one only once the second is taken in.
+        for (first, last) in [(0, 2), (3, 5)] {
+            let side_by_side = NewMark::new(
+                current.id,
+                MarkKind::BlackOut,
+                range(first, last),
+                json!({}),
+                person(),
+            );
+            meeting_mark::insert(&mut connection, side_by_side)
+                .await
+                .expect("marks");
+        }
+
+        black_out(&mut connection, &current, range(6, 6), person())
+            .await
+            .expect("blacks out");
+        let standing: Vec<Range> = meeting_mark::standing(&mut connection, current.id)
+            .await
+            .expect("reads")
+            .into_iter()
+            .filter(|mark| mark.kind() == Some(MarkKind::BlackOut))
+            .map(|mark| mark.range())
+            .collect();
+        assert_eq!(
+            standing,
+            vec![range(0, 6)],
+            "the whole chain is one black-out"
+        );
+
+        // Every word is blacked out now, so a range of them reads nothing and is no excerpt.
+        let onto_launch = [SegmentProject {
+            project_id: launch.id,
+            confidence: 1.0,
+        }];
+        let refused = assign(
+            &mut connection,
+            &current,
+            range(1, 3),
+            &onto_launch,
+            person(),
+        )
+        .await;
+        assert!(
+            matches!(refused, Err(ExcerptError::BlackedOut)),
+            "{refused:?}"
+        );
+        assert!(
+            timeline_record::of_meeting(&mut connection, current.id)
+                .await
+                .expect("reads")
+                .is_empty()
         );
     }
 

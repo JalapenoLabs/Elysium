@@ -1,12 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meetings the knowledge index holds, each with its topics in the order they were said.
+//! The meetings the knowledge index holds, each with its excerpts in the order they were said.
 //!
 //! A meeting's excerpts are in the index, each a timeline record of its own
-//! (`docs/meetings.md`, Segment records), and so a document of source `meeting`. [`list`]
+//! (`docs/meetings.md`, Excerpt records), and so a document of source `meeting`. [`list`]
 //! gathers those documents back into their meetings by what every excerpt record names in its
 //! metadata (`meetingId`, `meetingTitle`, `meetingSource`), so a reader finds a meeting by when
-//! it was and opens its topics one by one, each a citation like any other.
+//! it was and opens its excerpts one by one, each a citation like any other. They are answered as
+//! `topics`, the name clients already read.
 //!
 //! The `meetings` row itself (its transcript, recording, participants, and processing) stays its
 //! owner's, and nothing here reads it: what a member may read is what the index holds
@@ -120,8 +121,8 @@ const MEETINGS: &str = "
     ORDER BY meetings.started_at DESC, meetings.meeting_key DESC, topics.occurred_at,
         topics.document_id";
 
-/// The newest `limit` meetings in the index under `filters`, newest first, each with its topics
-/// in order.
+/// The newest `limit` meetings in the index under `filters`, newest first, each with its
+/// excerpts in order.
 ///
 /// It answers any person's meetings: callers check that whoever asks may read the knowledge base
 /// (`docs/knowledge.md`, Who sees what).

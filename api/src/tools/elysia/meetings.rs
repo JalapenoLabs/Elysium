@@ -198,6 +198,11 @@ pub async fn run_add_to_project(
                      was added"
                         .to_owned(),
                 ),
+                ExcerptError::BlackedOut => ToolError::Invalid(
+                    "every word of the thread's range is blacked out, so it can be in no project; \
+                     nothing was added"
+                        .to_owned(),
+                ),
                 error => internal(scope, "elysia.meeting_add_to_project", &error),
             })?;
         context.events.publish(&ServerEvent::TimelineRecordCreated {

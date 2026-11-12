@@ -11,12 +11,13 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { useTimelineRecordLoader } from '../../../hooks/useServerData'
 import { useAppSelector } from '../../../store/hooks'
 import { selectTimelineRecordById } from '../../../store/timelineRecordsSlice'
 import { selectUserEntities } from '../../../store/usersSlice'
 
 // User interface
-import { Button } from '@heroui/react'
+import { Button, Spinner } from '@heroui/react'
 import { LuEye, LuTrash2, LuUndo2 } from 'react-icons/lu'
 import { RecordProjects } from '../../Projects/RecordProjects'
 import { CommentThread } from './CommentThread'
@@ -54,7 +55,8 @@ export function MarkDetail(props: Props) {
   const [ isRemoving, setIsRemoving ] = useState(false)
   const { placed, onRemove } = props
   const { mark } = placed
-  // An excerpt's record, which the meeting's page loads with its excerpts.
+  // An excerpt's record, read as it opens, which its projects show and change.
+  const recordStatus = useTimelineRecordLoader(mark.excerpt?.recordId ?? null)
   const record = useAppSelector((state) => mark.excerpt
     ? selectTimelineRecordById(state, mark.excerpt.recordId)
     : undefined)
@@ -109,6 +111,10 @@ export function MarkDetail(props: Props) {
     </div>}
 
     {record && <RecordProjects record={record} />}
+    {!record && recordStatus === 'loading' && <Spinner size='sm' aria-label={t('review.excerpts.loading')} />}
+    {!record && recordStatus === 'failed' && <p className='text-xs text-danger'>
+      {t('review.excerpts.loadError')}
+    </p>}
     {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
     {editRow?.before && <p className='text-xs opacity-70'>{t('review.detail.replaced', { before: editRow.before })}</p>}

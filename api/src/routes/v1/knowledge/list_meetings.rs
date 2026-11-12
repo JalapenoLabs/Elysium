@@ -1,9 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/knowledge/meetings?from=&to=&person=&project=&limit=`: the meetings the
-//! knowledge base holds, newest first, each with its topics as citations in the order they were
-//! said. Whoever's meeting source recorded one, every member reads it, as they read its topics
-//! through the search. See `crate::models::knowledge_meeting`.
+//! knowledge base holds, newest first, each with its excerpts as citations (`topics`) in the order
+//! they were said. Whoever's meeting source recorded one, every member reads it, as they read its
+//! excerpts through the search. See `crate::models::knowledge_meeting`.
 //!
 //! The work is [`list`], which the MCP server's `meetings_list` and the agents' tool of the same
 //! name call too, with [`ListMeetingsRequest`] as their arguments.

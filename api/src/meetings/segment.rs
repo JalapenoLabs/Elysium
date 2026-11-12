@@ -318,7 +318,7 @@ impl SegmentMeeting {
         log.line(&format!(
             "Took {} excerpts and {} black-outs: made {}, kept {} of Elysia's own, and removed {}",
             taken.excerpts.len(),
-            took.black_outs,
+            taken.black_outs.len(),
             count_in(&took.entry.data, "made"),
             count_in(&took.entry.data, "kept"),
             count_in(&took.entry.data, "removed"),
@@ -355,7 +355,7 @@ impl SegmentMeeting {
             summary: Some(format!(
                 "Took {} excerpts into projects, and blacked out {}",
                 topics.segments.len(),
-                took.black_outs
+                taken.black_outs.len()
             )),
             output: topics,
         })
@@ -729,9 +729,8 @@ impl SegmentMeeting {
         )
         .await
         .map_err(StepFailure::retryable)?;
-        let mut media = clip.record.media.clone().unwrap_or_else(|| json!({}));
         // The clip's own stretch, on the meeting's clock as every time of a record is.
-        media["clip"] = json!({
+        let cut = json!({
             "storageLocationId": from.storage_location_id,
             "path": clip.path,
             "contentType": from.content_type(),
@@ -739,7 +738,7 @@ impl SegmentMeeting {
             "endMs": end_ms + from.capture.offset_ms,
         });
         let mut connection = self.connection().await?;
-        timeline_record::set_media(&mut connection, clip.record.id, &media)
+        timeline_record::set_clip(&mut connection, clip.record.id, &cut)
             .await
             .map_err(StepFailure::retryable)
     }

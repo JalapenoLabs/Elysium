@@ -11,6 +11,7 @@ import type {
   MeetingWords,
 } from '../../../api/routes/meetingRoutes'
 import type { Project } from '../../../api/routes/projectRoutes'
+import type { TimelineRecord } from '../../../api/routes/timelineRoutes'
 import type { User } from '../../../api/routes/userRoutes'
 
 // Core
@@ -42,6 +43,7 @@ import {
   startMeetingThread,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
+import { getTimelineRecord } from '../../../api/routes/timelineRoutes'
 import { ELYSIA_USER_ID } from '../../../constants'
 import { makeMeeting, makeProject } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
@@ -59,6 +61,11 @@ vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   getMeetingThreads: vi.fn(),
   startMeetingThread: vi.fn(),
   setMeetingThreadResolved: vi.fn(),
+}))
+
+vi.mock('../../../api/routes/timelineRoutes', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../api/routes/timelineRoutes')>(),
+  getTimelineRecord: vi.fn(),
 }))
 
 vi.mock('../../../hooks/useServerData', async (importOriginal) => ({
@@ -233,6 +240,33 @@ function renderWorkspace(
   }], { initialEntries: [ address ]})
   render(<RouterProvider router={router} />)
   return (next: MeetingWords) => act(() => show(next))
+}
+
+// Excerpt `launch`'s record, on `projectIds`, as its lane reads it.
+function excerptRecord(projectIds: string[]): TimelineRecord {
+  return {
+    id: 'record',
+    sourceKind: 'meeting',
+    connectorId: null,
+    externalId: 'excerpt:launch',
+    occurredAt: '2026-11-10T12:00:00Z',
+    actor: 'Ada',
+    title: 'The launch moves',
+    body: '[0:00] Ada: Launch is\n',
+    url: null,
+    media: null,
+    metadata: {},
+    actionItemId: null,
+    projects: projectIds.map((projectId) => ({
+      projectId,
+      confidence: 1,
+      attributedBy: 'user:person',
+      createdAt: '2026-11-10T12:00:00Z',
+    })),
+    createdBy: 'person',
+    createdAt: '2026-11-10T12:00:00Z',
+    excerptMarkId: 'launch',
+  }
 }
 
 // The word as the transcript draws it, by what it says.
@@ -690,6 +724,7 @@ describe('MeetingWorkspace', () => {
   })
 
   it<Context>('opens an excerpt with its title and projects, and removes it', async (context) => {
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'launch' ]) })
     vi.mocked(removeMeetingMark).mockResolvedValue({
       entry: { ...entry('removed', 'unmarked'), data: { kind: 'excerpt', recordId: 'record' }},
       change: { removedWordIds: [], words: [], marks: []},
@@ -708,12 +743,17 @@ describe('MeetingWorkspace', () => {
     expect(screen.getByText('The launch moves')).toBeTruthy()
     // Its bar in the gutter is named by its projects.
     expect(screen.getByRole('button', { name: 'Launch site' })).toBeTruthy()
+    // Its record, read as it opens, shows the projects it is on.
+    await waitFor(() => expect(getTimelineRecord).toHaveBeenCalledWith('record'))
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(await within(detail).findByText('Launch site')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Remove excerpt' }))
     await waitFor(() => expect(removeMeetingMark).toHaveBeenCalledWith('meeting', 'launch'))
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
   })
 
   it<Context>('opens the mark a link names, such as an excerpt from a project\'s timeline', async (context) => {
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([]) })
     const excerpted: MeetingWords = {
       ...transcript,
       marks: [{

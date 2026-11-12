@@ -17,8 +17,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use diesel::dsl::jsonb_set;
 use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_types::{Array, Jsonb, Nullable, Text};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
@@ -195,16 +197,22 @@ pub async fn set_excerpt_text(
         .await
 }
 
-/// Gives record `id` its `media`, such as an excerpt's clip once it is cut. Media is never indexed,
-/// so nothing is indexed again.
+/// Gives excerpt record `id` its `clip` once it is cut, written onto its media's `clip` alone:
+/// cutting takes a while, and a refresh of the excerpt's span landing meanwhile keeps what it
+/// wrote. Media is never indexed, so nothing is indexed again.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn set_media(
+pub async fn set_clip(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-    media: &Value,
+    clip: &Value,
 ) -> QueryResult<()> {
+    let media = jsonb_set::<Nullable<Jsonb>, Array<Text>, _, _, _>(
+        timeline_records::media,
+        vec!["clip"],
+        Some(clip.clone()),
+    );
     diesel::update(timeline_records::table.find(id))
         .set(timeline_records::media.eq(media))
         .execute(connection)
@@ -609,7 +617,9 @@ fn standing_excerpts_of(meeting_id: Uuid) -> meeting_marks::BoxedQuery<'static, 
 }
 
 /// Meeting `meeting_id`'s standing excerpts' records, each with its attributions, in no
-/// particular order. An excerpt's record is its meeting's owner's.
+/// particular order. An excerpt's record is its meeting's owner's. There is no cap: a person may
+/// make any number beside segmenting's own, and each excerpt covers words of the meeting, so the
+/// meeting's length bounds them.
 ///
 /// # Errors
 /// Propagates any database error.

@@ -206,6 +206,11 @@ fn refusal(error: ExcerptError) -> ApiError {
             code: "meeting_excerpt_project",
             message: "An excerpt is on at least one project that exists.".to_owned(),
         },
+        ExcerptError::BlackedOut => ApiError::CodedBadRequest {
+            code: "meeting_excerpt_blacked_out",
+            message: "Every word selected is blacked out. Bring them back into search first."
+                .to_owned(),
+        },
         ExcerptError::Mark(MarkError::Database(error)) | ExcerptError::Database(error) => {
             error.into()
         }

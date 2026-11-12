@@ -182,9 +182,9 @@ impl MeetingResponse {
         correction: Option<&MeetingCorrection>,
         run: Option<&WorkflowRun>,
         run_segments: bool,
-        excerpts: (usize, Vec<Uuid>),
+        excerpt_count: usize,
+        project_ids: Vec<Uuid>,
     ) -> Self {
-        let (excerpt_count, project_ids) = excerpts;
         let processing =
             workflow::processing(meeting.state(), run.map(|run| run.state), run_segments);
         let last_error = run
@@ -193,7 +193,9 @@ impl MeetingResponse {
         Self {
             state: processing.as_str(),
             last_error,
-            // A meeting segmented once keeps its count through every segmenting after.
+            // A meeting read by segmenting, or with excerpts standing, shows how many: one read
+            // again after its review keeps showing its excerpts meanwhile, and one that took none
+            // shows no count until it is read again.
             excerpt_count: (meeting.segments.is_some()
                 || meeting.state() == MeetingState::Done
                 || excerpt_count > 0)
@@ -265,11 +267,17 @@ pub async fn responses(
             let correction = corrections.get(&meeting.id);
             let run = runs.get(&meeting.id.to_string());
             let run_segments = run.is_some_and(|run| segmenting.contains(&run.id));
-            let excerpts = (
-                counts.remove(&meeting.id).unwrap_or(0),
-                projects.remove(&meeting.id).unwrap_or_default(),
-            );
-            MeetingResponse::new(meeting, capture, correction, run, run_segments, excerpts)
+            let excerpt_count = counts.remove(&meeting.id).unwrap_or(0);
+            let project_ids = projects.remove(&meeting.id).unwrap_or_default();
+            MeetingResponse::new(
+                meeting,
+                capture,
+                correction,
+                run,
+                run_segments,
+                excerpt_count,
+                project_ids,
+            )
         })
         .collect())
 }

@@ -17,7 +17,6 @@ import { MergedIntoNotice } from './MergedIntoNotice'
 // Misc
 import { DateText } from '../../../format/DateText'
 import { formatDuration } from '../../../format/durations'
-import { useMeetingExcerptsLoader } from '../../../hooks/useServerData'
 import {
   meetingSourceNameKey,
   meetingStateChipColors,
@@ -35,8 +34,6 @@ type Props = {
 export function MeetingReview(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
   const { meeting } = props
-  // Its excerpts' records, which the lane's projects read and change.
-  useMeetingExcerptsLoader(meeting.id)
   const words = useMeetingWords(meeting.id)
 
   let review = <div className='grid place-items-center py-10'><Spinner /></div>

@@ -612,8 +612,8 @@ fn kept_runs(
 /// The excerpts and black-outs in a meeting's answer that hold up, among `line_count` numbered
 /// lines: runs of lines that were shown (a run reaching past the last line ends there), each
 /// excerpt once and on at least one of the projects in `offered`, at most [`MAX_EXCERPTS`]; each
-/// black-out apart from every excerpt kept and every black-out before it, at most
-/// [`MAX_BLACK_OUTS`]. An excerpt with no title takes `untitled` of its first line, by its place
+/// black-out apart from every excerpt kept, those that overlap or touch joined into one, in the
+/// order they lie, at most [`MAX_BLACK_OUTS`]. An excerpt with no title takes `untitled` of its first line, by its place
 /// from 0. An answer taking nothing reads, as a meeting of small talk.
 ///
 /// # Errors
@@ -654,20 +654,29 @@ pub fn parse_excerpts_answer(
             projects,
         });
     }
-    for candidate in parsed.black_outs {
+    let mut black_outs: Vec<LineRun> = parsed
+        .black_outs
+        .iter()
+        .filter_map(|candidate| line_run(candidate.first_line, candidate.last_line, line_count))
+        .filter(|lines| {
+            !reading
+                .excerpts
+                .iter()
+                .any(|excerpt| excerpt.lines.overlaps(*lines))
+        })
+        .collect();
+    // A stretch is blacked out once: runs that overlap or touch become one, which covers no line
+    // that neither covered, so it still lies outside every excerpt.
+    black_outs.sort_by_key(|lines| lines.first);
+    for lines in black_outs {
+        if let Some(kept) = reading.black_outs.last_mut()
+            && lines.first <= kept.last + 1
+        {
+            kept.last = kept.last.max(lines.last);
+            continue;
+        }
         if reading.black_outs.len() == MAX_BLACK_OUTS {
             break;
-        }
-        let Some(lines) = line_run(candidate.first_line, candidate.last_line, line_count) else {
-            continue;
-        };
-        let covers_an_excerpt = reading
-            .excerpts
-            .iter()
-            .any(|excerpt| excerpt.lines.overlaps(lines));
-        let repeats = reading.black_outs.iter().any(|kept| kept.overlaps(lines));
-        if covers_an_excerpt || repeats {
-            continue;
         }
         reading.black_outs.push(lines);
     }
@@ -1052,10 +1061,27 @@ mod tests {
             ],
             "the same lines twice, a guess too unsure to keep, and a line 0 are dropped"
         );
-        // One over an excerpt, and one over a black-out kept before it, are dropped.
+        // One over an excerpt is dropped, and one over another black-out joins it.
         assert_eq!(
             reading.black_outs,
             vec![LineRun { first: 0, last: 0 }, LineRun { first: 5, last: 6 }]
+        );
+    }
+
+    #[test]
+    fn black_outs_that_overlap_or_touch_are_one() {
+        let answer = "{\"excerpts\": [], \"blackOuts\": [\
+            {\"firstLine\": 3, \"lastLine\": 3}, \
+            {\"firstLine\": 5, \"lastLine\": 6}, \
+            {\"firstLine\": 1, \"lastLine\": 2}, \
+            {\"firstLine\": 2, \"lastLine\": 2}\
+        ]}";
+        let reading = parse_excerpts_answer(answer, 6, &[], numbered).expect("reads");
+
+        assert_eq!(
+            reading.black_outs,
+            vec![LineRun { first: 0, last: 2 }, LineRun { first: 4, last: 5 }],
+            "lines 1 to 3 are one black-out, and lines 5 and 6 another"
         );
     }
 

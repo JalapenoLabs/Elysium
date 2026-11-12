@@ -685,7 +685,7 @@ time. The record's span stays its words', and its clip names the stretch it hold
 Each clip is kept at `meetings/<id>/excerpts/<mark>-<start>-<end>.<ext>`, named by the excerpt and the stretch it
 holds, so a clip is cut once per stretch: an excerpt whose words moved, by an edit or the transcript lined up again, has
 its clip cut again to a path of its own when the meeting is segmented again, and a clip a record still names is never
-overwritten. A clip of a topic segmented before excerpts keeps its path until then. An excerpt a person made has its
+overwritten. A clip kept under any other path keeps it until then. An excerpt a person made has its
 clip cut when the meeting is next segmented (Done reviewing, below), and a meeting in words alone has none.
 
 A clip is cut with `-c copy`: fast and lossless, but it starts at the keyframe nearest its start, a second or two early
@@ -827,7 +827,9 @@ What segmenting takes from a meeting, and what people take or leave as they revi
 - **An excerpt** is a mark of kind `excerpt` over a range of the final transcript's words, and the timeline record
   its projects read, which names its mark (`timeline_records.excerpt_mark_id`). Its projects are its record's
   attributions, so what a person decides about an excerpt is recorded, undoable, and never overridden by Elysia, as for
-  any record (`docs/connectors.md`, The timeline). Excerpts overlap and nest freely.
+  any record (`docs/connectors.md`, The timeline). Excerpts overlap and nest freely. A range whose every word is
+  blacked out reads nothing, so it is no excerpt: taking it into a project is refused (`meeting_excerpt_blacked_out`),
+  and segmenting leaves out an excerpt its answer put there.
 - **A black-out** is a mark of kind `black_out` over words that matter to nobody. Its words still show on the meeting's
   page and still play, and leave everything indexed and everything an agent reads: every excerpt's text, the meeting's
   own document, the quote of a thread over them, and the words Elysia is shown in a thread
@@ -835,7 +837,8 @@ What segmenting takes from a meeting, and what people take or leave as they revi
 - **A person** takes a range into a project (`POST /meetings/{id}/excerpts`, `excerpts::assign`), a new excerpt of
   theirs whose record is on the project as theirs, which wakes its Project Manager; changes an excerpt's projects
   through its record, as any record's (`/timeline/{id}/projects`); blacks a range out (`POST .../black-outs`), which
-  takes in every black-out it overlaps or touches, so growing a black-out is blacking out the larger range; and
+  takes in every black-out it overlaps or touches, and every one those reach in turn, so a stretch is blacked out once
+  and growing a black-out is blacking out the larger range; and
   removes either (`DELETE .../marks/{markId}`). Each is a `marked` or `unmarked` change in the meeting's history with
   Undo: removing an excerpt takes its record off every project, as the person, and out of the index, and its undo puts
   both back; undoing a black-out that took others in gives them back. Elysia, asked in a thread to put a range on a
@@ -875,13 +878,6 @@ Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GE
 streams the clip from storage to the record's owner alone, a range at a time (Playing media, below). Each excerpt is a
 document of the knowledge index, stored with its record: its title, its summary, its words, and the comment threads
 over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records).
-
-**Topics from before.** Every topic a meeting was segmented into before excerpts became an excerpt over its words,
-keeping its record, projects, history, clip, and document (migration
-`2026-11-11-010000-0241_segment_meetings_into_excerpts`): over the standing words that start inside its span, so topics
-cut back to back share no word; a meeting in words alone's over the whole meeting, since its words no longer record the
-lines it was cut by; one over a silence no word starts in, over the word said nearest its start. A topic of a meeting
-with no final transcript keeps its record and anchors no excerpt. Each became Elysia's, as segmenting is.
 
 ## Done reviewing
 
@@ -1101,8 +1097,8 @@ an excerpt's clip for its record's owner.
   `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
   `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
   started, how long it ran, and a link to it at its source, in a new tab. Its review follows, where its excerpts and
-  black-outs are drawn and changed; its excerpts' records load with it (`GET /timeline?meetingId=`), so the lane shows
-  and changes their projects. `?mark=` opens the page at a mark, which is how a project's timeline opens an excerpt,
+  black-outs are drawn and changed; an excerpt opened in the lane reads its record (`GET /timeline/{id}`), so the lane
+  shows and changes its projects, and says so when it cannot. `?mark=` opens the page at a mark, which is how a project's timeline opens an excerpt,
   and `?thread=` at a thread.
   - **Layout** (`MeetingWorkspace`). The transcript, three quarters wide, and a lane beside it: the options box, which
     floats at its top as the page scrolls, the mark selected, then the meeting's changes. Below `lg` the lane is a
