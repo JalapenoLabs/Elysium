@@ -63,6 +63,9 @@ const QUOTE_MAX_CHARACTERS: usize = 300;
 /// What a link reads as in a public repository, where it may say nothing of what it opens.
 const OPEN_IN_ELYSIUM: &str = "Open in Elysium";
 
+/// What a segment of a private meeting reads as, wherever the chain is written.
+const PRIVATE_MEETING: &str = "A private meeting";
+
 /// The web app's paths, as `frontend/src/urls.ts` spells them.
 const KNOWLEDGE_DOCUMENT_PATH: &str = "/knowledge/documents/";
 const ACTION_ITEM_PATH: &str = "/action-items/";
@@ -257,6 +260,12 @@ fn line(link: &Link, targets: &Targets, audience: Audience) -> Option<String> {
                 "- Message to its Project Manager: {}",
                 markdown_link(&text, &url)
             )
+        }
+        // A segment of a private meeting says that a meeting asked, opening with the rest of the
+        // chain on the batch's page for whoever may read it.
+        Link::Record(record) if record.withheld => {
+            let text = said(audience, PRIVATE_MEETING, TITLE_MAX_CHARACTERS);
+            format!("- Meeting: {}", markdown_link(&text, &targets.batch))
         }
         Link::Record(record) => {
             // A record not indexed yet opens with the rest of the chain, on the batch's page.

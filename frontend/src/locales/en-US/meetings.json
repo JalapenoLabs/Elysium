@@ -26,7 +26,9 @@
     "projects": "Projects",
     "started": "Started",
     "duration": "Duration",
-    "excerpts": "Excerpts"
+    "excerpts": "Excerpts",
+    "visibility": "Who reads it",
+    "owner": "Owner"
   },
   "filters": {
     "project": "Project",
@@ -43,7 +45,7 @@
   },
   "page": {
     "missingTitle": "Meeting not found",
-    "missing": "This meeting is gone, or it is someone else's.",
+    "missing": "This meeting is gone, or it is private and not shared with you.",
     "openAtSource": "Open in {{source}}",
     "openRun": "Open its run",
     "approve": "Approve",
@@ -115,6 +117,8 @@
       "assigned": "Taken into {{project}}",
       "loading": "Loading its projects",
       "loadError": "Its projects could not be loaded.",
+      "projects": "Its projects",
+      "unknownProject": "A project",
       "remove": "Remove excerpt",
       "removed": "Excerpt removed"
     },
@@ -245,6 +249,14 @@
         "addedTranscript": "Added a transcript",
         "threadResolved": "Resolved a comment thread",
         "threadReopened": "Reopened a comment thread",
+        "opened": "Opened it to everyone",
+        "madePrivate": "Made it private",
+        "leftToCorrection": "Left who reads it to Elysia’s check",
+        "openedByCorrection": "Opened it to everyone: nothing in it reads as sensitive",
+        "keptPrivateByCorrection": "Kept it private as sensitive",
+        "keptPrivateUndecided": "Kept it private, unable to tell whether it is sensitive",
+        "shared": "Shared it with {{person}}",
+        "unshared": "Stopped sharing it with {{person}}",
         "segmented": "Took its excerpts and black-outs",
         "reviewDone": "Finished reviewing it, so it is read again",
         "changed": "Changed the meeting"
@@ -320,6 +332,34 @@
       "label": "Upload progress",
       "sending": "Sending {{received}} of {{total}}",
       "finishing": "Starting on the meeting"
+    }
+  },
+  "visibility": {
+    "heading": "Who reads it",
+    "unchecked": "Private until checked",
+    "private": "Private",
+    "public": "Everyone",
+    "owner": "{{owner}}’s meeting",
+    "sharedWith": "Shared with",
+    "open": "Open to everyone",
+    "makePrivate": "Make private",
+    "opened": "Meeting opened to everyone",
+    "madePrivate": "Meeting made private",
+    "share": "Share with…",
+    "nobodyToShareWith": "Nobody else to share it with",
+    "shared": "Shared with {{person}}",
+    "stopSharing": "Stop sharing with {{person}}",
+    "stoppedSharing": "Stopped sharing with {{person}}",
+    "alreadySo": "Someone made that change already.",
+    "decisions": {
+      "opened": "Elysia opened it: nothing in it reads as sensitive.",
+      "keptPrivate": "Elysia kept it private as sensitive.",
+      "keptPrivateBecause": "Elysia kept it private: {{why}}",
+      "undecided": "Elysia could not tell whether it is sensitive, so it stays private."
+    },
+    "keptPrivateItem": {
+      "heading": "The meeting kept private",
+      "open": "Open the meeting"
     }
   }
 }

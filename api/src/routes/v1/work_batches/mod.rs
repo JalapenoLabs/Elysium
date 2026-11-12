@@ -30,6 +30,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::models::meeting::Reader;
 use crate::models::work_batch::lineage::Origin;
 use crate::models::work_batch::why;
 use crate::models::work_batch::worker::Wait;
@@ -157,16 +158,18 @@ impl From<BatchEvent> for BatchEventResponse {
     }
 }
 
-/// Batch `batch` with why it exists and its history, as every route here answers it.
+/// Batch `batch` with why it exists, read for `reader`, and its history, as every route here
+/// answers it.
 async fn with_history(
     connection: &mut AsyncPgConnection,
     batch: WorkBatch,
+    reader: Reader,
 ) -> diesel::QueryResult<Value> {
     let history: Vec<BatchEventResponse> = work_batch::history(connection, batch.id)
         .await?
         .into_iter()
         .map(BatchEventResponse::from)
         .collect();
-    let why = why::read(connection, &batch).await?;
+    let why = why::read(connection, &batch, reader).await?;
     Ok(json!({ "batch": BatchResponse::from(batch), "why": why, "history": history }))
 }

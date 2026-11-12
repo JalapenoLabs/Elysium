@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { User } from '../../../api/routes/userRoutes'
+
 // Core
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -30,6 +32,8 @@ type Props = {
   // A form that can be put away, such as a new thread's, has Cancel, which Esc presses too.
   onCancel?: () => void
   focusOnOpen?: boolean
+  // Whether a person may read the meeting, and so be mentioned in it.
+  mayRead: (user: User) => boolean
 }
 
 // A comment being written: its text, and the user ids picked to mention as it was typed. The two
@@ -113,6 +117,7 @@ export function CommentForm(props: Props) {
         ? undefined
         : props.onCancel}
       focusOnOpen={props.focusOnOpen}
+      mayRead={props.mayRead}
     />
     <div className='mt-2 flex justify-end gap-2'>
       {props.onCancel && <Button size='sm' variant='ghost' isDisabled={isPosting} onPress={props.onCancel}>

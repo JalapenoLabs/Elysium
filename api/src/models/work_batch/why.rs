@@ -23,6 +23,11 @@
 //! else, and a meeting segment's document is the meeting at that topic. Something named that is
 //! gone since, a record removed with its connector or a deleted item, is left out.
 //!
+//! A chain is read for a reader. A segment of a meeting they may not read
+//! (`docs/meetings.md`, Who reads a meeting) is withheld ([`Record::withheld`]): the chain still
+//! says a meeting asked for the batch, and nothing of what was said, what the topic or the meeting
+//! is called, or where its document is.
+//!
 //! [`read_many`] reads any number of batches' chains in one pass of queries, so the work queue
 //! shows each row's head ([`Why::head`]) without a query per row.
 
@@ -41,9 +46,11 @@ use crate::database::schema::{
     action_item_links, action_items, findings, knowledge_documents, project_manager_wakes,
     timeline_records, users, work_batch_pull_requests, work_batches,
 };
+use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::{LinkKind, LinkProvider};
 use crate::models::finding::FindingState;
+use crate::models::meeting::{self, Reader};
 
 /// The most of a record's text a chain quotes. Enough for a few lines of a meeting's transcript
 /// or the opening of a mail, which is what tells a person why; the whole of it is a click away,
@@ -110,6 +117,9 @@ pub struct Record {
     pub meeting_title: Option<String>,
     /// Its document in the knowledge base, once it is indexed.
     pub document_id: Option<Uuid>,
+    /// Whether it is a segment of a meeting the reader may not read, whose title, excerpt,
+    /// meeting, and document are then left empty.
+    pub withheld: bool,
 }
 
 /// An issue linked to an action item a batch works on.
@@ -201,30 +211,35 @@ impl Why {
     }
 }
 
-/// Reads why `batch` exists.
+/// Reads why `batch` exists, for `reader`.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn read(connection: &mut AsyncPgConnection, batch: &WorkBatch) -> QueryResult<Why> {
-    let mut read = read_many(connection, &[batch]).await?;
+pub async fn read(
+    connection: &mut AsyncPgConnection,
+    batch: &WorkBatch,
+    reader: Reader,
+) -> QueryResult<Why> {
+    let mut read = read_many(connection, &[batch], reader).await?;
     Ok(read
         .remove(&batch.id)
         .expect("read_many answers every batch it is given"))
 }
 
-/// Reads why each of `batches` exists, by id, in one query per kind of link however many there
-/// are.
+/// Reads why each of `batches` exists, by id, for `reader`, in one query per kind of link however
+/// many there are.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn read_many(
     connection: &mut AsyncPgConnection,
     batches: &[&WorkBatch],
+    reader: Reader,
 ) -> QueryResult<HashMap<Uuid, Why>> {
     let named = Named::of(batches);
     let items = items(connection, &named.items).await?;
     let issues = issues(connection, &named.items).await?;
-    let records = records(connection, &named.records, &named.items).await?;
+    let records = records(connection, &named.records, &named.items, reader).await?;
     let messages = messages(connection, &named.messages).await?;
     let parents = parents(connection, &named.parents).await?;
     let pull_requests = pull_requests(connection, &named.batches).await?;
@@ -391,11 +406,13 @@ struct Records {
     raised: HashMap<Uuid, Vec<Record>>,
 }
 
-/// Every record among `record_ids`, and every record that raised one of `item_ids`, in one read.
+/// Every record among `record_ids`, and every record that raised one of `item_ids`, in one read,
+/// withholding the segments of meetings `reader` may not read.
 async fn records(
     connection: &mut AsyncPgConnection,
     record_ids: &[Uuid],
     item_ids: &[Uuid],
+    reader: Reader,
 ) -> QueryResult<Records> {
     let mut read = Records {
         by_id: HashMap::new(),
@@ -427,8 +444,21 @@ async fn records(
         ))
         .load(connection)
         .await?;
+    let meeting_ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(
+            |(_id, source_kind, _title, _at, _body, metadata, _raised, _document)| {
+                meeting_of(source_kind, metadata)
+            },
+        )
+        .collect();
+    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
     for row in rows {
-        let (record, raised) = record_of(row);
+        // A segment naming no meeting is withheld too, since nobody could be told may read it.
+        let (_id, source_kind, _title, _at, _body, metadata, _raised, _document) = &row;
+        let withheld = source_kind == SEGMENT_SOURCE_KIND
+            && meeting_of(source_kind, metadata).is_none_or(|id| !readable.contains(&id));
+        let (record, raised) = record_of(row, withheld);
         if let Some(item_id) = raised.filter(|item| item_ids.contains(item)) {
             read.raised.entry(item_id).or_default().push(record.clone());
         }
@@ -448,9 +478,34 @@ type RecordRow = (
     Option<Uuid>,
 );
 
-/// A record as a chain shows it, and the item it raised.
-fn record_of(row: RecordRow) -> (Record, Option<Uuid>) {
+/// The meeting a record is a segment of, as its metadata names it; `None` for any other record.
+fn meeting_of(source_kind: &str, metadata: &Value) -> Option<Uuid> {
+    if source_kind != SEGMENT_SOURCE_KIND {
+        return None;
+    }
+    metadata
+        .get("meetingId")
+        .and_then(Value::as_str)
+        .and_then(|meeting_id| meeting_id.parse().ok())
+}
+
+/// A record as a chain shows it, and the item it raised; `withheld`, a segment of a meeting its
+/// reader may not read, it says that a meeting asked and nothing more.
+fn record_of(row: RecordRow, withheld: bool) -> (Record, Option<Uuid>) {
     let (id, source_kind, title, occurred_at, body, metadata, raised, document_id) = row;
+    if withheld {
+        let record = Record {
+            id,
+            source_kind,
+            title: String::new(),
+            occurred_at,
+            excerpt: String::new(),
+            meeting_title: None,
+            document_id: None,
+            withheld,
+        };
+        return (record, raised);
+    }
     let body = body.trim();
     let mut excerpt: String = body.chars().take(EXCERPT_MAX_CHARACTERS).collect();
     // The excerpt is the body's start, so being shorter in bytes means it was cut.
@@ -469,6 +524,7 @@ fn record_of(row: RecordRow) -> (Record, Option<Uuid>) {
         excerpt,
         meeting_title,
         document_id,
+        withheld,
     };
     (record, raised)
 }

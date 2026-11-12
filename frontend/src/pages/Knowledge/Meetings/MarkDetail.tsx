@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MeetingWord } from '../../../api/routes/meetingRoutes'
+import type { MeetingExcerpt, MeetingWord } from '../../../api/routes/meetingRoutes'
 import type { ThreadActions } from './CommentThread'
 import type { HistoryRow } from './meetingReviewPresentation'
 import type { PlacedMark } from './meetingTranscript'
@@ -11,13 +11,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { useTimelineRecordLoader } from '../../../hooks/useServerData'
+import { useProjectsLoader, useTimelineRecordLoader } from '../../../hooks/useServerData'
 import { useAppSelector } from '../../../store/hooks'
+import { selectProjectEntities } from '../../../store/projectsSlice'
 import { selectTimelineRecordById } from '../../../store/timelineRecordsSlice'
 import { selectUserEntities } from '../../../store/usersSlice'
 
 // User interface
-import { Button, Spinner } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { LuEye, LuTrash2, LuUndo2 } from 'react-icons/lu'
 import { RecordProjects } from '../../Projects/RecordProjects'
 import { CommentThread } from './CommentThread'
@@ -41,6 +42,25 @@ type Props = {
   // A comment mark's thread, and what can be done in it; null where the meeting takes no change.
   thread: Thread | null
   threadActions: ThreadActions | null
+  // Whether the reader owns the meeting, and so its excerpts' records, which only they change.
+  ownsRecords: boolean
+}
+
+// The projects an excerpt is on, as the meeting's words name them, for a reader whose record it is
+// not: a record is its owner's alone (docs/knowledge.md, Who sees what), so they read the projects
+// and change none.
+function ExcerptProjectNames({ excerpt }: { excerpt: MeetingExcerpt }) {
+  const { t } = useTranslation('meetings')
+  useProjectsLoader()
+  const projects = useAppSelector(selectProjectEntities)
+
+  return <ul aria-label={t('review.excerpts.projects')} className='flex flex-wrap gap-1.5'>{
+    excerpt.projectIds.map((projectId) => <li key={projectId}>
+      <Chip size='sm' variant='soft'>
+        <Chip.Label>{projects[projectId]?.name ?? t('review.excerpts.unknownProject')}</Chip.Label>
+      </Chip>
+    </li>)
+  }</ul>
 }
 
 // The projects an excerpt is on, from its record, read as the excerpt opens, which change there as
@@ -121,7 +141,9 @@ export function MarkDetail(props: Props) {
       }</ul>
     </div>}
 
-    {mark.excerpt && <ExcerptProjects recordId={mark.excerpt.recordId} />}
+    {mark.excerpt && (props.ownsRecords
+      ? <ExcerptProjects recordId={mark.excerpt.recordId} />
+      : <ExcerptProjectNames excerpt={mark.excerpt} />)}
     {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
     {editRow?.before && <p className='text-xs opacity-70'>{t('review.detail.replaced', { before: editRow.before })}</p>}

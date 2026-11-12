@@ -52,7 +52,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId, conversationId }` | Something was ingested; never its content, see `docs/connectors.md`. `conversationId` names the conversation a message joined (`docs/engine.md`, Conversations) |
 | `timelineRecord.changed` | `{ id, createdBy }`      | What a record is attributed to changed: its owner's change or undo, or segmenting read its conversation again; its owner loads it by id |
 | `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |
-| `meeting.changed`        | `{ id, state, createdBy, entryId }` | A meeting was read, its processing moved on, or its transcript, threads, or history changed, `entryId` naming the history entry of a person's change from the page; never its title, transcript, or comments, see `docs/meetings.md` |
+| `meeting.changed`        | `{ id, state, entryId }` | A meeting was read, its processing moved on, or its transcript, threads, history, or who reads it changed, `entryId` naming the history entry of a person's change from the page; never its title, owner, transcript, comments, or who reads it. Every client loads it by id, and one that may not read it is answered `404` and drops it, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |

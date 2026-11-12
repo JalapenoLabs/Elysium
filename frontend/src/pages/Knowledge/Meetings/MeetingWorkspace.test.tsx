@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { meLoaded } from '../../../store/authSlice'
 import { projectsLoaded } from '../../../store/projectsSlice'
 import { usersLoaded } from '../../../store/usersSlice'
 
@@ -45,7 +46,7 @@ import {
 } from '../../../api/routes/meetingRoutes'
 import { getTimelineRecord } from '../../../api/routes/timelineRoutes'
 import { ELYSIA_USER_ID } from '../../../constants'
-import { makeMeeting, makeProject } from '../../../testFixtures'
+import { makeMeeting, makeProject, makeUser } from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { toast } from '../../../toast/toast'
 
@@ -215,9 +216,20 @@ function renderWorkspace(
   context: Context,
   shown: MeetingWords = transcript,
   address = '/',
-  { projects = [], meeting = makeMeeting({ id: 'meeting' }) }: { projects?: Project[], meeting?: Meeting } = {},
+  {
+    projects = [],
+    meeting = makeMeeting({ id: 'meeting' }),
+    readerId = meeting.ownerId,
+  }: { projects?: Project[], meeting?: Meeting, readerId?: string } = {},
 ) {
   const store = createAppStore()
+  // The reader is the meeting's owner unless a test names another.
+  store.dispatch(meLoaded({
+    user: makeUser({ id: readerId }),
+    hasSecondFactor: false,
+    mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
+  }))
   store.dispatch(usersLoaded(people))
   store.dispatch(projectsLoaded(projects))
   let show: (next: MeetingWords) => void = () => {}
@@ -754,6 +766,26 @@ describe('MeetingWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove excerpt' }))
     await waitFor(() => expect(removeMeetingMark).toHaveBeenCalledWith('meeting', 'launch'))
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
+  })
+
+  it<Context>('shows a reader whose record it is not the projects an excerpt is on, reading no record', (context) => {
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+      readerId: 'another-member',
+    })
+
+    fireEvent.click(wordPiece('Launch'))
+
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(within(within(detail).getByRole('list', { name: 'Its projects' })).getByText('Launch site')).toBeTruthy()
+    expect(getTimelineRecord).not.toHaveBeenCalled()
   })
 
   it<Context>('names an excerpt\'s bar by its record\'s projects once its lane holds the record', async (context) => {

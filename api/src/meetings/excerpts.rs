@@ -888,6 +888,8 @@ pub fn transcript_document(
         url: None,
         occurred_at: meeting.started_at,
         created_by: meeting.created_by,
+        // Its readers alone find it (`docs/meetings.md`, Who reads a meeting).
+        access_meeting_id: Some(meeting.id),
         passages,
     })
 }
@@ -1440,6 +1442,8 @@ mod tests {
             updated_at: Utc::now(),
             hold_for_approval: false,
             merged_into: None,
+            visibility: "public".to_owned(),
+            visibility_item_id: None,
         };
         let document = transcript_document(&meeting, &text, &[]).expect("a document");
         let indexed = document.passages.join("\n");
@@ -1865,7 +1869,12 @@ mod tests {
         .await
         .expect("records")
         .expect("a new pair");
-        duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
+        // The test person owns both, as only a person's own meetings are compared.
+        let owner = crate::models::meeting::Reader {
+            id: TEST_PERSON_ID,
+            reach: crate::models::meeting::Reach::Public,
+        };
+        duplicates::merge(&mut connection, pair.id, owner, Utc::now())
             .await
             .expect("merges");
         assert!(

@@ -75,6 +75,8 @@ fn background_of(doc: &CompanyDocResponse) -> String {
     background(Background {
         title: "Weekly sync",
         participants: &["ada@example.com".to_owned()],
+        owner: "Ada Lovelace",
+        people: &[],
         transcription: &[entry("Sheriff", "Sharath", 2)],
         doc,
         speakers: &["Grace Hopper".to_owned()],
@@ -734,4 +736,96 @@ fn the_corrected_copy_takes_each_flag_inside_one_of_the_first_captures_lines() {
         ]
     );
     assert_ne!(transcript_hash(&copy), transcript_hash(&base.lines));
+}
+
+fn colleague(name: &str, email: &str) -> Person {
+    Person {
+        id: Uuid::now_v7(),
+        name: name.to_owned(),
+        email: Some(email.to_owned()),
+    }
+}
+
+#[test]
+fn the_people_who_took_part_are_offered_first_by_their_email_or_name() {
+    let jordan = colleague("Jordan Lee", "jordan@example.com");
+    let grace = colleague("Grace Hopper", "grace@example.com");
+    let ada = colleague("Ada Lovelace", "ada@example.com");
+    let ordered = people_in_order(
+        vec![jordan.clone(), grace.clone(), ada.clone()],
+        &["ADA@example.com".to_owned(), "Grace Hopper".to_owned()],
+    );
+    let names: Vec<&str> = ordered.iter().map(|person| person.name.as_str()).collect();
+    assert_eq!(names, ["Grace Hopper", "Ada Lovelace", "Jordan Lee"]);
+}
+
+#[test]
+fn the_background_names_the_owner_and_who_a_private_meeting_can_be_shared_with() {
+    let grace = colleague("Grace Hopper", "grace@example.com");
+    let doc = CompanyDocResponse {
+        sections: Vec::new(),
+    };
+    let text = background(Background {
+        title: "One to one",
+        participants: &[],
+        owner: "Ada Lovelace",
+        people: std::slice::from_ref(&grace),
+        transcription: &[],
+        doc: &doc,
+        speakers: &[],
+    });
+    assert!(text.contains("The meeting belongs to Ada Lovelace"));
+    assert!(text.contains(&format!("{}: Grace Hopper <grace@example.com>", grace.id)));
+}
+
+#[test]
+fn a_judgment_opens_a_meeting_only_when_it_says_so_and_shares_only_with_whom_it_was_offered() {
+    let grace = colleague("Grace Hopper", "grace@example.com");
+    let offered = std::slice::from_ref(&grace);
+    let stranger = Uuid::now_v7();
+
+    let open =
+        r#"{"flags": [], "visibility": {"private": false, "shareWith": [], "why": "A standup."}}"#;
+    assert_eq!(parse_judgment(open, offered), Judgment::Open);
+
+    let private = format!(
+        r#"Here it is: {{"flags": [], "visibility": {{"private": true, "shareWith":
+        ["{grace}", "{grace}", "{stranger}", 7], "why": "  A one-to-one\nabout goals.  "}}}}"#,
+        grace = grace.id,
+    );
+    assert_eq!(
+        parse_judgment(&private, offered),
+        Judgment::Private {
+            share_with: vec![grace.id],
+            why: Some("A one-to-one about goals.".to_owned()),
+        }
+    );
+
+    let long_why = format!(
+        r#"{{"visibility": {{"private": true, "why": "{}"}}}}"#,
+        "x".repeat(500)
+    );
+    let Judgment::Private { why, share_with } = parse_judgment(&long_why, offered) else {
+        panic!("a private judgment");
+    };
+    assert!(share_with.is_empty());
+    assert_eq!(
+        why.expect("a reason").chars().count(),
+        crate::meetings::visibility::WHY_MAX_CHARACTERS
+    );
+
+    // Anything that is no judgment keeps the meeting private.
+    for unreadable in [
+        "no JSON at all",
+        r#"{"flags": []}"#,
+        r#"{"flags": [], "visibility": {"shareWith": []}}"#,
+        r#"{"flags": [], "visibility": {"private": "no"}}"#,
+        r#"{"flags": [], "visibility": "public"}"#,
+    ] {
+        assert_eq!(
+            parse_judgment(unreadable, offered),
+            Judgment::Undecided,
+            "{unreadable}"
+        );
+    }
 }

@@ -2,6 +2,9 @@
 
 import type { WorkBatchLink } from '../../api/routes/workQueueRoutes'
 
+// Core
+import { useTranslation } from 'react-i18next'
+
 // User interface
 import { Link } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
@@ -16,8 +19,13 @@ type Props = {
 }
 
 // One link of a batch's chain by its text, opening where it lives, an issue and a pull request
-// in a new tab; plain text for a record the knowledge base has not indexed yet.
+// in a new tab; plain text for a record the knowledge base has not indexed yet, and for a segment
+// of a meeting the reader may not read, named as a private meeting alone.
 export function ChainLinkTitle(props: Props) {
+  const { t } = useTranslation('workQueue')
+  if (props.link.kind === 'record' && props.link.withheld) {
+    return <span className='line-clamp-2 italic'>{t('batch.why.privateMeeting')}</span>
+  }
   const target = chainLinkTarget(props.link, props.projectId)
   const text = chainLinkText(props.link)
   if (!target) {

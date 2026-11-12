@@ -35,6 +35,8 @@ type Props = {
   onEscape?: () => void
   // Focuses the field as it opens, for a composer the person just asked for.
   focusOnOpen?: boolean
+  // Whether a person may read the meeting, and so be mentioned in it.
+  mayRead: (user: User) => boolean
 }
 
 // A comment's text area (docs/meeting-review.md, Comments): typing `@` offers the people who can
@@ -56,7 +58,7 @@ export function MentionTextArea(props: Props) {
     ? null
     : mentionAt(props.value, caret)
   const candidates = typing
-    ? mentionCandidates(users, typing.query)
+    ? mentionCandidates(users, typing.query, props.mayRead)
     : []
   const isOpen = Boolean(typing)
   const active = candidates[Math.min(highlighted, candidates.length - 1)]

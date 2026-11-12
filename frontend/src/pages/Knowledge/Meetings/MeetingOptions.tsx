@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 import { Label, Switch, ToggleButton, ToggleButtonGroup } from '@heroui/react'
 import { MeetingActions } from './MeetingActions'
 import { MeetingCaptures } from './MeetingCaptures'
+import { MeetingVisibility } from './MeetingVisibility'
 
 // Misc
 import { formatDuration, formatMediaPosition } from '../../../format/durations'
@@ -33,8 +34,10 @@ type Props = {
   span: RangeSummary | null
   momentMs: number | null
   // Resolves whether the capture moved.
-  onMoveCapture: (captureId: string, offsetMs: number) => Promise<boolean>
-  onSplitCapture: (captureId: string) => Promise<void>
+  // Null for anyone but the meeting's owner, who alone moves a capture.
+  onMoveCapture: ((captureId: string, offsetMs: number) => Promise<boolean>) | null
+  // Null for anyone but its owner and admins, who alone split a capture out.
+  onSplitCapture: ((captureId: string) => Promise<void>) | null
 }
 
 // The options box at the top of a meeting's lane (docs/meeting-review.md, The meeting's page):
@@ -117,6 +120,8 @@ export function MeetingOptions(props: Props) {
       <p className='compact text-xs font-semibold uppercase opacity-60'>{t('review.options.selected')}</p>
       <p className='text-sm'>{selected}</p>
     </div>}
+
+    <MeetingVisibility meeting={props.meeting} />
 
     {Boolean(props.captures.length) && <MeetingCaptures
       captures={props.captures}
