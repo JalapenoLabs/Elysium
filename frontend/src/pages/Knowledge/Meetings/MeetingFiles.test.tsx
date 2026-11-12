@@ -97,7 +97,8 @@ describe('MeetingFiles', () => {
 
     expect(screen.getAllByText(/An admin chooses one in Settings, Storage, Attachments/).length)
       .toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: 'Attach files' }).hasAttribute('disabled')).toBe(true)
+    // The disabled button sits in a focusable trigger that says why, so it is the native one checked.
+    expect(screen.getByText('Attach files').closest('button')?.hasAttribute('disabled')).toBe(true)
     fireEvent.drop(screen.getByRole('region', { name: 'Files and frames' }), {
       dataTransfer: { files: [ new File([ 'x' ], 'x.txt') ], types: [ 'Files' ]},
     })
