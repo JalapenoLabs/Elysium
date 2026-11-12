@@ -34,6 +34,7 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod access;
 pub mod align;
 pub mod alignment;
 pub mod clock;
@@ -54,6 +55,7 @@ pub mod segmentation;
 pub mod source;
 pub mod sources;
 pub mod transcribe;
+pub mod visibility;
 pub mod workflow;
 
 #[cfg(test)]
@@ -573,7 +575,6 @@ impl Meetings {
         self.inner.events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
             state: changed.state,
-            created_by: changed.created_by,
             entry_id: None,
         });
     }

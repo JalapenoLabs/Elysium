@@ -75,6 +75,8 @@ fn background_of(doc: &CompanyDocResponse) -> String {
     background(Background {
         title: "Weekly sync",
         participants: &["ada@example.com".to_owned()],
+        owner: "Ada Lovelace",
+        people: &[],
         transcription: &[entry("Sheriff", "Sharath", 2)],
         doc,
         speakers: &["Grace Hopper".to_owned()],

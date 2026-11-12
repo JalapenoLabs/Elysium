@@ -108,8 +108,29 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
         occurred_at: record.occurred_at,
         // Whose timeline it is on: whose connector read it, or who sent it.
         created_by: record.created_by,
+        meeting_id: meeting_of(record),
         passages,
     })
+}
+
+/// The meeting `record` is a segment of, as its metadata names it, whose readers alone find its
+/// document (`docs/knowledge.md`, Who sees what); `None` for every other record.
+fn meeting_of(record: &TimelineRecord) -> Option<Uuid> {
+    if record.source_kind != SEGMENT_SOURCE_KIND {
+        return None;
+    }
+    let meeting_id = record.metadata["meetingId"]
+        .as_str()
+        .and_then(|meeting_id| meeting_id.parse().ok());
+    if meeting_id.is_none() {
+        event!(
+            name: "knowledge.records.meeting_unnamed",
+            Level::WARN,
+            timeline_record.id = %record.id,
+            "a meeting segment names no meeting, so every member finds it",
+        );
+    }
+    meeting_id
 }
 
 /// What a record is one version of, for a kind recorded once per version.

@@ -120,11 +120,12 @@ impl Workspace {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let caller = caller(&context)?;
-        if let Err(refusal) = MemberUser::check(caller.user) {
-            return answer(Err(refusal));
-        }
+        let member = match MemberUser::check(caller.user) {
+            Ok(member) => member,
+            Err(refusal) => return answer(Err(refusal)),
+        };
         let (id, span) = arguments.into_parts();
-        let opened = knowledge::open(&self.state.database, id, &span).await;
+        let opened = knowledge::open(&self.state.database, member.id(), id, &span).await;
         answer(opened.map(|document| json!({ "document": document })))
     }
 
@@ -135,10 +136,11 @@ impl Workspace {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let caller = caller(&context)?;
-        if let Err(refusal) = MemberUser::check(caller.user) {
-            return answer(Err(refusal));
-        }
-        let listed = knowledge::list_meetings(&self.state.database, request).await;
+        let member = match MemberUser::check(caller.user) {
+            Ok(member) => member,
+            Err(refusal) => return answer(Err(refusal)),
+        };
+        let listed = knowledge::list_meetings(&self.state.database, member.id(), request).await;
         answer(listed.map(|meetings| json!({ "meetings": meetings })))
     }
 

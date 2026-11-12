@@ -473,7 +473,6 @@ impl Announcement {
         events.publish(&ServerEvent::MeetingChanged {
             id: meeting.id,
             state: meeting.state.clone(),
-            created_by: meeting.created_by,
             entry_id,
         });
         if !self.raised.is_empty()
@@ -748,15 +747,11 @@ async fn tell(
     Ok(raised)
 }
 
-/// The inbox item telling `person` that `author` did something in a thread on `meeting`. It names
-/// the meeting and nothing written in the thread, since items are the whole workspace's.
+/// The inbox item telling `person` that `author` did something in a thread on `meeting`. Items are
+/// the whole workspace's, so it names the meeting only while it is public
+/// (`Meeting::public_title`), and nothing written in the thread.
 fn thread_item(meeting: &Meeting, author: &str, person: &str, telling: Telling) -> NewActionItem {
-    let meeting_title = meeting.title.trim();
-    let meeting_title = if meeting_title.is_empty() {
-        "a meeting"
-    } else {
-        meeting_title
-    };
+    let meeting_title = meeting.public_title().unwrap_or("a meeting");
     let title = match telling {
         Telling::Mentioned => format!("{author} mentioned {person} on {meeting_title}"),
         Telling::Replied => format!("{author} replied in a thread on {meeting_title}"),

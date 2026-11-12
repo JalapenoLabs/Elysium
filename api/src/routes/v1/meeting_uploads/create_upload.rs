@@ -21,10 +21,12 @@ use super::UploadResponse;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meeting_uploads::{FileKind, PART_BYTES, upload_name};
+use crate::meetings::access::Need;
 use crate::meetings::workflow;
 use crate::models::meeting_upload::{self, NewMeetingUpload, NewUploadFile};
 use crate::models::workflow_run::{WorkflowRun, WorkflowRunState};
-use crate::models::{meeting, storage_location};
+use crate::models::storage_location;
+use crate::routes::v1::meetings;
 use crate::state::AppState;
 
 /// The longest a meeting's title may be, as `meetings.title` allows.
@@ -84,7 +86,8 @@ pub async fn handle(
     if let Some(meeting_id) = request.meeting_id {
         // Its own, not merged away, and done with its run, as a capture is only added once it is
         // (`finish_upload`).
-        let found = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+        let (found, _access) =
+            meetings::open(&mut connection, meeting_id, &current, Need::Own).await?;
         if found.merged_into.is_some() {
             return Err(MEETING_MERGED);
         }

@@ -8,20 +8,22 @@
 //! metadata (`meetingId`, `meetingTitle`, `meetingSource`), so a reader finds a meeting by when
 //! it was and opens its topics one by one, each a citation like any other.
 //!
-//! The `meetings` row itself (its transcript, recording, participants, and processing) stays its
-//! owner's, and nothing here reads it: what a member may read is what the index holds
+//! The `meetings` row itself (its transcript, recording, participants, and processing) is read on
+//! the meeting's own page, and nothing here reads it: what a reader finds here is what the index
+//! holds for them, every meeting's topics but those of a private meeting they may not read
 //! (`docs/knowledge.md`, Who sees what). Two people whose sources both recorded one meeting have
 //! a meeting each, segmented apart, so both are listed.
 
 use chrono::{DateTime, Utc};
 use diesel::QueryableByName;
 use diesel::result::QueryResult;
-use diesel::sql_types::{BigInt, Nullable, Text, Timestamptz, Uuid as SqlUuid};
+use diesel::sql_types::{Array, BigInt, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::models::knowledge_document::{Citation, Person};
+use crate::models::meeting::{self, Reader};
 
 /// What a listing narrows to. Every filter narrows, and none is access control.
 #[derive(Debug, Clone, Default)]
@@ -79,9 +81,10 @@ struct TopicRow {
     person_name: String,
 }
 
-/// Every meeting topic in the index, then the newest `$5` meetings under the filters (`$1` the
-/// person, `$2` and `$3` the period of its start, `$4` the project), then their topics in order.
-/// Topics are ordered by when each began, which is the order the segmenting gave them.
+/// Every meeting topic in the index but those of the meetings `$6` names, which the reader may not
+/// read, then the newest `$5` meetings under the filters (`$1` the person, `$2` and `$3` the period
+/// of its start, `$4` the project), then their topics in order. Topics are ordered by when each
+/// began, which is the order the segmenting gave them.
 const MEETINGS: &str = "
     WITH topics AS (
         SELECT documents.id AS document_id, documents.source, documents.title, documents.url,
@@ -100,6 +103,7 @@ const MEETINGS: &str = "
         WHERE documents.source = 'meeting'
             AND records.metadata->>'meetingId' IS NOT NULL
             AND ($1::uuid IS NULL OR documents.created_by = $1::uuid)
+            AND (documents.meeting_id IS NULL OR documents.meeting_id <> ALL($6::uuid[]))
     ),
     meetings AS (
         SELECT meeting_key, min(occurred_at) AS started_at
@@ -119,8 +123,8 @@ const MEETINGS: &str = "
     ORDER BY meetings.started_at DESC, meetings.meeting_key DESC, topics.occurred_at,
         topics.document_id";
 
-/// The newest `limit` meetings in the index under `filters`, newest first, each with its topics
-/// in order.
+/// The newest `limit` meetings in the index under `filters` that `reader` may read, newest first,
+/// each with its topics in order.
 ///
 /// It answers any person's meetings: callers check that whoever asks may read the knowledge base
 /// (`docs/knowledge.md`, Who sees what).
@@ -130,14 +134,17 @@ const MEETINGS: &str = "
 pub async fn list(
     connection: &mut AsyncPgConnection,
     filters: &MeetingFilters,
+    reader: Reader,
     limit: i64,
 ) -> QueryResult<Vec<MeetingView>> {
+    let hidden = meeting::hidden_from(connection, reader).await?;
     let rows: Vec<TopicRow> = diesel::sql_query(MEETINGS)
         .bind::<Nullable<SqlUuid>, _>(filters.person_id)
         .bind::<Nullable<Timestamptz>, _>(filters.started_from)
         .bind::<Nullable<Timestamptz>, _>(filters.started_before)
         .bind::<Nullable<SqlUuid>, _>(filters.project_id)
         .bind::<BigInt, _>(limit)
+        .bind::<Array<SqlUuid>, _>(&hidden)
         .load(connection)
         .await?;
     Ok(gather(rows))

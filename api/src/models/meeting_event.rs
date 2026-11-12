@@ -56,10 +56,18 @@ pub enum EventKind {
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
     ThreadReopened,
+    /// Who reads it changed: `{ before, after }`, each a `models::meeting::Visibility`, and, when
+    /// its correction decided, `why` in a sentence and the people it shared it with
+    /// (`sharedWith`).
+    VisibilityChanged,
+    /// It was shared with a person: `{ personId }`.
+    Shared,
+    /// It stopped being shared with a person: `{ personId }`.
+    Unshared,
 }
 
 impl EventKind {
-    const ALL: [Self; 13] = [
+    const ALL: [Self; 16] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -73,6 +81,9 @@ impl EventKind {
         Self::CaptureAdded,
         Self::ThreadResolved,
         Self::ThreadReopened,
+        Self::VisibilityChanged,
+        Self::Shared,
+        Self::Unshared,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -90,6 +101,9 @@ impl EventKind {
             Self::CaptureAdded => "capture_added",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
+            Self::VisibilityChanged => "visibility_changed",
+            Self::Shared => "shared",
+            Self::Unshared => "unshared",
         }
     }
 
@@ -220,6 +234,30 @@ pub async fn find(
         .select(MeetingEvent::as_select())
         .first(connection)
         .await
+}
+
+/// The newest entry of kind `kind` in the history of each of `meeting_ids`, read in one query. A
+/// meeting with none is absent.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn newest_of_kind(
+    connection: &mut AsyncPgConnection,
+    meeting_ids: &[Uuid],
+    kind: EventKind,
+) -> QueryResult<std::collections::HashMap<Uuid, MeetingEvent>> {
+    let newest: Vec<MeetingEvent> = meeting_events::table
+        .filter(meeting_events::meeting_id.eq_any(meeting_ids))
+        .filter(meeting_events::kind.eq(kind.as_str()))
+        .distinct_on(meeting_events::meeting_id)
+        .order((meeting_events::meeting_id, meeting_events::id.desc()))
+        .select(MeetingEvent::as_select())
+        .load(connection)
+        .await?;
+    Ok(newest
+        .into_iter()
+        .map(|entry| (entry.meeting_id, entry))
+        .collect())
 }
 
 /// Meeting `meeting_id`'s history, oldest first.

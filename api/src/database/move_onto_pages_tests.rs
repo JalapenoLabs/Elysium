@@ -24,12 +24,19 @@ use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{self, Section};
 use crate::models::knowledge_document::{self, Origin, content_sha256};
 use crate::models::learning::{self, LearningContent, LearningError};
+use crate::models::meeting::{Reach, Reader};
 use crate::models::page::{
     self, COMPANY_PAGE_ID, LEARNINGS_PAGE_ID, PageContent, PageError, Placement, Provenance,
 };
 use crate::models::page_suggestion::{self, SuggestionError, SuggestionState};
 use crate::models::user::{CODING_AGENT_USER_ID, SYSTEM_USER_ID};
 use crate::test_support::{TEST_PERSON_ID, empty_database};
+
+/// A reader no meeting is hidden from: these documents are pages, which every member reads.
+const EVERY_MEETING: Reader = Reader {
+    id: SYSTEM_USER_ID,
+    reach: Reach::Every,
+};
 
 /// The migration under test.
 const MOVE: &str = "2026-11-06-120000-0000_move_learnings_and_company_doc_onto_pages";
@@ -758,7 +765,7 @@ async fn no_passage_is_embedded_again_by_the_move_or_by_indexing_after_it() {
         .expect("indexed")
         .parse()
         .expect("a uuid");
-    let opened = knowledge_document::get(&mut connection, id)
+    let opened = knowledge_document::get(&mut connection, id, EVERY_MEETING)
         .await
         .expect("reads")
         .expect("found");
@@ -779,7 +786,7 @@ async fn no_passage_is_embedded_again_by_the_move_or_by_indexing_after_it() {
         .expect("indexed")
         .parse()
         .expect("a uuid");
-    let opened = knowledge_document::get(&mut connection, id)
+    let opened = knowledge_document::get(&mut connection, id, EVERY_MEETING)
         .await
         .expect("reads")
         .expect("found");

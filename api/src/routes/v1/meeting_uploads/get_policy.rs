@@ -22,7 +22,9 @@ use crate::auth::CurrentUser;
 use crate::connectors::kinds::{self, Provides};
 use crate::errors::ApiError;
 use crate::meeting_uploads::{FileKind, PART_BYTES, accepted_extensions};
-use crate::models::{connector, meeting, meeting_capture};
+use crate::meetings::access::Need;
+use crate::models::{connector, meeting_capture};
+use crate::routes::v1::meetings;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -61,7 +63,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let default_storage_location_id =
-        default_location(&mut connection, current.id(), query.meeting_id).await?;
+        default_location(&mut connection, &current, query.meeting_id).await?;
     let policy = PolicyResponse {
         part_bytes: PART_BYTES,
         recording: FilePolicy {
@@ -77,14 +79,16 @@ pub async fn handle(
     Ok(Json(json!({ "policy": policy })))
 }
 
-/// Where `owner` already keeps meetings: see the module's docs.
+/// Where `current` already keeps meetings: see the module's docs. A capture is added only to a
+/// meeting of their own (`crate::meetings::access`).
 async fn default_location(
     connection: &mut AsyncPgConnection,
-    owner: Uuid,
+    current: &CurrentUser,
     meeting_id: Option<Uuid>,
 ) -> Result<Option<Uuid>, ApiError> {
+    let owner = current.id();
     if let Some(meeting_id) = meeting_id {
-        let found = meeting::find_owned(connection, meeting_id, owner).await?;
+        let (found, _access) = meetings::open(connection, meeting_id, current, Need::Own).await?;
         let first = meeting_capture::first_of(connection, found.id).await?;
         if let Some(location) = first.storage_location_id {
             return Ok(Some(location));

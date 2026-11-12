@@ -21,6 +21,8 @@ use crate::auth::MemberUser;
 use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::knowledge_document::{self, DocumentView};
+use crate::models::meeting::Reader;
+use crate::models::user;
 use crate::state::AppState;
 
 /// Which of a document's passages to answer: every one, or those between two positions.
@@ -79,32 +81,40 @@ impl DocumentArguments {
 
 pub async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    member: MemberUser,
     path: Result<Path<Uuid>, PathRejection>,
     span: Result<Query<PassageSpan>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
     let Query(span) = span?;
-    let document = open(&state.database, id, &span).await?;
+    let document = open(&state.database, member.id(), id, &span).await?;
     Ok(Json(json!({ "document": document })))
 }
 
-/// The document `id`, with the passages `span` names, in order.
+/// The document `id`, with the passages `span` names, in order, as `reader` may read it.
 ///
-/// It answers any document: callers check that whoever asks may read the knowledge base
-/// (`docs/knowledge.md`, Who sees what). `passageCount` still counts every passage, so a reader
-/// of a span knows how much more there is.
+/// It answers any document but a segment of a private meeting `reader` may not read, which is not
+/// found: callers check that whoever asks may read the knowledge base (`docs/knowledge.md`, Who
+/// sees what). `passageCount` still counts every passage, so a reader of a span knows how much
+/// more there is.
 ///
 /// # Errors
 /// [`ApiError::Validation`] for a span that ends before it starts, [`ApiError::NotFound`] when
-/// the index holds no such document, and an internal error when the database does not answer.
-pub async fn open(database: &Pool, id: Uuid, span: &PassageSpan) -> Result<DocumentView, ApiError> {
+/// the index holds no such document for them, and an internal error when the database does not
+/// answer.
+pub async fn open(
+    database: &Pool,
+    reader: Uuid,
+    id: Uuid,
+    span: &PassageSpan,
+) -> Result<DocumentView, ApiError> {
     span.validate()?;
     let mut connection = database
         .get()
         .await
         .context("no database connection available")?;
-    let mut document = knowledge_document::get(&mut connection, id)
+    let reader = Reader::of(&user::find(&mut connection, reader).await?);
+    let mut document = knowledge_document::get(&mut connection, id, reader)
         .await?
         .ok_or(ApiError::NotFound)?;
     document

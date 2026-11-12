@@ -790,7 +790,6 @@ impl SegmentMeeting {
         self.inner.events.publish(&ServerEvent::MeetingChanged {
             id: current.id,
             state: MeetingState::Done.as_str().to_owned(),
-            created_by: current.created_by,
             entry_id: None,
         });
     }
@@ -799,7 +798,6 @@ impl SegmentMeeting {
         self.inner.events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
             state: changed.state.clone(),
-            created_by: changed.created_by,
             entry_id: None,
         });
     }
@@ -1315,6 +1313,8 @@ mod tests {
             updated_at: Utc::now(),
             hold_for_approval: false,
             merged_into: None,
+            visibility: "public".to_owned(),
+            visibility_item_id: None,
         }
     }
 

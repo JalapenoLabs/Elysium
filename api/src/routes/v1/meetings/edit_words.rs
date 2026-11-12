@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/meetings/{id}/edits`: the signed-in person replaces a range of one of their
-//! meetings' final transcript with what they typed (`docs/meetings.md`, The final transcript).
+//! `POST /api/v1/meetings/{id}/edits`: the signed-in person replaces a range of a meeting's final
+//! transcript with what they typed (`docs/meetings.md`, The final transcript). Any company member
+//! who may read the meeting edits it; a guest reads only.
 //!
 //! It applies at once and is in the meeting's history, so the page offers Undo
 //! (`history/{entryId}/undo`) rather than a Save. It answers the history entry and what it did to
@@ -9,7 +10,8 @@
 //! fixes a misheard name or term also teaches the Transcription doc, in the same transaction
 //! (`crate::meetings::fixes`).
 //!
-//! `404` for a meeting that is not theirs or a word that is not the meeting's; `409`
+//! `404` for a meeting they may not read or a word that is not the meeting's, `403` `read_only`
+//! for a guest; `409`
 //! `meeting_words_changed` when a word of the range was replaced meanwhile; `400`
 //! `meeting_edit_empty` for text with no words, `meeting_edit_too_long` past
 //! [`EDIT_TEXT_MAX_CHARACTERS`], and for a range that ends before it starts.
@@ -23,12 +25,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, transcript_change};
+use super::{MeetingEventResponse, announce, open, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::fixes;
 use crate::models::agent::Author;
-use crate::models::meeting;
 use crate::models::meeting_mark::Range;
 use crate::models::meeting_word::{EDIT_TEXT_MAX_CHARACTERS, EditError, Replacement};
 use crate::state::AppState;
@@ -56,7 +58,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let replacement = Replacement {
         range: Range {
             start_word_id: body.start_word_id,

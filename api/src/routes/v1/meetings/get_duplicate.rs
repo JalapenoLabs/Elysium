@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/meetings/duplicates?itemId=`: the two meetings an inbox item asks the signed-in
-//! person about, "Same meeting as" the other, and what they decided, for the item's page to offer
-//! Merge and Not the same. `null` when the item asks about none of theirs.
+//! `GET /api/v1/meetings/duplicates?itemId=`: the two meetings an inbox item asks about, "Same
+//! meeting as" the other, and what was decided, for the item's page to offer Merge and Not the
+//! same to whoever may answer: the asking meeting's owner or an admin, reading both. `null` for
+//! anyone else, or an item that asks about no meetings.
 
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ use axum::Json;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
+use diesel::OptionalExtension;
 use diesel_async::AsyncPgConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -19,7 +21,9 @@ use uuid::Uuid;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::meeting_duplicate::{self, MeetingDuplicate};
-use crate::models::{meeting, meeting_capture};
+use crate::meetings::access::Access;
+use crate::models::meeting::{self, Reader};
+use crate::models::meeting_capture;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -62,11 +66,21 @@ pub async fn handle(
     let Some(pair) = meeting_duplicate::asked_by(&mut connection, filters.item_id).await? else {
         return Ok(Json(json!({ "duplicate": null })));
     };
-    match meeting::find_owned(&mut connection, pair.meeting_id, current.id()).await {
-        Ok(_asking) => {}
-        // An item about someone else's meeting asks nothing of this person.
-        Err(diesel::result::Error::NotFound) => return Ok(Json(json!({ "duplicate": null }))),
-        Err(error) => return Err(error.into()),
+    // An item about meetings this person may not read, or may not answer for, asks nothing of
+    // them.
+    let reader = Reader::of(&current.0);
+    let Some(asking) = meeting::find_readable(&mut connection, pair.meeting_id, reader)
+        .await
+        .optional()?
+    else {
+        return Ok(Json(json!({ "duplicate": null })));
+    };
+    let same_as_readable = meeting::find_readable(&mut connection, pair.same_as_id, reader)
+        .await
+        .optional()?
+        .is_some();
+    if !same_as_readable || !Access::of(&asking, reader).manages {
+        return Ok(Json(json!({ "duplicate": null })));
     }
     let answered = response(&mut connection, pair).await?;
     Ok(Json(json!({ "duplicate": answered })))

@@ -94,7 +94,10 @@ async fn lessons_of(
             None => None,
         }
     };
-    let speaker = Some(first.speaker.clone()).filter(|speaker| !speaker.is_empty());
+    // The Transcription doc is every member's page, so a private meeting teaches its fixes alone:
+    // a link with no title, and not who spoke, which can say what made it private.
+    let public = meeting.public_title().is_some();
+    let speaker = Some(first.speaker.clone()).filter(|speaker| public && !speaker.is_empty());
     let person = user::find(connection, author.user_id).await?;
     let name = Some(person.name.trim())
         .filter(|name| !name.is_empty())
@@ -109,7 +112,7 @@ async fn lessons_of(
             speaker: speaker.clone(),
             meeting: MeetingLink {
                 id: meeting.id,
-                title: meeting.title.clone(),
+                title: meeting.public_title().unwrap_or_default().to_owned(),
             },
             why: why.clone(),
         })

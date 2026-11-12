@@ -43,7 +43,8 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting, MeetingState};
+use crate::meetings::access::Access;
+use crate::models::meeting::{self, Meeting, MeetingState, Reader};
 use crate::models::meeting_capture::{self, OffsetSource, Placement};
 use crate::models::meeting_duplicate::{self, Decision, MeetingDuplicate, NewMeetingDuplicate};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
@@ -241,29 +242,19 @@ pub async fn ask_about(
 }
 
 /// The inbox item asking `asking`'s person whether it is the same meeting as `same_as`. Items are
-/// the whole workspace's, so it carries the meetings' titles, as an item a person's mail raises
-/// carries its subject, and nothing that was said.
+/// the whole workspace's, so it names each meeting by its title only while it is public
+/// (`Meeting::public_title`), and says nothing that was said; the item's page shows both to whoever
+/// may read them.
 fn same_meeting_item(asking: &Meeting, same_as: &Meeting) -> NewActionItem {
-    let other_title = same_as.title.trim();
-    let title = if other_title.is_empty() {
-        "Same meeting as another".to_owned()
-    } else {
-        format!("Same meeting as {other_title}")
+    let title = match same_as.public_title() {
+        Some(other_title) => format!("Same meeting as {other_title}"),
+        None => "Same meeting as another".to_owned(),
     };
-    let asking_title = asking.title.trim();
     let notes = format!(
         "Two recordings overlap in time with people in common: {} and {}. Merge puts them in one \
          meeting; Not the same keeps them apart.",
-        if asking_title.is_empty() {
-            "a meeting"
-        } else {
-            asking_title
-        },
-        if other_title.is_empty() {
-            "another"
-        } else {
-            other_title
-        },
+        asking.public_title().unwrap_or("a meeting"),
+        same_as.public_title().unwrap_or("another"),
     );
     NewActionItem {
         title: title.chars().take(ITEM_TITLE_MAX_CHARACTERS).collect(),
@@ -280,9 +271,12 @@ fn same_meeting_item(asking: &Meeting, same_as: &Meeting) -> NewActionItem {
 /// Why a person's answer about a pair could not be taken.
 #[derive(Debug, thiserror::Error)]
 pub enum DecideError {
-    /// There is no such pair, or its meeting is not theirs.
+    /// There is no such pair, or one of its meetings is one they may not read.
     #[error("not found")]
     NotFound,
+    /// They read both meetings, and only the asking meeting's owner or an admin answers.
+    #[error("only its owner or an admin answers")]
+    Refused,
     /// It was decided already, or one of its meetings was merged since.
     #[error("the pair was decided already")]
     Decided,
@@ -311,7 +305,6 @@ pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, dec
         events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
             state: changed.state.clone(),
-            created_by: changed.created_by,
             entry_id: None,
         });
     }
@@ -335,22 +328,24 @@ pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, dec
     }
 }
 
-/// Merges pair `pair_id`'s meeting into the meeting it looks like, as `person`, its meeting's
-/// person: see the module's docs. When the other meeting was merged into a third since, the
-/// captures go where it went.
+/// Merges pair `pair_id`'s meeting into the meeting it looks like, as `decider`, its meeting's
+/// owner or an admin: see the module's docs. When the other meeting was merged into a third since,
+/// the captures go where it went.
 ///
 /// # Errors
-/// [`DecideError::NotFound`] for a pair that is not theirs, [`DecideError::Decided`] for one
+/// [`DecideError::NotFound`] for a pair with a meeting they may not read,
+/// [`DecideError::Refused`] for anyone but its owner or an admin, [`DecideError::Decided`] for one
 /// decided already; any database error.
 pub async fn merge(
     connection: &mut AsyncPgConnection,
     pair_id: Uuid,
-    person: Uuid,
+    decider: Reader,
     now: DateTime<Utc>,
 ) -> Result<Decided, DecideError> {
+    let person = decider.id;
     connection
         .transaction(async |connection| {
-            let pair = undecided_of(connection, pair_id, person).await?;
+            let pair = undecided_of(connection, pair_id, decider).await?;
             let keeper_id = holder_of(connection, pair.same_as_id).await?;
             let (merging, keeper) = lock_both(connection, pair.meeting_id, keeper_id).await?;
             // Read again under the locks: another merge or a split may have moved either meeting
@@ -383,21 +378,23 @@ pub async fn merge(
         .await
 }
 
-/// Records that pair `pair_id`'s two meetings are not the same, as `person`, its meeting's person,
-/// so it is never asked about again, and lets the meeting's waiting run go on.
+/// Records that pair `pair_id`'s two meetings are not the same, as `decider`, its meeting's owner
+/// or an admin, so it is never asked about again, and lets the meeting's waiting run go on.
 ///
 /// # Errors
-/// [`DecideError::NotFound`] for a pair that is not theirs, [`DecideError::Decided`] for one
+/// [`DecideError::NotFound`] for a pair with a meeting they may not read,
+/// [`DecideError::Refused`] for anyone but its owner or an admin, [`DecideError::Decided`] for one
 /// decided already; any database error.
 pub async fn not_the_same(
     connection: &mut AsyncPgConnection,
     pair_id: Uuid,
-    person: Uuid,
+    decider: Reader,
     now: DateTime<Utc>,
 ) -> Result<Decided, DecideError> {
+    let person = decider.id;
     connection
         .transaction(async |connection| {
-            let pair = undecided_of(connection, pair_id, person).await?;
+            let pair = undecided_of(connection, pair_id, decider).await?;
             let asking = meeting::lock(connection, pair.meeting_id).await?;
             let pair =
                 decide_once(connection, pair.id, Decision::NotTheSame, (person, now)).await?;
@@ -430,21 +427,31 @@ async fn decide_once(
         .ok_or(DecideError::Decided)
 }
 
-/// Pair `pair_id`, when its meeting is `person`'s and it is not decided yet.
+/// Pair `pair_id`, when `decider` may answer it and it is not decided yet: they read both its
+/// meetings, since merging moves what one holds into the other, and manage the one asked about
+/// (`crate::meetings::access`).
 async fn undecided_of(
     connection: &mut AsyncPgConnection,
     pair_id: Uuid,
-    person: Uuid,
+    decider: Reader,
 ) -> Result<MeetingDuplicate, DecideError> {
     let pair = match meeting_duplicate::find(connection, pair_id).await {
         Ok(pair) => pair,
         Err(diesel::result::Error::NotFound) => return Err(DecideError::NotFound),
         Err(error) => return Err(error.into()),
     };
-    match meeting::find_owned(connection, pair.meeting_id, person).await {
-        Ok(_asking) => {}
+    let asking = match meeting::find_readable(connection, pair.meeting_id, decider).await {
+        Ok(asking) => asking,
         Err(diesel::result::Error::NotFound) => return Err(DecideError::NotFound),
         Err(error) => return Err(error.into()),
+    };
+    match meeting::find_readable(connection, pair.same_as_id, decider).await {
+        Ok(_same_as) => {}
+        Err(diesel::result::Error::NotFound) => return Err(DecideError::NotFound),
+        Err(error) => return Err(error.into()),
+    }
+    if !Access::of(&asking, decider).manages {
+        return Err(DecideError::Refused);
     }
     if pair.decision.is_some() {
         return Err(DecideError::Decided);
@@ -878,6 +885,8 @@ mod tests {
             updated_at: Utc::now(),
             hold_for_approval: false,
             merged_into: None,
+            visibility: "public".to_owned(),
+            visibility_item_id: None,
         }
     }
 

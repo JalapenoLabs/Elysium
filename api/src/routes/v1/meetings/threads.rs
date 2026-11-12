@@ -6,12 +6,14 @@
 //! resolve and reopen one, and `DELETE .../threads/{threadId}` removes one, comments and all. A
 //! thread is named by its comment mark's id.
 //!
-//! Every route answers the meeting's owner alone, as the meeting's other routes do. Starting,
-//! resolving, reopening, and removing a thread are changes in the meeting's history, so each
-//! answers its entry and what it did to the transcript's marks, for the page to apply and offer
-//! Undo; a reply answers its comment.
+//! Everyone who may read the meeting reads its threads, and every company member among them
+//! writes in them; a guest reads only (`crate::meetings::access`). Starting, resolving, reopening,
+//! and removing a thread are changes in the meeting's history, so each answers its entry and what
+//! it did to the transcript's marks, for the page to apply and offer Undo; a reply answers its
+//! comment.
 //!
-//! `404` for a meeting that is not theirs or a thread that is not the meeting's; `409`
+//! `404` for a meeting they may not read or a thread that is not the meeting's; `403` `read_only`
+//! for a guest writing; `409`
 //! `meeting_thread_removed` for a thread removed meanwhile, `meeting_thread_unchanged` for one
 //! resolved or open already, and `meeting_words_changed` for a range a word of which was replaced
 //! meanwhile; `400` `meeting_comment_empty`, `meeting_comment_too_long` past
@@ -29,12 +31,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{CommentResponse, MeetingEventResponse, transcript_change};
+use super::{CommentResponse, MeetingEventResponse, open, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::comments::{self, CommentError, Outcome, Writing};
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting};
+use crate::models::meeting::{self, Meeting, Reader};
 use crate::models::meeting_comment::{self, BODY_MAX_CHARACTERS};
 use crate::models::meeting_mark::{MarkError, Range};
 use crate::state::AppState;
@@ -71,7 +74,7 @@ pub async fn list(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     let comments: Vec<CommentResponse> = meeting_comment::of_meeting(&mut connection, found.id)
         .await?
         .into_iter()
@@ -93,7 +96,7 @@ pub async fn start(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let range = Range {
         start_word_id: body.start_word_id,
         end_word_id: body.end_word_id,
@@ -122,7 +125,7 @@ pub async fn reply(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let writing = Writing {
         body: &body.body,
         mentions: &body.mentions,
@@ -168,7 +171,7 @@ async fn set_resolved(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let outcome = comments::set_resolved(
         &mut connection,
         &found,
@@ -194,7 +197,7 @@ pub async fn remove(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let outcome = comments::remove(&mut connection, &found, thread_id, author(&current))
         .await
         .map_err(refusal)?;
@@ -205,7 +208,7 @@ pub async fn remove(
 
 /// `GET /api/v1/meetings/thread-items/{itemId}`: the thread an inbox item was raised by, as its
 /// meeting and its id, for the item's page to open it. Every item's page asks, so an item no
-/// thread of the signed-in person's meetings raised answers `{ "thread": null }`.
+/// thread of a meeting the signed-in person may read raised answers `{ "thread": null }`.
 pub async fn of_item(
     State(state): State<AppState>,
     current: CurrentUser,
@@ -222,10 +225,10 @@ pub async fn of_item(
     else {
         return Ok(Json(json!({ "thread": null })));
     };
-    let owned = meeting::find_owned(&mut connection, meeting_id, current.id())
+    let readable = meeting::find_readable(&mut connection, meeting_id, Reader::of(&current.0))
         .await
         .optional()?;
-    let thread = owned.map(|found| json!({ "meetingId": found.id, "threadId": thread_id }));
+    let thread = readable.map(|found| json!({ "meetingId": found.id, "threadId": thread_id }));
     Ok(Json(json!({ "thread": thread })))
 }
 

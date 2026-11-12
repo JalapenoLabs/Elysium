@@ -22,6 +22,7 @@ use super::page_edit;
 use crate::models::agent::{Agent, Author};
 use crate::models::company_doc::{self, CONTENT_MAX_CHARACTERS, Section};
 use crate::models::knowledge_document;
+use crate::models::meeting::{Reach, Reader};
 use crate::models::learning::{self, LearningContent};
 use crate::models::learning_category::{self, NewCategory};
 use crate::models::page::{
@@ -417,7 +418,11 @@ async fn a_page_opens_from_the_index_by_its_id() {
         .expect("indexed")
         .id;
 
-    let document = knowledge_document::get(&mut connection, document_id)
+    let member = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let document = knowledge_document::get(&mut connection, document_id, member)
         .await
         .expect("reads")
         .expect("found");

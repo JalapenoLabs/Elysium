@@ -1,12 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
-//! it reads, for its page: its standing words in order, every standing mark over them, and its
+//! `GET /api/v1/meetings/{id}/words`: a meeting's final transcript as it reads, for its page, to
+//! anyone who may read the meeting: its standing words in order, every standing mark over them, and its
 //! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
 //! recording (`captures/{captureId}/media`).
 //!
 //! `words` is empty until the transcript is built, which its correction does
-//! (`docs/meetings.md`, The final transcript). `404` for a meeting that is not theirs.
+//! (`docs/meetings.md`, The final transcript). `404` for a meeting they may not read.
 
 use anyhow::Context;
 use axum::Json;
@@ -16,12 +16,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MarkResponse, WordResponse};
+use super::{MarkResponse, WordResponse, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::media::media_type_of;
 use crate::models::meeting_capture::{self, CaptureSummary};
-use crate::models::{meeting, meeting_mark, meeting_word};
+use crate::models::{meeting_mark, meeting_word};
 use crate::state::AppState;
 
 /// One capture of the meeting, as its page names it.
@@ -75,7 +76,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     // One snapshot, so every mark answered is over words answered, however an edit lands
     // meanwhile.
     let (words, marks, captures) = connection

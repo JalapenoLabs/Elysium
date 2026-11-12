@@ -3,7 +3,8 @@
 //! `GET /api/v1/knowledge/meetings?from=&to=&person=&project=&limit=`: the meetings the
 //! knowledge base holds, newest first, each with its topics as citations in the order they were
 //! said. Whoever's meeting source recorded one, every member reads it, as they read its topics
-//! through the search. See `crate::models::knowledge_meeting`.
+//! through the search, but for a private meeting, which only its readers find. See
+//! `crate::models::knowledge_meeting`.
 //!
 //! The work is [`list`], which the MCP server's `meetings_list` and the agents' tool of the same
 //! name call too, with [`ListMeetingsRequest`] as their arguments.
@@ -23,6 +24,8 @@ use crate::auth::MemberUser;
 use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::knowledge_meeting::{self, MeetingFilters, MeetingView};
+use crate::models::meeting::Reader;
+use crate::models::user;
 use crate::state::AppState;
 
 /// Meetings when the caller names no limit: about a fortnight of a busy calendar.
@@ -64,24 +67,25 @@ fn validate_period(request: &ListMeetingsRequest) -> Result<(), ValidationError>
 
 pub async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    member: MemberUser,
     query: Result<Query<ListMeetingsRequest>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Query(request) = query?;
-    let meetings = list(&state.database, request).await?;
+    let meetings = list(&state.database, member.id(), request).await?;
     Ok(Json(json!({ "meetings": meetings })))
 }
 
-/// The meetings `request` names, newest first.
+/// The meetings `request` names, newest first, as `reader` may read them.
 ///
-/// It answers any person's meetings: callers check that whoever asks may read the knowledge base
-/// (`docs/knowledge.md`, Who sees what).
+/// It answers any person's meetings, but the private meetings `reader` may not read: callers check
+/// that whoever asks may read the knowledge base (`docs/knowledge.md`, Who sees what).
 ///
 /// # Errors
 /// [`ApiError::Validation`] for arguments outside their limits, and an internal error when the
 /// database does not answer.
 pub async fn list(
     database: &Pool,
+    reader: Uuid,
     request: ListMeetingsRequest,
 ) -> Result<Vec<MeetingView>, ApiError> {
     request.validate()?;
@@ -95,9 +99,11 @@ pub async fn list(
         .get()
         .await
         .context("no database connection available")?;
+    let reader = Reader::of(&user::find(&mut connection, reader).await?);
     let meetings = knowledge_meeting::list(
         &mut connection,
         &filters,
+        reader,
         request.limit.unwrap_or(DEFAULT_LIMIT),
     )
     .await

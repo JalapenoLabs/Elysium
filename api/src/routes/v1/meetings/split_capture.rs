@@ -1,10 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/meetings/{id}/captures/{captureId}/split`: the signed-in person splits a capture
-//! merged into their meeting back out, undoing the merge that brought it: every capture that merge
+//! `POST /api/v1/meetings/{id}/captures/{captureId}/split`: a meeting's owner or an admin splits a
+//! capture merged into it back out, undoing the merge that brought it: every capture that merge
 //! moved goes back to its own meeting, which is aligned and processed again, and both transcripts
-//! are lined up again. `404` for a capture that is not theirs, `409` for one no merge brought, or
-//! once what the merge moved has moved on. See `crate::meetings::duplicates`.
+//! are lined up again. `404` for a meeting they may not read, `403` `owner_or_admin` for anyone
+//! else, `409` for a capture no merge brought, or once what the merge moved has moved on. See `crate::meetings::duplicates`.
 
 use anyhow::Context;
 use axum::Json;
@@ -14,13 +14,14 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{announce_lined_up, response};
+use super::{announce_lined_up, open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::duplicates::Moved;
 use crate::meetings::history::{self, UndoError};
 use crate::models::agent::Author;
-use crate::models::meeting;
+use crate::models::meeting::{self, Reader};
 use crate::models::meeting_event::{self, EventKind};
 use crate::state::AppState;
 
@@ -35,7 +36,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let owned = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+    let (owned, _access) = open(&mut connection, meeting_id, &current, Need::Manage).await?;
     // The newest merge into the meeting that brought the capture; an older one was split since.
     let history = meeting_event::history(&mut connection, owned.id).await?;
     let brought_it = history.iter().rev().find(|entry| {
@@ -80,6 +81,6 @@ pub async fn handle(
 
     announce_lined_up(&state.events, &mut connection, &split).await?;
     let kept = meeting::find(&mut connection, owned.id).await?;
-    let answered = response(&mut connection, kept).await?;
+    let answered = response(&mut connection, kept, Reader::of(&current.0)).await?;
     Ok(Json(json!({ "meeting": answered })))
 }

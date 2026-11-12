@@ -24,7 +24,7 @@ use super::workflow;
 use crate::database::Pool;
 use crate::models::action_item::{self, ActionItemState};
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting, NewMeeting};
+use crate::models::meeting::{self, Meeting, NewMeeting, Reach, Reader};
 use crate::models::meeting_capture::{
     self, Fetched, MeetingCapture, NewMeetingCapture, OffsetSource,
 };
@@ -39,6 +39,22 @@ use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
 use crate::whisper::{WhisperSegment, WhisperTranscript, WhisperWord};
 use crate::workflows::{self, Done, Step, StepContext};
+
+/// The test person, as the owner of the meetings these tests ask about.
+fn owner() -> Reader {
+    Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    }
+}
+
+/// A member who owns none of them and may read only what is public.
+fn someone_else() -> Reader {
+    Reader {
+        id: Uuid::now_v7(),
+        reach: Reach::Public,
+    }
+}
 
 /// How far Fireflies' clock runs behind Teams': its recording began four seconds into the meeting
 /// though both list it as starting on the hour.
@@ -496,7 +512,7 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
 
     // Someone else cannot answer it.
     assert!(matches!(
-        duplicates::merge(&mut connection, pair.id, Uuid::now_v7(), Utc::now()).await,
+        duplicates::merge(&mut connection, pair.id, someone_else(), Utc::now()).await,
         Err(duplicates::DecideError::NotFound)
     ));
 
@@ -507,7 +523,7 @@ async fn one_meeting_recorded_twice_is_asked_about_merged_on_one_clock_and_split
         .filter(|word| word.capture_id == Some(teams_capture.id))
         .map(|word| word.id)
         .collect();
-    let merged = duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
+    let merged = duplicates::merge(&mut connection, pair.id, owner(), Utc::now())
         .await
         .expect("merges");
     assert_eq!(merged.pair.decision.as_deref(), Some("merged"));
@@ -796,7 +812,7 @@ async fn not_the_same_is_remembered_and_lets_the_run_go_on() {
     assert!(matches!(held, Done::Held { .. }));
     let pair = pair_of(&mut connection, second.id).await.remove(0);
 
-    let decided = duplicates::not_the_same(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
+    let decided = duplicates::not_the_same(&mut connection, pair.id, owner(), Utc::now())
         .await
         .expect("decides");
     assert_eq!(decided.pair.decision.as_deref(), Some("not_the_same"));
@@ -813,7 +829,7 @@ async fn not_the_same_is_remembered_and_lets_the_run_go_on() {
     ));
     assert_eq!(pair_of(&mut connection, second.id).await.len(), 1);
     assert!(matches!(
-        duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now()).await,
+        duplicates::merge(&mut connection, pair.id, owner(), Utc::now()).await,
         Err(duplicates::DecideError::Decided)
     ));
 }
@@ -849,8 +865,8 @@ async fn two_answers_at_once_leave_the_pair_saying_what_happened() {
     let mut merging = database.get().await.expect("a connection");
     let mut keeping_apart = database.get().await.expect("a connection");
     let (merged, kept_apart) = tokio::join!(
-        duplicates::merge(&mut merging, pair.id, TEST_PERSON_ID, Utc::now()),
-        duplicates::not_the_same(&mut keeping_apart, pair.id, TEST_PERSON_ID, Utc::now()),
+        duplicates::merge(&mut merging, pair.id, owner(), Utc::now()),
+        duplicates::not_the_same(&mut keeping_apart, pair.id, owner(), Utc::now()),
     );
     assert!(
         merged.is_ok() != kept_apart.is_ok(),
