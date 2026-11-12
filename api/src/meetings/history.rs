@@ -17,6 +17,7 @@
 //! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
 //! | `thread_resolved`, `thread_reopened` | Opens the thread again, or resolves it again (`meetings::comments`) |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
+//! | `settled`             | None: a person edits what it settled, with its alternatives      |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
 //! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
 //!
@@ -41,7 +42,7 @@ pub enum UndoError {
     /// The meeting has no such change.
     #[error("not found")]
     NotFound,
-    /// Its kind cannot be undone: a build, or an approval.
+    /// Its kind cannot be undone: a build, a settlement, or an approval.
     #[error("this change cannot be undone")]
     NotUndoable,
     /// What it changed moved on since, so undoing it would overwrite the later change.
@@ -129,7 +130,10 @@ pub async fn undo(
                     Announcement::default(),
                 ),
                 Some(
-                    EventKind::Built | EventKind::CorrectionApproved | EventKind::CaptureAdded,
+                    EventKind::Built
+                    | EventKind::Settled
+                    | EventKind::CorrectionApproved
+                    | EventKind::CaptureAdded,
                 )
                 | None => {
                     return Err(UndoError::NotUndoable);

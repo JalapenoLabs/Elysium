@@ -588,9 +588,9 @@ is a rule of one row. A learning is a page with a category and evidence: the par
 `pages_learning_title_unique` on `lower(title)` makes a title name one learning whatever its case, deleted learnings
 included, so saving a title again revises its learning, and `migrate run` rebuilds it with every other text index when
 the collation changes (Collations, above). The Learnings page, the Company page, the company doc's seven sections,
-the Project briefs page, and the Meetings page are seeded by migrations at ids fixed in code (`crate::models::page`,
-`Section::page_id`); the sections keep their limit in `pages_company_doc_section_fits`, as a learning keeps its in
-`pages_learning_body_fits`. A
+the Project briefs page, the Meetings page, and the Transcription page are seeded by migrations at ids fixed in code
+(`crate::models::page`, `Section::page_id`); the sections keep their limit in `pages_company_doc_section_fits`, as a
+learning keeps its in `pages_learning_body_fits`. A
 project's brief is a page whose `brief_project_id` names it (`docs/autonomy.md`, The project brief), one per project,
 and `pages_brief_is_a_plain_page` keeps a brief from being a learning or proposal-only. `updated_at` says when
 what a page holds last changed, so its trigger skips a row whose parent or position changes: a move or a renumbering
@@ -842,8 +842,9 @@ capture, so it has no `created_by`.
 
 ### `meeting_corrections`
 
-A meeting's corrected transcript, one per meeting, written once by the meeting workflow's correction step beside the
-raw transcripts, which it never changes; see `docs/meetings.md`, Correction. A child of its meeting, so it has no
+A meeting's corrected transcript, one per meeting: its first capture's lines with what its correction settled in
+place, written once by the meeting workflow's correction step beside the raw transcripts, which it never changes, in the
+transaction that settles the final transcript; see `docs/meetings.md`, Correction. A child of its meeting, so it has no
 `created_by`. Approval is optional; `approved_by` and `approved_at` are set together (`meeting_corrections_approval`).
 
 | Column                    | Type          | Notes                                                                 |
@@ -854,7 +855,7 @@ raw transcripts, which it never changes; see `docs/meetings.md`, Correction. A c
 | `based_on`                | `TEXT`        | `source` or `whisper`: the transcript it follows line by line         |
 | `source_transcript_hash`, `whisper_transcript_hash` | `TEXT` | The transcripts it read; Whisper's `NULL` when there was none |
 | `changed_lines`           | `INTEGER`     | How many lines it changed                                             |
-| `fixes`                   | `JSONB`       | Each distinct fix, `{ heard, written }`, which later corrections read |
+| `fixes`                   | `JSONB`       | Each distinct fix its flags made, `{ heard, written }`                |
 | `approved_by`             | `UUID`        | References `users`: who approved it                                   |
 | `approved_at`             | `TIMESTAMPTZ` | When                                                                  |
 | `review_item_id`          | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item raised when its run held for approval; indexed, for the item's page |
@@ -869,7 +870,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |
@@ -892,7 +893,7 @@ as it reads now. A word's span never runs backwards (`meeting_words_span`).
 | `speaker`       | `TEXT`        | Who said it, as its capture names them; empty when nothing says            |
 | `start_ms`, `end_ms` | `BIGINT` | On the meeting's clock                                                     |
 | `origin`        | `TEXT`        | `source`, `whisper`, `correction`, or `edit`: where it came from           |
-| `capture_id`    | `UUID`        | References `meeting_captures`, set to `NULL` with it: the capture it was heard in; `NULL` for an edit's words |
+| `capture_id`    | `UUID`        | References `meeting_captures`, set to `NULL` with it: the capture it was heard in, or whose words a correction settled; `NULL` for an edit's words |
 | `introduced_by` | `UUID`        | References `meeting_events`: the change that wrote it                      |
 | `superseded_by` | `UUID`        | References `meeting_events`: the change that replaced it; `NULL` while it stands |
 | `created_at`    | `TIMESTAMPTZ` | Set on insert                                                              |
@@ -910,7 +911,7 @@ words that replace them.
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
 | `kind`                | `TEXT`        | `confidence`, `edit`, `excerpt`, `black_out`, `comment`, `pin`, or `task`; text, so a later kind needs no migration |
 | `start_word_id`, `end_word_id` | `UUID` | Reference `meeting_words`: the first and last word of its range |
-| `data`                | `JSONB`       | A JSON object shaped by `kind`                                    |
+| `data`                | `JSONB`       | A JSON object shaped by `kind`: a confidence mark's `{ confidence, alternatives }` |
 | `created_by`          | `UUID`        | References `users`: who made it                                   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `meeting_events`                 |
 | `created_at`          | `TIMESTAMPTZ` | Set on insert                                                     |

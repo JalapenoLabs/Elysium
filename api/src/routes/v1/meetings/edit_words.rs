@@ -5,7 +5,9 @@
 //!
 //! It applies at once and is in the meeting's history, so the page offers Undo
 //! (`history/{entryId}/undo`) rather than a Save. It answers the history entry and what it did to
-//! the transcript, for the page to apply without reading the whole transcript again.
+//! the transcript, for the page to apply without reading the whole transcript again. An edit that
+//! fixes a misheard name or term also teaches the Transcription doc, in the same transaction
+//! (`crate::meetings::fixes`).
 //!
 //! `404` for a meeting that is not theirs or a word that is not the meeting's; `409`
 //! `meeting_words_changed` when a word of the range was replaced meanwhile; `400`
@@ -24,7 +26,7 @@ use uuid::Uuid;
 use super::{MeetingEventResponse, announce, transcript_change};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::meetings::comments;
+use crate::meetings::fixes;
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_mark::Range;
@@ -67,7 +69,9 @@ pub async fn handle(
         agent: None,
         at: Utc::now(),
     };
-    let entry = comments::edit_words(&mut connection, &found, replacement, author)
+    // Through `fixes`, so a fix of a misheard word teaches the Transcription doc as it is made,
+    // and the segments holding a thread that quotes the words are indexed again.
+    let entry = fixes::edit(&mut connection, &state.events, &found, replacement, author)
         .await
         .map_err(refusal)?;
     let change = transcript_change(&mut connection, found.id, &entry).await?;

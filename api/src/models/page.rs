@@ -68,6 +68,10 @@ pub const PROJECT_BRIEFS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-00000000
 /// (`docs/knowledge.md`, The tree).
 pub const MEETINGS_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000004");
 
+/// The Transcription doc: how speech is misheard in the company's meetings, and what it is
+/// (`crate::transcription_doc`). Seeded by its migration at this id.
+pub const TRANSCRIPTION_PAGE_ID: Uuid = uuid!("00000000-0000-0000-0001-000000000005");
+
 /// What the search's source filter calls each kind of page's document. A learning's and a section's
 /// keep the names they had before they were pages, which clients filter by.
 const INDEX_KIND: &str = "page";
@@ -226,12 +230,13 @@ impl Page {
 }
 
 /// Whether page `id` is one Elysium seeds at an id fixed in code: the Learnings, Company, Project
-/// briefs, and Meetings pages and the doc's sections.
+/// briefs, Meetings, and Transcription pages and the doc's sections.
 pub fn is_seeded(id: Uuid) -> bool {
     id == LEARNINGS_PAGE_ID
         || id == COMPANY_PAGE_ID
         || id == PROJECT_BRIEFS_PAGE_ID
         || id == MEETINGS_PAGE_ID
+        || id == TRANSCRIPTION_PAGE_ID
         || Section::of_page(id).is_some()
 }
 
@@ -1895,6 +1900,7 @@ mod tests {
         assert!(is_seeded(COMPANY_PAGE_ID));
         assert!(is_seeded(PROJECT_BRIEFS_PAGE_ID));
         assert!(is_seeded(MEETINGS_PAGE_ID));
+        assert!(is_seeded(TRANSCRIPTION_PAGE_ID));
         for section in Section::ALL {
             assert!(is_seeded(section.page_id()), "{section:?}");
         }

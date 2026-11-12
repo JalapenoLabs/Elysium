@@ -41,6 +41,14 @@ describe('describeHistory', () => {
     expect([ rows[1].before, rows[1].after ]).toEqual([ 'Fryday.', 'Friday.' ])
   })
 
+  it('says when the correction settled the transcript, which only an edit changes', () => {
+    const [ settled ] = describeHistory([
+      entry('settled', 'settled', { changes: [], marksAdded: [ 'mark' ], skipped: 0 }),
+    ])
+
+    expect([ settled.sentence, settled.canUndo ]).toEqual([ 'settled', false ])
+  })
+
   it('says when a recording was moved on the clock, merged in, or split out', () => {
     const rows = describeHistory([
       entry('offset', 'offset_changed', { captureId: 'capture' }),

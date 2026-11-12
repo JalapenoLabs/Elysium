@@ -186,6 +186,7 @@
         "builtFromCorrection": "Built the transcript from its corrected copy",
         "builtFromSource": "Built the transcript from its source's transcript",
         "builtFromWhisper": "Built the transcript from what Whisper heard",
+        "settled": "Settled the transcript, marking what it was unsure of",
         "edited": "Changed “{{before}}” to “{{after}}”",
         "undidEdit": "Undid an edit, putting “{{after}}” back",
         "marked": "Added a mark: {{kind}}",

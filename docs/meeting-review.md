@@ -12,9 +12,11 @@ transcript, and asking before merging a meeting recorded twice, with merging and
 knowledge base, with its layout, every kind of mark drawn, clicking, selecting, and editing in place, each change
 undoable, its player, and comment threads on ranges, with mentions, resolving, and Elysia answering in them, open to
 its owner alone until meetings are public by default; uploads of recordings and transcripts as new meetings or
-captures of one; and meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
+captures of one; meetings in the knowledge base's tree, each at home under the Meetings page and in the Meetings
 group of every project's brief it is about, with the Meetings page listing, searching, and filtering them and
-starting uploads, Settings keeping only their sources. What is built is described in `docs/meetings.md`, which this
+starting uploads, Settings keeping only their sources; and settling the final transcript with confidences and
+alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words. What is built is
+described in `docs/meetings.md`, which this
 design changes where it says so; the rest is the roadmap below, as issues in the Knowledge base milestone.
 
 ## Meetings and captures
@@ -93,7 +95,7 @@ task) is anchored to a range of word ids, so a range can be one word or the whol
 
 One fixed page in the knowledge base, Transcription, beside Learnings and the Company page: how speech is misheard and
 what it should say, such as "Sheriff" heard for "Sharath" in Slack and Teams. One doc is the one source of truth for
-it, and it replaces what corrections learn from the 30 newest today.
+it. How it is kept is `docs/meetings.md`, The Transcription doc.
 
 - Each entry is what was heard, what it is, where it is heard (a source, a speaker), and the meetings it came from.
 - **It teaches itself, and every entry is live at once.** A person's fix and a confident correction of the agent's each
@@ -281,7 +283,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
-| 2     | #239  | Settling the final transcript, and the Transcription doc                              |
 | 3     | #241  | Excerpts, black-outs, holding when unsure, and Done reviewing                         |
 | 3     | #243  | Tasks through Project Managers                                                        |
 | 3     | #245  | Comments                                                                              |

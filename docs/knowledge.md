@@ -984,9 +984,10 @@ deletion that left it in its parent's place, or the restore that took it back.
   forgets to name its agent is refused all the same. A client that cannot be recorded as an agent is refused any change
   to a page first, since it would read as the person alone. No route sets it: the Company page and the doc's sections
   are the only ones that have it.
-- **Fixed pages.** The Learnings page, the Company page, the doc's seven sections, the Project briefs page, and the
-  Meetings page are ones Elysium relies on, each at an id fixed in code, and so is each project's brief while its
-  project exists (Projects, below). They keep their place: nobody moves, deletes, or renames one, people included, with
+- **Fixed pages.** The Learnings page, the Company page, the doc's seven sections, the Project briefs page, the
+  Meetings page, and the Transcription page (`docs/meetings.md`, The Transcription doc) are ones Elysium relies on,
+  each at an id fixed in code, and so is each project's brief while its project exists (Projects, below). They keep
+  their place: nobody moves, deletes, or renames one, people included, with
   `409 page_fixed`. What a fixed page says is written like any page's, under its rule above. Other pages may sit
   beside and under them. The Meetings page opens as the Meetings list (In the web app, below), so what it says is read
   by agents and the index, not on it.
@@ -1278,7 +1279,7 @@ it goes and after which sibling. A move can be undone from its toast, and shows 
 at once, with Undo in its toast, except that a page with pages under it first asks what happens to them: left as they
 are they move up into its place, and a switch deletes them too. Whoever was reading what went is taken to its parent,
 and Undo brings them back; once its toast has gone, a deleted page's own address offers Restore. The fixed pages,
-the eleven Elysium seeds and every project's brief, take children, but nobody can drag, move, or delete one; a lock on the
+the twelve Elysium seeds and every project's brief, take children, but nobody can drag, move, or delete one; a lock on the
 row and the row's menu say why. A brief names its project with no X to take it off, and the project's Docs tab offers
 no Unlink for it.
 
@@ -1327,10 +1328,10 @@ page's history restores it afterwards.
 ### Roadmap
 
 - **Meetings.** Meetings are listed in the tree today, their own only, under the fixed Meetings page and each brief.
-  They become public by default, with private ones found only by their readers, and a fixed Transcription page joins
-  them. The design is `docs/meeting-review.md`. `GET /meetings` answers every meeting in one list, which the tree, the
-  Meetings page, and its in-browser search and filters all read; once meetings are the whole company's, that list is
-  paged and searched on the server, and the tree asks for each branch's newest alone.
+  They become public by default, with private ones found only by their readers. The design is
+  `docs/meeting-review.md`. `GET /meetings` answers every meeting in one list, which the tree, the Meetings page, and
+  its in-browser search and filters all read; once meetings are the whole company's, that list is paged and searched
+  on the server, and the tree asks for each branch's newest alone.
 - **Deleting for good.** A page, with its versions and its attachments' files, is removed for good (Attachments, above).
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call

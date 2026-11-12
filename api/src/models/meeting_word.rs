@@ -40,9 +40,10 @@
 //! from) and not by when: a word that says the same keeps its id, so marks over it never move, and
 //! takes its new times, so a capture placed anew on the clock moves its words rather than
 //! replacing them. The rest are replaced by the rebuild.
-//! Every edit's words stand through it, so a rebuild never undoes what anyone changed, and the
-//! captures' words inside an edit's time stay out. An edit belongs to the capture of the words it
-//! replaced, and it and they move with that capture: by as much as its offset moved since its words
+//! Every edit's words stand through it, and so do the words the meeting's correction settled while
+//! their capture is the meeting's, so a rebuild never undoes what anyone changed, and the captures'
+//! words inside an edit's time stay out; a settlement is an edit here ([`Overwriting`]), and what
+//! follows of edits holds for it. An edit belongs to the capture of the words it replaced, and it and they move with that capture: by as much as its offset moved since its words
 //! were last placed (the newest `built` entry naming it, or the merge that brought it), so an edit
 //! stays over what it replaced wherever its capture goes on the clock. A standing word of another
 //! capture under an edit is replaced too, even one that says the same, but only once the edit's
@@ -50,6 +51,16 @@
 //! checked. A mark over words a rebuild replaced moves onto the new words at the same moment. A
 //! rebuild is not undone on its own: what caused it is (a hand-set offset, a merge), and that
 //! builds the transcript again.
+//!
+//! # Settling it
+//!
+//! A meeting's correction settles its transcript once ([`settle`]): over each range it flagged it
+//! writes the text it decided on, as words of its own (origin `correction`), and a confidence mark
+//! with its confidence and alternatives, and it marks each range a capture heard otherwise. It is
+//! one change in the meeting's history, and a rebuild keeps what it wrote, so a hand-set offset, a
+//! merge, or a split builds the transcript again without settling it again. A merge carries only a
+//! person's edits into the meeting the captures go into, and a settled word of a capture split back
+//! out goes with its capture.
 //!
 //! Every change is made under the meeting's lock and recorded in its history
 //! (`models::meeting_event`) in the same transaction.
@@ -111,15 +122,15 @@ impl Origin {
     }
 }
 
-/// What a meeting's final transcript was built from. Stored in the `built` entry of its history.
+/// What the first capture's words of a meeting's final transcript were lined up from. Stored in
+/// the `built` entry of its history, where an entry that says `correction` lined them up from the
+/// meeting's corrected copy's lines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BuiltFrom {
-    /// Its corrected copy.
-    Correction,
-    /// Its capture's source transcript, uncorrected.
+    /// Its capture's source transcript.
     Source,
-    /// Its capture's Whisper transcript, uncorrected, for a source that sent no lines.
+    /// Its capture's Whisper transcript, for a source that sent no lines.
     Whisper,
 }
 
@@ -187,7 +198,7 @@ pub struct Rebuild {
     pub words: Vec<HeardWord>,
     /// Each capture it was lined up from, in the meeting's order, with its offset.
     pub captures: Vec<BuiltCapture>,
-    /// What the first capture's words are: its corrected copy's, or as it heard them.
+    /// What the first capture's words are lined up from.
     pub built_from: BuiltFrom,
     /// The captures after the first still at the offset their listing gave, not yet aligned: an
     /// edit over one of them sits at a time nobody has checked, so it keeps out no other capture's
@@ -267,6 +278,11 @@ pub async fn rebuild(
                 .await?;
 
             let moved_by = moved_since_built(connection, meeting_id, &lined_up.captures).await?;
+            let present: HashSet<Uuid> = lined_up
+                .captures
+                .iter()
+                .map(|capture| capture.capture_id)
+                .collect();
             let event_id = Uuid::now_v7();
             let Compared {
                 built,
@@ -277,6 +293,7 @@ pub async fn rebuild(
                 &every_word,
                 lined_up.words,
                 (&moved_by, &lined_up.provisional),
+                Overwriting::EditsAndSettled(&present),
                 (meeting_id, event_id),
             );
             let added = built
@@ -328,11 +345,39 @@ pub async fn rebuild(
         .await
 }
 
+/// Which words were written over what a capture heard and stand through every rebuild, as edits:
+/// a person's edits always, and the words the meeting's correction settled while their capture is
+/// still one of the meeting's.
+#[derive(Debug, Clone, Copy)]
+enum Overwriting<'present> {
+    /// A person's edits alone, as a merge carries them into another meeting.
+    Edits,
+    /// Edits, and settled words of the captures `present`, as a rebuild keeps them.
+    EditsAndSettled(&'present HashSet<Uuid>),
+}
+
+impl Overwriting<'_> {
+    /// Whether `word`, standing or not, was written over what a capture heard.
+    fn wrote(self, word: &Word) -> bool {
+        if word.origin == Origin::Edit.as_str() {
+            return true;
+        }
+        let Self::EditsAndSettled(present) = self else {
+            return false;
+        };
+        word.origin == Origin::Correction.as_str()
+            && word
+                .capture_id
+                .is_some_and(|capture_id| present.contains(&capture_id))
+    }
+}
+
 /// The changes whose words stand in place of words a capture heard: every edit whose words
 /// stand, and every edit (or carried edit) whose own words an edit that stands replaced in turn,
-/// so the words at the bottom of a chain of edits are still known to be edited over.
-fn covering_edits(every_word: &[Word]) -> HashSet<Uuid> {
-    let is_edit = |word: &Word| word.origin == Origin::Edit.as_str();
+/// so the words at the bottom of a chain of edits are still known to be edited over. What counts
+/// as an edit is `overwriting`'s.
+fn covering_edits(every_word: &[Word], overwriting: Overwriting<'_>) -> HashSet<Uuid> {
+    let is_edit = |word: &Word| overwriting.wrote(word);
     let mut covering: HashSet<Uuid> = every_word
         .iter()
         .filter(|word| is_edit(word) && word.superseded_by.is_none())
@@ -357,8 +402,9 @@ fn covering_edits(every_word: &[Word]) -> HashSet<Uuid> {
     }
 }
 
-/// Whether `word` is one a capture heard that an edit standing now replaced (`covering`, from
-/// [`covering_edits`]).
+/// Whether `word` is one an edit standing now replaced (`covering`, from [`covering_edits`]): a word
+/// a capture heard, or one a correction settled, which names the capture an edit over it belongs
+/// to. A person's own edit replaced by another is no such word: it names no capture.
 fn is_covered(word: &Word, covering: &HashSet<Uuid>) -> bool {
     word.origin != Origin::Edit.as_str()
         && word
@@ -370,9 +416,10 @@ fn is_covered(word: &Word, covering: &HashSet<Uuid>) -> bool {
 /// no other standing word between, and no word an edit replaced either, since each edit's replaced
 /// words sit just before its own (two edits of neighbouring words, or two edits a merge carried in
 /// one after the other, are two runs). Ordered by when each begins, so an edit carried in from
-/// another meeting goes where it was said rather than where its words were written.
-fn edit_runs(every_word: &[Word]) -> Vec<Vec<Word>> {
-    let covering = covering_edits(every_word);
+/// another meeting goes where it was said rather than where its words were written. What counts as
+/// an edit is `overwriting`'s.
+fn edit_runs(every_word: &[Word], overwriting: Overwriting<'_>) -> Vec<Vec<Word>> {
+    let covering = covering_edits(every_word, overwriting);
     let mut runs: Vec<Vec<Word>> = Vec::new();
     let mut in_run = false;
     for word in every_word {
@@ -383,7 +430,7 @@ fn edit_runs(every_word: &[Word]) -> Vec<Vec<Word>> {
         if word.superseded_by.is_some() {
             continue;
         }
-        if word.origin != Origin::Edit.as_str() {
+        if !overwriting.wrote(word) {
             in_run = false;
             continue;
         }
@@ -444,16 +491,17 @@ struct Compared {
 /// offset moved since the transcript was last lined up (`moved_by`, by capture), so an edit stays
 /// over what it replaced wherever its capture goes on the clock. An edit's words sit just after
 /// the words they replaced, so an edit belongs to the capture of the nearest replaced word before
-/// it.
+/// it. What counts as an edit is `overwriting`'s.
 fn compare(
     every_word: &[Word],
     heard: Vec<HeardWord>,
     (moved_by, provisional): (&HashMap<Uuid, i64>, &HashSet<Uuid>),
+    overwriting: Overwriting<'_>,
     (meeting_id, event_id): (Uuid, Uuid),
 ) -> Compared {
     let comparable: Vec<&Word> = every_word
         .iter()
-        .filter(|word| word.superseded_by.is_none() && word.origin != Origin::Edit.as_str())
+        .filter(|word| word.superseded_by.is_none() && !overwriting.wrote(word))
         .collect();
     let (kept, still_heard) = matched(&comparable, &heard);
 
@@ -463,9 +511,9 @@ fn compare(
             times.insert(word.id, (heard_word.word.start_ms, heard_word.word.end_ms));
         }
     }
-    let (moved, capture_of_edit) = with_edits_moved(every_word, moved_by, &mut times);
-    let edits = edit_runs(&moved);
-    let settled: Vec<Vec<Word>> = edits
+    let (moved, capture_of_edit) = with_edits_moved(every_word, moved_by, overwriting, &mut times);
+    let edits = edit_runs(&moved, overwriting);
+    let placed: Vec<Vec<Word>> = edits
         .iter()
         .filter(|run| {
             capture_of_edit
@@ -483,7 +531,7 @@ fn compare(
         .into_iter()
         .zip(kept)
         .filter_map(|(heard, kept)| match kept {
-            Some(word) if inside_any(&settled, &heard.word) => {
+            Some(word) if inside_any(&placed, &heard.word) => {
                 edited_over.insert(word.id);
                 None
             }
@@ -523,13 +571,15 @@ fn compare(
 
 /// `every_word` with each word an edit replaced, and each standing edit word, moved by as much as
 /// its capture moved (`moved_by`), each recorded in `times`, and the capture each standing edit
-/// word belongs to: the capture of the nearest replaced word before it.
+/// word belongs to: the capture of the nearest replaced word before it. What counts as an edit is
+/// `overwriting`'s.
 fn with_edits_moved(
     every_word: &[Word],
     moved_by: &HashMap<Uuid, i64>,
+    overwriting: Overwriting<'_>,
     times: &mut HashMap<Uuid, (i64, i64)>,
 ) -> (Vec<Word>, HashMap<Uuid, Uuid>) {
-    let covering = covering_edits(every_word);
+    let covering = covering_edits(every_word, overwriting);
     let mut nearest_capture: Option<Uuid> = None;
     let mut capture_of_edit: HashMap<Uuid, Uuid> = HashMap::new();
     let mut moved = Vec::with_capacity(every_word.len());
@@ -539,7 +589,7 @@ fn with_edits_moved(
         if covered {
             nearest_capture = word.capture_id;
         }
-        let stands_as_edit = word.superseded_by.is_none() && word.origin == Origin::Edit.as_str();
+        let stands_as_edit = word.superseded_by.is_none() && overwriting.wrote(&word);
         let capture = if covered {
             word.capture_id
         } else if stands_as_edit {
@@ -926,7 +976,8 @@ pub(crate) async fn carry_edits(
         .select(Word::as_select())
         .load(connection)
         .await?;
-    let runs = edit_runs(&every_word);
+    // Only a person's edits are carried: a merge settles nothing again.
+    let runs = edit_runs(&every_word, Overwriting::Edits);
     if runs.is_empty() {
         return Ok(Vec::new());
     }
@@ -938,7 +989,7 @@ pub(crate) async fn carry_edits(
     let mut position = after.unwrap_or(0);
 
     // Each edit's word and each word an edit replaced, in their order, written again in `into`.
-    let covering = covering_edits(&every_word);
+    let covering = covering_edits(&every_word, Overwriting::Edits);
     let mut carried: HashMap<Uuid, Uuid> = HashMap::new();
     let mut covered_copies = Vec::new();
     let mut rows = Vec::new();
@@ -1200,55 +1251,278 @@ pub async fn edit(
             let range = replacement.range;
             let (first, last) = standing_ends(connection, meeting_id, range).await?;
             let replaced = standing_between(connection, meeting_id, &first, &last).await?;
-            let positions = room_after(connection, meeting_id, last.id, texts.len()).await?;
-
             let event_id = Uuid::now_v7();
-            let start_ms = first.start_ms;
-            let end_ms = last.end_ms.max(start_ms);
-            let count = i64::try_from(texts.len()).expect("an edit's words fit a 64-bit count");
-            let new_words: Vec<NewWord> = texts
-                .iter()
-                .zip(positions)
-                .zip(0_i64..)
-                .map(|((text, position), index)| NewWord {
-                    id: Uuid::now_v7(),
-                    meeting_id,
-                    position,
-                    text: (*text).to_owned(),
-                    speaker: first.speaker.clone(),
-                    start_ms: start_ms + (end_ms - start_ms) * index / count,
-                    end_ms: start_ms + (end_ms - start_ms) * (index + 1) / count,
-                    origin: Origin::Edit.as_str().to_owned(),
-                    capture_id: None,
-                    introduced_by: event_id,
-                })
-                .collect();
-            let replaced_ids: Vec<Uuid> = replaced.iter().map(|word| word.id).collect();
-            let new_ids: Vec<Uuid> = new_words.iter().map(|word| word.id).collect();
-            let onto = Range {
-                start_word_id: new_ids[0],
-                end_word_id: new_ids[new_ids.len() - 1],
-            };
-            let anchored = meeting_mark::anchored_in(connection, meeting_id, &replaced_ids).await?;
-            let moves = moves_onto(&anchored, &replaced_ids, onto, &HashMap::new());
-            let edit_mark = NewMark::new(meeting_id, MarkKind::Edit, onto, json!({}), author);
-            let change = WordChange {
-                replaced: replaced_ids.clone(),
-                words: new_ids,
-                marks: moves.clone(),
-                marks_added: vec![edit_mark.id],
-                marks_removed: Vec::new(),
-                before_text: text_of(&replaced),
-                after_text: texts.join(" "),
-            };
+            let replacing =
+                plan_replacement(connection, &replaced, &texts, Origin::Edit, event_id).await?;
+            let edit_mark = NewMark::new(
+                meeting_id,
+                MarkKind::Edit,
+                replacing.onto(),
+                json!({}),
+                author,
+            );
+            let change = replacing.change(vec![edit_mark.id]);
 
             let entry =
                 record_change(connection, meeting_id, event_id, &change, author, None).await?;
-            supersede(connection, &replaced_ids, event_id).await?;
-            insert_words(connection, new_words).await?;
-            move_marks(connection, &moves).await?;
+            replacing.write(connection).await?;
             meeting_mark::insert(connection, edit_mark).await?;
             Ok(entry)
+        })
+        .await
+}
+
+/// New words about to stand in place of a range of standing words, as an edit or a correction
+/// writes them, and the marks that move onto them.
+#[derive(Debug)]
+struct Replacing {
+    replaced: Vec<Uuid>,
+    words: Vec<NewWord>,
+    moves: Vec<MovedMark>,
+    before_text: String,
+    after_text: String,
+}
+
+impl Replacing {
+    /// The range of its new words.
+    fn onto(&self) -> Range {
+        Range {
+            start_word_id: self.words[0].id,
+            end_word_id: self.words[self.words.len() - 1].id,
+        }
+    }
+
+    /// What it does, as a history entry records it, with `marks_added` made over its words.
+    fn change(&self, marks_added: Vec<Uuid>) -> WordChange {
+        WordChange {
+            replaced: self.replaced.clone(),
+            words: self.words.iter().map(|word| word.id).collect(),
+            marks: self.moves.clone(),
+            marks_added,
+            marks_removed: Vec::new(),
+            before_text: self.before_text.clone(),
+            after_text: self.after_text.clone(),
+        }
+    }
+
+    /// Writes it: the replaced words stand no longer, the new ones stand in their place, and the
+    /// marks over the old words cover the new ones. The change it is part of is recorded first,
+    /// since every word it writes names it.
+    async fn write(self, connection: &mut AsyncPgConnection) -> QueryResult<()> {
+        let event_id = self.words[0].introduced_by;
+        supersede(connection, &self.replaced, event_id).await?;
+        insert_words(connection, self.words).await?;
+        move_marks(connection, &self.moves).await
+    }
+}
+
+/// What writing `texts` in place of `replaced`, a run of standing words in order, takes as change
+/// `event_id`: the new words just after the last replaced one, sharing the replaced words' span of
+/// time, spread evenly, with the first replaced word's speaker, each of `origin`. A correction's
+/// words keep the capture of the words they correct; an edit's were said by no capture. Every mark
+/// over the replaced words moves onto the new ones.
+async fn plan_replacement(
+    connection: &mut AsyncPgConnection,
+    replaced: &[Word],
+    texts: &[&str],
+    origin: Origin,
+    event_id: Uuid,
+) -> QueryResult<Replacing> {
+    let (Some(first), Some(last)) = (replaced.first(), replaced.last()) else {
+        panic!("a replacement replaces at least one standing word");
+    };
+    let meeting_id = first.meeting_id;
+    let positions = room_after(connection, meeting_id, last.id, texts.len()).await?;
+    let start_ms = first.start_ms;
+    let end_ms = last.end_ms.max(start_ms);
+    let count = i64::try_from(texts.len()).expect("a replacement's words fit a 64-bit count");
+    let capture_id = match origin {
+        Origin::Edit => None,
+        Origin::Source | Origin::Whisper | Origin::Correction => first.capture_id,
+    };
+    let words: Vec<NewWord> = texts
+        .iter()
+        .zip(positions)
+        .zip(0_i64..)
+        .map(|((text, position), index)| NewWord {
+            id: Uuid::now_v7(),
+            meeting_id,
+            position,
+            text: (*text).to_owned(),
+            speaker: first.speaker.clone(),
+            start_ms: start_ms + (end_ms - start_ms) * index / count,
+            end_ms: start_ms + (end_ms - start_ms) * (index + 1) / count,
+            origin: origin.as_str().to_owned(),
+            capture_id,
+            introduced_by: event_id,
+        })
+        .collect();
+    let replaced_ids: Vec<Uuid> = replaced.iter().map(|word| word.id).collect();
+    let onto = Range {
+        start_word_id: words[0].id,
+        end_word_id: words[words.len() - 1].id,
+    };
+    let anchored = meeting_mark::anchored_in(connection, meeting_id, &replaced_ids).await?;
+    let moves = moves_onto(&anchored, &replaced_ids, onto, &HashMap::new());
+    Ok(Replacing {
+        replaced: replaced_ids,
+        words,
+        moves,
+        before_text: text_of(replaced),
+        after_text: texts.join(" "),
+    })
+}
+
+/// One range a correction settles: the standing words it covers, in order, as the correction read
+/// them; the text it decided on, when that differs from theirs; and its confidence mark's data,
+/// `{ confidence, alternatives }`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettledRange {
+    pub words: Vec<Uuid>,
+    pub text: Option<String>,
+    pub mark: Value,
+}
+
+/// What [`settle`] did.
+#[derive(Debug, Clone)]
+pub struct Settled {
+    /// Its history entry, `settled`.
+    pub entry: MeetingEvent,
+    /// For each range, in the order given, what its mark covers: its new words, or the words it
+    /// left as they were; `None` for a range passed over.
+    pub marked: Vec<Option<Range>>,
+}
+
+/// What a `settled` history entry records.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettledChange {
+    /// Each range whose text it changed, as an edit records its own.
+    pub changes: Vec<WordChange>,
+    /// Every confidence mark it made.
+    pub marks_added: Vec<Uuid>,
+    /// How many ranges it passed over because their words changed since they were read.
+    pub skipped: usize,
+}
+
+/// Settles meeting `meeting_id`'s final transcript as `author`, under its lock, as one change of
+/// its history: over each of `ranges` the text it decided on replaces the range's words as words of
+/// the correction's own, and a confidence mark covers the range. A range whose words no longer
+/// stand exactly as the correction read them is passed over, since whatever changed them is newer
+/// than the correction's reading, and so is one sharing a word with a range before it.
+///
+/// # Errors
+/// Propagates any database error, such as a meeting that does not exist.
+///
+/// # Panics
+/// When a range names no words, or a text no words: the correction's checks keep both out.
+pub async fn settle(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    ranges: &[SettledRange],
+    author: Author<'_>,
+) -> QueryResult<Settled> {
+    connection
+        .transaction(async |connection| {
+            meeting::lock(connection, meeting_id).await?;
+            // Recorded first, since every word and mark it writes names it; what it did is filled
+            // in once it is done.
+            let event_id = Uuid::now_v7();
+            meeting_event::record(
+                connection,
+                Change {
+                    id: event_id,
+                    meeting_id,
+                    kind: EventKind::Settled,
+                    author,
+                    data: json!({}),
+                    undid: None,
+                },
+            )
+            .await?;
+
+            let mut recorded = SettledChange {
+                changes: Vec::new(),
+                marks_added: Vec::new(),
+                skipped: 0,
+            };
+            // Every range is checked against the transcript as it reads now, read once. Writing one
+            // range leaves every other's words standing in their order only while no two share a
+            // word, which the correction's checks keep so and `claimed` makes sure of.
+            let standing_now = standing(connection, meeting_id).await?;
+            let place: HashMap<Uuid, usize> = standing_now
+                .iter()
+                .enumerate()
+                .map(|(index, word)| (word.id, index))
+                .collect();
+            let mut marked = Vec::with_capacity(ranges.len());
+            let mut marks_alone: Vec<NewMark> = Vec::new();
+            let mut claimed: HashSet<Uuid> = HashSet::new();
+            for settled in ranges {
+                let (Some(first), Some(last)) =
+                    (settled.words.as_slice().first(), settled.words.last())
+                else {
+                    panic!("a settled range covers at least one word");
+                };
+                let ends = Range {
+                    start_word_id: *first,
+                    end_word_id: *last,
+                };
+                let words = place
+                    .get(first)
+                    .and_then(|start| standing_now.get(*start..*start + settled.words.len()))
+                    .filter(|words| {
+                        words
+                            .iter()
+                            .map(|word| word.id)
+                            .eq(settled.words.iter().copied())
+                    })
+                    .filter(|words| words.iter().all(|word| !claimed.contains(&word.id)));
+                let Some(words) = words else {
+                    recorded.skipped += 1;
+                    marked.push(None);
+                    continue;
+                };
+                claimed.extend(settled.words.iter().copied());
+                let Some(text) = settled.text.as_deref() else {
+                    // Its words stand as they are; only its mark is new, written with the rest.
+                    let mark = NewMark::new(
+                        meeting_id,
+                        MarkKind::Confidence,
+                        ends,
+                        settled.mark.clone(),
+                        author,
+                    );
+                    recorded.marks_added.push(mark.id);
+                    marks_alone.push(mark);
+                    marked.push(Some(ends));
+                    continue;
+                };
+                let texts: Vec<&str> = text.split_whitespace().collect();
+                assert!(!texts.is_empty(), "a settled text writes at least one word");
+                let replacing =
+                    plan_replacement(connection, words, &texts, Origin::Correction, event_id)
+                        .await?;
+                let onto = replacing.onto();
+                let mark = NewMark::new(
+                    meeting_id,
+                    MarkKind::Confidence,
+                    onto,
+                    settled.mark.clone(),
+                    author,
+                );
+                recorded.changes.push(replacing.change(vec![mark.id]));
+                recorded.marks_added.push(mark.id);
+                replacing.write(connection).await?;
+                meeting_mark::insert(connection, mark).await?;
+                marked.push(Some(onto));
+            }
+
+            meeting_mark::insert_all(connection, marks_alone).await?;
+
+            let data = serde_json::to_value(&recorded).expect("a settlement is plain fields");
+            let entry = meeting_event::set_data(connection, event_id, data).await?;
+            Ok(Settled { entry, marked })
         })
         .await
 }
@@ -2038,6 +2312,114 @@ pub(crate) mod tests {
             .await,
             Err(MarkError::NotStanding)
         ));
+    }
+
+    /// #269 review: a person's edit over a word the correction settled, carried into another meeting
+    /// by a merge, still belongs to the settled word's capture there, and moves with it.
+    #[test]
+    fn an_edit_carried_over_a_settled_word_moves_with_the_settled_words_capture() {
+        let meeting_id = Uuid::now_v7();
+        let carried_by = Uuid::now_v7();
+        let (heard_in, kept_capture) = (Uuid::now_v7(), Uuid::now_v7());
+        let row = |text: &str, origin: Origin, capture_id: Option<Uuid>, number: i64| Word {
+            id: Uuid::now_v7(),
+            meeting_id,
+            position: number * POSITION_GAP,
+            text: text.to_owned(),
+            speaker: "Ada".to_owned(),
+            start_ms: 1_000,
+            end_ms: 1_400,
+            origin: origin.as_str().to_owned(),
+            capture_id,
+            introduced_by: carried_by,
+            superseded_by: None,
+            created_at: Utc::now(),
+        };
+        // As a merge writes them: the settled word the edit replaced, then the edit's own word.
+        let mut settled = row("Sharath", Origin::Correction, Some(heard_in), 1);
+        settled.superseded_by = Some(carried_by);
+        let edited = row("Sharad", Origin::Edit, None, 2);
+        let every_word = vec![settled, edited.clone()];
+        let present = HashSet::from([heard_in, kept_capture]);
+        let moved_by = HashMap::from([(heard_in, 500)]);
+
+        let mut times = HashMap::new();
+        let (_moved, capture_of_edit) = with_edits_moved(
+            &every_word,
+            &moved_by,
+            Overwriting::EditsAndSettled(&present),
+            &mut times,
+        );
+
+        assert_eq!(capture_of_edit.get(&edited.id), Some(&heard_in));
+        assert_eq!(times.get(&edited.id), Some(&(1_500, 1_900)));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn settled_words_stand_through_a_rebuild_while_their_capture_is_the_meetings() {
+        let (_url, mut connection) = migrated_database().await;
+        let (capture, words) = built_meeting(
+            &mut connection,
+            &[("Ada", "Jon ships"), ("Grace", "Sure thing")],
+        )
+        .await;
+        let meeting_id = capture.meeting_id;
+        let jon = word(&words, "Jon").clone();
+        let sure = word(&words, "Sure").clone();
+        let settled = settle(
+            &mut connection,
+            meeting_id,
+            &[SettledRange {
+                words: vec![jon.id],
+                text: Some("John".to_owned()),
+                mark: json!({ "confidence": 90, "alternatives": [] }),
+            }],
+            system(),
+        )
+        .await
+        .expect("settles");
+        assert_eq!(settled.entry.kind, "settled");
+        // A person's edit elsewhere, which stands through every rebuild whatever its capture.
+        edit(
+            &mut connection,
+            meeting_id,
+            Replacement {
+                range: range(&sure, &sure),
+                text: "Certain",
+            },
+            person(),
+        )
+        .await
+        .expect("edits");
+        assert_eq!(
+            text(&mut connection, meeting_id).await,
+            "John ships Certain thing"
+        );
+
+        // Lined up again from the capture, which still heard "Jon": the settled word stands.
+        final_transcript::rebuild(&mut connection, meeting_id, system())
+            .await
+            .expect("rebuilds");
+        assert_eq!(
+            text(&mut connection, meeting_id).await,
+            "John ships Certain thing"
+        );
+
+        // With its capture gone from the meeting, as a split takes it, the settlement goes with
+        // the capture's words, and the person's edit stays.
+        let gone = Rebuild {
+            meeting_id,
+            words: Vec::new(),
+            captures: Vec::new(),
+            built_from: BuiltFrom::Source,
+            provisional: HashSet::new(),
+        };
+        rebuild(&mut connection, gone, system())
+            .await
+            .expect("rebuilds")
+            .expect("the capture's words went");
+        assert_eq!(text(&mut connection, meeting_id).await, "Certain");
     }
 
     #[tokio::test]

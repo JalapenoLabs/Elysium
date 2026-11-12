@@ -4,40 +4,39 @@
 //! from every capture of it. See `docs/meetings.md`, The final transcript.
 //!
 //! [`rebuild`] reads each capture on the meeting's clock (its own clock plus its offset), and the
-//! lines its words come from: the first capture's corrected copy, when the meeting has one, a line
-//! that differs from the one it follows being the correction's; otherwise each capture's lines as
-//! it heard them, its source's, or Whisper's segments when its source sent none
+//! lines its words come from: its source's, or Whisper's segments when its source sent none
 //! (`correction::base`). Each line's words are timed by Whisper's words where Whisper heard them
 //! and spread evenly where it did not, Whisper's words take their speakers from the sources'
 //! lines, and the captures are laid out by time, a moment two of them heard reading once
 //! (`super::alignment`).
 //!
-//! A transcript is lined up by the align step, built again by the correction step once its copy is
-//! stored, and again by everything that moves a capture: a hand-set offset, a merge, a split.
-//! Every one keeps what did not change, and every edit (`meeting_word::rebuild`).
+//! A transcript is lined up by the align step, and again by everything that moves a capture: a
+//! hand-set offset, a merge, a split. Every one keeps what did not change, every edit, and every
+//! range the meeting's correction settled (`meeting_word::rebuild`), so the transcript is settled
+//! once (`meeting_word::settle`) and a rebuild never undoes it.
 //!
 //! A capture Whisper never heard has each line's time spread evenly across its words, exactly as
-//! the migration that split meetings into captures wrote every transcript in SQL, and a test holds
-//! the two to the same words.
+//! the migration that split meetings into captures wrote every uncorrected transcript in SQL, and
+//! a test holds the two to the same words.
 
 use anyhow::anyhow;
 use diesel_async::AsyncPgConnection;
 
 use super::alignment::{self, Speaking};
-use super::correction::{self, Base};
+use super::correction;
 use super::source::TranscriptLine;
 use crate::models::agent::Author;
 use crate::models::meeting;
 use crate::models::meeting_capture::{self, MeetingCapture, OffsetSource};
-use crate::models::meeting_correction::{self, BasedOn};
+use crate::models::meeting_correction::BasedOn;
 use crate::models::meeting_event::MeetingEvent;
 use crate::models::meeting_transcription;
 use crate::models::meeting_word::{self, BuiltCapture, BuiltFrom, BuiltWord, Origin, Rebuild};
 use crate::whisper::{WhisperTranscript, WhisperWord};
 
 /// Lines meeting `meeting_id`'s final transcript up from every capture it has, as `author`, keeping
-/// what did not change and every edit. Answers the `built` history entry, or `None` when the
-/// transcript already read so.
+/// what did not change, every edit, and what its correction settled. Answers the `built` history
+/// entry, or `None` when the transcript already read so.
 ///
 /// # Errors
 /// Propagates any database error, and a stored transcript that does not read as its shape.
@@ -47,11 +46,6 @@ pub async fn rebuild(
     author: Author<'_>,
 ) -> anyhow::Result<Option<MeetingEvent>> {
     let captures = meeting_capture::list_of(connection, meeting_id).await?;
-    let corrected: Option<Vec<TranscriptLine>> = meeting_correction::find(connection, meeting_id)
-        .await?
-        .map(|copy| serde_json::from_value(copy.transcript))
-        .transpose()
-        .map_err(|error| anyhow!("the corrected copy is not in the stored shape: {error}"))?;
 
     let mut heard_by_capture: Vec<(uuid::Uuid, Vec<BuiltWord>)> =
         Vec::with_capacity(captures.len());
@@ -69,36 +63,18 @@ pub async fn rebuild(
                     speaker: line.speaker.clone(),
                 }),
         );
+        let whisper_words = words_of(whisper.as_ref());
         let Some(base) = correction::base(source, whisper.as_ref()) else {
             continue;
         };
-        // A meeting's corrected copy follows its first capture, line for line: the capture its
-        // run corrected, which no capture merged in later ever displaces.
-        let copy = corrected.as_deref().filter(|copy| index == 0 && {
-            let follows = copy.len() == base.lines.len();
-            if !follows {
-                // Correction keeps every line, so only a copy stored by hand reaches this.
-                tracing::event!(
-                    name: "meetings.transcript.copy_unfollowed",
-                    tracing::Level::WARN,
-                    meeting.id = %meeting_id,
-                    copy.lines = copy.len(),
-                    capture.lines = base.lines.len(),
-                    "a corrected copy does not follow its capture line for line; the transcript \
-                     is lined up as the capture heard it",
-                );
-            }
-            follows
-        });
-        let (from, lines) = lines_to_build(&base, copy);
+        let (from, origin) = match base.based_on {
+            BasedOn::Source => (BuiltFrom::Source, Origin::Source),
+            BasedOn::Whisper => (BuiltFrom::Whisper, Origin::Whisper),
+        };
         if index == 0 {
             built_from = from;
         }
-        let whisper_words: Vec<WhisperWord> = whisper
-            .into_iter()
-            .flat_map(|heard| heard.segments)
-            .flat_map(|segment| segment.words)
-            .collect();
+        let lines = base.lines.iter().map(|line| (line, origin));
         let words = alignment::capture_words(lines, &whisper_words, capture.offset_ms);
         heard_by_capture.push((capture.id, words));
     }
@@ -136,7 +112,10 @@ pub async fn rebuild(
 }
 
 /// What `capture` heard: its source's lines, and Whisper's transcript when it has one.
-async fn heard_by(
+///
+/// # Errors
+/// Propagates any database error, and a stored transcript that does not read as its shape.
+pub async fn heard_by(
     connection: &mut AsyncPgConnection,
     capture: &MeetingCapture,
 ) -> anyhow::Result<(Vec<TranscriptLine>, Option<WhisperTranscript>)> {
@@ -152,42 +131,13 @@ async fn heard_by(
     Ok((source, whisper))
 }
 
-/// What a transcript built from `heard` is built from, and each of its lines with where it came
-/// from: the corrected copy's lines when there is one, a line that differs from the one it
-/// follows being the correction's, or else `heard`'s own.
-pub fn lines_to_build<'lines>(
-    heard: &'lines Base,
-    corrected: Option<&'lines [TranscriptLine]>,
-) -> (BuiltFrom, Vec<(&'lines TranscriptLine, Origin)>) {
-    let heard_from = match heard.based_on {
-        BasedOn::Source => Origin::Source,
-        BasedOn::Whisper => Origin::Whisper,
-    };
-    let Some(corrected) = corrected else {
-        let built_from = match heard.based_on {
-            BasedOn::Source => BuiltFrom::Source,
-            BasedOn::Whisper => BuiltFrom::Whisper,
-        };
-        let lines = heard.lines.iter().map(|line| (line, heard_from)).collect();
-        return (built_from, lines);
-    };
-    let lines = corrected
-        .iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let as_heard = heard
-                .lines
-                .get(index)
-                .is_some_and(|heard_line| heard_line.text == line.text);
-            let origin = if as_heard {
-                heard_from
-            } else {
-                Origin::Correction
-            };
-            (line, origin)
-        })
-        .collect();
-    (BuiltFrom::Correction, lines)
+/// Every word Whisper heard in `whisper`, in the order it heard them.
+pub fn words_of(whisper: Option<&WhisperTranscript>) -> Vec<WhisperWord> {
+    whisper
+        .into_iter()
+        .flat_map(|heard| &heard.segments)
+        .flat_map(|segment| segment.words.iter().cloned())
+        .collect()
 }
 
 #[cfg(test)]
@@ -268,46 +218,6 @@ mod tests {
                 .map(|word| (word.start_ms, word.end_ms))
                 .collect::<Vec<_>>(),
             vec![(0, 333), (333, 666), (666, 1_000)]
-        );
-    }
-
-    #[test]
-    fn a_corrected_line_is_the_corrections_and_the_rest_are_as_heard() {
-        let heard = Base {
-            based_on: BasedOn::Source,
-            lines: vec![
-                line(0, 1_000, "Ada", "Jon ships Friday"),
-                line(1_000, 2_000, "Grace", "Agreed"),
-            ],
-        };
-        let corrected = vec![
-            line(0, 1_000, "Ada", "John ships Friday"),
-            line(1_000, 2_000, "Grace", "Agreed"),
-        ];
-
-        let (built_from, lines) = lines_to_build(&heard, Some(&corrected));
-        assert_eq!(built_from, BuiltFrom::Correction);
-        assert_eq!(
-            lines
-                .iter()
-                .map(|(line, origin)| (line.text.as_str(), *origin))
-                .collect::<Vec<_>>(),
-            vec![
-                ("John ships Friday", Origin::Correction),
-                ("Agreed", Origin::Source),
-            ]
-        );
-
-        let whisper = Base {
-            based_on: BasedOn::Whisper,
-            lines: heard.lines.clone(),
-        };
-        let (built_from, lines) = lines_to_build(&whisper, None);
-        assert_eq!(built_from, BuiltFrom::Whisper);
-        assert!(
-            lines
-                .iter()
-                .all(|(_line, origin)| *origin == Origin::Whisper)
         );
     }
 }

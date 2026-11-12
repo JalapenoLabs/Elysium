@@ -38,6 +38,7 @@ use crate::database::Pool;
 use crate::models::meeting_capture::StoredRecording;
 use crate::models::meeting_transcription::{self, MeetingTranscription, NewMeetingTranscription};
 use crate::storage::Storage;
+use crate::transcription_doc;
 use crate::whisper::{Transcribed, Whisper, WhisperTranscript};
 use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
 
@@ -155,6 +156,7 @@ impl TranscribeMeeting {
             .await
             .map_err(StepFailure::retryable)?
         };
+        let hint_words = self.hint_words(log).await?;
         let open = async {
             log.line(&format!("Reading the recording from {}", recording.path));
             let download = self
@@ -167,7 +169,7 @@ impl TranscribeMeeting {
         let heard = self
             .inner
             .whisper
-            .transcribe(step_job_id, open, |line| log.line(line))
+            .transcribe(step_job_id, &hint_words, open, |line| log.line(line))
             .await
             .map_err(|error| {
                 let reason = format!("{error}");
@@ -215,6 +217,21 @@ impl TranscribeMeeting {
             written.transcript_hash,
             summary,
         ))
+    }
+
+    /// The names and terms Whisper is told to listen for: the Transcription doc's, and the company
+    /// doc's people and glossary (`transcription_doc::hint_words`). Whisper hears a name right more
+    /// often when it is told the name first. The log counts them.
+    async fn hint_words(&self, log: &StepLog) -> Result<Vec<String>, StepFailure> {
+        let mut connection = self.connection().await?;
+        let hint_words = transcription_doc::hint_words(&mut connection)
+            .await
+            .map_err(StepFailure::retryable)?;
+        log.line(&format!(
+            "Telling Whisper {} names and terms from the Transcription doc and the company doc",
+            hint_words.len()
+        ));
+        Ok(hint_words)
     }
 
     /// The capture `recorded` names, and the transcription stored for it, if there is one.

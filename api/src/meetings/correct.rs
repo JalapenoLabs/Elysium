@@ -1,20 +1,30 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meeting workflow's third step, [`CorrectTranscript`]: a corrected copy of the meeting's
-//! transcript, its misheard names and terms fixed against every transcript the meeting has,
-//! the company doc, and the company's other meetings, beside the raw ones it was made from.
+//! The meeting workflow's correction step, [`CorrectTranscript`]: one correcting agent settles the
+//! meeting's final transcript, reading every capture's version of it beside the Transcription doc
+//! and the company doc, and the corrected copy of its first capture's lines is stored beside the
+//! raw transcripts it was made from.
 //!
-//! The prompt and the checks on the model's answer are `super::correction`; this module runs
-//! the turn, stores the copy, lines the meeting's final transcript up again with it
-//! (`super::final_transcript`), and decides whether the run waits for its person's approval.
+//! The prompt and the checks on the model's answer are `super::correction`; this module reads the
+//! meeting, runs the turn, settles the transcript (`meeting_word::settle`) and stores the copy in
+//! one transaction, teaches the Transcription doc (`crate::transcription_doc`), and decides whether
+//! the run waits for its person's approval.
 //!
 //! # Doing it once
 //!
-//! A meeting is corrected once. The raw transcripts are never written: the copy goes in
-//! `meeting_corrections` (`models::meeting_correction`), which keeps the first copy stored, and
-//! running the step again answers it without asking the model anything. Every attempt that has a
-//! copy lines the final transcript up with it, which changes nothing once it has, so an engine
-//! that stopped between the two does it on the next.
+//! A meeting is settled once. The raw transcripts are never written: the copy goes in
+//! `meeting_corrections` (`models::meeting_correction`) in the transaction that settles the final
+//! transcript, under the meeting's lock, so an attempt that finds it answers it without asking the
+//! model anything, and an attempt that finds another stored first discards its own. A rebuild keeps
+//! what the settlement wrote, so a merge or a split lines the transcript up again without settling
+//! it again.
+//!
+//! # Teaching the Transcription doc
+//!
+//! A flag the agent is sure of ([`TEACHING_CONFIDENCE`] or more) that fixes words teaches the
+//! Transcription doc each of its fixes, with where it was heard and why, in the same transaction,
+//! so the next meeting's correction reads it at once; a fix naming someone or something the
+//! company doc does not know is suggested to it.
 //!
 //! # Waiting for approval
 //!
@@ -30,9 +40,9 @@
 //! # What it logs
 //!
 //! Every company member can read a run's log, and meetings are their owner's alone, so the log
-//! carries counts, line numbers, sections of the company doc, and hashes, never a word of what
-//! was said.
+//! carries counts, line numbers, and hashes, never a word of what was said.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -42,7 +52,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::correction::{self, Background, Base};
+use super::correction::{self, Background, Base, Changed, Flag, Transcript, Version};
 use super::final_transcript;
 use super::segment::TranscriptToSegment;
 use super::source::TranscriptLine;
@@ -58,27 +68,30 @@ use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::connector;
 use crate::models::meeting::{self, Meeting};
-use crate::models::meeting_capture::{self, MeetingCapture, StoredRecording};
+use crate::models::meeting_capture::{self, StoredRecording};
 use crate::models::meeting_correction::{self, MeetingCorrection, NewMeetingCorrection};
-use crate::models::meeting_event::{self, Change, EventKind};
-use crate::models::meeting_transcription;
+use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
+use crate::models::meeting_word::{self, Origin, SettledRange, Word};
 use crate::models::model_setting::ModelChoice;
+use crate::models::page_suggestion::Suggested;
 use crate::models::step_job::{self, StepActionError, StepJobState};
-use crate::models::user::SYSTEM_USER_ID;
+use crate::models::user::{ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::models::workflow_run::{self, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
-use crate::runner::events::{RunnerEvent, TurnStatus};
+use crate::routes::v1::meetings::announce_lined_up;
+use crate::routes::v1::pages;
+use crate::runner::events::{RunnerEvent, TurnOutcome, TurnStatus};
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
-use crate::whisper::WhisperTranscript;
-use crate::workflows::{self, Done, Step, StepContext, StepFailure};
+use crate::transcription_doc::{self, Lesson, MeetingLink};
+use crate::whisper::WhisperWord;
+use crate::workflows::{self, Done, Step, StepContext, StepFailure, StepLog};
 
 /// Where correction turns run in the workspace. Text turns read and write no files.
 const CORRECTION_DIRECTORY: &str = ".elysium/correction";
 
-/// How many of the company's newest corrected meetings a correction learns fixes from, and how
-/// many meetings it reads speakers' names from: enough to know the company's recurring names
-/// and terms, few enough to read in one query.
+/// How many of the company's newest meetings a correction reads speakers' names from: enough to
+/// know the company's recurring names, few enough to read in one query.
 const OTHER_MEETINGS: i32 = 30;
 
 /// The most speakers' names a prompt lists.
@@ -86,6 +99,11 @@ const SPEAKERS_MAX: i32 = 200;
 
 /// The longest title of an inbox item, as items allow.
 const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
+
+/// How sure the correcting agent must be of a fix for the Transcription doc to learn it: sure
+/// enough that it would be wrong rarely, since every later meeting reads what it learns, and a
+/// person's own fix teaches it whatever the agent thought.
+pub const TEACHING_CONFIDENCE: u8 = 80;
 
 /// A meeting past its correction: everything the transcription gave, and which corrected copy
 /// the meeting has. [`CorrectTranscript`] gives it as segmenting's input
@@ -159,14 +177,41 @@ enum Read {
     Heard(Box<Heard>),
 }
 
-/// A meeting's transcripts and everything its correction reads beside them.
+/// A meeting's final transcript, every capture's version of it, and everything its correction
+/// reads beside them.
 struct Heard {
     meeting: Meeting,
+    /// Its first capture's lines, which the corrected copy follows.
     base: Base,
-    whisper: Option<WhisperTranscript>,
+    /// Where each of the first capture's words stands in those lines.
+    places: HashMap<Uuid, (usize, usize)>,
+    words: Vec<Word>,
+    versions: Vec<Version>,
+    /// What each capture's source is called, by capture.
+    sources: HashMap<Uuid, String>,
+    transcription: Vec<transcription_doc::Entry>,
     doc: company_doc::CompanyDocResponse,
-    fixes: Vec<correction::Fix>,
     speakers: Vec<String>,
+}
+
+/// What one turn's answer settles, checked.
+struct Settling {
+    flags: Vec<Flag>,
+    changed: Vec<Changed>,
+}
+
+/// What storing a settlement found.
+enum Stored {
+    /// This attempt settled the meeting: its `settled` history entry, its copy, whether the
+    /// Transcription doc learned from it, and the names it suggested to the company doc.
+    Settled {
+        entry: Box<MeetingEvent>,
+        correction: MeetingCorrection,
+        learned: bool,
+        suggested: Vec<Suggested>,
+    },
+    /// Another attempt settled it first; its copy is kept, and this one's discarded.
+    ByAnother(MeetingCorrection),
 }
 
 /// Whether the run goes on past the correction, as decided under the meeting's lock.
@@ -201,20 +246,47 @@ impl CorrectTranscript {
         })
     }
 
-    /// The meeting's transcripts, and what its correction reads beside them.
-    async fn read(&self, input: &TranscribedMeeting) -> Result<Read, StepFailure> {
+    /// The meeting's final transcript, lined up first when its aligning was skipped, every
+    /// capture's version of it, and what its correction reads beside them.
+    async fn read(&self, input: &TranscribedMeeting, log: &StepLog) -> Result<Read, StepFailure> {
         let mut connection = self.connection().await?;
+        let author = Author {
+            user_id: SYSTEM_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let built = final_transcript::rebuild(&mut connection, input.meeting_id, author)
+            .await
+            .map_err(StepFailure::retryable)?;
+        if let Some(built) = built {
+            log.line(&format!(
+                "Lined the final transcript up: {} words",
+                built.data["words"]
+            ));
+        }
         let read = async {
             let meeting = meeting::find(&mut connection, input.meeting_id).await?;
-            let read_whisper = input.whisper_transcript_hash.is_some();
-            let (_capture, base, whisper) = heard_by(&mut connection, input, read_whisper).await?;
-            let Some(base) = base else {
+            let first =
+                super::capture_of(&mut connection, input.meeting_id, input.capture_id).await?;
+            let (source, whisper) = final_transcript::heard_by(&mut connection, &first).await?;
+            let first_whisper = final_transcript::words_of(whisper.as_ref());
+            let words = meeting_word::standing(&mut connection, meeting.id).await?;
+            let Some(base) = correction::base(source, whisper.as_ref()) else {
                 return anyhow::Ok(Read::Silent);
             };
+            if words.is_empty() {
+                return Ok(Read::Silent);
+            }
+            let places = correction::places_in_lines(
+                &base,
+                &first_whisper,
+                first.offset_ms,
+                first.id,
+                &words,
+            );
+            let (versions, sources) = versions_of(&mut connection, meeting.id).await?;
+            let transcription = transcription_doc::read(&mut connection).await?;
             let doc = company_doc::read(&mut connection).await?;
-            let stored_fixes =
-                meeting_correction::recent_fixes(&mut connection, meeting.id, OTHER_MEETINGS)
-                    .await?;
             let speakers = meeting_correction::recent_speakers(
                 &mut connection,
                 meeting.id,
@@ -225,95 +297,73 @@ impl CorrectTranscript {
             Ok(Read::Heard(Box::new(Heard {
                 meeting,
                 base,
-                whisper,
+                places,
+                words,
+                versions,
+                sources,
+                transcription: transcription.entries,
                 doc,
-                fixes: correction::learned_fixes(&stored_fixes),
                 speakers,
             })))
         };
         read.await.map_err(StepFailure::retryable)
     }
 
-    /// Corrects `heard` in one turn over the whole meeting, and stores the copy. Answers the
-    /// copy stored, which is another attempt's when one stored it first.
-    async fn correct(
+    /// Asks the correcting agent about `heard` in one turn over the whole meeting, and checks its
+    /// answer.
+    async fn ask_about(
         &self,
         heard: &Heard,
-        input: &TranscribedMeeting,
-        source_transcript_hash: &str,
         context: &StepContext,
-    ) -> Result<MeetingCorrection, StepFailure> {
+    ) -> Result<Settling, StepFailure> {
         let participants: Vec<String> =
             serde_json::from_value(heard.meeting.participants.clone()).unwrap_or_default();
         let background = correction::background(Background {
             title: &heard.meeting.title,
             participants: &participants,
+            transcription: &heard.transcription,
             doc: &heard.doc,
-            fixes: &heard.fixes,
             speakers: &heard.speakers,
         });
-        let lines = &heard.base.lines;
+        let transcript = Transcript::new(&heard.words, heard.versions.clone());
         context.log.line(&format!(
-            "Correcting {} lines of the {} transcript{}, in one turn",
-            lines.len(),
-            heard.base.based_on.as_str(),
-            if heard.whisper.is_some() {
-                ", beside Whisper's"
-            } else {
-                ""
-            },
+            "Settling {} words in {} lines, beside {} transcripts of its captures, in one turn",
+            heard.words.len(),
+            transcript.lines.len(),
+            heard.versions.len(),
         ));
 
         let model = context.model().await?;
-        let prompt = correction::prompt(&background, lines, heard.whisper.as_ref());
+        let prompt = correction::prompt(&background, &transcript);
         let answer = self.ask(heard.meeting.id, prompt, &model).await?;
-        let checked = correction::parse_answer(&answer, lines)
+        let checked = correction::parse_answer(&answer, &transcript)
             .map_err(|error| StepFailure::retryable(format!("The correction's answer: {error}")))?;
-        context.log.line(&format!(
-            "{} lines corrected, {} edits refused",
-            checked.edits.len(),
-            checked.refused.len()
-        ));
         for (line, refusal) in &checked.refused {
+            let named = match line {
+                Some(line) => format!("line {line}"),
+                None => "a line named by no number".to_owned(),
+            };
             context
                 .log
-                .line(&format!("Refused the edit to line {line}: {refusal}"));
+                .line(&format!("Refused a flag on {named}: {refusal}"));
         }
-        let edits = checked.edits;
-
-        let corrected = correction::apply(lines, &edits);
-        let hash = correction::transcript_hash(&corrected);
-        let new = NewMeetingCorrection {
-            meeting_id: heard.meeting.id,
-            transcript: serde_json::to_value(&corrected).map_err(StepFailure::permanent)?,
-            transcript_hash: hash.clone(),
-            based_on: heard.base.based_on.as_str().to_owned(),
-            source_transcript_hash: source_transcript_hash.to_owned(),
-            whisper_transcript_hash: input.whisper_transcript_hash.clone(),
-            changed_lines: i32::try_from(edits.len()).unwrap_or(i32::MAX),
-            fixes: serde_json::to_value(correction::distinct_fixes(&edits))
-                .map_err(StepFailure::permanent)?,
-        };
-        let mut connection = self.connection().await?;
-        let written = meeting_correction::record(&mut connection, new)
-            .await
-            .map_err(StepFailure::retryable)?;
-        if let Some(written) = written {
-            context
-                .log
-                .line(&format!("Stored the corrected copy, SHA-256 {hash}"));
-            return Ok(written);
-        }
-        // Another attempt stored its copy first; that one is what every later step reads.
-        let stored = meeting_correction::find(&mut connection, heard.meeting.id)
-            .await
-            .map_err(StepFailure::retryable)?
-            .ok_or_else(|| StepFailure::retryable("The meeting's corrected copy went missing"))?;
+        let changed = correction::unflagged_changes(&transcript, &checked.flags);
         context.log.line(&format!(
-            "Another attempt stored its corrected copy first, SHA-256 {}; it is kept",
-            stored.transcript_hash
+            "{} flags kept, {} of them changing words, and {} refused; {} runs a capture heard \
+             otherwise",
+            checked.flags.len(),
+            checked
+                .flags
+                .iter()
+                .filter(|flag| flag.changes_text)
+                .count(),
+            checked.refused.len(),
+            changed.len(),
         ));
-        Ok(stored)
+        Ok(Settling {
+            flags: checked.flags,
+            changed,
+        })
     }
 
     /// One correction turn on the step's model, answering the model's final text.
@@ -356,48 +406,114 @@ impl CorrectTranscript {
                 }
             }
         };
-        if outcome.prompt_too_long() {
-            // The prompt is the meeting itself, so every attempt would fail the same way. A
-            // person who skips the step lets segmenting go on from the transcript as heard.
-            return Err(StepFailure::permanent(format!(
-                "The meeting is too long for the model to read in one turn: {}",
-                outcome.error.unwrap_or_default()
-            )));
-        }
-        if outcome.status != TurnStatus::Completed {
-            return Err(StepFailure::retryable(anyhow!(
-                "The correction turn ended {:?}: {}",
-                outcome.status,
-                outcome.error.unwrap_or_default()
-            )));
-        }
-        Ok(outcome.result.unwrap_or_default())
+        answer_of(outcome)
     }
 
-    /// Lines meeting `meeting_id`'s final transcript up again with its corrected copy, which
-    /// changes nothing once it has (`final_transcript::rebuild`).
-    async fn build_final_transcript(
+    /// Settles `heard`'s final transcript with `settling` and stores its corrected copy, under the
+    /// meeting's lock in one transaction, teaching the Transcription doc and proposing to the
+    /// company doc what it learned. Another attempt's copy stored first is kept instead.
+    async fn store(
         &self,
-        meeting_id: Uuid,
-        log: &crate::workflows::StepLog,
-    ) -> Result<(), StepFailure> {
-        let mut connection = self.connection().await?;
+        heard: &Heard,
+        settling: &Settling,
+        input: &TranscribedMeeting,
+        context: &StepContext,
+    ) -> Result<Stored, StepFailure> {
+        let source_transcript_hash = input
+            .transcript_hash
+            .clone()
+            .ok_or_else(|| StepFailure::permanent("The meeting was not fetched"))?;
+        let ranges = settled_ranges(&heard.words, settling);
+        let participants: Vec<String> =
+            serde_json::from_value(heard.meeting.participants.clone()).unwrap_or_default();
+        let mut people = participants;
+        people.extend(heard.words.iter().map(|word| word.speaker.clone()));
+        people.sort();
+        people.dedup();
         let author = Author {
             user_id: SYSTEM_USER_ID,
             agent: None,
             at: Utc::now(),
         };
-        let built = final_transcript::rebuild(&mut connection, meeting_id, author)
+        // A name the company doc lacks is suggested to it in Elysia's name, naming the run, as
+        // its review's suggestions are.
+        let as_elysia = Author {
+            user_id: ELYSIA_USER_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+
+        let mut connection = self.connection().await?;
+        let meeting_id = heard.meeting.id;
+        let stored = connection
+            .transaction(async |connection| {
+                meeting::lock(connection, meeting_id).await?;
+                if let Some(stored) = meeting_correction::find(connection, meeting_id).await? {
+                    return anyhow::Ok(Stored::ByAnother(stored));
+                }
+                let settled = meeting_word::settle(connection, meeting_id, &ranges, author).await?;
+                // Settling rewrites words a comment thread may quote, as an edit does, so the
+                // segments that index the threads over them are indexed again.
+                super::comments::reindex_meeting(connection, &heard.meeting).await?;
+                // The flags are the first ranges (`settled_ranges`), so the first answers are
+                // theirs. A flag whose words changed since the turn read them was passed over, and
+                // so is left out of the copy as of the words.
+                let applied: Vec<&Flag> = settling
+                    .flags
+                    .iter()
+                    .zip(&settled.marked[..settling.flags.len()])
+                    .filter(|(_flag, marked)| marked.is_some())
+                    .map(|(flag, _marked)| flag)
+                    .collect();
+                let (copy, changed_lines) = correction::corrected_copy(
+                    &heard.base,
+                    &heard.places,
+                    &heard.words,
+                    applied.iter().copied(),
+                );
+                let new = NewMeetingCorrection {
+                    meeting_id,
+                    transcript: serde_json::to_value(&copy)?,
+                    transcript_hash: correction::transcript_hash(&copy),
+                    based_on: heard.base.based_on.as_str().to_owned(),
+                    source_transcript_hash: source_transcript_hash.clone(),
+                    whisper_transcript_hash: input.whisper_transcript_hash.clone(),
+                    changed_lines: i32::try_from(changed_lines).unwrap_or(i32::MAX),
+                    fixes: serde_json::to_value(correction::distinct_fixes(
+                        applied.iter().copied(),
+                    ))?,
+                };
+                let correction = meeting_correction::record(connection, new)
+                    .await?
+                    .ok_or_else(|| anyhow!("the meeting's copy was stored under its own lock"))?;
+                let lessons = lessons_of(heard, &applied);
+                let learned = transcription_doc::learn(connection, &lessons, author).await?;
+                let suggested = transcription_doc::suggest_unknown(
+                    connection,
+                    &lessons,
+                    &people,
+                    (as_elysia, Some(context.run_id)),
+                )
+                .await?;
+                context.log.line(&format!(
+                    "Settled {} ranges and passed over {} whose words changed since",
+                    settled.marked.iter().flatten().count(),
+                    settled
+                        .marked
+                        .iter()
+                        .filter(|range| range.is_none())
+                        .count(),
+                ));
+                Ok(Stored::Settled {
+                    entry: Box::new(settled.entry),
+                    correction,
+                    learned,
+                    suggested,
+                })
+            })
             .await
             .map_err(StepFailure::retryable)?;
-        if let Some(built) = built {
-            log.line(&format!(
-                "Lined the final transcript up with the corrected copy: {} words written, {} \
-                 replaced",
-                built.data["added"], built.data["replaced"]
-            ));
-        }
-        Ok(())
+        Ok(stored)
     }
 
     /// Whether the run waits for the meeting's person, decided under its lock, raising the
@@ -447,13 +563,66 @@ impl CorrectTranscript {
         Ok(decision)
     }
 
-    fn announce(&self, changed: &Meeting) {
-        self.inner.events.publish(&ServerEvent::MeetingChanged {
-            id: changed.id,
-            state: changed.state.clone(),
-            created_by: changed.created_by,
-            entry_id: None,
-        });
+    /// Settles the meeting `input` names in one turn, and answers its stored copy.
+    async fn settle(
+        &self,
+        input: &TranscribedMeeting,
+        context: &StepContext,
+    ) -> Result<Option<MeetingCorrection>, StepFailure> {
+        let Read::Heard(heard) = self.read(input, &context.log).await? else {
+            return Ok(None);
+        };
+        let settling = self.ask_about(&heard, context).await?;
+        match self.store(&heard, &settling, input, context).await? {
+            Stored::Settled {
+                entry,
+                correction,
+                learned,
+                suggested,
+            } => {
+                context.log.line(&format!(
+                    "Stored the corrected copy, SHA-256 {}",
+                    correction.transcript_hash
+                ));
+                if learned {
+                    context.log.line("The Transcription doc learned from it");
+                    self.inner.events.publish(&ServerEvent::PageChanged {
+                        id: transcription_doc::TRANSCRIPTION_PAGE_ID,
+                    });
+                }
+                let mut connection = self.connection().await?;
+                if !suggested.is_empty() {
+                    context.log.line(&format!(
+                        "Suggested {} names to the company doc, for a person to accept",
+                        suggested.len()
+                    ));
+                }
+                for each in suggested {
+                    pages::announce_suggested(&self.inner.events, &mut connection, each).await;
+                }
+                // Every page reads the settled transcript again, as after any change no page made.
+                if let Err(error) =
+                    announce_lined_up(&self.inner.events, &mut connection, &entry).await
+                {
+                    // The meeting is settled; pages that missed it read it on their next load.
+                    tracing::event!(
+                        name: "meetings.correction.unannounced",
+                        tracing::Level::WARN,
+                        meeting.id = %heard.meeting.id,
+                        error.message = %error,
+                        "a settled meeting could not be announced",
+                    );
+                }
+                Ok(Some(correction))
+            }
+            Stored::ByAnother(stored) => {
+                context.log.line(&format!(
+                    "Another attempt settled the meeting first, SHA-256 {}; it is kept",
+                    stored.transcript_hash
+                ));
+                Ok(Some(stored))
+            }
+        }
     }
 }
 
@@ -469,12 +638,12 @@ impl Step for CorrectTranscript {
         input: TranscribedMeeting,
         context: StepContext,
     ) -> Result<Done<TranscriptToSegment>, StepFailure> {
-        let Some(source_transcript_hash) = input.transcript_hash.clone() else {
+        if input.transcript_hash.is_none() {
             context.log.line("The meeting's fetch was skipped");
             return Ok(Done::Skipped {
                 reason: "Not fetched, so nothing to correct".to_owned(),
             });
-        };
+        }
         let (merged, stored) = {
             let mut connection = self.connection().await?;
             let current = meeting::find(&mut connection, input.meeting_id)
@@ -500,20 +669,14 @@ impl Step for CorrectTranscript {
             ));
             stored
         } else {
-            let Read::Heard(heard) = self.read(&input).await? else {
+            let Some(settled) = self.settle(&input, &context).await? else {
                 context.log.line("Neither transcript holds anything said");
                 return Ok(Done::Skipped {
                     reason: "Nothing was said, so nothing to correct".to_owned(),
                 });
             };
-            let stored = self
-                .correct(&heard, &input, &source_transcript_hash, &context)
-                .await?;
-            self.announce(&heard.meeting);
-            stored
+            settled
         };
-        self.build_final_transcript(input.meeting_id, &context.log)
-            .await?;
 
         let summary = summary_of(&correction);
         let output = |approved: bool| {
@@ -583,6 +746,135 @@ impl CorrectTranscript {
     }
 }
 
+/// What a finished correction turn answered: the model's final text, or why the step failed. A
+/// prompt past the model's context fails for good, since the prompt is the meeting itself and
+/// every attempt would read the same; a person who skips the step lets segmenting go on from the
+/// transcript as heard. Any other failure is tried again with the run's backoff.
+fn answer_of(outcome: TurnOutcome) -> Result<String, StepFailure> {
+    if outcome.prompt_too_long() {
+        return Err(StepFailure::permanent(format!(
+            "The meeting is too long for the model to read in one turn: {}",
+            outcome.error.unwrap_or_default()
+        )));
+    }
+    if outcome.status != TurnStatus::Completed {
+        return Err(StepFailure::retryable(anyhow!(
+            "The correction turn ended {:?}: {}",
+            outcome.status,
+            outcome.error.unwrap_or_default()
+        )));
+    }
+    Ok(outcome.result.unwrap_or_default())
+}
+
+/// Every capture's own transcripts of meeting `meeting_id` on its clock, its source's and its
+/// Whisper's, labelled as the prompt names them, and what each capture's source is called.
+async fn versions_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> anyhow::Result<(Vec<Version>, HashMap<Uuid, String>)> {
+    let captures = meeting_capture::list_of(connection, meeting_id).await?;
+    let mut versions = Vec::new();
+    let mut sources = HashMap::new();
+    for (number, capture) in (1_usize..).zip(&captures) {
+        let source_name = super::source_name(&capture.source_kind);
+        sources.insert(capture.id, source_name.clone());
+        let (source, whisper) = final_transcript::heard_by(connection, capture).await?;
+        let whisper_words: Vec<WhisperWord> = final_transcript::words_of(whisper.as_ref());
+        let label = |name: &str| {
+            if captures.len() == 1 {
+                name.to_owned()
+            } else {
+                format!("Capture {number}, {name}")
+            }
+        };
+        // A transcript with no times, as an upload may be, has no moment to set beside a line.
+        if !source.is_empty() && !crate::meeting_uploads::transcript::is_untimed(&source) {
+            versions.push(Version::of(
+                label(&source_name),
+                &source,
+                &whisper_words,
+                capture.offset_ms,
+            ));
+        }
+        if let Some(whisper) = &whisper {
+            versions.push(Version::of(
+                label("Whisper"),
+                &correction::whisper_lines(whisper),
+                &whisper_words,
+                capture.offset_ms,
+            ));
+        }
+    }
+    Ok((versions, sources))
+}
+
+/// What settling writes: each flag over its words, in order, with the text it decided on when
+/// that differs, then each run marked changed. None overlaps another, so the order they are written
+/// in changes nothing but which of [`meeting_word::settle`]'s answers is whose.
+fn settled_ranges(words: &[Word], settling: &Settling) -> Vec<SettledRange> {
+    let ids = |range: &std::ops::Range<usize>| -> Vec<Uuid> {
+        words[range.clone()].iter().map(|word| word.id).collect()
+    };
+    let flagged = settling.flags.iter().map(|flag| SettledRange {
+        words: ids(&flag.words),
+        text: flag.changes_text.then(|| flag.text.clone()),
+        mark: flag.mark(),
+    });
+    let changed = settling.changed.iter().map(|changed| SettledRange {
+        words: ids(&changed.words),
+        text: None,
+        mark: changed.mark(),
+    });
+    flagged.chain(changed).collect()
+}
+
+/// What the Transcription doc learns from `applied`, the flags settled over the words they were
+/// read from: each fix of each one the agent was sure of, with the transcript and speaker its
+/// words were heard from.
+fn lessons_of(heard: &Heard, applied: &[&Flag]) -> Vec<Lesson> {
+    let meeting = MeetingLink {
+        id: heard.meeting.id,
+        title: heard.meeting.title.clone(),
+    };
+    let mut lessons = Vec::new();
+    for flag in applied
+        .iter()
+        .filter(|flag| flag.confidence >= TEACHING_CONFIDENCE)
+    {
+        let first = &heard.words[flag.words.start];
+        let source = match first.origin.as_str() {
+            origin if origin == Origin::Whisper.as_str() => Some("Whisper".to_owned()),
+            origin if origin == Origin::Source.as_str() => first
+                .capture_id
+                .and_then(|capture_id| heard.sources.get(&capture_id).cloned()),
+            _ => None,
+        };
+        let speaker = Some(first.speaker.clone()).filter(|speaker| !speaker.is_empty());
+        let why = match &flag.why {
+            Some(why) => format!(
+                "The meeting's correction was {} of 100 sure: {why}",
+                flag.confidence
+            ),
+            None => format!(
+                "The meeting's correction was {} of 100 sure.",
+                flag.confidence
+            ),
+        };
+        for fix in &flag.fixes {
+            lessons.push(Lesson {
+                heard: fix.heard.clone(),
+                written: fix.written.clone(),
+                source: source.clone(),
+                speaker: speaker.clone(),
+                meeting: meeting.clone(),
+                why: why.clone(),
+            });
+        }
+    }
+    lessons
+}
+
 /// The one line a correction's row collapses to: how many lines it changed, never what.
 fn summary_of(correction: &MeetingCorrection) -> String {
     let count = correction.transcript.as_array().map_or(0, Vec::len);
@@ -643,32 +935,6 @@ fn review_item(current: &Meeting) -> NewActionItem {
         project_ids: Vec::new(),
         initiative_ids: Vec::new(),
     }
-}
-
-/// The capture `input` names, and what it heard: the transcript a correction follows
-/// (`correction::base`), `None` when nothing was heard, and Whisper's transcript, read when
-/// `read_whisper` and there is one.
-async fn heard_by(
-    connection: &mut AsyncPgConnection,
-    input: &TranscribedMeeting,
-    read_whisper: bool,
-) -> anyhow::Result<(MeetingCapture, Option<Base>, Option<WhisperTranscript>)> {
-    let capture = super::capture_of(connection, input.meeting_id, input.capture_id).await?;
-    let source: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())
-        .map_err(|error| anyhow!("the capture's transcript is not in the stored shape: {error}"))?;
-    let whisper = if read_whisper {
-        meeting_transcription::find(connection, capture.id)
-            .await?
-            .map(|stored| serde_json::from_value::<WhisperTranscript>(stored.transcript))
-            .transpose()
-            .map_err(|error| {
-                anyhow!("the capture's Whisper transcript is not in the stored shape: {error}")
-            })?
-    } else {
-        None
-    };
-    let base = correction::base(source, whisper.as_ref());
-    Ok((capture, base, whisper))
 }
 
 /// The lines of the corrected copy `corrected` names, when it names one that is stored: what a
@@ -931,7 +1197,8 @@ mod tests {
     use super::*;
     use crate::meetings::fetch::RecordedMeeting;
     use crate::models::meeting::tests::fetched_with;
-    use crate::models::meeting_word::{self, Origin};
+    use crate::models::meeting_capture::MeetingCapture;
+    use crate::models::page::TRANSCRIPTION_PAGE_ID as TRANSCRIPTION_PAGE;
     use crate::models::step_job::StepOutcome;
     use crate::models::workflow_run::WorkflowRunState;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
@@ -1075,25 +1342,6 @@ mod tests {
         };
         let context = StepContext::for_test::<CorrectTranscript>(database.clone());
         let done = step.run(input.clone(), context).await.expect("decides");
-        // The attempt built the final transcript from the stored copy, its fix the correction's.
-        let words = meeting_word::standing(&mut connection, stored.id)
-            .await
-            .expect("reads");
-        assert_eq!(meeting_word::text_of(&words), "John is here");
-        assert!(
-            words
-                .iter()
-                .all(|word| word.origin == Origin::Correction.as_str())
-        );
-        assert!(words.iter().all(|word| word.capture_id == Some(capture.id)));
-        assert_eq!(
-            words
-                .iter()
-                .map(|word| (word.start_ms, word.end_ms))
-                .collect::<Vec<_>>(),
-            vec![(61_000, 62_000), (62_000, 63_000), (63_000, 64_000)],
-            "on the meeting's clock, the line's time spread across its words"
-        );
         let Done::Held {
             output: TranscriptToSegment::Meeting(output),
             summary,
@@ -1212,7 +1460,8 @@ mod tests {
             .await
             .expect("approved already");
 
-        // Its history: held once, built once (however many attempts ran), approved once.
+        // Its history: held once and approved once, however many attempts ran. The stored copy
+        // is the whole of its settlement, so an attempt that finds it settles nothing again.
         let history = meeting_event::history(&mut connection, stored.id)
             .await
             .expect("history");
@@ -1223,23 +1472,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 ("hold_changed", TEST_PERSON_ID),
-                ("built", crate::models::user::SYSTEM_USER_ID),
                 ("correction_approved", TEST_PERSON_ID),
             ]
         );
         assert_eq!(history[0].data, json!({ "before": false, "after": true }));
-        assert_eq!(
-            history[1].data,
-            json!({
-                "captures": [{ "captureId": capture.id, "offsetMs": 0 }],
-                "builtFrom": "correction",
-                "words": 3,
-                "added": 3,
-                "replaced": 0,
-                "retimed": 0,
-                "marksMoved": 0,
-            })
-        );
 
         // And segmenting reads the copy the run handed on.
         let copy = corrected_lines(&mut connection, &handed_on)
@@ -1255,7 +1491,7 @@ mod tests {
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("a pool");
-        let (stored, capture) = heard_meeting(&mut connection, "Standup").await;
+        let (stored, _capture) = heard_meeting(&mut connection, "Standup").await;
         let corrected = vec![heard_line("Jon is here")];
         meeting_correction::record(
             &mut connection,
@@ -1301,18 +1537,6 @@ mod tests {
             summary.as_deref(),
             Some("Nothing needed correcting in 1 line")
         );
-        // A copy that changed nothing builds a transcript as its source heard it.
-        let words = meeting_word::standing(&mut connection, stored.id)
-            .await
-            .expect("reads");
-        assert_eq!(meeting_word::text_of(&words), "Jon is here");
-        assert!(
-            words
-                .iter()
-                .all(|word| word.origin == Origin::Source.as_str())
-        );
-        assert!(words.iter().all(|word| word.capture_id == Some(capture.id)));
-
         let (silent, silent_capture) = fetched_with(&mut connection, json!([])).await;
         let nothing = TranscribedMeeting {
             meeting_id: silent.id,
@@ -1355,6 +1579,501 @@ mod tests {
             Done::Skipped {
                 reason: "Not fetched, so nothing to correct".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn a_prompt_too_long_for_the_model_fails_the_step_for_good() {
+        let too_long = TurnOutcome::without_result(TurnStatus::Failed, "Prompt is too long");
+        let failure = answer_of(too_long).expect_err("fails");
+        assert!(
+            !failure.retryable,
+            "every attempt would read the same prompt"
+        );
+        assert!(
+            failure.reason.contains("too long for the model"),
+            "{}",
+            failure.reason
+        );
+
+        let broke = TurnOutcome::without_result(TurnStatus::Failed, "The workspace stopped");
+        assert!(answer_of(broke).expect_err("fails").retryable);
+
+        let answered = TurnOutcome {
+            result: Some("{\"flags\": []}".to_owned()),
+            ..TurnOutcome::without_result(TurnStatus::Completed, "")
+        };
+        assert_eq!(answer_of(answered).expect("answers"), "{\"flags\": []}");
+    }
+
+    /// A Fireflies meeting with Ada and Sharath in it, two lines heard by its source, and what
+    /// Whisper heard of them, transcribed: the name and the launch misheard, each its own way.
+    async fn misheard_meeting(connection: &mut AsyncPgConnection) -> (Meeting, MeetingCapture) {
+        let lines = vec![
+            TranscriptLine {
+                start_ms: 0,
+                end_ms: 6_000,
+                speaker: "Ada Lovelace".to_owned(),
+                text: "We asked Sheriff about the launch".to_owned(),
+            },
+            TranscriptLine {
+                start_ms: 6_000,
+                end_ms: 9_000,
+                speaker: "Grace Hopper".to_owned(),
+                text: "Ely see um ships Friday".to_owned(),
+            },
+        ];
+        let (stored, capture) = fetched_with(
+            connection,
+            serde_json::to_value(&lines).expect("serializes"),
+        )
+        .await;
+        let titled = diesel::update(crate::database::schema::meetings::table.find(stored.id))
+            .set((
+                crate::database::schema::meetings::title.eq("Launch review"),
+                crate::database::schema::meetings::participants
+                    .eq(json!(["ada@example.com", "sharath.kumar@example.com"])),
+            ))
+            .returning(Meeting::as_returning())
+            .get_result(connection)
+            .await
+            .expect("titled");
+        let heard = crate::whisper::WhisperTranscript {
+            model: "Whisper large-v3".to_owned(),
+            language: "en".to_owned(),
+            language_probability: 0.99,
+            duration_ms: 9_000,
+            segments: vec![
+                crate::whisper::WhisperSegment {
+                    start_ms: 0,
+                    end_ms: 6_000,
+                    text: "We asked Sharath about the lunch".to_owned(),
+                    words: Vec::new(),
+                },
+                crate::whisper::WhisperSegment {
+                    start_ms: 6_000,
+                    end_ms: 9_000,
+                    text: "Elysium ships Friday".to_owned(),
+                    words: Vec::new(),
+                },
+            ],
+        };
+        crate::models::meeting_transcription::record(
+            connection,
+            crate::models::meeting_transcription::NewMeetingTranscription {
+                capture_id: capture.id,
+                transcript: serde_json::to_value(&heard).expect("serializes"),
+                transcript_hash: "b".repeat(64),
+            },
+        )
+        .await
+        .expect("records")
+        .expect("new");
+        (titled, capture)
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one answer followed through to the words, the marks, the copy, and both docs"
+    )]
+    async fn a_correction_settles_the_words_it_flags_and_marks_what_a_capture_heard_otherwise() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let answer = r#"{"flags": [
+            {"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92,
+             "alternatives": ["Sharad"], "why": "The participants name a Sharath."},
+            {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 60},
+            {"line": 1, "heard": "ships Friday", "text": "ships Friday at noon", "confidence": 90},
+            {"line": 1, "heard": "Friday", "text": "Friday", "confidence": 0}
+        ]}"#;
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::answering(&[answer]),
+        });
+        let run = workflows::start(
+            &mut connection,
+            &EventBus::in_process(),
+            super::super::workflow::run_for(stored.id),
+        )
+        .await
+        .expect("a run");
+        let mut context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        context.run_id = run.settled.run.id;
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+
+        let done = step.run(input.clone(), context).await.expect("settles");
+
+        let Done::Succeeded {
+            output: TranscriptToSegment::Meeting(output),
+            summary,
+        } = done
+        else {
+            panic!("nobody waits for this meeting, so its run goes on, not {done:?}");
+        };
+        assert_eq!(summary.as_deref(), Some("Corrected 2 of 2 lines"));
+
+        // The words: what the flags decided, as the correction's own, and every other word as the
+        // source heard it, whatever Whisper heard.
+        let words = meeting_word::standing(&mut connection, stored.id)
+            .await
+            .expect("reads");
+        assert_eq!(
+            meeting_word::text_of(&words),
+            "We asked Sharath about the launch Elysium ships Friday"
+        );
+        let origin_of = |text: &str| -> (String, Option<Uuid>) {
+            let word = words.iter().find(|word| word.text == text).expect("a word");
+            (word.origin.clone(), word.capture_id)
+        };
+        assert_eq!(
+            origin_of("Sharath"),
+            ("correction".to_owned(), Some(capture.id))
+        );
+        assert_eq!(origin_of("Elysium").0, "correction");
+        assert_eq!(origin_of("launch").0, "source");
+
+        // The marks: each flag's confidence and alternatives over its words, and the launch
+        // Whisper heard as a lunch at the middle of the scale, with what it heard.
+        let marks = crate::models::meeting_mark::standing(&mut connection, stored.id)
+            .await
+            .expect("marks");
+        let marked: Vec<(String, Value)> = marks
+            .iter()
+            .map(|mark| {
+                let start = words
+                    .iter()
+                    .position(|word| word.id == mark.start_word_id)
+                    .expect("on a standing word");
+                let end = words
+                    .iter()
+                    .position(|word| word.id == mark.end_word_id)
+                    .expect("on a standing word");
+                (
+                    meeting_word::text_of(&words[start..=end]),
+                    mark.data.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            marked,
+            vec![
+                (
+                    "Sharath".to_owned(),
+                    json!({ "confidence": 92, "alternatives": ["Sharad"] })
+                ),
+                (
+                    "Elysium".to_owned(),
+                    json!({ "confidence": 60, "alternatives": [] })
+                ),
+                (
+                    "Friday".to_owned(),
+                    json!({ "confidence": 0, "alternatives": [] })
+                ),
+                (
+                    "launch".to_owned(),
+                    json!({ "confidence": 50, "alternatives": ["lunch"] })
+                ),
+            ]
+        );
+        assert!(marks.iter().all(|mark| mark.kind == "confidence"));
+        let history = meeting_event::history(&mut connection, stored.id)
+            .await
+            .expect("history");
+        let kinds: Vec<&str> = history.iter().map(|entry| entry.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["built", "settled"]);
+        assert_eq!(history[1].data["changes"].as_array().map(Vec::len), Some(2));
+        assert_eq!(history[1].data["skipped"], 0);
+
+        // The copy segmenting reads: the source's lines, the settled text in place.
+        let copy = corrected_lines(&mut connection, &output)
+            .await
+            .expect("reads")
+            .expect("a copy");
+        assert_eq!(
+            copy.iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["We asked Sharath about the launch", "Elysium ships Friday"]
+        );
+
+        // The Transcription doc learned what the agent was sure of, as Elysium, and not the rest.
+        let doc = transcription_doc::read(&mut connection)
+            .await
+            .expect("the doc");
+        assert_eq!(doc.entries.len(), 1, "{}", doc.body);
+        let entry = &doc.entries[0];
+        assert_eq!(
+            (entry.heard.as_str(), entry.written.as_str()),
+            ("Sheriff", "Sharath")
+        );
+        assert_eq!(entry.sources, vec!["Fireflies"]);
+        assert_eq!(entry.speakers, vec!["Ada Lovelace"]);
+        assert_eq!(entry.meetings[0].id, stored.id);
+        assert!(
+            doc.body
+                .contains("The meeting's correction was 92 of 100 sure: The participants")
+        );
+        let versions = crate::models::page::versions(&mut connection, TRANSCRIPTION_PAGE)
+            .await
+            .expect("versions");
+        let newest = &versions[0];
+        assert_eq!(
+            (newest.version, newest.created_by),
+            (2, SYSTEM_USER_ID),
+            "a version of the page by Elysium"
+        );
+
+        // Sharath is a participant the company doc does not name, so People gets a suggestion, in
+        // Elysia's name and naming the run, waiting for a person on the section's page.
+        let pending = crate::models::company_doc::pending(&mut connection)
+            .await
+            .expect("suggestions");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            pending[0].section,
+            crate::models::company_doc::Section::People
+        );
+        let suggested = &pending[0].suggestion;
+        assert!(
+            suggested
+                .body
+                .contains("- Sharath: often heard as \"Sheriff\"")
+        );
+        assert_eq!(suggested.workflow_run_id, Some(run.settled.run.id));
+        assert_eq!(suggested.created_by, ELYSIA_USER_ID);
+
+        // A capture nudged by hand lines the transcript up again; what was settled stands, marks
+        // and all, and nothing is settled again.
+        let sharath = words
+            .iter()
+            .find(|word| word.text == "Sharath")
+            .expect("Sharath");
+        meeting_capture::set_offset(
+            &mut connection,
+            capture.id,
+            40,
+            crate::models::meeting_capture::OffsetSource::Hand,
+        )
+        .await
+        .expect("nudged");
+        final_transcript::rebuild(
+            &mut connection,
+            stored.id,
+            Author {
+                user_id: TEST_PERSON_ID,
+                agent: None,
+                at: Utc::now(),
+            },
+        )
+        .await
+        .expect("rebuilds")
+        .expect("the words moved");
+        let after = meeting_word::standing(&mut connection, stored.id)
+            .await
+            .expect("reads");
+        assert_eq!(
+            meeting_word::text_of(&after),
+            "We asked Sharath about the launch Elysium ships Friday"
+        );
+        assert!(
+            after.iter().any(|word| word.id == sharath.id),
+            "the settled word keeps its id"
+        );
+        let marks_after = crate::models::meeting_mark::standing(&mut connection, stored.id)
+            .await
+            .expect("marks");
+        let on_sharath = marks_after
+            .iter()
+            .find(|mark| mark.data["confidence"] == 92)
+            .expect("its mark");
+        assert_eq!(
+            (on_sharath.start_word_id, on_sharath.end_word_id),
+            (sharath.id, sharath.id)
+        );
+
+        // Another attempt finds the meeting settled and asks nothing: the runner has no answer
+        // left to give.
+        let again = step
+            .run(
+                input,
+                StepContext::for_test::<CorrectTranscript>(database.clone()),
+            )
+            .await
+            .expect("answers what was stored");
+        assert!(matches!(again, Done::Succeeded { .. }));
+        let history = meeting_event::history(&mut connection, stored.id)
+            .await
+            .expect("history");
+        assert_eq!(
+            history
+                .iter()
+                .filter(|entry| entry.kind == "settled")
+                .count(),
+            1
+        );
+    }
+
+    /// #269 review: a person who fixes a word while the correction's turn runs keeps their fix, and
+    /// the corrected copy leaves out what the correction would have written over it.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_flag_over_words_a_person_edited_meanwhile_is_left_out_of_the_words_and_the_copy() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let answer = r#"{"flags": [
+            {"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92},
+            {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 95}
+        ]}"#;
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::answering(&[answer]),
+        });
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+        // The run its suggestions to the company doc name.
+        let run = workflows::start(
+            &mut connection,
+            &EventBus::in_process(),
+            super::super::workflow::run_for(stored.id),
+        )
+        .await
+        .expect("a run");
+        let mut context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        context.run_id = run.settled.run.id;
+
+        // The turn reads the meeting, and Ada fixes the name herself before it answers.
+        let Read::Heard(heard) = step.read(&input, &context.log).await.expect("reads") else {
+            panic!("the meeting was heard");
+        };
+        let sheriff = heard
+            .words
+            .iter()
+            .find(|word| word.text == "Sheriff")
+            .expect("the misheard name")
+            .clone();
+        meeting_word::edit(
+            &mut connection,
+            stored.id,
+            meeting_word::Replacement {
+                range: crate::models::meeting_mark::Range {
+                    start_word_id: sheriff.id,
+                    end_word_id: sheriff.id,
+                },
+                text: "Sharad",
+            },
+            Author {
+                user_id: TEST_PERSON_ID,
+                agent: None,
+                at: Utc::now(),
+            },
+        )
+        .await
+        .expect("edits");
+        let settling = step.ask_about(&heard, &context).await.expect("asks");
+        let Stored::Settled { correction, .. } = step
+            .store(&heard, &settling, &input, &context)
+            .await
+            .expect("stores")
+        else {
+            panic!("this attempt settles the meeting");
+        };
+
+        let words = meeting_word::standing(&mut connection, stored.id)
+            .await
+            .expect("reads");
+        assert_eq!(
+            meeting_word::text_of(&words),
+            "We asked Sharad about the launch Elysium ships Friday"
+        );
+        let copy: Vec<TranscriptLine> =
+            serde_json::from_value(correction.transcript).expect("lines");
+        assert_eq!(
+            copy.iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["We asked Sheriff about the launch", "Elysium ships Friday"],
+            "the flag passed over is no part of the copy"
+        );
+        assert_eq!(correction.changed_lines, 1);
+        let history = meeting_event::history(&mut connection, stored.id)
+            .await
+            .expect("history");
+        let settled = history
+            .iter()
+            .find(|entry| entry.kind == "settled")
+            .expect("settled");
+        assert_eq!(settled.data["skipped"], 1);
+        // Nothing was learned from the flag passed over.
+        let doc = transcription_doc::read(&mut connection).await.expect("doc");
+        assert!(
+            doc.entries.iter().all(|entry| entry.written != "Sharath"),
+            "{}",
+            doc.body
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_too_long_for_the_model_fails_its_correction_for_good() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::failing_with("Prompt is too long"),
+        });
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+
+        let failure = step
+            .run(input, StepContext::for_test::<CorrectTranscript>(database))
+            .await
+            .expect_err("the model cannot read it");
+
+        assert!(
+            !failure.retryable,
+            "every attempt would read the same prompt"
+        );
+        assert!(
+            failure.reason.contains("Prompt is too long"),
+            "{}",
+            failure.reason
+        );
+        assert!(
+            meeting_correction::find(&mut connection, stored.id)
+                .await
+                .expect("reads")
+                .is_none(),
+            "nothing is stored, for a person to skip the step"
         );
     }
 }

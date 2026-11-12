@@ -628,24 +628,24 @@ impl Runner {
     /// credential of its own and with nothing reaching Docker: for a step whose turn a test
     /// scripts, such as segmenting.
     pub fn answering(answers: &[&str]) -> Self {
-        use self::command::CredentialSecret;
-        use self::turn::fake::{FakeWorkspace, Script};
-
         let scripts = answers
             .iter()
-            .map(|answer| {
-                let line = serde_json::json!({
-                    "type": "result",
-                    "subtype": "success",
-                    "is_error": false,
-                    "result": answer,
-                    "session_id": "scripted",
-                    "total_cost_usd": 0,
-                })
-                .to_string();
-                Script::printing(&[line.as_str()], 0)
-            })
+            .map(|answer| result_line(answer, false, 0))
             .collect();
+        Self::scripted(scripts)
+    }
+
+    /// A runner whose one turn fails as Claude Code reports `error`, such as "Prompt is too long":
+    /// for a step whose failure a test drives.
+    pub fn failing_with(error: &str) -> Self {
+        Self::scripted(vec![result_line(error, true, 1)])
+    }
+
+    /// A runner whose attempts print `scripts` in order, on a credential of its own.
+    fn scripted(scripts: Vec<turn::fake::Script>) -> Self {
+        use self::command::CredentialSecret;
+        use self::turn::fake::FakeWorkspace;
+
         let credential = ClaudeCredential {
             id: Uuid::now_v7(),
             name: "scripted".to_owned(),
@@ -659,6 +659,22 @@ impl Runner {
             CancellationToken::new(),
         )
     }
+}
+
+/// One attempt printing Claude Code's result line, `result` its text, and exiting with
+/// `exit_code`.
+#[cfg(test)]
+fn result_line(result: &str, is_error: bool, exit_code: i64) -> turn::fake::Script {
+    let line = serde_json::json!({
+        "type": "result",
+        "subtype": "success",
+        "is_error": is_error,
+        "result": result,
+        "session_id": "scripted",
+        "total_cost_usd": 0,
+    })
+    .to_string();
+    turn::fake::Script::printing(&[line.as_str()], exit_code)
 }
 
 #[cfg(test)]

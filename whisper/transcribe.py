@@ -12,6 +12,12 @@ contract is the process's standard streams alone:
 - progress goes to standard error, one line at a time, and never quotes what was said,
   since every company member can read the step's log.
 
+It may be told names and terms to listen for, in `WHISPER_HINT_WORDS`, separated by commas: the
+company's Transcription doc and the names its company doc spells, so a name is heard right more
+often before anything corrects it. An environment variable rather than an argument, so an engine
+newer than its image only goes untold, where an argument the image does not know would fail the
+transcription.
+
 It exits 0 with a transcript, NO_AUDIO when the recording has no audio stream, and
 UNREADABLE when it cannot be decoded at all. Anything else is a failure another attempt may
 get past. The model is read from the directory baked into the image, never fetched.
@@ -43,6 +49,9 @@ UNREADABLE = 2
 # Where the Dockerfile puts the pinned model, and what it names it.
 MODEL_DIRECTORY = Path(os.environ["WHISPER_MODEL_DIRECTORY"])
 MODEL_NAME = os.environ["WHISPER_MODEL_NAME"]
+
+# The names and terms to listen for, as the engine passes them (api/src/whisper/container.rs).
+HINT_WORDS = os.environ.get("WHISPER_HINT_WORDS", "").strip()
 
 # How often progress is reported, in seconds of audio transcribed: often enough that a step's
 # log shows it moving, rarely enough that an hour's log stays a screenful.
@@ -110,8 +119,9 @@ def _spool_standard_input(directory: Path) -> Path:
     return spooled
 
 
-def transcribe(recording: Path, threads: int) -> Transcription:
-    """Transcribes `recording` on `threads` CPU threads, reporting progress as it goes."""
+def transcribe(recording: Path, threads: int, hint_words: str) -> Transcription:
+    """Transcribes `recording` on `threads` CPU threads, listening for `hint_words`, and reports
+    progress as it goes."""
     started = time.monotonic()
     model = WhisperModel(
         str(MODEL_DIRECTORY),
@@ -124,12 +134,16 @@ def transcribe(recording: Path, threads: int) -> Transcription:
     logger.info(f"Loaded {MODEL_NAME} in {time.monotonic() - started:.1f} s, on {threads} threads")
 
     # The voice activity filter skips silence before decoding, which is where Whisper
-    # otherwise invents text; word timestamps are what clips are cut by. Every other option
-    # is faster-whisper's default.
+    # otherwise invents text; word timestamps are what clips are cut by. Hint words reach the
+    # model as the start of its context, where it reads the spellings it then favours. Every
+    # other option is faster-whisper's default.
+    if hint_words:
+        logger.info(f"Listening for {len(hint_words.split(', '))} names and terms")
     segments, info = model.transcribe(
         str(recording),
         word_timestamps=True,
         vad_filter=True,
+        hotwords=hint_words or None,
     )
     logger.info(
         f"The recording runs {_clock(info.duration)}; speech is in {info.language} "
@@ -201,7 +215,7 @@ def main() -> int:
             logger.warning("The recording has no audio stream, so there is nothing to transcribe")
             return NO_AUDIO
 
-        transcription = transcribe(recording, arguments.threads)
+        transcription = transcribe(recording, arguments.threads, HINT_WORDS)
 
     transcript_output.write(transcription.model_dump_json(by_alias=True))
     transcript_output.close()
