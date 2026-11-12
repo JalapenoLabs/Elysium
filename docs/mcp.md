@@ -138,7 +138,7 @@ Tools are named for what they act on, then what they do.
 | `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
 | `knowledge_search`     | `workspace:read`  | Searches the knowledge base by words and meaning, answering citations  |
 | `knowledge_get`        | `workspace:read`  | Opens one document a citation names, whole or a span of its passages   |
-| `meetings_list`        | `workspace:read`  | Lists the knowledge base's meetings, each with its topics' citations   |
+| `meetings_list`        | `workspace:read`  | Lists the knowledge base's meetings, each with its excerpts' citations |
 | `knowledge_ask`        | `workspace:read`  | Asks the knowledge base a question and answers in writing, every claim citing a passage |
 | `knowledge_ask_get`    | `workspace:read`  | Reads an ask by its id, waiting a bounded time for its answer          |
 | `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the suggestions still pending |

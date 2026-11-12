@@ -3,7 +3,7 @@
 //! How a timeline record is indexed: the one document each record becomes.
 //!
 //! Every kind of record is indexed the same way, one record to one document, so the index holds
-//! a meeting by its segments (each segment is a record of its own, `docs/meetings.md`), a
+//! a meeting's excerpts (each a record of its own, `docs/meetings.md`), a
 //! conversation by its messages, and a page by its newest version (Revisions, below). A kind
 //! recorded later, such as Jira's or GitHub's issues, is indexed the moment it is on the
 //! timeline, with nothing added here.
@@ -11,15 +11,15 @@
 //! # The text
 //!
 //! A record's document is its title, who it came from, and its body, in that order, cut into
-//! passages by [`passages::split`]. A meeting segment's speakers are already named on every
+//! passages by [`passages::split`]. A meeting excerpt's speakers are already named on every
 //! line of its excerpt, so it gives its summary in their place, and is followed by the comment
 //! threads whose range overlaps it (`crate::meetings::comments`), each the first words of its
 //! range and its comments by their authors' names, so a meeting's comments are indexed with it
-//! and go wherever its segments go. A record's metadata and media are never indexed: they hold
+//! and go wherever its excerpts go. A record's metadata and media are never indexed: they hold
 //! the provider's ids and where a clip is kept, not what was said.
 //! A body past [`BODY_MAX_CHARACTERS`] is cut there, which every source today stays inside
 //! (Confluence and sent mail keep 20,000 characters, Slack 4,000, webmail and Teams 1,000)
-//! except a long meeting segment's excerpt.
+//! except a long meeting excerpt.
 //!
 //! # Revisions
 //!
@@ -52,11 +52,11 @@ pub const INDEXED_AS: i32 = 1;
 
 /// The most of a record's body that is indexed, in characters: about 63 passages, which the
 /// embedding model takes some fifteen seconds over on four CPUs. A two hour meeting spent on one
-/// topic is about this long, so every segment is indexed whole while one pathological body
+/// thing is about this long, so every excerpt is indexed whole while one pathological body
 /// cannot hold the embedder for minutes. Raising it re-indexes nothing already indexed.
 pub const BODY_MAX_CHARACTERS: usize = 100_000;
 
-/// The most of a segment's comment threads indexed after its body, in characters, so a segment
+/// The most of an excerpt's comment threads indexed after its body, in characters, so an excerpt
 /// with many long threads holds the embedder no longer than a long body does. Threads are taken in
 /// the order their ranges start, so what is left out is the last of them.
 pub const THREADS_MAX_CHARACTERS: usize = 50_000;
@@ -65,9 +65,9 @@ pub const THREADS_MAX_CHARACTERS: usize = 50_000;
 /// segment, after its body; `None` when it says nothing to search (no title, no sender, and no
 /// body), and for a meeting segment that names no meeting, which nobody could be told may read it.
 pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<IndexedDocument> {
-    // A segment is found only by its meeting's readers, so one naming no meeting is indexed for
+    // An excerpt is found only by its meeting's readers, so one naming no meeting is indexed for
     // nobody rather than for every member.
-    let meeting_id = if record.source_kind == SEGMENT_SOURCE_KIND {
+    let access_meeting_id = if record.source_kind == SEGMENT_SOURCE_KIND {
         Some(meeting_of(record)?)
     } else {
         None
@@ -83,6 +83,50 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
     paragraphs.push(record.body.chars().take(BODY_MAX_CHARACTERS).collect());
     // After the body, so a comment written later changes only the passages at the document's end
     // and the rest keep their embeddings.
+    paragraphs.extend(thread_paragraphs(threads));
+
+    let passages = passages::split(&paragraphs.join("\n\n"));
+    if passages.is_empty() {
+        return None;
+    }
+    Some(IndexedDocument {
+        source: KnowledgeSource::TimelineRecord {
+            id: record.id,
+            kind: record.source_kind.clone(),
+        },
+        title: record.title.clone(),
+        url: record.url.clone(),
+        occurred_at: record.occurred_at,
+        // Whose timeline it is on: whose connector read it, or who sent it.
+        created_by: record.created_by,
+        access_meeting_id,
+        passages,
+    })
+}
+
+/// The meeting `record`, an excerpt, is of, as its metadata names it, whose readers alone find
+/// its document (`docs/knowledge.md`, Who sees what). An excerpt's record names it always, so `None`
+/// is a fault, and the excerpt is left out of the index.
+fn meeting_of(record: &TimelineRecord) -> Option<Uuid> {
+    let meeting_id = record.metadata["meetingId"]
+        .as_str()
+        .and_then(|meeting_id| meeting_id.parse().ok());
+    if meeting_id.is_none() {
+        event!(
+            name: "knowledge.records.meeting_unnamed",
+            Level::WARN,
+            timeline_record.id = %record.id,
+            "a meeting excerpt names no meeting, so nobody finds it",
+        );
+    }
+    meeting_id
+}
+
+/// `threads` as the paragraphs a document holds after its text, in order, up to
+/// [`THREADS_MAX_CHARACTERS`]: each the first words of its range, then its comments by their
+/// authors' names.
+pub fn thread_paragraphs(threads: &[IndexedThread]) -> Vec<String> {
+    let mut paragraphs = Vec::new();
     let mut room = THREADS_MAX_CHARACTERS;
     for thread in threads {
         let mut paragraph = format!("Comment on \"{}\"", thread.quote);
@@ -100,42 +144,7 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
         room -= length;
         paragraphs.push(paragraph);
     }
-
-    let passages = passages::split(&paragraphs.join("\n\n"));
-    if passages.is_empty() {
-        return None;
-    }
-    Some(IndexedDocument {
-        source: KnowledgeSource::TimelineRecord {
-            id: record.id,
-            kind: record.source_kind.clone(),
-        },
-        title: record.title.clone(),
-        url: record.url.clone(),
-        occurred_at: record.occurred_at,
-        // Whose timeline it is on: whose connector read it, or who sent it.
-        created_by: record.created_by,
-        meeting_id,
-        passages,
-    })
-}
-
-/// The meeting `record`, a segment, is of, as its metadata names it, whose readers alone find its
-/// document (`docs/knowledge.md`, Who sees what). `segment.rs` names it on every segment it
-/// writes, so `None` is a fault, and the segment is left out of the index.
-fn meeting_of(record: &TimelineRecord) -> Option<Uuid> {
-    let meeting_id = record.metadata["meetingId"]
-        .as_str()
-        .and_then(|meeting_id| meeting_id.parse().ok());
-    if meeting_id.is_none() {
-        event!(
-            name: "knowledge.records.meeting_unnamed",
-            Level::WARN,
-            timeline_record.id = %record.id,
-            "a meeting segment names no meeting, so nobody finds it",
-        );
-    }
-    meeting_id
+    paragraphs
 }
 
 /// What a record is one version of, for a kind recorded once per version.
@@ -202,6 +211,7 @@ mod tests {
             action_item_id: None,
             created_by: Uuid::now_v7(),
             created_at: Utc::now(),
+            excerpt_mark_id: None,
         }
     }
 
@@ -264,7 +274,7 @@ mod tests {
         );
         assert_eq!(indexed.source.label(), "meeting");
         assert_eq!(
-            indexed.meeting_id,
+            indexed.access_meeting_id,
             Some(meeting_id),
             "found by its readers alone"
         );
@@ -279,7 +289,7 @@ mod tests {
         assert_eq!(
             document(&record("slack"), &[])
                 .expect("a document")
-                .meeting_id,
+                .access_meeting_id,
             None
         );
     }

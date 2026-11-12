@@ -20,6 +20,8 @@ export type KnowledgeCitation = {
   url: string | null
   // The page it was indexed from, a learning's or a company doc section's included.
   pageId: string | null
+  // The meeting whose whole transcript it is.
+  meetingId: string | null
   occurredAt: string
   person: KnowledgePerson
 }
@@ -73,6 +75,7 @@ export type KnowledgeOrigin =
   | { kind: 'learning', learningId: string }
   | { kind: 'companyDoc', section: string, pageId: string }
   | { kind: 'page', pageId: string }
+  | { kind: 'meeting', meetingId: string }
 
 // Mirrors `DocumentView` in api/src/models/knowledge_document.rs: one document whole.
 export type KnowledgeDocument = {

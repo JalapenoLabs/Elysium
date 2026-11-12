@@ -18,6 +18,7 @@ function source(number: number, title: string): KnowledgeAnswerSource {
       title,
       url: null,
       pageId: null,
+      meetingId: null,
       occurredAt: '2026-11-03T10:00:00Z',
       person: { id: 'person', name: 'Jordan Lee' },
     },

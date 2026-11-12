@@ -364,7 +364,7 @@ async fn indexing_again_keeps_the_embedding_of_every_passage_whose_text_held() {
         url: None,
         occurred_at: Utc::now(),
         created_by: TEST_PERSON_ID,
-        meeting_id: None,
+        access_meeting_id: None,
         passages: passages.iter().map(|&passage| passage.to_owned()).collect(),
     };
 

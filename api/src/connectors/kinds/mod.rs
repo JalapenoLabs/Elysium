@@ -829,6 +829,7 @@ mod tests {
             action_item_id: None,
             created_by: Uuid::now_v7(),
             created_at: chrono::Utc::now(),
+            excerpt_mark_id: None,
         }
     }
 

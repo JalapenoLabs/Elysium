@@ -1,18 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meetings the knowledge index holds, each with its topics in the order they were said.
+//! The meetings the knowledge index holds, each with its excerpts in the order they were said.
 //!
-//! A meeting is in the index as its segments: each is a timeline record of its own
-//! (`docs/meetings.md`, Segment records), and so a document of source `meeting`. [`list`]
-//! gathers those documents back into their meetings by what every segment record names in its
+//! A meeting's excerpts are in the index, each a timeline record of its own
+//! (`docs/meetings.md`, Excerpt records), and so a document of source `meeting`. [`list`]
+//! gathers those documents back into their meetings by what every excerpt record names in its
 //! metadata (`meetingId`, `meetingTitle`, `meetingSource`), so a reader finds a meeting by when
-//! it was and opens its topics one by one, each a citation like any other.
+//! it was and opens its excerpts one by one, each a citation like any other. They are answered as
+//! `topics`, the name clients already read.
 //!
 //! The `meetings` row itself (its transcript, recording, participants, and processing) is read on
 //! the meeting's own page, and nothing here reads it: what a reader finds here is what the index
 //! holds for them, every meeting's topics but those of a private meeting they may not read
 //! (`docs/knowledge.md`, Who sees what). Two people whose sources both recorded one meeting have
-//! a meeting each, segmented apart, so both are listed.
+//! a meeting each, segmented apart, so both are listed. A meeting's whole transcript is a document of
+//! its own (`crate::meetings::excerpts::index_transcript`), found by searching, and not listed here.
 
 use chrono::{DateTime, Utc};
 use diesel::QueryableByName;
@@ -81,10 +83,10 @@ struct TopicRow {
     person_name: String,
 }
 
-/// Every meeting topic in the index of a meeting the reader may read (`$6` the reader, `$7` their
-/// reach, `models::meeting::readable_meeting_sql`), then the newest `$5` meetings under the filters
-/// (`$1` the person, `$2` and `$3` the period of its start, `$4` the project), then their topics in
-/// order. Topics are ordered by when each began, which is the order the segmenting gave them.
+/// Every meeting excerpt in the index of a meeting the reader may read (`$6` the reader, `$7`
+/// their reach, `models::meeting::readable_meeting_sql`), then the newest `$5` meetings under the
+/// filters (`$1` the person, `$2` and `$3` the period of its start, `$4` the project), then their
+/// excerpts in order. Excerpts are ordered by when each began, as they were said.
 const MEETINGS: &str = concat!(
     "
     WITH topics AS (
@@ -104,8 +106,8 @@ const MEETINGS: &str = concat!(
         WHERE documents.source = 'meeting'
             AND records.metadata->>'meetingId' IS NOT NULL
             AND ($1::uuid IS NULL OR documents.created_by = $1::uuid)
-            AND (documents.meeting_id IS NULL OR ",
-    readable_meeting_sql!("documents.meeting_id", "$6", "$7"),
+            AND (documents.access_meeting_id IS NULL OR ",
+    readable_meeting_sql!("documents.access_meeting_id", "$6", "$7"),
     "
             )
     ),
@@ -129,7 +131,7 @@ const MEETINGS: &str = concat!(
 );
 
 /// The newest `limit` meetings in the index under `filters` that `reader` may read, newest first,
-/// each with its topics in order.
+/// each with its excerpts in order.
 ///
 /// It answers any person's meetings: callers check that whoever asks may read the knowledge base
 /// (`docs/knowledge.md`, Who sees what).
@@ -166,6 +168,7 @@ fn gather(rows: Vec<TopicRow>) -> Vec<MeetingView> {
             title: row.title,
             url: row.url,
             page_id: None,
+            meeting_id: None,
             occurred_at: row.occurred_at,
             person: Person {
                 id: row.created_by,

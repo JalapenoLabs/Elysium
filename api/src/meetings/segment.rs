@@ -1,19 +1,21 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meeting workflow's last step, [`SegmentMeeting`]: what was said, cut into topics, each
-//! attributed to the projects it is about, onto each project's timeline.
+//! The meeting workflow's last step, [`SegmentMeeting`]: what matters, taken out of what was said
+//! and onto each project's timeline.
 //!
-//! It takes either of two things to segment ([`TranscriptToSegment`]):
+//! It takes one of three things to segment ([`TranscriptToSegment`]):
 //!
-//! - **A meeting** past its correction, as the correction hands it on. Its corrected copy, or the
-//!   transcript its correction would follow when it has none, is cut into topic segments in one
-//!   of Elysia's text turns; `ffmpeg` cuts each segment's clip from its capture's recording in the
-//!   workspace, at the words Whisper heard nearest its ends; and each segment becomes a timeline
-//!   record, with its transcript excerpt, summary, span, and clip, attributed to its projects, in
-//!   one transaction that also marks the meeting done. A meeting whose correction was skipped has
-//!   its final transcript built here (`super::final_transcript`), so every meeting segmented has
-//!   one. Segments are timed on the capture's clock, which the clips are cut on; their records
-//!   are on the meeting's.
+//! - **A meeting** past its correction, as the correction hands it on. Its final transcript, as
+//!   its correction settled it and people edited it, is read in one of Elysia's text turns, which
+//!   answers the excerpts it takes into projects and the black-outs it leaves out of everything,
+//!   each a run of its lines (`super::segmentation`). Each excerpt becomes a mark over its words
+//!   and a timeline record attributed to its projects, and each black-out a mark, in one
+//!   transaction that also marks the meeting done (`super::excerpts::take`); then `ffmpeg` cuts
+//!   each excerpt's clip from the meeting's recording in the workspace, at the words Whisper heard
+//!   nearest its ends. A meeting whose aligning was skipped has its final transcript lined up here
+//!   (`super::final_transcript`), so every meeting segmented has one. Done reviewing a meeting
+//!   segments it again (`super::review`): every excerpt and black-out a person made or changed
+//!   stands, and Elysia's are taken again, so only a project whose share changed hears of it.
 //! - **A conversation** that `crate::conversations` gathered: direct messages and mentions
 //!   already on the timeline, named by their records. Its messages are cut into topics the same
 //!   way, by their numbers rather than by time, and each message is attributed to its topic's
@@ -27,24 +29,26 @@
 //!   has no topics: one turn reads which projects it belongs to, and it joins them with Elysia's
 //!   confidence, led by the surest ([`item`]). The assigned issue workflow is this step alone.
 //!
-//! What it gives ([`Segmented`]) names every topic's span, projects, and records, for the steps
-//! after it, which read what landed on which project.
+//! What it gives ([`Segmented`]) names every topic's span, projects, and records (a meeting's
+//! excerpts, a conversation's topics), for the steps after it, which read what landed on which
+//! project.
 //!
 //! # Doing it once
 //!
-//! A meeting's segments are asked for once: the first answer is stored on the meeting
-//! (`meeting::record_segments`) before any clip is cut, and an attempt that finds it cuts and
-//! publishes from it without asking again. Clips go to fixed paths, records are unique per
-//! connector and segment, and the meeting is marked done in the transaction that stores its
-//! records, so a meeting already done answers what it published and changes nothing. A
-//! conversation's segmentation is Elysia's whole reading of it: it replaces what she said of its
-//! messages before, so reading it again, as it grows, never attributes a message twice, and a
-//! message holds one promise at most, so it never records one twice either.
+//! A meeting's answer is asked for once per segmenting: the first answer is stored on the meeting
+//! (`meeting::record_segments`), its excerpts and black-outs as ranges of the words it read,
+//! before anything is taken, and an attempt that finds it takes the same words without asking
+//! again. The meeting is marked done in the transaction that takes them, so a meeting already done
+//! answers what it took and changes nothing but the clips an attempt cut short left uncut. Done
+//! reviewing clears the answer and the meeting's state in the transaction that starts its run, so
+//! the run asks again. A conversation's segmentation is Elysia's whole reading of it: it replaces
+//! what she said of its messages before, so reading it again, as it grows, never attributes a
+//! message twice, and a message holds one promise at most, so it never records one twice either.
 //!
 //! # What it never overrides
 //!
 //! Every attribution goes through `models::attribution`, which records it in the record's
-//! history and leaves alone whatever a person decided, so a segment a person moved stays moved.
+//! history and leaves alone whatever a person decided, so an excerpt a person moved stays moved.
 //!
 //! # What it logs
 //!
@@ -61,30 +65,29 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::correct::{self, CorrectedMeeting};
-use super::correction::{self, Base};
+use super::conversation;
+use super::correct::CorrectedMeeting;
+use super::excerpts::{self, Heading, MeetingText, Taken, TakenExcerpt, Took};
 use super::final_transcript;
 use super::media;
-use super::segmentation::{self, ConversationSegment, MeetingContext, ProjectChoice, Segment};
+use super::segmentation::{
+    self, ConversationSegment, LineRun, MeetingContext, ProjectChoice, PromptLine,
+};
 use super::source::TranscriptLine;
-use super::{SEGMENT_SOURCE_KIND, conversation};
 use crate::agent_models::AgentKind;
 use crate::connectors::ConnectorKind;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Replies};
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::meeting_uploads;
 use crate::models::agent::Author;
-use crate::models::attribution::{self, Attributor};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, MeetingState};
-use crate::models::meeting_capture::MeetingCapture;
-use crate::models::meeting_correction::BasedOn;
+use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_transcription;
 use crate::models::meeting_word;
 use crate::models::promise::{self, NewPromise, Promise};
-use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
+use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::{project, user};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::runner::events::{RunnerEvent, TurnStatus};
@@ -96,9 +99,6 @@ use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
 
 /// Where segmentation turns run. They use no tools, so the directory only needs to exist.
 const SEGMENTATION_DIRECTORY: &str = ".elysium/segmentation";
-
-/// The longest `actor` a record takes: the segment's speakers.
-const ACTOR_MAX_CHARACTERS: usize = 512;
 
 mod item;
 
@@ -154,13 +154,13 @@ pub struct Segmented {
     pub record_ids: Vec<Uuid>,
 }
 
-/// One topic, and where it landed.
+/// One topic (a meeting's excerpt, a conversation's run of messages), and where it landed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SegmentedTopic {
     pub title: String,
     pub summary: String,
-    /// Its span: from the recording's start for a meeting, from the first message for a
+    /// Its span: on the meeting's clock for an excerpt, from the first message for a
     /// conversation.
     pub start_ms: i64,
     pub end_ms: i64,
@@ -208,16 +208,6 @@ pub struct SegmentMeetingDeps {
     pub storage: Storage,
     pub runner: Runner,
     pub workspace: WorkspaceContainer,
-}
-
-/// Where a segment's clip is kept, and the stretch of the recording it holds.
-#[derive(Debug, Clone)]
-struct Clip {
-    storage_location_id: Uuid,
-    path: String,
-    content_type: String,
-    start_ms: i64,
-    end_ms: i64,
 }
 
 impl SegmentMeeting {
@@ -269,8 +259,7 @@ impl SegmentMeeting {
         Ok(Some((current, capture)))
     }
 
-    /// Segments a meeting past its correction and publishes its segments. See the module's
-    /// docs.
+    /// Takes what matters out of a meeting past its correction. See the module's docs.
     async fn segment_meeting(
         &self,
         input: CorrectedMeeting,
@@ -300,96 +289,75 @@ impl SegmentMeeting {
             Some(connector_id) => self.inner.activity.begin(connector_id).await,
             None => None,
         };
-        let whisper = self.whisper_transcript(&capture).await?;
-        let heard = self.heard(&input, &capture, whisper.as_ref()).await?;
         self.ensure_final_transcript(current.id, log).await?;
-        let transcript = heard.into_lines(log);
-        let segments = match stored_segments(&current)? {
-            Some(segments) => {
+        let text = {
+            let mut connection = self.connection().await?;
+            MeetingText::load(&mut connection, current.id)
+                .await
+                .map_err(StepFailure::retryable)?
+        };
+        let taken = match self.stored_taken(&current, log).await? {
+            Some(taken) => {
                 log.line(&format!(
-                    "Already segmented into {} topics; nothing is asked again",
-                    segments.len()
+                    "Already read: {} excerpts and {} black-outs; nothing is asked again",
+                    taken.excerpts.len(),
+                    taken.black_outs.len()
                 ));
-                segments
+                taken
             }
-            None if transcript.is_empty() => return self.nothing_said(&current, log).await,
+            None if text.words().is_empty() => return self.nothing_said(&current, log).await,
             None => {
-                let asked = self.ask_meeting(&current, &transcript, context).await?;
-                self.store_segments(current.id, asked, log).await?
+                let asked = self.ask_meeting(&current, &text, context).await?;
+                self.store_taken(current.id, asked, log).await?
             }
         };
 
-        let words: Vec<WhisperWord> = whisper
-            .into_iter()
-            .flat_map(|heard| heard.segments)
-            .flat_map(|segment| segment.words)
-            .collect();
-        let clips = self.cut_clips(&capture, &segments, &words, log).await?;
-        let published = self
-            .publish(&current, &capture, &transcript, &segments, clips)
-            .await?;
-        let Some(published) = published else {
+        let Some(took) = self.publish(current.id, &taken).await? else {
             return self.published_by_another(current.id, log).await;
         };
         log.line(&format!(
-            "Published {} topics to the timeline",
-            published.created.len()
+            "Took {} excerpts and {} black-outs: made {}, kept {} of Elysia's own, and removed {}",
+            taken.excerpts.len(),
+            taken.black_outs.len(),
+            count_in(&took.entry.data, "made"),
+            count_in(&took.entry.data, "kept"),
+            count_in(&took.entry.data, "removed"),
         ));
-        self.announce_published(&current, &published.created);
+        let unanchored = took.entry.data["unanchored"].as_u64().unwrap_or(0);
+        if unanchored > 0 {
+            log.line(&format!(
+                "{unanchored} of its ranges were edited while it read them, so they were left out"
+            ));
+        }
+        self.announce_published(&current, &took);
+        let clipped = self.clip(&current, log).await?;
+        let topics = self.topics(current.id).await?;
         if let Some(connector_id) = capture.connector_id {
             self.inner
                 .activity
                 .record(ConnectorRun::succeeded(
                     connector_id,
                     started,
-                    segments.len(),
+                    topics.segments.len(),
                 ))
                 .await;
         }
-        // Only cutting clips fills the meeting's workspace directory.
-        let cut_any = capture.recording_path.is_some();
-        if cut_any && let Err(error) = media::clean_up(&self.inner.workspace, current.id).await {
+        if clipped > 0
+            && let Err(error) = media::clean_up(&self.inner.workspace, current.id).await
+        {
             // The clips are up and the meeting is done; the scratch copy left behind costs
             // workspace space and nothing else, so the step still succeeds.
             log.line(&format!(
                 "The meeting's workspace directory could not be removed: {error}"
             ));
         }
-
-        let attributed = segments
-            .iter()
-            .filter(|segment| !segment.projects.is_empty())
-            .count();
         Ok(Done::Succeeded {
-            output: meeting_topics(&segments, &published.record_ids),
             summary: Some(format!(
-                "Put {} topics on the timeline, {attributed} of them on projects",
-                segments.len()
+                "Took {} excerpts into projects, and blacked out {}",
+                topics.segments.len(),
+                taken.black_outs.len()
             )),
-        })
-    }
-
-    /// What `capture` heard, with Whisper's transcript `whisper`, and the corrected copy `input`
-    /// names, when it names one that is stored.
-    async fn heard(
-        &self,
-        input: &CorrectedMeeting,
-        capture: &MeetingCapture,
-        whisper: Option<&WhisperTranscript>,
-    ) -> Result<Heard, StepFailure> {
-        let mut connection = self.connection().await?;
-        let corrected = correct::corrected_lines(&mut connection, input)
-            .await
-            .map_err(StepFailure::retryable)?;
-        let source: Vec<TranscriptLine> = serde_json::from_value(capture.transcript.clone())
-            .map_err(|error| {
-                StepFailure::permanent(format!(
-                    "The meeting's transcript is not in the stored shape: {error}"
-                ))
-            })?;
-        Ok(Heard {
-            base: correction::base(source, whisper),
-            corrected,
+            output: topics,
         })
     }
 
@@ -424,73 +392,122 @@ impl SegmentMeeting {
         Ok(())
     }
 
-    /// One segmentation turn over `transcript`, its answer checked.
+    /// What segmenting read of `current` before, stored when an attempt asked: `None` when none
+    /// did. A meeting cut into topics by a build before excerpts, and never published, has that
+    /// answer cleared to be asked again.
+    async fn stored_taken(
+        &self,
+        current: &Meeting,
+        log: &StepLog,
+    ) -> Result<Option<Taken>, StepFailure> {
+        let Some(stored) = &current.segments else {
+            return Ok(None);
+        };
+        if stored.is_array() {
+            log.line("Its topics were stored before excerpts, so it is read again");
+            let mut connection = self.connection().await?;
+            meeting::reopen_for_segmenting(&mut connection, current.id)
+                .await
+                .map_err(StepFailure::retryable)?;
+            return Ok(None);
+        }
+        serde_json::from_value(stored.clone())
+            .map(Some)
+            .map_err(|error| {
+                StepFailure::permanent(format!(
+                    "The meeting's excerpts are not in the stored shape: {error}"
+                ))
+            })
+    }
+
+    /// One segmentation turn over `text`, `current`'s transcript as it reads, its answer checked
+    /// and its runs of lines turned into ranges of the words it read.
     async fn ask_meeting(
         &self,
         current: &Meeting,
-        transcript: &[TranscriptLine],
+        text: &MeetingText,
         context: &StepContext,
-    ) -> Result<Vec<Segment>, StepFailure> {
+    ) -> Result<Taken, StepFailure> {
         let choices = self.project_choices().await?;
-        let duration_ms = duration_of(current, transcript);
+        let words = text.words();
+        let lines = text.lines();
+        let timed = text.is_timed();
+        let prompt_lines: Vec<PromptLine> = lines
+            .iter()
+            .map(|line| PromptLine {
+                start_ms: words[line.start].start_ms,
+                speaker: words[line.start].speaker.clone(),
+                text: text.agent_text(line.clone()),
+            })
+            .collect();
         let participants: Vec<String> =
             serde_json::from_value(current.participants.clone()).unwrap_or_default();
         let meeting_context = MeetingContext {
             title: &current.title,
-            duration_ms,
+            duration_ms: duration_of(current, text),
             participants: &participants,
         };
-        // A meeting in words alone has no clock to answer in, so it is answered by its lines.
-        let in_words_alone = meeting_uploads::transcript::is_untimed(transcript);
-        let (prompt, system_prompt) = if in_words_alone {
+        if !timed {
             context
                 .log
-                .line("The transcript carries no times, so its topics are runs of its lines");
-            (
-                segmentation::lines_prompt(meeting_context, transcript, &choices),
-                segmentation::LINES_SYSTEM_PROMPT,
-            )
-        } else {
-            (
-                segmentation::prompt(meeting_context, transcript, &choices),
-                segmentation::SYSTEM_PROMPT,
-            )
-        };
+                .line("The transcript carries no times, so its lines are read by number alone");
+        }
+        let prompt = segmentation::excerpts_prompt(meeting_context, &prompt_lines, timed, &choices);
         let answer = self
             .ask(
                 format!("meeting:{}:segmentation", current.id),
                 prompt,
-                system_prompt,
+                segmentation::EXCERPTS_SYSTEM_PROMPT,
                 context,
             )
             .await?;
-        let parsed = if in_words_alone {
-            segmentation::parse_lines_answer(&answer, transcript, &choices)
-        } else {
-            segmentation::parse_answer(&answer, duration_ms, &choices)
+        let untitled = |first: usize| {
+            if timed {
+                format!(
+                    "From {}",
+                    segmentation::clock(words[lines[first].start].start_ms)
+                )
+            } else {
+                format!("From line {}", first + 1)
+            }
         };
-        let segments = parsed.map_err(|error| {
-            StepFailure::retryable(format!("The segmentation's answer: {error}"))
-        })?;
-        let attributed = segments
-            .iter()
-            .filter(|segment| !segment.projects.is_empty())
-            .count();
+        let reading = segmentation::parse_excerpts_answer(&answer, lines.len(), &choices, untitled)
+            .map_err(|error| {
+                StepFailure::retryable(format!("The segmentation's answer: {error}"))
+            })?;
         context.log.line(&format!(
-            "Found {} topics, {attributed} of them about a project",
-            segments.len()
+            "Read {} lines: {} excerpts, {} black-outs",
+            lines.len(),
+            reading.excerpts.len(),
+            reading.black_outs.len()
         ));
-        Ok(segments)
+        let range_of =
+            |run: LineRun| text.range_of(&(lines[run.first].start..=lines[run.last].end - 1));
+        Ok(Taken {
+            excerpts: reading
+                .excerpts
+                .into_iter()
+                .map(|found| TakenExcerpt {
+                    range: range_of(found.lines),
+                    heading: Heading {
+                        title: found.title,
+                        summary: found.summary,
+                    },
+                    projects: found.projects,
+                })
+                .collect(),
+            black_outs: reading.black_outs.into_iter().map(range_of).collect(),
+        })
     }
 
-    /// Stores `asked` as the meeting's segments, or answers the segments another attempt stored
-    /// first, which every later attempt cuts and publishes from.
-    async fn store_segments(
+    /// Stores `asked` as what segmenting read of the meeting, or answers what another attempt
+    /// stored first, which every later attempt takes.
+    async fn store_taken(
         &self,
         meeting_id: Uuid,
-        asked: Vec<Segment>,
+        asked: Taken,
         log: &StepLog,
-    ) -> Result<Vec<Segment>, StepFailure> {
+    ) -> Result<Taken, StepFailure> {
         let mut connection = self.connection().await?;
         let answer = serde_json::to_value(&asked).map_err(StepFailure::permanent)?;
         let written = meeting::record_segments(&mut connection, meeting_id, answer)
@@ -502,12 +519,13 @@ impl SegmentMeeting {
         let stored = meeting::find(&mut connection, meeting_id)
             .await
             .map_err(StepFailure::retryable)?;
-        log.line("Another attempt stored its segments first; they are kept");
-        stored_segments(&stored)?
-            .ok_or_else(|| StepFailure::retryable("The meeting's segments went missing"))
+        log.line("Another attempt stored what it read first; it is kept");
+        self.stored_taken(&stored, log)
+            .await?
+            .ok_or_else(|| StepFailure::retryable("What the meeting was read as went missing"))
     }
 
-    /// How a meeting in which nothing was said ends: done, with no topics.
+    /// How a meeting in which nothing was said ends: done, having taken nothing.
     async fn nothing_said(
         &self,
         current: &Meeting,
@@ -515,9 +533,10 @@ impl SegmentMeeting {
     ) -> Result<Done<Segmented>, StepFailure> {
         let mut connection = self.connection().await?;
         let meeting_id = current.id;
+        let nothing = serde_json::to_value(Taken::default()).map_err(StepFailure::permanent)?;
         let done = connection
             .transaction(async move |connection| {
-                meeting::record_segments(connection, meeting_id, json!([])).await?;
+                meeting::record_segments(connection, meeting_id, nothing).await?;
                 meeting::record_done(connection, meeting_id).await
             })
             .await
@@ -530,13 +549,13 @@ impl SegmentMeeting {
     }
 
     /// How an attempt ends that found meeting `meeting_id` published by another attempt while it
-    /// worked: with what that attempt published.
+    /// worked: with what that attempt took.
     async fn published_by_another(
         &self,
         meeting_id: Uuid,
         log: &StepLog,
     ) -> Result<Done<Segmented>, StepFailure> {
-        log.line("Another attempt published the meeting first; nothing was stored twice");
+        log.line("Another attempt took the meeting's excerpts first; nothing was taken twice");
         let done = {
             let mut connection = self.connection().await?;
             meeting::find(&mut connection, meeting_id)
@@ -546,39 +565,43 @@ impl SegmentMeeting {
         self.already_published(&done, log).await
     }
 
-    /// What a meeting published already gives, changing nothing.
+    /// What a meeting done already gives, changing nothing but the clips an attempt cut short
+    /// left uncut.
     async fn already_published(
         &self,
         current: &Meeting,
         log: &StepLog,
     ) -> Result<Done<Segmented>, StepFailure> {
-        let segments = stored_segments(current)?.unwrap_or_default();
-        let records = {
-            let mut connection = self.connection().await?;
-            timeline_record::of_meeting(&mut connection, current.created_by, current.id)
-                .await
-                .map_err(StepFailure::retryable)?
-        };
-        let mut record_ids: Vec<Option<Uuid>> = vec![None; segments.len()];
-        for (record, _attributions) in records {
-            let index = record.metadata["segmentIndex"]
-                .as_u64()
-                .and_then(|index| usize::try_from(index).ok());
-            if let Some(slot) = index.and_then(|index| record_ids.get_mut(index)) {
-                *slot = Some(record.id);
-            }
+        let clipped = self.clip(current, log).await?;
+        if clipped > 0
+            && let Err(error) = media::clean_up(&self.inner.workspace, current.id).await
+        {
+            log.line(&format!(
+                "The meeting's workspace directory could not be removed: {error}"
+            ));
         }
+        let topics = self.topics(current.id).await?;
         log.line(&format!(
-            "Already on the timeline as {} topics; nothing was changed",
-            segments.len()
+            "Already took {} excerpts; nothing else was changed",
+            topics.segments.len()
         ));
         Ok(Done::Succeeded {
-            output: meeting_topics(&segments, &record_ids),
             summary: Some(format!(
-                "Already on the timeline as {} topics",
-                segments.len()
+                "Already took {} excerpts into projects",
+                topics.segments.len()
             )),
+            output: topics,
         })
+    }
+
+    /// Meeting `meeting_id`'s standing excerpts as the step gives them, in the order they were
+    /// said, each with its projects and its record.
+    async fn topics(&self, meeting_id: Uuid) -> Result<Segmented, StepFailure> {
+        let mut connection = self.connection().await?;
+        let records = timeline_record::of_meeting(&mut connection, meeting_id)
+            .await
+            .map_err(StepFailure::retryable)?;
+        Ok(excerpt_topics(records))
     }
 
     /// What Whisper heard in `capture`'s recording; `None` when it was not transcribed.
@@ -602,38 +625,48 @@ impl SegmentMeeting {
             })
     }
 
-    /// Cuts and uploads each segment's clip from `capture`'s recording, at Whisper's words when
-    /// there are any, answering where each landed, or nothing at all for a capture without a
-    /// recording. Segments and words are on the capture's own clock, as its recording is.
-    async fn cut_clips(
-        &self,
-        capture: &MeetingCapture,
-        segments: &[Segment],
-        words: &[WhisperWord],
-        log: &StepLog,
-    ) -> Result<Vec<Option<Clip>>, StepFailure> {
-        let meeting_id = capture.meeting_id;
-        if segments.iter().any(|segment| segment.lines.is_some()) {
-            // Runs of lines in words alone, with no times to cut a recording at.
-            log.line("The transcript carries no times, so the topics carry no clips");
-            return Ok(Vec::new());
-        }
-        let (Some(storage_location_id), Some(recording_path)) = (
-            capture.storage_location_id,
-            capture.recording_path.as_deref(),
-        ) else {
-            log.line("No recording is kept, so the topics carry no clips");
-            return Ok(Vec::new());
+    /// Cuts and uploads the clip of each of `current`'s standing excerpts that has none, or whose
+    /// words moved since its clip was cut, from the meeting's first capture with a recording kept,
+    /// at the words Whisper heard nearest its ends; answers how many it cut. A meeting with no
+    /// recording kept, such as one in words alone, has no clips.
+    async fn clip(&self, current: &Meeting, log: &StepLog) -> Result<usize, StepFailure> {
+        let (records, captures) = {
+            let mut connection = self.connection().await?;
+            let records = timeline_record::of_meeting(&mut connection, current.id)
+                .await
+                .map_err(StepFailure::retryable)?;
+            let captures = meeting_capture::list_of(&mut connection, current.id)
+                .await
+                .map_err(StepFailure::retryable)?;
+            (records, captures)
         };
-        let content_type = capture
-            .recording_content_type
-            .clone()
-            .unwrap_or_else(|| "application/octet-stream".to_owned());
+        let Some(recording) = captures.into_iter().find_map(Recording::of) else {
+            if !records.is_empty() {
+                log.line("No recording is kept, so the excerpts carry no clips");
+            }
+            return Ok(0);
+        };
+        let words: Vec<WhisperWord> = self
+            .whisper_transcript(&recording.capture)
+            .await?
+            .into_iter()
+            .flat_map(|heard| heard.segments)
+            .flat_map(|segment| segment.words)
+            .collect();
+        let uncut = uncut_clips(current.id, records, &recording, &words);
+        if uncut.is_empty() {
+            return Ok(0);
+        }
+
         let (location, access_key) = {
             let mut connection = self.connection().await?;
-            super::location(&mut connection, &self.inner.cipher, storage_location_id)
-                .await
-                .map_err(StepFailure::retryable)?
+            super::location(
+                &mut connection,
+                &self.inner.cipher,
+                recording.storage_location_id,
+            )
+            .await
+            .map_err(StepFailure::retryable)?
         };
         let kept = media::Kept {
             storage: &self.inner.storage,
@@ -643,140 +676,97 @@ impl SegmentMeeting {
         let recording_name = media::ensure_local(
             kept,
             &self.inner.workspace,
-            (meeting_id, capture.id),
-            recording_path,
+            (current.id, recording.capture.id),
+            &recording.path,
         )
         .await
         .map_err(StepFailure::retryable)?;
-        let extension = media::extension_of(recording_path);
-
-        let mut clips = Vec::with_capacity(segments.len());
-        for (index, segment) in segments.iter().enumerate() {
-            let (start_ms, end_ms) =
-                segmentation::clip_span(segment.start_ms, segment.end_ms, words);
-            let clip_name = format!("segment-{index}.{extension}");
-            media::cut(
-                &self.inner.workspace,
-                meeting_id,
-                &recording_name,
-                start_ms,
-                end_ms,
-                &clip_name,
-            )
-            .await
-            .map_err(StepFailure::retryable)?;
-            let path = media::clip_path(meeting_id, index, extension);
-            media::upload(
-                kept,
-                &self.inner.workspace,
-                &media::directory(meeting_id),
-                &clip_name,
-                &path,
-                &content_type,
-            )
-            .await
-            .map_err(StepFailure::retryable)?;
-            log.line(&format!("Uploaded a clip to {path}"));
-            clips.push(Some(Clip {
-                storage_location_id,
-                path,
-                content_type: content_type.clone(),
-                start_ms,
-                end_ms,
-            }));
+        for clip in &uncut {
+            self.cut_clip(kept, current.id, &recording_name, &recording, clip)
+                .await?;
+            log.line(&format!("Uploaded a clip to {}", clip.path));
         }
         if words.is_empty() {
-            log.line(&format!(
-                "Cut {} clips at the transcript's times",
-                clips.len()
-            ));
+            log.line(&format!("Cut {} clips at the words' times", uncut.len()));
         } else {
             log.line(&format!(
                 "Cut {} clips at Whisper's word timings",
-                clips.len()
+                uncut.len()
             ));
         }
-        Ok(clips)
+        Ok(uncut.len())
     }
 
-    /// Stores every segment as a timeline record, attributed to its projects, and marks the
-    /// meeting done, in one transaction under the meeting's lock. Answers `None`, storing nothing,
-    /// when another attempt marked the meeting done first: two attempts at once publish it once,
-    /// whether or not the unique key on its records can tell them apart (a capture with no
-    /// connector cannot).
-    async fn publish(
+    /// Cuts `clip` from `recording`, the local copy of `from`, uploads it where `kept` says, and
+    /// gives its record the clip.
+    async fn cut_clip(
         &self,
-        current: &Meeting,
-        capture: &MeetingCapture,
-        transcript: &[TranscriptLine],
-        segments: &[Segment],
-        clips: Vec<Option<Clip>>,
-    ) -> Result<Option<Published>, StepFailure> {
-        let records: Vec<NewTimelineRecord> = segments
-            .iter()
-            .enumerate()
-            .map(|(index, segment)| {
-                let clip = clips.get(index).cloned().flatten();
-                segment_record(current, capture, transcript, index, segment, clip)
-            })
-            .collect();
+        kept: media::Kept<'_>,
+        meeting_id: Uuid,
+        recording: &str,
+        from: &Recording,
+        clip: &Uncut,
+    ) -> Result<(), StepFailure> {
+        let clip_name = format!("excerpt-{}.{}", clip.record.id, from.extension());
+        let (start_ms, end_ms) = clip.span;
+        media::cut(
+            &self.inner.workspace,
+            meeting_id,
+            recording,
+            start_ms,
+            end_ms,
+            &clip_name,
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
+        media::upload(
+            kept,
+            &self.inner.workspace,
+            &media::directory(meeting_id),
+            &clip_name,
+            &clip.path,
+            from.content_type(),
+        )
+        .await
+        .map_err(StepFailure::retryable)?;
+        // The clip's own stretch, on the meeting's clock as every time of a record is.
+        let cut = json!({
+            "storageLocationId": from.storage_location_id,
+            "path": clip.path,
+            "contentType": from.content_type(),
+            "startMs": start_ms + from.capture.offset_ms,
+            "endMs": end_ms + from.capture.offset_ms,
+        });
         let mut connection = self.connection().await?;
-        let connector_id = capture.connector_id;
-        let meeting_id = current.id;
-        let published = connection
+        timeline_record::set_clip(&mut connection, clip.record.id, &cut)
+            .await
+            .map_err(StepFailure::retryable)
+    }
+
+    /// Takes `taken` into meeting `meeting_id` and marks it done, in one transaction under its
+    /// lock, then refreshes what its excerpts and its own document read. Answers `None`, taking
+    /// nothing, when another attempt marked it done first, so two attempts at once take it once.
+    async fn publish(&self, meeting_id: Uuid, taken: &Taken) -> Result<Option<Took>, StepFailure> {
+        let mut connection = self.connection().await?;
+        connection
             .transaction(async move |connection| {
-                if meeting::lock(connection, meeting_id).await?.state() == MeetingState::Done {
+                let locked = meeting::lock(connection, meeting_id).await?;
+                if locked.state() == MeetingState::Done {
                     return Ok(None);
                 }
-                let existing = existing_projects(connection).await?;
-                let mut published = Published::default();
-                for (record, segment) in records.into_iter().zip(segments) {
-                    let external_id = record.external_id.clone();
-                    let Some(stored) = timeline_record::insert_new(connection, record).await?
-                    else {
-                        // Recorded already, as a meeting published before segmenting joined its
-                        // run may have been; it keeps the attributions it has.
-                        let found = match (connector_id, external_id) {
-                            (Some(connector_id), Some(external_id)) => {
-                                timeline_record::find_by_external_id(
-                                    connection,
-                                    connector_id,
-                                    &external_id,
-                                )
-                                .await?
-                            }
-                            _ => None,
-                        };
-                        published.record_ids.push(found.map(|record| record.id));
-                        continue;
-                    };
-                    for project in &segment.projects {
-                        if !existing.contains(&project.project_id) {
-                            continue;
-                        }
-                        attribution::attribute(
-                            connection,
-                            stored.id,
-                            project.project_id,
-                            project.confidence,
-                            Attributor::Elysia,
-                        )
-                        .await?;
-                    }
-                    published.record_ids.push(Some(stored.id));
-                    published.created.push(stored);
-                }
-                meeting::record_done(connection, meeting_id).await?;
-                Ok::<_, diesel::result::Error>(Some(published))
+                let capture = meeting_capture::first_of(connection, meeting_id).await?;
+                let took = excerpts::take(connection, &locked, &capture, taken).await?;
+                let done = meeting::record_done(connection, meeting_id).await?;
+                excerpts::refresh(connection, &done, None).await?;
+                Ok::<_, diesel::result::Error>(Some(took))
             })
             .await
-            .map_err(StepFailure::retryable)?;
-        Ok(published)
+            .map_err(StepFailure::retryable)
     }
 
-    /// Tells every client of each new segment's record and of the meeting that finished.
-    fn announce_published(&self, current: &Meeting, created: &[TimelineRecord]) {
-        for record in created {
+    /// Tells every client of each new excerpt's record and of the meeting that finished.
+    fn announce_published(&self, current: &Meeting, took: &Took) {
+        for record in &took.created {
             self.inner
                 .events
                 .publish(&ServerEvent::TimelineRecordCreated {
@@ -792,6 +782,8 @@ impl SegmentMeeting {
             state: MeetingState::Done.as_str().to_owned(),
             entry_id: None,
         });
+        // Elysia's projects each kept or taken off an excerpt changed what it is attributed to.
+        self.inner.events.signal(&Signal::ProjectManagers);
     }
 
     fn announce_meeting(&self, changed: &Meeting) {
@@ -1079,57 +1071,6 @@ impl SegmentMeeting {
     }
 }
 
-/// What publishing a meeting's segments stored.
-#[derive(Debug, Default)]
-struct Published {
-    /// The records this attempt created.
-    created: Vec<TimelineRecord>,
-    /// Each segment's record, in order; `None` where one recorded before cannot be found.
-    record_ids: Vec<Option<Uuid>>,
-}
-
-/// What a meeting's capture heard, and its corrected copy when the run named one.
-struct Heard {
-    /// The transcript a correction follows: the source's lines, or Whisper's segments when the
-    /// source sent none. `None` when nothing was heard.
-    base: Option<Base>,
-    corrected: Option<Vec<TranscriptLine>>,
-}
-
-impl Heard {
-    /// The lines segmenting reads: the corrected copy, or, when the run handed on none, the
-    /// transcript its correction would have followed.
-    fn into_lines(self, log: &StepLog) -> Vec<TranscriptLine> {
-        let (lines, which) = match (self.corrected, self.base) {
-            (Some(lines), _) => (lines, "the corrected transcript"),
-            (None, Some(base)) => {
-                let which = match base.based_on {
-                    BasedOn::Source => "the source's transcript",
-                    BasedOn::Whisper => "Whisper's transcript",
-                };
-                (base.lines, which)
-            }
-            (None, None) => (Vec::new(), "either transcript"),
-        };
-        log.line(&format!("Reading {} lines of {which}", lines.len()));
-        lines
-    }
-}
-
-/// The segments stored on `current`, when it has them.
-fn stored_segments(current: &Meeting) -> Result<Option<Vec<Segment>>, StepFailure> {
-    let Some(stored) = &current.segments else {
-        return Ok(None);
-    };
-    serde_json::from_value(stored.clone())
-        .map(Some)
-        .map_err(|error| {
-            StepFailure::permanent(format!(
-                "The meeting's segments are not in the stored shape: {error}"
-            ))
-        })
-}
-
 /// Every project's id now, so an attribution to one removed since the turn is left out rather
 /// than failing the whole write.
 async fn existing_projects(
@@ -1139,29 +1080,119 @@ async fn existing_projects(
     Ok(projects.into_iter().map(|project| project.id).collect())
 }
 
-/// A meeting's topics as the step gives them, each with its record.
-fn meeting_topics(segments: &[Segment], record_ids: &[Option<Uuid>]) -> Segmented {
-    let segments = segments
-        .iter()
-        .enumerate()
-        .map(|(index, segment)| SegmentedTopic {
-            title: segment.title.clone(),
-            summary: segment.summary.clone(),
-            start_ms: segment.start_ms,
-            end_ms: segment.end_ms,
-            projects: segment.projects.clone(),
-            record_ids: record_ids
-                .get(index)
-                .copied()
-                .flatten()
-                .into_iter()
-                .collect(),
+/// The recording a meeting's clips are cut from: a capture's, kept in a storage location.
+struct Recording {
+    capture: MeetingCapture,
+    storage_location_id: Uuid,
+    path: String,
+}
+
+impl Recording {
+    /// `capture`'s recording, when one is kept.
+    fn of(capture: MeetingCapture) -> Option<Self> {
+        let storage_location_id = capture.storage_location_id?;
+        let path = capture.recording_path.clone()?;
+        Some(Self {
+            capture,
+            storage_location_id,
+            path,
+        })
+    }
+
+    fn extension(&self) -> &str {
+        media::extension_of(&self.path)
+    }
+
+    /// What its clips are, as its recording is.
+    fn content_type(&self) -> &str {
+        self.capture
+            .recording_content_type
+            .as_deref()
+            .unwrap_or("application/octet-stream")
+    }
+}
+
+/// A clip to cut: its excerpt's record, the stretch of the recording on its capture's clock, and
+/// where it is kept.
+struct Uncut {
+    record: TimelineRecord,
+    span: (i64, i64),
+    path: String,
+}
+
+/// The clips of `records`, meeting `meeting_id`'s standing excerpts, not yet cut for the words each
+/// holds now: one with no clip, and one whose words moved since, its clip's path naming another
+/// stretch. Each is cut from `recording` at the Whisper `words` nearest its ends. An excerpt with no
+/// span of its own, in a meeting in words alone, has no clip.
+fn uncut_clips(
+    meeting_id: Uuid,
+    records: Vec<(TimelineRecord, Vec<Attribution>)>,
+    recording: &Recording,
+    words: &[WhisperWord],
+) -> Vec<Uncut> {
+    let offset_ms = recording.capture.offset_ms;
+    let mut uncut = Vec::new();
+    for (record, _attributions) in records {
+        let Some(mark_id) = record.excerpt_mark_id else {
+            continue;
+        };
+        let Some((_, start_ms, end_ms)) = timeline_record::segment_span(&record) else {
+            continue;
+        };
+        if end_ms <= start_ms {
+            continue;
+        }
+        // Excerpts are on the meeting's clock, and the recording on its capture's.
+        let span = segmentation::clip_span(start_ms - offset_ms, end_ms - offset_ms, words);
+        let path = media::excerpt_clip_path(meeting_id, mark_id, span, recording.extension());
+        let cut_for = record
+            .media
+            .as_ref()
+            .and_then(|media| media["clip"]["path"].as_str());
+        if cut_for != Some(path.as_str()) {
+            uncut.push(Uncut { record, span, path });
+        }
+    }
+    uncut
+}
+
+/// A meeting's standing excerpts, `records` with their attributions, as the step gives them, in
+/// the order they were said.
+fn excerpt_topics(mut records: Vec<(TimelineRecord, Vec<Attribution>)>) -> Segmented {
+    records.sort_by_key(|(record, _)| (record.occurred_at, record.id));
+    let segments = records
+        .into_iter()
+        .map(|(record, attributions)| {
+            let (start_ms, end_ms) = timeline_record::segment_span(&record)
+                .map_or((0, 0), |(_, start_ms, end_ms)| (start_ms, end_ms));
+            SegmentedTopic {
+                summary: record.metadata["summary"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                title: record.title,
+                start_ms,
+                end_ms,
+                projects: attributions
+                    .into_iter()
+                    .map(|attribution| segmentation::SegmentProject {
+                        project_id: attribution.project_id,
+                        confidence: attribution.confidence,
+                    })
+                    .collect(),
+                record_ids: vec![record.id],
+            }
         })
         .collect();
     Segmented {
         segments,
         record_ids: Vec::new(),
     }
+}
+
+/// How many ids a `segmented` history entry lists at `key`.
+fn count_in(data: &Value, key: &str) -> usize {
+    data[key].as_array().map_or(0, Vec::len)
 }
 
 /// A conversation's topics as the step gives them, each with its messages' records.
@@ -1221,79 +1252,24 @@ fn promises_to_keep(
     kept
 }
 
-/// How long the meeting ran: what the source said, or where its transcript ends.
-fn duration_of(current: &Meeting, transcript: &[TranscriptLine]) -> i64 {
-    let spoken = transcript.iter().map(|line| line.end_ms).max().unwrap_or(0);
+/// How long the meeting ran: what its source said, or where its transcript ends.
+fn duration_of(current: &Meeting, text: &MeetingText) -> i64 {
+    let spoken = text
+        .words()
+        .iter()
+        .map(|word| word.end_ms)
+        .max()
+        .unwrap_or(0);
     current.duration_ms.unwrap_or(0).max(spoken)
-}
-
-/// A segment of `capture`'s transcript as a timeline record: its title, its transcript excerpt,
-/// its speakers, and the span of the meeting it covers, with its clip when there is one. The
-/// segment and its clip are timed on the capture's clock; the record is on the meeting's, the
-/// capture's offset after it, as every time of a meeting is.
-///
-/// A record is unique per connector and the capture's id at its source, with the segment's index.
-/// A capture with no id at its source, such as an upload, names its records by the meeting
-/// (`meeting:<id>#<index>`), and with no connector the unique key cannot hold them once: what
-/// does is that `publish` stores them under the meeting's lock, in the transaction that marks it
-/// done, and stores nothing for a meeting done.
-fn segment_record(
-    current: &Meeting,
-    capture: &MeetingCapture,
-    transcript: &[TranscriptLine],
-    index: usize,
-    segment: &Segment,
-    clip: Option<Clip>,
-) -> NewTimelineRecord {
-    let offset_ms = capture.offset_ms;
-    let speakers = segmentation::speakers(transcript, segment).join(", ");
-    let clip: Option<Value> = clip.map(|clip| {
-        json!({
-            "storageLocationId": clip.storage_location_id,
-            "path": clip.path,
-            "contentType": clip.content_type,
-            "startMs": clip.start_ms + offset_ms,
-            "endMs": clip.end_ms + offset_ms,
-        })
-    });
-    NewTimelineRecord {
-        id: Uuid::now_v7(),
-        source_kind: SEGMENT_SOURCE_KIND.to_owned(),
-        connector_id: capture.connector_id,
-        external_id: Some(match &capture.external_id {
-            Some(external_id) => format!("{external_id}#{index}"),
-            None => format!("meeting:{}#{index}", current.id),
-        }),
-        occurred_at: current.started_at
-            + chrono::Duration::milliseconds(segment.start_ms + offset_ms),
-        actor: speakers.chars().take(ACTOR_MAX_CHARACTERS).collect(),
-        title: segment.title.clone(),
-        body: segmentation::excerpt(transcript, segment),
-        url: capture.url.clone(),
-        media: Some(json!({
-            "meetingId": current.id,
-            "startMs": segment.start_ms + offset_ms,
-            "endMs": segment.end_ms + offset_ms,
-            "clip": clip,
-        })),
-        metadata: json!({
-            "meetingId": current.id,
-            "meetingTitle": current.title,
-            "meetingSource": capture.source_kind,
-            "segmentIndex": index,
-            "summary": segment.summary,
-        }),
-        created_by: current.created_by,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::meetings::fetch::MeetingToFetch;
-    use crate::meetings::segmentation::{LineRun, SegmentProject};
     use crate::models::meeting::tests::fetched_with;
-    use crate::models::meeting_word::{self, Origin};
+    use crate::models::meeting_mark::{self, Mark, MarkKind};
+    use crate::models::meeting_word::Origin;
     use crate::models::project::NewProject;
     use crate::models::user::ELYSIA_USER_ID;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
@@ -1315,30 +1291,6 @@ mod tests {
             merged_into: None,
             visibility: "public".to_owned(),
             visibility_item_id: None,
-        }
-    }
-
-    /// `current`'s capture through a Fireflies connector, `offset_ms` from the meeting's clock.
-    fn capture(current: &Meeting, offset_ms: i64) -> MeetingCapture {
-        MeetingCapture {
-            id: Uuid::now_v7(),
-            meeting_id: current.id,
-            connector_id: Some(Uuid::now_v7()),
-            source_kind: "fireflies".to_owned(),
-            external_id: Some("01HX".to_owned()),
-            url: Some("https://app.fireflies.ai/view/01HX".to_owned()),
-            transcript: json!([]),
-            transcript_hash: None,
-            storage_location_id: None,
-            recording_path: None,
-            recording_content_type: None,
-            recording_hash: None,
-            offset_ms,
-            created_by: current.created_by,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            joined_at: Utc::now(),
-            offset_source: "listed".to_owned(),
         }
     }
 
@@ -1401,156 +1353,12 @@ mod tests {
     }
 
     #[test]
-    fn a_segment_becomes_a_record_at_its_time_with_its_excerpt_and_clip() {
-        let current = meeting();
-        let heard_in = capture(&current, 0);
-        let transcript = vec![
-            line(61_000, "Ada", "Launch is Friday."),
-            line(400_000, "Grace", "Later topic."),
-        ];
-        let project_id = Uuid::now_v7();
-        let segment = Segment {
-            start_ms: 60_000,
-            end_ms: 300_000,
-            title: "Launch".to_owned(),
-            summary: "Launch moves to Friday.".to_owned(),
-            projects: vec![SegmentProject {
-                project_id,
-                confidence: 0.9,
-            }],
-            lines: None,
-        };
-        let location = Uuid::now_v7();
-        let record = segment_record(
-            &current,
-            &heard_in,
-            &transcript,
-            2,
-            &segment,
-            Some(Clip {
-                storage_location_id: location,
-                path: "meetings/x/segments/2.mp4".to_owned(),
-                content_type: "video/mp4".to_owned(),
-                start_ms: 60_400,
-                end_ms: 299_700,
-            }),
-        );
-
-        assert_eq!(record.source_kind, "meeting");
-        assert_eq!(record.connector_id, heard_in.connector_id);
-        assert_eq!(record.external_id.as_deref(), Some("01HX#2"));
-        assert_eq!(record.url, heard_in.url);
-        assert_eq!(record.metadata["meetingSource"], "fireflies");
-        assert_eq!(record.occurred_at.to_rfc3339(), "2026-10-21T15:01:00+00:00");
-        assert_eq!(record.actor, "Ada");
-        assert_eq!(record.body, "[1:01] Ada: Launch is Friday.\n");
-        assert_eq!(record.created_by, current.created_by);
-        let media = record.media.expect("a span");
-        assert_eq!(media["startMs"], 60_000);
-        assert_eq!(media["clip"]["path"], "meetings/x/segments/2.mp4");
-        assert_eq!(media["clip"]["storageLocationId"], json!(location));
-        // The clip holds the stretch cut at Whisper's words; the span stays the transcript's.
-        assert_eq!(
-            (
-                media["clip"]["startMs"].clone(),
-                media["clip"]["endMs"].clone()
-            ),
-            (json!(60_400), json!(299_700))
-        );
-        assert_eq!(record.metadata["summary"], "Launch moves to Friday.");
-
-        // A capture that began 90 seconds into the meeting places it 90 seconds later on the
-        // meeting's clock, its clip with it.
-        let later = capture(&current, 90_000);
-        let placed = segment_record(
-            &current,
-            &later,
-            &transcript,
-            2,
-            &segment,
-            Some(Clip {
-                storage_location_id: location,
-                path: "meetings/x/segments/2.mp4".to_owned(),
-                content_type: "video/mp4".to_owned(),
-                start_ms: 60_400,
-                end_ms: 299_700,
-            }),
-        );
-        assert_eq!(placed.occurred_at.to_rfc3339(), "2026-10-21T15:02:30+00:00");
-        let media = placed.media.expect("a span");
-        assert_eq!(
-            (media["startMs"].clone(), media["endMs"].clone()),
-            (json!(150_000), json!(390_000))
-        );
-        assert_eq!(media["clip"]["startMs"], json!(150_400));
-    }
-
-    #[test]
-    fn a_capture_with_no_id_at_its_source_names_its_records_by_the_meeting() {
-        let current = meeting();
-        let mut uploaded = capture(&current, 0);
-        uploaded.connector_id = None;
-        uploaded.external_id = None;
-        let record = segment_record(
-            &current,
-            &uploaded,
-            &[],
-            3,
-            &Segment {
-                start_ms: 0,
-                end_ms: 60_000,
-                title: "Intros".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-                lines: None,
-            },
-            None,
-        );
-        assert_eq!(record.connector_id, None);
-        assert_eq!(
-            record.external_id,
-            Some(format!("meeting:{}#3", current.id))
-        );
-    }
-
-    #[test]
-    fn a_segment_without_a_recording_still_names_its_span() {
-        let current = meeting();
-        let record = segment_record(
-            &current,
-            &capture(&current, 0),
-            &[],
-            0,
-            &Segment {
-                start_ms: 0,
-                end_ms: 60_000,
-                title: "Intros".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-                lines: None,
-            },
-            None,
-        );
-        let media = record.media.expect("a span");
-        assert_eq!(media["endMs"], 60_000);
-        assert!(media["clip"].is_null());
-    }
-
-    #[test]
     fn a_meeting_runs_as_long_as_its_source_says_or_its_transcript_does() {
         let mut current = meeting();
-        let spoken = TranscriptLine {
-            start_ms: 0,
-            end_ms: 2_000_000,
-            speaker: String::new(),
-            text: "x".to_owned(),
-        };
-        assert_eq!(
-            duration_of(&current, std::slice::from_ref(&spoken)),
-            2_000_000
-        );
+        let nothing = MeetingText::new(Vec::new(), &[]);
+        assert_eq!(duration_of(&current, &nothing), 1_800_000);
         current.duration_ms = None;
-        assert_eq!(duration_of(&current, &[]), 0);
+        assert_eq!(duration_of(&current, &nothing), 0);
     }
 
     /// A meeting of the test person's, fetched with `transcript` and no recording.
@@ -1578,110 +1386,169 @@ mod tests {
         })
     }
 
-    #[tokio::test]
-    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one meeting published, then published again, with what each left behind"
-    )]
-    async fn a_meetings_segments_are_published_once_attributed_by_elysia() {
-        let (url, mut connection) = migrated_database().await;
-        let database = crate::connections::connect_postgres(&url, 4)
-            .await
-            .expect("a pool");
-        let launch = project::create(
-            &mut connection,
+    async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> project::Project {
+        project::create(
+            connection,
             &NewProject {
-                name: "Launch".to_owned(),
+                name: name.to_owned(),
                 description: String::new(),
                 created_by: TEST_PERSON_ID,
             },
         )
         .await
-        .expect("a project");
+        .expect("a project")
+    }
+
+    /// How many times project `project_id`'s Project Manager was woken.
+    async fn wakes_of(connection: &mut AsyncPgConnection, project_id: Uuid) -> i64 {
+        use crate::database::schema::project_manager_wakes;
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+
+        project_manager_wakes::table
+            .filter(project_manager_wakes::project_id.eq(project_id))
+            .count()
+            .get_result(connection)
+            .await
+            .expect("counts")
+    }
+
+    /// Meeting `meeting_id`'s whole transcript as the knowledge index holds it.
+    async fn indexed_transcript(connection: &mut AsyncPgConnection, meeting_id: Uuid) -> String {
+        use crate::database::schema::{knowledge_documents, knowledge_passages};
+        use diesel::{ExpressionMethods, QueryDsl};
+        use diesel_async::RunQueryDsl;
+
+        let passages: Vec<String> = knowledge_passages::table
+            .inner_join(knowledge_documents::table)
+            .filter(knowledge_documents::meeting_id.eq(meeting_id))
+            .order(knowledge_passages::position.asc())
+            .select(knowledge_passages::content)
+            .load(connection)
+            .await
+            .expect("reads");
+        passages.join("\n")
+    }
+
+    async fn standing_of(
+        connection: &mut AsyncPgConnection,
+        meeting_id: Uuid,
+        kind: MarkKind,
+    ) -> Vec<Mark> {
+        meeting_mark::standing(connection, meeting_id)
+            .await
+            .expect("reads")
+            .into_iter()
+            .filter(|mark| mark.kind() == Some(kind))
+            .collect()
+    }
+
+    fn excerpt(first: usize, last: usize, title: &str, projects: &[(Uuid, f32)]) -> Value {
+        json!({
+            "firstLine": first,
+            "lastLine": last,
+            "title": title,
+            "summary": format!("{title}, said and decided."),
+            "projects": projects
+                .iter()
+                .map(|(project_id, confidence)| json!({
+                    "projectId": project_id,
+                    "confidence": confidence,
+                }))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    fn answer(excerpts: &[Value], black_outs: &[(usize, usize)]) -> String {
+        json!({
+            "excerpts": excerpts,
+            "blackOuts": black_outs
+                .iter()
+                .map(|(first, last)| json!({ "firstLine": first, "lastLine": last }))
+                .collect::<Vec<_>>(),
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one meeting taken, then taken again, with what each left behind"
+    )]
+    async fn a_meetings_excerpts_and_black_outs_are_taken_once_attributed_by_elysia() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let launch = project_named(&mut connection, "Launch").await;
         let heard = fetched_meeting(
             &mut connection,
             &[
+                line(0, "Ada", "Is my mic on?"),
+                line(5_000, "Grace", "Yes we hear you."),
                 line(61_000, "Ada", "Launch is Friday."),
                 line(400_000, "Grace", "Lunch?"),
             ],
         )
         .await;
         let fetched = heard.0.clone();
-        // An attempt before stored the answer, so this one asks the model nothing: the runner's
-        // workspace never answers.
-        let segments = vec![
-            Segment {
-                start_ms: 60_000,
-                end_ms: 300_000,
-                title: "Launch".to_owned(),
-                summary: "Launch moves to Friday.".to_owned(),
-                projects: vec![SegmentProject {
-                    project_id: launch.id,
-                    confidence: 0.8,
-                }],
-                lines: None,
-            },
-            Segment {
-                start_ms: 300_000,
-                end_ms: 600_000,
-                title: "Lunch".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-                lines: None,
-            },
-        ];
-        meeting::record_segments(
-            &mut connection,
-            fetched.id,
-            serde_json::to_value(&segments).expect("serializes"),
-        )
-        .await
-        .expect("records")
-        .expect("the first answer");
+        let read = answer(&[excerpt(3, 3, "Launch", &[(launch.id, 0.8)])], &[(1, 2)]);
+        let step = SegmentMeeting::answering(database.clone(), &[&read]);
 
-        let step = SegmentMeeting::for_test(database.clone());
         let done = step
             .run(
                 input_for(&heard),
                 StepContext::for_test::<SegmentMeeting>(database.clone()),
             )
             .await
-            .expect("publishes");
+            .expect("takes");
         let Done::Succeeded {
-            output: published,
+            output: taken,
             summary,
         } = done
         else {
-            panic!("a segmented meeting is published, not {done:?}");
+            panic!("a segmented meeting is taken, not {done:?}");
         };
         assert_eq!(
             summary.as_deref(),
-            Some("Put 2 topics on the timeline, 1 of them on projects")
+            Some("Took 1 excerpts into projects, and blacked out 1")
         );
-        assert_eq!(published.segments.len(), 2);
         // Its correction was skipped, so its final transcript is built here, as its source heard
         // it.
         let words = meeting_word::standing(&mut connection, fetched.id)
             .await
             .expect("reads");
-        assert_eq!(meeting_word::text_of(&words), "Launch is Friday. Lunch?");
+        assert_eq!(
+            meeting_word::text_of(&words),
+            "Is my mic on? Yes we hear you. Launch is Friday. Lunch?"
+        );
         assert!(
             words
                 .iter()
                 .all(|word| word.origin == Origin::Source.as_str())
         );
 
-        let records = timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, fetched.id)
+        let records = timeline_record::of_meeting(&mut connection, fetched.id)
             .await
             .expect("reads");
-        assert_eq!(records.len(), 2);
-        let (launch_record, attributions) = records
-            .iter()
-            .find(|(record, _)| record.title == "Launch")
-            .expect("the launch segment");
-        assert_eq!(published.segments[0].record_ids, vec![launch_record.id]);
-        assert_eq!(attributions.len(), 1);
+        assert_eq!(records.len(), 1, "small talk is in no excerpt");
+        let (record, attributions) = &records[0];
+        assert_eq!(taken.segments.len(), 1);
+        assert_eq!(taken.segments[0].record_ids, vec![record.id]);
+        assert_eq!(taken.segments[0].summary, "Launch, said and decided.");
+        assert_eq!(record.title, "Launch");
+        assert_eq!(record.body, "[1:01] Ada: Launch is Friday.\n");
+        assert_eq!(record.actor, "Ada");
+        assert_eq!(
+            record.occurred_at,
+            fetched.started_at + chrono::Duration::milliseconds(61_000)
+        );
+        assert_eq!(record.metadata["meetingId"], json!(fetched.id));
+        assert!(
+            record.media.as_ref().expect("a span")["clip"].is_null(),
+            "no recording is kept, so no clip"
+        );
         assert_eq!(
             (
                 attributions[0].project_id,
@@ -1690,21 +1557,34 @@ mod tests {
             ),
             (launch.id, 0.8, "elysia")
         );
-        let history = attribution::history(&mut connection, launch_record.id)
-            .await
-            .expect("history");
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].created_by, ELYSIA_USER_ID);
+        assert_eq!(wakes_of(&mut connection, launch.id).await, 1);
+
+        let excerpts = standing_of(&mut connection, fetched.id, MarkKind::Excerpt).await;
+        assert_eq!(excerpts.len(), 1);
+        assert_eq!(record.excerpt_mark_id, Some(excerpts[0].id));
+        assert_eq!(excerpts[0].created_by, ELYSIA_USER_ID);
+        let black_outs = standing_of(&mut connection, fetched.id, MarkKind::BlackOut).await;
+        assert_eq!(black_outs.len(), 1);
         assert_eq!(
-            meeting::find(&mut connection, fetched.id)
-                .await
-                .expect("found")
-                .state(),
-            MeetingState::Done
+            (black_outs[0].start_word_id, black_outs[0].end_word_id),
+            (words[0].id, words[7].id),
+            "the hellos are blacked out, word for word"
         );
 
-        // Run again, as a retried step or a later run would: nothing is published twice.
-        let again = step
+        // The meeting's own document holds every word but the blacked-out ones.
+        let indexed = indexed_transcript(&mut connection, fetched.id).await;
+        assert!(indexed.contains("Launch is Friday."), "{indexed}");
+        assert!(indexed.contains("Lunch?"), "{indexed}");
+        assert!(!indexed.contains("mic"), "{indexed}");
+        assert!(!indexed.contains("hear you"), "{indexed}");
+
+        let published = meeting::find(&mut connection, fetched.id)
+            .await
+            .expect("found");
+        assert_eq!(published.state(), MeetingState::Done);
+
+        // Run again, as a retried step would: nothing is asked or taken twice.
+        let again = SegmentMeeting::for_test(database.clone())
             .run(
                 input_for(&heard),
                 StepContext::for_test::<SegmentMeeting>(database),
@@ -1716,31 +1596,201 @@ mod tests {
             summary,
         } = again
         else {
-            panic!("a published meeting answers what it published, not {again:?}");
+            panic!("a taken meeting answers what it took, not {again:?}");
         };
         assert_eq!(
             summary.as_deref(),
-            Some("Already on the timeline as 2 topics")
+            Some("Already took 1 excerpts into projects")
         );
-        assert_eq!(answered, published);
-        assert_eq!(
-            timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, fetched.id)
-                .await
-                .expect("reads")
-                .len(),
-            2
-        );
+        assert_eq!(answered, taken);
+        assert_eq!(wakes_of(&mut connection, launch.id).await, 1);
     }
 
-    /// A capture with no connector names its records by its meeting, which no unique key holds
-    /// once, so two attempts segmenting it at once rest on the meeting's lock alone.
+    /// #241: Done reviewing segments a meeting again. Every excerpt and black-out a person made or
+    /// changed stands, Elysia's own are taken again or removed, and only a project an excerpt is
+    /// newly on hears of it.
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn two_attempts_at_once_publish_a_meeting_with_no_connector_once() {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a meeting taken, changed by its person, and taken again"
+    )]
+    async fn segmenting_again_keeps_what_people_decided_and_wakes_only_a_changed_share() {
         let (url, mut connection) = migrated_database().await;
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("a pool");
+        let launch = project_named(&mut connection, "Launch").await;
+        let budget = project_named(&mut connection, "Budget").await;
+        let hiring = project_named(&mut connection, "Hiring").await;
+        let heard = fetched_meeting(
+            &mut connection,
+            &[
+                line(0, "Ada", "Is my mic on?"),
+                line(61_000, "Grace", "Launch is Friday."),
+                line(120_000, "Ada", "The budget doubles."),
+                line(180_000, "Grace", "We hire two people."),
+                line(240_000, "Ada", "Lunch?"),
+            ],
+        )
+        .await;
+        let fetched = heard.0.clone();
+        let first = answer(
+            &[
+                excerpt(2, 2, "Launch", &[(launch.id, 0.8)]),
+                excerpt(3, 3, "Budget", &[(budget.id, 0.7)]),
+                excerpt(4, 4, "Hiring", &[(hiring.id, 0.6)]),
+            ],
+            &[(1, 1)],
+        );
+        SegmentMeeting::answering(database.clone(), &[&first])
+            .run(
+                input_for(&heard),
+                StepContext::for_test::<SegmentMeeting>(database.clone()),
+            )
+            .await
+            .expect("takes");
+        let by_title = |records: &[(TimelineRecord, Vec<Attribution>)], title: &str| {
+            let (record, attributions) = records
+                .iter()
+                .find(|(record, _)| record.title == title)
+                .unwrap_or_else(|| panic!("an excerpt titled {title}"));
+            (record.clone(), attributions.clone())
+        };
+        let records = timeline_record::of_meeting(&mut connection, fetched.id)
+            .await
+            .expect("reads");
+        let (launch_record, _) = by_title(&records, "Launch");
+        let (budget_record, _) = by_title(&records, "Budget");
+        let (hiring_record, _) = by_title(&records, "Hiring");
+
+        // Its person reviews it: takes Elysia's budget excerpt out, puts the hiring one on the
+        // budget too, and takes the last line into the launch themselves.
+        let person = Author {
+            user_id: TEST_PERSON_ID,
+            agent: None,
+            at: Utc::now(),
+        };
+        let published = meeting::find(&mut connection, fetched.id)
+            .await
+            .expect("found");
+        excerpts::remove(
+            &mut connection,
+            &published,
+            budget_record.excerpt_mark_id.expect("an excerpt"),
+            person,
+        )
+        .await
+        .expect("removes");
+        crate::models::attribution::attribute(
+            &mut connection,
+            hiring_record.id,
+            budget.id,
+            1.0,
+            crate::models::attribution::Attributor::Person(TEST_PERSON_ID),
+        )
+        .await
+        .expect("attributes");
+        let words = meeting_word::standing(&mut connection, fetched.id)
+            .await
+            .expect("reads");
+        let last_word = words.last().expect("words");
+        let persons = excerpts::assign(
+            &mut connection,
+            &published,
+            crate::models::meeting_mark::Range {
+                start_word_id: last_word.id,
+                end_word_id: last_word.id,
+            },
+            &[segmentation::SegmentProject {
+                project_id: launch.id,
+                confidence: 1.0,
+            }],
+            person,
+        )
+        .await
+        .expect("assigns");
+        assert_eq!(wakes_of(&mut connection, launch.id).await, 2);
+        assert_eq!(wakes_of(&mut connection, budget.id).await, 2);
+        assert_eq!(wakes_of(&mut connection, hiring.id).await, 1);
+
+        // Done reviewing, as `review::done_reviewing` does it, and the run that follows.
+        meeting::reopen_for_segmenting(&mut connection, fetched.id)
+            .await
+            .expect("reopens");
+        let second = answer(
+            &[
+                // The same launch excerpt, surer.
+                excerpt(2, 2, "Launch moves", &[(launch.id, 0.9)]),
+                // The one its person took out.
+                excerpt(3, 3, "Budget", &[(budget.id, 0.7)]),
+                // The one its person changed.
+                excerpt(4, 4, "Hiring", &[(hiring.id, 0.4)]),
+                // A new one, around two lines.
+                excerpt(2, 3, "Launch costs", &[(launch.id, 0.7)]),
+            ],
+            &[],
+        );
+        let done = SegmentMeeting::answering(database.clone(), &[&second])
+            .run(
+                input_for(&heard),
+                StepContext::for_test::<SegmentMeeting>(database.clone()),
+            )
+            .await
+            .expect("takes again");
+        assert!(matches!(done, Done::Succeeded { .. }), "{done:?}");
+
+        let records = timeline_record::of_meeting(&mut connection, fetched.id)
+            .await
+            .expect("reads");
+        let mut titles: Vec<&str> = records
+            .iter()
+            .map(|(record, _)| record.title.as_str())
+            .collect();
+        titles.sort_unstable();
+        assert_eq!(
+            titles,
+            [
+                "Hiring",
+                "Launch costs",
+                "Launch moves",
+                persons.record.title.as_str()
+            ],
+            "Elysia's launch excerpt is kept and renamed, the one taken out stays out, and both the \
+             changed one and the person's own stand"
+        );
+        let (kept, kept_attributions) = by_title(&records, "Launch moves");
+        assert_eq!(kept.id, launch_record.id, "kept as it was, not made again");
+        assert!((kept_attributions[0].confidence - 0.9).abs() < f32::EPSILON);
+        let (changed, changed_attributions) = by_title(&records, "Hiring");
+        assert_eq!(changed.id, hiring_record.id);
+        assert_eq!(
+            changed_attributions.len(),
+            2,
+            "the person's project stands with hers"
+        );
+        // Only the new excerpt woke the launch's Project Manager; the kept one did not again.
+        assert_eq!(wakes_of(&mut connection, launch.id).await, 3);
+        assert_eq!(wakes_of(&mut connection, budget.id).await, 2);
+        assert_eq!(wakes_of(&mut connection, hiring.id).await, 1);
+        assert!(
+            standing_of(&mut connection, fetched.id, MarkKind::BlackOut)
+                .await
+                .is_empty(),
+            "Elysia's own black-out, not taken again, is removed"
+        );
+    }
+
+    /// A capture with no connector names its excerpts by their marks, so two attempts segmenting
+    /// it at once rest on the meeting's lock alone.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn two_attempts_at_once_take_a_meeting_once() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let launch = project_named(&mut connection, "Launch").await;
         let heard = fetched_meeting(
             &mut connection,
             &[
@@ -1750,34 +1800,9 @@ mod tests {
         )
         .await;
         assert_eq!(heard.1.connector_id, None);
-        let segments = vec![
-            Segment {
-                start_ms: 60_000,
-                end_ms: 300_000,
-                title: "Launch".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-                lines: None,
-            },
-            Segment {
-                start_ms: 300_000,
-                end_ms: 600_000,
-                title: "Lunch".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-                lines: None,
-            },
-        ];
-        meeting::record_segments(
-            &mut connection,
-            heard.0.id,
-            serde_json::to_value(&segments).expect("serializes"),
-        )
-        .await
-        .expect("records")
-        .expect("the first answer");
+        let read = answer(&[excerpt(1, 1, "Launch", &[(launch.id, 0.8)])], &[(2, 2)]);
 
-        let step = SegmentMeeting::for_test(database.clone());
+        let step = SegmentMeeting::answering(database.clone(), &[&read, &read]);
         let (first, second) = tokio::join!(
             step.run(
                 input_for(&heard),
@@ -1793,22 +1818,29 @@ mod tests {
         else {
             panic!("both attempts succeed");
         };
-        assert_eq!(first, second, "the later answers what the first published");
-        let records = timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, heard.0.id)
+        assert_eq!(first, second, "the later answers what the first took");
+        let records = timeline_record::of_meeting(&mut connection, heard.0.id)
             .await
             .expect("reads");
-        assert_eq!(records.len(), 2, "each segment is one record");
+        assert_eq!(records.len(), 1, "the excerpt is one record");
+        assert_eq!(
+            standing_of(&mut connection, heard.0.id, MarkKind::BlackOut)
+                .await
+                .len(),
+            1
+        );
     }
 
     /// #233: a transcript uploaded with no times and no recording is a meeting in words alone,
-    /// asked and answered by its numbered lines, each topic a run of them with no clip and no span.
+    /// read by its numbered lines alone, its excerpts with no times and no clip.
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_meeting_in_words_alone_is_segmented_by_its_lines() {
+    async fn a_meeting_in_words_alone_is_read_by_its_lines() {
         let (url, mut connection) = migrated_database().await;
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("a pool");
+        let launch = project_named(&mut connection, "Launch").await;
         let untimed = |speaker: &str, text: &str| TranscriptLine {
             start_ms: 0,
             end_ms: 0,
@@ -1824,11 +1856,9 @@ mod tests {
             ],
         )
         .await;
-        let answer = r#"{"segments": [
-            {"firstLine": 1, "lastLine": 2, "title": "Launch", "summary": "Launch is Friday."},
-            {"firstLine": 3, "lastLine": 3, "title": "The weekend", "summary": "Small talk."}
-        ]}"#;
-        let step = SegmentMeeting::answering(database.clone(), &[answer]);
+        // One speaker with no pause reads as one line, as correction reads it.
+        let read = answer(&[excerpt(1, 1, "Launch", &[(launch.id, 0.9)])], &[(2, 2)]);
+        let step = SegmentMeeting::answering(database.clone(), &[&read]);
 
         let done = step
             .run(
@@ -1839,41 +1869,21 @@ mod tests {
             .expect("an attempt");
 
         assert!(matches!(done, Done::Succeeded { .. }), "{done:?}");
-        let published = meeting::find(&mut connection, heard.0.id)
-            .await
-            .expect("found");
-        assert_eq!(published.state(), MeetingState::Done);
-        let segments = stored_segments(&published).expect("reads").expect("stored");
-        assert_eq!(
-            segments
-                .iter()
-                .map(|segment| (segment.lines, segment.start_ms, segment.end_ms))
-                .collect::<Vec<_>>(),
-            vec![
-                (Some(LineRun { first: 0, last: 1 }), 0, 0),
-                (Some(LineRun { first: 2, last: 2 }), 0, 0),
-            ]
-        );
-        let mut records = timeline_record::of_meeting(&mut connection, TEST_PERSON_ID, heard.0.id)
+        let records = timeline_record::of_meeting(&mut connection, heard.0.id)
             .await
             .expect("reads");
-        records.sort_by_key(|(record, _attributions)| record.metadata["segmentIndex"].as_u64());
-        let (launch, _attributions) = &records[0];
-        assert_eq!(launch.title, "Launch");
-        assert_eq!(
-            launch.body,
-            "Ada: Hello everyone.\nAda: Launch is Friday.\n"
-        );
-        assert_eq!(launch.actor, "Ada");
-        let media = launch.media.as_ref().expect("a span");
+        let (record, _attributions) = &records[0];
+        assert_eq!(record.body, "Ada: Hello everyone. Launch is Friday.\n");
+        let media = record.media.as_ref().expect("a span");
         assert_eq!((&media["startMs"], &media["endMs"]), (&json!(0), &json!(0)));
         assert_eq!(media["clip"], Value::Null);
-        assert_eq!(records[1].0.body, "Grace: How was the weekend?\n");
+        let indexed = indexed_transcript(&mut connection, heard.0.id).await;
+        assert!(!indexed.contains("weekend"), "{indexed}");
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_meeting_with_nothing_said_is_done_with_no_topics() {
+    async fn a_meeting_with_nothing_said_is_done_having_taken_nothing() {
         let (url, mut connection) = migrated_database().await;
         let database = crate::connections::connect_postgres(&url, 4)
             .await
@@ -1898,6 +1908,9 @@ mod tests {
             .await
             .expect("found");
         assert_eq!(stored.state(), MeetingState::Done);
-        assert_eq!(stored.segments, Some(json!([])));
+        assert_eq!(
+            stored.segments,
+            Some(serde_json::to_value(Taken::default()).expect("serializes"))
+        );
     }
 }

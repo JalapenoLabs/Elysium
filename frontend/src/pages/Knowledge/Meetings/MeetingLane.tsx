@@ -11,6 +11,10 @@ import type { Thread } from './meetingThreads'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectMe } from '../../../store/authSlice'
+import { useAppSelector } from '../../../store/hooks'
+
 // User interface
 import { CommentForm } from './CommentForm'
 import { MarkDetail } from './MarkDetail'
@@ -30,6 +34,8 @@ type Props = ComponentProps<typeof MeetingOptions> & {
     hasFailed: boolean
   }
   onUndo: (entryId: string) => Promise<void>
+  // Null where the meeting takes no change, as one merged into another does.
+  onRemoveMark: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
   threads: {
     open: Thread[]
     resolved: Thread[]
@@ -60,6 +66,7 @@ export function MeetingLane(props: Props) {
     selectedMark,
     history,
     onUndo,
+    onRemoveMark,
     threads,
     threadActions,
     onSelectThread,
@@ -67,6 +74,8 @@ export function MeetingLane(props: Props) {
     isInDrawer,
     ...options
   } = props
+  // An excerpt's record is its meeting's owner's, so only they change its projects.
+  const ownsRecords = useAppSelector(selectMe)?.user.id === options.meeting.ownerId
   const selectedThread = selectedMark?.kind === 'comment'
     ? [ ...threads.open, ...threads.resolved ].find((thread) => thread.placed.mark.id === selectedMark.mark.id)
       ?? null
@@ -114,8 +123,10 @@ export function MeetingLane(props: Props) {
         placed={selectedMark}
         history={history.rows}
         onUndo={onUndo}
+        onRemove={onRemoveMark}
         thread={selectedThread}
         threadActions={threadActions}
+        ownsRecords={ownsRecords}
       />
     </div>}
 

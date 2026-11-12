@@ -20,9 +20,15 @@ use tower::ServiceExt as _;
 use uuid::Uuid;
 
 use crate::meetings::duplicates;
+use crate::meetings::segmentation::SegmentProject;
+use crate::models::agent::Author;
 use crate::models::meeting::{self, Reach, Reader};
 use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
-use crate::models::meeting_word::tests::{built_meeting, word};
+use crate::models::meeting_mark::Range;
+use crate::models::meeting_word::{
+    self,
+    tests::{built_meeting, word},
+};
 use crate::models::project::{self, NewProject, ProjectScope};
 use crate::models::storage_location::{
     self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
@@ -30,7 +36,6 @@ use crate::models::storage_location::{
 use crate::models::user::SYSTEM_USER_ID;
 use crate::realtime::EventBus;
 use crate::routes;
-use crate::routes::v1::knowledge::tests::meeting_topic;
 use crate::storage::tests::{Files, PASSWORD, StoredFile, fake_storage};
 use crate::test_support::{
     TEST_PERSON_ID, app_state, app_state_with_storage, migrated_database, signed_in_cookie,
@@ -504,7 +509,7 @@ async fn a_merged_capture_says_where_it_came_from_and_splits_back_out() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn the_list_names_the_projects_each_meetings_topics_are_on() {
+async fn the_list_names_the_projects_each_meetings_excerpts_are_on() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
     let mut project_ids = Vec::new();
@@ -523,30 +528,40 @@ async fn the_list_names_the_projects_each_meetings_topics_are_on() {
     let (discussed, _) = built_meeting(&mut connection, &[("Ada", "Launch and billing.")]).await;
     let (unattributed, _) = built_meeting(&mut connection, &[("Ada", "Hello there.")]).await;
 
-    // Two topics, one on both projects and one on the first again: each project is named once.
-    let topics = [(0, project_ids.clone()), (1, vec![project_ids[0]])];
-    for (index, on) in topics {
-        let record = meeting_topic(
+    // Two excerpts, one on both projects and one on the first again: each project is named once.
+    let discussed_meeting = meeting::find(&mut connection, discussed.meeting_id)
+        .await
+        .expect("found");
+    let words = meeting_word::standing(&mut connection, discussed.meeting_id)
+        .await
+        .expect("reads");
+    let author = Author {
+        user_id: TEST_PERSON_ID,
+        agent: None,
+        at: Utc::now(),
+    };
+    let excerpts = [(0, project_ids.clone()), (1, vec![project_ids[0]])];
+    for (place, on) in excerpts {
+        let projects: Vec<SegmentProject> = on
+            .into_iter()
+            .map(|project_id| SegmentProject {
+                project_id,
+                confidence: 1.0,
+            })
+            .collect();
+        let range = Range {
+            start_word_id: words[place].id,
+            end_word_id: words[place].id,
+        };
+        crate::meetings::excerpts::assign(
             &mut connection,
-            TEST_PERSON_ID,
-            discussed.meeting_id,
-            "Planning",
-            index,
-            Utc::now(),
-            "Launch",
+            &discussed_meeting,
+            range,
+            &projects,
+            author,
         )
-        .await;
-        for project_id in on {
-            execute(
-                &mut connection,
-                format!(
-                    "INSERT INTO timeline_record_projects \
-                     (timeline_record_id, project_id, confidence, attributed_by, created_at) \
-                     VALUES ('{record}', '{project_id}', 0.9, 'elysia', now())"
-                ),
-            )
-            .await;
-        }
+        .await
+        .expect("assigns");
     }
 
     let (status, listed) = send(&state, Method::GET, "/api/v1/meetings", None).await;
@@ -718,6 +733,10 @@ async fn a_merged_capture_names_its_meeting_only_to_whoever_may_read_it() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "every change a meeting takes is refused in one table, so a new one is added beside the rest"
+)]
 async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meeting_kept() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
@@ -749,12 +768,39 @@ async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meet
     let thread_id = started["comment"]["threadId"]
         .as_str()
         .expect("a thread id");
+    let (status, blacked_out) = send(
+        &state,
+        Method::POST,
+        &format!("{meeting_path}/black-outs"),
+        Some(&json!({ "startWordId": launch.id, "endWordId": launch.id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{blacked_out}");
+    let black_out_id = blacked_out["entry"]["data"]["markId"]
+        .as_str()
+        .expect("a mark id");
+    let launch_project = project::create(
+        &mut connection,
+        &NewProject {
+            name: "Launch".to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("the project is created");
     meeting::set_merged_into(&mut connection, merged.meeting_id, Some(kept.meeting_id))
         .await
         .expect("the meeting is merged");
 
     let edit = json!({ "startWordId": launch.id, "endWordId": launch.id, "text": "Release" });
     let reply = json!({ "body": "Still here?" });
+    let excerpt = json!({
+        "startWordId": launch.id,
+        "endWordId": fryday.id,
+        "projectIds": [launch_project.id],
+    });
+    let on_fryday = json!({ "startWordId": fryday.id, "endWordId": fryday.id });
     let requests = [
         (Method::POST, format!("{meeting_path}/edits"), Some(&edit)),
         (
@@ -789,6 +835,22 @@ async fn a_meeting_merged_away_refuses_every_change_since_it_changes_in_the_meet
         ),
         (Method::POST, format!("{meeting_path}/hold"), None),
         (Method::DELETE, format!("{meeting_path}/hold"), None),
+        (
+            Method::POST,
+            format!("{meeting_path}/excerpts"),
+            Some(&excerpt),
+        ),
+        (
+            Method::POST,
+            format!("{meeting_path}/black-outs"),
+            Some(&on_fryday),
+        ),
+        (
+            Method::DELETE,
+            format!("{meeting_path}/marks/{black_out_id}"),
+            None,
+        ),
+        (Method::POST, format!("{meeting_path}/done-reviewing"), None),
     ];
     for (method, path, body) in requests {
         let (status, answer) = send(&state, method, &path, body).await;

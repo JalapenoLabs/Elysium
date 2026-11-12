@@ -15,12 +15,12 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip } from '@heroui/react'
-import { LuCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuCheckCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageActions } from '../../../layout/page/PageActions'
 
 // Misc
 import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
-import { approveMeetingCorrection, setMeetingHold } from '../../../api/routes/meetingRoutes'
+import { approveMeetingCorrection, markMeetingReviewed, setMeetingHold } from '../../../api/routes/meetingRoutes'
 import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
@@ -37,12 +37,12 @@ type Props = {
 }
 
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
-// the corrected transcript waits for it, holding it for approval by hand until it is corrected
-// (unless its source already waits), its run, and adding a recording or transcript as another
-// capture. Its processing is its owner's alone, so only they hold, approve, and add a capture
-// (`crate::meetings::access`); a company member opens its run, as anyone of them opens any run. A
-// meeting merged into another offers its run alone, and says why. Done reviewing joins them as it
-// is built (docs/meeting-review.md, Roadmap).
+// the corrected transcript waits for it, Done reviewing once it was segmented, which segments it
+// again from its corrected words, holding it for approval by hand until it is corrected (unless
+// its source already waits), its run, and adding a recording or transcript as another capture.
+// Its processing is its owner's alone, so only they hold, approve, finish reviewing, and add a
+// capture (`crate::meetings::access`); a company member opens its run, as anyone of them opens any
+// run. A meeting merged into another offers its run alone, and says why.
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -51,18 +51,20 @@ export function MeetingActions(props: Props) {
   const source = useAppSelector((state) => meeting.connectorId
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
-  const [ acting, setActing ] = useState<'approve' | 'hold' | null>(null)
+  const [ acting, setActing ] = useState<'approve' | 'hold' | 'reviewed' | null>(null)
   const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
   // A meeting merged into another changes there: it holds no capture, its run goes no further,
-  // and an upload into it is refused, so it offers to approve, hold, or add nothing.
+  // and an upload into it is refused, so it offers to approve, hold, review, or add nothing.
   const isMergedAway = Boolean(meeting.mergedInto)
   const runsIt = isOwner && !isMergedAway
   const canApprove = runsIt && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
+  // Segmented once, and no run of it going, held, or failed.
+  const canFinishReview = runsIt && meeting.state === 'done'
 
   async function approve() {
     setActing('approve')
@@ -73,6 +75,22 @@ export function MeetingActions(props: Props) {
     }
     catch (error) {
       console.debug('MeetingActions could not approve a correction', { error, meetingId: meeting.id })
+      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+    }
+    finally {
+      setActing(null)
+    }
+  }
+
+  async function finishReview() {
+    setActing('reviewed')
+    try {
+      const response = await markMeetingReviewed(meeting.id)
+      dispatch(meetingUpserted(response.meeting))
+      toast.success(t('page.reviewDone'))
+    }
+    catch (error) {
+      console.debug('MeetingActions could not finish a review', { error, meetingId: meeting.id })
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     finally {
@@ -172,6 +190,16 @@ export function MeetingActions(props: Props) {
       >
         <LuCheck className='size-4' aria-hidden />
         <span>{t('page.approve')}</span>
+      </Button>}
+      {canFinishReview && <Button
+        size='sm'
+        variant='primary'
+        isPending={acting === 'reviewed'}
+        isDisabled={acting !== null}
+        onPress={() => void finishReview()}
+      >
+        <LuCheckCheck className='size-4' aria-hidden />
+        <span>{t('page.doneReviewing')}</span>
       </Button>}
       <PageActions actions={actions} />
     </div>

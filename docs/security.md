@@ -157,19 +157,19 @@ it is private; a new one is private until its correction decides (`docs/meetings
 - **Fail closed.** A new meeting is private until its correction reads it, and an answer that judges nothing keeps it
   private; so does a skipped correction. A meeting no correction judged is private until its owner or an admin opens
   it.
-- **Search follows it.** A private meeting's segments are left out of every search, every opening of a document, and
-  the meetings listing for anyone who may not read it, by a predicate inside each query (`docs/knowledge.md`, A private
-  meeting). A segment that names no meeting is indexed for nobody.
+- **Search follows it.** A private meeting's transcript and excerpts are left out of every search, every opening of a
+  document, and the meetings listing for anyone who may not read it, by a predicate inside each query
+  (`docs/knowledge.md`, A private meeting). An excerpt that names no meeting is indexed for nobody.
 - **Nothing every member reads names it.** `meeting.changed` carries a meeting's id and state alone, so every client
   loads it and a client that may not read it is answered `404`. An inbox item, which everyone signed in sees, names a
   meeting only if it was public when the item was raised, and the one telling an owner their meeting was kept private
   names neither it nor why. The Transcription doc learns a private meeting's fixes without its title, its speakers, or
   the correction's reason. Mentions reach only people who may read the meeting, and replies tell only those who still
   may. A capture merged in names the meeting it came from only to its readers. A batch's chain, on the work queue, its
-  page, and its pull requests' descriptions, withholds a segment of a meeting its reader may not read, saying only
+  page, and its pull requests' descriptions, withholds an excerpt of a meeting its reader may not read, saying only
   that a private meeting asked, and a description names a public meeting alone (`docs/engine.md`, Why a batch exists).
 - **Private stops what comes next.** Making a meeting private closes it at once: its words, media, history, threads,
-  and segments answer only its readers from the next request. What every member was already shown while it was public
+  and documents answer only its readers from the next request. What every member was already shown while it was public
   (an item's title, the Transcription doc's versions) stays as it was written, as any page's history does.
 
 ## Problem reports

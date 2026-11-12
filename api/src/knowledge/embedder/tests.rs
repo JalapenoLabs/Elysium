@@ -69,7 +69,7 @@ async fn index_as(connection: &mut AsyncPgConnection, id: Uuid, passages: &[Stri
             url: None,
             occurred_at: Utc::now(),
             created_by: TEST_PERSON_ID,
-            meeting_id: None,
+            access_meeting_id: None,
             passages: passages.to_vec(),
         },
     )

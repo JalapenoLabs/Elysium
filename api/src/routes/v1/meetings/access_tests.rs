@@ -8,10 +8,11 @@
 //! they read but may not change in that way names what it takes.
 //!
 //! A request allowed through is sent so it then fails its own checks (an empty edit, the meeting's
-//! own visibility again, an offset out of range, a pair of meetings decided already), so the matrix
-//! can run every cell against one meeting without changing what it decides; a retry is the one that
-//! acts, so its run is failed again before each. They are `#[ignore]`d so `cargo test` stays
-//! hermetic; `api/scripts/verify-migrations.sh` runs them.
+//! own visibility again, an offset out of range, a pair of meetings decided already, an excerpt on
+//! no project, a backwards range, a thread removed as a mark), so the matrix can run every cell
+//! against one meeting without changing what it decides; a retry is the one that acts, so its run
+//! is failed again before each. They are `#[ignore]`d so `cargo test` stays hermetic;
+//! `api/scripts/verify-migrations.sh` runs them.
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
@@ -302,6 +303,7 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
     .await
     .expect("shared with Grace");
     let sheriff = word(&words, "Sheriff");
+    let ships = word(&words, "ships");
     let (status, started) = ask(
         &state,
         Method::POST,
@@ -426,6 +428,23 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         Asked::new(Method::POST, format!("{thread}/resolved"), Needs::Edit),
         Asked::new(Method::DELETE, format!("{thread}/resolved"), Needs::Edit),
         Asked::new(Method::DELETE, thread.clone(), Needs::Edit),
+        // Into no project, which taking a range into projects refuses.
+        Asked::new(Method::POST, format!("{meeting}/excerpts"), Needs::Edit).with_body(json!({
+            "startWordId": sheriff.id,
+            "endWordId": sheriff.id,
+            "projectIds": [],
+        })),
+        // A range that ends before it starts.
+        Asked::new(Method::POST, format!("{meeting}/black-outs"), Needs::Edit).with_body(json!({
+            "startWordId": ships.id,
+            "endWordId": sheriff.id,
+        })),
+        // A thread is no excerpt or black-out, which removing a mark refuses.
+        Asked::new(
+            Method::DELETE,
+            format!("{meeting}/marks/{thread_id}"),
+            Needs::Edit,
+        ),
         Asked::new(
             Method::POST,
             format!("{meeting}/history/{}/undo", shared.entry.id),
@@ -444,6 +463,12 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         ),
         Asked::new(Method::POST, format!("{meeting}/hold"), Needs::Own),
         Asked::new(Method::POST, format!("{meeting}/retry"), Needs::Own),
+        // Never segmented, and its run failed, so there is nothing to segment again.
+        Asked::new(
+            Method::POST,
+            format!("{meeting}/done-reviewing"),
+            Needs::Own,
+        ),
         Asked::new(
             Method::POST,
             format!("/api/v1/meetings/duplicates/{}/merge", pair.id),

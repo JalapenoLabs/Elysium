@@ -123,6 +123,22 @@ describe('describeHistory', () => {
     expect(edited.before?.length).toBeLessThanOrEqual(60)
   })
 
+  it('says when segmenting took excerpts and black-outs, or a review was done, neither undone whole', () => {
+    const rows = describeHistory([
+      entry('again', 'review_done'),
+      entry('took', 'segmented', { made: [ 'excerpt' ], kept: [], removed: [], unanchored: 0 }),
+      entry('excerpt', 'marked', { kind: 'excerpt', recordId: 'record' }),
+      entry('lifted', 'unmarked', { kind: 'black_out', restored: []}),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.sentence, row.markKind, row.canUndo ])).toEqual([
+      [ 'reviewDone', null, false ],
+      [ 'segmented', null, false ],
+      [ 'marked', 'excerpt', true ],
+      [ 'unmarked', 'black_out', true ],
+    ])
+  })
+
   it('says what an added capture holds, which cannot be undone', () => {
     const rows = describeHistory([
       entry('both', 'capture_added', { captureId: 'capture', recording: true, transcript: true }),

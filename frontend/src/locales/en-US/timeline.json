@@ -1,6 +1,6 @@
 {
   "title": "Timeline",
-  "empty": "Nothing on this project's timeline yet. Meeting topics and mail about it arrive here as Elysium reads them.",
+  "empty": "Nothing on this project's timeline yet. Meeting excerpts and mail about it arrive here as Elysium reads them.",
   "loadOlder": "Show older",
   "failed": "The timeline could not be loaded.",
   "sources": {
@@ -23,7 +23,8 @@
     "inMeetingWords": "In {{meeting}}",
     "transcript": "Transcript",
     "hideTranscript": "Hide transcript",
-    "noClip": "No recording was kept for this meeting."
+    "noClip": "No recording was kept for this meeting.",
+    "openInMeeting": "Open in the meeting"
   },
   "attribution": {
     "label": "Projects",

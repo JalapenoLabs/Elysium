@@ -28,6 +28,7 @@ function placed(id: string, kind: PlacedMark['kind'], start: number, data: Recor
     createdBy: 'ada',
     agent: null,
     createdAt: '2026-11-10T12:00:00Z',
+    excerpt: null,
   }
   return { mark, kind, start, end: start }
 }

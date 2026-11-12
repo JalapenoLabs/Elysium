@@ -73,6 +73,8 @@ export const historySentenceKeys = {
   keptPrivateUndecided: 'review.history.sentences.keptPrivateUndecided',
   shared: 'review.history.sentences.shared',
   unshared: 'review.history.sentences.unshared',
+  segmented: 'review.history.sentences.segmented',
+  reviewDone: 'review.history.sentences.reviewDone',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -281,6 +283,13 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
         row.personId = typeof entry.data.personId === 'string'
           ? entry.data.personId
           : null
+        return row
+      case 'segmented':
+        // Segmenting took its excerpts and black-outs, each removed on its own.
+        row.sentence = 'segmented'
+        return row
+      case 'review_done':
+        row.sentence = 'reviewDone'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

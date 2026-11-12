@@ -9,13 +9,17 @@
 //! shared with, and admins read every meeting (`docs/meeting-review.md`, Who sees a meeting).
 //! Every route names what it needs of the meeting it is about ([`open`], `crate::meetings::access`):
 //! reading it, changing it, managing who sees it and its captures, or being its owner. A meeting
-//! someone may not read answers `404`, as one that does not exist does.
+//! someone may not read answers `404`, as one that does not exist does. What a meeting said
+//! reaches its readers as its excerpts on the timeline and its transcript in the knowledge base,
+//! blacked-out words left out.
 
 #[cfg(test)]
 mod access_tests;
 mod approve_correction;
 mod decide_duplicate;
+mod done_reviewing;
 mod edit_words;
+mod excerpts;
 mod get_capture_transcript;
 mod get_duplicate;
 mod get_meeting;
@@ -49,12 +53,12 @@ use crate::errors::ApiError;
 use crate::meetings::access::{self, Access, Need, Refusal};
 use crate::meetings::duplicates::Moved;
 use crate::meetings::workflow;
-use crate::models::meeting::{self, Meeting, Reader};
+use crate::models::meeting::{self, Meeting, MeetingState, Reader};
 use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_comment::WrittenComment;
 use crate::models::meeting_correction::{self, MeetingCorrection};
 use crate::models::meeting_event::{self, EventKind, MeetingEvent};
-use crate::models::meeting_mark::{self, Mark};
+use crate::models::meeting_mark::{self, Mark, MarkKind};
 use crate::models::meeting_share;
 use crate::models::meeting_word::{self, Word, WordChange};
 use crate::models::timeline_record;
@@ -70,6 +74,10 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/retry", post(retry_meeting::handle))
         .route("/{id}/words", get(get_words::handle))
         .route("/{id}/edits", post(edit_words::handle))
+        .route("/{id}/excerpts", post(excerpts::assign))
+        .route("/{id}/black-outs", post(excerpts::black_out))
+        .route("/{id}/marks/{mark_id}", delete(excerpts::remove))
+        .route("/{id}/done-reviewing", post(done_reviewing::handle))
         .route(
             "/{id}/captures/{capture_id}/transcript",
             get(get_capture_transcript::handle),
@@ -165,8 +173,8 @@ pub struct MeetingResponse {
     /// Why its newest run failed, while it has.
     last_error: Option<String>,
     has_recording: bool,
-    /// How many segments Elysia found, or `null` before she has read it.
-    segment_count: Option<usize>,
+    /// How many excerpts it has standing, or `null` before it was first segmented.
+    excerpt_count: Option<usize>,
     /// Whether its person asked to approve its corrected transcript before it is acted on.
     hold_for_approval: bool,
     /// Its corrected transcript, or `null` before it is corrected.
@@ -175,8 +183,8 @@ pub struct MeetingResponse {
     run_id: Option<Uuid>,
     /// Whether that run is held, waiting for its person to approve the corrected transcript.
     awaiting_approval: bool,
-    /// The projects its topics are on, in the order of their ids: where the knowledge base lists it
-    /// beside its home under Meetings, and what its Meetings page filters it by.
+    /// The projects its excerpts are on, in the order of their ids: where the knowledge base lists
+    /// it beside its home under Meetings, and what its Meetings page filters it by.
     project_ids: Vec<Uuid>,
     /// The meeting its person merged its captures into, or `null`. A merged meeting lives on in
     /// that one, so the listing leaves it out, and a client that loads it by id, as an event names
@@ -232,6 +240,9 @@ struct Beside<'read> {
     run: Option<&'read WorkflowRun>,
     /// Whether that run segments it.
     run_segments: bool,
+    /// How many excerpts stand over its words.
+    excerpt_count: usize,
+    /// The projects its excerpts are on.
     project_ids: Vec<Uuid>,
     shared_with: Vec<Uuid>,
     visibility_change: Option<MeetingEvent>,
@@ -246,6 +257,7 @@ impl MeetingResponse {
             correction,
             run,
             run_segments,
+            excerpt_count,
             project_ids,
             shared_with,
             visibility_change,
@@ -259,11 +271,13 @@ impl MeetingResponse {
         Self {
             state: processing.as_str(),
             last_error,
-            segment_count: meeting
-                .segments
-                .as_ref()
-                .and_then(Value::as_array)
-                .map(Vec::len),
+            // A meeting read by segmenting, or with excerpts standing, shows how many: one read
+            // again after its review keeps showing its excerpts meanwhile, and one that took none
+            // shows no count until it is read again.
+            excerpt_count: (meeting.segments.is_some()
+                || meeting.state() == MeetingState::Done
+                || excerpt_count > 0)
+                .then_some(excerpt_count),
             has_recording: capture.is_some_and(|capture| capture.recording_path.is_some()),
             correction: correction.map(CorrectionSummary::from),
             run_id: run.map(|run| run.id),
@@ -295,7 +309,7 @@ impl MeetingResponse {
 }
 
 /// `meetings` as `reader`, who may read each, is answered them, in their order, each with its first
-/// capture, its correction, its newest run, the projects its topics are on, and who reads it, read
+/// capture, its correction, its newest run, its excerpts and their projects, and who reads it, read
 /// in one query each rather than one per meeting.
 ///
 /// # Errors
@@ -334,6 +348,7 @@ pub async fn responses(
     let mut shares = meeting_share::of_meetings(connection, &ids).await?;
     let mut visibility_changes =
         meeting_event::newest_of_kind(connection, &ids, EventKind::VisibilityChanged).await?;
+    let mut counts = meeting_mark::excerpt_counts(connection, &ids).await?;
     Ok(meetings
         .into_iter()
         .map(|meeting| {
@@ -343,6 +358,7 @@ pub async fn responses(
                 correction: corrections.get(&meeting.id),
                 run,
                 run_segments: run.is_some_and(|run| segmenting.contains(&run.id)),
+                excerpt_count: counts.remove(&meeting.id).unwrap_or(0),
                 project_ids: projects.remove(&meeting.id).unwrap_or_default(),
                 shared_with: shares.remove(&meeting.id).unwrap_or_default(),
                 visibility_change: visibility_changes.remove(&meeting.id),
@@ -415,10 +431,24 @@ pub struct MarkResponse {
     created_by: Uuid,
     agent: Option<AgentResponse>,
     created_at: DateTime<Utc>,
+    /// An excerpt's record and the projects it is on, which its record holds; `null` for every
+    /// other kind, and for a topic recorded before excerpts that kept no record.
+    excerpt: Option<ExcerptResponse>,
 }
 
-impl From<Mark> for MarkResponse {
-    fn from(mark: Mark) -> Self {
+/// What an excerpt is on: its timeline record, which a project's timeline lists, and the projects
+/// that record is attributed to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcerptResponse {
+    record_id: Uuid,
+    title: String,
+    /// In the order of their ids.
+    project_ids: Vec<Uuid>,
+}
+
+impl MarkResponse {
+    fn new(mark: Mark, excerpt: Option<ExcerptResponse>) -> Self {
         Self {
             id: mark.id,
             kind: mark.kind,
@@ -428,8 +458,57 @@ impl From<Mark> for MarkResponse {
             created_by: mark.created_by,
             agent: AgentResponse::new(mark.agent, mark.agent_name),
             created_at: mark.created_at,
+            excerpt,
         }
     }
+}
+
+/// `marks` as answered, each excerpt with its record and the projects it is on, read in one query
+/// each rather than one per mark.
+///
+/// # Errors
+/// Propagates any database error.
+pub(super) async fn mark_responses(
+    connection: &mut AsyncPgConnection,
+    marks: Vec<Mark>,
+) -> QueryResult<Vec<MarkResponse>> {
+    let excerpt_ids: Vec<Uuid> = marks
+        .iter()
+        .filter(|mark| mark.kind() == Some(MarkKind::Excerpt))
+        .map(|mark| mark.id)
+        .collect();
+    let records = timeline_record::of_excerpts(connection, &excerpt_ids).await?;
+    let record_ids: Vec<Uuid> = records.iter().map(|record| record.id).collect();
+    let mut projects: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for attribution in timeline_record::attributions_of(connection, &record_ids).await? {
+        projects
+            .entry(attribution.timeline_record_id)
+            .or_default()
+            .push(attribution.project_id);
+    }
+    let mut excerpts: HashMap<Uuid, ExcerptResponse> = HashMap::new();
+    for record in records {
+        let Some(mark_id) = record.excerpt_mark_id else {
+            continue;
+        };
+        let mut project_ids = projects.remove(&record.id).unwrap_or_default();
+        project_ids.sort_unstable();
+        excerpts.insert(
+            mark_id,
+            ExcerptResponse {
+                record_id: record.id,
+                title: record.title,
+                project_ids,
+            },
+        );
+    }
+    Ok(marks
+        .into_iter()
+        .map(|mark| {
+            let excerpt = excerpts.remove(&mark.id);
+            MarkResponse::new(mark, excerpt)
+        })
+        .collect())
 }
 
 /// One comment in a thread on a meeting's range.
@@ -470,7 +549,7 @@ pub struct MeetingEventResponse {
     id: Uuid,
     /// `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
     /// `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
-    /// `visibility_changed`, `shared`, or `unshared`.
+    /// `visibility_changed`, `shared`, `unshared`, `segmented`, or `review_done`.
     kind: String,
     created_by: Uuid,
     agent: Option<AgentResponse>,
@@ -535,11 +614,8 @@ pub(super) async fn transcript_change(
         }
         None => (Vec::new(), Vec::new()),
     };
-    let marks = meeting_mark::standing(connection, meeting_id)
-        .await?
-        .into_iter()
-        .map(MarkResponse::from)
-        .collect();
+    let standing = meeting_mark::standing(connection, meeting_id).await?;
+    let marks = mark_responses(connection, standing).await?;
     Ok(TranscriptChange {
         removed_word_ids,
         words,

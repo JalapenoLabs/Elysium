@@ -48,13 +48,15 @@ export type TimelineRecord = {
   projects: Attribution[]
   createdBy: string
   createdAt: string
+  // The meeting excerpt it is, which its meeting's page opens at; null for any other record.
+  excerptMarkId: string | null
 }
 
 export type TimelineQuery = {
   projectId?: string
   // Only the record that raised this action item.
   actionItemId?: string
-  // Only this meeting's segments.
+  // Only this meeting's standing excerpts.
   meetingId?: string
   // An `occurredAt`: only records before it, for the next page.
   before?: string
@@ -67,8 +69,11 @@ type ListTimelineResponse = {
   total: number
 }
 
-// The SWR key a page of the timeline loads under. The event stream revalidates every key
-// that starts with `v1/timeline` when something new is ingested.
+// What every SWR key of the timeline starts with, which the event stream revalidates when
+// something new is ingested, and a meeting's page when an excerpt changes.
+export const timelineKeyPrefix = 'v1/timeline'
+
+// The SWR key a page of the timeline loads under.
 export function timelineKey(query: TimelineQuery) {
   const parameters = new URLSearchParams()
   if (query.projectId) {
@@ -88,8 +93,8 @@ export function timelineKey(query: TimelineQuery) {
   }
   const search = parameters.toString()
   return search
-    ? `v1/timeline?${search}`
-    : 'v1/timeline'
+    ? `${timelineKeyPrefix}?${search}`
+    : timelineKeyPrefix
 }
 
 export function listTimeline(query: TimelineQuery) {

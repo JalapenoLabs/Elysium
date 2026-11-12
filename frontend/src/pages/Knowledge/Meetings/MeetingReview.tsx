@@ -6,25 +6,17 @@ import type { PageCrumb } from '../../../layout/page/PageHeader'
 // Core
 import { useTranslation } from 'react-i18next'
 
-// Redux
-import { selectMe } from '../../../store/authSlice'
-import { useAppSelector } from '../../../store/hooks'
-
 // User interface
-import { Chip, Link, Spinner, Tabs } from '@heroui/react'
+import { Chip, Link, Spinner } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
-import { PageTabs } from '../../../components/PageTabs'
 import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
-import { MeetingTopics } from './MeetingTopics'
 import { MeetingWorkspace } from './MeetingWorkspace'
 import { MergedIntoNotice } from './MergedIntoNotice'
 
 // Misc
 import { DateText } from '../../../format/DateText'
 import { formatDuration } from '../../../format/durations'
-import { useMeetingTopicsLoader } from '../../../hooks/useServerData'
-import { useTabParam } from '../../../hooks/useTabParam'
 import {
   meetingSourceNameKey,
   meetingStateChipColors,
@@ -32,30 +24,16 @@ import {
 } from '../../Settings/Meetings/meetingsPresentation'
 import { useMeetingWords } from './useMeetingWords'
 
-// The review first; then the topics the meeting was cut into, until excerpts take their place
-// (#241), since a topic on no project or the wrong one is corrected there. A topic is a timeline
-// record, which is its owner's alone (docs/knowledge.md, Who sees what), so only the meeting's
-// owner has the tab.
-const OWNER_TABS = [ 'review', 'topics' ] as const
-const READER_TABS = [ 'review' ] as const
-
 type Props = {
   meeting: Meeting
   parents: PageCrumb[]
 }
 
 // A meeting that loaded: its title and source, when it was, for how long, and a link to it at its
-// source, then its review and its topics as tabs, the open one in `?tab=`.
+// source, then its review, where its excerpts are drawn and changed.
 export function MeetingReview(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors' ])
   const { meeting } = props
-  const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
-  const [ selectedTab, selectTab ] = useTabParam(isOwner
-    ? OWNER_TABS
-    : READER_TABS)
-  const topics = useMeetingTopicsLoader(isOwner
-    ? meeting.id
-    : null)
   const words = useMeetingWords(meeting.id)
 
   let review = <div className='grid place-items-center py-10'><Spinner /></div>
@@ -102,21 +80,6 @@ export function MeetingReview(props: Props) {
 
     {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
 
-    <PageTabs
-      label={t('page.tabs.label')}
-      selectedKey={selectedTab}
-      onSelectionChange={selectTab}
-      tabs={isOwner
-        ? [
-          { id: 'review', label: t('page.tabs.review'), count: null },
-          { id: 'topics', label: t('page.tabs.topics'), count: topics.total },
-        ]
-        : [{ id: 'review', label: t('page.tabs.review'), count: null }]}
-    >
-      <Tabs.Panel id='review' className='mt-0 p-0'>{review}</Tabs.Panel>
-      {isOwner && <Tabs.Panel id='topics'>
-        <MeetingTopics meeting={meeting} status={topics.status} />
-      </Tabs.Panel>}
-    </PageTabs>
+    {review}
   </Page>
 }

@@ -54,8 +54,8 @@ pub struct MeetingThread {
     pub words: Vec<ThreadWord>,
     /// How many of the range's words were left out past the ones quoted.
     pub words_left_out: usize,
-    /// The meeting's topics the range lies in, each with the projects it is on.
-    pub topics: Vec<ThreadTopic>,
+    /// The meeting's excerpts the range lies in, each with the projects it is on.
+    pub excerpts: Vec<ThreadExcerpt>,
     /// Its comments, oldest first.
     pub comments: Vec<PromptMessage>,
 }
@@ -68,9 +68,9 @@ pub struct ThreadWord {
     pub text: String,
 }
 
-/// One topic of a meeting a thread's range lies in.
+/// One excerpt of a meeting a thread's range lies in.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ThreadTopic {
+pub struct ThreadExcerpt {
     pub title: String,
     /// Each project it is on, as `name (id)`.
     pub projects: Vec<String>,
@@ -158,7 +158,7 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     prompt
 }
 
-/// A thread's prompt: the meeting, the range with each word's id, the topics it lies in, and the
+/// A thread's prompt: the meeting, the range with each word's id, the excerpts it lies in, and the
 /// thread itself, its newest comment last.
 fn render_thread(prompt: &mut String, thread: &MeetingThread) {
     let _ = write!(
@@ -198,17 +198,17 @@ fn render_thread(prompt: &mut String, thread: &MeetingThread) {
         let _ = writeln!(prompt, "\nJust after: {}…", thread.after);
     }
 
-    if thread.topics.is_empty() {
-        prompt.push_str("\nThe range lies in none of the meeting's topics yet.\n");
+    if thread.excerpts.is_empty() {
+        prompt.push_str("\nThe range lies in none of the meeting's excerpts yet.\n");
     } else {
-        prompt.push_str("\nThe range lies in these topics of the meeting:\n");
-        for topic in &thread.topics {
-            let projects = if topic.projects.is_empty() {
+        prompt.push_str("\nThe range lies in these excerpts of the meeting:\n");
+        for excerpt in &thread.excerpts {
+            let projects = if excerpt.projects.is_empty() {
                 "on no project".to_owned()
             } else {
-                format!("on {}", topic.projects.join(", "))
+                format!("on {}", excerpt.projects.join(", "))
             };
-            let _ = writeln!(prompt, "- {}, {projects}", topic.title);
+            let _ = writeln!(prompt, "- {}, {projects}", excerpt.title);
         }
     }
 
@@ -342,7 +342,7 @@ mod tests {
                     },
                 ],
                 words_left_out: 3,
-                topics: vec![ThreadTopic {
+                excerpts: vec![ThreadExcerpt {
                     title: "Launch date".to_owned(),
                     projects: vec!["Launch (0190)".to_owned()],
                 }],

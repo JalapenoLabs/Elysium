@@ -39,6 +39,7 @@ function record(overrides: Partial<TimelineRecord> = {}): TimelineRecord {
     ],
     createdBy: 'person-1',
     createdAt: '2026-10-21T16:00:00Z',
+    excerptMarkId: null,
     ...overrides,
   }
 }

@@ -3,8 +3,8 @@
 //! `GET /api/v1/timeline`: the signed-in person's records, newest first.
 //!
 //! `projectId` keeps the records attributed to one project, `actionItemId` the record that
-//! raised one action item, which its page answers from, and `meetingId` one meeting's segments,
-//! which the meeting's page lists as its topics. `before` pages back: pass the
+//! raised one action item, which its page answers from, and `meetingId` one meeting's standing
+//! excerpts. `before` pages back: pass the
 //! `occurredAt` of the last record of the previous page. `total` counts every record the
 //! filters match across all pages, so a project's Timeline tab can name its size.
 

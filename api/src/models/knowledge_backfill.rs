@@ -17,6 +17,8 @@ pub enum BackfillSource {
     TimelineRecord,
     /// Turn summaries, each put on its session's project's timeline as a record, which indexes it.
     TurnSummary,
+    /// Meetings, each segmented one's whole transcript indexed as its document.
+    Meeting,
 }
 
 impl BackfillSource {
@@ -25,6 +27,7 @@ impl BackfillSource {
         match self {
             Self::TimelineRecord => "timeline_record",
             Self::TurnSummary => "turn_summary",
+            Self::Meeting => "meeting",
         }
     }
 }

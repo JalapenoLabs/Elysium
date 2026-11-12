@@ -181,12 +181,15 @@ pub async fn live_run(
 /// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with
 /// what the meeting holds: its capture's transcript, recording, and Whisper transcript, and its
 /// corrected copy with whether it was approved, as the steps before segmenting would hand them on.
+/// Started by `started_by`: the system for a meeting the loop carries on, or the person done
+/// reviewing it (`super::review`).
 ///
 /// # Errors
 /// Propagates any database error, and a stored transcript that does not read as its shape.
 pub async fn run_from_segmenting(
     connection: &mut AsyncPgConnection,
     fetched: &Meeting,
+    started_by: Uuid,
 ) -> anyhow::Result<NewRun> {
     let transcribed = transcribed(connection, fetched).await?;
     let correction = meeting_correction::find(connection, fetched.id).await?;
@@ -205,7 +208,7 @@ pub async fn run_from_segmenting(
         source_kind: SOURCE_KIND.to_owned(),
         source_id: fetched.id.to_string(),
         input: TranscriptToSegment::Meeting(input),
-        created_by: SYSTEM_USER_ID,
+        created_by: started_by,
     }))
 }
 
@@ -622,7 +625,7 @@ mod tests {
             .await
             .expect("approved");
 
-        let new_run = run_from_segmenting(&mut connection, &fetched)
+        let new_run = run_from_segmenting(&mut connection, &fetched, SYSTEM_USER_ID)
             .await
             .expect("builds");
         assert_eq!(new_run.steps, vec!["segment_meeting".to_owned()]);
@@ -658,7 +661,7 @@ mod tests {
             .execute(&mut connection)
             .await
             .expect("unhashes");
-        let unhashed_run = run_from_segmenting(&mut connection, &fetched)
+        let unhashed_run = run_from_segmenting(&mut connection, &fetched, SYSTEM_USER_ID)
             .await
             .expect("builds");
         assert_eq!(

@@ -38,10 +38,14 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[], nextCursor }`, a page of those the caller may read, newest first; `limit` (1 to 200, default 100), and `afterStartedAt` with `afterId` from the last page's `nextCursor`; `reviewItemId` keeps the one an inbox item asks to review, `keptPrivateItemId` the one an item said was kept private |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
-| GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it, and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
+| GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it (an excerpt's with `excerpt`: `{ recordId, title, projectIds }`), and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/transcript` | `200` `{ transcript }`: one capture's own lines as they came, on the meeting's clock |
 | GET    | `/api/v1/meetings/{id}/captures/{captureId}/media` | The capture's recording, streamed from storage: `206` for one `Range`, `416` past its end, else `200`; `404` when none is kept |
 | POST   | `/api/v1/meetings/{id}/edits`         | `200` `{ entry, change }`; replaces `startWordId` to `endWordId` with `text`, `409` (`meeting_words_changed`) when a word of it was replaced meanwhile, (`meeting_merged`) once the meeting was merged into another, as every route here that changes a meeting answers |
+| POST   | `/api/v1/meetings/{id}/excerpts`      | `200` `{ entry, change, recordId }`; takes `startWordId` to `endWordId` into `projectIds` as a new excerpt, `409` (`meeting_words_changed`), `400` (`meeting_excerpt_project`) for no project or one that does not exist, (`meeting_excerpt_blacked_out`) for words all blacked out |
+| POST   | `/api/v1/meetings/{id}/black-outs`    | `200` `{ entry, change }`; blacks out `startWordId` to `endWordId`, taking in every black-out it overlaps or touches, `409` (`meeting_words_changed`) |
+| DELETE | `/api/v1/meetings/{id}/marks/{markId}` | `200` `{ entry, change }`; removes an excerpt or a black-out, `409` (`meeting_mark_removed`), `400` (`meeting_mark_kind`) for any other mark |
+| POST   | `/api/v1/meetings/{id}/done-reviewing` | `200` `{ entry, meeting }`; segments it again from its corrected words, `409` (`meeting_processing`, `meeting_run_failed`, `meeting_not_segmented`) |
 | GET    | `/api/v1/meetings/{id}/history`       | `200` `{ entries }`: every change to it, newest first |
 | POST   | `/api/v1/meetings/{id}/history/{entryId}/undo` | `200` `{ entry, change }`; `409` (`meeting_changed_since`, `meeting_change_not_undoable`, `meeting_corrected`) when it stays |
 | GET    | `/api/v1/meetings/{id}/threads`       | `200` `{ comments }`: every comment in its standing threads, each thread's oldest first |
@@ -452,9 +456,10 @@ a token and `409` for one that has its browser. Someone else's personal connecto
 A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
 `participants`, `url`, `state` (`pending`, `recorded`, `segmented`, or `done` as far as it got, or `failed` or
 `skipped` as its newest run says), `lastError` (why its run failed, while it has),
-`hasRecording`, `segmentCount`, `holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
+`hasRecording`, `excerptCount` (how many excerpts it has standing, `null` before it was first segmented),
+`holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
-`awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its topics are on,
+`awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its excerpts are on,
 in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
 leaves such a meeting out), `ownerId`, `visibility` (`unchecked`, `private`, or `public`), `sharedWith` (user ids, in the
 order shared), `visibilityChange` (the newest `visibility_changed` history entry, or `null`), `canEdit` and `canManage`
@@ -1214,12 +1219,12 @@ is not named, `{ kind: "learning", learningId }`, `{ kind: "companyDoc", section
 the index does not hold is `404`.
 
 `GET /meetings` takes `from` and `to` (moments with an offset, when a meeting started; `from` before `to`), `person`
-and `project` (ids: meetings recorded by that person's sources, or with a topic attributed to that project), and
+and `project` (ids: meetings recorded by that person's sources, or with an excerpt attributed to that project), and
 `limit` (1 to 50, default 20). A `KnowledgeMeeting` is `{ title, source, startedAt, person, topics }`: the meeting's
-title and the source it was read from (`fireflies`), when its first topic began, whose source recorded it, and its
-topics as `Citation`s in the order they were said, each opened with `GET /documents/{id}`. It is gathered from the
-index's meeting topics alone, leaving out a private meeting the caller may not read, whose topics no search or opening
-finds for them either (`docs/knowledge.md`, Who sees what, and MCP).
+title and the source it was read from (`fireflies`), when its first excerpt began, whose source recorded it, and its
+excerpts as `Citation`s in the order they were said (`topics`), each opened with `GET /documents/{id}`. It is gathered
+from the index's meeting excerpts alone, leaving out a private meeting the caller may not read, whose excerpts and
+transcript no search or opening finds for them either (`docs/knowledge.md`, Who sees what, and MCP).
 
 - **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address,
   shared with their MCP clients' and their sessions' searches; past it, `429` with the code

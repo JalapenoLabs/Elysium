@@ -2,7 +2,7 @@
 
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { MeetingWord } from '../../../api/routes/meetingRoutes'
-import type { MarkPill } from './TranscriptFloatingBar'
+import type { AssignControl, MarkPill } from './TranscriptFloatingBar'
 import type { ExcerptBar, Paragraph, PlacedMark, WordDecorations, WordRange } from './meetingTranscript'
 
 // Core
@@ -46,6 +46,8 @@ type Props = {
   // not change it, such as a guest it is shared with.
   onEdit: (() => void) | null
   onComment: (() => void) | null
+  assign: AssignControl | null
+  onBlackOut: (() => void) | null
   onClear: () => void
   onApplyEdit: (text: string) => Promise<boolean>
   onCancelEdit: () => void
@@ -225,6 +227,8 @@ export function FinalTranscript(props: Props) {
       hasSelection={Boolean(props.selection)}
       onEdit={props.onEdit}
       onComment={props.onComment}
+      assign={props.assign}
+      onBlackOut={props.onBlackOut}
       onClear={props.onClear}
       onSelectFromHere={props.onSelectFromHere}
       isExtending={props.isExtending}

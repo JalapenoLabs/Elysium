@@ -429,6 +429,8 @@ struct OfferedRow {
     url: Option<String>,
     #[diesel(sql_type = Nullable<SqlUuid>)]
     page_id: Option<Uuid>,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    meeting_id: Option<Uuid>,
     #[diesel(sql_type = Timestamptz)]
     occurred_at: DateTime<Utc>,
     #[diesel(sql_type = SqlUuid)]
@@ -455,8 +457,8 @@ pub async fn offered_passages(
     let rows: Vec<OfferedRow> = diesel::sql_query(
         "SELECT offered.label::integer AS label, passages.document_id, passages.position,
              passages.content, documents.source, documents.title, documents.url,
-             documents.page_id, documents.occurred_at, documents.created_by,
-             people.name AS person_name
+             documents.page_id, documents.meeting_id, documents.occurred_at,
+             documents.created_by, people.name AS person_name
          FROM unnest($1::uuid[], $2::integer[]) WITH ORDINALITY
              AS offered (document_id, position, label)
          JOIN knowledge_passages passages
@@ -480,6 +482,7 @@ pub async fn offered_passages(
                 title: row.title,
                 url: row.url,
                 page_id: row.page_id,
+                meeting_id: row.meeting_id,
                 occurred_at: row.occurred_at,
                 person: Person {
                     id: row.created_by,

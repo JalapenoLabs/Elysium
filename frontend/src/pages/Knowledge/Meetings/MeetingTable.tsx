@@ -59,7 +59,7 @@ const MEETING_COLUMN_KEYS = [
   'projects',
   'started',
   'duration',
-  'topics',
+  'excerpts',
 ] as const
 type MeetingColumnKey = typeof MEETING_COLUMN_KEYS[number]
 
@@ -72,7 +72,7 @@ const columnLabelKeys = {
   projects: 'table.projects',
   started: 'table.started',
   duration: 'table.duration',
-  topics: 'table.topics',
+  excerpts: 'table.excerpts',
 } as const satisfies Record<MeetingColumnKey, string>
 
 // Starting widths in pixels, summing to less than the content column at md.
@@ -85,7 +85,7 @@ const columnSizes = {
   projects: 180,
   started: 130,
   duration: 120,
-  topics: 100,
+  excerpts: 100,
 } as const satisfies Record<MeetingColumnKey, number>
 
 // uikit holds a column to 160 pixels unless it sets its own floor, and most of these need less.
@@ -93,10 +93,10 @@ const COLUMN_MIN_SIZE = 100
 
 // The meetings the person may read in a table: each one's title (opening its page, with its
 // transcript and corrections), whose it is and who reads it, the source it came from, how far its
-// processing got and why it failed or what it waits for, the projects its topics are on, when it
-// was, how long it ran, and how many topics Elysia found. A failed one of the person's own can be
-// tried again from its row. A click on a row expands it, which is how a long failure reads in
-// full; its title is the link.
+// processing got and why it failed or what it waits for, the projects its excerpts are on, when it
+// was, how long it ran, and how many excerpts it has. A failed one of the person's own can be tried
+// again from its row. A click on a row expands it, which is how a long failure reads in full; its
+// title is the link.
 export function MeetingTable(props: Props) {
   const { t, i18n } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -154,12 +154,12 @@ export function MeetingTable(props: Props) {
       }
       return formatDuration(meeting.durationMs)
     }
-    // Elysia has found no topics until she has read the meeting.
-    function topicsText(meeting: Meeting) {
-      if (meeting.segmentCount === null) {
+    // A meeting has no excerpts to count until it was first segmented.
+    function excerptsText(meeting: Meeting) {
+      if (meeting.excerptCount === null) {
         return ''
       }
-      return formatNumber(meeting.segmentCount)
+      return formatNumber(meeting.excerptCount)
     }
 
     const renderCell = {
@@ -206,7 +206,7 @@ export function MeetingTable(props: Props) {
       projects: projectsText,
       started: (meeting: Meeting) => <DateText value={meeting.startedAt} isFocusable={false} />,
       duration: durationText,
-      topics: topicsText,
+      excerpts: excerptsText,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => unknown>
 
     // Search matches what the user sees.
@@ -219,7 +219,7 @@ export function MeetingTable(props: Props) {
       projects: projectsText,
       started: (meeting: Meeting) => formatDateTime(meeting.startedAt),
       duration: durationText,
-      topics: topicsText,
+      excerpts: excerptsText,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => string>
 
     // Words sort without regard to case, the state through processing, and the rest by value,
@@ -233,11 +233,11 @@ export function MeetingTable(props: Props) {
       projects: (meeting: Meeting) => projectsText(meeting).toLocaleLowerCase(i18n.language),
       started: (meeting: Meeting) => Date.parse(meeting.startedAt),
       duration: (meeting: Meeting) => meeting.durationMs ?? Number.POSITIVE_INFINITY,
-      topics: (meeting: Meeting) => meeting.segmentCount ?? Number.POSITIVE_INFINITY,
+      excerpts: (meeting: Meeting) => meeting.excerptCount ?? Number.POSITIVE_INFINITY,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => string | number>
 
     // The export holds the state by name, the start as its instant, the length as the table
-    // writes it, and the topics as a number.
+    // writes it, and the excerpts as a number.
     const exportValue = {
       meeting: titleText,
       owner: ownerText,
@@ -247,7 +247,7 @@ export function MeetingTable(props: Props) {
       projects: projectsText,
       started: (meeting: Meeting) => meeting.startedAt,
       duration: durationText,
-      topics: (meeting: Meeting) => meeting.segmentCount,
+      excerpts: (meeting: Meeting) => meeting.excerptCount,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => CsvValue>
 
     return createManagedColumns<Meeting, MeetingColumnKey>({

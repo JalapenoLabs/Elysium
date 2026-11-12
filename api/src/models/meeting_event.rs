@@ -64,10 +64,16 @@ pub enum EventKind {
     Shared,
     /// It stopped being shared with a person: `{ personId }`.
     Unshared,
+    /// Segmenting took its excerpts and black-outs (`crate::meetings::excerpts::take`):
+    /// `{ made, kept, removed, unanchored }`, the marks it made, the ones of its own it kept, the
+    /// ones of its own it removed, and how many of the ranges it answered no longer stood.
+    Segmented,
+    /// Its person said they were done reviewing it, which segments it again: `{}`.
+    ReviewDone,
 }
 
 impl EventKind {
-    const ALL: [Self; 16] = [
+    const ALL: [Self; 18] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -84,6 +90,8 @@ impl EventKind {
         Self::VisibilityChanged,
         Self::Shared,
         Self::Unshared,
+        Self::Segmented,
+        Self::ReviewDone,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -104,6 +112,8 @@ impl EventKind {
             Self::VisibilityChanged => "visibility_changed",
             Self::Shared => "shared",
             Self::Unshared => "unshared",
+            Self::Segmented => "segmented",
+            Self::ReviewDone => "review_done",
         }
     }
 

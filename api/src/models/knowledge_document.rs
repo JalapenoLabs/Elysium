@@ -19,10 +19,10 @@
 //!
 //! # A meeting's documents
 //!
-//! A meeting's segments name their meeting (`meeting_id`), and are found only by whoever may read
-//! it: a private meeting's are left out for everyone else as a search or an opening runs, by the
-//! rule `models::meeting` keeps. Every other source is every member's (`docs/knowledge.md`, Who
-//! sees what).
+//! A meeting's documents, its whole transcript and each of its excerpts, name their meeting
+//! (`access_meeting_id`), and are found only by whoever may read it: a private meeting's are left
+//! out for everyone else as a search or an opening runs, by the rule `models::meeting` keeps.
+//! Every other source is every member's (`docs/knowledge.md`, Who sees what).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -53,13 +53,21 @@ pub enum KnowledgeSource {
     /// timeline record's kind is: `page`, and a kind of its own for a page that stands for
     /// something a filter already names, `learning` and `company_doc`.
     Page { id: Uuid, kind: String },
+    /// The meeting with this id, as its whole final transcript, which the search's source filter
+    /// names `meeting` as it does the meeting's excerpts (`crate::meetings::excerpts`).
+    Meeting { id: Uuid },
 }
+
+/// What the search's source filter calls a meeting's whole transcript: what it calls an excerpt of
+/// one, so filtering by meetings finds both.
+pub const MEETING_KIND: &str = "meeting";
 
 impl KnowledgeSource {
     /// What the search's source filter calls documents of this kind.
     pub fn label(&self) -> &str {
         match self {
             Self::TimelineRecord { kind, .. } | Self::Page { kind, .. } => kind,
+            Self::Meeting { .. } => MEETING_KIND,
         }
     }
 }
@@ -76,8 +84,9 @@ pub struct IndexedDocument {
     pub occurred_at: DateTime<Utc>,
     /// Whose words they are, for the person filter and the citation. Never access control.
     pub created_by: Uuid,
-    /// The meeting it is a segment of, whose readers alone find it; `None` for every other source.
-    pub meeting_id: Option<Uuid>,
+    /// The meeting whose readers alone find it: the meeting itself for its whole transcript, an
+    /// excerpt's meeting for its record; `None` for every other source, which every member reads.
+    pub access_meeting_id: Option<Uuid>,
     /// Its text in order, as [`crate::knowledge::passages::split`] cuts it. Each is 1 to 20,000
     /// characters.
     pub passages: Vec<String>,
@@ -95,7 +104,7 @@ struct DocumentFields {
     content_sha256: String,
     created_by: Uuid,
     #[diesel(treat_none_as_null = true)]
-    meeting_id: Option<Uuid>,
+    access_meeting_id: Option<Uuid>,
 }
 
 #[derive(Insertable)]
@@ -137,6 +146,11 @@ async fn lock(
             .first(connection)
             .await
             .optional(),
+        KnowledgeSource::Meeting { id } => query
+            .filter(knowledge_documents::meeting_id.eq(id))
+            .first(connection)
+            .await
+            .optional(),
     }
 }
 
@@ -172,6 +186,16 @@ async fn insert(
                 .execute(connection)
                 .await?;
         }
+        KnowledgeSource::Meeting { id: meeting_id } => {
+            insert
+                .values((
+                    knowledge_documents::id.eq(id),
+                    knowledge_documents::meeting_id.eq(meeting_id),
+                    fields,
+                ))
+                .execute(connection)
+                .await?;
+        }
     }
     Ok(id)
 }
@@ -198,7 +222,7 @@ pub async fn upsert(
         occurred_at: document.occurred_at,
         content_sha256: sha256.clone(),
         created_by: document.created_by,
-        meeting_id: document.meeting_id,
+        access_meeting_id: document.access_meeting_id,
     };
 
     let Some((id, indexed_sha256)) = lock(connection, &document.source).await? else {
@@ -242,6 +266,11 @@ pub async fn remove(
                 .execute(connection)
                 .await?;
         }
+        KnowledgeSource::Meeting { id } => {
+            diesel::delete(documents.filter(knowledge_documents::meeting_id.eq(id)))
+                .execute(connection)
+                .await?;
+        }
     }
     Ok(())
 }
@@ -267,6 +296,8 @@ pub struct Citation {
     /// The page it was indexed from, a learning's or a company doc section's included, which a
     /// reader opens in place of the document.
     pub page_id: Option<Uuid>,
+    /// The meeting whose whole transcript it is, which a reader opens in place of the document.
+    pub meeting_id: Option<Uuid>,
     pub occurred_at: DateTime<Utc>,
     pub person: Person,
 }
@@ -312,6 +343,10 @@ pub enum Origin {
     Page {
         page_id: Uuid,
     },
+    /// A meeting's whole transcript, which a reader opens as the meeting's page.
+    Meeting {
+        meeting_id: Uuid,
+    },
 }
 
 /// A project a timeline record is attributed to.
@@ -355,6 +390,7 @@ struct DocumentRow {
     timeline_record_id: Option<Uuid>,
     page_id: Option<Uuid>,
     meeting_id: Option<Uuid>,
+    access_meeting_id: Option<Uuid>,
 }
 
 /// The passage at `position` of page `page_id`'s document, its text as the search cited it. `None`
@@ -436,6 +472,7 @@ pub async fn get(
             knowledge_documents::timeline_record_id,
             knowledge_documents::page_id,
             knowledge_documents::meeting_id,
+            knowledge_documents::access_meeting_id,
         ))
         .first(connection)
         .await
@@ -444,36 +481,16 @@ pub async fn get(
         return Ok(None);
     };
 
-    // Through `knowledge_documents_copies`, so copies are found however large the index grows.
-    // Two pages saying the same thing are two pages, so only records have copies.
-    let copies: Vec<(Uuid, Uuid, String, Option<Uuid>)> = knowledge_documents::table
-        .inner_join(users::table)
-        .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
-        .filter(knowledge_documents::source.eq(&row.source))
-        .filter(knowledge_documents::id.ne(row.id))
-        .filter(knowledge_documents::page_id.is_null())
-        .select((
-            knowledge_documents::id,
-            knowledge_documents::created_by,
-            users::name,
-            knowledge_documents::meeting_id,
-        ))
-        .order((
-            knowledge_documents::occurred_at.asc(),
-            knowledge_documents::id.asc(),
-        ))
-        .load(connection)
-        .await?;
-
+    let copies = copies_of(connection, &row).await?;
     // The meetings of the document and of its copies, asked in one query.
     let mut meeting_ids: Vec<Uuid> = copies
         .iter()
         .filter_map(|(_document_id, _person_id, _name, meeting_id)| *meeting_id)
         .collect();
-    meeting_ids.extend(row.meeting_id);
+    meeting_ids.extend(row.access_meeting_id);
     let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
     let reads = |meeting_id: Option<Uuid>| meeting_id.is_none_or(|id| readable.contains(&id));
-    if !reads(row.meeting_id) {
+    if !reads(row.access_meeting_id) {
         return Ok(None);
     }
 
@@ -491,9 +508,11 @@ pub async fn get(
         None => Vec::new(),
     };
 
-    let origin = row.page_id.map_or(Origin::TimelineRecord, |page_id| {
-        origin_of_page(page_id, &row.source)
-    });
+    let origin = match (row.page_id, row.meeting_id) {
+        (Some(page_id), _) => origin_of_page(page_id, &row.source),
+        (None, Some(meeting_id)) => Origin::Meeting { meeting_id },
+        (None, None) => Origin::TimelineRecord,
+    };
 
     Ok(Some(DocumentView {
         citation: Citation {
@@ -502,6 +521,7 @@ pub async fn get(
             title: row.title,
             url: row.url,
             page_id: row.page_id,
+            meeting_id: row.meeting_id,
             occurred_at: row.occurred_at,
             person: Person {
                 id: row.created_by,
@@ -525,6 +545,35 @@ pub async fn get(
             })
             .collect(),
     }))
+}
+
+/// The other documents holding the same text as `row`, oldest first: each one's id, its person's
+/// id and name, and the meeting whose readers alone find it. Through `knowledge_documents_copies`,
+/// so copies are found however large the index grows. Two pages saying the same thing are two
+/// pages, and two meetings two meetings, so only records have copies.
+async fn copies_of(
+    connection: &mut AsyncPgConnection,
+    row: &DocumentRow,
+) -> QueryResult<Vec<(Uuid, Uuid, String, Option<Uuid>)>> {
+    knowledge_documents::table
+        .inner_join(users::table)
+        .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
+        .filter(knowledge_documents::source.eq(&row.source))
+        .filter(knowledge_documents::id.ne(row.id))
+        .filter(knowledge_documents::page_id.is_null())
+        .filter(knowledge_documents::meeting_id.is_null())
+        .select((
+            knowledge_documents::id,
+            knowledge_documents::created_by,
+            users::name,
+            knowledge_documents::access_meeting_id,
+        ))
+        .order((
+            knowledge_documents::occurred_at.asc(),
+            knowledge_documents::id.asc(),
+        ))
+        .load(connection)
+        .await
 }
 
 /// What a page's document opens as: a learning and a section stay named as such, which is how their

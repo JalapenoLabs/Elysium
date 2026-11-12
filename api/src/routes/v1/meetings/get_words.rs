@@ -1,11 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/meetings/{id}/words`: a meeting's final transcript as it reads, for its page, to
-//! anyone who may read the meeting: its standing words in order, every standing mark over them, and its
-//! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
-//! recording (`captures/{captureId}/media`), saying where it sits on the meeting's clock and how
-//! that was found, and which meeting it came from when a merge brought it, which splitting it makes
-//! its own again. That meeting is named only to a reader who may read it; anyone else is told the
+//! anyone who may read the meeting: its standing words in order, every standing mark over them
+//! (each excerpt with its record and the projects it is on), and its captures, each of which opens
+//! as it came (`captures/{captureId}/transcript`) and plays its recording
+//! (`captures/{captureId}/media`), saying where it sits on the meeting's clock and how that was
+//! found, and which meeting it came from when a merge brought it, which splitting it makes its own
+//! again. That meeting is named only to a reader who may read it; anyone else is told the
 //! captures came from another meeting, since its title can be what made it private.
 //!
 //! `words` is empty until the transcript is built, which its correction does
@@ -21,7 +22,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MarkResponse, WordResponse, open};
+use super::{WordResponse, mark_responses, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -138,7 +139,7 @@ pub async fn handle(
     };
 
     let words: Vec<WordResponse> = words.into_iter().map(WordResponse::from).collect();
-    let marks: Vec<MarkResponse> = marks.into_iter().map(MarkResponse::from).collect();
+    let marks = mark_responses(&mut connection, marks).await?;
     let captures: Vec<CaptureResponse> = captures
         .into_iter()
         .map(|capture| {
