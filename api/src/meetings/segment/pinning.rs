@@ -417,6 +417,10 @@ mod tests {
     /// segmenting to compare its stills against.
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "a meeting with a video, its frames pinned, and what each left behind"
+    )]
     async fn segmenting_pins_its_frames_as_elysia_leaving_out_one_over_words_edited_since() {
         let (_url, mut connection) = migrated_database().await;
         let (capture, words) = built_meeting(

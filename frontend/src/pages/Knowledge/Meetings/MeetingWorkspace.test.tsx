@@ -1032,6 +1032,8 @@ describe('MeetingWorkspace player', () => {
     Object.defineProperty(media, 'videoWidth', { configurable: true, value: 1280 })
     Object.defineProperty(media, 'videoHeight', { configurable: true, value: 720 })
     fireEvent.loadedMetadata(media)
+    // Pin a frame is offered once the video shows a picture and the policy names where frames go.
+    expect(await screen.findByRole('button', { name: /Pin a frame/ })).toBeTruthy()
 
     fireEvent.click(wordPiece('is'))
     fireEvent.click(wordPiece('Fryday.'), { shiftKey: true })
@@ -1057,8 +1059,10 @@ describe('MeetingWorkspace player', () => {
     vi.mocked(HTMLCanvasElement.prototype.toBlob).mockRestore()
   })
 
-  it<Context>('pins no frame from a meeting with no picture, leaving F to the page', (context) => {
+  it<Context>('pins no frame from a meeting with no picture, leaving F to the page', async (context) => {
     renderWorkspace(context)
+    // The policy has arrived, so nothing but the missing picture holds Pin a frame back.
+    expect(await screen.findByText('Files up to 1 GB')).toBeTruthy()
 
     fireEvent.click(wordPiece('is'))
 

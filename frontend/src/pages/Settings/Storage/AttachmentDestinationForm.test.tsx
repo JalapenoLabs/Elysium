@@ -94,7 +94,7 @@ describe('AttachmentDestinationForm', () => {
 
     const field = screen.getByRole('textbox', { name: 'Largest file a meeting takes' })
     act(() => field.focus())
-    fireEvent.change(field, { target: { value: '2.5' } })
+    fireEvent.change(field, { target: { value: '2.5' }})
     act(() => field.blur())
     fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0])
 
