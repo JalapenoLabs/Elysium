@@ -3,7 +3,7 @@
 //! How a timeline record is indexed: the one document each record becomes.
 //!
 //! Every kind of record is indexed the same way, one record to one document, so the index holds
-//! a meeting by its segments (each segment is a record of its own, `docs/meetings.md`), a
+//! a meeting's excerpts (each a record of its own, `docs/meetings.md`), a
 //! conversation by its messages, and a page by its newest version (Revisions, below). A kind
 //! recorded later, such as Jira's or GitHub's issues, is indexed the moment it is on the
 //! timeline, with nothing added here.
@@ -11,15 +11,15 @@
 //! # The text
 //!
 //! A record's document is its title, who it came from, and its body, in that order, cut into
-//! passages by [`passages::split`]. A meeting segment's speakers are already named on every
+//! passages by [`passages::split`]. A meeting excerpt's speakers are already named on every
 //! line of its excerpt, so it gives its summary in their place, and is followed by the comment
 //! threads whose range overlaps it (`crate::meetings::comments`), each the first words of its
 //! range and its comments by their authors' names, so a meeting's comments are indexed with it
-//! and go wherever its segments go. A record's metadata and media are never indexed: they hold
+//! and go wherever its excerpts go. A record's metadata and media are never indexed: they hold
 //! the provider's ids and where a clip is kept, not what was said.
 //! A body past [`BODY_MAX_CHARACTERS`] is cut there, which every source today stays inside
 //! (Confluence and sent mail keep 20,000 characters, Slack 4,000, webmail and Teams 1,000)
-//! except a long meeting segment's excerpt.
+//! except a long meeting excerpt.
 //!
 //! # Revisions
 //!
@@ -52,11 +52,11 @@ pub const INDEXED_AS: i32 = 1;
 
 /// The most of a record's body that is indexed, in characters: about 63 passages, which the
 /// embedding model takes some fifteen seconds over on four CPUs. A two hour meeting spent on one
-/// topic is about this long, so every segment is indexed whole while one pathological body
+/// thing is about this long, so every excerpt is indexed whole while one pathological body
 /// cannot hold the embedder for minutes. Raising it re-indexes nothing already indexed.
 pub const BODY_MAX_CHARACTERS: usize = 100_000;
 
-/// The most of a segment's comment threads indexed after its body, in characters, so a segment
+/// The most of an excerpt's comment threads indexed after its body, in characters, so an excerpt
 /// with many long threads holds the embedder no longer than a long body does. Threads are taken in
 /// the order their ranges start, so what is left out is the last of them.
 pub const THREADS_MAX_CHARACTERS: usize = 50_000;

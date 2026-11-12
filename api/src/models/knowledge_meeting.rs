@@ -2,16 +2,17 @@
 
 //! The meetings the knowledge index holds, each with its topics in the order they were said.
 //!
-//! A meeting is in the index as its segments: each is a timeline record of its own
+//! A meeting's excerpts are in the index, each a timeline record of its own
 //! (`docs/meetings.md`, Segment records), and so a document of source `meeting`. [`list`]
-//! gathers those documents back into their meetings by what every segment record names in its
+//! gathers those documents back into their meetings by what every excerpt record names in its
 //! metadata (`meetingId`, `meetingTitle`, `meetingSource`), so a reader finds a meeting by when
 //! it was and opens its topics one by one, each a citation like any other.
 //!
 //! The `meetings` row itself (its transcript, recording, participants, and processing) stays its
 //! owner's, and nothing here reads it: what a member may read is what the index holds
 //! (`docs/knowledge.md`, Who sees what). Two people whose sources both recorded one meeting have
-//! a meeting each, segmented apart, so both are listed.
+//! a meeting each, segmented apart, so both are listed. A meeting's whole transcript is a document of
+//! its own (`crate::meetings::excerpts::index_transcript`), found by searching, and not listed here.
 
 use chrono::{DateTime, Utc};
 use diesel::QueryableByName;
@@ -81,7 +82,7 @@ struct TopicRow {
 
 /// Every meeting topic in the index, then the newest `$5` meetings under the filters (`$1` the
 /// person, `$2` and `$3` the period of its start, `$4` the project), then their topics in order.
-/// Topics are ordered by when each began, which is the order the segmenting gave them.
+/// Excerpts are ordered by when each began, as they were said.
 const MEETINGS: &str = "
     WITH topics AS (
         SELECT documents.id AS document_id, documents.source, documents.title, documents.url,

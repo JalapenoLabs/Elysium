@@ -245,7 +245,7 @@ pub async fn thread_of_item(
         .optional()
 }
 
-/// One thread as the knowledge index holds it, beside the segment its range lies in.
+/// One thread as the knowledge index holds it, beside the excerpt its range lies in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedThread {
     /// The first words of its range, as the transcript reads now.
@@ -280,7 +280,7 @@ struct SpanRow {
 /// tables `marks`, `first` (its first word), and `last` (its last word), for both queries over
 /// them to share one predicate. A range overlaps the span when it starts before the span ends and
 /// ends after it starts; a range of one instant, a word with no time of its own, counts as a
-/// millisecond long, so it still lies in the segment around it.
+/// millisecond long, so it still lies in the excerpt around it.
 const THREADS_OVER: &str = "
     FROM meeting_marks marks
     JOIN meeting_words first ON first.id = marks.start_word_id
@@ -292,7 +292,7 @@ const THREADS_OVER: &str = "
       AND GREATEST(last.end_ms, first.start_ms + 1) > $2";
 
 /// Where on its clock each of meeting `meeting_id`'s standing threads overlapping `start_ms` to
-/// `end_ms` lies, from its first word's start to its last word's end: the spans whose segments a
+/// `end_ms` lies, from its first word's start to its last word's end: the spans whose excerpts a
 /// change to those words indexes again.
 ///
 /// # Errors
@@ -318,7 +318,7 @@ pub async fn spans_over(
 }
 
 /// Meeting `meeting_id`'s standing threads whose range overlaps `start_ms` to `end_ms` on its
-/// clock, in the order their ranges start, each with its comments: what a segment over that
+/// clock, in the order their ranges start, each with its comments: what an excerpt over that
 /// span indexes beside its own text (`knowledge::records`).
 ///
 /// # Errors

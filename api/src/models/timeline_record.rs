@@ -286,9 +286,9 @@ pub async fn upsert_turn_summary(
 /// so the index holds what the page says now. Two transactions indexing versions of one page
 /// wait for each other, so whichever commits last still leaves the newest one alone indexed.
 ///
-/// A meeting segment is indexed with the comment threads over its span, read as they stand
+/// A meeting's excerpt is indexed with the comment threads over its span, read as they stand
 /// (`models::meeting_comment::indexed_over`), so a thread written before its meeting was
-/// segmented is indexed as the segments are stored.
+/// segmented is indexed as its excerpts are made.
 ///
 /// Call it inside the transaction that stores or changes the record, or one of its threads.
 ///
@@ -319,7 +319,7 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
         .map(drop)
 }
 
-/// The meeting a segment record is of, and its span on the meeting's clock (`media`'s
+/// The meeting an excerpt's record is of, and its span on the meeting's clock (`media`'s
 /// `meetingId`, `startMs`, and `endMs`); `None` for any other record.
 pub(crate) fn segment_span(record: &TimelineRecord) -> Option<(Uuid, i64, i64)> {
     if record.source_kind != SEGMENT_SOURCE_KIND {
@@ -545,7 +545,7 @@ pub struct TimelineQuery {
     pub project_id: Option<Uuid>,
     /// Only the record that raised this action item.
     pub action_item_id: Option<Uuid>,
-    /// Only this meeting's segments.
+    /// Only this meeting's standing excerpts.
     pub meeting_id: Option<Uuid>,
     /// Only records that happened before this, for the next page.
     pub before: Option<DateTime<Utc>>,
