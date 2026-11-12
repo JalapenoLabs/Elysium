@@ -36,6 +36,8 @@
 //! already decided on for it, either way. So a segment a person took off a project stays off it
 //! however often segmenting reads its meeting or conversation again.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::upsert::excluded;
@@ -47,7 +49,9 @@ use uuid::Uuid;
 use crate::database::schema::{timeline_record_events, timeline_record_projects};
 use crate::models::project_manager;
 use crate::models::timeline_record::Attribution;
-use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
+use crate::models::user::{
+    CODING_AGENT_USER_ID, ELYSIA_USER_ID, MACHINE_USER_IDS, PROJECT_MANAGER_USER_ID,
+};
 
 /// How sure a person's own attribution is.
 pub const PERSON_CONFIDENCE: f32 = 1.0;
@@ -390,6 +394,25 @@ pub async fn undo(
             .await?)
         })
         .await
+}
+
+/// The records among `record_ids` whose attributions a person changed: a meeting's excerpts that
+/// are theirs as much as Elysia's, which segmenting never replaces.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn changed_by_people(
+    connection: &mut AsyncPgConnection,
+    record_ids: &[Uuid],
+) -> QueryResult<HashSet<Uuid>> {
+    let changed: Vec<Uuid> = timeline_record_events::table
+        .filter(timeline_record_events::timeline_record_id.eq_any(record_ids))
+        .filter(timeline_record_events::created_by.ne_all(MACHINE_USER_IDS))
+        .select(timeline_record_events::timeline_record_id)
+        .distinct()
+        .load(connection)
+        .await?;
+    Ok(changed.into_iter().collect())
 }
 
 /// Record `record_id`'s history, oldest first.

@@ -4,9 +4,11 @@
 //! turn's prompt carries of it ([`load`]), and her answer, posted in it as hers ([`answer`]).
 //!
 //! The prompt quotes the range with each word's id, which her meeting tools name words by
-//! (`tools::elysia`), a little of what was said around it, the topics it lies in with their
-//! projects, and the whole thread. A turn whose thread she already answered after the comment
-//! that asked her, or whose thread is gone, has nothing left to do.
+//! (`tools::elysia`), a little of what was said around it, the excerpts it lies in with their
+//! projects, and the whole thread. Words a black-out covers are never quoted: each run of them
+//! reads `[blacked out]`, as everything an agent reads of a meeting does. A turn whose thread she
+//! already answered after the comment that asked her, or whose thread is gone, has nothing left to
+//! do.
 
 use std::collections::HashMap;
 
@@ -16,12 +18,13 @@ use diesel_async::AsyncPgConnection;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::prompt::{MeetingThread, PromptMessage, ThreadTopic, ThreadWord};
+use super::prompt::{MeetingThread, PromptMessage, ThreadExcerpt, ThreadWord};
 use crate::meetings::comments::{self, CommentError, Writing};
+use crate::meetings::excerpts::MeetingText;
 use crate::models::agent::Author;
 use crate::models::meeting_comment::{self, BODY_MAX_CHARACTERS};
 use crate::models::user::ELYSIA_USER_ID;
-use crate::models::{meeting, meeting_mark, meeting_word, project};
+use crate::models::{meeting, meeting_mark, project};
 use crate::realtime::EventBus;
 
 /// The most of a thread's range the prompt quotes word by word. A range can be the whole
@@ -104,7 +107,8 @@ pub async fn load(
         return Ok(Loaded::Answered);
     }
 
-    let words = meeting_word::standing(connection, found.id).await?;
+    let text = MeetingText::load(connection, found.id).await?;
+    let words = text.words();
     let start = words.iter().position(|word| word.id == mark.start_word_id);
     let end = words.iter().position(|word| word.id == mark.end_word_id);
     let (Some(start), Some(end)) = (start, end) else {
@@ -116,23 +120,16 @@ pub async fn load(
         words[start].start_ms,
         words[end].end_ms.max(words[start].start_ms),
     );
-    let text_of = |slice: &[meeting_word::Word]| {
-        slice
-            .iter()
-            .map(|word| word.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
 
     let project_names: HashMap<Uuid, String> = project::list(connection)
         .await?
         .into_iter()
         .map(|listed| (listed.id, listed.name))
         .collect();
-    let topics = comments::segments_over(connection, &found, span)
+    let excerpts = comments::excerpts_over(connection, &found, span)
         .await?
         .into_iter()
-        .map(|(record, attributions)| ThreadTopic {
+        .map(|(record, attributions)| ThreadExcerpt {
             title: record.title,
             projects: attributions
                 .iter()
@@ -150,18 +147,11 @@ pub async fn load(
         meeting_title: found.title,
         start_ms: span.0,
         end_ms: span.1,
-        before: text_of(&words[start.saturating_sub(CONTEXT_WORDS)..start]),
-        after: text_of(&words[end + 1..(end + 1 + CONTEXT_WORDS).min(words.len())]),
-        words: words[start..=quoted_end]
-            .iter()
-            .map(|word| ThreadWord {
-                id: word.id,
-                speaker: word.speaker.clone(),
-                text: word.text.clone(),
-            })
-            .collect(),
+        before: text.agent_text(start.saturating_sub(CONTEXT_WORDS)..start),
+        after: text.agent_text(end + 1..(end + 1 + CONTEXT_WORDS).min(words.len())),
+        words: quoted_words(&text, start..=quoted_end),
         words_left_out: end - quoted_end,
-        topics,
+        excerpts,
         comments: thread
             .into_iter()
             .map(|written| PromptMessage {
@@ -249,4 +239,29 @@ fn missing<Found>(error: diesel::result::Error) -> QueryResult<Option<Found>> {
         diesel::result::Error::NotFound => Ok(None),
         error => Err(error),
     }
+}
+
+/// The words at `places` of `text` as the prompt quotes them, each with the id her tools name it
+/// by: each run of words under a black-out as one `[blacked out]`, named by its first word.
+fn quoted_words(text: &MeetingText, places: std::ops::RangeInclusive<usize>) -> Vec<ThreadWord> {
+    let mut quoted: Vec<ThreadWord> = Vec::new();
+    let mut in_black_out = false;
+    for place in places {
+        let word = &text.words()[place];
+        let blacked = text.is_blacked(place);
+        if blacked && in_black_out {
+            continue;
+        }
+        in_black_out = blacked;
+        quoted.push(ThreadWord {
+            id: word.id,
+            speaker: word.speaker.clone(),
+            text: if blacked {
+                "[blacked out]".to_owned()
+            } else {
+                word.text.clone()
+            },
+        });
+    }
+    quoted
 }

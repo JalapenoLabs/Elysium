@@ -154,6 +154,7 @@ fn gather(rows: Vec<TopicRow>) -> Vec<MeetingView> {
             title: row.title,
             url: row.url,
             page_id: None,
+            meeting_id: None,
             occurred_at: row.occurred_at,
             person: Person {
                 id: row.created_by,

@@ -291,9 +291,31 @@ pub async fn record_recorded(connection: &mut AsyncPgConnection, id: Uuid) -> Qu
     }
 }
 
-/// Stores the segments Elysia found for fetched meeting `id` and moves it to `segmented`.
-/// Answers `None`, writing nothing, when it has segments already: the first answer stored is the
-/// one its clips and records are made from, so an attempt that runs again never asks twice.
+/// Up to `limit` meetings after meeting `through` in id order, or from the first when `None`,
+/// for the knowledge index's backfill to walk.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn after_id(
+    connection: &mut AsyncPgConnection,
+    through: Option<Uuid>,
+    limit: i64,
+) -> QueryResult<Vec<Meeting>> {
+    let mut statement = meetings::table
+        .select(Meeting::as_select())
+        .order(meetings::id.asc())
+        .limit(limit)
+        .into_boxed();
+    if let Some(through) = through {
+        statement = statement.filter(meetings::id.gt(through));
+    }
+    statement.load(connection).await
+}
+
+/// Stores what segmenting read of fetched meeting `id` (`crate::meetings::excerpts::Taken`) and
+/// moves it to `segmented`. Answers `None`, writing nothing, when it has an answer already: the
+/// first answer stored is the one its excerpts and black-outs are taken from, so an attempt that
+/// runs again never asks twice.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -314,13 +336,32 @@ pub async fn record_segments(
         .optional()
 }
 
-/// Moves meeting `id` to `done`: its segments are on the timeline.
+/// Moves meeting `id` to `done`: its excerpts are on the timeline.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn record_done(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
     diesel::update(meetings::table.find(id))
         .set(meetings::state.eq(MeetingState::Done.as_str()))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Moves fetched meeting `id` back to `recorded`, forgetting what segmenting read of it, so its
+/// next segmenting reads it again: Done reviewing, and a meeting read before excerpts.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn reopen_for_segmenting(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set((
+            meetings::segments.eq(None::<Value>),
+            meetings::state.eq(MeetingState::Recorded.as_str()),
+        ))
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await

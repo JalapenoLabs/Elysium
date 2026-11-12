@@ -19,6 +19,10 @@ mod upload_part;
 #[cfg(test)]
 mod tests;
 
+/// How a meeting's live run refuses a change that would start another, which Done reviewing
+/// answers too.
+pub(crate) use create_upload::meeting_busy;
+
 use anyhow::Context;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;

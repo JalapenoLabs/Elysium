@@ -76,23 +76,7 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
     paragraphs.push(record.body.chars().take(BODY_MAX_CHARACTERS).collect());
     // After the body, so a comment written later changes only the passages at the document's end
     // and the rest keep their embeddings.
-    let mut room = THREADS_MAX_CHARACTERS;
-    for thread in threads {
-        let mut paragraph = format!("Comment on \"{}\"", thread.quote);
-        for comment in &thread.comments {
-            paragraph.push('\n');
-            paragraph.push_str(&comment.author);
-            paragraph.push_str(": ");
-            paragraph.push_str(&comment.body);
-        }
-        let length = paragraph.chars().count();
-        if length > room {
-            paragraphs.push(paragraph.chars().take(room).collect());
-            break;
-        }
-        room -= length;
-        paragraphs.push(paragraph);
-    }
+    paragraphs.extend(thread_paragraphs(threads));
 
     let passages = passages::split(&paragraphs.join("\n\n"));
     if passages.is_empty() {
@@ -110,6 +94,31 @@ pub fn document(record: &TimelineRecord, threads: &[IndexedThread]) -> Option<In
         created_by: record.created_by,
         passages,
     })
+}
+
+/// `threads` as the paragraphs a document holds after its text, in order, up to
+/// [`THREADS_MAX_CHARACTERS`]: each the first words of its range, then its comments by their
+/// authors' names.
+pub fn thread_paragraphs(threads: &[IndexedThread]) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    let mut room = THREADS_MAX_CHARACTERS;
+    for thread in threads {
+        let mut paragraph = format!("Comment on \"{}\"", thread.quote);
+        for comment in &thread.comments {
+            paragraph.push('\n');
+            paragraph.push_str(&comment.author);
+            paragraph.push_str(": ");
+            paragraph.push_str(&comment.body);
+        }
+        let length = paragraph.chars().count();
+        if length > room {
+            paragraphs.push(paragraph.chars().take(room).collect());
+            break;
+        }
+        room -= length;
+        paragraphs.push(paragraph);
+    }
+    paragraphs
 }
 
 /// What a record is one version of, for a kind recorded once per version.
@@ -176,6 +185,7 @@ mod tests {
             action_item_id: None,
             created_by: Uuid::now_v7(),
             created_at: Utc::now(),
+            excerpt_mark_id: None,
         }
     }
 

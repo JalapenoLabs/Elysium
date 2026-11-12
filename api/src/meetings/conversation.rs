@@ -160,6 +160,7 @@ mod tests {
             action_item_id: None,
             created_by: new.created_by,
             created_at: Utc::now(),
+            excerpt_mark_id: None,
         }
     }
 

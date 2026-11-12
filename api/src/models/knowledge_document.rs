@@ -45,13 +45,21 @@ pub enum KnowledgeSource {
     /// timeline record's kind is: `page`, and a kind of its own for a page that stands for
     /// something a filter already names, `learning` and `company_doc`.
     Page { id: Uuid, kind: String },
+    /// The meeting with this id, as its whole final transcript, which the search's source filter
+    /// names `meeting` as it does the meeting's excerpts (`crate::meetings::excerpts`).
+    Meeting { id: Uuid },
 }
+
+/// What the search's source filter calls a meeting's whole transcript: what it calls an excerpt of
+/// one, so filtering by meetings finds both.
+pub const MEETING_KIND: &str = "meeting";
 
 impl KnowledgeSource {
     /// What the search's source filter calls documents of this kind.
     pub fn label(&self) -> &str {
         match self {
             Self::TimelineRecord { kind, .. } | Self::Page { kind, .. } => kind,
+            Self::Meeting { .. } => MEETING_KIND,
         }
     }
 }
@@ -125,6 +133,11 @@ async fn lock(
             .first(connection)
             .await
             .optional(),
+        KnowledgeSource::Meeting { id } => query
+            .filter(knowledge_documents::meeting_id.eq(id))
+            .first(connection)
+            .await
+            .optional(),
     }
 }
 
@@ -155,6 +168,16 @@ async fn insert(
                 .values((
                     knowledge_documents::id.eq(id),
                     knowledge_documents::page_id.eq(page_id),
+                    fields,
+                ))
+                .execute(connection)
+                .await?;
+        }
+        KnowledgeSource::Meeting { id: meeting_id } => {
+            insert
+                .values((
+                    knowledge_documents::id.eq(id),
+                    knowledge_documents::meeting_id.eq(meeting_id),
                     fields,
                 ))
                 .execute(connection)
@@ -229,6 +252,11 @@ pub async fn remove(
                 .execute(connection)
                 .await?;
         }
+        KnowledgeSource::Meeting { id } => {
+            diesel::delete(documents.filter(knowledge_documents::meeting_id.eq(id)))
+                .execute(connection)
+                .await?;
+        }
     }
     Ok(())
 }
@@ -254,6 +282,8 @@ pub struct Citation {
     /// The page it was indexed from, a learning's or a company doc section's included, which a
     /// reader opens in place of the document.
     pub page_id: Option<Uuid>,
+    /// The meeting whose whole transcript it is, which a reader opens in place of the document.
+    pub meeting_id: Option<Uuid>,
     pub occurred_at: DateTime<Utc>,
     pub person: Person,
 }
@@ -299,6 +329,10 @@ pub enum Origin {
     Page {
         page_id: Uuid,
     },
+    /// A meeting's whole transcript, which a reader opens as the meeting's page.
+    Meeting {
+        meeting_id: Uuid,
+    },
 }
 
 /// A project a timeline record is attributed to.
@@ -341,6 +375,7 @@ struct DocumentRow {
     content_sha256: String,
     timeline_record_id: Option<Uuid>,
     page_id: Option<Uuid>,
+    meeting_id: Option<Uuid>,
 }
 
 /// The passage at `position` of page `page_id`'s document, its text as the search cited it. `None`
@@ -419,6 +454,7 @@ pub async fn get(
             knowledge_documents::content_sha256,
             knowledge_documents::timeline_record_id,
             knowledge_documents::page_id,
+            knowledge_documents::meeting_id,
         ))
         .first(connection)
         .await
@@ -449,6 +485,7 @@ pub async fn get(
         .filter(knowledge_documents::source.eq(&row.source))
         .filter(knowledge_documents::id.ne(row.id))
         .filter(knowledge_documents::page_id.is_null())
+        .filter(knowledge_documents::meeting_id.is_null())
         .select((
             knowledge_documents::id,
             knowledge_documents::created_by,
@@ -461,9 +498,11 @@ pub async fn get(
         .load(connection)
         .await?;
 
-    let origin = row.page_id.map_or(Origin::TimelineRecord, |page_id| {
-        origin_of_page(page_id, &row.source)
-    });
+    let origin = match (row.page_id, row.meeting_id) {
+        (Some(page_id), _) => origin_of_page(page_id, &row.source),
+        (None, Some(meeting_id)) => Origin::Meeting { meeting_id },
+        (None, None) => Origin::TimelineRecord,
+    };
 
     Ok(Some(DocumentView {
         citation: Citation {
@@ -472,6 +511,7 @@ pub async fn get(
             title: row.title,
             url: row.url,
             page_id: row.page_id,
+            meeting_id: row.meeting_id,
             occurred_at: row.occurred_at,
             person: Person {
                 id: row.created_by,

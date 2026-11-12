@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/meetings/{id}/words`: one of the signed-in person's meetings' final transcript as
-//! it reads, for its page: its standing words in order, every standing mark over them, and its
+//! it reads, for its page: its standing words in order, every standing mark over them (each
+//! excerpt with its record and the projects it is on), and its
 //! captures, each of which opens as it came (`captures/{captureId}/transcript`) and plays its
 //! recording (`captures/{captureId}/media`).
 //!
@@ -16,7 +17,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MarkResponse, WordResponse};
+use super::{WordResponse, mark_responses};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::media::media_type_of;
@@ -90,7 +91,7 @@ pub async fn handle(
         })
         .await?;
     let words: Vec<WordResponse> = words.into_iter().map(WordResponse::from).collect();
-    let marks: Vec<MarkResponse> = marks.into_iter().map(MarkResponse::from).collect();
+    let marks = mark_responses(&mut connection, marks).await?;
     let captures: Vec<CaptureResponse> = captures.into_iter().map(CaptureResponse::from).collect();
     Ok(Json(
         json!({ "words": words, "marks": marks, "captures": captures }),

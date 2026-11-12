@@ -329,7 +329,8 @@ pub async fn indexed_over(
     start_ms: i64,
     end_ms: i64,
 ) -> QueryResult<Vec<IndexedThread>> {
-    // The quote reads the standing words between its ends, through the transcript's own index.
+    // The quote reads the standing words between its ends, through the transcript's own index,
+    // leaving out every word a standing black-out covers, as everything indexed does.
     let threads: Vec<ThreadRow> = diesel::sql_query(format!(
         "SELECT marks.id AS mark_id,
                 COALESCE((
@@ -340,6 +341,19 @@ pub async fn indexed_over(
                         WHERE words.meeting_id = marks.meeting_id
                           AND words.superseded_by IS NULL
                           AND words.position BETWEEN first.position AND last.position
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM meeting_marks black_outs
+                              JOIN meeting_words black_out_first
+                                ON black_out_first.id = black_outs.start_word_id
+                              JOIN meeting_words black_out_last
+                                ON black_out_last.id = black_outs.end_word_id
+                              WHERE black_outs.meeting_id = marks.meeting_id
+                                AND black_outs.kind = 'black_out'
+                                AND black_outs.removed_by IS NULL
+                                AND words.position
+                                    BETWEEN black_out_first.position AND black_out_last.position
+                          )
                         ORDER BY words.position
                         LIMIT $4
                     ) quoted

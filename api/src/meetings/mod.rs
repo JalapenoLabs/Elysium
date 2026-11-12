@@ -42,6 +42,7 @@ pub mod conversation;
 pub mod correct;
 pub mod correction;
 pub mod duplicates;
+pub mod excerpts;
 pub mod fetch;
 pub mod final_transcript;
 pub mod fireflies;
@@ -49,6 +50,7 @@ pub mod fireflies_browser;
 pub mod fixes;
 pub mod history;
 pub mod media;
+pub mod review;
 pub mod segment;
 pub mod segmentation;
 pub mod source;
@@ -87,6 +89,7 @@ use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::meeting_capture::{self, MeetingCapture, NewMeetingCapture};
 use crate::models::meeting_upload;
 use crate::models::storage_location::{self, StorageLocation};
+use crate::models::user::SYSTEM_USER_ID;
 use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::workflows;
@@ -550,7 +553,8 @@ impl Meetings {
         let new_run = match start {
             RunToStart::FromFetch => workflow::run_for(unfinished.id),
             RunToStart::FromSegmenting => {
-                workflow::run_from_segmenting(&mut connection, &unfinished).await?
+                workflow::run_from_segmenting(&mut connection, &unfinished, SYSTEM_USER_ID)
+                    .await?
             }
         };
         let started = workflows::start(&mut connection, &self.inner.events, new_run).await?;
