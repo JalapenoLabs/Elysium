@@ -28,14 +28,16 @@ redis_container="elysium-verify-redis-$$"
 
 # Only the library's tests are built (see the last step), so an ignored test anywhere else would
 # run neither here nor in plain `cargo test`. Every other place cargo finds tests is searched for
-# one, and the run stops before it starts anything.
+# one, whether `#[ignore]` is written alone or inside `#[cfg_attr(...)]`, and the run stops
+# before it starts anything.
 outside_library=()
 for path in src/main.rs src/bin tests benches examples; do
   if [ -e "$api_dir/$path" ]; then
     outside_library+=("$api_dir/$path")
   fi
 done
-if grep --recursive --files-with-matches '#\[ignore' "${outside_library[@]}"; then
+if [ "${#outside_library[@]}" -gt 0 ] \
+  && grep --recursive --files-with-matches --extended-regexp '#\[(cfg_attr\(.*)?ignore' "${outside_library[@]}"; then
   echo "==> the files above hold ignored tests outside the library, which nothing would run" >&2
   exit 1
 fi
