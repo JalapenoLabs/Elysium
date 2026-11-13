@@ -212,11 +212,12 @@ jobs:
   image:
     name: API image
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      IMAGE: elysium-api:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE: elysium-api:ci
+      # The BuildKit the image builds with, pinned like any other image.
+      BUILDKIT_IMAGE: moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
 
     steps:
       - name: Checkout
@@ -244,10 +245,34 @@ jobs:
           fi
           echo "api/Dockerfile builds the web app with Node ${node_version}."
 
-      # The `app` stage, from the repository root, exactly as the publish
-      # workflow builds it. Not pushed anywhere.
+      # BuildKit in a container of its own, which can keep layers in the Actions
+      # cache; Docker's built-in builder cannot.
+      - name: Set up BuildKit
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+
+      # The `app` stage, from the repository root, the stage and context the publish
+      # workflow builds, loaded into Docker for the checks below rather than pushed. Its
+      # layers come from the Actions cache, so a commit that changes no dependency
+      # starts from the compiled dependencies (cargo-chef's cook layer) and the web
+      # app's installed packages, and compiles only the crate. Only pushes to main
+      # save it: the layer a commit's own compile makes is never reused, and saving
+      # one from every pull request would evict the Rust jobs' caches.
       - name: Build the image
-        run: docker build --file api/Dockerfile --target app --tag "${IMAGE}" .
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          # A record of each build, uploaded as an artifact nothing here reads.
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
+        with:
+          context: .
+          file: api/Dockerfile
+          target: app
+          tags: ${{ env.IMAGE }}
+          load: true
+          provenance: false
+          cache-from: type=gha,scope=api-image
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,scope=api-image,mode=max' || '' }}
 
       # Booting either process needs Postgres, Redis, and an encryption key. Running
       # each CLI still proves the runtime stage: both binaries start and find every
@@ -261,7 +286,3 @@ jobs:
       # one would otherwise surface only when a deployment boots.
       - name: Check the image carries the web app
         run: docker run --rm --entrypoint sh "${IMAGE}" -c 'test -f "${FRONTEND_DIR}/index.html"'
-
-      - name: Remove the CI tag
-        if: always()
-        run: docker rmi --force "${IMAGE}" > /dev/null 2>&1 || true

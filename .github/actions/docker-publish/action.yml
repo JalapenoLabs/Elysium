@@ -3,9 +3,9 @@
 # Builds one image and pushes it to Docker Hub under the tags the triggering ref earns.
 # Used by .github/workflows/publish.yml only; see docs/ci.md.
 #
-# The runners are persistent and can share one Docker daemon, so nothing here leaves
-# state behind: the login lives in a configuration directory inside the job's own
-# temporary directory and is removed at the end, and every local tag is removed too.
+# Each job runs on a fresh GitHub-hosted machine that is discarded afterwards, so the
+# login lives in a configuration directory inside the job's temporary directory and
+# nothing needs removing at the end.
 name: Docker publish
 description: Build an image and push it to Docker Hub with the tags for this ref.
 
@@ -73,8 +73,7 @@ runs:
           echo "PUBLISH_TAGS=${tags}"
           echo "PUBLISH_VERSION=${version}"
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config"
-          # Unique per run, because runners in the pool can share one Docker daemon.
-          echo "PUBLISH_BUILD_TAG=${REPOSITORY}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "PUBLISH_BUILD_TAG=${REPOSITORY}:build"
         } >> "${GITHUB_ENV}"
 
     # Fails before the build when the organization's credentials are not shared with
@@ -94,7 +93,7 @@ runs:
         printf '%s' "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
 
     # --pull refreshes the base images, so a published image carries the latest
-    # security fixes of its pinned base tags. The runners are x86_64, so the image is
+    # security fixes of its pinned base tags. The runner is x86_64, so the image is
     # linux/amd64 alone.
     - name: Build the image
       shell: bash
@@ -132,8 +131,8 @@ runs:
     #
     # Release runs of different versions do overlap, so X.Y and latest move only for the
     # newest release, read from the repository's tags after the build rather than before
-    # it, and they move on the registry, pointed at the version just pushed, never
-    # through a local tag another run on the same daemon could retag or remove.
+    # it, and they move on the registry, pointed at the manifest of the version just
+    # pushed, so X.Y and latest are always exactly a published version.
     - name: Push the tags
       shell: bash
       env:
@@ -184,15 +183,3 @@ runs:
         for tag in "${floating[@]}"; do
           docker buildx imagetools create --tag "${REPOSITORY}:${tag}" "${REPOSITORY}:${PUBLISH_VERSION}"
         done
-
-    - name: Log out and remove the local build
-      if: always()
-      shell: bash
-      run: |
-        if [ -n "${DOCKER_CONFIG:-}" ]; then
-          docker logout > /dev/null 2>&1 || true
-          rm -rf "${DOCKER_CONFIG}"
-        fi
-        if [ -n "${PUBLISH_BUILD_TAG:-}" ]; then
-          docker rmi --force "${PUBLISH_BUILD_TAG}" > /dev/null 2>&1 || true
-        fi

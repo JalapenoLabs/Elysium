@@ -102,12 +102,11 @@ jobs:
   image:
     name: Broker image
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      IMAGE: elysium-oauth-broker:ci-${{ github.run_id }}-${{ github.run_attempt }}
-      CONTAINER: elysium-oauth-broker-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE: elysium-oauth-broker:ci
+      CONTAINER: elysium-oauth-broker-ci
 
     steps:
       - name: Checkout
@@ -149,7 +148,6 @@ jobs:
             --publish 127.0.0.1::8080 \
             "${IMAGE}" > /dev/null
 
-          # Docker picks the host port, so concurrent runs never collide.
           port="$(docker port "${CONTAINER}" 8080/tcp | head -n 1 | cut -d: -f2)"
 
           for _ in $(seq 1 30); do
@@ -163,9 +161,3 @@ jobs:
           echo "::error::The broker never answered /healthz."
           docker logs "${CONTAINER}" >&2
           exit 1
-
-      - name: Remove the container and the CI tag
-        if: always()
-        run: |
-          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
-          docker rmi --force "${IMAGE}" > /dev/null 2>&1 || true

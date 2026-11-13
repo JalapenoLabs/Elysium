@@ -39,7 +39,7 @@ jobs:
     # the workspace, Whisper, and embedding images of the same tag, so those must already be
     # there.
     needs: [ workspace, whisper, embeddings ]
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -62,7 +62,7 @@ jobs:
 
   oauth-broker:
     name: Publish OAuth broker
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -82,7 +82,7 @@ jobs:
 
   workspace:
     name: Publish workspace
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -102,7 +102,7 @@ jobs:
 
   whisper:
     name: Publish Whisper
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -124,7 +124,7 @@ jobs:
 
   embeddings:
     name: Publish Embeddings
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

@@ -827,9 +827,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 ## CI
 
-- GitHub Actions on GitHub-hosted `ubuntu-24.04` (pinned, never `ubuntu-latest`): a fresh machine per job, so the Rust
-  jobs restore their compiled dependencies with `Swatinem/rust-cache`. The image builds and `publish.yml` still run on
-  the org's self-hosted runners (`[ self-hosted, linux, rocky9, docker ]`) until #271 moves them. See `docs/ci.md`.
+- GitHub Actions on GitHub-hosted `ubuntu-24.04` (pinned, never `ubuntu-latest`), a fresh machine per job: the Rust
+  jobs restore their compiled dependencies with `Swatinem/rust-cache`, and `API image` its layers from the Actions
+  cache. Only `pull-review.yml` stays on the self-hosted `reviewer` runner, until JalapenoLabs/github-actions#7. See
+  `docs/ci.md`.
 - Every build and test run uses at most 4 cores: `jobs = 4` and `RUST_TEST_THREADS = "4"` in each crate's
   `.cargo/config.toml`, and `--maxWorkers=4` in the frontend's `yarn test`. Run one Docker image build at a time,
   with `--build-arg CARGO_BUILD_JOBS=4`.
@@ -842,7 +843,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   from forks; permissions stay `contents: read`; no check reads a secret; third-party actions are pinned to a
   commit SHA.
 - The one exception is `publish.yml`, which reads the organization's Docker Hub token (`DOCKERHUB_USERNAME`
-  variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and leaves no login on the runners.
+  variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and its login ends with the job's
+  machine.
 - `release.yml` cuts a `vX.Y.Z` tag daily from the newest green commit on `main` and starts `publish.yml` on it. Its
   token may push tags and start workflows; it reads no secret and never triggers on a pull request.
 - Tools are pinned in one place and verified: Rust by each crate's `rust-toolchain.toml`, Node by `frontend/.nvmrc`,

@@ -24,15 +24,14 @@ concurrency:
 jobs:
   image:
     name: Embeddings image
-    # Elysium is public and these runners are self-hosted, so a fork's pull request never
-    # reaches them.
+    # A fork's pull request is skipped, so a fork's code first runs once a maintainer queues
+    # it, in the merge group, where every check runs again.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      IMAGE: elysium-embeddings:ci-${{ github.run_id }}-${{ github.run_attempt }}
-      CONTAINER: elysium-embeddings-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE: elysium-embeddings:ci
+      CONTAINER: elysium-embeddings-ci
 
     steps:
       - name: Checkout
@@ -40,8 +39,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Every model file is checked against its pinned SHA-256 as it is added; the warm build
-      # cache keeps the 550 MB model between runs, keyed by that checksum.
+      # Every model file is checked against its pinned SHA-256 as it is added. Nothing is
+      # cached between runs: the runner downloads the 550 MB model in seconds.
       - name: Build the image
         run: docker build --tag "${IMAGE}" embeddings
 
@@ -90,9 +89,3 @@ jobs:
           assert near > far + 0.2, (near, far)
           print(f"serves {model}; similarity to the answer {near:.3f}, to the other passage {far:.3f}")
           EOF
-
-      - name: Remove the container and the image
-        if: always()
-        run: |
-          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
-          docker image rm "${IMAGE}" > /dev/null 2>&1 || true

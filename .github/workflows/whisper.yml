@@ -24,14 +24,13 @@ concurrency:
 jobs:
   image:
     name: Whisper image
-    # Elysium is public and these runners are self-hosted, so a fork's pull request never
-    # reaches them.
+    # A fork's pull request is skipped, so a fork's code first runs once a maintainer queues
+    # it, in the merge group, where every check runs again.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      IMAGE: elysium-whisper:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE: elysium-whisper:ci
 
     steps:
       - name: Checkout
@@ -39,8 +38,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Every model file is checked against its pinned SHA-256 as it is added; the warm build
-      # cache keeps the 3 GB model between runs, keyed by that checksum.
+      # Every model file is checked against its pinned SHA-256 as it is added. Nothing is
+      # cached between runs: the runner downloads the 3 GB model in well under a minute.
       - name: Build the image
         run: docker build --tag "${IMAGE}" whisper
 
@@ -88,7 +87,3 @@ jobs:
           }
           test "$(transcribe < "${RUNNER_TEMP}/picture.png")" = 3
           test "$(printf 'no recording at all' | transcribe)" = 2
-
-      - name: Remove the image
-        if: always()
-        run: docker image rm "${IMAGE}" > /dev/null 2>&1 || true

@@ -1,10 +1,10 @@
 # CI
 
-GitHub Actions, on GitHub-hosted runners except the image builds and publishing, which run on the org's self-hosted
-runners until they move too (see Roadmap). Every check runs on pull requests to `main`, in the merge queue, on
-pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/publish.yml` pushes the images to
-Docker Hub after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the
-automated review, described in `docs/infrastructure.md`, and is not part of this.
+GitHub Actions, on GitHub-hosted runners. Every check runs on pull requests to `main`, in the merge queue, on pushes
+to `main`, and on demand through `workflow_dispatch`. `.github/workflows/publish.yml` pushes the images to Docker Hub
+after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the automated
+review, described in `docs/infrastructure.md`, and is not part of this; it runs on the org's self-hosted `reviewer`
+runner until the shared review pipeline can run on a hosted one (see Roadmap).
 
 Changes are committed straight to `main` and pushed; nothing waits on a pull request or a check first. The checks run
 on every push to `main` as an alarm after the fact: a red run is fixed at once with the next push. Pull requests and
@@ -12,9 +12,7 @@ the merge queue remain for outside contributors, which is what the fork rules be
 
 ## Runners
 
-### GitHub-hosted
-
-Every job except the image builds and publishing targets:
+Every job targets:
 
 ```yaml
 runs-on: ubuntu-24.04
@@ -23,7 +21,7 @@ runs-on: ubuntu-24.04
 The image is named by its Ubuntu release, never `ubuntu-latest`, so a new release is a change made here rather than
 one that arrives on its own. Elysium is public, so these runners cost nothing. Each job gets a fresh machine with 4
 vCPUs, 16 GB of memory, 3 GB of swap, and about 86 GB of free disk, and the machine is discarded when the job ends, so
-nothing a job leaves behind can pile up.
+nothing a job leaves behind can pile up and no two jobs share a Docker daemon.
 
 A fresh machine compiles from nothing, so a Rust job restores its crate's compiled dependencies from the Actions cache
 through `.github/actions/rust-toolchain`, which runs `Swatinem/rust-cache` after installing the pinned toolchain. Only
@@ -44,29 +42,20 @@ and saves its own only when it changed what they are keyed by. GitHub keeps 10 G
 the least recently used past that; `api-test` is about 530 MB. `API test` and `API migrations` share `api-test`, so
 after a lockfile change both save it, and whichever finishes second logs that the entry is already there.
 
-The frontend jobs cache nothing: a cold `yarn install` takes under a minute, and Yarn's cache would be about 820 MB of
-the 10 GB for half of that.
+`API image` keeps its Docker layers in the same cache, under the scope `api-image` (see API below). The other images
+cache nothing: each builds from nothing in under three minutes, the Whisper and embedding models included. Neither do
+the frontend jobs: a cold `yarn install` takes under a minute, and Yarn's cache would be about 820 MB of the 10 GB for
+half of that.
 
-The Free plan runs at most 20 GitHub-hosted jobs at once across the organization, and one push to Elysium starts 12.
-Back-to-back pushes queue at GitHub rather than on a machine of ours. Each workflow's concurrency group cancels the
-run a newer push to the same ref supersedes, and merge groups never share a ref, so every queued pull request's checks
-run in full.
+The Free plan runs at most 20 GitHub-hosted jobs at once across the organization. A push to a pull request starts
+the 19 checks; a push to `main` also starts publishing, four images at once and the API's after them, so it asks for
+23 and some wait for others. Every push queues at GitHub rather than on a machine of ours, beside the organization's
+other repositories. Each workflow's concurrency group cancels the run a newer push to the same ref supersedes, and
+merge groups never share a ref, so every queued pull request's checks run in full.
 
-### Self-hosted
-
-The image builds and `publish.yml` target:
-
-```yaml
-runs-on: [ self-hosted, linux, rocky9, docker ]
-```
-
-Labels match as a set. `chipotle`, `chipotle2`, and `chipotle3` carry all four, so up to three jobs run at once. The
-`flagship` label is left out on purpose: only `chipotle` carries it, and a runner takes one job at a time, so requiring
-it would queue every job behind the one before. These runners are persistent, so Docker's layer cache is already warm
-on the machine.
-
-Concurrent jobs on one Docker daemon never collide: image tags and container names carry the run id and attempt, and
-every published port is picked by Docker (`--publish 127.0.0.1::<port>`) and read back with `docker port`.
+Image builds pull their base images from Docker Hub anonymously. Measured from a hosted runner on 2026-11-13, Docker
+Hub answered `ratelimit-limit: 100;w=3600`, 100 pulls an hour for the runner's address, which other GitHub users share;
+one job pulls a handful. No check logs in, since no check reads a secret.
 
 **Every build and test run is capped at 4 cores.** Several agents build in parallel on one development machine, and
 an uncapped build takes every core; a hosted runner has 4 vCPUs, so the cap costs CI nothing. `api/.cargo/config.toml`
@@ -111,17 +100,22 @@ reporting `Clippy` could not be told apart.
 
 ## Security
 
-Elysium is public, and a job on the self-hosted runners is code execution on org hardware. A GitHub-hosted job runs on
-a machine that is discarded afterwards, but it holds the same token, so the same rules apply to both.
+Elysium is public, so anyone can open a pull request whose code CI runs with the repository's token. Every job runs
+on a GitHub-hosted machine that is discarded afterwards, so nothing it does outlives it, and these rules keep what the
+token and the run can reach to a minimum. They cover every workflow but `pull-review.yml`, the org's standard review
+file and the one workflow on org hardware, the self-hosted `reviewer` runner. It is an exception to them by design: it
+triggers on `pull_request_target`, writes its reviews, and never checks out a fork (`docs/infrastructure.md`,
+Automated pull request review).
 
 - The repository requires approval before any outside contributor's workflow runs.
 - Workflows trigger on `pull_request`, never `pull_request_target`, so a pull request runs with a read-only token and
   no secrets.
 - Every job carries the guard
   `github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`. A pull
-  request from a fork is skipped outright and never reaches a runner. Pushes, merge groups, and manual runs always come
-  from this repository, so the guard never skips them. A skipped job counts as passing for a required check, which is
-  safe because the merge queue runs every check again on the merge group, where nothing is skipped.
+  request from a fork is skipped outright, so a fork's code first runs once a maintainer queues it. Pushes, merge
+  groups, and manual runs always come from this repository, so the guard never skips them. A skipped job counts as
+  passing for a required check, which is safe because the merge queue runs every check again on the merge group,
+  where nothing is skipped.
 - Every workflow grants `permissions: contents: read` and nothing else, and checkout sets
   `persist-credentials: false`, so no token is left in the workspace or copied into the API image with `.git`.
 - No check reads a secret. The placeholder values in the Compose and broker checks are not credentials. The one
@@ -130,8 +124,9 @@ a machine that is discarded afterwards, but it holds the same token, so the same
 - `release.yml` is the one workflow whose token writes: `contents: write` to push a release tag and `actions: write`
   to start `publish.yml` on it. It reads no secret, and runs only on its schedule and by hand, never on a pull
   request.
-- Third-party actions are pinned to a full commit SHA with the version in a comment: `actions/checkout`, and
-  `Swatinem/rust-cache` inside `.github/actions/rust-toolchain`.
+- Third-party actions are pinned to a full commit SHA with the version in a comment: `actions/checkout`,
+  `Swatinem/rust-cache` inside `.github/actions/rust-toolchain`, and `docker/setup-buildx-action` and
+  `docker/build-push-action` in `API image`.
 
 ## Pins
 
@@ -148,9 +143,11 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Compose            | the docker CLI image in `updater/Dockerfile`, by digest | checksum, version (`Compose config`) |
 | Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
-| Runner image       | `ubuntu-24.04` in each hosted job's `runs-on`        |                                   |
+| Runner image       | `ubuntu-24.04` in each job's `runs-on`               |                                   |
 | `actions/checkout` | a commit SHA in each workflow                        |                                   |
 | `Swatinem/rust-cache` | a commit SHA in `.github/actions/rust-toolchain`  |                                   |
+| `docker/setup-buildx-action`, `docker/build-push-action` | a commit SHA in `api.yml` |                       |
+| BuildKit           | `moby/buildkit`'s release and digest in `api.yml`    | the digest                        |
 
 rustup installs exactly the channel a crate's `rust-toolchain.toml` names. rustfmt and clippy are added with
 `rustup component add` rather than listed there, because the images build from the minimal official Rust image and
@@ -198,6 +195,7 @@ The script names its containers after its own process id, starts them without `-
 directory, so a container removed without `--volumes` leaves that volume behind for good. The workflow records the
 script's process id, so a cancelled run, which can kill the script before its cleanup runs, still has both containers
 and their volumes removed by an `always()` step, which says what it removed.
+
 Postgres keeps its data on disk rather than a tmpfs: no test drops the database it creates, about 18 MB each once
 migrated, so the suite ends holding about 12 GB, more than the hosted runner's memory could spare. It runs with
 `fsync`, `synchronous_commit`, and `full_page_writes` off instead, since nothing in it outlives the container: on the
@@ -208,9 +206,17 @@ Postgres client library, and it needs glibc 2.34, which Ubuntu 24.04 ships.
 
 `API image` builds the default `app` stage of `api/Dockerfile` from the repository root, as the publish workflow
 does, checks its `FROM rust:` and `FROM node:` lines against the pins, checks the image carries the web app's
-`index.html`, and runs `elysium-api --help` and `elysium-engine --help` in it.
-That proves the runtime stage links both binaries. Booting either would need Postgres, Redis, and an encryption key, which the
-checks above already cover.
+`index.html`, and runs `elysium-api --help` and `elysium-engine --help` in it. That proves the runtime stage links both
+binaries. Booting either would need Postgres, Redis, and an encryption key, which the checks above already cover.
+
+It builds with BuildKit in a container of its own (`docker/setup-buildx-action`, the BuildKit image pinned by
+digest), since Docker's built-in builder cannot keep layers in the Actions cache, and loads the result into Docker for
+the checks. Its layers come from the cache's `api-image` scope, so a commit that changes no dependency starts from
+cargo-chef's compiled dependencies and the web app's installed packages and compiles only the crate. Only pushes to
+`main` save the cache, with every stage's layers (`mode=max`): the layer a commit's own compile makes is never reused,
+and saving one from every pull request would evict the Rust jobs' caches. The cache takes about 4 minutes off a cold
+build of about 20; the rest is the crate's release build, link-time optimised over one codegen unit, which no cache
+can skip.
 
 ## OAuth broker
 
@@ -234,10 +240,9 @@ version from the docker CLI image `updater/Dockerfile` pins, installs that Compo
 checked against the checksum published beside it, and asserts its version: the runner's own Compose is older and
 refuses fields the stacks use, such as `build.provenance`. A new docker CLI image in `updater/Dockerfile` therefore
 brings its Compose here too, and `.github/scripts/check-compose.py` reads that Compose's output, so this job is where
-a Compose upgrade fails first. Compose refuses every command while a required variable is
-unset and the checkout has no environment file, so the step sets placeholders for exactly the required variables.
-Nothing is started. The images compose builds are built by the image checks instead of `docker compose build`, whose
-fixed image names would race between concurrent runs on one daemon.
+a Compose upgrade fails first. Compose refuses every command while a required variable is unset and the checkout has
+no environment file, so the step sets placeholders for exactly the required variables. Nothing is started. The images
+compose builds are built and tested by the image checks instead of `docker compose build`.
 
 The same job runs `.github/scripts/check-compose.py` over all three stacks (production, production from a checkout,
 and development), the rules that let a plain `docker compose up` recreate exactly what changed: no service
@@ -246,7 +251,7 @@ pulls it, every build turns provenance off, and every configuration image is bui
 needs only Docker and the Python standard library.
 
 `Configuration images` builds the images compose builds from `nginx/`, `kratos/`, `hydra/`, and `updater/` (see
-`docs/infrastructure.md`, Configuration images) with `docker build` under tags unique to the run, for the same reason.
+`docs/infrastructure.md`, Configuration images) with `docker build`, as compose builds them.
 Each nginx stage then runs `nginx -t`, with every upstream name it proxies to pointed at loopback, since nginx resolves
 them when it reads its configuration.
 
@@ -275,10 +280,12 @@ Every job uses the composite action `.github/actions/docker-publish`:
   before building when either is not shared with this repository.
 - Docker Hub creates each repository on its first push, public by the account's default.
 - Each job names the Dockerfile stage it publishes (`app` for the API) and builds `linux/amd64`.
-- The runners are persistent and share Docker daemons, so the login lives in `DOCKER_CONFIG` under the job's
-  temporary directory, and an `always()` step logs out, removes it, and deletes every local tag.
+- Each job runs on a fresh GitHub-hosted machine, discarded afterwards. The login lives in `DOCKER_CONFIG` under the
+  job's temporary directory, so it never reaches the runner's home directory.
+- The images build with Docker's built-in builder and no layer cache: nothing waits on a publish, so the API image's
+  20 minutes hold no one up.
 - `--pull` refreshes the base images, so a published image carries the latest fixes of its pinned base tags.
-- The image is built once under a tag unique to the run, then tagged and pushed for each published tag. Runs of one
+- The image is built once under a local build tag, then tagged and pushed for each published tag. Runs of one
   ref queue rather than cancel (a cancelled run could leave tags on different builds), and `main` and release tags
   push disjoint tag sets.
 - Release runs of different versions overlap, so `X.Y` and `latest` move only when the version is the newest stable
@@ -286,8 +293,8 @@ Every job uses the composite action `.github/actions/docker-publish`:
   Releasing `1.2.4` while `1.2.3` is still building leaves `latest` on `1.2.4` whichever finishes last. The exact
   version is pushed first; a run that cannot list the tags then fails, leaving `X.Y` and `latest` where they were,
   rather than assume it is the newest.
-- `X.Y` and `latest` are moved on the registry with `docker buildx imagetools create`, pointed at the version just
-  pushed, never through a local tag another run on the same daemon could retag or remove.
+- `X.Y` and `latest` are moved on the registry with `docker buildx imagetools create`, pointed at the manifest of
+  the version just pushed, so each is always exactly a published version.
 - A commit to `main` that changes only `docs/` or Markdown publishes nothing. Tag pushes are never filtered.
 
 A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
@@ -306,8 +313,8 @@ Deployments running auto-update apply the release within the hour after its imag
 
 ## Roadmap
 
-- Move the image builds and `publish.yml` to GitHub-hosted `ubuntu-24.04` runners (#271), with `pull-review.yml` last,
-  once the shared review pipeline runs on hosted runners (JalapenoLabs/github-actions#7).
+- Move `pull-review.yml` to a GitHub-hosted runner once the shared review pipeline installs its own tools there
+  (JalapenoLabs/github-actions#7).
 - Tests that drop the database they create, so the migrations check holds one at a time and its data could sit on a
   tmpfs.
 - A boot check for the API image against a disposable Postgres and Redis.

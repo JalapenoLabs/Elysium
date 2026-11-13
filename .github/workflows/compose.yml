@@ -102,11 +102,10 @@ jobs:
   configuration-images:
     name: Configuration images
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      TAG: ci
 
     steps:
       - name: Checkout
@@ -136,14 +135,3 @@ jobs:
               --add-host hydra:127.0.0.1 --add-host frontend:127.0.0.1 \
               "elysium-nginx:${TAG}-${target}" nginx -t
           done
-
-      - name: Remove the CI tags
-        if: always()
-        run: |
-          docker rmi --force \
-            "elysium-kratos:${TAG}" \
-            "elysium-hydra:${TAG}" \
-            "elysium-updater:${TAG}" \
-            "elysium-nginx:${TAG}-production" \
-            "elysium-nginx:${TAG}-development" \
-            > /dev/null 2>&1 || true

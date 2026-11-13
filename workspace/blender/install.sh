@@ -16,6 +16,14 @@ set -eu
 
 BLENDER_VERSION=5.2.2
 BLENDER_SHA256=84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168
+# download.blender.org now and then refuses a datacenter address with a 403, a GitHub-hosted runner's
+# among them, so two of Blender's official mirrors follow it. The checksum, not the host, is what
+# is trusted: a source whose archive does not match it is passed over like one that refuses.
+BLENDER_SOURCES="
+https://download.blender.org/release
+https://mirrors.ocf.berkeley.edu/blender/release
+https://ftp.nluug.nl/pub/graphics/blender/release
+"
 # The MCP server's release archives sit behind a bot check that refuses scripted downloads, so the
 # commit is the pin: git verifies the content it names.
 BLENDER_MCP_COMMIT=2cea8d566dde07fbac28a61d698909d69724e853
@@ -42,9 +50,21 @@ install_libraries() {
 
 install_blender() {
     series=$(echo "$BLENDER_VERSION" | cut -d. -f1,2)
-    curl -fsSLo /tmp/blender.tar.xz \
-        "https://download.blender.org/release/Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
-    echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum --check --quiet
+    archive="Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+    fetched=""
+    for source in $BLENDER_SOURCES; do
+        if curl -fsSLo /tmp/blender.tar.xz "$source/$archive" \
+            && echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum --check --quiet; then
+            fetched="$source"
+            break
+        fi
+        echo "==> $source did not serve Blender $BLENDER_VERSION as pinned; trying the next source" >&2
+    done
+    if [ -z "$fetched" ]; then
+        echo "==> no source served Blender $BLENDER_VERSION as pinned" >&2
+        exit 1
+    fi
+    echo "==> Blender $BLENDER_VERSION from $fetched"
     mkdir -p /opt/blender
     tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 --no-same-owner
     rm /tmp/blender.tar.xz
