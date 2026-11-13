@@ -25,13 +25,15 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{
-    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, keep_read,
+    parse_arguments,
 };
 use crate::findings::{self, FindingError, Report};
 use crate::meetings::attachments;
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
 use crate::models::finding::Reporter;
-use crate::models::meeting;
+use crate::models::meeting::{self, Reader};
+use crate::models::meeting_reads;
 use crate::models::meeting_task::DECLINE_REASON_MAX_CHARACTERS;
 use crate::models::page_project;
 use crate::models::promise::{self, Promise, PromiseState, Work};
@@ -84,8 +86,11 @@ const TOOLS: [Tool; 14] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
-            id, kind, when, who it came from, title, summary, and the start of its text. Pass \
-            before (the occurredAt of the last record listed) for older ones.",
+            id, kind, when, who it came from, title, summary, and the start of its text. A \
+            record from a private meeting is listed without its words (fromPrivateMeeting); \
+            manager_record reads it, and what you write in a turn that read one is read only by \
+            that meeting's readers. Pass before (the occurredAt of the last record listed) for \
+            older ones.",
         input_schema: timeline_schema,
         run: |context, scope, arguments| run_timeline(context, scope, arguments).boxed(),
     },
@@ -657,11 +662,37 @@ async fn run_timeline(
     )
     .await
     .map_err(|error| internal(scope, "manager.timeline", &error))?;
-    let listed: Vec<Value> = records
+    let more = i64::try_from(records.len()).is_ok_and(|count| count == limit);
+    let records = meeting_reads::for_agent(&mut connection, records, |(record, _)| record)
+        .await
+        .map_err(|error| internal(scope, "manager.timeline.meetings", &error))?;
+    // A record from a meeting that is not every member's is listed without its words, so browsing
+    // the timeline holds nothing the turn writes back; `manager_record` reads it whole.
+    let meeting_ids: Vec<Uuid> = records
         .iter()
-        .map(|(record, attribution)| record_view(record, attribution, TIMELINE_EXCERPT_CHARACTERS))
+        .flat_map(|(_record, meetings)| meetings.iter().copied())
         .collect();
-    let more = i64::try_from(listed.len()).is_ok_and(|count| count == limit);
+    let public = meeting::readable_among(&mut connection, &meeting_ids, Reader::ANY_MEMBER)
+        .await
+        .map_err(|error| internal(scope, "manager.timeline.public", &error))?;
+    let mut read = Vec::new();
+    let mut listed = Vec::with_capacity(records.len());
+    for ((record, attribution), meetings) in &records {
+        if meetings
+            .iter()
+            .all(|meeting_id| public.contains(meeting_id))
+        {
+            read.extend(meetings.iter().copied());
+            listed.push(record_view(
+                record,
+                attribution,
+                TIMELINE_EXCERPT_CHARACTERS,
+            ));
+        } else {
+            listed.push(withheld_record_view(record, attribution));
+        }
+    }
+    keep_read(&mut connection, scope, &read).await?;
     Ok(json!({ "records": listed, "more": more }))
 }
 
@@ -684,13 +715,17 @@ async fn run_record(
     )
     .await
     .map_err(|error| internal(scope, "manager.record", &error))?;
-    let Some((record, attribution)) = found.first() else {
+    let found = meeting_reads::for_agent(&mut connection, found, |(record, _)| record)
+        .await
+        .map_err(|error| internal(scope, "manager.record.meetings", &error))?;
+    let Some(((record, attribution), meetings)) = found.first() else {
         return Err(ToolError::NotFound(format!(
             "record {} is not on this project's timeline; call manager_timeline for the ones \
              that are",
             arguments.record_id
         )));
     };
+    keep_read(&mut connection, scope, meetings).await?;
     let mut view = record_view(record, attribution, RECORD_MAX_CHARACTERS);
     view["url"] = json!(record.url);
     let pinned = attachments::pinned_in(&mut connection, record)
@@ -916,16 +951,26 @@ async fn run_promises(
     .await
     .map_err(|error| internal(scope, "manager.promises", &error))?;
     let record_ids: Vec<Uuid> = listed.iter().map(|made| made.timeline_record_id).collect();
-    let records: HashMap<Uuid, TimelineRecord> =
-        timeline_record::find_many(&mut connection, &record_ids)
-            .await
-            .map_err(|error| internal(scope, "manager.promises", &error))?
-            .into_iter()
-            .map(|record| (record.id, record))
-            .collect();
+    let made_in = timeline_record::find_many(&mut connection, &record_ids)
+        .await
+        .map_err(|error| internal(scope, "manager.promises", &error))?;
+    let made_in = meeting_reads::for_agent(&mut connection, made_in, |record| record)
+        .await
+        .map_err(|error| internal(scope, "manager.promises.meetings", &error))?;
+    let mut read = Vec::new();
+    let mut records: HashMap<Uuid, TimelineRecord> = HashMap::new();
+    for (record, meetings) in made_in {
+        read.extend(meetings);
+        records.insert(record.id, record);
+    }
+    keep_read(&mut connection, scope, &read).await?;
+    // A promise made in an excerpt naming no meeting is left out with it.
     let promises: Vec<Value> = listed
         .iter()
-        .map(|made| promise_view(made, records.get(&made.timeline_record_id)))
+        .filter_map(|made| {
+            let record = records.get(&made.timeline_record_id)?;
+            Some(promise_view(made, Some(record)))
+        })
         .collect();
     Ok(json!({ "promises": promises }))
 }
@@ -1077,6 +1122,18 @@ fn record_view(record: &TimelineRecord, attribution: &Attribution, characters: u
             "confidence": attribution.confidence,
             "attributedBy": attributed_by,
         },
+    })
+}
+
+/// A record from a meeting that is not every member's as [`run_timeline`] lists it: what it is and
+/// when, without its words, which `manager_record` reads.
+fn withheld_record_view(record: &TimelineRecord, attribution: &Attribution) -> Value {
+    json!({
+        "id": record.id,
+        "kind": record.source_kind,
+        "occurredAt": record.occurred_at,
+        "fromPrivateMeeting": true,
+        "attribution": { "confidence": attribution.confidence },
     })
 }
 

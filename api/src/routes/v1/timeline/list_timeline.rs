@@ -7,6 +7,9 @@
 //! excerpts. `before` pages back: pass the
 //! `occurredAt` of the last record of the previous page. `total` counts every record the
 //! filters match across all pages, so a project's Timeline tab can name its size.
+//!
+//! A record naming a meeting the person may not read is left out of both, as if it were not there
+//! (`models::meeting_reads`).
 
 use anyhow::Context;
 use axum::Json;
@@ -20,6 +23,7 @@ use uuid::Uuid;
 use super::TimelineRecordResponse;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::timeline_record::{self, TimelineQuery};
 use crate::state::AppState;
 
@@ -56,7 +60,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let query = TimelineQuery {
-        owner: current.id(),
+        reader: Reader::of(&current.0),
         shared: current.0.is_company_member(),
         project_id: filters.project_id,
         action_item_id: filters.action_item_id,

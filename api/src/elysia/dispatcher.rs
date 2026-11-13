@@ -37,6 +37,7 @@ use super::{Elysia, stored_availability, thread, trigger};
 use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
+use crate::models::meeting_reads;
 use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::passwords::Passwords;
 use crate::realtime::{EventBus, ServerEvent, Signal};
@@ -206,14 +207,14 @@ async fn run_turn(
         // Cancelled or started elsewhere since it was read.
         return Ok(());
     };
-    publish_turn(context, &turn);
+    publish_turn(context, &mut connection, &turn).await?;
     publish_snapshot(&context.events, &mut connection).await?;
 
     let turn_context = match load_context(&mut connection, &turn).await? {
         Prepared::Ready(turn_context) => turn_context,
         Prepared::Nothing(summary) => {
             let finished = elysia::finish_turn(&mut connection, turn.id, Ok(Some(summary))).await?;
-            publish_turn(context, &finished);
+            publish_turn(context, &mut connection, &finished).await?;
             publish_snapshot(&context.events, &mut connection).await?;
             return Ok(());
         }
@@ -236,7 +237,7 @@ async fn run_turn(
         Err(error) => {
             let error = format!("Her tools could not be granted: {error:#}");
             let finished = elysia::finish_turn(&mut connection, turn.id, Err(&error)).await?;
-            publish_turn(context, &finished);
+            publish_turn(context, &mut connection, &finished).await?;
             publish_snapshot(&context.events, &mut connection).await?;
             return Ok(());
         }
@@ -274,7 +275,7 @@ async fn run_turn(
         elysia.turn.status = ?finished.status,
         "elysia turn finished",
     );
-    publish_turn(context, &finished);
+    publish_turn(context, &mut connection, &finished).await?;
     publish_snapshot(&context.events, &mut connection).await?;
     Ok(())
 }
@@ -347,7 +348,7 @@ async fn record_outcome(
                 },
             )
             .await?;
-            publish_turn(context, &again);
+            publish_turn(context, connection, &again).await?;
             let error = format!(
                 "Every Claude credential reached its usage limit. Queued again for after {}.",
                 resets_at.to_rfc3339()
@@ -441,6 +442,9 @@ async fn load_context(connection: &mut AsyncPgConnection, turn: &Turn) -> anyhow
             let Some(asked) = thread::Asked::of(&turn.trigger_detail) else {
                 anyhow::bail!("a meeting comment turn names no thread");
             };
+            // Kept before the prompt quotes its words, so what she writes of it is held to it.
+            let reading = meeting_reads::Turn::Elysia(turn.id);
+            meeting_reads::keep(connection, reading, &[asked.meeting]).await?;
             Ok(match thread::load(connection, asked, &names).await? {
                 thread::Loaded::Thread(asked_in) => {
                     Prepared::Ready(TurnContext::MeetingComment(asked_in))
@@ -499,18 +503,28 @@ async fn queue_idle_turn(
         },
     )
     .await?;
-    publish_turn(context, &turn);
+    publish_turn(context, connection, &turn).await?;
     publish_snapshot(&context.events, connection).await?;
     context.events.signal(&Signal::Elysia);
     Ok(())
 }
 
-fn publish_turn(context: &DispatchContext, turn: &Turn) {
-    context
-        .events
-        .publish(&ServerEvent::ElysiaTurnUpserted(TurnResponse::from(
-            turn.clone(),
-        )));
+/// Announces `turn`: whole, or by its id alone once it read a meeting, since what it says is held
+/// to that meeting's readers and every client hears every event (`models::meeting_reads`). Each
+/// client then loads it, and only those who may read it find it.
+async fn publish_turn(
+    context: &DispatchContext,
+    connection: &mut AsyncPgConnection,
+    turn: &Turn,
+) -> diesel::QueryResult<()> {
+    let read = meeting_reads::of_turn(connection, meeting_reads::Turn::Elysia(turn.id)).await?;
+    let announced = if read.is_empty() {
+        ServerEvent::ElysiaTurnUpserted(TurnResponse::from(turn.clone()))
+    } else {
+        ServerEvent::ElysiaTurnChanged { id: turn.id }
+    };
+    context.events.publish(&announced);
+    Ok(())
 }
 
 fn detail_id(detail: &Value, key: &str) -> anyhow::Result<Uuid> {
@@ -538,6 +552,13 @@ fn truncate(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::meeting::{Reach, Reader};
+
+    /// Whoever reads every turn, as an admin does.
+    const EVERY_READER: Reader = Reader {
+        id: Uuid::nil(),
+        reach: Reach::Every,
+    };
 
     fn turn(kind: &str, status: TurnStatus) -> Turn {
         let started = (status != TurnStatus::Queued).then(Utc::now);
@@ -692,7 +713,7 @@ mod tests {
             .await
             .expect("the queue runs");
 
-        let finished = elysia::list_turns(&mut connection, 10)
+        let finished = elysia::list_turns(&mut connection, EVERY_READER, 10)
             .await
             .expect("turns load");
         let finished = finished
@@ -710,6 +731,51 @@ mod tests {
 
         let state = elysia::state(&mut connection).await.expect("state loads");
         assert_eq!(state.runner_session_id.as_deref(), Some("session-1"));
+    }
+
+    /// Asserts her turn `answered` read `meeting` and is its readers' alone: listed for its owner and
+    /// no other member, and announced on `announced` by its id, its summary never on the stream.
+    async fn assert_held_back_to(
+        connection: &mut AsyncPgConnection,
+        announced: &mut tokio::sync::broadcast::Receiver<std::sync::Arc<str>>,
+        answered: Uuid,
+        meeting: &crate::models::meeting::Meeting,
+    ) {
+        assert_eq!(
+            meeting_reads::of_turn(connection, meeting_reads::Turn::Elysia(answered))
+                .await
+                .expect("read"),
+            [meeting.id]
+        );
+        let owner = Reader {
+            id: meeting.created_by,
+            reach: Reach::Public,
+        };
+        let someone_else = Reader {
+            id: Uuid::now_v7(),
+            reach: Reach::Public,
+        };
+        for (reader, reads) in [(owner, true), (someone_else, false)] {
+            let listed = elysia::list_turns(connection, reader, 10)
+                .await
+                .expect("turns load")
+                .iter()
+                .any(|turn| turn.id == answered);
+            assert_eq!(listed, reads, "{reader:?}");
+        }
+        let mut changed_by_id = false;
+        while let Ok(payload) = announced.try_recv() {
+            let event: Value = serde_json::from_str(&payload).expect("an event");
+            if event["data"]["id"] != json!(answered) {
+                continue;
+            }
+            assert!(
+                event["data"].get("summary").is_none(),
+                "its summary never rides the event stream: {event}"
+            );
+            changed_by_id |= event["type"] == "elysiaTurn.changed";
+        }
+        assert!(changed_by_id, "its end is announced by its id");
     }
 
     #[tokio::test]
@@ -751,9 +817,13 @@ mod tests {
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].trigger_kind, trigger::MEETING_COMMENT);
 
+        let mut announced = context.events.subscribe();
         dispatch(&context, &CancellationToken::new())
             .await
             .expect("the queue runs");
+
+        // She read the meeting, which its owner never opened, so her turn is its readers' alone.
+        assert_held_back_to(&mut connection, &mut announced, queued[0].id, &found).await;
 
         let thread = meeting_comment::of_thread(&mut connection, comment.mark_id)
             .await
@@ -826,7 +896,7 @@ mod tests {
             messages[0].body,
             "Signed in with [secret] and code [secret]."
         );
-        let turns = elysia::list_turns(&mut connection, 10)
+        let turns = elysia::list_turns(&mut connection, EVERY_READER, 10)
             .await
             .expect("turns load");
         let finished = turns
@@ -866,7 +936,7 @@ mod tests {
             .await
             .expect("the queue runs");
 
-        let turns = elysia::list_turns(&mut connection, 10)
+        let turns = elysia::list_turns(&mut connection, EVERY_READER, 10)
             .await
             .expect("turns load");
         let failed = turns

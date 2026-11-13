@@ -6,6 +6,9 @@
 //! read from Postgres. Events after the response arrive live on the
 //! event stream; clients merge the two on `sequence`. Only the latest [`HISTORY_LIMIT`] are
 //! returned.
+//!
+//! The turns' summaries come with them, but for a turn that read a meeting the person may not read,
+//! whose summary is held back (`models::meeting_reads`).
 
 use std::collections::VecDeque;
 
@@ -16,7 +19,9 @@ use axum::extract::{Path, State};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::session_event::StoredEvent;
 use crate::models::{coding_session, session_event, turn_summary};
 use crate::sessions::views::{SessionEvent, TurnSummaryView};
@@ -128,6 +133,7 @@ impl EventCollector {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<i64>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -144,7 +150,7 @@ pub async fn handle(
             .get()
             .await
             .context("no database connection available")?;
-        turn_summary::for_session(&mut connection, id)
+        turn_summary::for_session(&mut connection, id, Reader::of(&current.0))
             .await?
             .into_iter()
             .map(TurnSummaryView::from)

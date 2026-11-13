@@ -61,10 +61,12 @@
 //!
 //! Nothing here limits results by whose record a passage came from: every member reads
 //! everything indexed (`docs/knowledge.md`, Who sees what), but for a private meeting's segments,
-//! which only its readers find. Each search finds a meeting's segments only for a reader who may
-//! read the meeting (`models::meeting::readable_meeting_sql`), in both rankings, so a meeting made
-//! private is gone from the next search at once. Callers check the caller's role; the person filter
-//! only narrows.
+//! which only its readers find, and what agents wrote from a meeting, which only those who may read
+//! every meeting it names find. Each search finds a meeting's segments only for a reader who may
+//! read the meeting (`models::meeting::readable_meeting_sql`), and a record only for a reader who
+//! may read every meeting it names (`models::meeting_reads::readable_record_sql`), in both
+//! rankings, so a meeting made private is gone from the next search at once. Callers check the
+//! caller's role; the person filter only narrows.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -88,6 +90,7 @@ use crate::embeddings::{Embedding, Embeddings, MODEL};
 use crate::middleware::rate_limit::{Decision, Limiter, Rate};
 use crate::models::knowledge_document::{Citation, Copy, Passage, Person};
 use crate::models::meeting::{Reader, readable_meeting_sql};
+use crate::models::meeting_reads::readable_record_sql;
 use crate::models::{page_suggestion, user};
 
 /// The longest query searched, in characters: a search box's few words, or an agent's
@@ -268,8 +271,9 @@ impl Candidate {
 }
 
 /// The filters both rankings apply, binding `$2` to `$7` in [`SearchFilters`]' order, and `$8`
-/// and `$9`, the reader and their reach, whom a meeting's segments are found by only if they may
-/// read it. A macro, so each query stays one string literal.
+/// and `$9`, the reader and their reach, whom a meeting's segments, and records written from
+/// meetings, are found by only if they may read every meeting they name. A macro, so each query
+/// stays one string literal.
 macro_rules! filters {
     () => {
         concat!(
@@ -289,7 +293,8 @@ macro_rules! filters {
          ))
          AND (documents.access_meeting_id IS NULL OR ",
             readable_meeting_sql!("documents.access_meeting_id", "$8", "$9"),
-            ")"
+            ") AND ",
+            readable_record_sql!("documents.timeline_record_id", "$8", "$9")
         )
     };
 }

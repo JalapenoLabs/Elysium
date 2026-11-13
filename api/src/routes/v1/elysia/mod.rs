@@ -7,6 +7,7 @@ mod answer_question;
 mod cancel_turn;
 mod dismiss_question;
 mod get_elysia;
+mod get_turn;
 mod list_messages;
 mod list_turns;
 mod send_message;
@@ -38,6 +39,7 @@ pub fn router() -> Router<crate::state::AppState> {
             get(list_messages::handle).post(send_message::handle),
         )
         .route("/turns", get(list_turns::handle))
+        .route("/turns/{id}", get(get_turn::handle))
         .route("/turns/{id}/cancel", post(cancel_turn::handle))
         .route("/questions/{id}/answer", post(answer_question::handle))
         .route("/questions/{id}/dismiss", post(dismiss_question::handle))

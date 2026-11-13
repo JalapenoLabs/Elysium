@@ -739,6 +739,15 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    elysia_turn_meetings (turn_id, meeting_id) {
+        turn_id -> Uuid,
+        meeting_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ElysiaTurnStatus;
 
     elysia_turns (id) {
@@ -1650,6 +1659,15 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    project_manager_turn_meetings (turn_id, meeting_id) {
+        turn_id -> Uuid,
+        meeting_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectManagerTurnStatus;
 
     project_manager_turns (id) {
@@ -1782,6 +1800,15 @@ diesel::table! {
         occurred_at -> Timestamptz,
         turn_id -> Nullable<Uuid>,
         payload -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    session_turn_meetings (turn_id, meeting_id) {
+        turn_id -> Uuid,
+        meeting_id -> Uuid,
     }
 }
 
@@ -1944,6 +1971,15 @@ diesel::table! {
         created_by -> Uuid,
         data -> Jsonb,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    timeline_record_meetings (timeline_record_id, meeting_id) {
+        timeline_record_id -> Uuid,
+        meeting_id -> Uuid,
     }
 }
 
@@ -2280,6 +2316,8 @@ diesel::joinable!(drafts -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
 diesel::joinable!(elysia_state -> users (updated_by));
+diesel::joinable!(elysia_turn_meetings -> elysia_turns (turn_id));
+diesel::joinable!(elysia_turn_meetings -> meetings (meeting_id));
 diesel::joinable!(elysia_turns -> users (created_by));
 diesel::joinable!(elysia_work -> action_items (action_item_id));
 diesel::joinable!(elysia_work -> users (created_by));
@@ -2390,6 +2428,8 @@ diesel::joinable!(project_issue_trackers -> jira_credentials (jira_credential_id
 diesel::joinable!(project_issue_trackers -> projects (project_id));
 diesel::joinable!(project_issue_trackers -> token_accounts (token_account_id));
 diesel::joinable!(project_issue_trackers -> users (created_by));
+diesel::joinable!(project_manager_turn_meetings -> meetings (meeting_id));
+diesel::joinable!(project_manager_turn_meetings -> project_manager_turns (turn_id));
 diesel::joinable!(project_manager_turns -> project_managers (project_id));
 diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id));
 diesel::joinable!(project_manager_turns -> users (created_by));
@@ -2412,6 +2452,8 @@ diesel::joinable!(promises -> timeline_records (timeline_record_id));
 diesel::joinable!(promises -> users (created_by));
 diesel::joinable!(promises -> work_batches (work_batch_id));
 diesel::joinable!(session_events -> coding_sessions (session_id));
+diesel::joinable!(session_turn_meetings -> meetings (meeting_id));
+diesel::joinable!(session_turn_meetings -> session_turns (turn_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
 diesel::joinable!(step_jobs -> workflow_runs (run_id));
@@ -2431,6 +2473,8 @@ diesel::joinable!(studio_storage_reservations -> users (created_by));
 diesel::joinable!(timeline_record_events -> projects (project_id));
 diesel::joinable!(timeline_record_events -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_record_events -> users (created_by));
+diesel::joinable!(timeline_record_meetings -> meetings (meeting_id));
+diesel::joinable!(timeline_record_meetings -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_record_projects -> projects (project_id));
 diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_records -> action_items (action_item_id));
@@ -2490,6 +2534,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     elysia_messages,
     elysia_questions,
     elysia_state,
+    elysia_turn_meetings,
     elysia_turns,
     elysia_work,
     environment_variables,
@@ -2545,6 +2590,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     process_activities,
     project_autonomy_changes,
     project_issue_trackers,
+    project_manager_turn_meetings,
     project_manager_turns,
     project_manager_wakes,
     project_managers,
@@ -2553,6 +2599,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     promises,
     secret_copies,
     session_events,
+    session_turn_meetings,
     session_turns,
     step_jobs,
     storage_location_projects,
@@ -2562,6 +2609,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_items,
     studio_storage_reservations,
     timeline_record_events,
+    timeline_record_meetings,
     timeline_record_projects,
     timeline_records,
     token_accounts,

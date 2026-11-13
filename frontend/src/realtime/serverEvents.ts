@@ -122,6 +122,9 @@ export type ServerEvent =
   | { type: 'elysiaMessage.created', data: ElysiaMessage }
   // One of her turns was queued, started, ended, or cancelled.
   | { type: 'elysiaTurn.upserted', data: ElysiaTurn }
+  // One of her turns that read a meeting started or ended. Its id alone, since what it says is
+  // read only by that meeting's readers; each client loads it, and one that may not is told 404.
+  | { type: 'elysiaTurn.changed', data: { id: string } }
   // A project's Project Manager changed: something woke it, a turn started or ended, or a batch
   // of its was submitted or moved on. The project's id alone; its page loads it.
   | { type: 'projectManager.changed', data: { projectId: string } }
@@ -157,6 +160,9 @@ export type ServerEvent =
   | { type: 'session.deleted', data: { id: number } }
   | { type: 'session.event', data: SessionEvent }
   | { type: 'session.summary', data: TurnSummary }
+  // The summary of a turn that read a meeting was written. Its ids alone, since it is read only
+  // by that meeting's readers; a conversation showing the session loads its summaries again.
+  | { type: 'session.summaryChanged', data: { sessionId: number, turnId: string } }
   // Created, renamed, pinned, or restored, or a file it holds changed its counts or thumbnail.
   | { type: 'studioItem.upserted', data: StudioItem }
   // Soft or permanent; the event does not say which.

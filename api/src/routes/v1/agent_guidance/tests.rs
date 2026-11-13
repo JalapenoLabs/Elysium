@@ -13,6 +13,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use secrecy::ExposeSecret;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
+use uuid::Uuid;
 
 use crate::oauth::SCOPE_READ;
 use crate::routes;
@@ -225,6 +226,7 @@ async fn every_new_session_reads_the_version_current_as_it_connects() {
         .grant(
             &CallScope::Session(SessionScope {
                 session_id: 1,
+                turn_id: Uuid::now_v7(),
                 project_id: None,
                 action_item_id: None,
                 directory: WorkspacePath::new("sessions/1").expect("a path"),

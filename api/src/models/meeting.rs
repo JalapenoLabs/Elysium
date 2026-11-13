@@ -181,6 +181,17 @@ fn readable_by(reader: Reader) -> Box<dyn BoxableExpression<meetings::table, Pg,
     }
 }
 
+/// The ids of every meeting `reader` may read, by [`readable_by`], as a subquery for another
+/// table's query that names meetings, such as what agents wrote from them
+/// (`models::meeting_reads`). A subquery rather than a list, so it costs the same however many
+/// meetings there are.
+pub fn readable_ids(reader: Reader) -> meetings::BoxedQuery<'static, Pg, diesel::sql_types::Uuid> {
+    meetings::table
+        .filter(readable_by(reader))
+        .select(meetings::id)
+        .into_boxed()
+}
+
 /// [`readable_by`] in SQL, for the knowledge index's queries, which are written as SQL: whether
 /// the meeting whose id `$meeting` names (a column) may be read by the reader whose id is bound at
 /// `$reader` and whose reach ([`Reach::as_str`]) is bound at `$reach`. It is a predicate inside

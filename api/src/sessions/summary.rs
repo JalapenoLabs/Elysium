@@ -27,6 +27,7 @@ use super::queue::TurnQueue;
 use super::views::TurnSummaryView;
 use crate::agent_models::{self, Agent};
 use crate::models::coding_session;
+use crate::models::meeting_reads;
 use crate::models::model_setting::ModelChoice;
 use crate::models::timeline_record::TimelineRecord;
 use crate::models::turn_summary::{self, TurnSummary};
@@ -239,7 +240,11 @@ pub(super) async fn summarize(
             .map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     };
-    let (row, record) = match recorded {
+    let Kept {
+        summary: row,
+        record,
+        held_back,
+    } = match recorded {
         Ok(recorded) => recorded,
         Err(message) => {
             failure(&message);
@@ -247,7 +252,17 @@ pub(super) async fn summarize(
         }
     };
     let events = &sessions.inner.events;
-    events.publish(&ServerEvent::TurnSummarized(TurnSummaryView::from(row)));
+    // Every client hears every event, so a summary held back to a meeting's readers is announced
+    // by its ids alone, for each conversation to load what it may read.
+    let announced = if held_back {
+        ServerEvent::TurnSummaryChanged {
+            session_id: row.session_id,
+            turn_id: row.turn_id,
+        }
+    } else {
+        ServerEvent::TurnSummarized(TurnSummaryView::from(row))
+    };
+    events.publish(&announced);
     if let Some(record) = record {
         events.publish(&ServerEvent::TimelineRecordCreated {
             id: record.id,
@@ -259,6 +274,14 @@ pub(super) async fn summarize(
     }
 }
 
+/// A summary as it was kept: its row, its record on the project's timeline, and whether its turn
+/// read a meeting, which holds it back to that meeting's readers (`models::meeting_reads`).
+struct Kept {
+    summary: TurnSummary,
+    record: Option<TimelineRecord>,
+    held_back: bool,
+}
+
 /// Records `summary` for turn `turn_id` of session `session_id` and, for a session with a
 /// project, its record on the project's timeline, in one transaction, so a summary is never kept
 /// without its record or put on the timeline without being kept.
@@ -267,14 +290,20 @@ async fn keep(
     session_id: i64,
     turn_id: Uuid,
     summary: &str,
-) -> diesel::QueryResult<(TurnSummary, Option<TimelineRecord>)> {
+) -> diesel::QueryResult<Kept> {
     connection
         .transaction(async |connection| {
             let row = turn_summary::record(connection, session_id, turn_id, summary).await?;
             // Read with the summary, so the record follows the session as it stands now.
             let session = coding_session::find(connection, session_id).await?;
             let record = super::timeline::record(connection, &row, &session).await?;
-            Ok((row, record))
+            let read =
+                meeting_reads::of_turn(connection, meeting_reads::Turn::Session(turn_id)).await?;
+            Ok(Kept {
+                summary: row,
+                record,
+                held_back: !read.is_empty(),
+            })
         })
         .await
 }
@@ -424,12 +453,17 @@ mod tests {
         .expect("a session");
         let turn_id = Uuid::now_v7();
 
-        let (row, record) = keep(&mut connection, id, turn_id, "Fixed the login form.")
+        let Kept {
+            summary: row,
+            record,
+            held_back,
+        } = keep(&mut connection, id, turn_id, "Fixed the login form.")
             .await
             .expect("kept");
         let record = record.expect("on its project");
         assert_eq!(row.summary, record.title);
         assert_eq!(record.occurred_at, row.created_at);
+        assert!(!held_back, "a turn that read no meeting is every member's");
         let attributions =
             crate::models::timeline_record::attributions_of(&mut connection, &[record.id])
                 .await

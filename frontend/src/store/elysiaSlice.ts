@@ -76,6 +76,10 @@ export const elysiaSlice = createSlice({
     elysiaTurnUpserted(state, action: PayloadAction<ElysiaTurn>) {
       turnsAdapter.upsertOne(state.turns, action.payload)
     },
+    // A turn this person may not read, since it read a meeting they may not.
+    elysiaTurnRemoved(state, action: PayloadAction<string>) {
+      turnsAdapter.removeOne(state.turns, action.payload)
+    },
     elysiaPanelToggled(state, action: PayloadAction<boolean | undefined>) {
       state.isPanelOpen = action.payload ?? !state.isPanelOpen
     },
@@ -91,6 +95,7 @@ export const {
   elysiaMessageCreated,
   elysiaTurnsLoaded,
   elysiaTurnUpserted,
+  elysiaTurnRemoved,
   elysiaPanelToggled,
   elysiaPanelViewChanged,
 } = elysiaSlice.actions

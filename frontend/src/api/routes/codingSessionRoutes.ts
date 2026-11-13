@@ -147,9 +147,15 @@ export type ListSessionEventsResponse = {
   summaries: TurnSummary[]
 }
 
+// The session's history and summaries, as one SWR key, which a summary held back to a meeting's
+// readers reloads.
+export function getSessionEventsKey(sessionId: number) {
+  return `v1/coding-sessions/${sessionId}/events`
+}
+
 export function listSessionEvents(sessionId: number) {
   return apiClient
-    .get(`v1/coding-sessions/${sessionId}/events`, { timeout: SESSION_HISTORY_TIMEOUT_MS })
+    .get(getSessionEventsKey(sessionId), { timeout: SESSION_HISTORY_TIMEOUT_MS })
     .json<ListSessionEventsResponse>()
 }
 

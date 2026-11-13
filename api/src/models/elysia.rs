@@ -17,6 +17,8 @@ use uuid::Uuid;
 use crate::database::schema::{
     elysia_messages, elysia_questions, elysia_state, elysia_turns, elysia_work,
 };
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::user::ELYSIA_USER_ID;
 
 /// How many messages one page of the conversation holds at most.
@@ -325,16 +327,40 @@ pub async fn find_turn(connection: &mut AsyncPgConnection, id: Uuid) -> QueryRes
         .await
 }
 
-/// The latest turns, newest first.
+/// The latest turns `reader` may read, newest first: a turn that read a meeting they may not read
+/// is held back (`models::meeting_reads`).
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn list_turns(connection: &mut AsyncPgConnection, limit: i64) -> QueryResult<Vec<Turn>> {
+pub async fn list_turns(
+    connection: &mut AsyncPgConnection,
+    reader: Reader,
+    limit: i64,
+) -> QueryResult<Vec<Turn>> {
     elysia_turns::table
+        .filter(meeting_reads::readable_elysia_turns(reader))
         .select(Turn::as_select())
         .order(elysia_turns::id.desc())
         .limit(limit.clamp(1, MAX_MESSAGE_PAGE))
         .load(connection)
+        .await
+}
+
+/// Turn `id`, when `reader` may read it.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when there is no such turn, or it read a meeting `reader`
+/// may not read.
+pub async fn find_readable_turn(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    reader: Reader,
+) -> QueryResult<Turn> {
+    elysia_turns::table
+        .find(id)
+        .filter(meeting_reads::readable_elysia_turns(reader))
+        .select(Turn::as_select())
+        .first(connection)
         .await
 }
 

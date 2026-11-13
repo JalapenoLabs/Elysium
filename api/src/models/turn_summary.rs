@@ -10,6 +10,8 @@ use uuid::Uuid;
 
 use crate::database::schema::{coding_sessions, turn_summaries};
 use crate::models::coding_session::CodingSession;
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = turn_summaries)]
@@ -54,16 +56,19 @@ pub async fn record(
         .await
 }
 
-/// Every summary of a session's turns.
+/// Every summary of a session's turns that `reader` may read: one whose turn read a meeting they
+/// may not read is held back (`models::meeting_reads`).
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn for_session(
     connection: &mut AsyncPgConnection,
     session_id: i64,
+    reader: Reader,
 ) -> QueryResult<Vec<TurnSummary>> {
     turn_summaries::table
         .filter(turn_summaries::session_id.eq(session_id))
+        .filter(meeting_reads::readable_summaries(reader))
         .order(turn_summaries::created_at.asc())
         .select(TurnSummary::as_select())
         .load(connection)
@@ -97,6 +102,7 @@ pub async fn after_turn(
 mod tests {
     use super::*;
     use crate::models::coding_session::{self, NewCodingSession};
+    use crate::models::meeting::Reach;
     use crate::models::project::{self, NewProject};
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
@@ -145,7 +151,11 @@ mod tests {
             .await
             .expect("replaced");
         assert_eq!(replaced.summary, "Fixed the form.");
-        let kept = for_session(&mut connection, session.id)
+        let starter = Reader {
+            id: TEST_PERSON_ID,
+            reach: Reach::Public,
+        };
+        let kept = for_session(&mut connection, session.id, starter)
             .await
             .expect("listed");
         assert_eq!(kept.len(), 1);
@@ -153,7 +163,7 @@ mod tests {
         coding_session::delete(&mut connection, session.id)
             .await
             .expect("deleted");
-        let left = for_session(&mut connection, session.id)
+        let left = for_session(&mut connection, session.id, starter)
             .await
             .expect("listed");
         assert!(left.is_empty());

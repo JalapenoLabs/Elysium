@@ -73,7 +73,7 @@ import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectors } from '../api/routes/connectorRoutes'
 import { getDraft, listRecordDrafts, recordDraftsKey } from '../api/routes/draftRoutes'
-import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { getSessionEventsKey, listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
@@ -650,7 +650,7 @@ export function useSessionHistoryLoader(sessionId: number) {
   }, [ dispatch, sessionId ])
 
   const { data, error, mutate } = useSWR(
-    `v1/coding-sessions/${sessionId}/events`,
+    getSessionEventsKey(sessionId),
     () => listSessionEvents(sessionId),
   )
 

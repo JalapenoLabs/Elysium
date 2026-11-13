@@ -32,6 +32,8 @@ mod split_meetings_tests;
 mod split_sign_ins_tests;
 #[cfg(test)]
 mod suggest_edits_tests;
+#[cfg(test)]
+mod written_from_meetings_tests;
 
 use diesel_async::AsyncPgConnection;
 

@@ -21,8 +21,10 @@
 //!
 //! A meeting's documents, its whole transcript and each of its excerpts, name their meeting
 //! (`access_meeting_id`), and are found only by whoever may read it: a private meeting's are left
-//! out for everyone else as a search or an opening runs, by the rule `models::meeting` keeps.
-//! Every other source is every member's (`docs/knowledge.md`, Who sees what).
+//! out for everyone else as a search or an opening runs, by the rule `models::meeting` keeps. A
+//! record's document is found only by whoever may read every meeting its record names, such as
+//! what an agent wrote from one (`models::meeting_reads`). Every other source is every member's
+//! (`docs/knowledge.md`, Who sees what).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -41,7 +43,7 @@ use crate::database::schema::{
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
 use crate::models::meeting::{self, Reader};
-use crate::models::{page, page_label};
+use crate::models::{meeting_reads, page, page_label};
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,8 +446,9 @@ async fn projects_of(
 
 /// The document `id` whole: its citation, what it was made from, every passage in order, its
 /// projects, and the other documents holding the same text. `None` when the index holds no such
-/// document, such as one whose source was deleted, or when it is a segment of a meeting `reader`
-/// may not read, which answers as if it were not there; its copies leave such segments out too.
+/// document, such as one whose source was deleted, or when it comes from a meeting `reader` may
+/// not read (a segment of it, or a record written from it), which answers as if it were not there;
+/// its copies leave such documents out too.
 ///
 /// Callers check that whoever asks may read the knowledge base at all (`docs/knowledge.md`, Who
 /// sees what).
@@ -482,17 +485,9 @@ pub async fn get(
     };
 
     let copies = copies_of(connection, &row).await?;
-    // The meetings of the document and of its copies, asked in one query.
-    let mut meeting_ids: Vec<Uuid> = copies
-        .iter()
-        .filter_map(|(_document_id, _person_id, _name, meeting_id)| *meeting_id)
-        .collect();
-    meeting_ids.extend(row.access_meeting_id);
-    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
-    let reads = |meeting_id: Option<Uuid>| meeting_id.is_none_or(|id| readable.contains(&id));
-    if !reads(row.access_meeting_id) {
+    let Some(also_recorded_by) = readable_copies(connection, &row, copies, reader).await? else {
         return Ok(None);
-    }
+    };
 
     let passages: Vec<Passage> = knowledge_passages::table
         .filter(knowledge_passages::document_id.eq(row.id))
@@ -533,28 +528,83 @@ pub async fn get(
         passages,
         projects,
         labels,
-        also_recorded_by: copies
-            .into_iter()
-            .filter(|(_document_id, _person_id, _name, meeting_id)| reads(*meeting_id))
-            .map(|(document_id, person_id, name, _meeting_id)| Copy {
-                document_id,
-                person: Person {
-                    id: person_id,
-                    name,
-                },
-            })
-            .collect(),
+        also_recorded_by,
     }))
 }
 
-/// The other documents holding the same text as `row`, oldest first: each one's id, its person's
-/// id and name, and the meeting whose readers alone find it. Through `knowledge_documents_copies`,
-/// so copies are found however large the index grows. Two pages saying the same thing are two
-/// pages, and two meetings two meetings, so only records have copies.
+/// The copies of `row` that `reader` may read, as a document lists them, or `None` when they may
+/// not read `row` itself. Each is read only by whoever may read every meeting it comes from: its
+/// own (`access_meeting_id`) and those its record names (`models::meeting_reads`), all asked of
+/// `reader` in one query.
+async fn readable_copies(
+    connection: &mut AsyncPgConnection,
+    row: &DocumentRow,
+    copies: Vec<CopyRow>,
+    reader: Reader,
+) -> QueryResult<Option<Vec<Copy>>> {
+    let record_ids: Vec<Uuid> = copies
+        .iter()
+        .filter_map(|copy| copy.timeline_record_id)
+        .chain(row.timeline_record_id)
+        .collect();
+    let named = meeting_reads::of_records(connection, &record_ids).await?;
+    let meetings_of = |access_meeting_id: Option<Uuid>, record_id: Option<Uuid>| {
+        let mut meetings: Vec<Uuid> = record_id
+            .and_then(|record_id| named.get(&record_id))
+            .cloned()
+            .unwrap_or_default();
+        meetings.extend(access_meeting_id);
+        meetings
+    };
+    let meeting_ids: Vec<Uuid> = copies
+        .iter()
+        .flat_map(|copy| meetings_of(copy.access_meeting_id, copy.timeline_record_id))
+        .chain(meetings_of(row.access_meeting_id, row.timeline_record_id))
+        .collect();
+    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
+    let reads = |access_meeting_id: Option<Uuid>, record_id: Option<Uuid>| {
+        meetings_of(access_meeting_id, record_id)
+            .iter()
+            .all(|meeting_id| readable.contains(meeting_id))
+    };
+    if !reads(row.access_meeting_id, row.timeline_record_id) {
+        return Ok(None);
+    }
+    Ok(Some(
+        copies
+            .into_iter()
+            .filter(|copy| reads(copy.access_meeting_id, copy.timeline_record_id))
+            .map(|copy| Copy {
+                document_id: copy.document_id,
+                person: Person {
+                    id: copy.person_id,
+                    name: copy.person_name,
+                },
+            })
+            .collect(),
+    ))
+}
+
+/// Another document holding the same text as one opened, with what says who may read it.
+#[derive(Queryable)]
+struct CopyRow {
+    document_id: Uuid,
+    person_id: Uuid,
+    person_name: String,
+    /// The meeting whose readers alone find it.
+    access_meeting_id: Option<Uuid>,
+    /// Its record, which may name meetings of its own.
+    timeline_record_id: Option<Uuid>,
+}
+
+/// The other documents holding the same text as `row`, oldest first. Through
+/// `knowledge_documents_copies`, so copies are found however large the index grows. Two pages
+/// saying the same thing are two pages, and two meetings two meetings, so only records have
+/// copies.
 async fn copies_of(
     connection: &mut AsyncPgConnection,
     row: &DocumentRow,
-) -> QueryResult<Vec<(Uuid, Uuid, String, Option<Uuid>)>> {
+) -> QueryResult<Vec<CopyRow>> {
     knowledge_documents::table
         .inner_join(users::table)
         .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
@@ -567,6 +617,7 @@ async fn copies_of(
             knowledge_documents::created_by,
             users::name,
             knowledge_documents::access_meeting_id,
+            knowledge_documents::timeline_record_id,
         ))
         .order((
             knowledge_documents::occurred_at.asc(),

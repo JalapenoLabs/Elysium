@@ -23,6 +23,10 @@
 //! certain by the session's agent (`session:<n>`). Nothing wakes on it, and Elysia's intake leaves
 //! it out: it is agents' work, followed in its own conversation.
 //!
+//! A turn that read a meeting can say so in its summary, so the record names every meeting its
+//! turn read (`crate::models::meeting_reads`), and only whoever may read every one of them reads
+//! it.
+//!
 //! # The record
 //!
 //! Its title is the summary, its actor the session (`Session 12`), and its body empty: the
@@ -36,6 +40,7 @@ use uuid::Uuid;
 
 use crate::models::attribution::{self, Attributor};
 use crate::models::coding_session::CodingSession;
+use crate::models::meeting_reads::{self, Turn};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::turn_summary::TurnSummary;
 use crate::models::user::CODING_AGENT_USER_ID;
@@ -92,6 +97,8 @@ pub async fn record(
         new_record,
     )
     .await?;
+    let read = meeting_reads::of_turn(connection, Turn::Session(summary.turn_id)).await?;
+    meeting_reads::name_on_record(connection, stored.id, &read).await?;
     // A record written again is already on its project, which answers unchanged.
     attribution::attribute(
         connection,
@@ -112,6 +119,7 @@ mod tests {
     use super::*;
     use crate::database::schema::{knowledge_documents, project_manager_wakes, timeline_records};
     use crate::models::coding_session::{self, NewCodingSession};
+    use crate::models::meeting::{Reach, Reader};
     use crate::models::project::{self, NewProject};
     use crate::models::timeline_record::TimelineQuery;
     use crate::models::turn_summary;
@@ -211,7 +219,10 @@ mod tests {
         // Another member reads it on the project's timeline, and nothing woke its Project
         // Manager.
         let query = TimelineQuery {
-            owner: Uuid::now_v7(),
+            reader: Reader {
+                id: Uuid::now_v7(),
+                reach: Reach::Public,
+            },
             shared: true,
             project_id: Some(project_id),
             action_item_id: None,
@@ -236,6 +247,10 @@ mod tests {
 
         // A guest reads only their own.
         let guests = TimelineQuery {
+            reader: Reader {
+                reach: Reach::Shared,
+                ..query.reader
+            },
             shared: false,
             ..query
         };

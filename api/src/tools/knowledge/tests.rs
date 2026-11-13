@@ -13,6 +13,7 @@
 
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
+use diesel::QueryDsl as _;
 use diesel_async::{AsyncPgConnection, RunQueryDsl as _};
 use secrecy::ExposeSecret;
 use tower::ServiceExt as _;
@@ -22,8 +23,11 @@ use crate::knowledge::search::PER_PERSON;
 use crate::middleware::rate_limit::Decision;
 use crate::models::coding_session::NewCodingSession;
 use crate::models::learning::{self, LearningContent};
+use crate::models::meeting::{Reach, Reader};
 use crate::models::page::{self, LEARNINGS_PAGE_ID};
 use crate::models::project::{self, NewProject};
+use crate::models::session_turn::{self, NewSessionTurn};
+use crate::models::{meeting_share, turn_summary};
 use crate::routes;
 use crate::routes::v1::knowledge::tests::{
     at, coworker, document_of_record, meeting_topic, record, set_role,
@@ -209,8 +213,21 @@ async fn session_turn(
     )
     .await
     .expect("the session is created");
+    let turn = session_turn::queue(
+        connection,
+        &NewSessionTurn {
+            id: Uuid::now_v7(),
+            session_id: session.id,
+            prompt: "What is the launch about?",
+            system_prompt_append: None,
+            created_by: starter,
+        },
+    )
+    .await
+    .expect("its turn is queued");
     let scope = CallScope::Session(SessionScope {
         session_id: session.id,
+        turn_id: turn.id,
         project_id: Some(project_id),
         action_item_id: None,
         directory: WorkspacePath::new(format!("sessions/{}", session.id)).expect("a path"),
@@ -348,6 +365,98 @@ async fn a_sessions_agent_finds_opens_and_lists_what_the_company_recorded() {
     )
     .await;
     assert!(failed && text.contains("knowledge_search"), "{text}");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_session_keeps_the_meetings_its_tools_hand_it_and_its_summary_is_held_to_them() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
+    let (turn_id, session_id): (Uuid, i64) = crate::database::schema::session_turns::table
+        .select((
+            crate::database::schema::session_turns::id,
+            crate::database::schema::session_turns::session_id,
+        ))
+        .first(&mut connection)
+        .await
+        .expect("the session's turn");
+    // Grace's one-to-one, private to her and shared with whoever started the session.
+    let grace = coworker(&mut connection, "Grace").await;
+    let one_to_one = Uuid::now_v7();
+    meeting_topic(
+        &mut connection,
+        grace,
+        one_to_one,
+        "One-to-one",
+        0,
+        at(1),
+        "The quokka reorg",
+    )
+    .await;
+    diesel::sql_query(format!(
+        "UPDATE meetings SET visibility = 'private' WHERE id = '{one_to_one}'"
+    ))
+    .execute(&mut connection)
+    .await
+    .expect("made private");
+    meeting_share::add(&mut connection, one_to_one, TEST_PERSON_ID, grace)
+        .await
+        .expect("shared");
+
+    let found = answered(
+        call(
+            &state,
+            &bearer,
+            "knowledge_search",
+            json!({ "query": "quokka reorg" }),
+        )
+        .await,
+    );
+    assert_eq!(
+        found["results"][0]["citation"]["title"], "The quokka reorg",
+        "its starter may read it: {found}"
+    );
+    assert_eq!(
+        meeting_reads::of_turn(&mut connection, meeting_reads::Turn::Session(turn_id))
+            .await
+            .expect("read"),
+        [one_to_one],
+        "the turn keeps what its search handed it"
+    );
+
+    // Its summary is then held to the meeting: its starter reads it, another member does not.
+    let session = coding_session::find(&mut connection, session_id)
+        .await
+        .expect("the session");
+    let summary = turn_summary::record(
+        &mut connection,
+        session_id,
+        turn_id,
+        "Read why the quokka team moves.",
+    )
+    .await
+    .expect("summarized");
+    let record = crate::sessions::timeline::record(&mut connection, &summary, &session)
+        .await
+        .expect("recorded")
+        .expect("on its project");
+    let reads = async |connection: &mut AsyncPgConnection, reader: Reader| {
+        meeting_reads::readable_among(connection, &[record.id], reader)
+            .await
+            .expect("reads")
+            .contains(&record.id)
+    };
+    let starter = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let someone_else = Reader {
+        id: coworker(&mut connection, "Lin").await,
+        reach: Reach::Public,
+    };
+    assert!(reads(&mut connection, starter).await);
+    assert!(!reads(&mut connection, someone_else).await);
 }
 
 #[tokio::test]

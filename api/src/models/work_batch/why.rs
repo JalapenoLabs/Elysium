@@ -23,10 +23,11 @@
 //! else, and a meeting segment's document is the meeting at that topic. Something named that is
 //! gone since, a record removed with its connector or a deleted item, is left out.
 //!
-//! A chain is read for a reader. A segment of a meeting they may not read
-//! (`docs/meetings.md`, Who reads a meeting) is withheld ([`Record::withheld`]): the chain still
-//! says a meeting asked for the batch, and nothing of what was said, what the topic or the meeting
-//! is called, or where its document is.
+//! A chain is read for a reader. A record naming a meeting they may not read is withheld
+//! ([`Record::withheld`]): a segment of the meeting (`docs/meetings.md`, Who reads a meeting), or
+//! what an agent wrote from it (`models::meeting_reads`). The chain still says a meeting asked for
+//! the batch, and nothing of what was said, what the topic or the meeting is called, or where its
+//! document is.
 //!
 //! [`read_many`] reads any number of batches' chains in one pass of queries, so the work queue
 //! shows each row's head ([`Why::head`]) without a query per row.
@@ -51,6 +52,7 @@ use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::{LinkKind, LinkProvider};
 use crate::models::finding::FindingState;
 use crate::models::meeting::{self, Reader};
+use crate::models::meeting_reads;
 
 /// The most of a record's text a chain quotes. Enough for a few lines of a meeting's transcript
 /// or the opening of a mail, which is what tells a person why; the whole of it is a click away,
@@ -407,7 +409,7 @@ struct Records {
 }
 
 /// Every record among `record_ids`, and every record that raised one of `item_ids`, in one read,
-/// withholding the segments of meetings `reader` may not read.
+/// withholding every record naming a meeting `reader` may not read.
 async fn records(
     connection: &mut AsyncPgConnection,
     record_ids: &[Uuid],
@@ -444,20 +446,19 @@ async fn records(
         ))
         .load(connection)
         .await?;
-    let meeting_ids: Vec<Uuid> = rows
-        .iter()
-        .filter_map(
-            |(_id, source_kind, _title, _at, _body, metadata, _raised, _document)| {
-                meeting_of(source_kind, metadata)
-            },
-        )
-        .collect();
+    let found_ids: Vec<Uuid> = rows.iter().map(|row| row.0).collect();
+    let named = meeting_reads::of_records(connection, &found_ids).await?;
+    let meeting_ids: Vec<Uuid> = named.values().flatten().copied().collect();
     let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
     for row in rows {
+        let (id, source_kind, _title, _at, _body, _metadata, _raised, _document) = &row;
+        let meetings = named.get(id).map(Vec::as_slice).unwrap_or_default();
         // A segment naming no meeting is withheld too, since nobody could be told may read it.
-        let (_id, source_kind, _title, _at, _body, metadata, _raised, _document) = &row;
-        let withheld = source_kind == SEGMENT_SOURCE_KIND
-            && meeting_of(source_kind, metadata).is_none_or(|id| !readable.contains(&id));
+        let unplaced = source_kind == SEGMENT_SOURCE_KIND && meetings.is_empty();
+        let withheld = unplaced
+            || meetings
+                .iter()
+                .any(|meeting_id| !readable.contains(meeting_id));
         let (record, raised) = record_of(row, withheld);
         if let Some(item_id) = raised.filter(|item| item_ids.contains(item)) {
             read.raised.entry(item_id).or_default().push(record.clone());
@@ -478,19 +479,8 @@ type RecordRow = (
     Option<Uuid>,
 );
 
-/// The meeting a record is a segment of, as its metadata names it; `None` for any other record.
-fn meeting_of(source_kind: &str, metadata: &Value) -> Option<Uuid> {
-    if source_kind != SEGMENT_SOURCE_KIND {
-        return None;
-    }
-    metadata
-        .get("meetingId")
-        .and_then(Value::as_str)
-        .and_then(|meeting_id| meeting_id.parse().ok())
-}
-
-/// A record as a chain shows it, and the item it raised; `withheld`, a segment of a meeting its
-/// reader may not read, it says that a meeting asked and nothing more.
+/// A record as a chain shows it, and the item it raised; `withheld`, naming a meeting its reader
+/// may not read, it says that a meeting asked and nothing more.
 fn record_of(row: RecordRow, withheld: bool) -> (Record, Option<Uuid>) {
     let (id, source_kind, title, occurred_at, body, metadata, raised, document_id) = row;
     if withheld {

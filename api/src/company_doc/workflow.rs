@@ -38,6 +38,7 @@ use crate::agent_models::AgentKind;
 use crate::database::Pool;
 use crate::models::agent::Author;
 use crate::models::company_doc::{self, DocSection, SectionSuggestion};
+use crate::models::meeting::Reader;
 use crate::models::model_setting::ModelChoice;
 use crate::models::page_suggestion::{
     self, NewSuggestion, Suggested, SuggestionError, SuggestionState,
@@ -361,8 +362,11 @@ async fn read_for_turn(
     window: ReviewWindow,
 ) -> diesel::QueryResult<Option<ForTurn>> {
     let cursor = company_doc::review_cursor(connection).await?;
+    // The doc is every member's, so its review reads what any member may: never a private
+    // meeting's excerpts, nor what agents wrote from one (`docs/knowledge.md`, Who sees what).
     let records = timeline_record::ingested_between(
         connection,
+        Reader::ANY_MEMBER,
         cursor,
         window.through - LOOKBACK,
         window.through,
@@ -533,6 +537,7 @@ async fn start_when_due(database: &Pool, events: &EventBus) -> anyhow::Result<()
     let cursor = company_doc::review_cursor(&mut connection).await?;
     let unread = timeline_record::ingested_between(
         &mut connection,
+        Reader::ANY_MEMBER,
         cursor,
         window.through - LOOKBACK,
         window.through,

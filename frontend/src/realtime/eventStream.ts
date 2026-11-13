@@ -22,7 +22,12 @@ import {
   connectorUpserted,
 } from '../store/connectorsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
-import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
+import {
+  elysiaMessageCreated,
+  elysiaTurnRemoved,
+  elysiaTurnUpserted,
+  elysiaUpdated,
+} from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
@@ -60,6 +65,8 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
+import { getSessionEventsKey } from '../api/routes/codingSessionRoutes'
+import { getElysiaTurn } from '../api/routes/elysiaRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { AGENT_GUIDANCE_KEY } from '../api/routes/agentGuidanceRoutes'
@@ -456,6 +463,20 @@ const handlers: Handlers = {
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
   'elysiaMessage.created': (event) => store.dispatch(elysiaMessageCreated(event.data)),
   'elysiaTurn.upserted': (event) => store.dispatch(elysiaTurnUpserted(event.data)),
+  // A turn that read a meeting, whose summary only that meeting's readers read: loaded by id, and
+  // dropped when this person may not read it.
+  'elysiaTurn.changed': (event) => {
+    const turnId = event.data.id
+    getElysiaTurn(turnId)
+      .then((response) => store.dispatch(elysiaTurnUpserted(response.turn)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(elysiaTurnRemoved(turnId))
+          return
+        }
+        console.debug('A changed Elysia turn could not be loaded', { error, turnId })
+      })
+  },
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),
@@ -483,6 +504,11 @@ const handlers: Handlers = {
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
+  // A summary only a meeting's readers read: an open conversation loads its summaries again,
+  // which answer it to them alone.
+  'session.summaryChanged': (event) => {
+    void mutate(getSessionEventsKey(event.data.sessionId))
+  },
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

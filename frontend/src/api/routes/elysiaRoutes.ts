@@ -132,6 +132,13 @@ type ElysiaTurnResponse = {
   turn: ElysiaTurn
 }
 
+// Answers 404 for a turn that read a meeting the person may not read.
+export function getElysiaTurn(turnId: string) {
+  return apiClient
+    .get(`v1/elysia/turns/${turnId}`)
+    .json<ElysiaTurnResponse>()
+}
+
 export function cancelElysiaTurn(turnId: string) {
   return apiClient
     .post(`v1/elysia/turns/${turnId}/cancel`)

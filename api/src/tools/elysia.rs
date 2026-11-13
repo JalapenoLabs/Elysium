@@ -758,6 +758,7 @@ mod tests {
 
         let session = CallScope::Session(SessionScope {
             session_id: 3,
+            turn_id: Uuid::now_v7(),
             project_id: None,
             action_item_id: None,
             directory: WorkspacePath::new("sessions/3").expect("a path"),

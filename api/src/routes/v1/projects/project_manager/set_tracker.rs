@@ -21,6 +21,7 @@ use super::{ProjectManagerResponse, tracker_credential};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link::LinkProvider;
+use crate::models::meeting::Reader;
 use crate::models::project;
 use crate::models::project_issue_tracker::{self, NewTracker};
 use crate::project_managers;
@@ -98,7 +99,8 @@ pub async fn handle(
         .events
         .publish(&ServerEvent::ProjectManagerChanged { project_id });
 
-    let snapshot = project_managers::snapshot(&mut connection, project_id).await?;
+    let snapshot =
+        project_managers::snapshot(&mut connection, project_id, Reader::of(&member.0)).await?;
     Ok(Json(json!({
         "projectManager": ProjectManagerResponse::from(snapshot),
     })))

@@ -18,6 +18,7 @@ use crate::database::schema::{knowledge_backfills, knowledge_documents, timeline
 use crate::knowledge::records::INDEXED_AS;
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::knowledge_backfill::{self, BackfillSource, Walk};
+use crate::models::meeting::{Reach, Reader};
 use crate::models::project::{self, NewProject};
 use crate::models::turn_summary;
 use crate::sessions::timeline;
@@ -239,7 +240,11 @@ async fn a_walk_puts_every_earlier_summary_on_its_project_once_across_batches() 
     turn_summary::record(&mut connection, studio_session, Uuid::now_v7(), "Drew it.")
         .await
         .expect("recorded");
-    let mut expected: Vec<Uuid> = turn_summary::for_session(&mut connection, session_id)
+    let starter = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let mut expected: Vec<Uuid> = turn_summary::for_session(&mut connection, session_id, starter)
         .await
         .expect("listed")
         .into_iter()

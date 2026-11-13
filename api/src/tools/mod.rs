@@ -32,6 +32,7 @@ pub mod worker;
 
 use std::sync::Arc;
 
+use diesel_async::AsyncPgConnection;
 use futures_util::future::BoxFuture;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -45,6 +46,7 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::github::Github;
 use crate::knowledge::search::KnowledgeSearch;
+use crate::models::meeting_reads;
 use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
 use crate::runner::WorkspacePath;
@@ -172,6 +174,21 @@ impl CallScope {
         }
     }
 
+    /// The turn whose reading of meetings is kept (`models::meeting_reads`): a session's, Elysia's,
+    /// or a Project Manager's, which write what is held back to what they read. A pool worker's
+    /// and a segmenting turn's are kept nowhere: a worker's merged pull request is held to the
+    /// excerpts its batch came from, and segmenting writes only its own meeting's excerpts.
+    pub const fn reading_turn(&self) -> Option<meeting_reads::Turn> {
+        match self {
+            Self::Session(session) => Some(meeting_reads::Turn::Session(session.turn_id)),
+            Self::Elysia(elysia) => Some(meeting_reads::Turn::Elysia(elysia.turn_id)),
+            Self::ProjectManager(manager) => {
+                Some(meeting_reads::Turn::ProjectManager(manager.turn_id))
+            }
+            Self::Worker(_) | Self::Segmenting(_) => None,
+        }
+    }
+
     /// Who called, for logs: `session:<n>`, `elysia:<turn>`, `project_manager:<turn>`,
     /// `worker:<batch>`, or `segmenting:<meeting>`.
     pub fn label(&self) -> String {
@@ -224,9 +241,9 @@ pub struct ElysiaScope {
     pub turn_id: Uuid,
 }
 
-/// A session whose agent called: its project, which decides what the call may reach, the
-/// action item it was started from, and its directory, whose files the call may read and
-/// write.
+/// A session whose agent called: its turn, which keeps the meetings its tools hand it, its
+/// project, which decides what the call may reach, the action item it was started from, and its
+/// directory, whose files the call may read and write.
 ///
 /// A Studio session may have no project; it then reaches only the storage locations for
 /// every project, and no work at all.
@@ -234,6 +251,8 @@ pub struct ElysiaScope {
 #[serde(rename_all = "camelCase")]
 pub struct SessionScope {
     pub session_id: i64,
+    /// The turn the grant was minted for (`session_turns`).
+    pub turn_id: Uuid,
     pub project_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
     pub directory: WorkspacePath,
@@ -453,6 +472,26 @@ pub fn parse_arguments<Arguments: DeserializeOwned>(
             "the arguments do not match the tool's input schema: {error}"
         ))
     })
+}
+
+/// Keeps that the turn `scope` names read `meeting_ids` (`models::meeting_reads`), so what it
+/// writes is held to them. Call it before a tool answers with what it read, so nothing reaches an
+/// agent unkept.
+///
+/// # Errors
+/// Returns [`ToolError::Internal`] when the database fails, which the agent is answered in place of
+/// what it would have read.
+pub async fn keep_read(
+    connection: &mut AsyncPgConnection,
+    scope: &CallScope,
+    meeting_ids: &[Uuid],
+) -> Result<(), ToolError> {
+    let Some(turn) = scope.reading_turn() else {
+        return Ok(());
+    };
+    meeting_reads::keep(connection, turn, meeting_ids)
+        .await
+        .map_err(|error| internal(scope, "meeting_reads.keep", &error))
 }
 
 /// Logs an internal failure with its detail and hands the agent [`ToolError::Internal`].
