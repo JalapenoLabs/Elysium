@@ -24,16 +24,15 @@ concurrency:
 jobs:
   image:
     name: Workspace image
-    # Elysium is public and these runners are self-hosted, so a fork's pull request never
-    # reaches them.
+    # A fork's pull request is skipped, so a fork's code first runs once a maintainer queues
+    # it, in the merge group, where every check runs again.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     env:
-      # Unique per run, because runners in the pool can share one Docker daemon.
-      IMAGE: elysium-workspace:ci-${{ github.run_id }}-${{ github.run_attempt }}
-      CONTAINER: elysium-workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
-      VOLUME: elysium-workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      IMAGE: elysium-workspace:ci
+      CONTAINER: elysium-workspace-ci
+      VOLUME: elysium-workspace-ci
 
     steps:
       - name: Checkout
@@ -79,10 +78,3 @@ jobs:
             test "$(stat -c %U /workspace/.elysium/turns)" = agent
             test "$(readlink /home/agent/.claude)" = /workspace/.claude
           '
-
-      - name: Remove the image
-        if: always()
-        run: |
-          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
-          docker volume rm "${VOLUME}" > /dev/null 2>&1 || true
-          docker image rm "${IMAGE}" > /dev/null 2>&1 || true
