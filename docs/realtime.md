@@ -74,7 +74,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.upserted`   | `CodingSession`          | A session was created or renamed, or what it is doing changed |
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A session's turn reported an event, already recorded       |
-| `session.eventHeld`  | `{ sessionId, sequence }` | A session's turn that read a meeting reported an event, already recorded; never the event, which only the meeting's readers read (`docs/knowledge.md`, What agents write from a meeting). A client showing the session's conversation loads its history again, once however many arrive within a second |
+| `session.eventHeld`  | `{ sessionId, sequence }` | A session's turn that read a meeting reported an event, already recorded; never the event, which only the meeting's readers read (`docs/knowledge.md`, What agents write from a meeting). A client showing the session's conversation reads the events after the last it holds (`afterSequence`), once however many arrive within a second |
 | `session.summary`    | `TurnSummary`            | A finished turn's summary was written                      |
 | `session.summaryChanged` | `{ sessionId, turnId }` | The summary of a turn that read a meeting was written; never its text, which only the meeting's readers read. A client showing the session's conversation loads its summaries again |
 | `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, or restored    |

@@ -431,7 +431,8 @@ a tool hands their words over, each cascading with its turn, which takes what it
 meeting's deletion. `session_turn_meetings` is keyed as `turn_summaries` is, by `session_id` (referencing
 `coding_sessions`, cascading) and `turn_id` (no key of its own), so what holds a summary back goes with the session
 that holds the summary and never with its turn's row alone. A session's turn starts with every meeting its session's
-earlier turns read.
+turns read so far, read by the session (`session_turn_meetings_of_session` on `session_id`), as its conversation's
+holds are.
 
 ### `timeline_record_events`
 

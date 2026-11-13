@@ -333,8 +333,8 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
   the conversation (`GET /api/v1/coding-sessions/{id}/events`, and `sessions_events` over MCP), and its summary as its
   record on the timeline and in the knowledge base, are read only by whoever may read every one of those meetings. Once
   the turn has read one, each event it reports and its summary are announced by their ids alone (`session.eventHeld`,
-  `session.summaryChanged`), for each conversation to load its history again and read what it may (`docs/knowledge.md`,
-  What agents write from a meeting). The session itself, with its title, is listed to every member, as every session
+  `session.summaryChanged`), for each open conversation to read what followed the last event it holds, which answers
+  it what it may, at most once a second (`docs/knowledge.md`, What agents write from a meeting). The session itself, with its title, is listed to every member, as every session
   is.
 - **Nothing wakes on it.** A new record on a project wakes its Project Manager (`docs/engine.md`, Project Managers),
   except what Elysium's agents put there, a summary included: a wake per turn would spend a Project Manager's turn on

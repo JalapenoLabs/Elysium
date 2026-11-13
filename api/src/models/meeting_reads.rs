@@ -451,12 +451,15 @@ pub async fn held_back_session_turns(
     Ok(held_back.into_iter().collect())
 }
 
-/// Whether a session's turn summary may be read by `reader`: its turn read no meeting `reader` may
-/// not read.
+/// Whether a turn summary of session `session_id` may be read by `reader`: its turn read no meeting
+/// `reader` may not read. Read by its session, whose index answers it, rather than across every
+/// session's reading.
 pub fn readable_summaries(
+    session_id: i64,
     reader: Reader,
 ) -> Box<dyn BoxableExpression<turn_summaries::table, Pg, SqlType = Bool>> {
     let held_back = session_turn_meetings::table
+        .filter(session_turn_meetings::session_id.eq(session_id))
         .filter(not(
             session_turn_meetings::meeting_id.eq_any(meeting::readable_ids(reader))
         ))

@@ -48,6 +48,10 @@ CREATE TABLE session_turn_meetings (
 
 CREATE INDEX session_turn_meetings_of_meeting ON session_turn_meetings (meeting_id);
 
+-- A session's reading is read by its session: what a starting turn carries, and which of its
+-- turns its conversation holds back from a reader.
+CREATE INDEX session_turn_meetings_of_session ON session_turn_meetings (session_id);
+
 -- What was written before this is held to what can be told of it, and to more where nothing can:
 -- unsure is held back. First what each thing read on its own account.
 

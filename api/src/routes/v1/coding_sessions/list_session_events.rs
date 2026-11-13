@@ -5,7 +5,9 @@
 //! Elysium records every event a session's turns report (`crate::sessions`), so history is
 //! read from Postgres. Events after the response arrive live on the
 //! event stream; clients merge the two on `sequence`. Only the latest [`HISTORY_LIMIT`] are
-//! returned.
+//! returned. With `afterSequence`, only the events after it are, the earliest first, so a
+//! conversation catching up on events it heard of by id alone (`session.eventHeld`) reads what it
+//! lacks rather than the whole history again.
 //!
 //! The turns' summaries come with them. A turn that read a meeting the person may not read is held
 //! back whole, its events and its summary alike (`models::meeting_reads`).
@@ -14,9 +16,9 @@ use std::collections::VecDeque;
 
 use anyhow::Context;
 use axum::Json;
-use axum::extract::rejection::PathRejection;
-use axum::extract::{Path, State};
-use serde::Serialize;
+use axum::extract::rejection::{PathRejection, QueryRejection};
+use axum::extract::{Path, Query, State};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::auth::CurrentUser;
@@ -131,17 +133,36 @@ impl EventCollector {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryQuery {
+    /// The last sequence the client holds, for only the events after it.
+    after_sequence: Option<u64>,
+}
+
 pub async fn handle(
     State(state): State<AppState>,
     current: CurrentUser,
     path: Result<Path<i64>, PathRejection>,
+    query: Result<Query<HistoryQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
-    let window = EventWindow {
-        after_sequence: 0,
-        limit: HISTORY_LIMIT,
-        keep: Keep::Latest,
-        rendered_only: false,
+    let Query(query) = query?;
+    // Catching up keeps the earliest of what follows, so nothing is skipped and its next read
+    // goes on from the last it was answered; opening keeps the latest end of the history.
+    let window = match query.after_sequence {
+        Some(after_sequence) => EventWindow {
+            after_sequence,
+            limit: HISTORY_LIMIT,
+            keep: Keep::Earliest,
+            rendered_only: false,
+        },
+        None => EventWindow {
+            after_sequence: 0,
+            limit: HISTORY_LIMIT,
+            keep: Keep::Latest,
+            rendered_only: false,
+        },
     };
     let reader = Reader::of(&current.0);
     let page = read_events(&state, id, window, reader).await?;

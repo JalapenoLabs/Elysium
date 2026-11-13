@@ -160,11 +160,11 @@ export type ServerEvent =
   | { type: 'session.deleted', data: { id: number } }
   | { type: 'session.event', data: SessionEvent }
   // An event of a turn that read a meeting, recorded. Its ids alone, since what it says is read
-  // only by that meeting's readers; a conversation showing the session loads its history again.
+  // only by that meeting's readers; a conversation showing the session catches up on it.
   | { type: 'session.eventHeld', data: { sessionId: number, sequence: number } }
   | { type: 'session.summary', data: TurnSummary }
   // The summary of a turn that read a meeting was written. Its ids alone, since it is read only
-  // by that meeting's readers; a conversation showing the session loads its summaries again.
+  // by that meeting's readers; a conversation showing the session catches up on it.
   | { type: 'session.summaryChanged', data: { sessionId: number, turnId: string } }
   // Created, renamed, pinned, or restored, or a file it holds changed its counts or thumbnail.
   | { type: 'studioItem.upserted', data: StudioItem }

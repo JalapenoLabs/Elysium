@@ -319,7 +319,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; clones its repositories        |
 | PATCH  | `/api/v1/coding-sessions/{id}`        | `200` `{ session }`; renames                        |
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
-| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated, summaries }`; a turn that read a meeting the caller may not read has neither events nor a summary here |
+| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated, summaries }`, the latest events; with `afterSequence`, those after it, earliest first, `truncated` saying more followed; a turn that read a meeting the caller may not read has neither events nor a summary here |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
 | GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |

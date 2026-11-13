@@ -49,7 +49,12 @@ import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { backupsStatusUpdated } from '../store/backupsSlice'
 import { eventStreamLost, eventStreamOpened, eventStreamStopped } from '../store/realtimeSlice'
 import { runLoaded, selectRunById, selectStepLog, stepLogLoaded } from '../store/runsSlice'
-import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
+import {
+  selectSessionTimeline,
+  sessionEventReceived,
+  sessionHistoryLoaded,
+  turnSummaryReceived,
+} from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
@@ -65,7 +70,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
-import { getSessionEventsKey } from '../api/routes/codingSessionRoutes'
+import { getSessionEventsKey, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { getElysiaTurn } from '../api/routes/elysiaRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
@@ -134,25 +139,52 @@ function readRunningBuild() {
     .catch((error: unknown) => console.debug('The running build could not be read', { error }))
 }
 
-// How long a session's conversation waits before it loads its history again for a turn held back
-// to a meeting's readers, so a turn reporting many events reloads it a few times, not once each.
+// How long a session's conversation waits before it reads what a turn held back to a meeting's
+// readers reported, so a turn reporting many events is read a few times, not once each.
 const HELD_SESSION_RELOAD_DELAY_MS = 1_000
 
-// The sessions whose history is about to load again.
+// The sessions whose conversations are about to catch up.
 const heldSessionReloads = new Set<number>()
 
-// Loads session `sessionId`'s history again soon, once however many held events arrive meanwhile.
-// Its loader answers each turn only to whoever may read every meeting it read.
+// Catches session `sessionId`'s conversation up soon, once however many held events arrive
+// meanwhile. Its loader answers each turn only to whoever may read every meeting it read.
 function reloadHeldSessionSoon(sessionId: number) {
   if (heldSessionReloads.has(sessionId)) {
-    // A reload is already on its way, which reads this event too.
+    // A read is already on its way, which reads this event too.
     return
   }
   heldSessionReloads.add(sessionId)
   window.setTimeout(() => {
     heldSessionReloads.delete(sessionId)
-    void mutate(getSessionEventsKey(sessionId))
+    void catchUpSession(sessionId)
   }, HELD_SESSION_RELOAD_DELAY_MS)
+}
+
+// Reads what session `sessionId`'s open conversation lacks: the events after the last one it holds,
+// and the summaries, merged as its history is. One not open reads it all when it opens, and one
+// holding no event yet loads its history whole.
+async function catchUpSession(sessionId: number) {
+  const timeline = selectSessionTimeline(store.getState(), sessionId)
+  if (!timeline?.isHistoryLoaded) {
+    console.debug('No open conversation to catch up; it reads its history when it opens', { sessionId })
+    return
+  }
+  const lastHeld = timeline.events.at(-1)
+  if (!lastHeld) {
+    void mutate(getSessionEventsKey(sessionId))
+    return
+  }
+  try {
+    const history = await listSessionEvents(sessionId, lastHeld.sequence)
+    // `truncated` here says more followed, not that older events were left out.
+    store.dispatch(sessionHistoryLoaded({ sessionId, history: { ...history, truncated: false }}))
+    if (history.truncated) {
+      reloadHeldSessionSoon(sessionId)
+    }
+  }
+  catch (error) {
+    console.debug('A conversation could not catch up on its held events', { sessionId, error })
+  }
 }
 
 // Whether the next `hello` reloads what is on screen. Events sent while no stream listened are
@@ -533,11 +565,11 @@ const handlers: Handlers = {
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
-  // A summary only a meeting's readers read: an open conversation loads its summaries again,
-  // which answer it to them alone.
+  // A summary only a meeting's readers read: an open conversation catches up, reading the
+  // summaries with what followed, which answer it to them alone.
   'session.summaryChanged': (event) => reloadHeldSessionSoon(event.data.sessionId),
   // An event of a turn that read a meeting, which only its readers read: an open conversation
-  // loads its history again, which answers the turn to them alone.
+  // catches up on what followed its last event, which answers the turn to them alone.
   'session.eventHeld': (event) => reloadHeldSessionSoon(event.data.sessionId),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the

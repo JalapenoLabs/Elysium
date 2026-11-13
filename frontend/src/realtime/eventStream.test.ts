@@ -223,59 +223,97 @@ describe('a turn of Elysia\'s that read a meeting', () => {
 describe('a session turn that read a meeting', () => {
   type SessionContext = {
     eventStream: typeof import('./eventStream')
-    reloads: ReturnType<typeof vi.fn>
+    store: typeof import('../store').store
+    sessionEventsSlice: typeof import('../store/sessionEventsSlice')
+    // The sequence each read of the conversation's history went on from, in order.
+    tailReads: string[]
+  }
+
+  const turnId = '01a1d60c-0000-7000-8000-000000000003'
+
+  function event(sequence: number) {
+    return {
+      sessionId: 7,
+      sequence,
+      turnId,
+      occurredAt: '2026-11-13T09:00:00Z',
+      type: 'agent.message',
+      payload: { kind: 'agentMessage' as const, text: `Said ${sequence}.` },
+    }
   }
 
   beforeEach<SessionContext>(async (context) => {
     vi.resetModules()
     vi.useFakeTimers()
     FakeEventSource.created = []
+    context.tailReads = []
     vi.stubGlobal('EventSource', FakeEventSource)
     vi.stubGlobal('Request', PageRequest)
     vi.stubGlobal('fetch', async (request: Request) => {
       const headers = { 'content-type': 'application/json' }
-      const path = new URL(request.url).pathname
-      if (path === '/api/version') {
+      const url = new URL(request.url)
+      if (url.pathname === '/api/version') {
         return new Response(JSON.stringify({ builtAt: '2026-11-04T00:00:00Z' }), { headers })
+      }
+      if (url.pathname === '/api/v1/coding-sessions/7/events') {
+        const after = Number(url.searchParams.get('afterSequence'))
+        context.tailReads.push(String(after))
+        const body = {
+          events: [ event(after + 1) ],
+          truncated: false,
+          summaries: [{ sessionId: 7, turnId, summary: 'Read the move.', createdAt: '2026-11-13T09:01:00Z' }],
+        }
+        return new Response(JSON.stringify(body), { headers })
       }
       return new Response('{}', { status: 404, headers })
     })
-    // What SWR is asked to load again, standing in for the conversation's loader.
-    const reloads = vi.fn(async () => undefined)
-    vi.doMock('swr', async (importOriginal) => ({
-      ...await importOriginal<typeof import('swr')>(),
-      mutate: reloads,
-    }))
 
-    context.reloads = reloads
     context.eventStream = await import('./eventStream')
+    context.store = (await import('../store')).store
+    context.sessionEventsSlice = await import('../store/sessionEventsSlice')
   })
 
   afterEach<SessionContext>((context) => {
     context.eventStream.stopEventStream()
-    vi.doUnmock('swr')
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  it<SessionContext>('loads the conversation again once for each burst of held events', (context) => {
-    const sessionReloads = () => context.reloads.mock.calls
-      .filter(([ key ]) => key === 'v1/coding-sessions/7/events')
-
+  it<SessionContext>('catches an open conversation up once a burst, reading only what follows', async (context) => {
+    const { sessionHistoryLoaded, sessionTimelineOpened, selectSessionTimeline } = context.sessionEventsSlice
+    context.store.dispatch(sessionTimelineOpened(7))
+    const history = { events: [ event(3) ], truncated: false, summaries: []}
+    context.store.dispatch(sessionHistoryLoaded({ sessionId: 7, history }))
     context.eventStream.startEventStream()
     stream().open()
     stream().send({ type: 'hello' })
     for (const sequence of [ 4, 5, 6 ]) {
       stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence }})
     }
-    stream().send({ type: 'session.summaryChanged', data: { sessionId: 7, turnId: 'a' }})
-    expect(sessionReloads()).toHaveLength(0)
+    stream().send({ type: 'session.summaryChanged', data: { sessionId: 7, turnId }})
+    expect(context.tailReads).toEqual([])
 
-    vi.advanceTimersByTime(1_000)
-    expect(sessionReloads()).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.waitFor(() => {
+      const timeline = selectSessionTimeline(context.store.getState(), 7)
+      expect(timeline?.events.map((held) => held.sequence)).toEqual([ 3, 4 ])
+      expect(timeline?.summariesByTurnId[turnId]).toBe('Read the move.')
+    })
+    expect(context.tailReads).toEqual([ '3' ])
 
     stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence: 7 }})
-    vi.advanceTimersByTime(1_000)
-    expect(sessionReloads()).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.waitFor(() => expect(context.tailReads).toEqual([ '3', '4' ]))
+    expect(selectSessionTimeline(context.store.getState(), 7)?.truncated).toBe(false)
+  })
+
+  it<SessionContext>('reads nothing for a conversation nobody has open', async (context) => {
+    context.eventStream.startEventStream()
+    stream().open()
+    stream().send({ type: 'hello' })
+    stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence: 4 }})
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(context.tailReads).toEqual([])
   })
 })

@@ -153,9 +153,14 @@ export function getSessionEventsKey(sessionId: number) {
   return `v1/coding-sessions/${sessionId}/events`
 }
 
-export function listSessionEvents(sessionId: number) {
+// The session's history, or, given `afterSequence`, only the events after it, earliest first, with
+// `truncated` saying more followed than one read answers.
+export function listSessionEvents(sessionId: number, afterSequence?: number) {
+  const searchParams = afterSequence === undefined
+    ? undefined
+    : { afterSequence }
   return apiClient
-    .get(getSessionEventsKey(sessionId), { timeout: SESSION_HISTORY_TIMEOUT_MS })
+    .get(getSessionEventsKey(sessionId), { timeout: SESSION_HISTORY_TIMEOUT_MS, searchParams })
     .json<ListSessionEventsResponse>()
 }
 

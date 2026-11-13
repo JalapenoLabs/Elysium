@@ -68,7 +68,7 @@ pub async fn for_session(
 ) -> QueryResult<Vec<TurnSummary>> {
     turn_summaries::table
         .filter(turn_summaries::session_id.eq(session_id))
-        .filter(meeting_reads::readable_summaries(reader))
+        .filter(meeting_reads::readable_summaries(session_id, reader))
         .order(turn_summaries::created_at.asc())
         .select(TurnSummary::as_select())
         .load(connection)

@@ -392,9 +392,11 @@ struct Seen {
     queued: HashSet<String>,
     batches_opened: HashSet<String>,
     logs_opened: HashSet<String>,
-    /// The turns the session's conversation has events and summaries of.
+    /// The turns the session's conversation has events and summaries of, and events of as it
+    /// catches up from a sequence.
     session_events: HashSet<String>,
     summaries: HashSet<String>,
+    caught_up: HashSet<String>,
 }
 
 /// The ids among `ids` that `GET path_of(id)` answers `200`, failing on anything but `200` or `404`.
@@ -463,6 +465,12 @@ async fn seen(state: &AppState, written: &Written) -> Seen {
     let session = written.session_id;
     let (status, history) = get(state, &format!("/api/v1/coding-sessions/{session}/events")).await;
     assert_eq!(status, StatusCode::OK, "{history}");
+    let (status, tail) = get(
+        state,
+        &format!("/api/v1/coding-sessions/{session}/events?afterSequence=0"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{tail}");
     let (status, queue) = get(state, "/api/v1/work-queue").await;
     assert_eq!(status, StatusCode::OK, "{queue}");
     let batches = [written.batch, written.open_batch];
@@ -497,6 +505,7 @@ async fn seen(state: &AppState, written: &Written) -> Seen {
         .await,
         session_events: ids(&history["events"], "turnId"),
         summaries: ids(&history["summaries"], "turnId"),
+        caught_up: ids(&tail["events"], "turnId"),
     }
 }
 
@@ -547,6 +556,7 @@ fn expected(written: &Written, reads_private: bool, reads_both: bool) -> Seen {
         logs_opened: batches,
         session_events: set(&[(written.session_turn, reads_private)]),
         summaries: set(&[(written.session_turn, reads_private)]),
+        caught_up: set(&[(written.session_turn, reads_private)]),
     }
 }
 
