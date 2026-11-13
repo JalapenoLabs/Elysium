@@ -802,7 +802,7 @@ inbox item asking. A decision, who made it, and when are set together (`meeting_
 
 Meetings people upload, while their parts arrive and once they became a capture; see `docs/meetings.md`, Uploads. A new
 meeting's upload names its title and start, and a capture's names its meeting (`meeting_uploads_new_meeting`); a
-finished one names the capture it became (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
+finished one names the capture or the attachment it became, never both (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
 updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep, and
 `meeting_uploads_parts_kept` on `finished_at`, partial on finished uploads whose parts were not removed, the finished
 ones to sweep.
@@ -816,6 +816,7 @@ ones to sweep.
 | `part_bytes`          | `INTEGER`     | How many bytes each part carries but the last, fixed when it starts         |
 | `transcript`          | `JSONB`       | The lines its transcript was read as, `{ startMs, endMs, speaker, text }` each, set when it finishes |
 | `capture_id`          | `UUID`        | References `meeting_captures`, cascading, unique: the capture it became     |
+| `attachment_id`       | `UUID`        | References `meeting_attachments`, unique: the file it attached to its meeting, which it always names (`meeting_uploads_attachment_to_a_meeting`) |
 | `finished_at`         | `TIMESTAMPTZ` | When it finished                                                            |
 | `parts_removed_at`    | `TIMESTAMPTZ` | When its staged parts were removed from the workspace; `NULL` while they may be there |
 | `created_by`          | `UUID`        | References `users`: who uploads it                                          |
@@ -823,15 +824,43 @@ ones to sweep.
 
 ### `meeting_upload_files`
 
-An upload's files, a recording, a transcript, or one of each; a child of its upload, so it has no `created_by`.
+An upload's files, a recording, a transcript, or one of each, or one file attached to a meeting; a child of its
+upload, so it has no `created_by`.
 
 | Column           | Type          | Notes                                                                            |
 |------------------|---------------|----------------------------------------------------------------------------------|
-| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording` or `transcript`         |
+| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording`, `transcript`, or `attachment` |
 | `file_name`      | `TEXT`        | Its name, cleaned, at most 200 characters                                        |
 | `size_bytes`     | `BIGINT`      | Above zero                                                                       |
 | `modified_at`    | `TIMESTAMPTZ` | When the file last changed, as the browser read it, to resume it                 |
 | `received_bytes` | `BIGINT`      | How much of it arrived, in whole parts from its start; at most its size          |
+
+### `meeting_attachments`
+
+Files people attach to a meeting and stills of its video pinned to it, each a frozen copy kept with the meeting; see
+`docs/meetings.md`, Attachments and frames. Pins are marks of kind `pin` (`meeting_marks`) naming one in their data.
+`meeting_attachments_of_meeting` on `(meeting_id, id)` lists what a meeting holds, and `meeting_attachments_location`
+finds what a location holds. A frame names its capture, moment, caption, and fingerprint, and a file none of them
+(`meeting_attachments_frame`).
+
+| Column                | Type          | Notes                                                                    |
+|-----------------------|---------------|--------------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                      |
+| `meeting_id`          | `UUID`        | References `meetings`, not cascading: the row is the only record of a file kept with a provider |
+| `kind`                | `TEXT`        | `file` or `frame`                                                        |
+| `storage_location_id` | `UUID`        | Where it went, through `meeting_attachments_storage_location`, so a location holding one stays |
+| `storage_path`, `stored_at` | `TEXT`, `TIMESTAMPTZ` | Its path in the location and when it was stored, both `NULL` while its parts wait (`meeting_attachments_stored`) |
+| `file_name`           | `TEXT`        | Its name, cleaned, at most 200 characters                                |
+| `content_type`        | `TEXT`        | The type it is served as, from its extension                             |
+| `size_bytes`          | `BIGINT`      | Above zero                                                               |
+| `capture_id`, `capture_ms` | `UUID`, `BIGINT` | A frame's capture (references `meeting_captures`) and its moment on that capture's clock |
+| `caption`             | `TEXT`        | What a frame shows, 1 to 1,000 characters                                |
+| `fingerprint`         | `BYTEA`       | A frame's 32 by 18 grey cells, 576 bytes, for finding near duplicates    |
+| `text`, `text_state`  | `TEXT`, `TEXT` | The text read from a file, set exactly when `text_state` is `read`; else `pending`, `none`, or `unreadable` |
+| `created_by`          | `UUID`        | References `users`                                                       |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for its creator, as on `meeting_marks`                  |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                            |
+| `removed_by`          | `UUID`        | References `meeting_events`: the change that took it off, `NULL` while it stands |
 
 ### `meeting_transcriptions`
 
@@ -1713,7 +1742,8 @@ One row, always present (`singleton` is its key and must be true).
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
 | `agent_configuration_github_credential_id` | `UUID` | Nullable; the GitHub token that reads it, `NULL` to read it without one. References `github_credentials`, `SET NULL`; only for a github.com repository |
 | `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
-| `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
+| `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page and meeting attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
+| `meeting_attachment_max_bytes` | `BIGINT` | The largest file a meeting takes, 1 GB by default, from 1 to 5 GiB (`workspace_settings_meeting_attachment_max_bytes`) |
 | `worker_pool_size` | `INTEGER` | Nullable; how many workers run at once, at least one with no maximum, `NULL` for the default (one per CPU core the engine sees minus two, at least one) |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |

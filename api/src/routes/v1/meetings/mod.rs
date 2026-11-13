@@ -16,6 +16,9 @@
 #[cfg(test)]
 mod access_tests;
 mod approve_correction;
+#[cfg(test)]
+mod attachment_tests;
+mod attachments;
 mod decide_duplicate;
 mod done_reviewing;
 mod edit_words;
@@ -41,6 +44,7 @@ mod threads;
 use std::collections::HashMap;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post, put};
 use chrono::{DateTime, Utc};
 use diesel::QueryResult;
@@ -68,8 +72,28 @@ use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
+/// How a file or a frame is answered, wherever one is answered, such as by finishing its upload.
+pub(crate) use attachments::{
+    AttachmentResponse, MAX_FRAME_FORM_BYTES, refusal as attachment_refusal,
+};
+
+/// `attachment` as answered, its moment placed on the meeting's clock by its capture's
+/// `offset_ms` when it has one.
+pub(crate) fn attachment_response(
+    attachment: crate::models::meeting_attachment::MeetingAttachment,
+    offset_ms: Option<i64>,
+) -> AttachmentResponse {
+    AttachmentResponse::new(attachment, offset_ms)
+}
+
 pub fn router() -> Router<AppState> {
+    // A frame arrives whole, a still a browser's canvas drew in a form with its caption; nothing
+    // else here takes more than the API's ordinary limit.
+    let frames = Router::new()
+        .route("/{id}/frames", post(attachments::take_frame))
+        .layer(DefaultBodyLimit::max(MAX_FRAME_FORM_BYTES));
     Router::new()
+        .merge(frames)
         .route("/", get(list_meetings::handle))
         .route("/{id}", get(get_meeting::handle))
         .route("/{id}/retry", post(retry_meeting::handle))
@@ -87,6 +111,16 @@ pub fn router() -> Router<AppState> {
             "/{id}/captures/{capture_id}/media",
             get(stream_capture_media::handle),
         )
+        .route("/{id}/attachments", get(attachments::list))
+        .route(
+            "/{id}/attachments/{attachment_id}",
+            delete(attachments::remove),
+        )
+        .route(
+            "/{id}/attachments/{attachment_id}/{name}",
+            get(attachments::read),
+        )
+        .route("/{id}/pins", post(attachments::pin))
         .route("/{id}/history", get(history::list))
         .route("/{id}/history/{entry_id}/undo", post(history::undo))
         .route("/{id}/threads", get(threads::list).post(threads::start))

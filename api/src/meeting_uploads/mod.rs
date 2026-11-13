@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! What a person may upload as a meeting, and how its files arrive. The rows are
+//! What a person may upload as a meeting, or attach to one, and how its files arrive. The rows are
 //! [`crate::models::meeting_upload`], the routes `/api/v1/meeting-uploads`, and the step that
 //! stores an upload is the meeting workflow's fetch (`crate::meetings::fetch`). See
 //! `docs/meetings.md`, Uploads.
@@ -12,6 +12,8 @@
 //!
 //! A recording can be gigabytes, which no single request carries reliably, so every file arrives
 //! as numbered parts of [`PART_BYTES`] (the last one shorter), each its own request, in order. A
+//! file attached to a meeting arrives the same way, as an upload of one [`FileKind::Attachment`]
+//! (`crate::meeting_attachments`), since it may be a gigabyte too. A
 //! part already received is acknowledged again without being written, so a person whose
 //! connection dropped resumes from the first part the API does not have, from the same page or
 //! after a reload. Parts wait in the upload's staging directory ([`staging`]) until the meeting's
@@ -60,15 +62,18 @@ pub const MAX_TRANSCRIPT_BYTES: u64 = 10_000_000;
 /// The longest a file's name may be, in characters, as `meeting_upload_files.file_name` allows.
 const MAX_NAME_CHARACTERS: usize = 200;
 
-/// How many of a recording's first bytes prove its format: enough for the longest signature among
-/// [`FILE_TYPES`], WAV's twelve.
-pub const SIGNATURE_BYTES: usize = 12;
+/// How many of a file's first bytes prove its format: enough for the longest signature among
+/// [`FILE_TYPES`], WAV's twelve, and among the images an attachment may be, as pages read them.
+pub const SIGNATURE_BYTES: usize = crate::meeting_attachments::SIGNATURE_BYTES;
 
 /// What one file of an upload is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileKind {
     Recording,
     Transcript,
+    /// A file attached to the meeting, of any kind (`crate::meeting_attachments`): an upload holds
+    /// one of these alone, and becomes an attachment rather than a capture.
+    Attachment,
 }
 
 impl FileKind {
@@ -77,21 +82,47 @@ impl FileKind {
         match self {
             Self::Recording => "recording",
             Self::Transcript => "transcript",
+            Self::Attachment => "attachment",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Recording, Self::Transcript]
+        [Self::Recording, Self::Transcript, Self::Attachment]
             .into_iter()
             .find(|kind| kind.as_str() == text)
     }
 
-    /// The largest file of this kind.
+    /// The largest file of this kind. An attachment is held to the admin's setting beneath this
+    /// (`workspace_settings.meeting_attachment_max_bytes`), which never passes it.
     pub const fn max_bytes(self) -> u64 {
         match self {
             Self::Recording => MAX_RECORDING_BYTES,
             Self::Transcript => MAX_TRANSCRIPT_BYTES,
+            Self::Attachment => crate::meeting_attachments::MAX_BYTES_CEILING,
         }
+    }
+}
+
+/// Refuses a file of `kind` named `file_name` whose `head`, its first bytes, is not the format its
+/// name says: a recording, which plays on Elysium's origin, and an attachment named as an image,
+/// which displays there. A transcript is read as text, and needs no proof.
+///
+/// # Errors
+/// `400` with `meeting_upload_type` for a name that is no recording, `meeting_upload_not_media`
+/// for a recording that does not open as its format, or `meeting_attachment_not_an_image`.
+pub fn require_signature(kind: FileKind, file_name: &str, head: &[u8]) -> Result<(), ApiError> {
+    match kind {
+        FileKind::Recording => match type_of(kind, file_name) {
+            Some(file_type) => file_type.require_signature(head),
+            None => Err(ApiError::CodedBadRequest {
+                code: "meeting_upload_type",
+                message: format!("{file_name} is not a recording a meeting takes"),
+            }),
+        },
+        FileKind::Attachment => {
+            crate::meeting_attachments::FileName::parse(file_name)?.require_signature(head)
+        }
+        FileKind::Transcript => Ok(()),
     }
 }
 

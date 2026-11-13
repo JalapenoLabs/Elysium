@@ -1,7 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `POST /api/v1/meeting-uploads`: starts an upload of a recording, a transcript, or both, as a new
-//! meeting (with its title and when it started) or as a capture of a meeting the person has.
+//! meeting (with its title and when it started) or as a capture of a meeting the person has; or of
+//! one file attached to a meeting (`attachment`), of any kind, up to the admin's largest
+//! (`crate::meeting_attachments`), which may arrive whenever the meeting is, its run or not.
 //!
 //! Everything that can be refused before a byte is sent is refused here: what the files are named,
 //! their kinds and sizes, the meeting and the storage location they name. The files then arrive in
@@ -20,12 +22,14 @@ use uuid::Uuid;
 use super::UploadResponse;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meeting_attachments::{self, FileName, MAX_PER_MEETING};
 use crate::meeting_uploads::{FileKind, PART_BYTES, upload_name};
 use crate::meetings::access::Need;
 use crate::meetings::workflow;
 use crate::models::meeting_upload::{self, NewMeetingUpload, NewUploadFile};
 use crate::models::storage_location;
 use crate::models::workflow_run::{WorkflowRun, WorkflowRunState};
+use crate::models::{meeting_attachment, user};
 use crate::routes::v1::meetings;
 use crate::state::AppState;
 
@@ -44,6 +48,8 @@ pub struct CreateUpload {
     storage_location_id: Option<Uuid>,
     recording: Option<FileToUpload>,
     transcript: Option<FileToUpload>,
+    /// A file to attach to the meeting, alone.
+    attachment: Option<FileToUpload>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +67,9 @@ pub async fn handle(
     body: Result<Json<CreateUpload>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(request) = body?;
+    if let Some(attachment) = &request.attachment {
+        return create_attachment(&state, &current, &request, attachment).await;
+    }
     let mut files = Vec::new();
     for (kind, file) in [
         (FileKind::Recording, request.recording.as_ref()),
@@ -128,6 +137,89 @@ pub async fn handle(
             created_by: current.id(),
         },
         files,
+    )
+    .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "upload": UploadResponse::from(staged) })),
+    ))
+}
+
+/// Starts an upload of `attachment`, a file attached to the meeting `request` names, alone.
+async fn create_attachment(
+    state: &AppState,
+    current: &CurrentUser,
+    request: &CreateUpload,
+    attachment: &FileToUpload,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let Some(meeting_id) = request.meeting_id else {
+        return Err(ApiError::BadRequest(
+            "a file is attached to a meeting, so it names one".to_owned(),
+        ));
+    };
+    let alone = request.recording.is_none()
+        && request.transcript.is_none()
+        && request.title.is_none()
+        && request.started_at.is_none()
+        && request.storage_location_id.is_none();
+    if !alone {
+        return Err(ApiError::BadRequest(
+            "an attached file is uploaded alone, kept where page attachments are".to_owned(),
+        ));
+    }
+    let file_name = FileName::parse(&attachment.name)?;
+    if attachment.size_bytes == 0 {
+        return Err(ApiError::CodedBadRequest {
+            code: "meeting_upload_empty",
+            message: format!("{} is empty", file_name.as_str()),
+        });
+    }
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let (found, _access) = meetings::open(&mut connection, meeting_id, current, Need::Edit).await?;
+    if found.merged_into.is_some() {
+        return Err(MEETING_MERGED);
+    }
+    let settings = user::workspace_settings(&mut connection).await?;
+    let max_bytes = u64::try_from(settings.meeting_attachment_max_bytes).unwrap_or_default();
+    if attachment.size_bytes > max_bytes {
+        return Err(ApiError::PayloadTooLarge {
+            code: "meeting_attachment_too_large",
+            message: format!("a meeting's file may be at most {max_bytes} bytes"),
+        });
+    }
+    let Some(location_id) = settings.page_attachment_storage_location_id else {
+        return Err(meeting_attachments::NO_LOCATION);
+    };
+    // Asked before a byte moves, and again as the upload finishes under the meeting's lock.
+    if meeting_attachment::count_standing(&mut connection, found.id).await? >= MAX_PER_MEETING {
+        return Err(ApiError::CodedConflict {
+            code: "meeting_attachment_too_many",
+            message: "This meeting holds as many files and frames as one may. Take one off first.",
+        });
+    }
+    let staged = meeting_upload::create(
+        &mut connection,
+        NewMeetingUpload {
+            id: Uuid::now_v7(),
+            meeting_id: Some(found.id),
+            title: None,
+            started_at: None,
+            storage_location_id: Some(location_id),
+            part_bytes: i32::try_from(PART_BYTES).expect("a part's size fits an integer"),
+            created_by: current.id(),
+        },
+        vec![NewUploadFile {
+            kind: FileKind::Attachment,
+            file_name: file_name.as_str().to_owned(),
+            size_bytes: i64::try_from(attachment.size_bytes)
+                .context("a file's size fits a bigint")?,
+            modified_at: attachment.modified_at,
+        }],
     )
     .await?;
     Ok((

@@ -29,6 +29,20 @@ type Carried = {
   resume: boolean
 }
 
+// A still of the player's video: the capture it was taken from, its moment on that capture's
+// clock and on the meeting's, and the picture as the video drew it.
+export type Still = {
+  captureId: string
+  captureMs: number
+  meetingMs: number
+  picture: Blob
+}
+
+// What a still is drawn as. WebP keeps a screen's text crisp at a fraction of PNG's size; a browser
+// that cannot write it hands back a PNG, which the API takes too, and re-encodes either.
+const STILL_TYPE = 'image/webp'
+const STILL_QUALITY = 0.92
+
 // What the recording that loaded turned out to be, for the capture it belongs to.
 type Loaded = {
   captureId: string
@@ -195,6 +209,34 @@ export function useMeetingPlayer(options: Options) {
     seek(meetingMsAt(media.currentTime, offsetMs) + deltaMs)
   }, [ seek, offsetMs ])
 
+  // The picture the video shows now, drawn from the media element itself, which plays from
+  // Elysium's own origin, so the canvas it is drawn on is never tainted. Null with no video loaded,
+  // or one with audio alone. Taken at once, before anything moves the video on.
+  const takeStill = useCallback(async (): Promise<Still | null> => {
+    const media = mediaRef.current
+    if (!media || !capture || !media.videoWidth || !media.videoHeight) {
+      console.debug('The meeting player was asked for a still with no picture to take one of')
+      return null
+    }
+    const captureMs = Math.round(media.currentTime * 1000)
+    const meetingMs = meetingMsAt(media.currentTime, offsetMs)
+    const canvas = document.createElement('canvas')
+    canvas.width = media.videoWidth
+    canvas.height = media.videoHeight
+    const context = canvas.getContext('2d')
+    if (!context) {
+      console.debug('The meeting player could not draw a still: no 2D canvas')
+      return null
+    }
+    context.drawImage(media, 0, 0, canvas.width, canvas.height)
+    const picture = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, STILL_TYPE, STILL_QUALITY))
+    if (!picture) {
+      console.debug('The meeting player could not encode a still')
+      return null
+    }
+    return { captureId: capture.id, captureMs, meetingMs, picture }
+  }, [ capture, offsetMs ])
+
   const switchCapture = useCallback((captureId: string) => {
     const media = mediaRef.current
     if (media) {
@@ -259,6 +301,9 @@ export function useMeetingPlayer(options: Options) {
     isPlaying,
     isAudioOnly,
     hasFailed: isLoaded && Boolean(loaded?.hasFailed),
+    // Whether a frame can be taken now: a video of the capture playing, loaded and with a picture.
+    canTakeStill: isLoaded && !isAudioOnly && !loaded?.hasFailed,
+    takeStill,
     spokenIndex,
     play,
     seek,

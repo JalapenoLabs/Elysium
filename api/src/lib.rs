@@ -47,6 +47,7 @@ mod jira;
 mod knowledge;
 mod mail;
 mod mcp;
+mod meeting_attachments;
 mod meeting_uploads;
 mod meetings;
 mod middleware;

@@ -53,6 +53,7 @@ type Props = {
   onCancelEdit: () => void
   onSelectFromHere: (() => void) | null
   onPlayFromHere: (() => void) | null
+  onPinFrame: (() => void) | null
 }
 
 // The word a piece of the transcript stands for: a word itself, or the space after one.
@@ -233,6 +234,7 @@ export function FinalTranscript(props: Props) {
       onSelectFromHere={props.onSelectFromHere}
       isExtending={props.isExtending}
       onPlayFromHere={props.onPlayFromHere}
+      onPinFrame={props.onPinFrame}
     />}
   </div>
 }

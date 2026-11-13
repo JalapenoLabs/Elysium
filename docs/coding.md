@@ -116,13 +116,14 @@ holding her would silence the message. They run on whatever checkout the shared 
 
 The runner keeps nothing: callers record the events they show.
 
-A turn runs in one of three modes (`TurnMode`):
+A turn runs in one of four modes (`TurnMode`):
 
 | Mode            | What it is                                                                                      | Used by |
 |-----------------|-------------------------------------------------------------------------------------------------|---------|
 | `Agent`         | Every built-in tool, the workspace's `~/.claude`, and a session the next turn resumes            | Coding and Studio sessions, Elysia |
 | `Text`          | No built-in tools (`--tools=`), only the request's MCP servers (`--strict-mcp-config`), no settings (`--setting-sources=`), its own system prompt, and no session kept (`--no-session-persistence`) | Turn summaries, correction, segmenting, the company doc's review |
 | `ResumableText` | As `Text`, with its session kept for the next turn to resume; Claude Code finds a session by its working directory, so every turn of one runs in the same one | The agent handling a conversation (`docs/engine.md`, Conversations) |
+| `TextWithSubagents` | As `Text`, with the Task tool alone (`--tools=Task`), so it can hand work to subagents, which get the request's MCP servers too | Segmenting a meeting with video, which hands its stills to subagents to look at (`docs/meetings.md`, Attachments and frames) |
 
 ### How a prompt reaches the CLI
 
@@ -266,7 +267,8 @@ with `knowledge_get`, its meetings listed with `meetings_list`, the company doc 
 suggested to with `company_doc_propose` (`docs/knowledge.md`, MCP and The company doc), and its pages read with
 `page_read` and `page_list`, edited with `page_save`, `page_move`, `page_label_add`, `page_label_remove`,
 `page_project_link`, and `page_project_unlink`, and suggested to with `page_suggest`, every write and suggestion as
-whoever started the session and naming it (`docs/knowledge.md`, Who changes pages and Suggestions).
+whoever started the session and naming it (`docs/knowledge.md`, Who changes pages and Suggestions), and a file or frame
+pinned in a meeting's excerpt opened with `meeting_attachment_get` (`docs/meetings.md`, Attachments and frames).
 Its instructions are the company's agent guidance, read as each turn connects, so an admin's edit reaches every turn
 as it reaches every MCP client (`docs/knowledge.md`, Agent guidance). Its every call reads for whoever started the
 session, checked in the database, so a session a guest started reaches none of it, and a session's searches spend its
@@ -274,6 +276,8 @@ starter's search budget. Another server,
 `elysia`, is Elysia's own and is given only to her turns (`docs/elysia.md`), and `elysium_project_manager` is a
 Project Manager's own, given with `elysium_work` and `elysium_knowledge` to its turns alone, which work for its project
 and read as its machine user (`docs/engine.md`, Project Managers). They are served at
+`elysium_meeting_frames` is a meeting's segmenting turn's alone, showing the stills of the one video it names
+(`docs/meetings.md`, Attachments and frames). They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.

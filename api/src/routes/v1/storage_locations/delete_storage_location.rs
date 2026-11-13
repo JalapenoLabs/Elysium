@@ -65,6 +65,15 @@ pub async fn handle(
                     message: "pages keep attachments in this location",
                 }
             }
+            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, info)
+                if info.constraint_name()
+                    == Some(storage_location::MEETING_ATTACHMENT_FILES_CONSTRAINT) =>
+            {
+                ApiError::CodedConflict {
+                    code: "meeting_attachment_files",
+                    message: "meetings keep files and frames in this location",
+                }
+            }
             DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {
                 ApiError::Conflict(
                     "Studio items keep files in this location; delete them permanently first",

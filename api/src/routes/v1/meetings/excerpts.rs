@@ -197,7 +197,7 @@ fn refusal(error: ExcerptError) -> ApiError {
         ExcerptError::Mark(MarkError::EditsOwn) | ExcerptError::NotAnExcerpt => {
             ApiError::CodedBadRequest {
                 code: "meeting_mark_kind",
-                message: "Only an excerpt or a black-out is removed here.".to_owned(),
+                message: "Only an excerpt, a black-out, or a pin is removed here.".to_owned(),
             }
         }
         ExcerptError::Mark(MarkError::NotAnObject) => {

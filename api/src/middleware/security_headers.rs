@@ -37,8 +37,9 @@ const API_CONTENT_SECURITY_POLICY: HeaderValue =
 ///
 /// - `style-src 'unsafe-inline'`: React Aria and `HeroUI` position overlays and animate
 ///   through `<style>` elements and style attributes they write at runtime.
-/// - `img-src data: blob:`: a cover chosen for upload is previewed from a blob URL
-///   before it is sent, and icon libraries inline small images as data URLs.
+/// - `img-src data: blob:`: a cover chosen for upload, and a meeting's frame being pinned, are
+///   previewed from a blob URL before they are sent, and icon libraries inline small images as
+///   data URLs.
 /// - `font-src data:`: bundled CSS may inline small fonts.
 const WEB_APP_CONTENT_SECURITY_POLICY: HeaderValue = HeaderValue::from_static(concat!(
     "default-src 'self'; ",

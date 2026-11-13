@@ -42,6 +42,7 @@ use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::elysia::prompt::read_back;
 use crate::elysia::runner::{ElysiaOutcome, RunnerError};
+use crate::meetings::attachments;
 use crate::models::attribution::ELYSIA_ACTOR;
 use crate::models::project::Project;
 use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
@@ -340,22 +341,29 @@ async fn load_context(
     let tasks = tasks::load(connection, turn.project_id, &task_ids, &names).await?;
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
-    let mut records: Vec<PromptRecord> =
-        timeline_record::attributed_among(connection, turn.project_id, &record_ids)
+    let attributed =
+        timeline_record::attributed_among(connection, turn.project_id, &record_ids).await?;
+    let mut records: Vec<PromptRecord> = Vec::with_capacity(attributed.len());
+    for (record, attribution) in attributed {
+        // What is pinned in a meeting's excerpt travels with it here.
+        let pinned = attachments::pinned_in(connection, &record)
             .await?
-            .into_iter()
-            .map(|(record, attribution)| PromptRecord {
-                id: record.id,
-                summary: record.metadata["summary"].as_str().map(str::to_owned),
-                source_kind: record.source_kind,
-                occurred_at: record.occurred_at,
-                actor: record.actor,
-                title: record.title,
-                body: record.body,
-                confidence: attribution.confidence,
-                attributed_by_person: attribution.attributed_by != ELYSIA_ACTOR,
-            })
+            .iter()
+            .map(attachments::prompt_line)
             .collect();
+        records.push(PromptRecord {
+            id: record.id,
+            summary: record.metadata["summary"].as_str().map(str::to_owned),
+            source_kind: record.source_kind,
+            occurred_at: record.occurred_at,
+            actor: record.actor,
+            title: record.title,
+            body: record.body,
+            confidence: attribution.confidence,
+            attributed_by_person: attribution.attributed_by != ELYSIA_ACTOR,
+            pinned,
+        });
+    }
     records.sort_by_key(|record| record.occurred_at);
     let mut waiting_by_batch: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
     for waiting in promise::waiting_on_batches(connection, &batch_ids).await? {

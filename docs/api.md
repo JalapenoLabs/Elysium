@@ -60,6 +60,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/meetings/{id}/visibility`    | `200` `{ meeting, entry }`; body `{ visibility: "private" \| "public" }`, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it is so already |
 | PUT    | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; shares it with an active person other than its owner (`400` `meeting_share_person`), its owner or an admin; `409` (`meeting_visibility_unchanged`) when shared already |
 | DELETE | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; stops sharing it with them, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it was not |
+| GET    | `/api/v1/meetings/{id}/attachments`   | `200` `{ attachments: MeetingAttachment[] }`: its standing files and frames, in the order they arrived |
+| GET    | `/api/v1/meetings/{id}/attachments/{attachmentId}/{name}` | The file, streamed from storage: a proven image or a frame `inline`, anything else `attachment`; `404` while it is being stored or once taken off |
+| DELETE | `/api/v1/meetings/{id}/attachments/{attachmentId}` | `200` `{ entry, change }`; takes it off with every pin of it, `409` (`meeting_attachment_removed`) when it was already |
+| POST   | `/api/v1/meetings/{id}/frames`        | `201` `{ attachment, entry, change }`; a `multipart/form-data` form of `captureId`, `captureMs`, `caption`, and `startWordId` with `endWordId` or neither, then `still`, the picture, at most 25 MB; pinned over the range, or over the word spoken at its moment without one; `400` (`meeting_frame_not_an_image`, `meeting_frame_no_recording`), `413` (`meeting_frame_too_large`), `409` (`meeting_attachment_no_location`, `meeting_attachment_too_many`, `meeting_words_changed`) |
+| POST   | `/api/v1/meetings/{id}/pins`          | `200` `{ entry, change }`; pins `attachmentId` over `startWordId` to `endWordId`, `409` (`meeting_attachment_removed`, `meeting_words_changed`) |
+| GET    | `/api/v1/meeting-attachments`         | `200` `{ policy }`: `destinationId`, `maxBytes`, `maxBytesCeiling`, `partBytes`, `maxPerMeeting`, `frameMaxBytes`, `captionMaxCharacters`, and `textMaxCharacters` |
+| PUT    | `/api/v1/meeting-attachments/limit`   | `200` `{ policy }`; admins set `maxBytes`, from 1 to `maxBytesCeiling` |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -70,10 +77,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/duplicates/{id}/not-the-same` | `200` `{ duplicate }`; remembers they are not the same, `409` (`duplicate_decided`) once decided |
 | GET    | `/api/v1/meeting-uploads/policy?meetingId=` | `200` `{ policy }`: `partBytes`, each kind's `maxBytes` and `extensions`, and `defaultStorageLocationId` |
 | GET    | `/api/v1/meeting-uploads`             | `200` `{ uploads: MeetingUpload[] }`, the caller's unfinished, most recently moved first |
-| POST   | `/api/v1/meeting-uploads`             | `201` `{ upload }`; a new meeting's `title` and `startedAt`, or a `meetingId`, with a `recording`, a `transcript`, or both, each `{ name, sizeBytes, modifiedAt }`, and `storageLocationId` with a recording |
+| POST   | `/api/v1/meeting-uploads`             | `201` `{ upload }`; a new meeting's `title` and `startedAt`, or a `meetingId`, with a `recording`, a `transcript`, or both, each `{ name, sizeBytes, modifiedAt }`, and `storageLocationId` with a recording; or a `meetingId` with one `attachment` alone, `413` (`meeting_attachment_too_large`), `409` (`meeting_attachment_no_location`, `meeting_attachment_too_many`) |
 | GET    | `/api/v1/meeting-uploads/{id}`        | `200` `{ upload }`, with how much of each file arrived |
 | PUT    | `/api/v1/meeting-uploads/{id}/{kind}/parts/{index}` | `200` `{ upload }`; the part's bytes as the body with their length, `409` (`meeting_upload_part_ahead`) past the next |
-| POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before |
+| POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before; an attachment's answers `201` `{ attachment, entry }` and starts the run that stores it, `200` `{ attachment }` when finished before |
 | DELETE | `/api/v1/meeting-uploads/{id}`        | `204`; stops an unfinished upload and removes its parts |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
@@ -505,6 +512,13 @@ made of it, each `{ id, title, state }`; `proposals` the changesets waiting for 
 `declined` `{ reason, at }` when its Project Manager said why it made none, or `null`. Both answer whoever may read the
 meeting, and `task-items` answers `null` for an item no task of a meeting the caller may read made. See
 `docs/meetings.md`, Tasks.
+
+A `MeetingAttachment` has `id`, `kind` (`file` or `frame`), `fileName`, `contentType`, `sizeBytes`, `address` (where it
+is served, `null` while its parts are being stored), `displaysInline`, a frame's `caption`, `captureId`, `captureMs`,
+and `meetingMs` (each `null` for a file), `textState` (`pending`, `read`, `none`, or `unreadable`), `createdBy`,
+`agent`, and `createdAt`. Whoever reads the meeting lists and opens them; whoever may change it attaches, pins, and
+takes them off, and every change to a meeting merged away is refused (`meeting_merged`). See `docs/meetings.md`,
+Attachments and frames.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,

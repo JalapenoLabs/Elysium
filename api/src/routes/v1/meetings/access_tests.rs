@@ -9,7 +9,8 @@
 //!
 //! A request allowed through is sent so it then fails its own checks (an empty edit, the meeting's
 //! own visibility again, an offset out of range, a pair of meetings decided already, an excerpt on
-//! no project, a backwards range, a thread removed as a mark), so the matrix can run every cell
+//! no project, a backwards range, a thread removed as a mark, a frame sent as no form, a file past
+//! the largest a meeting takes), so the matrix can run every cell
 //! against one meeting without changing what it decides; a retry is the one that acts, so its run
 //! is failed again before each. They are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
@@ -25,6 +26,9 @@ use super::tests::{insert_grace, keep_recording, thread_item_for};
 use crate::action_items::Actor;
 use crate::meetings::{visibility, workflow};
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
+use crate::models::agent::Author;
+use crate::models::meeting_attachment::{self, NewAttachment, StoredFrame};
+use crate::models::meeting_capture;
 use crate::models::meeting_correction::{self, NewMeetingCorrection};
 use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
 use crate::models::meeting_word::tests::{built_meeting, word};
@@ -395,6 +399,38 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
     )
     .await;
 
+    // A frame of its recording, which the first cell allowed to take it off does; the rest find it
+    // off already, which is still their own refusal.
+    let recording_location = meeting_capture::find(&mut connection, capture.id)
+        .await
+        .expect("the capture")
+        .storage_location_id
+        .expect("its recording is kept");
+    let frame = meeting_attachment::insert(
+        &mut connection,
+        NewAttachment::frame(
+            StoredFrame {
+                id: Uuid::now_v7(),
+                meeting_id,
+                storage_location_id: recording_location,
+                storage_path: format!("meeting-attachments/{meeting_id}/frames/still.webp"),
+                file_name: "Frame at 0m01s.webp".to_owned(),
+                size_bytes: 4,
+                capture_id: capture.id,
+                capture_ms: 1_000,
+                caption: "The launch slide".to_owned(),
+                fingerprint: vec![0; 576],
+            },
+            Author {
+                user_id: TEST_PERSON_ID,
+                agent: None,
+                at: chrono::Utc::now(),
+            },
+        ),
+    )
+    .await
+    .expect("a frame");
+
     let meeting = format!("/api/v1/meetings/{meeting_id}");
     let captured = format!("{meeting}/captures/{}", capture.id);
     let threads = format!("{meeting}/threads");
@@ -481,6 +517,31 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         ),
         Asked::new(Method::PUT, format!("{captured}/offset"), Needs::Own)
             .with_body(json!({ "offsetMs": 13 * 60 * 60 * 1000 })),
+        Asked::new(Method::GET, format!("{meeting}/attachments"), Needs::Read),
+        // JSON rather than the form a frame is sent as, which is read once who may send it is
+        // decided.
+        Asked::new(Method::POST, format!("{meeting}/frames"), Needs::Edit).with_body(json!({})),
+        // A pin over a range that ends before it starts.
+        Asked::new(Method::POST, format!("{meeting}/pins"), Needs::Edit).with_body(json!({
+            "attachmentId": frame.id,
+            "startWordId": ships.id,
+            "endWordId": sheriff.id,
+        })),
+        Asked::new(
+            Method::DELETE,
+            format!("{meeting}/attachments/{}", frame.id),
+            Needs::Edit,
+        ),
+        // Past the largest file a meeting takes.
+        Asked::new(
+            Method::POST,
+            "/api/v1/meeting-uploads".to_owned(),
+            Needs::Edit,
+        )
+        .with_body(json!({
+            "meetingId": meeting_id,
+            "attachment": { "name": "Launch plan.pdf", "sizeBytes": 6_000_000_000_u64 },
+        })),
         Asked::new(
             Method::GET,
             format!("/api/v1/meeting-uploads/policy?meetingId={meeting_id}"),

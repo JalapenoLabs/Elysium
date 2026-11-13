@@ -43,6 +43,9 @@ fn the_tools_share_the_mcp_servers_names() {
             "knowledge_search",
             "knowledge_get",
             "meetings_list",
+            // A turn's alone: what it opens is pinned in what a turn reads, an excerpt it was
+            // handed (docs/knowledge.md, MCP).
+            "meeting_attachment_get",
             "company_doc_read",
             "company_doc_propose",
             "page_read",
@@ -89,6 +92,7 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
                 "limit": 10,
             }),
         ),
+        ("meeting_attachment_get", json!({ "attachmentId": id })),
         ("page_read", json!({ "id": id })),
         ("page_list", json!({ "parentId": id, "offset": 200 })),
         (
@@ -132,6 +136,9 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             }
             "knowledge_get" => parse_arguments::<DocumentArguments>(&text).map(|_parsed| ()),
             "meetings_list" => parse_arguments::<ListMeetingsRequest>(&text).map(|_parsed| ()),
+            "meeting_attachment_get" => {
+                parse_arguments::<attachments::Arguments>(&text).map(|_parsed| ())
+            }
             "page_read" => parse_arguments::<PageArguments>(&text).map(|_parsed| ()),
             "page_list" => parse_arguments::<ListPagesArguments>(&text).map(|_parsed| ()),
             "page_save" => parse_arguments::<SavePageRequest>(&text).map(|_parsed| ()),

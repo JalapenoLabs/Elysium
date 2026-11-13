@@ -75,6 +75,12 @@ export const historySentenceKeys = {
   unshared: 'review.history.sentences.unshared',
   segmented: 'review.history.sentences.segmented',
   reviewDone: 'review.history.sentences.reviewDone',
+  attachedFile: 'review.history.sentences.attachedFile',
+  attachedFrame: 'review.history.sentences.attachedFrame',
+  detachedFile: 'review.history.sentences.detachedFile',
+  detachedFrame: 'review.history.sentences.detachedFrame',
+  pinned: 'review.history.sentences.pinned',
+  unpinned: 'review.history.sentences.unpinned',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -83,7 +89,8 @@ type HistorySentence = keyof typeof historySentenceKeys
 export type HistoryRow = {
   entry: MeetingHistoryEntry
   sentence: HistorySentence
-  // What it said before and after, for an edit; the kind of mark, for a mark.
+  // What it said before and after, for an edit; the file's name after, for a file attached or
+  // taken off; the kind of mark, for a mark.
   before: string | null
   after: string | null
   markKind: DrawnMarkKind | null
@@ -109,6 +116,8 @@ const UNDOABLE_KINDS = new Set([
   'visibility_changed',
   'shared',
   'unshared',
+  'attached',
+  'detached',
 ])
 
 // How a change to who reads a meeting reads: a person's, by what it became, and its correction's,
@@ -149,6 +158,19 @@ function sideOf(entry: MeetingHistoryEntry, meetingId: string) {
   })
   return null
 }
+
+// A pin is a mark of the file or frame it pins, listed with the meeting's files rather than drawn,
+// so pinning reads as itself rather than as a mark of a kind.
+const pinSentences = {
+  marked: 'pinned',
+  unmarked: 'unpinned',
+} as const satisfies Record<'marked' | 'unmarked', HistorySentence>
+
+// A file attached or taken off is named; a frame, whose name is only its moment, is not.
+const attachmentSentences = {
+  attached: { file: 'attachedFile', frame: 'attachedFrame' },
+  detached: { file: 'detachedFile', frame: 'detachedFrame' },
+} as const satisfies Record<'attached' | 'detached', Record<'file' | 'frame', HistorySentence>>
 
 const movedSentences = {
   merged: { kept: 'mergedIn', away: 'mergedAway' },
@@ -237,9 +259,22 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
         return row
       case 'marked':
       case 'unmarked':
+        if (entry.data.kind === 'pin') {
+          row.sentence = pinSentences[entry.kind]
+          return row
+        }
         row.sentence = entry.kind
         row.markKind = drawnKind(entry.data.kind)
         return row
+      case 'attached':
+      case 'detached': {
+        const attachmentKind = entry.data.attachmentKind === 'frame'
+          ? 'frame'
+          : 'file'
+        row.sentence = attachmentSentences[entry.kind][attachmentKind]
+        row.after = quoted(entry.data.fileName)
+        return row
+      }
       case 'hold_changed':
         row.sentence = entry.data.after === true
           ? 'held'

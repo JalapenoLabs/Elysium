@@ -16,9 +16,9 @@ import type {
 // ids, which the page turns into indices once per load (`placeMarks`); a range is two indices,
 // both included.
 
-// The kinds of mark drawn over the words, in the order the options list their switches. Pins
-// and tasks show along the top of the page instead (docs/meeting-review.md, Tasks, and
-// Attachments and frames).
+// The kinds of mark drawn over the words, in the order the options list their switches. Pins show
+// with the meeting's files and frames in its lane and in each excerpt's detail, and tasks along the
+// top of the page (docs/meeting-review.md, Tasks, and Attachments and frames).
 export const DRAWN_MARK_KINDS = [
   'confidence',
   'edit',

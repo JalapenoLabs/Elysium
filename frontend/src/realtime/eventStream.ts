@@ -68,9 +68,11 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
+import { MEETING_ATTACHMENT_POLICY_KEY } from '../api/routes/meetingAttachmentRoutes'
 import {
   getMeeting,
   isMeetingTasksKey,
+  meetingAttachmentsKey,
   meetingHistoryKey,
   meetingTasksKey,
   meetingThreadsKey,
@@ -258,13 +260,16 @@ const handlers: Handlers = {
     }
     void mutate(LEARNING_CATEGORIES_KEY)
   },
-  // Whether a file can be attached, loaded again by the company's members only.
+  // Whether a file can be attached to a page, loaded again by the company's members only. Meetings
+  // keep their files where pages do, so whoever has a meeting open reads its policy again too.
   'pageAttachments.changed': () => {
+    void mutate(MEETING_ATTACHMENT_POLICY_KEY)
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     void mutate(PAGE_ATTACHMENT_POLICY_KEY)
   },
+  'meetingAttachments.changed': () => void mutate(MEETING_ATTACHMENT_POLICY_KEY),
   // The guidance and its versions are one answer, loaded again whole by the company's members.
   'agentGuidance.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {
@@ -417,8 +422,9 @@ const handlers: Handlers = {
   // A meeting is read by whoever may read it, and the event carries no content: the meeting is
   // loaded by id, so a meeting just opened joins every member's lists and one made private leaves
   // the lists of those who may not read it, as its 404 says. Its page's transcript, history,
-  // threads, and tasks, read only while it is open, are read again, unless the page made that
-  // change itself and applied it already, which never moves its tasks.
+  // threads, files, and tasks, read only while it is open, are read again, unless the page made
+  // that change itself and applied it already, which never moves its tasks. A file stored or read
+  // in the engine names no change, so its page always hears it.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
     void mutate(meetingTasksKey(id))
@@ -429,6 +435,7 @@ const handlers: Handlers = {
       void mutate(meetingWordsKey(id))
       void mutate(meetingHistoryKey(id))
       void mutate(meetingThreadsKey(id))
+      void mutate(meetingAttachmentsKey(id))
     })()
     getMeeting(id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))

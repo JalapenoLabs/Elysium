@@ -39,11 +39,12 @@ written under `database-backups/` in the location's directory and do not count t
 location cannot be deleted while it is chosen: the API answers `409` with the code `backup_destination`. See
 `docs/infrastructure.md`, Backups.
 
-One location may also hold the files attached to knowledge base pages, chosen by an admin on Settings, Storage, Page
-attachments. They are written under `page-attachments/` in the location's directory and do not count toward its storage
-limit. Each file stays where it landed when the choice changes, so a location cannot be deleted while it is chosen (`409`
-with the code `attachment_destination`) or while any attachment's file is in it (`attachment_files`), a removed one
-included. An agent's tools reach a location's whole directory, so a location for a project's agents reaches its
+One location may also hold the files attached to knowledge base pages and to meetings, and meetings' frames, chosen by
+an admin on Settings, Storage, Attachments. They are written under `page-attachments/` and `meeting-attachments/` in the
+location's directory and do not count toward its storage limit. Each file stays where it landed when the choice
+changes, so a location cannot be deleted while it is chosen (`409` with the code `attachment_destination`) or while any
+attachment's file is in it (`attachment_files` for a page's, `meeting_attachment_files` for a meeting's), a removed one
+included. The same page sets the largest file a meeting takes (`docs/meetings.md`, Attachments and frames). An agent's tools reach a location's whole directory, so a location for a project's agents reaches its
 attachments too. See `docs/knowledge.md`, Pages, Attachments.
 
 ## Providers

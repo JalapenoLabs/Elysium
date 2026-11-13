@@ -116,7 +116,8 @@ impl Grants {
         let created_by = match scope {
             // A pool worker is a coding agent too, working a batch rather than a session.
             CallScope::Session(_) | CallScope::Worker(_) => CODING_AGENT_USER_ID,
-            CallScope::Elysia(_) => ELYSIA_USER_ID,
+            // Segmenting takes what it reads as Elysia's.
+            CallScope::Elysia(_) | CallScope::Segmenting(_) => ELYSIA_USER_ID,
             CallScope::ProjectManager(_) => PROJECT_MANAGER_USER_ID,
         };
 

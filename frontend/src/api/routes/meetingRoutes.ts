@@ -676,3 +676,97 @@ export function splitCapture(meetingId: string, captureId: string) {
     .post(`v1/meetings/${meetingId}/captures/${captureId}/split`)
     .json<SplitCaptureResponse>()
 }
+
+// Mirrors `AttachmentResponse` in api/src/routes/v1/meetings/attachments.rs: a file attached to a
+// meeting, or a still of its video pinned to it (docs/meetings.md, Attachments and frames).
+export type MeetingAttachment = {
+  id: string
+  kind: 'file' | 'frame'
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  // Where it is served once stored; null while an upload's parts are being stored.
+  address: string | null
+  // A proven image or a frame shows on the page; anything else downloads.
+  displaysInline: boolean
+  // A frame's caption, its capture, and its moment on that capture's clock and the meeting's.
+  caption: string | null
+  captureId: string | null
+  captureMs: number | null
+  meetingMs: number | null
+  // How far reading a file's text got.
+  textState: 'pending' | 'read' | 'none' | 'unreadable'
+  createdBy: string
+  agent: LearningAgent | null
+  createdAt: string
+}
+
+export function meetingAttachmentsKey(meetingId: string) {
+  return `meetings/${meetingId}/attachments`
+}
+
+type ListMeetingAttachmentsResponse = {
+  attachments: MeetingAttachment[]
+}
+
+export function listMeetingAttachments(meetingId: string) {
+  return apiClient
+    .get(`v1/meetings/${meetingId}/attachments`)
+    .json<ListMeetingAttachmentsResponse>()
+}
+
+// Where a frame is taken from, what it shows, and the words it is pinned over; with no words it
+// is pinned over the word being spoken at its moment.
+export type TakeMeetingFrameRequest = {
+  captureId: string
+  captureMs: number
+  caption: string
+  startWordId?: string
+  endWordId?: string
+}
+
+export type TakeMeetingFrameResponse = MeetingChangeResponse & {
+  attachment: MeetingAttachment
+}
+
+// Pins `still`, a picture the player's video drew, as a frame of the meeting, which the API keeps
+// as it re-encodes it. `409 meeting_attachment_no_location` until an admin chooses where page
+// attachments go. A form rather than a query string, since a long caption in a script of three
+// bytes a character would pass what a request line may hold; the browser sets its boundary.
+export function takeMeetingFrame(meetingId: string, request: TakeMeetingFrameRequest, still: Blob) {
+  const body = new FormData()
+  body.set('captureId', request.captureId)
+  body.set('captureMs', String(request.captureMs))
+  body.set('caption', request.caption)
+  if (request.startWordId && request.endWordId) {
+    body.set('startWordId', request.startWordId)
+    body.set('endWordId', request.endWordId)
+  }
+  // Last, so every field is read before the picture. The API reads what it is from its pixels,
+  // so its name says nothing.
+  body.set('still', still, 'still')
+  return apiClient
+    .post(`v1/meetings/${meetingId}/frames`, { body })
+    .json<TakeMeetingFrameResponse>()
+}
+
+export type PinMeetingAttachmentRequest = {
+  attachmentId: string
+  startWordId: string
+  endWordId: string
+}
+
+// Pins a file or frame over a range of the words, which is how one is pinned to an excerpt: over
+// its range. A pin is removed as any mark is (`removeMeetingMark`).
+export function pinMeetingAttachment(meetingId: string, body: PinMeetingAttachmentRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/pins`, { json: body })
+    .json<MeetingChangeResponse>()
+}
+
+// Takes a file or frame off the meeting, with its pins; its Undo puts both back.
+export function detachMeetingAttachment(meetingId: string, attachmentId: string) {
+  return apiClient
+    .delete(`v1/meetings/${meetingId}/attachments/${attachmentId}`)
+    .json<MeetingChangeResponse>()
+}

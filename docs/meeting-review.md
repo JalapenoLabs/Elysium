@@ -18,10 +18,11 @@ filtering them and starting uploads, Settings keeping only their sources; settli
 confidences and alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words;
 excerpts and black-outs, segmenting reading the settled words, a meeting held for its person when its correction is
 unsure, and Done reviewing reading it again, keeping what people made or changed; who sees a meeting: public by
-default, private until its correction checks it, and shared by its owner or an admin; and tasks, each project's
-reaching its Project Manager, which makes their action items as its changeset under its project's level of autonomy,
-everyone else's becoming items at once, and the bar along the top counting them. What is built is described in
-`docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
+default, private until its correction checks it, and shared by its owner or an admin; attachments and frames, pinned
+by people and by segmenting, carried by excerpts to their projects' Project Managers and workers; and tasks, each
+project's reaching its Project Manager, which makes their action items as its changeset under its project's level of
+autonomy, everyone else's becoming items at once, and the bar along the top counting them. What is built is described
+in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
 Knowledge base milestone.
 
 ## Meetings and captures
@@ -169,8 +170,9 @@ A mark the agent made says so, and one a person made names them.
   remembered per viewer, and keeps playing.
 - It plays one capture's media at a time, the best video by default; a switcher changes capture at the same moment on
   the meeting's clock. A capture with audio alone plays over black with its waveform.
-- Clicking a word seeks it. Left and right arrows jump ten seconds back and forward, and Space plays and pauses, while
-  focus is not in a text input. The word being spoken is underlined as it plays.
+- Clicking a word seeks it. Left and right arrows jump ten seconds back and forward, Space plays and pauses, and F pins
+  the picture it shows as a frame, while focus is not in a text input. The word being spoken is underlined as it
+  plays.
 - The media route answers range requests, so a two hour recording seeks without downloading it whole.
 
 ## Excerpts
@@ -234,6 +236,8 @@ its range overlaps.
   slide, a new window), may ask for any frame by its time, and judges what each shows against what was said then,
   encouraged to hand frames to subagents to look at. Near-duplicates are dropped. A frame's caption and its text are
   indexed, and a frame pinned to an excerpt travels with it to Project Managers and workers.
+
+Built (`docs/meetings.md`, Attachments and frames).
 
 ## The flow
 
@@ -305,7 +309,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 | 1     | #236  | The player                                                                            |
 | 3     | #245  | Comments                                                                              |
 | 5     | #248  | Teams recordings and Slack huddle transcripts                                         |
-| 5     | #250  | Attachments and frames                                                                |
 
 Phase 1 is what lets a person add and fix their own meetings; the rest makes the transcript better, takes only what
 matters into projects, and brings in more sources.
