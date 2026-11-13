@@ -267,7 +267,12 @@ Esc lead back.
   it reads, saved with the page's Save; and its checks, stored or a run started there as it goes. Jira and GitHub link
   to their account's own edit page, and Jira to its done statuses.
 - **Deleting** a connector confirms what goes with it: its Atlassian or GitHub account and what uses it, its key, or its
-  browser and everything signed in on it.
+  browser and everything signed in on it. A connector whose kind provides meetings, and that listed some, adds a switch,
+  off by default, to delete those meetings too, saying how many (`GET /connectors/{id}/meeting-count`); on, the
+  removal sends `?deleteMeetings=true` and they are deleted softly, as the person, before the connector goes, and
+  restored from the Meetings page like any other; a removal that fails puts them back (`docs/meetings.md`, Deleting).
+  Off, they stay, naming no connector, and can be deleted like any other. The gear shows it working while it counts
+  them. A connector's record count leaves out the records deleted with their meeting.
 
 Every form and check list is drawn from `GET /connectors/kinds`: `AccountFields` for a new account's fields (each secret
 with a reveal toggle), `ContentFields` for content, and `CheckList` for checks. Names, descriptions, check labels, count
@@ -614,7 +619,7 @@ subject. A mail sent is recorded as `mail`, with no connector.
 | Event                        | When                                                                          |
 |------------------------------|-------------------------------------------------------------------------------|
 | `connector.changed`          | A connector was added or changed: paused, its content, a sync starting or ending, a read finding something, its checks. Its id alone |
-| `connector.deleted`          | A connector was removed, or the account it read through                       |
+| `connector.deleted`          | A connector was removed, or the account it read through; meetings deleted with it are each announced as `meeting.changed` |
 | `connectorCheckRun.updated`  | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`) |
 | `timelineRecord.created`     | A record was stored, read or sent: its id, kind, owner, the item it raised, and the conversation it joined. Never its content |
 | `draft.changed`              | A draft was written, edited, discarded, or a send of it began, landed, or failed: its id and writer |
@@ -634,6 +639,11 @@ meeting segment), and free `metadata`. A record belongs to whoever it was ingest
 person's mail is theirs even when it is about a shared project. That ownership is of the feed, its attributions, and
 its recordings, not of the text: the knowledge base indexes every record for everyone in the workspace, in the
 transaction that stores it (`docs/knowledge.md`, Timeline records, and Who sees what).
+
+A record deleted with what it came from (`deleted_at`), today a meeting's excerpt taken with its meeting
+(`docs/meetings.md`, Deleting), is on no timeline, read by no Project Manager, answered `404` by its own routes, and out
+of the knowledge index, while it keeps its attributions and their history; restoring its meeting brings it back as it
+was.
 
 What Elysium's own agents put on a project's timeline is nobody's feed: it belongs to the workspace, and every company
 member reads it on the project's timeline beside their own records; a guest reads only their own. Nobody moves it

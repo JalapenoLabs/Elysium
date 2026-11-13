@@ -16,6 +16,7 @@
     "retry": "Retry",
     "retried": "Trying this meeting again",
     "noMatch": "No meeting matches these filters.",
+    "emptyDeleted": "No deleted meetings.",
     "waitingCount_one": "{{formattedCount}} waiting for review",
     "waitingCount_other": "{{formattedCount}} waiting for review"
   },
@@ -33,7 +34,8 @@
   "filters": {
     "project": "Project",
     "noProject": "No project",
-    "waitingForReview": "Waiting for review"
+    "waitingForReview": "Waiting for review",
+    "deleted": "Deleted meetings"
   },
   "states": {
     "pending": "Reading",
@@ -265,6 +267,9 @@
         "detachedFrame": "Took a frame off the meeting",
         "pinned": "Pinned a file or frame over its words",
         "unpinned": "Unpinned a file or frame",
+        "deleted": "Deleted the meeting",
+        "deletedWithConnector": "Deleted the meeting with its connector",
+        "restored": "Restored the meeting",
         "changed": "Changed the meeting"
       }
     },
@@ -308,6 +313,24 @@
       "pinHereLabel": "Files and frames to pin over this excerpt",
       "unpin": "Unpin {{name}}"
     }
+  },
+  "delete": {
+    "deleted_one": "Deleted “{{title}}”.",
+    "deleted_other": "Deleted {{count, compact}} meetings.",
+    "restored_one": "Restored “{{title}}”.",
+    "restored_other": "Restored {{count, compact}} meetings.",
+    "refusedOne": "Left “{{title}}” as it is, since it changed meanwhile.",
+    "refusedMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since they changed meanwhile.",
+    "refusedMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since they changed meanwhile.",
+    "notTheirsOne": "Left “{{title}}” as it is, since only its owner or an admin deletes or restores it.",
+    "notTheirsMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since only each one's owner or an admin deletes or restores it.",
+    "notTheirsMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since only each one's owner or an admin deletes or restores it.",
+    "restore": "Restore",
+    "state": "Deleted",
+    "deletedTitle": "This meeting is deleted",
+    "deletedOn": "Deleted on",
+    "readOnly": "Restore it to change it.",
+    "readOnlyUntilRestored": "It changes once its owner or an admin restores it."
   },
   "sameMeeting": {
     "heading": "Same meeting?",

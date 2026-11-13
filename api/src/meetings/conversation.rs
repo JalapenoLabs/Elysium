@@ -161,6 +161,7 @@ mod tests {
             created_by: new.created_by,
             created_at: Utc::now(),
             excerpt_mark_id: None,
+            deleted_at: None,
         }
     }
 

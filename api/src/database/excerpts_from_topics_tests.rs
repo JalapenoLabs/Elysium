@@ -269,6 +269,8 @@ async fn rows_of(connection: &mut AsyncPgConnection, query: &str) -> Value {
 }
 
 /// Everything up must keep and down must hand back, by table, as it read before the excerpts.
+/// Up runs every migration after the excerpts too, so a table one of them adds a column to names
+/// the columns it had before them, as `timeline_records` and `meetings` do.
 async fn kept_as_they_were(connection: &mut AsyncPgConnection) -> Vec<Value> {
     let mut tables = Vec::new();
     for query in [
@@ -280,7 +282,8 @@ async fn kept_as_they_were(connection: &mut AsyncPgConnection) -> Vec<Value> {
         "SELECT * FROM knowledge_passages",
         "SELECT * FROM meeting_words",
         "SELECT * FROM meeting_events",
-        "SELECT * FROM meetings",
+        "SELECT id, title, started_at, duration_ms, organizer, participants, segments, state, \
+         created_by, created_at, updated_at, hold_for_approval, merged_into FROM meetings",
     ] {
         tables.push(rows_of(connection, query).await);
     }

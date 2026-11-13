@@ -173,7 +173,8 @@ pub async fn ask_about(
     connection
         .transaction(async |connection| {
             let asking = meeting::lock(connection, meeting_id).await?;
-            if asking.merged_into.is_some() {
+            // Merged away, or deleted while it was aligned: neither asks its person anything.
+            if asking.merged_into.is_some() || asking.deleted_at.is_some() {
                 return Ok(Asking {
                     waiting: None,
                     raised: None,
@@ -281,6 +282,9 @@ pub enum DecideError {
     /// It was decided already, or one of its meetings was merged since.
     #[error("the pair was decided already")]
     Decided,
+    /// One of its meetings is deleted, so neither takes the other's captures until it is restored.
+    #[error("one of the meetings is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
     #[error(transparent)]
@@ -336,7 +340,7 @@ pub async fn announce(events: &EventBus, connection: &mut AsyncPgConnection, dec
 /// # Errors
 /// [`DecideError::NotFound`] for a pair with a meeting they may not read,
 /// [`DecideError::Refused`] for anyone but its owner or an admin, [`DecideError::Decided`] for one
-/// decided already; any database error.
+/// decided already, [`DecideError::Deleted`] while either meeting is deleted; any database error.
 pub async fn merge(
     connection: &mut AsyncPgConnection,
     pair_id: Uuid,
@@ -357,6 +361,9 @@ pub async fn merge(
                 || holder_of(connection, pair.same_as_id).await? != keeper.id;
             if moved_since || merging.id == keeper.id {
                 return Err(DecideError::Decided);
+            }
+            if merging.deleted_at.is_some() || keeper.deleted_at.is_some() {
+                return Err(DecideError::Deleted);
             }
             let pair = decide_once(connection, pair.id, Decision::Merged, (person, now)).await?;
             let author = person_at(person, now);
@@ -759,6 +766,10 @@ pub(crate) async fn merge_again(
     if merging.merged_into.is_some() || keeper.merged_into.is_some() {
         return Err(UndoError::ChangedSince);
     }
+    // The meeting split out was deleted since: its captures stay with it until it is restored.
+    if merging.deleted_at.is_some() {
+        return Err(UndoError::Deleted);
+    }
     if !captures_sit(connection, &moved, merging.id, |capture| capture.before).await? {
         return Err(UndoError::ChangedSince);
     }
@@ -941,6 +952,7 @@ mod tests {
             merged_into: None,
             visibility: "public".to_owned(),
             visibility_item_id: None,
+            deleted_at: None,
         }
     }
 

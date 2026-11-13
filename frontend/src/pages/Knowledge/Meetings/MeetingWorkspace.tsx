@@ -129,10 +129,12 @@ export function MeetingWorkspace(props: Props) {
   const readerId = useAppSelector(selectMe)?.user.id
   // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
   // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
-  // edit, comment on, or undo. Its actions say why (`MeetingActions`). A reader who may not edit a
-  // meeting reads its page the same way.
+  // edit, comment on, or undo. Its actions say why (`MeetingActions`). So does a deleted meeting,
+  // until its notice restores it (`DeletedMeetingNotice`), and a reader who may not edit a meeting
+  // reads its page the same way.
   const isMergedAway = Boolean(meeting.mergedInto)
-  const isReadOnly = isMergedAway || !meeting.canEdit
+  const isDeleted = Boolean(meeting.deletedAt)
+  const isReadOnly = isMergedAway || isDeleted || !meeting.canEdit
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -588,10 +590,10 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
-    onMoveCapture={!isMergedAway && meeting.ownerId === readerId
+    onMoveCapture={!isMergedAway && !isDeleted && meeting.ownerId === readerId
       ? changes.moveCapture
       : null}
-    onSplitCapture={!isMergedAway && meeting.canManage
+    onSplitCapture={!isMergedAway && !isDeleted && meeting.canManage
       ? changes.splitOut
       : null}
     words={words}

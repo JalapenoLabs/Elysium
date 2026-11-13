@@ -306,7 +306,7 @@ pub async fn segmenting_runs(
 ///
 /// # Errors
 /// [`StepActionError::Database`] with `NotFound` when the meeting does not exist or its newest
-/// run has not failed; any other database error.
+/// run has not failed; [`StepActionError::Refused`] while it is deleted; any other database error.
 pub async fn retry(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
@@ -314,6 +314,12 @@ pub async fn retry(
     person: Uuid,
 ) -> Result<Meeting, StepActionError> {
     let retried = meeting::find(connection, id).await?;
+    // Its deletion stopped the run, and restoring it is what carries the run on.
+    if retried.deleted_at.is_some() {
+        return Err(StepActionError::Refused(
+            "This meeting is deleted. Restore it to carry its run on.",
+        ));
+    }
     let source_id = id.to_string();
     let newest = workflow_run::newest(connection, workflow().name(), SOURCE_KIND, &source_id)
         .await?

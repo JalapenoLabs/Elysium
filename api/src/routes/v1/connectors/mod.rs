@@ -9,6 +9,7 @@
 //! matches on the kind: `crate::connectors::kinds` does.
 
 mod check_draft;
+mod count_meetings;
 mod create_connector;
 mod delete_connector;
 mod get_check_run;
@@ -61,6 +62,7 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_connector::handle),
         )
         .route("/{id}/checks", post(run_checks::handle))
+        .route("/{id}/meeting-count", get(count_meetings::handle))
         .route("/{id}/sign-in", post(sign_in_connector::handle))
         .route("/{id}/sync", post(sync_connector::handle))
 }

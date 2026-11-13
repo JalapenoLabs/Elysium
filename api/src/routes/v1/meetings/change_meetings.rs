@@ -1,0 +1,116 @@
+// Copyright © 2026 Jalapeno Labs
+
+//! `POST /api/v1/meetings/bulk`: delete or restore one or many meetings at once,
+//! `{ "meetingIds": [...], "change": { "kind": "delete" } }` or `"restore"`, as the Meetings
+//! table's selection, a row's actions, and a meeting's page ask: each one the signed-in person
+//! owns or, as an admin, any (`crate::meetings::access`, `Need::Manage`). See
+//! `crate::meetings::deletion` and `docs/meetings.md`, Deleting.
+//!
+//! Each meeting changes in its own savepoint of one transaction, recorded in its history with the
+//! person. One refused is answered with its reason while the rest apply: `not_found` for one they
+//! may not read, `owner_or_admin` for one they read but may not delete or restore,
+//! `meeting_merged`, `meeting_deleted`, and `meeting_not_deleted`. The answer is `200` listing
+//! both, each meeting changed as it now stands.
+
+use anyhow::Context;
+use axum::Json;
+use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
+use chrono::Utc;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use uuid::Uuid;
+
+use super::responses;
+use crate::auth::CurrentUser;
+use crate::errors::ApiError;
+use crate::meetings::deletion::{self, BulkChange, MAX_MEETINGS, Outcome};
+use crate::models::meeting::Reader;
+use crate::state::AppState;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RequestBody {
+    /// Each meeting to change, once or more; repeats count once.
+    meeting_ids: Vec<Uuid>,
+    change: BulkChange,
+}
+
+pub async fn handle(
+    State(state): State<AppState>,
+    current: CurrentUser,
+    body: Result<Json<RequestBody>, JsonRejection>,
+) -> Result<Json<Value>, ApiError> {
+    let Json(body) = body?;
+    // Repeats count once, as `change_many` changes each meeting once.
+    let mut meeting_ids = body.meeting_ids;
+    meeting_ids.sort_unstable();
+    meeting_ids.dedup();
+    if meeting_ids.is_empty() {
+        return Err(ApiError::BadRequest(
+            "meetingIds must name at least one meeting".to_owned(),
+        ));
+    }
+    if meeting_ids.len() > MAX_MEETINGS {
+        return Err(ApiError::BadRequest(format!(
+            "meetingIds may name at most {MAX_MEETINGS} meetings at once"
+        )));
+    }
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let outcome = deletion::change_many(
+        &mut connection,
+        &meeting_ids,
+        body.change,
+        &current.0,
+        Utc::now(),
+        None,
+    )
+    .await?;
+    let Outcome { changed, refused } = outcome;
+    let changed = deletion::announce(&state.events, &mut connection, changed).await;
+
+    let meetings = responses(&mut connection, changed, Reader::of(&current.0)).await?;
+    Ok(Json(json!({ "meetings": meetings, "refused": refused })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_body_names_meetings_and_one_change() {
+        let meeting_id = Uuid::now_v7();
+        let body: RequestBody = serde_json::from_value(json!({
+            "meetingIds": [meeting_id],
+            "change": { "kind": "delete" },
+        }))
+        .expect("parses");
+        assert_eq!(body.meeting_ids, [meeting_id]);
+        assert_eq!(body.change, BulkChange::Delete {});
+
+        let restore: RequestBody = serde_json::from_value(json!({
+            "meetingIds": [meeting_id],
+            "change": { "kind": "restore" },
+        }))
+        .expect("parses");
+        assert_eq!(restore.change, BulkChange::Restore {});
+
+        serde_json::from_value::<RequestBody>(json!({ "meetingIds": [meeting_id] }))
+            .expect_err("a change is required");
+        serde_json::from_value::<RequestBody>(json!({
+            "meetingIds": [meeting_id],
+            "change": { "kind": "delete", "forever": true },
+        }))
+        .expect_err("unknown fields are refused");
+        serde_json::from_value::<RequestBody>(json!({
+            "meetingIds": [meeting_id],
+            "change": { "kind": "purge" },
+        }))
+        .expect_err("only delete and restore are changes");
+    }
+}

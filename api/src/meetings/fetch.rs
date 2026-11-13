@@ -609,10 +609,14 @@ impl FetchMeeting {
         Ok(found)
     }
 
-    /// Meeting `meeting_id`. A meeting that is gone fails the step for good.
+    /// Meeting `meeting_id`. A meeting that is gone fails the step for good, and so does one its
+    /// person deleted, which stops its run until they restore it.
     async fn meeting(&self, meeting_id: Uuid) -> Result<Meeting, StepFailure> {
         let mut connection = self.connection().await?;
         match meeting::find(&mut connection, meeting_id).await {
+            Ok(found) if found.deleted_at.is_some() => {
+                Err(StepFailure::permanent(super::deletion::STOPPED))
+            }
             Ok(found) => Ok(found),
             Err(diesel::result::Error::NotFound) => Err(StepFailure::permanent(
                 "The meeting no longer exists, so there is nothing to fetch",

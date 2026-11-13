@@ -58,7 +58,8 @@ type Props = {
 
 // The projects an excerpt is on, as the meeting's words name them, for a reader whose record it is
 // not: a record is its owner's alone (docs/knowledge.md, Who sees what), so they read the projects
-// and change none.
+// and change none. A deleted meeting's excerpts read the same way for everyone, since their records
+// are on no timeline until it is restored.
 function ExcerptProjectNames({ excerpt }: { excerpt: MeetingExcerpt }) {
   const { t } = useTranslation('meetings')
   useProjectsLoader()

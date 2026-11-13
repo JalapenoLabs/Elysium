@@ -32,7 +32,8 @@ type Props = {
 // Who reads the meeting, among its options (docs/meeting-review.md, Who sees a meeting): open to
 // everyone, private to its owner and the people it is shared with, or new and private until its
 // correction decides, with what the correction said when it kept it private. Its owner and admins
-// make it private, open it, and share it, each at once with Undo in its toast; everyone else reads
+// make it private, open it, and share it, each at once with Undo in its toast, while it is not
+// deleted, since a deleted meeting changes no further until it is restored; everyone else reads
 // who it is shared with.
 export function MeetingVisibility(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
@@ -51,6 +52,7 @@ export function MeetingVisibility(props: Props) {
   const decision = correctionDecisionOf(meeting.visibilityChange)
   const ownerName = usersById[meeting.ownerId]?.name ?? t('common:table.someone')
   const nameOf = (personId: string) => usersById[personId]?.name ?? t('common:table.someone')
+  const changesWhoReads = meeting.canManage && !meeting.deletedAt
 
   const shareable: AddPickerOption[] = []
   for (const user of users) {
@@ -127,7 +129,7 @@ export function MeetingVisibility(props: Props) {
           <Chip size='sm' variant='soft'>
             <Chip.Label>{name}</Chip.Label>
           </Chip>
-          {meeting.canManage && <Tooltip delay={400}>
+          {changesWhoReads && <Tooltip delay={400}>
             <Button
               isIconOnly
               size='sm'
@@ -149,7 +151,7 @@ export function MeetingVisibility(props: Props) {
       })
     }</ul>}
 
-    {meeting.canManage && <div className='flex flex-wrap items-center gap-2'>
+    {changesWhoReads && <div className='flex flex-wrap items-center gap-2'>
       <Button
         size='sm'
         variant='outline'

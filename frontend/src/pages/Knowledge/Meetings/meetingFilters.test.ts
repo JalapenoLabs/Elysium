@@ -23,8 +23,18 @@ const NO_FILTERS = readMeetingFilters(new URLSearchParams())
 
 describe('readMeetingFilters and writeMeetingFilters', () => {
   it('reads the plain address as every meeting, and writes nothing for it', () => {
-    expect(NO_FILTERS).toEqual({ sources: [], states: [], project: null, waitingForReview: false })
+    expect(NO_FILTERS).toEqual({ sources: [], states: [], project: null, waitingForReview: false, deleted: false })
     expect(writeMeetingFilters(NO_FILTERS).toString()).toBe('')
+  })
+
+  it('keeps the deleted meetings\' view in the address, so it survives opening one and coming back', () => {
+    const params = writeMeetingFilters({ ...NO_FILTERS, deleted: true })
+
+    expect(params.toString()).toBe('deleted=true')
+    expect(readMeetingFilters(params).deleted).toBe(true)
+    // The drawer shows it as a tag, and live meetings, the plain list, as none.
+    expect(toMeetingFilterValues({ ...NO_FILTERS, deleted: true }).deleted).toBe(true)
+    expect(toMeetingFilterValues(NO_FILTERS).deleted).toBeNull()
   })
 
   it('reads back what it writes, keeping any source and leaving out states it does not know', () => {
@@ -33,6 +43,7 @@ describe('readMeetingFilters and writeMeetingFilters', () => {
       states: [ 'failed', 'done' ],
       project: 'launch',
       waitingForReview: true,
+      deleted: false,
     }
     const params = writeMeetingFilters(filters)
     params.set('state', 'failed,done,somewhere-else')
@@ -44,6 +55,7 @@ describe('readMeetingFilters and writeMeetingFilters', () => {
       states: [ 'done', 'failed' ],
       project: 'launch',
       waitingForReview: true,
+      deleted: false,
     })
   })
 
@@ -54,7 +66,13 @@ describe('readMeetingFilters and writeMeetingFilters', () => {
   })
 
   it('round-trips through the drawer\'s values', () => {
-    const filters: MeetingFilters = { sources: [], states: [ 'pending' ], project: NO_PROJECT, waitingForReview: false }
+    const filters: MeetingFilters = {
+      sources: [],
+      states: [ 'pending' ],
+      project: NO_PROJECT,
+      waitingForReview: false,
+      deleted: true,
+    }
 
     expect(fromMeetingFilterValues(toMeetingFilterValues(filters))).toEqual(filters)
   })

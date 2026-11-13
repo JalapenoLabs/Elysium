@@ -12,6 +12,10 @@
 //! someone may not read answers `404`, as one that does not exist does. What a meeting said
 //! reaches its readers as its excerpts on the timeline and its transcript in the knowledge base,
 //! blacked-out words left out.
+//!
+//! A deleted meeting (`crate::meetings::deletion`) still answers its reads, so its page reads as
+//! it stood, with Restore for whoever may restore it, and every route that would change it answers
+//! `409 meeting_deleted` until it is restored.
 
 #[cfg(test)]
 mod access_tests;
@@ -19,6 +23,7 @@ mod approve_correction;
 #[cfg(test)]
 mod attachment_tests;
 mod attachments;
+mod change_meetings;
 mod decide_duplicate;
 mod done_reviewing;
 mod edit_words;
@@ -95,6 +100,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(frames)
         .route("/", get(list_meetings::handle))
+        .route("/bulk", post(change_meetings::handle))
         .route("/{id}", get(get_meeting::handle))
         .route("/{id}/retry", post(retry_meeting::handle))
         .route("/{id}/words", get(get_words::handle))
@@ -238,8 +244,12 @@ pub struct MeetingResponse {
     visibility_change: Option<MeetingEventResponse>,
     /// Whether the reader may change its words and threads.
     can_edit: bool,
-    /// Whether the reader may change who sees it, and merge or split its captures.
+    /// Whether the reader may change who sees it, merge or split its captures, and delete or
+    /// restore it.
     can_manage: bool,
+    /// When it was deleted, or `null`. A deleted meeting is listed only among the deleted ones its
+    /// reader may restore (`?deleted=true`), and its page reads as it stood.
+    deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -328,6 +338,7 @@ impl MeetingResponse {
             visibility_change: visibility_change.map(MeetingEventResponse::from),
             can_edit: access.edits,
             can_manage: access.manages,
+            deleted_at: meeting.deleted_at,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
             source_kind: capture
@@ -710,6 +721,16 @@ pub(super) fn merged_refusal() -> ApiError {
     ApiError::CodedConflict {
         code: "meeting_merged",
         message: "This meeting was merged into another, so it changes there.",
+    }
+}
+
+/// What every route that changes a meeting answers while it is deleted: `409 meeting_deleted`.
+/// It changes no further until its person restores it, and a page that had not heard of the
+/// deletion reads the meeting again on it.
+pub(crate) fn deleted_refusal() -> ApiError {
+    ApiError::CodedConflict {
+        code: "meeting_deleted",
+        message: "This meeting is deleted. Restore it to change it.",
     }
 }
 

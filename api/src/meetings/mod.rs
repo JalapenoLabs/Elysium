@@ -44,6 +44,7 @@ pub mod comments;
 pub mod conversation;
 pub mod correct;
 pub mod correction;
+pub mod deletion;
 pub mod duplicates;
 pub mod excerpts;
 pub mod fetch;
@@ -64,6 +65,8 @@ pub mod transcribe;
 pub mod visibility;
 pub mod workflow;
 
+#[cfg(test)]
+mod deletion_tests;
 #[cfg(test)]
 mod same_meeting_tests;
 

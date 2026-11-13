@@ -99,6 +99,9 @@ pub enum CommentError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     /// The range cannot be marked (`MarkError`).
     #[error(transparent)]
     Mark(MarkError),
@@ -564,6 +567,8 @@ async fn standing_thread(
     match meeting::lock(connection, meeting_id).await {
         // Read under the lock a merge takes: a meeting merged away takes no more comments.
         Ok(locked) if locked.merged_into.is_some() => return Err(CommentError::Merged),
+        // And under the lock a deletion takes: a meeting deleted takes none until it is restored.
+        Ok(locked) if locked.deleted_at.is_some() => return Err(CommentError::Deleted),
         Ok(_) => {}
         Err(diesel::result::Error::NotFound) => return Err(CommentError::NotFound),
         Err(error) => return Err(CommentError::Database(error)),

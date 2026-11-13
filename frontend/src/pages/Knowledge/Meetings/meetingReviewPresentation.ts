@@ -81,6 +81,9 @@ export const historySentenceKeys = {
   detachedFrame: 'review.history.sentences.detachedFrame',
   pinned: 'review.history.sentences.pinned',
   unpinned: 'review.history.sentences.unpinned',
+  deleted: 'review.history.sentences.deleted',
+  deletedWithConnector: 'review.history.sentences.deletedWithConnector',
+  restored: 'review.history.sentences.restored',
   changed: 'review.history.sentences.changed',
 } as const satisfies Record<string, ParseKeys<'meetings'>>
 
@@ -325,6 +328,15 @@ export function describeHistory(entries: MeetingHistoryEntry[], meetingId: strin
         return row
       case 'review_done':
         row.sentence = 'reviewDone'
+        return row
+      // Neither is undone here: restoring is a deletion's undo, and deleting again a restore's.
+      case 'deleted':
+        row.sentence = typeof entry.data.connectorId === 'string'
+          ? 'deletedWithConnector'
+          : 'deleted'
+        return row
+      case 'restored':
+        row.sentence = 'restored'
         return row
       default:
         console.debug('describeHistory read a change it does not know', { kind: entry.kind })

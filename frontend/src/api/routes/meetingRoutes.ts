@@ -80,8 +80,12 @@ export type Meeting = {
   visibilityChange: MeetingHistoryEntry | null
   // Whether the reader may change its words and threads.
   canEdit: boolean
-  // Whether the reader may change who sees it, and merge or split its captures.
+  // Whether the reader may change who sees it, merge or split its captures, and delete or restore
+  // it: its owner, or an admin.
   canManage: boolean
+  // When it was deleted, or null. A deleted meeting is listed only among the deleted ones its
+  // reader may restore (`listDeletedMeetings`), and its page reads as it stood.
+  deletedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -192,7 +196,7 @@ export type MeetingHistoryEntry = {
   id: string
   // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
   // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
-  // `visibility_changed`, `shared`, `unshared`, `segmented`, or `review_done`.
+  // `visibility_changed`, `shared`, `unshared`, `segmented`, `review_done`, `deleted`, or `restored`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -248,6 +252,38 @@ export function listMeetings(after: MeetingsCursor | null) {
   return apiClient
     .get('v1/meetings', { searchParams: after ?? {}})
     .json<ListMeetingsResponse>()
+}
+
+// One page of the deleted meetings the signed-in person may restore, their own or, for an admin,
+// everyone's, which no other listing holds, for the Meetings page's Deleted filter.
+export function listDeletedMeetings(after: MeetingsCursor | null) {
+  return apiClient
+    .get('v1/meetings', { searchParams: { ...after, deleted: true }})
+    .json<ListMeetingsResponse>()
+}
+
+// Mirrors `BulkChange` in api/src/meetings/deletion.rs.
+export type MeetingBulkChange = 'delete' | 'restore'
+
+// A meeting a change did not apply to, and why, as `Refusal` there names it.
+export type MeetingRefusal = {
+  meetingId: string
+  code: string
+  message: string
+}
+
+type ChangeMeetingsResponse = {
+  // Each meeting changed, as it now stands.
+  meetings: Meeting[]
+  refused: MeetingRefusal[]
+}
+
+// Deletes or restores the meetings named, at most `MEETING_BULK_MAX_MEETINGS` at once. Each one
+// refused is answered with its reason while the rest change.
+export function changeMeetings(meetingIds: string[], change: MeetingBulkChange) {
+  return apiClient
+    .post('v1/meetings/bulk', { json: { meetingIds, change: { kind: change }}})
+    .json<ChangeMeetingsResponse>()
 }
 
 type MeetingResponse = {

@@ -11,7 +11,7 @@ import { Link, useSearchParams } from 'react-router'
 // Redux
 import { selectAllConnectors } from '../../../store/connectorsSlice'
 import { useAppSelector } from '../../../store/hooks'
-import { selectListedMeetings } from '../../../store/meetingsSlice'
+import { selectDeletedMeetings, selectListedMeetings } from '../../../store/meetingsSlice'
 import { selectAllProjects } from '../../../store/projectsSlice'
 
 // User interface
@@ -23,7 +23,12 @@ import { MeetingList } from './MeetingList'
 // Misc
 import { MEETING_STATES } from '../../../api/routes/meetingRoutes'
 import { formatNumber } from '../../../format/numbers'
-import { useConnectorsLoader, useMeetingsLoader, useProjectsLoader } from '../../../hooks/useServerData'
+import {
+  useConnectorsLoader,
+  useDeletedMeetingsLoader,
+  useMeetingsLoader,
+  useProjectsLoader,
+} from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { NO_PROJECT } from '../../ActionItems/actionItemFilters'
 import { useConnectorKinds } from '../../Settings/Connectors/useConnectorKinds'
@@ -47,13 +52,22 @@ import {
 // review. It is each meeting's home, those on no project included, and where uploads start
 // (`docs/meeting-review.md`, In the knowledge base). Where meetings come from is set up under
 // Settings, Meetings, which its one action opens. The filters live in the address, so a project's
-// Meetings group links here.
+// Meetings group links here. The Deleted filter lists the person's deleted meetings in place of the
+// rest, each with Restore.
 export function KnowledgeMeetingsPage() {
   const { t } = useTranslation([ 'meetings', 'knowledge', 'connectors' ])
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readMeetingFilters(searchParams)
-  const status = useMeetingsLoader()
-  const meetings = useAppSelector(selectListedMeetings)
+  const liveStatus = useMeetingsLoader()
+  const deletedStatus = useDeletedMeetingsLoader(filters.deleted)
+  const liveMeetings = useAppSelector(selectListedMeetings)
+  const deletedMeetings = useAppSelector(selectDeletedMeetings)
+  const status = filters.deleted
+    ? deletedStatus
+    : liveStatus
+  const meetings = filters.deleted
+    ? deletedMeetings
+    : liveMeetings
   useProjectsLoader()
   const projects = useAppSelector(selectAllProjects)
   const definitions = useConnectorKinds()
@@ -95,12 +109,14 @@ export function KnowledgeMeetingsPage() {
       ],
     },
     { id: MEETING_FILTER_IDS.waitingForReview, label: t('filters.waitingForReview'), kind: 'boolean' },
+    { id: MEETING_FILTER_IDS.deleted, label: t('filters.deleted'), kind: 'boolean' },
   ], [ t, sourceKinds, projects ])
 
   return <Page
     title={t('title')}
     parents={[{ label: t('knowledge:title'), href: UrlTree.knowledge }]}
-    badges={waitingCount > 0 && <Chip size='sm' variant='soft' color='warning'>{
+    // A deleted meeting waits for nobody's review until it is restored.
+    badges={!filters.deleted && waitingCount > 0 && <Chip size='sm' variant='soft' color='warning'>{
       t('list.waitingCount', { count: waitingCount, formattedCount: formatNumber(waitingCount) })
     }</Chip>}
     primaryAction={<Link to={UrlTree.meetingUploadNew} className={buttonVariants({ variant: 'primary' })}>
@@ -119,6 +135,7 @@ export function KnowledgeMeetingsPage() {
       meetings={matches}
       hasSources={hasSources}
       isFiltered={matches.length < meetings.length}
+      isDeletedView={filters.deleted}
       filters={{
         definitions: filterDefinitions,
         values: toMeetingFilterValues(filters),

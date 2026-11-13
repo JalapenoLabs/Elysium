@@ -12,7 +12,10 @@
 //! no project, a backwards range, a thread removed as a mark, a frame sent as no form, a file past
 //! the largest a meeting takes), so the matrix can run every cell
 //! against one meeting without changing what it decides; a retry is the one that acts, so its run
-//! is failed again before each. They are `#[ignore]`d so `cargo test` stays hermetic;
+//! is failed again before each. Deleting and restoring answer for each meeting a change names
+//! rather than as a whole, so a restore of the meeting, which is not deleted, is asked of each
+//! cell apart, and its refusal read from the answer: `not_found`, `owner_or_admin`, or, once
+//! through, `meeting_not_deleted`. They are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
 
 use axum::body::Body;
@@ -745,6 +748,32 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                     manages,
                     "{cell:?}: {offered}"
                 );
+
+                // Deleting and restoring take what managing it takes, each meeting answered on its
+                // own: a restore of this one, which is not deleted, refuses as what they may do.
+                let (status, body) = ask(
+                    &state,
+                    Method::POST,
+                    "/api/v1/meetings/bulk",
+                    Some(&json!({
+                        "meetingIds": [meeting_id],
+                        "change": { "kind": "restore" },
+                    })),
+                    None,
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{cell:?}");
+                let changed: Value = serde_json::from_slice(&body).expect("JSON");
+                let refused_as = match expected(Needs::Manage, role, relation, public) {
+                    Expected::Allowed => "meeting_not_deleted",
+                    Expected::NotFound => "not_found",
+                    Expected::Refused(code) => code,
+                };
+                assert_eq!(
+                    changed["refused"][0]["code"], refused_as,
+                    "{cell:?}: {changed}"
+                );
+                assert_eq!(changed["meetings"], json!([]), "{cell:?}: {changed}");
 
                 // The listing names exactly the meetings they may read.
                 let (status, body) = ask(&state, Method::GET, "/api/v1/meetings", None, None).await;

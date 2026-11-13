@@ -71,6 +71,21 @@ describe('describeHistory', () => {
     expect([ settled.sentence, settled.canUndo ]).toEqual([ 'settled', false ])
   })
 
+  it('says who deleted and restored the meeting, offering Undo on neither', () => {
+    const rows = describeHistory([
+      entry('restored', 'restored', { deletedAt: '2026-11-11T09:00:00Z', excerpts: 2, runRetried: true }),
+      entry('removed', 'deleted', { excerpts: 2, connectorId: 'fireflies' }),
+      entry('deleted', 'deleted', { excerpts: 2, connectorId: null }),
+    ], 'this')
+
+    // Restoring is a deletion's undo, and deleting again a restore's.
+    expect(rows.map((row) => [ row.sentence, row.canUndo ])).toEqual([
+      [ 'restored', false ],
+      [ 'deletedWithConnector', false ],
+      [ 'deleted', false ],
+    ])
+  })
+
   it('names a file attached or taken off, and reads a pin as pinning rather than a mark', () => {
     const rows = describeHistory([
       entry('putBack', 'attached', { attachmentKind: 'file', fileName: 'Roadmap.pdf' }, 'detached'),

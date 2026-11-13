@@ -511,6 +511,7 @@ fn a_follow_up_item_names_who_to_tell_and_quotes_the_promise() {
         created_by: Uuid::now_v7(),
         created_at: Utc::now(),
         excerpt_mark_id: None,
+        deleted_at: None,
     };
 
     assert_eq!(

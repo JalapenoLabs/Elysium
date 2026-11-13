@@ -35,6 +35,7 @@ use super::fetch::RecordedMeeting;
 use crate::agent_models::AgentKind;
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::models::meeting;
 use crate::models::meeting_capture::StoredRecording;
 use crate::models::meeting_transcription::{self, MeetingTranscription, NewMeetingTranscription};
 use crate::storage::Storage;
@@ -119,6 +120,8 @@ impl TranscribeMeeting {
         step_job_id: Uuid,
         log: &StepLog,
     ) -> Result<Done<TranscribedMeeting>, StepFailure> {
+        // Nothing to hear is decided from the input alone, touching nothing; a deleted meeting's
+        // run then stops at the step after this one.
         if recorded.transcript_hash.is_none() {
             log.line("The meeting's fetch was skipped");
             return Ok(Done::Skipped {
@@ -131,6 +134,7 @@ impl TranscribeMeeting {
                 reason: "No recording, so nothing to transcribe".to_owned(),
             });
         };
+        self.refuse_deleted(recorded.meeting_id).await?;
 
         let (capture_id, stored) = self.stored_transcription(&recorded).await?;
         if let Some(stored) = stored {
@@ -232,6 +236,19 @@ impl TranscribeMeeting {
             hint_words.len()
         ));
         Ok(hint_words)
+    }
+
+    /// Fails the step for good when meeting `meeting_id`'s person deleted it, which stops its run
+    /// here until they restore it, before any recording is read.
+    async fn refuse_deleted(&self, meeting_id: Uuid) -> Result<(), StepFailure> {
+        let mut connection = self.connection().await?;
+        let current = meeting::find(&mut connection, meeting_id)
+            .await
+            .map_err(StepFailure::retryable)?;
+        if current.deleted_at.is_some() {
+            return Err(StepFailure::permanent(super::deletion::STOPPED));
+        }
+        Ok(())
     }
 
     /// The capture `recorded` names, and the transcription stored for it, if there is one.

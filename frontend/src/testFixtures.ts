@@ -570,6 +570,7 @@ export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): 
     visibilityChange: null,
     canEdit: true,
     canManage: true,
+    deletedAt: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,

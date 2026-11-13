@@ -863,6 +863,28 @@ describe('MeetingWorkspace', () => {
     expect(getTimelineRecord).not.toHaveBeenCalled()
   })
 
+  it<Context>('shows a deleted meeting\'s owner each excerpt\'s projects, reading no record', (context) => {
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+      meeting: makeMeeting({ id: 'meeting', deletedAt: '2026-11-11T09:00:00Z' }),
+    })
+
+    fireEvent.click(wordPiece('Launch'))
+
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(within(within(detail).getByRole('list', { name: 'Its projects' })).getByText('Launch site')).toBeTruthy()
+    // Its record is on no timeline until the meeting is restored, and nothing here changes it.
+    expect(getTimelineRecord).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Remove excerpt' })).toBeNull()
+  })
+
   it<Context>('names an excerpt\'s bar by its record\'s projects once its lane holds the record', async (context) => {
     // The words were read before the excerpt moved from Launch site to Billing; its record knows.
     vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'billing' ]) })

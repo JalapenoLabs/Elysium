@@ -337,6 +337,12 @@ Everything else follows these rules:
   onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
   being recorded twice. A meeting's captures are in the order they joined it, the first its clock. See
   `docs/meetings.md`, Meetings and captures.
+- A meeting's owner or an admin deletes it, one, many, or with the connector that read them (`meetings::deletion`,
+  `Need::Manage`, `POST /api/v1/meetings/bulk`), softly and at once, with Undo: a deleted meeting leaves every list, its
+  excerpts leave every timeline and the knowledge index (`timeline_records.deleted_at`, stamped with the meeting's own),
+  and so does its transcript with its files and frames, its tasks are no Project Manager's, its run stops, and it
+  changes no further (`409 meeting_deleted`). Its captures stay, so no source stores it again. Restoring brings all of
+  it back and retries the step its deletion stopped. See `docs/meetings.md`, Deleting.
 - The run's `align_meeting` step places every capture on the meeting's clock (audio cross-correlated against the
   first capture's, or words and times matched), lines their words up into the final transcript keeping every edit,
   and, for a meeting overlapping another of its person's with participants in common, holds the run with an inbox item

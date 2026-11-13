@@ -30,6 +30,9 @@ pub enum ReviewError {
     /// Its captures were merged into another meeting, which is reviewed in their place.
     #[error("the meeting was merged into another")]
     Merged,
+    /// Its person deleted it, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     /// It was never segmented, so its first segmenting is still to come.
     #[error("the meeting has not been segmented yet")]
     NotSegmented,
@@ -57,8 +60,9 @@ pub struct Reviewed {
 /// Segments `meeting` again, as `person`, who is done reviewing it. The caller decides who may.
 ///
 /// # Errors
-/// [`ReviewError::Merged`] for a meeting merged away, [`ReviewError::NotSegmented`] for one never
-/// segmented, [`ReviewError::Busy`] while a run of it is live; any database error.
+/// [`ReviewError::Merged`] for a meeting merged away, [`ReviewError::Deleted`] while it is
+/// deleted, [`ReviewError::NotSegmented`] for one never segmented, [`ReviewError::Busy`] while a
+/// run of it is live; any database error.
 pub async fn done_reviewing(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
@@ -69,6 +73,9 @@ pub async fn done_reviewing(
             let locked = meeting::lock(connection, meeting.id).await?;
             if locked.merged_into.is_some() {
                 return Err(ReviewError::Merged);
+            }
+            if locked.deleted_at.is_some() {
+                return Err(ReviewError::Deleted);
             }
             if let Some(live) = workflow::live_run(connection, locked.id).await? {
                 return Err(ReviewError::Busy(Box::new(live)));

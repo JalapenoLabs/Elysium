@@ -7,7 +7,7 @@
 //!
 //! It answers the meeting as it now reads and the history entry. `404` for a meeting they may not
 //! read, `403` `owner_or_admin` for anyone else, and `409` `meeting_visibility_unchanged` when it
-//! is so already.
+//! is so already, and `meeting_deleted` while it is deleted.
 
 use anyhow::Context;
 use axum::Json;
@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, open, response};
+use super::{MeetingEventResponse, announce, deleted_refusal, open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -88,6 +88,7 @@ pub(super) fn refusal(error: VisibilityError) -> ApiError {
             code: "meeting_share_person",
             message: "A meeting is shared with an active person other than its owner.".to_owned(),
         },
+        VisibilityError::Deleted => deleted_refusal(),
         VisibilityError::Database(database) => database.into(),
     }
 }

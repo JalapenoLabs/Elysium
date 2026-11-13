@@ -624,17 +624,18 @@ success toast carries Undo.
 |------------------------------------------|------------------------------------------------------------------------|
 | Deleting an action item or an initiative | Its restore route, which records the restore in its history           |
 | Deleting a Studio item or a learning     | Its restore route                                                      |
+| Deleting a meeting, or a selection of them | The meetings' bulk route, restoring exactly the meetings it deleted  |
 | Taking an item out of an initiative      | Joining it again, which its history records                            |
 | Removing a project's cover               | The cover's restore route; the API keeps the cover until one replaces it |
 | Discarding a reply draft                 | Its text back for the tab (and, while the box is open, where it was going); Send writes a new draft |
 
-- **From the record's own page.** Deleting an item, an initiative, or a Studio item from its page leaves for its list
-  (with `LEAVE_WITHOUT_ASKING`, see Saving), and Undo restores it and comes back to its page, wherever the person is
-  by then. A learning stays on its page, shown deleted with Restore.
+- **From the record's own page.** Deleting an item, an initiative, a Studio item, or a meeting from its page leaves
+  for its list (with `LEAVE_WITHOUT_ASKING`, see Saving), and Undo restores it and comes back to its page, wherever
+  the person is by then. A learning stays on its page, shown deleted with Restore.
 - **After the toast.** Undo lasts as long as its toast, at least 6 seconds. A deleted record is restored after that
   from its list's Deleted filter, or from its own page's Restore.
 - **Where it lives.** Each area's delete owns its Undo: `useActionItemActions`, `useInitiativeActions`,
-  `useStudioItemActions`, `InitiativeMembers`, `useProjectActions`, and `ReplyComposer`.
+  `useStudioItemActions`, `useMeetingDeletion`, `InitiativeMembers`, `useProjectActions`, and `ReplyComposer`.
 
 `src/gates/ReportIssueGate.tsx` holds the one report dialog, inside `AppShell` so its links navigate in the app. Any
 surface that shows an error offers Report with `ReportIssueButton` or `useReportIssue()(subject)`; see
@@ -983,6 +984,18 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   (`meetingFilters.ts`), as the Initiatives list does: source, state, project or none, and waiting for review, the last
   also counted in the header whatever the filters leave. `MeetingTable` draws them, its controls in the titlebar
   (`usePageToolsContainer`), and `MeetingList` says why it is empty: the filters, no meeting yet, or no source.
+- **Deleting.** `MeetingTable` holds its selection for the kit's floating bar and row actions, both calling
+  `useMeetingDeletion`, which sends the bulk route in parts of `MEETING_BULK_MAX_MEETINGS`, files what it answers, and
+  toasts with Undo. A meeting's owner and admins alone delete and restore it (`canManage`): a row offers Delete only
+  then, the hook leaves any other of a selection out of the request and names it in a warning, as it does one the API
+  refuses as `owner_or_admin`, and `DeletedMeetingNotice` offers Restore only then. The Deleted filter swaps in
+  `selectDeletedMeetings`, loaded a page at a time by `useDeletedMeetingsLoader` only while it is on, and offers Restore
+  in place of Retry and Delete. `meetingsSlice` holds every meeting loaded: `meetingsLoaded` keeps the merged-away and
+  deleted ones it cannot name, `deletedMeetingsLoaded` replaces the deleted ones alone, and `selectListedMeetings`
+  leaves both out of every list and the tree. An excerpt deleted with its meeting answers its load by id `404`, so
+  `timelineRecord.changed` drops it from `timelineRecordsSlice` (`timelineRecordRemoved`), and a deleted meeting's
+  page shows each excerpt's projects as its words name them rather than loading its record (`MarkDetail`), and offers
+  no Move or Split out.
 - **In the tree.** `withMeetingEntries` (`pageTree.ts`) adds the meetings to the tree the panel draws
   (`selectKnowledgeTree`): every one under the Meetings page (`MEETINGS_PAGE_ID`), and a group per project under its
   brief, found by `briefProjectId`. Each branch holds its newest `MEETINGS_TREE_BRANCH_SIZE` and a total, and one holding
