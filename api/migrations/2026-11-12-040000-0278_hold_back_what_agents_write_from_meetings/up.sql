@@ -36,9 +36,12 @@ CREATE TABLE elysia_turn_meetings (
 CREATE INDEX elysia_turn_meetings_of_meeting ON elysia_turn_meetings (meeting_id);
 
 -- The meetings that reached a coding or Studio session's turn: every meeting its session's earlier
--- turns read, which it resumes, and what its tools handed it.
+-- turns read, which it resumes, and what its tools handed it. Keyed as `turn_summaries` is, by its
+-- session and its turn, with no key to `session_turns`: what holds a summary back goes with the
+-- session that holds the summary, and never with its turn's row alone, which would open it.
 CREATE TABLE session_turn_meetings (
-    turn_id UUID NOT NULL REFERENCES session_turns (id) ON DELETE CASCADE,
+    session_id BIGINT NOT NULL REFERENCES coding_sessions (id) ON DELETE CASCADE,
+    turn_id UUID NOT NULL,
     meeting_id UUID NOT NULL REFERENCES meetings (id),
     PRIMARY KEY (turn_id, meeting_id)
 );
@@ -81,61 +84,94 @@ WHERE turns.trigger_kind = 'meeting-comment';
 -- or a listing of meetings answered is not kept, so a turn that searched or listed is held to
 -- every meeting whoever started its session may read (models::meeting::readable_by, as it stood
 -- when this ran).
-INSERT INTO session_turn_meetings (turn_id, meeting_id)
-SELECT events.turn_id, documents.access_meeting_id
+INSERT INTO session_turn_meetings (session_id, turn_id, meeting_id)
+SELECT events.session_id, events.turn_id, documents.access_meeting_id
 FROM session_events events
-JOIN session_turns turns ON turns.id = events.turn_id
 JOIN knowledge_documents documents
     ON documents.id::text = events.payload -> 'input' ->> 'documentId'
-WHERE events.payload ->> 'kind' = 'toolStarted'
+WHERE events.turn_id IS NOT NULL
+    AND events.payload ->> 'kind' = 'toolStarted'
     AND events.payload ->> 'toolName' = 'mcp__elysium_knowledge__knowledge_get'
     AND documents.access_meeting_id IS NOT NULL
 UNION
-SELECT events.turn_id, attachments.meeting_id
+SELECT events.session_id, events.turn_id, attachments.meeting_id
 FROM session_events events
-JOIN session_turns turns ON turns.id = events.turn_id
 JOIN meeting_attachments attachments
     ON attachments.id::text = events.payload -> 'input' ->> 'attachmentId'
-WHERE events.payload ->> 'kind' = 'toolStarted'
+WHERE events.turn_id IS NOT NULL
+    AND events.payload ->> 'kind' = 'toolStarted'
     AND events.payload ->> 'toolName' = 'mcp__elysium_knowledge__meeting_attachment_get'
 UNION
-SELECT events.turn_id, meetings.id
-FROM session_events events
-JOIN session_turns turns ON turns.id = events.turn_id
-JOIN coding_sessions sessions ON sessions.id = turns.session_id
-JOIN users starter ON starter.id = sessions.created_by
-CROSS JOIN meetings
-WHERE events.payload ->> 'kind' = 'toolStarted'
-    AND events.payload ->> 'toolName' IN (
-        'mcp__elysium_knowledge__knowledge_search',
-        'mcp__elysium_knowledge__meetings_list'
-    )
-    AND (
-        (starter.status = 'active' AND starter.role = 'admin')
-        OR meetings.created_by = starter.id
-        OR EXISTS (
-            SELECT 1 FROM meeting_shares shares
-            WHERE shares.meeting_id = meetings.id AND shares.person_id = starter.id
+SELECT searched.session_id, searched.turn_id, meetings.id
+FROM (
+    -- Each turn once, however many times it searched.
+    SELECT DISTINCT events.session_id, events.turn_id, sessions.created_by
+    FROM session_events events
+    JOIN coding_sessions sessions ON sessions.id = events.session_id
+    WHERE events.turn_id IS NOT NULL
+        AND events.payload ->> 'kind' = 'toolStarted'
+        AND events.payload ->> 'toolName' IN (
+            'mcp__elysium_knowledge__knowledge_search',
+            'mcp__elysium_knowledge__meetings_list'
         )
-        OR (
-            meetings.visibility = 'public'
-            AND (
-                (starter.status = 'active' AND starter.role IN ('admin', 'member'))
-                OR starter.role IN ('agent', 'system')
-            )
+) searched
+JOIN users starter ON starter.id = searched.created_by
+CROSS JOIN meetings
+WHERE (starter.status = 'active' AND starter.role = 'admin')
+    OR meetings.created_by = starter.id
+    OR EXISTS (
+        SELECT 1 FROM meeting_shares shares
+        WHERE shares.meeting_id = meetings.id AND shares.person_id = starter.id
+    )
+    OR (
+        meetings.visibility = 'public'
+        AND (
+            (starter.status = 'active' AND starter.role IN ('admin', 'member'))
+            OR starter.role IN ('agent', 'system')
         )
     );
 
+-- What the passes below read every time and nothing they write changes, read once: the Project
+-- Manager turns whose logs show they read their project's timeline or its promises, the order of
+-- each session's turns, a turn's place being when it was queued, as a session carries its reading
+-- today (models::meeting_reads::carry_session), and the records whose documents a session's turn
+-- opened.
+CREATE TEMPORARY TABLE timeline_readers AS
+SELECT id, project_id, COALESCE(finished_at, now()) AS read_until
+FROM project_manager_turns
+WHERE log LIKE '%manager_timeline%' OR log LIKE '%manager_record%';
+
+CREATE TEMPORARY TABLE promise_readers AS
+SELECT id, project_id, COALESCE(finished_at, now()) AS read_until
+FROM project_manager_turns
+WHERE log LIKE '%manager_promises%';
+
+CREATE TEMPORARY TABLE session_turn_order AS
+SELECT session_id, id AS turn_id, queued_at AS began
+FROM session_turns;
+
+CREATE TEMPORARY TABLE session_records_opened AS
+SELECT DISTINCT events.session_id, events.turn_id, documents.timeline_record_id
+FROM session_events events
+JOIN knowledge_documents documents
+    ON documents.id::text = events.payload -> 'input' ->> 'documentId'
+WHERE events.turn_id IS NOT NULL
+    AND events.payload ->> 'kind' = 'toolStarted'
+    AND events.payload ->> 'toolName' = 'mcp__elysium_knowledge__knowledge_get'
+    AND documents.timeline_record_id IS NOT NULL;
+
 -- Then what each thing read of what others wrote, until nothing more is learned: a record an
 -- agent read carries the meetings it names into what that agent wrote next, which another agent
--- may read in turn.
+-- may read in turn. Each pass says how much it learned, so a long upgrade shows its progress.
 DO $$
 DECLARE
     learned BIGINT;
     total BIGINT;
+    pass INTEGER := 0;
 BEGIN
     LOOP
         total := 0;
+        pass := pass + 1;
 
         -- A Project Manager's turn read each record that woke it, and the record each promise
         -- that woke it was made in.
@@ -165,20 +201,18 @@ BEGIN
         WITH added AS (
             INSERT INTO project_manager_turn_meetings (turn_id, meeting_id)
             SELECT turns.id, named.meeting_id
-            FROM project_manager_turns turns
+            FROM timeline_readers turns
             JOIN timeline_record_projects attributed ON attributed.project_id = turns.project_id
             JOIN timeline_record_meetings named
                 ON named.timeline_record_id = attributed.timeline_record_id
-            WHERE (turns.log LIKE '%manager_timeline%' OR turns.log LIKE '%manager_record%')
-                AND attributed.created_at <= COALESCE(turns.finished_at, now())
+            WHERE attributed.created_at <= turns.read_until
             UNION
             SELECT turns.id, named.meeting_id
-            FROM project_manager_turns turns
+            FROM promise_readers turns
             JOIN promises ON promises.project_id = turns.project_id
             JOIN timeline_record_meetings named
                 ON named.timeline_record_id = promises.timeline_record_id
-            WHERE turns.log LIKE '%manager_promises%'
-                AND promises.created_at <= COALESCE(turns.finished_at, now())
+            WHERE promises.created_at <= turns.read_until
             ON CONFLICT DO NOTHING
             RETURNING 1
         )
@@ -237,25 +271,20 @@ BEGIN
         SELECT count(*) INTO learned FROM added;
         total := total + learned;
 
-        -- A session's turn read what the documents it opened name, carries what its session's
-        -- earlier turns read, and its summary's record is held to all of it.
+        -- A session's turn read what the documents it opened name, and carries what its
+        -- session's earlier turns read; its summary's record is held to all of it.
         WITH added AS (
-            INSERT INTO session_turn_meetings (turn_id, meeting_id)
-            SELECT events.turn_id, named.meeting_id
-            FROM session_events events
-            JOIN session_turns turns ON turns.id = events.turn_id
-            JOIN knowledge_documents documents
-                ON documents.id::text = events.payload -> 'input' ->> 'documentId'
+            INSERT INTO session_turn_meetings (session_id, turn_id, meeting_id)
+            SELECT opened.session_id, opened.turn_id, named.meeting_id
+            FROM session_records_opened opened
             JOIN timeline_record_meetings named
-                ON named.timeline_record_id = documents.timeline_record_id
-            WHERE events.payload ->> 'kind' = 'toolStarted'
-                AND events.payload ->> 'toolName' = 'mcp__elysium_knowledge__knowledge_get'
+                ON named.timeline_record_id = opened.timeline_record_id
             UNION
-            SELECT later.id, earlier_read.meeting_id
-            FROM session_turns later
-            JOIN session_turns earlier
-                ON earlier.session_id = later.session_id AND earlier.queued_at < later.queued_at
-            JOIN session_turn_meetings earlier_read ON earlier_read.turn_id = earlier.id
+            SELECT later.session_id, later.turn_id, earlier_read.meeting_id
+            FROM session_turn_order later
+            JOIN session_turn_order earlier
+                ON earlier.session_id = later.session_id AND earlier.began < later.began
+            JOIN session_turn_meetings earlier_read ON earlier_read.turn_id = earlier.turn_id
             ON CONFLICT DO NOTHING
             RETURNING 1
         )
@@ -274,6 +303,9 @@ BEGIN
         SELECT count(*) INTO learned FROM added;
         total := total + learned;
 
+        RAISE NOTICE 'what agents wrote from meetings, pass %: % held back', pass, total;
         EXIT WHEN total = 0;
     END LOOP;
 END $$;
+
+DROP TABLE timeline_readers, promise_readers, session_turn_order, session_records_opened;

@@ -1,10 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! What agents wrote from a private meeting, through every route that reads it (#278): a Project
-//! Manager's turn and its record, a session's turn summary and its record, and Elysia's turn, each
-//! read only by whoever may read the meeting, by listing (the project's timeline, the Project
-//! Manager tab, Elysia's activity, the session's conversation), by opening (a record, a turn, a
-//! document), and by searching the knowledge base. A record written from two private meetings
+//! Manager's turn, its record, and the batch it proposed, a session's turn, its events, and its
+//! summary's record, and Elysia's turn, each read only by whoever may read the meeting, by listing
+//! (the project's timeline, the Project Manager tab, the work queue, Elysia's activity, the
+//! session's conversation), by opening (a record, a turn, a batch, a document), and by searching
+//! the knowledge base. A record written from two private meetings
 //! needs both. Sharing the meeting opens what was held back, so does making it public, and making
 //! it private again closes it at the next request, with nothing written again; an admin reads it
 //! all.
@@ -29,14 +30,18 @@ use crate::models::meeting_share;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager::{self, Finished};
 use crate::models::promise::{self, NewPromise};
+use crate::models::session_event::{self, StoredEvent};
 use crate::models::session_turn::{self, NewSessionTurn};
 use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::models::turn_summary;
+use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::work_batch::{self, NewWorkBatch, Priority};
 use crate::project_managers::timeline as manager_timeline;
 use crate::routes::v1::knowledge::tests::{coworker, document_of_record, get, set_role};
+use crate::runner::{RunnerEvent, TurnOutcome, TurnStatus};
 use crate::sessions::timeline as session_timeline;
 use crate::state::AppState;
-use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, person_rooted};
 
 /// What agents wrote, and what was written from no meeting beside it.
 struct Written {
@@ -50,7 +55,12 @@ struct Written {
     both_turn: Uuid,
     both_record: Uuid,
     both_document: Uuid,
-    /// A session's turn that read the private meeting, and its summary's record and document.
+    /// The batch the Project Manager's turn that read the private meeting proposed, and one its
+    /// turn that read no meeting proposed.
+    batch: Uuid,
+    open_batch: Uuid,
+    /// A session's turn that read the private meeting, which reported an event, and its summary's
+    /// record and document.
     session_id: i64,
     session_turn: Uuid,
     summary_record: Uuid,
@@ -120,8 +130,33 @@ async fn finished_manager_turn(
     (turn.id, record.id)
 }
 
-/// A turn of a session of `project_id` that read `meeting`, summarized: its session, its turn, and
-/// its summary's record on the project's timeline.
+/// A batch `turn_id`, a turn of `project_id`'s Project Manager, proposed, waiting for a person.
+async fn proposed_by(connection: &mut AsyncPgConnection, project_id: Uuid, turn_id: Uuid) -> Uuid {
+    let batch = NewWorkBatch {
+        id: Uuid::now_v7(),
+        project_id,
+        title: "Move the team".to_owned(),
+        goal: "Do the work.".to_owned(),
+        repositories: json!([]),
+        priority: Priority::Normal,
+        scheduled_for: None,
+        turn_id: Some(turn_id),
+        source_record_ids: json!([]),
+        action_item_ids: json!([]),
+        serves: None,
+        source_message_ids: json!([]),
+        lineage: person_rooted(),
+        created_by: PROJECT_MANAGER_USER_ID,
+    };
+    work_batch::submit(connection, batch)
+        .await
+        .expect("submitted")
+        .batch
+        .id
+}
+
+/// A turn of a session of `project_id` that read `meeting`, reported an event, and was summarized:
+/// its session, its turn, and its summary's record on the project's timeline.
 async fn summarized_session_turn(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -157,9 +192,28 @@ async fn summarized_session_turn(
     .await
     .expect("queued")
     .id;
-    meeting_reads::keep(connection, Turn::Session(turn), &[meeting])
-        .await
-        .expect("kept");
+    meeting_reads::keep(
+        connection,
+        Turn::Session {
+            session_id: session.id,
+            turn_id: turn,
+        },
+        &[meeting],
+    )
+    .await
+    .expect("kept");
+    session_event::record(
+        connection,
+        session.id,
+        &StoredEvent {
+            sequence: 1,
+            turn_id: Some(turn),
+            occurred_at: Utc::now(),
+            event: RunnerEvent::Finished(TurnOutcome::without_result(TurnStatus::Completed, "")),
+        },
+    )
+    .await
+    .expect("recorded");
     let summary = turn_summary::record(
         connection,
         session.id,
@@ -274,6 +328,8 @@ async fn written(connection: &mut AsyncPgConnection, private: Uuid, other: Uuid)
     .await;
     let (open_turn, open_record) =
         finished_manager_turn(connection, project_id, &[], "Planned the pelican launch").await;
+    let batch = proposed_by(connection, project_id, manager_turn).await;
+    let open_batch = proposed_by(connection, project_id, open_turn).await;
     let (session_id, session_turn, summary_record) =
         summarized_session_turn(connection, project_id, private).await;
     let elysia_turn = answered_thread_turn(connection, private).await;
@@ -287,6 +343,8 @@ async fn written(connection: &mut AsyncPgConnection, private: Uuid, other: Uuid)
         both_turn,
         both_record,
         both_document: document_of_record(connection, both_record).await,
+        batch,
+        open_batch,
         session_id,
         session_turn,
         summary_record,
@@ -327,7 +385,15 @@ struct Seen {
     elysia_opened: HashSet<String>,
     /// The promises the Project Manager tab lists.
     promises: HashSet<String>,
-    /// The turns the session's conversation has summaries of.
+    /// The batches the Project Manager tab lists, latest and proposed, those the work queue lists
+    /// proposed, and those opened by id, with their worker's log.
+    manager_batches: HashSet<String>,
+    manager_proposed: HashSet<String>,
+    queued: HashSet<String>,
+    batches_opened: HashSet<String>,
+    logs_opened: HashSet<String>,
+    /// The turns the session's conversation has events and summaries of.
+    session_events: HashSet<String>,
     summaries: HashSet<String>,
 }
 
@@ -397,6 +463,9 @@ async fn seen(state: &AppState, written: &Written) -> Seen {
     let session = written.session_id;
     let (status, history) = get(state, &format!("/api/v1/coding-sessions/{session}/events")).await;
     assert_eq!(status, StatusCode::OK, "{history}");
+    let (status, queue) = get(state, "/api/v1/work-queue").await;
+    assert_eq!(status, StatusCode::OK, "{queue}");
+    let batches = [written.batch, written.open_batch];
 
     Seen {
         timeline: ids(&timeline["records"], "id"),
@@ -418,6 +487,15 @@ async fn seen(state: &AppState, written: &Written) -> Seen {
             format!("/api/v1/elysia/turns/{id}")
         })
         .await,
+        manager_batches: ids(&manager["projectManager"]["batches"], "id"),
+        manager_proposed: ids(&manager["projectManager"]["proposed"], "id"),
+        queued: ids(&queue["workQueue"]["proposed"], "id"),
+        batches_opened: opened(state, &batches, |id| format!("/api/v1/work-batches/{id}")).await,
+        logs_opened: opened(state, &batches, |id| {
+            format!("/api/v1/work-batches/{id}/worker-log")
+        })
+        .await,
+        session_events: ids(&history["events"], "turnId"),
         summaries: ids(&history["summaries"], "turnId"),
     }
 }
@@ -450,6 +528,7 @@ fn expected(written: &Written, reads_private: bool, reads_both: bool) -> Seen {
         (written.open_turn, true),
     ]);
     let elysia_turns = set(&[(written.elysia_turn, reads_private)]);
+    let batches = set(&[(written.batch, reads_private), (written.open_batch, true)]);
     Seen {
         timeline_total: i64::try_from(records.len()).expect("a few records"),
         timeline: records.clone(),
@@ -461,6 +540,12 @@ fn expected(written: &Written, reads_private: bool, reads_both: bool) -> Seen {
         elysia_opened: elysia_turns.clone(),
         elysia_turns,
         promises: set(&[(written.promise, reads_private)]),
+        manager_batches: batches.clone(),
+        manager_proposed: batches.clone(),
+        queued: batches.clone(),
+        batches_opened: batches.clone(),
+        logs_opened: batches,
+        session_events: set(&[(written.session_turn, reads_private)]),
         summaries: set(&[(written.session_turn, reads_private)]),
     }
 }

@@ -41,9 +41,11 @@ use crate::models::action_item::{self, ActionItem, ActionItemState};
 use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject,
 };
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::project_manager::{self, TurnStatus, WakeKind};
 use crate::models::user;
-use crate::models::work_batch::BatchState;
+use crate::models::work_batch::{BatchState, WorkBatch};
 
 /// How many of the batches naming an item its plan lists, newest first. An item is one
 /// commitment, so its Project Manager plans it in a few batches; more are on its project's page.
@@ -295,7 +297,7 @@ pub fn stage(wake: Option<WakeTaken>) -> PlanStage {
 }
 
 /// A batch of the lead project naming the item, as its plan lists it.
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanBatch {
     pub id: Uuid,
@@ -314,17 +316,21 @@ pub struct Plan {
     pub stage: PlanStage,
     /// The turn that took the assignment, once one did.
     pub turn_id: Option<Uuid>,
-    /// The lead project's batches naming the item, newest first, at most [`PLAN_BATCHES_SHOWN`].
+    /// The lead project's batches naming the item, newest first, at most [`PLAN_BATCHES_SHOWN`],
+    /// without those written from a meeting its reader may not read.
     pub batches: Vec<PlanBatch>,
 }
 
-/// Where `item`'s plan stands, or `None` while it is not assigned.
+/// Where `item`'s plan stands for `reader`, or `None` while it is not assigned. A batch written
+/// from a meeting `reader` may not read is left out, as its own page answers it
+/// (`meeting_reads::readable_batches`).
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn plan(
     connection: &mut AsyncPgConnection,
     item: &ActionItem,
+    reader: Reader,
 ) -> QueryResult<Option<Plan>> {
     let (Some(assigned_at), Some(assigned_by), Some(project_id)) = (
         item.manager_assigned_at,
@@ -356,19 +362,26 @@ pub async fn plan(
     let taken = wake.map(|(_turn, status)| status.map_or(WakeTaken::Waiting, WakeTaken::By));
     let turn_id = wake.and_then(|(turn, _status)| turn);
 
-    let batches = work_batches::table
+    let named: Vec<WorkBatch> = work_batches::table
         .filter(work_batches::project_id.eq(project_id))
         .filter(work_batches::action_item_ids.contains(json!([item.id])))
         .order(work_batches::created_at.desc())
         .limit(PLAN_BATCHES_SHOWN)
-        .select((
-            work_batches::id,
-            work_batches::title,
-            work_batches::state,
-            work_batches::created_at,
-        ))
+        .select(WorkBatch::as_select())
         .load(connection)
         .await?;
+    let listed: Vec<&WorkBatch> = named.iter().collect();
+    let readable = meeting_reads::readable_batches(connection, &listed, reader).await?;
+    let batches = named
+        .into_iter()
+        .filter(|batch| readable.contains(&batch.id))
+        .map(|batch| PlanBatch {
+            id: batch.id,
+            title: batch.title,
+            state: batch.state,
+            created_at: batch.created_at,
+        })
+        .collect();
 
     Ok(Some(Plan {
         project_id,

@@ -317,7 +317,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; clones its repositories        |
 | PATCH  | `/api/v1/coding-sessions/{id}`        | `200` `{ session }`; renames                        |
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
-| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated, summaries }`; a turn that read a meeting the caller may not read has no summary here |
+| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated, summaries }`; a turn that read a meeting the caller may not read has neither events nor a summary here |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
 | GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
@@ -618,8 +618,8 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 (`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
 first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn that
-read a meeting the caller may not read, and a promise made in an excerpt of one, are left out, while `status` reads every
-turn (`docs/knowledge.md`, What agents write from a meeting). A turn has `id`, `status` (`running`, `succeeded`, `failed`),
+read a meeting the caller may not read, a batch such a turn submitted, and a promise made in an excerpt of one, are left
+out, while `status` reads every turn (`docs/knowledge.md`, What agents write from a meeting). A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
 timelineRecordId, workBatchId, promiseId, pageVersion, body, createdBy, createdAt }`, `kind` being `record`, `batch`,
 `message`, `promise`, or `brief` (someone else published the project's brief, as version `pageVersion`). A batch has
@@ -657,7 +657,10 @@ the project as it is when there is nothing to remove or restore, so an Undo afte
 ### `/api/v1/work-queue` and `/api/v1/work-batches`
 
 The worker pool and the batches it runs (`docs/engine.md`, Workers and the pool). A batch quotes what was ingested, so
-every route answers admins and members, and a guest `403 members_only`.
+every route answers admins and members, and a guest `403 members_only`. A batch submitted by a Project Manager's turn
+that read a meeting the caller may not read is left out of the work queue's lists, though `pool.inUse` still counts
+its slot, and every route of its own answers `404`, as for a batch that is not there (`docs/knowledge.md`, What agents
+write from a meeting).
 
 `GET /work-queue` answers `{ workQueue: { pool, inSlots, next, scheduled, paused, proposed } }`. `pool` is `{ size,
 configuredSize, defaultSize, cpuCount, inUse, usageHeldUntil }`: `size` is what is in force, `configuredSize` an
@@ -678,7 +681,8 @@ batch exists), each link tagged by `kind`: `finding` `{ id, title, acceptedById,
 documentId }` with `excerpt` its first 600 characters and `documentId` the knowledge base's document a member opens it
 by (`null` before it is indexed), `issue` `{ actionItemId, provider, key, url, title }`, `item` `{ id, title, state }`,
 `batch` `{ id, projectId, title }`, and `pullRequest` `{ id, repository, number, url, title, state }`, leaving out
-anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
+anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`, leaving out one the
+caller may not read; and its
 history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
 (`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
@@ -1074,7 +1078,8 @@ project leads, or one resolved, dismissed, or deleted, answers `409`. `DELETE` t
 turn has taken it, and answers unchanged for an item not assigned. `GET` answers `{ plan }`: `{ projectId, assignedAt,
 assignedBy, stage, turnId, batches }`, where `stage` is `waiting`, `planning`, `planned`, or `failed`, `turnId` is the
 turn that took the assignment once one did, and `batches` are the lead project's latest ten naming the item, newest
-first, each `{ id, title, state, createdAt }`; `plan` is null while the item is not assigned. All three answer guests
+first, each `{ id, title, state, createdAt }`, leaving out one the caller may not read (`docs/knowledge.md`, What
+agents write from a meeting); `plan` is null while the item is not assigned. All three answer guests
 `403`, since Project Managers and batches are the company's members' (`docs/action-items.md`, Assigning to a Project
 Manager). Each write publishes the item and `projectManager.changed` for the lead project.
 

@@ -47,6 +47,7 @@ use crate::database::schema::{
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::meeting::{self, Reader};
 use crate::models::timeline_record::TimelineRecord;
+use crate::models::work_batch::WorkBatch;
 
 /// An agent's turn, whose reading of meetings is kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,8 +56,9 @@ pub enum Turn {
     ProjectManager(Uuid),
     /// One of Elysia's turns (`elysia_turns`).
     Elysia(Uuid),
-    /// A coding or Studio session's turn (`session_turns`).
-    Session(Uuid),
+    /// A coding or Studio session's turn (`session_turns`), whose reading is kept by its session as
+    /// its summary is, so the two go together.
+    Session { session_id: i64, turn_id: Uuid },
 }
 
 /// Keeps that `turn` read `meeting_ids`, besides what it read before. Call it in the transaction
@@ -108,11 +110,15 @@ pub async fn keep(
                 .execute(connection)
                 .await?;
         }
-        Turn::Session(turn_id) => {
+        Turn::Session {
+            session_id,
+            turn_id,
+        } => {
             let rows: Vec<_> = meeting_ids
                 .iter()
                 .map(|meeting_id| {
                     (
+                        session_turn_meetings::session_id.eq(session_id),
                         session_turn_meetings::turn_id.eq(turn_id),
                         session_turn_meetings::meeting_id.eq(*meeting_id),
                     )
@@ -148,7 +154,7 @@ pub async fn of_turn(connection: &mut AsyncPgConnection, turn: Turn) -> QueryRes
                 .load(connection)
                 .await
         }
-        Turn::Session(turn_id) => {
+        Turn::Session { turn_id, .. } => {
             session_turn_meetings::table
                 .filter(session_turn_meetings::turn_id.eq(turn_id))
                 .select(session_turn_meetings::meeting_id)
@@ -166,8 +172,8 @@ pub async fn of_turn(connection: &mut AsyncPgConnection, turn: Turn) -> QueryRes
 /// Propagates any database error.
 pub async fn carry_session(connection: &mut AsyncPgConnection, turn_id: Uuid) -> QueryResult<()> {
     diesel::sql_query(
-        "INSERT INTO session_turn_meetings (turn_id, meeting_id)
-         SELECT DISTINCT this.id, earlier_read.meeting_id
+        "INSERT INTO session_turn_meetings (session_id, turn_id, meeting_id)
+         SELECT DISTINCT this.session_id, this.id, earlier_read.meeting_id
          FROM session_turns this
          JOIN session_turns earlier
              ON earlier.session_id = this.session_id AND earlier.queued_at < this.queued_at
@@ -247,11 +253,12 @@ pub async fn for_agent<Item>(
     record_of: impl Fn(&Item) -> &TimelineRecord,
 ) -> QueryResult<Vec<(Item, Vec<Uuid>)>> {
     let ids: Vec<Uuid> = items.iter().map(|item| record_of(item).id).collect();
-    let mut named = of_records(connection, &ids).await?;
+    let named = of_records(connection, &ids).await?;
     let mut handed = Vec::with_capacity(items.len());
     for item in items {
         let record = record_of(&item);
-        let meetings = named.remove(&record.id).unwrap_or_default();
+        // Read, not taken: two items may carry one record, and each names its meetings.
+        let meetings = named.get(&record.id).cloned().unwrap_or_default();
         if record.source_kind == SEGMENT_SOURCE_KIND && meetings.is_empty() {
             event!(
                 name: "meeting_reads.excerpt.unplaced",
@@ -358,6 +365,90 @@ pub fn readable_elysia_turns(
         ))
         .select(elysia_turn_meetings::turn_id);
     Box::new(elysia_turns::id.ne_all(held_back))
+}
+
+/// The meetings each of `batches` was written from: those the Project Manager's turn that
+/// submitted it read, whose words its title and goal, and its worker's result after them, can
+/// carry. A batch a person made by accepting a finding names no turn and is absent.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn of_batches(
+    connection: &mut AsyncPgConnection,
+    batches: &[&WorkBatch],
+) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
+    let turn_ids: Vec<Uuid> = batches.iter().filter_map(|batch| batch.turn_id).collect();
+    if turn_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<(Uuid, Uuid)> = project_manager_turn_meetings::table
+        .filter(project_manager_turn_meetings::turn_id.eq_any(&turn_ids))
+        .select((
+            project_manager_turn_meetings::turn_id,
+            project_manager_turn_meetings::meeting_id,
+        ))
+        .load(connection)
+        .await?;
+    let mut by_turn: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (turn_id, meeting_id) in rows {
+        by_turn.entry(turn_id).or_default().push(meeting_id);
+    }
+    let mut by_batch = HashMap::new();
+    for batch in batches {
+        if let Some(meetings) = batch.turn_id.and_then(|turn_id| by_turn.get(&turn_id)) {
+            by_batch.insert(batch.id, meetings.clone());
+        }
+    }
+    Ok(by_batch)
+}
+
+/// Which of `batches` `reader` may read: each written from no meeting they may not read
+/// ([`of_batches`]), read in a few queries however many there are.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn readable_batches(
+    connection: &mut AsyncPgConnection,
+    batches: &[&WorkBatch],
+    reader: Reader,
+) -> QueryResult<HashSet<Uuid>> {
+    let named = of_batches(connection, batches).await?;
+    let meeting_ids: Vec<Uuid> = named.values().flatten().copied().collect();
+    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
+    let reads = |batch_id: &Uuid| {
+        named.get(batch_id).is_none_or(|meetings| {
+            meetings
+                .iter()
+                .all(|meeting_id| readable.contains(meeting_id))
+        })
+    };
+    Ok(batches
+        .iter()
+        .map(|batch| batch.id)
+        .filter(|batch_id| reads(batch_id))
+        .collect())
+}
+
+/// The turns of session `session_id` that read a meeting `reader` may not read, whose events and
+/// summaries are held back from them, read in one query.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn held_back_session_turns(
+    connection: &mut AsyncPgConnection,
+    session_id: i64,
+    reader: Reader,
+) -> QueryResult<HashSet<Uuid>> {
+    let held_back: Vec<Uuid> = session_turn_meetings::table
+        .filter(session_turn_meetings::session_id.eq(session_id))
+        .filter(not(
+            session_turn_meetings::meeting_id.eq_any(meeting::readable_ids(reader))
+        ))
+        .select(session_turn_meetings::turn_id)
+        .distinct()
+        .load(connection)
+        .await?;
+    Ok(held_back.into_iter().collect())
 }
 
 /// Whether a session's turn summary may be read by `reader`: its turn read no meeting `reader` may

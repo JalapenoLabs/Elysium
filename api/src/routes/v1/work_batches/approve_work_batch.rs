@@ -20,7 +20,7 @@ use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::meeting::Reader;
 use crate::models::work_batch::approval::Edits;
-use crate::models::work_batch::{Priority, Repository};
+use crate::models::work_batch::{self, Priority, Repository};
 use crate::state::AppState;
 use crate::worker_pool::actions;
 
@@ -65,8 +65,10 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
+    let reader = Reader::of(&person.0);
+    // A batch written from a meeting the person may not read answers 404, as its `GET` does
+    // (`models::meeting_reads`), so what it says is neither shown nor decided on blind.
+    work_batch::find_readable(&mut connection, id, reader).await?;
     let batch = actions::approve(&mut connection, &state.events, id, edits, &person).await?;
-    Ok(Json(
-        with_history(&mut connection, batch, Reader::of(&person.0)).await?,
-    ))
+    Ok(Json(with_history(&mut connection, batch, reader).await?))
 }

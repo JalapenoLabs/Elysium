@@ -297,8 +297,14 @@ async fn keep(
             // Read with the summary, so the record follows the session as it stands now.
             let session = coding_session::find(connection, session_id).await?;
             let record = super::timeline::record(connection, &row, &session).await?;
-            let read =
-                meeting_reads::of_turn(connection, meeting_reads::Turn::Session(turn_id)).await?;
+            let read = meeting_reads::of_turn(
+                connection,
+                meeting_reads::Turn::Session {
+                    session_id,
+                    turn_id,
+                },
+            )
+            .await?;
             Ok(Kept {
                 summary: row,
                 record,

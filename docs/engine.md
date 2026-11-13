@@ -562,11 +562,12 @@ trackers (Its writes, below), and its tabs on the project's page.
   workspace's, owned by the Project Managers' machine user, so every member reads them on the project's timeline
   (`docs/connectors.md`, The timeline); nothing wakes on them, and Elysia's intake leaves them out.
 - **What it read.** A private meeting's excerpts and tasks still reach its projects' Project Managers and wake them.
-  Each turn keeps the meetings that reached it (`project_manager_turn_meetings`): those of the records, tasks, and
-  promises its prompt carries as it starts, and those its tools hand it. Its turn, its record, and every batch it
-  submits are held to them, and each change it makes to its cause's, so whoever may not read one of those meetings
-  never lists, opens, or finds them, on the timeline, the Project Manager tab, or in the knowledge base
-  (`docs/knowledge.md`, What agents write from a meeting). Its status still reads every turn.
+  Each turn keeps the meetings that reached it (`project_manager_turn_meetings`): those of the records, tasks,
+  promises, and batches its prompt carries as it starts, a batch carrying what the turn that submitted it read, and
+  those its tools hand it. Its turn, its record, and every batch it submits are held to them, and each change it makes
+  to its cause's, so whoever may not read one of those meetings never lists, opens, or finds them, on the timeline, the
+  Project Manager tab, the work queue, an item's plan, or in the knowledge base, and never opens or decides on such a
+  batch (`docs/knowledge.md`, What agents write from a meeting). Its status still reads every turn.
 - **Its turns' logs.** Each turn keeps what it said and which tools it called, one line each, the newest 64 KiB, which
   the page reads when a turn is opened. Its full stream is Claude Code's own transcript until Activity records every
   turn (`docs/activity.md`).
@@ -951,7 +952,10 @@ a person they never crowd approved work out of what the scheduler reads. People 
 `POST /api/v1/work-batches/{id}/approve` and `/reject`, and change a batch with `PATCH /api/v1/work-batches/{id}` and
 `POST /api/v1/work-batches/{id}/cancel`; admins size the pool from Settings, Worker pool. The page is `/work-queue`
 (`docs/frontend.md`, Work queue). A batch's goal and title quote what was ingested, so the queue and its batches
-answer the company's members alone.
+answer the company's members alone, and each batch only those who may read every meeting the turn that submitted it
+read; the slots in use still count one held back (`docs/knowledge.md`, What agents write from a meeting). Elysia's
+listing of the queue names such a batch without its title, unless every member may read what it came from, so browsing
+it holds back nothing her turn writes; changing or cancelling one answers it whole, which does.
 
 ### Workers
 

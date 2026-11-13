@@ -22,6 +22,7 @@ use validator::Validate;
 
 use super::workspace::{Workspace, answer, caller, refuse_without_write};
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::routes::v1::coding_sessions::{
     self, CreateCodingSessionRequest, EventWindow, Keep, RenameCodingSessionRequest,
     StartTurnRequest,
@@ -174,7 +175,9 @@ impl Workspace {
     async fn sessions_events(
         &self,
         Parameters(arguments): Parameters<SessionEventsArguments>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        let caller = caller(&context)?;
         if let Err(errors) = arguments.validate() {
             return answer(Err(ApiError::from(errors)));
         }
@@ -190,7 +193,9 @@ impl Workspace {
             keep,
             rendered_only: true,
         };
-        let page = coding_sessions::read_events(&self.state, arguments.id, window).await;
+        // A turn that read a meeting the person may not read is left out, as the route leaves it.
+        let reader = Reader::of(&caller.user);
+        let page = coding_sessions::read_events(&self.state, arguments.id, window, reader).await;
         answer(page.map(|page| json!(page)))
     }
 }

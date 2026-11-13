@@ -134,6 +134,27 @@ function readRunningBuild() {
     .catch((error: unknown) => console.debug('The running build could not be read', { error }))
 }
 
+// How long a session's conversation waits before it loads its history again for a turn held back
+// to a meeting's readers, so a turn reporting many events reloads it a few times, not once each.
+const HELD_SESSION_RELOAD_DELAY_MS = 1_000
+
+// The sessions whose history is about to load again.
+const heldSessionReloads = new Set<number>()
+
+// Loads session `sessionId`'s history again soon, once however many held events arrive meanwhile.
+// Its loader answers each turn only to whoever may read every meeting it read.
+function reloadHeldSessionSoon(sessionId: number) {
+  if (heldSessionReloads.has(sessionId)) {
+    // A reload is already on its way, which reads this event too.
+    return
+  }
+  heldSessionReloads.add(sessionId)
+  window.setTimeout(() => {
+    heldSessionReloads.delete(sessionId)
+    void mutate(getSessionEventsKey(sessionId))
+  }, HELD_SESSION_RELOAD_DELAY_MS)
+}
+
 // Whether the next `hello` reloads what is on screen. Events sent while no stream listened are
 // gone for good, so it does after any failure: a dropped stream missed what was sent while it
 // was down, and one that failed before it first opened let `AuthGate` show the workspace
@@ -506,9 +527,10 @@ const handlers: Handlers = {
   'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
   // A summary only a meeting's readers read: an open conversation loads its summaries again,
   // which answer it to them alone.
-  'session.summaryChanged': (event) => {
-    void mutate(getSessionEventsKey(event.data.sessionId))
-  },
+  'session.summaryChanged': (event) => reloadHeldSessionSoon(event.data.sessionId),
+  // An event of a turn that read a meeting, which only its readers read: an open conversation
+  // loads its history again, which answers the turn to them alone.
+  'session.eventHeld': (event) => reloadHeldSessionSoon(event.data.sessionId),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

@@ -173,10 +173,13 @@ it is private; a new one is private until its correction decides (`docs/meetings
   session's turn summary, Elysia's turn, a worker's merged pull request, a promise) names them. Whoever lists, opens, or
   searches for one reads it only if they may read every meeting it names, by a predicate inside each query, the
   meeting's own rule in Diesel and its SQL twin in the index (`models::meeting_reads`, held to the same answers by a
-  test). Every meeting counts whatever its visibility when it was read, so making one private closes what was written
-  from it at the next request too. A held turn's live event carries its id alone. An excerpt naming no meeting is
-  handed to no agent, and the company doc's review reads only what every member may (`docs/knowledge.md`, What agents
-  write from a meeting).
+  test). A batch is held to what the turn that submitted it read wherever it is listed, opened, or decided on, and a
+  session's turn to what it read, its events and its summary alike. Every meeting counts whatever its visibility when it
+  was read, so making one private closes what was written from it at the next request too. A held turn's live event
+  carries its ids alone. An excerpt naming no meeting is handed to no agent, and the company doc's review reads only
+  what every member may (`docs/knowledge.md`, What agents write from a meeting). What agents write anywhere else (pages,
+  a project's brief among them, action items, changesets, findings, Elysia's conversation) is still every member's, on
+  the roadmap (`docs/knowledge.md`, Pages, Roadmap).
 - **Private stops what comes next.** Making a meeting private closes it at once: its words, media, history, threads,
   and documents answer only its readers from the next request. What every member was already shown while it was public
   (an item's title, the Transcription doc's versions) stays as it was written, as any page's history does.

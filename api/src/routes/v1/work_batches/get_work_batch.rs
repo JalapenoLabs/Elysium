@@ -27,8 +27,8 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let batch = work_batch::find(&mut connection, id).await?;
-    Ok(Json(
-        with_history(&mut connection, batch, Reader::of(&member)).await?,
-    ))
+    let reader = Reader::of(&member);
+    // A batch written from a meeting the person may not read answers 404 (`models::meeting_reads`).
+    let batch = work_batch::find_readable(&mut connection, id, reader).await?;
+    Ok(Json(with_history(&mut connection, batch, reader).await?))
 }

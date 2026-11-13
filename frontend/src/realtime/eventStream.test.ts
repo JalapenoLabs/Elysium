@@ -219,3 +219,63 @@ describe('a turn of Elysia\'s that read a meeting', () => {
     })
   })
 })
+
+describe('a session turn that read a meeting', () => {
+  type SessionContext = {
+    eventStream: typeof import('./eventStream')
+    reloads: ReturnType<typeof vi.fn>
+  }
+
+  beforeEach<SessionContext>(async (context) => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    FakeEventSource.created = []
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.stubGlobal('Request', PageRequest)
+    vi.stubGlobal('fetch', async (request: Request) => {
+      const headers = { 'content-type': 'application/json' }
+      const path = new URL(request.url).pathname
+      if (path === '/api/version') {
+        return new Response(JSON.stringify({ builtAt: '2026-11-04T00:00:00Z' }), { headers })
+      }
+      return new Response('{}', { status: 404, headers })
+    })
+    // What SWR is asked to load again, standing in for the conversation's loader.
+    const reloads = vi.fn(async () => undefined)
+    vi.doMock('swr', async (importOriginal) => ({
+      ...await importOriginal<typeof import('swr')>(),
+      mutate: reloads,
+    }))
+
+    context.reloads = reloads
+    context.eventStream = await import('./eventStream')
+  })
+
+  afterEach<SessionContext>((context) => {
+    context.eventStream.stopEventStream()
+    vi.doUnmock('swr')
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it<SessionContext>('loads the conversation again once for each burst of held events', (context) => {
+    const sessionReloads = () => context.reloads.mock.calls
+      .filter(([key]) => key === 'v1/coding-sessions/7/events')
+
+    context.eventStream.startEventStream()
+    stream().open()
+    stream().send({ type: 'hello' })
+    for (const sequence of [4, 5, 6]) {
+      stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence }})
+    }
+    stream().send({ type: 'session.summaryChanged', data: { sessionId: 7, turnId: 'a' }})
+    expect(sessionReloads()).toHaveLength(0)
+
+    vi.advanceTimersByTime(1_000)
+    expect(sessionReloads()).toHaveLength(1)
+
+    stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence: 7 }})
+    vi.advanceTimersByTime(1_000)
+    expect(sessionReloads()).toHaveLength(2)
+  })
+})

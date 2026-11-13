@@ -380,8 +380,12 @@ async fn load_context(
                 .push(waiting.id);
         }
     }
-    let batches = work_batch::find_many(connection, &batch_ids)
-        .await?
+    let woken = work_batch::find_many(connection, &batch_ids).await?;
+    // A batch carries what the turn that submitted it read, in its title and its worker's result.
+    let listed: Vec<&work_batch::WorkBatch> = woken.iter().collect();
+    let submitted_from = meeting_reads::of_batches(connection, &listed).await?;
+    read.extend(submitted_from.into_values().flatten());
+    let batches = woken
         .into_iter()
         .map(|batch| PromptBatch {
             waiting_promises: waiting_by_batch.remove(&batch.id).unwrap_or_default(),
@@ -573,8 +577,9 @@ async fn prompt_project(
 
 /// The promises a turn acts on: those that woke it, and every one of the project's still owed a
 /// follow-up, each with where it was made and the work it waits on, and the meetings the records
-/// they were made in name. A promise the person already decided on, one taken off the project,
-/// and one made in an excerpt naming no meeting are left out.
+/// they were made in name and the batches they wait on were written from. A promise the person
+/// already decided on, one taken off the project, and one made in an excerpt naming no meeting
+/// are left out.
 async fn load_promises(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
@@ -618,7 +623,11 @@ async fn load_promises(
         }
     }
     let mut works: HashMap<Uuid, PromptWork> = HashMap::new();
-    for batch in work_batch::find_many(connection, &batch_ids).await? {
+    let waited_on = work_batch::find_many(connection, &batch_ids).await?;
+    let listed: Vec<&work_batch::WorkBatch> = waited_on.iter().collect();
+    let submitted_from = meeting_reads::of_batches(connection, &listed).await?;
+    read.extend(submitted_from.into_values().flatten());
+    for batch in waited_on {
         works.insert(
             batch.id,
             PromptWork::Batch {

@@ -88,20 +88,24 @@ every agent reads what its work needs; only what it writes is held back.
   the same answers.
 - **What a turn read.** Each agent's turn keeps the meetings that reached it, in the transaction that hands them over:
   - a Project Manager's turn (`project_manager_turn_meetings`), as it starts, those of what woke it: each record's, each
-    task's meeting, and the record each promise it carries was made in;
+    task's meeting, the record each promise it carries was made in, and what each batch it is told of was written from;
   - Elysia's turn (`elysia_turn_meetings`), the meeting whose comment thread asked her;
   - a coding or Studio session's turn (`session_turn_meetings`), as it starts, every meeting its session's earlier turns
     read, since each turn resumes the one before and a session is one person's one piece of work;
   - and every turn, what its tools hand it: a search's results, a document opened, the meetings listed, a file or frame
-    pinned in an excerpt, and a Project Manager's records and promises. A tool keeps what it read before it answers,
-    so nothing reaches an agent unkept.
+    pinned in an excerpt, a Project Manager's records, promises, and batches, and a batch Elysia changes or cancels,
+    each batch carrying what the turn that submitted it read. A tool keeps what it read before it answers, so nothing
+    reaches an agent unkept. Elysia's listing of the work queue names a batch from a meeting not every member may read
+    without its title, as `manager_timeline` names such a record, so browsing it holds nothing back.
 - **What it holds back.** A Project Manager's turn, its record, and every batch it submits are held to what the turn
   had read by then, and each change it makes to its cause (the task's meeting, or what the record it names names). A
-  session's turn summary is held to what its turn read, and so is Elysia's turn in her activity. A worker's merged pull
-  request is held to what its batch came from, which its worker read: the meetings the turn that submitted it read,
-  and those the records it names name. A promise is held to the record it was made in. The Project Manager tab, Elysia's
-  panel, and a session's conversation list and open only what their reader may read, and a held turn's live event
-  carries its id alone, for each client to load what it may.
+  batch held back is left out of the Project Manager tab, the work queue (whose count of slots in use still counts it),
+  an item's plan, and the chain of every batch planned from it, and its page, its worker's log, its pull requests, and
+  every decision on it answer not found. A session's turn is held to what it read, its events and its summary alike,
+  and so is Elysia's turn in her activity. A worker's merged pull request is held to what its batch came from, which
+  its worker read: the meetings the turn that submitted it read, and those the records it names name. A promise is held
+  to the record it was made in. The Project Manager tab, Elysia's panel, and a session's conversation list and open only
+  what their reader may read, and a held turn's live event carries its ids alone, for each client to load what it may.
 - **A Project Manager reads its project.** It reads every record on its project's timeline. Its listing
   (`manager_timeline`) names an excerpt of a meeting that is not public without its words, so browsing its timeline
   holds nothing back; `manager_record` reads one whole, which does.
@@ -1422,10 +1426,12 @@ page's history restores it afterwards.
   read a private meeting can recall it, and each of their turns is held to what it read itself (Who sees what, What
   agents write from a meeting). Holding later turns too, for a while or for good, or answering a private meeting in a
   fork of the session that nothing resumes, is to be decided.
-- **What agents make from a meeting beyond records.** A batch's title and goal, an action item made from a private
-  meeting's task, a changeset's reason and quote, a finding, Elysia's conversation and work, and a session's own
-  conversation are read as they are today, by every member; holding them to the meetings they came from follows the
-  same rule (Who sees what, What agents write from a meeting).
+- **What agents make from a meeting beyond records, turns, and batches.** An action item made from a private meeting's
+  task, a changeset's reason and quote, a finding, Elysia's conversation and work, and the pages agents write, a
+  project's brief among them, are read as they are today, by every member; holding them to the meetings they came from
+  follows the same rule (Who sees what, What agents write from a meeting). A worker's pull request is titled and
+  described on GitHub, where whoever reads the repository reads it; its description's chain already withholds a private
+  meeting (`docs/engine.md`, Why a batch exists).
 
 ## Onyx
 

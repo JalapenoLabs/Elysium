@@ -97,7 +97,14 @@ pub async fn record(
         new_record,
     )
     .await?;
-    let read = meeting_reads::of_turn(connection, Turn::Session(summary.turn_id)).await?;
+    let read = meeting_reads::of_turn(
+        connection,
+        Turn::Session {
+            session_id: summary.session_id,
+            turn_id: summary.turn_id,
+        },
+    )
+    .await?;
     meeting_reads::name_on_record(connection, stored.id, &read).await?;
     // A record written again is already on its project, which answers unchanged.
     attribution::attribute(

@@ -262,16 +262,29 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
     }
 
     // The first turn read the meeting through a tool; the second starts afterwards.
-    keep(&mut connection, Turn::Session(turns[0]), &[private])
-        .await
-        .expect("kept");
+    keep(
+        &mut connection,
+        Turn::Session {
+            session_id: session.id,
+            turn_id: turns[0],
+        },
+        &[private],
+    )
+    .await
+    .expect("kept");
     carry_session(&mut connection, turns[1])
         .await
         .expect("carried");
     assert_eq!(
-        of_turn(&mut connection, Turn::Session(turns[1]))
-            .await
-            .expect("read"),
+        of_turn(
+            &mut connection,
+            Turn::Session {
+                session_id: session.id,
+                turn_id: turns[1],
+            }
+        )
+        .await
+        .expect("read"),
         [private],
         "it resumes the turn that read the meeting, so it carries it"
     );
@@ -283,9 +296,15 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
         .await
         .expect("carried");
     assert_eq!(
-        of_turn(&mut connection, Turn::Session(turns[0]))
-            .await
-            .expect("read"),
+        of_turn(
+            &mut connection,
+            Turn::Session {
+                session_id: session.id,
+                turn_id: turns[0],
+            }
+        )
+        .await
+        .expect("read"),
         [private]
     );
 }

@@ -207,14 +207,14 @@ async fn run_turn(
         // Cancelled or started elsewhere since it was read.
         return Ok(());
     };
-    publish_turn(context, &mut connection, &turn).await?;
+    publish_turn(context, &mut connection, &turn).await;
     publish_snapshot(&context.events, &mut connection).await?;
 
     let turn_context = match load_context(&mut connection, &turn).await? {
         Prepared::Ready(turn_context) => turn_context,
         Prepared::Nothing(summary) => {
             let finished = elysia::finish_turn(&mut connection, turn.id, Ok(Some(summary))).await?;
-            publish_turn(context, &mut connection, &finished).await?;
+            publish_turn(context, &mut connection, &finished).await;
             publish_snapshot(&context.events, &mut connection).await?;
             return Ok(());
         }
@@ -237,7 +237,7 @@ async fn run_turn(
         Err(error) => {
             let error = format!("Her tools could not be granted: {error:#}");
             let finished = elysia::finish_turn(&mut connection, turn.id, Err(&error)).await?;
-            publish_turn(context, &mut connection, &finished).await?;
+            publish_turn(context, &mut connection, &finished).await;
             publish_snapshot(&context.events, &mut connection).await?;
             return Ok(());
         }
@@ -275,7 +275,7 @@ async fn run_turn(
         elysia.turn.status = ?finished.status,
         "elysia turn finished",
     );
-    publish_turn(context, &mut connection, &finished).await?;
+    publish_turn(context, &mut connection, &finished).await;
     publish_snapshot(&context.events, &mut connection).await?;
     Ok(())
 }
@@ -348,7 +348,7 @@ async fn record_outcome(
                 },
             )
             .await?;
-            publish_turn(context, connection, &again).await?;
+            publish_turn(context, connection, &again).await;
             let error = format!(
                 "Every Claude credential reached its usage limit. Queued again for after {}.",
                 resets_at.to_rfc3339()
@@ -503,7 +503,7 @@ async fn queue_idle_turn(
         },
     )
     .await?;
-    publish_turn(context, connection, &turn).await?;
+    publish_turn(context, connection, &turn).await;
     publish_snapshot(&context.events, connection).await?;
     context.events.signal(&Signal::Elysia);
     Ok(())
@@ -511,20 +511,30 @@ async fn queue_idle_turn(
 
 /// Announces `turn`: whole, or by its id alone once it read a meeting, since what it says is held
 /// to that meeting's readers and every client hears every event (`models::meeting_reads`). Each
-/// client then loads it, and only those who may read it find it.
-async fn publish_turn(
-    context: &DispatchContext,
-    connection: &mut AsyncPgConnection,
-    turn: &Turn,
-) -> diesel::QueryResult<()> {
-    let read = meeting_reads::of_turn(connection, meeting_reads::Turn::Elysia(turn.id)).await?;
-    let announced = if read.is_empty() {
+/// client then loads it, and only those who may read it find it. Announcing is no part of running
+/// the turn, so a database that cannot say what it read never fails it: the turn is announced by
+/// its id alone, as one that read a meeting is.
+async fn publish_turn(context: &DispatchContext, connection: &mut AsyncPgConnection, turn: &Turn) {
+    let read = meeting_reads::of_turn(connection, meeting_reads::Turn::Elysia(turn.id)).await;
+    let whole = match read {
+        Ok(read) => read.is_empty(),
+        Err(error) => {
+            event!(
+                name: "elysia.turn.reading_unknown",
+                Level::WARN,
+                turn.id = %turn.id,
+                error.message = %error,
+                "could not read whether Elysia's turn read a meeting; it is announced by id",
+            );
+            false
+        }
+    };
+    let announced = if whole {
         ServerEvent::ElysiaTurnUpserted(TurnResponse::from(turn.clone()))
     } else {
         ServerEvent::ElysiaTurnChanged { id: turn.id }
     };
     context.events.publish(&announced);
-    Ok(())
 }
 
 fn detail_id(detail: &Value, key: &str) -> anyhow::Result<Uuid> {

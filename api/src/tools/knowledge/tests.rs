@@ -418,9 +418,15 @@ async fn a_session_keeps_the_meetings_its_tools_hand_it_and_its_summary_is_held_
         "its starter may read it: {found}"
     );
     assert_eq!(
-        meeting_reads::of_turn(&mut connection, meeting_reads::Turn::Session(turn_id))
-            .await
-            .expect("read"),
+        meeting_reads::of_turn(
+            &mut connection,
+            meeting_reads::Turn::Session {
+                session_id,
+                turn_id,
+            },
+        )
+        .await
+        .expect("read"),
         [one_to_one],
         "the turn keeps what its search handed it"
     );

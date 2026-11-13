@@ -7,8 +7,8 @@
 //! event stream; clients merge the two on `sequence`. Only the latest [`HISTORY_LIMIT`] are
 //! returned.
 //!
-//! The turns' summaries come with them, but for a turn that read a meeting the person may not read,
-//! whose summary is held back (`models::meeting_reads`).
+//! The turns' summaries come with them. A turn that read a meeting the person may not read is held
+//! back whole, its events and its summary alike (`models::meeting_reads`).
 
 use std::collections::VecDeque;
 
@@ -23,7 +23,7 @@ use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::meeting::Reader;
 use crate::models::session_event::StoredEvent;
-use crate::models::{coding_session, session_event, turn_summary};
+use crate::models::{coding_session, meeting_reads, session_event, turn_summary};
 use crate::sessions::views::{SessionEvent, TurnSummaryView};
 use crate::state::AppState;
 
@@ -143,14 +143,15 @@ pub async fn handle(
         keep: Keep::Latest,
         rendered_only: false,
     };
-    let page = read_events(&state, id, window).await?;
+    let reader = Reader::of(&current.0);
+    let page = read_events(&state, id, window, reader).await?;
     let summaries: Vec<TurnSummaryView> = {
         let mut connection = state
             .database
             .get()
             .await
             .context("no database connection available")?;
-        turn_summary::for_session(&mut connection, id, Reader::of(&current.0))
+        turn_summary::for_session(&mut connection, id, reader)
             .await?
             .into_iter()
             .map(TurnSummaryView::from)
@@ -164,7 +165,9 @@ pub async fn handle(
 }
 
 /// Reads the session `id`'s recorded events over `window`, up to the latest recorded when the
-/// read began.
+/// read began, as `reader` may read them: every event of a turn that read a meeting they may not
+/// read is left out, since what it said and what its tools handed it can quote the meeting
+/// (`models::meeting_reads`).
 ///
 /// # Errors
 /// `404` for an unknown session, or an internal error when the database fails.
@@ -172,6 +175,7 @@ pub async fn read_events(
     state: &AppState,
     id: i64,
     window: EventWindow,
+    reader: Reader,
 ) -> Result<EventPage, ApiError> {
     let mut connection = state
         .database
@@ -180,6 +184,8 @@ pub async fn read_events(
         .context("no database connection available")?;
     // Answers 404 for a session that does not exist, rather than an empty history.
     coding_session::find(&mut connection, id).await?;
+    let held_back = meeting_reads::held_back_session_turns(&mut connection, id, reader).await?;
+    let reads = |stored: &StoredEvent| stored.turn_id.is_none_or(|turn| !held_back.contains(&turn));
     let latest_sequence = session_event::latest_sequence(&mut connection, id)
         .await?
         .unwrap_or_default();
@@ -195,6 +201,7 @@ pub async fn read_events(
             session_event::latest(&mut connection, id, window.limit).await?;
         let events = stored_events
             .iter()
+            .filter(|stored| reads(stored))
             .map(|stored| view(id, stored))
             .collect();
         return Ok(EventPage {
@@ -206,7 +213,7 @@ pub async fn read_events(
     }
 
     let stored_events = session_event::after(&mut connection, id, window.after_sequence).await?;
-    for stored in &stored_events {
+    for stored in stored_events.iter().filter(|stored| reads(stored)) {
         if collector.offer(view(id, stored)) == Flow::Stop {
             break;
         }

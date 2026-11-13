@@ -47,6 +47,7 @@ use crate::database::Pool;
 use crate::github::Github;
 use crate::knowledge::search::KnowledgeSearch;
 use crate::models::meeting_reads;
+use crate::models::work_batch::WorkBatch;
 use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
 use crate::runner::WorkspacePath;
@@ -180,7 +181,10 @@ impl CallScope {
     /// excerpts its batch came from, and segmenting writes only its own meeting's excerpts.
     pub const fn reading_turn(&self) -> Option<meeting_reads::Turn> {
         match self {
-            Self::Session(session) => Some(meeting_reads::Turn::Session(session.turn_id)),
+            Self::Session(session) => Some(meeting_reads::Turn::Session {
+                session_id: session.session_id,
+                turn_id: session.turn_id,
+            }),
             Self::Elysia(elysia) => Some(meeting_reads::Turn::Elysia(elysia.turn_id)),
             Self::ProjectManager(manager) => {
                 Some(meeting_reads::Turn::ProjectManager(manager.turn_id))
@@ -492,6 +496,24 @@ pub async fn keep_read(
     meeting_reads::keep(connection, turn, meeting_ids)
         .await
         .map_err(|error| internal(scope, "meeting_reads.keep", &error))
+}
+
+/// Keeps that the turn `scope` names read the meetings `batches` were written from
+/// ([`meeting_reads::of_batches`]), since their titles, goals, and results carry what the turns
+/// that submitted them read. Call it before a tool answers with them, as [`keep_read`].
+///
+/// # Errors
+/// Returns [`ToolError::Internal`] when the database fails.
+pub async fn keep_batches_read(
+    connection: &mut AsyncPgConnection,
+    scope: &CallScope,
+    batches: &[&WorkBatch],
+) -> Result<(), ToolError> {
+    let written_from = meeting_reads::of_batches(connection, batches)
+        .await
+        .map_err(|error| internal(scope, "meeting_reads.of_batches", &error))?;
+    let read: Vec<Uuid> = written_from.into_values().flatten().collect();
+    keep_read(connection, scope, &read).await
 }
 
 /// Logs an internal failure with its detail and hands the agent [`ToolError::Internal`].

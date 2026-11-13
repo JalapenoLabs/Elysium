@@ -45,7 +45,7 @@ use super::pull_request::PullRequestState;
 use super::{BatchState, WorkBatch};
 use crate::database::schema::{
     action_item_links, action_items, findings, knowledge_documents, project_manager_wakes,
-    timeline_records, users, work_batch_pull_requests, work_batches,
+    timeline_records, users, work_batch_pull_requests,
 };
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::action_item::ActionItemState;
@@ -243,7 +243,7 @@ pub async fn read_many(
     let issues = issues(connection, &named.items).await?;
     let records = records(connection, &named.records, &named.items, reader).await?;
     let messages = messages(connection, &named.messages).await?;
-    let parents = parents(connection, &named.parents).await?;
+    let parents = parents(connection, &named.parents, reader).await?;
     let pull_requests = pull_requests(connection, &named.batches).await?;
     let findings = findings(connection, &named.batches).await?;
 
@@ -560,34 +560,30 @@ async fn messages(
         .collect())
 }
 
-/// The batches among `parent_ids`, by id.
+/// The batches among `parent_ids` `reader` may read, by id: one written from a meeting they may
+/// not read is left out, as its own page answers it (`meeting_reads::readable_batches`).
 async fn parents(
     connection: &mut AsyncPgConnection,
     parent_ids: &[Uuid],
+    reader: Reader,
 ) -> QueryResult<HashMap<Uuid, Parent>> {
     if parent_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(Uuid, String, BatchState, i32)> = work_batches::table
-        .filter(work_batches::id.eq_any(parent_ids))
-        .select((
-            work_batches::id,
-            work_batches::title,
-            work_batches::state,
-            work_batches::generation,
-        ))
-        .load(connection)
-        .await?;
-    Ok(rows
+    let batches = super::find_many(connection, parent_ids).await?;
+    let listed: Vec<&WorkBatch> = batches.iter().collect();
+    let readable = meeting_reads::readable_batches(connection, &listed, reader).await?;
+    Ok(batches
         .into_iter()
-        .map(|(id, title, state, generation)| {
+        .filter(|batch| readable.contains(&batch.id))
+        .map(|batch| {
             let parent = Parent {
-                id,
-                title,
-                state,
-                generation,
+                id: batch.id,
+                title: batch.title,
+                state: batch.state,
+                generation: batch.generation,
             };
-            (id, parent)
+            (batch.id, parent)
         })
         .collect())
 }

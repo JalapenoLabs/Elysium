@@ -219,7 +219,9 @@ Everything else follows these rules:
   Elysia's) keeps the meetings its prompt and tools hand it before their words reach it, and every record it writes
   names them in `timeline_record_meetings`, beside each excerpt's own meeting. Listing, opening, and searching filter on
   them inside each query by the meeting's own rule, so opening or closing a meeting changes it at the next request.
-  Held turns are announced by id alone. See `docs/knowledge.md`, Who sees what, What agents write from a meeting.
+  A Project Manager's batch is held to the turn that submitted it, and a session's turn, its events and its summary, to
+  what it read. Held turns and their events are announced by ids alone. See `docs/knowledge.md`, Who sees what, What
+  agents write from a meeting.
 
 ## Mail
 

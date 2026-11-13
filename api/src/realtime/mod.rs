@@ -321,6 +321,12 @@ pub enum ServerEvent {
     SessionDeleted { id: i64 },
     #[serde(rename = "session.event")]
     SessionEvent(Box<SessionEvent>),
+    /// A session's turn that read a meeting reported an event, already recorded: its ids alone,
+    /// since what it says can quote the meeting, which only its readers read
+    /// (`models::meeting_reads`). A client showing the session's conversation loads its history
+    /// again, which answers the turn to those readers alone.
+    #[serde(rename = "session.eventHeld")]
+    SessionEventHeld { session_id: i64, sequence: u64 },
     /// A finished turn's summary was written.
     #[serde(rename = "session.summary")]
     TurnSummarized(TurnSummaryView),

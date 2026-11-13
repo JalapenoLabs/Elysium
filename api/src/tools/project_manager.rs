@@ -25,8 +25,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{
-    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, keep_read,
-    parse_arguments,
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, keep_batches_read,
+    keep_read, parse_arguments,
 };
 use crate::findings::{self, FindingError, Report};
 use crate::meetings::attachments;
@@ -322,6 +322,7 @@ async fn run_answer(
     announce(&context.events, &answered);
     // The waiting worker listens for the pool's signal and starts its next turn.
     context.events.signal(&Signal::WorkerPool);
+    keep_batches_read(&mut connection, scope, &[&answered]).await?;
     Ok(json!({ "batch": batch_view(&answered) }))
 }
 
@@ -675,9 +676,21 @@ async fn run_timeline(
     let public = meeting::readable_among(&mut connection, &meeting_ids, Reader::ANY_MEMBER)
         .await
         .map_err(|error| internal(scope, "manager.timeline.public", &error))?;
-    let mut read = Vec::new();
+    let (listed, read) = timeline_views(&records, &public);
+    keep_read(&mut connection, scope, &read).await?;
+    Ok(json!({ "records": listed, "more": more }))
+}
+
+/// `records`, each with the meetings it names, as [`run_timeline`] lists them: whole when every
+/// one of its meetings is among the `public` ones, and otherwise without its words. Answers the
+/// views and the meetings whose words they hand over.
+fn timeline_views(
+    records: &[((TimelineRecord, Attribution), Vec<Uuid>)],
+    public: &HashSet<Uuid>,
+) -> (Vec<Value>, Vec<Uuid>) {
     let mut listed = Vec::with_capacity(records.len());
-    for ((record, attribution), meetings) in &records {
+    let mut read = Vec::new();
+    for ((record, attribution), meetings) in records {
         if meetings
             .iter()
             .all(|meeting_id| public.contains(meeting_id))
@@ -692,8 +705,7 @@ async fn run_timeline(
             listed.push(withheld_record_view(record, attribution));
         }
     }
-    keep_read(&mut connection, scope, &read).await?;
-    Ok(json!({ "records": listed, "more": more }))
+    (listed, read)
 }
 
 async fn run_record(
@@ -830,6 +842,8 @@ async fn run_batches(
     )
     .await
     .map_err(|error| internal(scope, "manager.batches", &error))?;
+    let read: Vec<&WorkBatch> = listed.iter().collect();
+    keep_batches_read(&mut connection, scope, &read).await?;
     let batches: Vec<Value> = listed.iter().map(batch_view).collect();
     Ok(json!({ "batches": batches }))
 }
@@ -927,6 +941,7 @@ async fn run_cancel(
     )
     .await
     .map_err(|error| refused_or_internal(scope, "manager.cancel_batch", error))?;
+    keep_batches_read(&mut connection, scope, &[&batch]).await?;
     Ok(json!({ "batch": batch_view(&batch) }))
 }
 

@@ -176,14 +176,20 @@ pub async fn snapshot(
     let turns =
         project_manager::readable_turns(connection, project_id, reader, TURNS_SHOWN).await?;
     let turn_ids: Vec<Uuid> = turns.iter().map(|turn| turn.id).collect();
-    let batches = work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
-    let proposed = work_batch::list_for_project(
+    let mut batches =
+        work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
+    let mut proposed = work_batch::list_for_project(
         connection,
         project_id,
         &[BatchState::Proposed],
         work_batch::MAX_BATCH_PAGE,
     )
     .await?;
+    // A batch is held back with the turn that submitted it, whose words its title and goal carry.
+    let listed: Vec<&WorkBatch> = batches.iter().chain(&proposed).collect();
+    let readable_batches = meeting_reads::readable_batches(connection, &listed, reader).await?;
+    batches.retain(|batch| readable_batches.contains(&batch.id));
+    proposed.retain(|batch| readable_batches.contains(&batch.id));
     let mut made = promise::list_for_project(connection, project_id, &[], PROMISES_SHOWN).await?;
     let record_ids: Vec<Uuid> = made.iter().map(|made| made.timeline_record_id).collect();
     // A promise is what was said where it was made, so it is held back with that record.

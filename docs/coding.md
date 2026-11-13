@@ -329,11 +329,13 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
   written before are put there by the knowledge base's backfill. See `docs/knowledge.md`, Turn summaries.
 - **Held to what its turn read.** A turn keeps every meeting its tools hand it (`session_turn_meetings`): a search's
   results, a document opened, the meetings listed, a file or frame opened, each kept before the tool answers. A turn
-  starts with every meeting its session's earlier turns read, since it resumes them. Its summary, in the conversation
-  and as its record on the timeline and in the knowledge base, is read only by whoever may read every one of those
-  meetings, and is announced by its ids alone (`session.summaryChanged`), for each conversation to load what it may
-  (`docs/knowledge.md`, What agents write from a meeting). The session's own conversation is read by every member, as
-  every session is listed to everyone (`docs/knowledge.md`, Pages, Roadmap).
+  starts with every meeting its session's earlier turns read, since it resumes them. Its events and its summary, in
+  the conversation (`GET /api/v1/coding-sessions/{id}/events`, and `sessions_events` over MCP), and its summary as its
+  record on the timeline and in the knowledge base, are read only by whoever may read every one of those meetings. Once
+  the turn has read one, each event it reports and its summary are announced by their ids alone (`session.eventHeld`,
+  `session.summaryChanged`), for each conversation to load its history again and read what it may (`docs/knowledge.md`,
+  What agents write from a meeting). The session itself, with its title, is listed to every member, as every session
+  is.
 - **Nothing wakes on it.** A new record on a project wakes its Project Manager (`docs/engine.md`, Project Managers),
   except what Elysium's agents put there, a summary included: a wake per turn would spend a Project Manager's turn on
   every prompt anyone types into a session of the project. The work a Project Manager dispatched reports back through

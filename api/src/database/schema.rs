@@ -1807,6 +1807,7 @@ diesel::table! {
     use diesel::sql_types::*;
 
     session_turn_meetings (turn_id, meeting_id) {
+        session_id -> Int8,
         turn_id -> Uuid,
         meeting_id -> Uuid,
     }
@@ -2452,8 +2453,8 @@ diesel::joinable!(promises -> timeline_records (timeline_record_id));
 diesel::joinable!(promises -> users (created_by));
 diesel::joinable!(promises -> work_batches (work_batch_id));
 diesel::joinable!(session_events -> coding_sessions (session_id));
+diesel::joinable!(session_turn_meetings -> coding_sessions (session_id));
 diesel::joinable!(session_turn_meetings -> meetings (meeting_id));
-diesel::joinable!(session_turn_meetings -> session_turns (turn_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
 diesel::joinable!(step_jobs -> workflow_runs (run_id));

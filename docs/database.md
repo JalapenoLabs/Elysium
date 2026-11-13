@@ -422,11 +422,13 @@ or searches records. Primary key `(timeline_record_id, meeting_id)`; `timeline_r
 | `timeline_record_id` | `UUID` | References `timeline_records`, cascading                                        |
 | `meeting_id`         | `UUID` | References `meetings`, refusing its deletion: a row gone with it would open what it held back |
 
-`project_manager_turn_meetings` (`turn_id` referencing `project_manager_turns`), `elysia_turn_meetings` (`turn_id`
-referencing `elysia_turns`), and `session_turn_meetings` (`turn_id` referencing `session_turns`) are the same shape:
-the meetings that reached each agent's turn, kept before its prompt or a tool hands their words over, each cascading
-with its turn and refusing its meeting's deletion. A session's turn starts with every meeting its session's earlier
-turns read.
+`project_manager_turn_meetings` (`turn_id` referencing `project_manager_turns`) and `elysia_turn_meetings` (`turn_id`
+referencing `elysia_turns`) are the same shape: the meetings that reached each agent's turn, kept before its prompt or
+a tool hands their words over, each cascading with its turn, which takes what it holds back with it, and refusing its
+meeting's deletion. `session_turn_meetings` is keyed as `turn_summaries` is, by `session_id` (referencing
+`coding_sessions`, cascading) and `turn_id` (no key of its own), so what holds a summary back goes with the session
+that holds the summary and never with its turn's row alone. A session's turn starts with every meeting its session's
+earlier turns read.
 
 ### `timeline_record_events`
 
