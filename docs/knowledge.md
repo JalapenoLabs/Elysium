@@ -98,9 +98,10 @@ every agent reads what its work needs; only what it writes is held back.
 - **What it holds back.** A Project Manager's turn, its record, and every batch it submits are held to what the turn
   had read by then, and each change it makes to its cause (the task's meeting, or what the record it names names). A
   session's turn summary is held to what its turn read, and so is Elysia's turn in her activity. A worker's merged pull
-  request is held to the meetings of the excerpts its batch came from, which its worker read, and a promise to the
-  record it was made in. The Project Manager tab, Elysia's panel, and a session's conversation list and open only what
-  their reader may read, and a held turn's live event carries its id alone, for each client to load what it may.
+  request is held to what its batch came from, which its worker read: the meetings the turn that submitted it read,
+  and those the records it names name. A promise is held to the record it was made in. The Project Manager tab, Elysia's
+  panel, and a session's conversation list and open only what their reader may read, and a held turn's live event
+  carries its id alone, for each client to load what it may.
 - **A Project Manager reads its project.** It reads every record on its project's timeline. Its listing
   (`manager_timeline`) names an excerpt of a meeting that is not public without its words, so browsing its timeline
   holds nothing back; `manager_record` reads one whole, which does.

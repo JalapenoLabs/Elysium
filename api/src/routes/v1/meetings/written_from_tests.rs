@@ -218,7 +218,8 @@ async fn promised_in(connection: &mut AsyncPgConnection, project_id: Uuid, meeti
             external_id: None,
             occurred_at: Utc::now(),
             actor: "Grace".to_owned(),
-            title: "The quokka team's move".to_owned(),
+            // None of the words searched for, so what a search finds is what agents wrote alone.
+            title: "The team's move".to_owned(),
             body: "[0:05] Grace: I'll tell the team once the move is live.".to_owned(),
             url: None,
             media: None,
