@@ -149,7 +149,7 @@ jobs:
 
           curl -fsSL -o "${archive}" "${release}/${archive}"
           curl -fsSL -o "${archive}.sha256" "${release}/${archive}.sha256"
-          sha256sum --check --status "${archive}.sha256"
+          sha256sum --check "${archive}.sha256"
 
           tar -xJf "${archive}" --strip-components=1
           echo "${install_dir}" >> "${GITHUB_PATH}"

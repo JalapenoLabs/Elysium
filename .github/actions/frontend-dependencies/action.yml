@@ -26,7 +26,7 @@ runs:
 
         curl -fsSL -o "${archive}" "${release}/${archive}"
         curl -fsSL -o SHASUMS256.txt "${release}/SHASUMS256.txt"
-        grep " ${archive}\$" SHASUMS256.txt | sha256sum --check --status
+        grep " ${archive}\$" SHASUMS256.txt | sha256sum --check
 
         tar -xJf "${archive}" --strip-components=1
         echo "${install_dir}/bin" >> "${GITHUB_PATH}"

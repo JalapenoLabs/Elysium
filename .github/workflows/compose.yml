@@ -57,7 +57,7 @@ jobs:
 
           curl -fsSL -o "${binary}" "${release}/${binary}"
           curl -fsSL -o "${binary}.sha256" "${release}/${binary}.sha256"
-          sha256sum --check --status "${binary}.sha256"
+          sha256sum --check "${binary}.sha256"
 
           mkdir -p "${HOME}/.docker/cli-plugins"
           install -m 0755 "${binary}" "${HOME}/.docker/cli-plugins/docker-compose"

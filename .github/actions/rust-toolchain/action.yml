@@ -33,11 +33,11 @@ runs:
         rustup show active-toolchain
         rustc --version
 
-    # Every job starts on a fresh machine, so the crate's dependencies come from the Actions
-    # cache. Only dependencies are kept: the crate itself changes with every commit. It is keyed
-    # by the installed toolchains, the lockfiles, and the Cargo and Rust environment variables, so
-    # it runs after the toolchain is installed. A job whose tests fail still saves it: its
-    # dependencies compiled all the same.
+    # A job that compiles the crate restores its compiled dependencies from the Actions cache,
+    # so a fresh machine starts from them. Only dependencies are kept: the crate itself changes
+    # with every commit. The cache is keyed by the installed toolchains, the lockfiles, and the
+    # Cargo and Rust environment variables, so it runs after the toolchain is installed. A job
+    # whose tests fail still saves it: its dependencies compiled all the same.
     - name: Restore the compiled dependencies
       if: inputs.cache != ''
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

@@ -41,7 +41,8 @@ The format jobs compile nothing, so they restore none. A cache is keyed by the i
 the Cargo and Rust environment variables, and a miss restores the newest cache of the same name, so a lockfile change
 recompiles only what it changed. A job whose tests fail still saves it. A pull request restores the caches `main` saved
 and saves its own only when it changed what they are keyed by. GitHub keeps 10 GB of cache per repository and evicts
-the least recently used past that; `api-test` is about 530 MB.
+the least recently used past that; `api-test` is about 530 MB. `API test` and `API migrations` share `api-test`, so
+after a lockfile change both save it, and whichever finishes second logs that the entry is already there.
 
 The frontend jobs cache nothing: a cold `yarn install` takes under a minute, and Yarn's cache would be about 820 MB of
 the 10 GB for half of that.
@@ -179,13 +180,18 @@ used, because the script already owns its database.
 
 The crate is large enough that compiling it is bounded by memory. The library and the library's tests are each one
 rustc process of about 10 to 13 GB at its peak, and building every target runs both at once, about 21 GB, more than a
-hosted runner's 16 GB; a runner that runs out is shut down mid-build. `API test` therefore builds the library's tests
-alone first (`cargo test --lib --no-run`), and `cargo test` then has only the library and the binaries left to build,
-one large compile at a time. Every ignored test is a unit test of the library, so the script builds only the library's
-tests (`--lib`), one compile of the crate. The binaries hold no tests and the doc examples are never compiled, so
-nothing is left out, and the script refuses to run while any file outside the library holds an ignored test, which
-would otherwise run in neither job. Clippy only checks the crate, about 3 GB, so `API clippy` builds every target at
+hosted runner's 16 GB; a runner that runs out is shut down mid-build. Debug info is not what fills it: without any, the
+two together still need about 18 GB. Clippy only checks the crate, about 3 GB, so `API clippy` builds every target at
 once.
+
+`API test` builds the library's tests alone first (`cargo test --lib --no-run`), so `cargo test` then has only the
+library and the binaries left to build, one large compile at a time. The crate is one package and both steps are
+`cargo test`, so they resolve the same dependencies and features, and the second always reuses the first's build.
+
+`verify-migrations.sh` builds only the library's tests (`--lib`), one compile of the crate, since every ignored test is
+a unit test of the library. The binaries hold no tests and the doc examples are never compiled, so nothing is left out,
+and the script refuses to run while any file outside the library holds an ignored test, which would otherwise run in
+neither job.
 
 The script names its containers after its own process id, starts them without `--rm`, and removes them on exit with
 `docker rm --volumes`, so its cleanup is their only removal. The Postgres image declares a volume at its data
@@ -226,7 +232,9 @@ for it to serve `/`. The production build is checked by `Frontend build` and shi
 (development), and `oauth-broker/compose.yml`, with the Compose a deployment's updater runs. The job reads that
 version from the docker CLI image `updater/Dockerfile` pins, installs that Compose release as the user's own plugin,
 checked against the checksum published beside it, and asserts its version: the runner's own Compose is older and
-refuses fields the stacks use, such as `build.provenance`. Compose refuses every command while a required variable is
+refuses fields the stacks use, such as `build.provenance`. A new docker CLI image in `updater/Dockerfile` therefore
+brings its Compose here too, and `.github/scripts/check-compose.py` reads that Compose's output, so this job is where
+a Compose upgrade fails first. Compose refuses every command while a required variable is
 unset and the checkout has no environment file, so the step sets placeholders for exactly the required variables.
 Nothing is started. The images compose builds are built by the image checks instead of `docker compose build`, whose
 fixed image names would race between concurrent runs on one daemon.
