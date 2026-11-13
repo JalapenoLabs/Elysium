@@ -25,7 +25,7 @@ export type TaskStatus =
   | 'declined'
   // A project's task its Project Manager has not answered yet.
   | 'waiting'
-  // A task on no project whose item was deleted since.
+  // A task whose items were all deleted since.
   | 'removed'
 
 // Every task in one pass, grouped in the bar's order: the projects in the order their first task
@@ -80,7 +80,8 @@ export function groupTasks(tasks: MeetingTask[]): TaskGroup[] {
 }
 
 // Where `task`'s item stands: made, proposed, or declined, in that order, since an item made
-// answers the task whatever else was said of it.
+// answers the task whatever else was said of it. One whose items were all deleted waits for
+// nothing, since nobody is told to make it again.
 export function taskStatus(task: MeetingTask): TaskStatus {
   if (task.items.length) {
     return 'made'
@@ -91,7 +92,7 @@ export function taskStatus(task: MeetingTask): TaskStatus {
   if (task.declined) {
     return 'declined'
   }
-  if (task.share.kind === 'project') {
+  if (task.share.kind === 'project' && !task.deletedItems) {
     return 'waiting'
   }
   return 'removed'

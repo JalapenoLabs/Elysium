@@ -31,8 +31,11 @@ use crate::models::meeting_attachment::{self, NewAttachment, StoredFrame};
 use crate::models::meeting_capture;
 use crate::models::meeting_correction::{self, NewMeetingCorrection};
 use crate::models::meeting_duplicate::{self, NewMeetingDuplicate};
+use crate::models::meeting_mark::{self, MarkKind, NewMark, Range};
+use crate::models::meeting_task::{self, OwedBy, TaskReading};
 use crate::models::meeting_word::tests::{built_meeting, word};
 use crate::models::step_job::{self, StepOutcome};
+use crate::models::user::ELYSIA_USER_ID;
 use crate::realtime::EventBus;
 use crate::routes;
 use crate::state::AppState;
@@ -399,6 +402,70 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
     )
     .await;
 
+    // A task Elysia heard over its words, and the item made of it, which the item's page asks
+    // after.
+    let task_mark = meeting_mark::insert(
+        &mut connection,
+        NewMark::new(
+            meeting_id,
+            MarkKind::Task,
+            Range {
+                start_word_id: ships.id,
+                end_word_id: ships.id,
+            },
+            json!({}),
+            Author {
+                user_id: ELYSIA_USER_ID,
+                agent: None,
+                at: chrono::Utc::now(),
+            },
+        ),
+    )
+    .await
+    .expect("a task's mark");
+    let task = TaskReading {
+        title: "Ship it on Friday".to_owned(),
+        owed_by: OwedBy::Nobody,
+        project_id: None,
+    };
+    meeting_task::insert(
+        &mut connection,
+        task_mark.id,
+        meeting_id,
+        &task,
+        ELYSIA_USER_ID,
+    )
+    .await
+    .expect("a task");
+    let task_item = action_item::create(
+        &mut connection,
+        NewActionItem {
+            title: task.title.clone(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        },
+        Actor::Elysia,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("an item")
+    .record
+    .id;
+    meeting_task::record_item(
+        &mut connection,
+        task_mark.id,
+        task_item,
+        Some(TEST_PERSON_ID),
+        ELYSIA_USER_ID,
+    )
+    .await
+    .expect("its item is recorded");
+
     // A frame of its recording, which the first cell allowed to take it off does; the rest find it
     // off already, which is still their own refusal.
     let recording_location = meeting_capture::find(&mut connection, capture.id)
@@ -444,6 +511,7 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
         media,
         Asked::new(Method::GET, format!("{meeting}/history"), Needs::Read),
         Asked::new(Method::GET, threads.clone(), Needs::Read),
+        Asked::new(Method::GET, format!("{meeting}/tasks"), Needs::Read),
         Asked::new(Method::POST, format!("{meeting}/edits"), Needs::Edit).with_body(json!({
             "startWordId": sheriff.id,
             "endWordId": sheriff.id,
@@ -642,6 +710,19 @@ async fn every_meeting_route_answers_exactly_who_may_read_or_change_it() {
                 assert_eq!(status, StatusCode::OK, "{cell:?}");
                 let opened: Value = serde_json::from_slice(&body).expect("JSON");
                 assert_eq!(opened["thread"].is_object(), reads, "{cell:?}: {opened}");
+
+                // And which task it was made of, which reads as none the same way.
+                let (status, body) = ask(
+                    &state,
+                    Method::GET,
+                    &format!("/api/v1/meetings/task-items/{task_item}"),
+                    None,
+                    None,
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{cell:?}");
+                let made_of: Value = serde_json::from_slice(&body).expect("JSON");
+                assert_eq!(made_of["task"].is_object(), reads, "{cell:?}: {made_of}");
 
                 // The item asking whether two meetings are one offers them only to whoever may
                 // answer it, reading both and managing the one it asks about.

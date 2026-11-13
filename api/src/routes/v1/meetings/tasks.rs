@@ -81,7 +81,10 @@ struct TaskResponse {
     /// When its words start on the meeting's clock.
     start_ms: i64,
     share: ShareResponse,
+    /// The items made of it that stand.
     items: Vec<TaskItemResponse>,
+    /// How many items made of it were deleted since.
+    deleted_items: usize,
     /// The changesets waiting for a person that would make an item of it.
     proposals: Vec<Uuid>,
     declined: Option<DeclinedResponse>,
@@ -124,6 +127,7 @@ pub async fn list(
             continue;
         };
         let start = *places.start();
+        let made = items.remove(&task.mark_id).unwrap_or_default();
         ordered.push((
             start,
             TaskResponse {
@@ -133,9 +137,8 @@ pub async fn list(
                 end_word_id: mark.end_word_id,
                 start_ms: text.words()[start].start_ms,
                 share: share_response(&task.reading(), found.created_by, &names),
-                items: items
-                    .remove(&task.mark_id)
-                    .unwrap_or_default()
+                items: made
+                    .live
                     .into_iter()
                     .map(|item| TaskItemResponse {
                         id: item.id,
@@ -143,6 +146,7 @@ pub async fn list(
                         state: item.state,
                     })
                     .collect(),
+                deleted_items: made.deleted,
                 proposals: proposals.remove(&task.mark_id).unwrap_or_default(),
                 declined: task
                     .declined_reason

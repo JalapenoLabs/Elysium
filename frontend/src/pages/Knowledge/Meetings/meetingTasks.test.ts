@@ -20,6 +20,7 @@ function task(id: string, share: MeetingTaskShare, overrides: Partial<MeetingTas
     startMs: 0,
     share,
     items: [],
+    deletedItems: 0,
     proposals: [],
     declined: null,
     ...overrides,
@@ -81,5 +82,9 @@ describe('taskStatus', () => {
   it('waits on a project\'s Project Manager, and reads a task on no project with no item as removed', () => {
     expect(taskStatus(task('waiting', project))).toBe('waiting')
     expect(taskStatus(task('own', own))).toBe('removed')
+  })
+
+  it('reads a project\'s task whose item was deleted as removed, not waiting', () => {
+    expect(taskStatus(task('deleted', project, { deletedItems: 1 }))).toBe('removed')
   })
 })

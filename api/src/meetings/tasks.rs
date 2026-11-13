@@ -193,18 +193,6 @@ pub async fn send(
 ) -> Result<Option<Recorded<ActionItem>>, WorkError> {
     let owner = reach.meeting.created_by;
     let share = share_of(&task.reading(), owner);
-    if let Share::Project(project_id) = share {
-        project_manager::wake_for_task(connection, project_id, task.mark_id, ELYSIA_USER_ID)
-            .await?;
-        return Ok(None);
-    }
-    let person_id = match share {
-        Share::Coworker(coworker) => coworker,
-        Share::Project(_) | Share::Own | Share::WaitingOn(_) | Share::Other => owner,
-    };
-    if meeting_task::has_item_for(connection, task.mark_id, person_id).await? {
-        return Ok(None);
-    }
     let name_of = |id: Uuid| {
         reach
             .names
@@ -213,13 +201,27 @@ pub async fn send(
             .unwrap_or_else(|| "someone".to_owned())
     };
     let heard = heard_in(reach, start_ms);
-    let notes = match &share {
-        Share::WaitingOn(name) => format!("For {}, waiting on {name}. {heard}", name_of(owner)),
-        Share::Other => format!("For {}; nobody was named to do it. {heard}", name_of(owner)),
-        Share::Project(_) | Share::Own | Share::Coworker(_) => {
-            format!("For {}. {heard}", name_of(person_id))
+    // Whom the item is for, and what its notes say of it.
+    let (person_id, notes) = match &share {
+        Share::Project(project_id) => {
+            project_manager::wake_for_task(connection, *project_id, task.mark_id, ELYSIA_USER_ID)
+                .await?;
+            return Ok(None);
         }
+        Share::Own => (owner, format!("For {}. {heard}", name_of(owner))),
+        Share::Coworker(coworker) => (*coworker, format!("For {}. {heard}", name_of(*coworker))),
+        Share::WaitingOn(name) => (
+            owner,
+            format!("For {}, waiting on {name}. {heard}", name_of(owner)),
+        ),
+        Share::Other => (
+            owner,
+            format!("For {}; nobody was named to do it. {heard}", name_of(owner)),
+        ),
     };
+    if meeting_task::has_item_for(connection, task.mark_id, person_id).await? {
+        return Ok(None);
+    }
     let now = Utc::now();
     let item = NewActionItem {
         title: task.title.clone(),

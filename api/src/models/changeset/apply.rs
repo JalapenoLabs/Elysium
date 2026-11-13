@@ -168,14 +168,13 @@ impl Run {
 
         let run = &*self;
         let operation = row.parsed();
+        let item_of_task = row.creates_item_of_task();
         let attempt = connection
             .transaction(async move |connection| {
                 let mut done = apply_one(connection, run, row.id, operation.clone()).await?;
                 // A create naming a meeting's task is that task's item, which its meeting's page
                 // counts and links back to the words it was heard in.
-                if let (Operation::CreateItem(_), Some(task_id), Some(item_id)) =
-                    (&operation, row.meeting_task_id, done.created)
-                {
+                if let (Some(task_id), Some(item_id)) = (item_of_task, done.created) {
                     meeting_task::record_item(
                         connection,
                         task_id,

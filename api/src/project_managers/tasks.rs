@@ -26,7 +26,8 @@ use crate::models::meeting_mark::{self, Mark, MarkKind};
 use crate::models::meeting_task::{self, DECLINE_REASON_MAX_CHARACTERS, MeetingTask, OwedBy};
 use crate::models::{meeting, meeting_word, timeline_record};
 
-/// The tasks among `task_ids` a turn of `project_id`'s Project Manager acts on, oldest first: each
+/// The tasks among `task_ids` a turn of `project_id`'s Project Manager acts on, oldest first (by
+/// their marks' `UUIDv7` ids, which sort as the marks were made): each
 /// still standing and still the project's, as [`PromptTask`]s, its people named from `names`. A
 /// task read onto another project since, or heard no longer, is left out: it is not this project's
 /// to act on.
@@ -92,6 +93,7 @@ pub async fn load(
                 items: items
                     .remove(&task.mark_id)
                     .unwrap_or_default()
+                    .live
                     .into_iter()
                     .map(|item| (item.id, item.title, item.state))
                     .collect(),

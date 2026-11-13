@@ -17,16 +17,14 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
-use crate::action_items::changesets::Operation;
 use crate::database::schema::{
     action_items, changeset_operations, changesets, meeting_marks, meeting_task_items,
     meeting_tasks,
 };
 use crate::models::action_item::ActionItem;
-use crate::models::changeset::{ChangesetDecision, ChangesetState};
+use crate::models::changeset::{ChangesetDecision, ChangesetOperation, ChangesetState};
 
 /// The longest title a task takes, in characters, as `meeting_tasks.title` allows.
 pub const TITLE_MAX_CHARACTERS: usize = 200;
@@ -181,9 +179,9 @@ pub async fn standing_of(
     Ok(tasks.into_iter().map(|task| (task.mark_id, task)).collect())
 }
 
-/// The tasks among `ids` that are for `project_id` and whose marks still stand, oldest first: a
-/// task read again onto another project, or no longer heard at all, is not that project's to act
-/// on.
+/// The tasks among `ids` that are for `project_id` and whose marks still stand, oldest first (by
+/// their marks' ids, which are `UUIDv7` and so sort as the marks were made): a task read again onto
+/// another project, or no longer heard at all, is not that project's to act on.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -272,25 +270,37 @@ pub async fn has_item_for(
     .await
 }
 
-/// The live action items made of each of `task_ids`, oldest first, by task.
+/// The action items made of a task: those that stand, oldest first, and how many were deleted
+/// since, so a task whose item was deleted does not read as one still waiting for its item.
+#[derive(Debug, Clone, Default)]
+pub struct TaskItems {
+    pub live: Vec<ActionItem>,
+    pub deleted: usize,
+}
+
+/// The action items made of each of `task_ids`, by task.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn items_of(
     connection: &mut AsyncPgConnection,
     task_ids: &[Uuid],
-) -> QueryResult<HashMap<Uuid, Vec<ActionItem>>> {
+) -> QueryResult<HashMap<Uuid, TaskItems>> {
     let rows: Vec<(Uuid, ActionItem)> = meeting_task_items::table
         .inner_join(action_items::table)
         .filter(meeting_task_items::task_id.eq_any(task_ids))
-        .filter(action_items::deleted_at.is_null())
         .order(action_items::id.asc())
         .select((meeting_task_items::task_id, ActionItem::as_select()))
         .load(connection)
         .await?;
-    let mut by_task: HashMap<Uuid, Vec<ActionItem>> = HashMap::new();
+    let mut by_task: HashMap<Uuid, TaskItems> = HashMap::new();
     for (task_id, item) in rows {
-        by_task.entry(task_id).or_default().push(item);
+        let made = by_task.entry(task_id).or_default();
+        if item.deleted_at.is_some() {
+            made.deleted += 1;
+            continue;
+        }
+        made.live.push(item);
     }
     Ok(by_task)
 }
@@ -305,34 +315,23 @@ pub async fn pending_proposals_of(
     connection: &mut AsyncPgConnection,
     task_ids: &[Uuid],
 ) -> QueryResult<HashMap<Uuid, Vec<Uuid>>> {
-    let rows: Vec<(Option<Uuid>, Uuid, Value)> = changeset_operations::table
+    let rows: Vec<ChangesetOperation> = changeset_operations::table
         .inner_join(changesets::table)
         .filter(changeset_operations::meeting_task_id.eq_any(task_ids))
         .filter(changesets::state.eq(ChangesetState::Pending))
         .filter(changeset_operations::decision.ne(ChangesetDecision::Rejected))
         .order(changesets::id.asc())
-        .select((
-            changeset_operations::meeting_task_id,
-            changesets::id,
-            changeset_operations::operation,
-        ))
+        .select(ChangesetOperation::as_select())
         .load(connection)
         .await?;
     let mut by_task: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-    for (task_id, changeset_id, operation) in rows {
-        let Some(task_id) = task_id else {
+    for row in rows {
+        let Some(task_id) = row.creates_item_of_task() else {
             continue;
         };
-        let creates = matches!(
-            serde_json::from_value::<Operation>(operation),
-            Ok(Operation::CreateItem(_))
-        );
-        if !creates {
-            continue;
-        }
         let proposals = by_task.entry(task_id).or_default();
-        if !proposals.contains(&changeset_id) {
-            proposals.push(changeset_id);
+        if !proposals.contains(&row.changeset_id) {
+            proposals.push(row.changeset_id);
         }
     }
     Ok(by_task)

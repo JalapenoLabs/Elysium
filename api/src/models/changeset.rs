@@ -146,6 +146,14 @@ impl ChangesetOperation {
             .expect("changeset operations are validated before they are stored")
     }
 
+    /// The meeting's task whose item this operation makes: a create naming a task
+    /// (`docs/meetings.md`, Tasks). Any other operation naming a task only says what it came
+    /// from, and makes no item of it.
+    pub fn creates_item_of_task(&self) -> Option<Uuid> {
+        let task_id = self.meeting_task_id?;
+        matches!(self.parsed(), Operation::CreateItem(_)).then_some(task_id)
+    }
+
     /// The position as the rules count it.
     ///
     /// # Panics

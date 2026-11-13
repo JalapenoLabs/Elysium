@@ -942,6 +942,7 @@ describe('MeetingWorkspace', () => {
           startMs: 2000,
           share: { kind: 'project', projectId: 'launch' },
           items: [],
+          deletedItems: 0,
           proposals: [ 'changeset' ],
           declined: null,
         },
@@ -953,6 +954,7 @@ describe('MeetingWorkspace', () => {
           startMs: 0,
           share: { kind: 'own', userId: 'person', name: 'Ada Lovelace' },
           items: [{ id: 'item', title: 'Send Ada the deck', state: 'inbox' }],
+          deletedItems: 0,
           proposals: [],
           declined: null,
         },
@@ -993,6 +995,7 @@ describe('MeetingWorkspace', () => {
       endWordId: 'w1',
       startMs: 0,
       items: [],
+      deletedItems: 0,
       proposals: [],
       declined: null,
     }

@@ -1356,15 +1356,15 @@ an excerpt's clip for its record's owner.
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
   - **The tasks** (`MeetingTasks`, `GET /meetings/{id}/tasks`, read through SWR alone), first along the top of the
-    page while the meeting has any: one button for each project with its tasks, the meeting's person's own, each coworker
-    (someone not on Elysium as Waiting on them), and Other, each with how many (`groupTasks`, `meetingTasks.ts`). Whoever
-    may read the meeting sees its bar: the person's own and a coworker's name whose they are, and the reader's own read
-    Yours. Each
-    opens its tasks in a popover: what is to be done, Show in the transcript, which selects its words, and what came of
-    it (`taskStatus`): the items made of it, each opening its page with its state, the proposal waiting for approval,
-    opening the changeset, the Project Manager's reason for making none, or that it waits for its Project Manager.
-    `meeting.changed`, a changeset, and an item changed or deleted read them again. A link to a task's mark (`?mark=`), which its
-    item's page makes, selects its words, since tasks draw along the top rather than over them.
+    page while the meeting has any: one button for each project with its tasks, the meeting's person's own, each
+    coworker (someone not on Elysium as Waiting on them), and Other, each with how many (`groupTasks`,
+    `meetingTasks.ts`). Whoever may read the meeting sees its bar: the person's own and a coworker's name whose they are,
+    and the reader's own read Yours. Each opens its tasks in a popover: what is to be done, Show in the transcript,
+    which selects its words, and what came of it (`taskStatus`): the items made of it, each opening its page with its
+    state, the proposal waiting for approval, opening the changeset, the Project Manager's reason for making none, that
+    its item was deleted, or that it waits for its Project Manager. `meeting.changed`, a changeset, and an item changed
+    or deleted read them again. A link to a task's mark (`?mark=`), which its item's page makes, selects its words,
+    since tasks draw along the top rather than over them.
   - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
     recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
     a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on

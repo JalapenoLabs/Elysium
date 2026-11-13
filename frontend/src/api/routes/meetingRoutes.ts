@@ -522,8 +522,8 @@ export type MeetingTaskItem = {
 }
 
 // Mirrors `TaskResponse`: a task heard in a meeting, its words by their first and last ids, the
-// items made of it, the changesets waiting for a person that would make one, and why its project's
-// Project Manager made none.
+// items made of it that stand and how many were deleted, the changesets waiting for a person that
+// would make one, and why its project's Project Manager made none.
 export type MeetingTask = {
   id: string
   title: string
@@ -532,6 +532,7 @@ export type MeetingTask = {
   startMs: number
   share: MeetingTaskShare
   items: MeetingTaskItem[]
+  deletedItems: number
   proposals: string[]
   declined: { reason: string, at: string } | null
 }
@@ -544,9 +545,12 @@ export function meetingTasksKey(meetingId: string) {
   return `v1/meetings/${meetingId}/tasks`
 }
 
+// A meeting's tasks' key, as `meetingTasksKey` makes it, and nothing deeper under a meeting.
+const MEETING_TASKS_KEY = /^v1\/meetings\/[^/]+\/tasks$/
+
 // Whether `key` is a meeting's tasks', which a changed item or changeset may move.
 export function isMeetingTasksKey(key: unknown) {
-  return typeof key === 'string' && key.startsWith('v1/meetings/') && key.endsWith('/tasks')
+  return typeof key === 'string' && MEETING_TASKS_KEY.test(key)
 }
 
 export function getMeetingTasks(meetingId: string) {
