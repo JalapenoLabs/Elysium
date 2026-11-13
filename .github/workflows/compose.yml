@@ -41,6 +41,29 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Compose a deployment's updater runs, from the docker CLI image
+      # updater/Dockerfile pins, so the stacks are checked by the version that applies
+      # them. The runner's own Compose is older and refuses fields they use, such as
+      # `build.provenance`. The release binary is checked against the checksum
+      # published beside it, and takes precedence as the user's own plugin.
+      - name: Install the updater's Compose
+        run: |
+          set -euo pipefail
+          updater_image="$(sed -n 's/^FROM //p' updater/Dockerfile)"
+          version="$(docker run --rm "${updater_image}" docker compose version --short)"
+          release="https://github.com/docker/compose/releases/download/v${version}"
+          binary="docker-compose-linux-x86_64"
+          cd "${RUNNER_TEMP}"
+
+          curl -fsSL -o "${binary}" "${release}/${binary}"
+          curl -fsSL -o "${binary}.sha256" "${release}/${binary}.sha256"
+          sha256sum --check --status "${binary}.sha256"
+
+          mkdir -p "${HOME}/.docker/cli-plugins"
+          install -m 0755 "${binary}" "${HOME}/.docker/cli-plugins/docker-compose"
+          test "$(docker compose version --short)" = "${version}"
+          echo "Compose ${version}, as ${updater_image} carries."
+
       # Compose refuses every command, `config` included, while a required variable
       # is unset, and the checkout has no environment file. These placeholders exist
       # only to satisfy interpolation: nothing starts, and no value here is a secret.

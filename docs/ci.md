@@ -145,6 +145,7 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | nomic-embed-text-v1.5, text-embeddings-inference | `embeddings/Dockerfile` | TEI's image digest, each model file's SHA-256 at a fixed Hugging Face revision, and a test holding `MODEL` to that revision |
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
+| Compose            | the docker CLI image in `updater/Dockerfile`, by digest | checksum, version (`Compose config`) |
 | Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
 | Runner image       | `ubuntu-24.04` in each hosted job's `runs-on`        |                                   |
 | `actions/checkout` | a commit SHA in each workflow                        |                                   |
@@ -222,10 +223,13 @@ for it to serve `/`. The production build is checked by `Frontend build` and shi
 ## Compose
 
 `docker compose config --quiet` over `compose.yml` alone (production), `compose.yml` with `compose.dev.yml`
-(development), and `oauth-broker/compose.yml`. Compose refuses every command while
-a required variable is unset and the checkout has no environment file, so the step sets placeholders for exactly the
-required variables. Nothing is started. The images compose builds are built by the image checks instead of
-`docker compose build`, whose fixed image names would race between concurrent runs on one daemon.
+(development), and `oauth-broker/compose.yml`, with the Compose a deployment's updater runs. The job reads that
+version from the docker CLI image `updater/Dockerfile` pins, installs that Compose release as the user's own plugin,
+checked against the checksum published beside it, and asserts its version: the runner's own Compose is older and
+refuses fields the stacks use, such as `build.provenance`. Compose refuses every command while a required variable is
+unset and the checkout has no environment file, so the step sets placeholders for exactly the required variables.
+Nothing is started. The images compose builds are built by the image checks instead of `docker compose build`, whose
+fixed image names would race between concurrent runs on one daemon.
 
 The same job runs `.github/scripts/check-compose.py` over all three stacks (production, production from a checkout,
 and development), the rules that let a plain `docker compose up` recreate exactly what changed: no service
