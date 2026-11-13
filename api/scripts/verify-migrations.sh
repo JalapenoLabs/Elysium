@@ -26,8 +26,23 @@ api_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 container="elysium-verify-migrations-$$"
 redis_container="elysium-verify-redis-$$"
 
-# Removes each container this run started, with its volumes. The Postgres image declares a
-# volume at its data directory, and a container removed without `--volumes` leaves it behind.
+# Only the library's tests are built (see the last step), so an ignored test anywhere else would
+# run neither here nor in plain `cargo test`. Every other place cargo finds tests is searched for
+# one, and the run stops before it starts anything.
+outside_library=()
+for path in src/main.rs src/bin tests benches examples; do
+  if [ -e "$api_dir/$path" ]; then
+    outside_library+=("$api_dir/$path")
+  fi
+done
+if grep --recursive --files-with-matches '#\[ignore' "${outside_library[@]}"; then
+  echo "==> the files above hold ignored tests outside the library, which nothing would run" >&2
+  exit 1
+fi
+
+# Removes each container this run started, with its volumes. They are started without `--rm`, so
+# this is their one removal and nothing races it. The Postgres image declares a volume at its
+# data directory, and a container removed without `--volumes` leaves it behind.
 cleanup() {
   for name in "$container" "$redis_container"; do
     if docker container inspect "$name" >/dev/null 2>&1; then
@@ -48,7 +63,7 @@ echo "==> starting $POSTGRES_IMAGE"
 # for the disk instead. Every database here is thrown away with the container, so durability buys
 # nothing, and on a cloud disk waiting for each commit to land took the suite from 262 to 464
 # seconds.
-docker run --detach --rm --name "$container" \
+docker run --detach --name "$container" \
   --shm-size=512m \
   --env POSTGRES_USER="$ROLE" \
   --env POSTGRES_PASSWORD="$PASSWORD" \
@@ -66,7 +81,7 @@ done
 port="$(docker port "$container" 5432/tcp | head -n 1 | cut -d: -f2)"
 
 echo "==> starting $REDIS_IMAGE"
-docker run --detach --rm --name "$redis_container" \
+docker run --detach --name "$redis_container" \
   --publish 127.0.0.1::6379 \
   "$REDIS_IMAGE" >/dev/null
 until docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q PONG; do
@@ -91,8 +106,8 @@ echo "==> running store-backed tests"
 # Every store-backed test is a unit test of the library, so only the library's tests are built:
 # one compile of the crate, about 13 GB at its peak, where building every target compiles the
 # library twice at once and needs about 21 GB, more than a 16 GB machine has. The binaries hold
-# no tests and the doc examples are never compiled, so nothing is skipped. An ignored test added
-# outside the library, such as under tests/, would not run here.
+# no tests and the doc examples are never compiled, so nothing is skipped, and the check at the
+# top refuses an ignored test anywhere else.
 cargo test --locked --lib -- --ignored
 
 echo "==> migrations verified"

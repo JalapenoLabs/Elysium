@@ -68,8 +68,9 @@ from the repository rather than the crate's Cargo config, so its `ARG CARGO_BUIL
 
 Every workflow runs on every pull request, merge group, and push, with no path filters. GitHub never evaluates path
 filters for `merge_group` events, and a required check whose workflow a path filter skipped on a pull request stays
-pending forever. Running everything is the simple option that cannot stall the queue; warm runners keep an unchanged
-lane short. The API image is the exception, since its release build recompiles the crate on every commit.
+pending forever. Running everything is the simple option that cannot stall the queue; cached dependencies and warm
+runners keep an unchanged lane short. The API image is the exception, since its release build recompiles the crate on
+every commit.
 
 Job names are the check names. Require exactly these in the `main` ruleset:
 
@@ -170,12 +171,14 @@ The crate is large enough that compiling it is bounded by memory. The library an
 rustc process of about 10 to 13 GB at its peak, and building every target runs both at once, about 21 GB, more than a
 hosted runner's 16 GB; a runner that runs out is shut down mid-build. Every ignored test is a unit test of the library,
 so the script builds only the library's tests (`--lib`), one compile of the crate. The binaries hold no tests and the
-doc examples are never compiled, so nothing is left out.
+doc examples are never compiled, so nothing is left out, and the script refuses to run while any file outside the
+library holds an ignored test, which would otherwise run in neither job.
 
-The script names its containers after its own process id and removes them on exit with `docker rm --volumes`. The
-Postgres image declares a volume at its data directory, so a container removed without `--volumes` leaves that volume
-behind for good. The workflow records the script's process id, so a cancelled run, which can kill the script before its
-cleanup runs, still has both containers and their volumes removed by an `always()` step, which says what it removed.
+The script names its containers after its own process id, starts them without `--rm`, and removes them on exit with
+`docker rm --volumes`, so its cleanup is their only removal. The Postgres image declares a volume at its data
+directory, so a container removed without `--volumes` leaves that volume behind for good. The workflow records the
+script's process id, so a cancelled run, which can kill the script before its cleanup runs, still has both containers
+and their volumes removed by an `always()` step, which says what it removed.
 Postgres keeps its data on disk rather than a tmpfs: no test drops the database it creates, about 18 MB each once
 migrated, so the suite ends holding about 12 GB, more than the hosted runner's memory could spare. It runs with
 `fsync`, `synchronous_commit`, and `full_page_writes` off instead, since nothing in it outlives the container: on the

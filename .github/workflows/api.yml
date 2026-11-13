@@ -116,7 +116,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # The same build as `API test`, so the two share one dependency cache.
+      # `cargo test` compiles the same dependencies the same way whichever targets it
+      # builds, so this job and `API test` share one dependency cache.
       - name: Prepare the toolchain
         uses: ./.github/actions/rust-toolchain
         with:
@@ -175,7 +176,7 @@ jobs:
           wait "${script_pid}"
 
       # With their volumes, as the script removes them. A run that ended on its own
-      # has nothing left here.
+      # has nothing left here, and nothing else removes them, so nothing races this.
       - name: Remove the disposable Postgres and Redis
         if: always()
         run: |
