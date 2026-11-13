@@ -28,7 +28,9 @@ use crate::models::meeting_reads::{self, Turn};
 use crate::models::meeting_share;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager::{self, Finished};
+use crate::models::promise::{self, NewPromise};
 use crate::models::session_turn::{self, NewSessionTurn};
+use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::models::turn_summary;
 use crate::project_managers::timeline as manager_timeline;
 use crate::routes::v1::knowledge::tests::{coworker, document_of_record, get, set_role};
@@ -55,6 +57,8 @@ struct Written {
     summary_document: Uuid,
     /// One of Elysia's turns that answered in the private meeting's thread.
     elysia_turn: Uuid,
+    /// A promise made in the private meeting, which the Project Manager keeps.
+    promise: Uuid,
     /// A Project Manager's turn that read no meeting, and its record and document.
     open_turn: Uuid,
     open_record: Uuid,
@@ -203,6 +207,43 @@ async fn answered_thread_turn(connection: &mut AsyncPgConnection, meeting: Uuid)
     turn
 }
 
+/// A promise made in an excerpt of `meeting`, on `project_id`, as segmenting records one.
+async fn promised_in(connection: &mut AsyncPgConnection, project_id: Uuid, meeting: Uuid) -> Uuid {
+    let excerpt = timeline_record::insert_new(
+        connection,
+        NewTimelineRecord {
+            id: Uuid::now_v7(),
+            source_kind: "meeting".to_owned(),
+            connector_id: None,
+            external_id: None,
+            occurred_at: Utc::now(),
+            actor: "Grace".to_owned(),
+            title: "The quokka team's move".to_owned(),
+            body: "[0:05] Grace: I'll tell the team once the move is live.".to_owned(),
+            url: None,
+            media: None,
+            metadata: json!({ "meetingId": meeting }),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("stored")
+    .expect("new");
+    promise::record(
+        connection,
+        &[NewPromise {
+            project_id,
+            timeline_record_id: excerpt.id,
+            recipient: "the team".to_owned(),
+            summary: "Tell the team once the move is live".to_owned(),
+        }],
+    )
+    .await
+    .expect("promised")
+    .remove(0)
+    .id
+}
+
 /// Everything agents wrote, `private` and `other` being two meetings the test person does not own.
 async fn written(connection: &mut AsyncPgConnection, private: Uuid, other: Uuid) -> Written {
     let project_id = project::create(
@@ -235,6 +276,7 @@ async fn written(connection: &mut AsyncPgConnection, private: Uuid, other: Uuid)
     let (session_id, session_turn, summary_record) =
         summarized_session_turn(connection, project_id, private).await;
     let elysia_turn = answered_thread_turn(connection, private).await;
+    let promise = promised_in(connection, project_id, private).await;
 
     Written {
         project_id,
@@ -249,6 +291,7 @@ async fn written(connection: &mut AsyncPgConnection, private: Uuid, other: Uuid)
         summary_record,
         summary_document: document_of_record(connection, summary_record).await,
         elysia_turn,
+        promise,
         open_turn,
         open_record,
         open_document: document_of_record(connection, open_record).await,
@@ -281,6 +324,8 @@ struct Seen {
     /// Elysia's turns listed, and those opened by id.
     elysia_turns: HashSet<String>,
     elysia_opened: HashSet<String>,
+    /// The promises the Project Manager tab lists.
+    promises: HashSet<String>,
     /// The turns the session's conversation has summaries of.
     summaries: HashSet<String>,
 }
@@ -367,6 +412,7 @@ async fn seen(state: &AppState, written: &Written) -> Seen {
         })
         .await,
         elysia_turns: ids(&activity["turns"], "id"),
+        promises: ids(&manager["projectManager"]["promises"], "id"),
         elysia_opened: opened(state, &[written.elysia_turn], |id| {
             format!("/api/v1/elysia/turns/{id}")
         })
@@ -413,6 +459,7 @@ fn expected(written: &Written, reads_private: bool, reads_both: bool) -> Seen {
         manager_turns,
         elysia_opened: elysia_turns.clone(),
         elysia_turns,
+        promises: set(&[(written.promise, reads_private)]),
         summaries: set(&[(written.session_turn, reads_private)]),
     }
 }

@@ -176,7 +176,7 @@ INSERT INTO knowledge_documents (id, source, timeline_record_id, title, occurred
                                  content_sha256, created_by, access_meeting_id)
 VALUES
  ('00000000-0000-7000-8000-000000278d01', 'meeting', '00000000-0000-7000-8000-000000278101',
-  'The team moves', '2026-11-01T15:05:00Z', 'a', '00000000-0000-7000-8000-000000278a02',
+  'The team moves', '2026-11-01T15:05:00Z', repeat('a', 64), '00000000-0000-7000-8000-000000278a02',
   '00000000-0000-7000-8000-000000278001');
 
 INSERT INTO coding_sessions (id, title, project_id, created_by) VALUES

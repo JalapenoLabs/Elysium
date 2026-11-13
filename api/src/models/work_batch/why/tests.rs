@@ -348,6 +348,66 @@ async fn a_private_meetings_quote_is_withheld_from_whoever_may_not_read_it() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn what_an_agent_wrote_from_a_private_meeting_is_withheld_as_the_meeting_is() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = project_named(&mut connection, "Launch").await;
+    // The test person's one-to-one, which they never opened, and a Project Manager's turn that
+    // read it, whose record a later batch names.
+    let (meeting, _capture) = crate::models::meeting::tests::stored(&mut connection).await;
+    let turn_record = record(
+        &mut connection,
+        "project_manager",
+        "Planned Grace's quarter",
+        "Grace is behind this quarter, so the work moves to Alex.",
+        json!({ "kind": "turn" }),
+    )
+    .await;
+    crate::models::meeting_reads::name_on_record(&mut connection, turn_record, &[meeting.id])
+        .await
+        .expect("named");
+    let batch = submitted(
+        &mut connection,
+        NewWorkBatch {
+            source_record_ids: json!([turn_record]),
+            ..new_batch(launch, "Plan the quarter")
+        },
+    )
+    .await;
+    let quoted = async |connection: &mut AsyncPgConnection, reader: Reader| -> Record {
+        read(connection, &batch, reader)
+            .await
+            .expect("reads")
+            .chain
+            .into_iter()
+            .find_map(|link| match link {
+                Link::Record(record) => Some(record),
+                _other => None,
+            })
+            .expect("the record is in the chain")
+    };
+
+    // The meeting's owner reads what was written from it; any other member, and a description
+    // leaving Elysium, are told a private meeting asked and nothing more.
+    let as_owner = quoted(&mut connection, owner()).await;
+    assert!(!as_owner.withheld);
+    assert_eq!(as_owner.title, "Planned Grace's quarter");
+    let someone_else = Reader {
+        id: Uuid::now_v7(),
+        reach: Reach::Public,
+    };
+    for reader in [someone_else, Reader::ANY_MEMBER] {
+        let withheld = quoted(&mut connection, reader).await;
+        assert!(withheld.withheld, "{reader:?}");
+        assert_eq!(
+            (withheld.title.as_str(), withheld.excerpt.as_str()),
+            ("", ""),
+            "{reader:?}"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn many_chains_read_at_once_and_what_is_gone_is_left_out() {
     let (_url, mut connection) = migrated_database().await;
     let launch = project_named(&mut connection, "Launch").await;
