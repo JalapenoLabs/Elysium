@@ -103,8 +103,10 @@ pub async fn open(
     Ok((found, access))
 }
 
-/// What undoing a change of kind `kind` takes: what making it took. A kind that cannot be undone
-/// takes only an editor's, and its undo refuses it as one.
+/// What undoing a change of kind `kind` takes: what making it took. A kind a processing step made,
+/// which cannot be undone, takes only an editor's, and its undo refuses it as one; deleting and
+/// restoring, each other's undo, take what making them took, though their entries are not undone
+/// from the history.
 pub const fn need_to_undo(kind: Option<EventKind>) -> Need {
     match kind {
         Some(
@@ -112,7 +114,9 @@ pub const fn need_to_undo(kind: Option<EventKind>) -> Need {
             | EventKind::Split
             | EventKind::VisibilityChanged
             | EventKind::Shared
-            | EventKind::Unshared,
+            | EventKind::Unshared
+            | EventKind::Deleted
+            | EventKind::Restored,
         ) => Need::Manage,
         Some(EventKind::HoldChanged | EventKind::OffsetChanged) => Need::Own,
         Some(
@@ -128,9 +132,7 @@ pub const fn need_to_undo(kind: Option<EventKind>) -> Need {
             | EventKind::Segmented
             | EventKind::ReviewDone
             | EventKind::Attached
-            | EventKind::Detached
-            | EventKind::Deleted
-            | EventKind::Restored,
+            | EventKind::Detached,
         )
         | None => Need::Edit,
     }
@@ -222,6 +224,7 @@ mod tests {
             Need::Manage
         );
         assert_eq!(need_to_undo(Some(EventKind::Unshared)), Need::Manage);
+        assert_eq!(need_to_undo(Some(EventKind::Deleted)), Need::Manage);
         assert_eq!(need_to_undo(Some(EventKind::HoldChanged)), Need::Own);
         assert_eq!(need_to_undo(Some(EventKind::OffsetChanged)), Need::Own);
     }

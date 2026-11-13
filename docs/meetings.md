@@ -870,12 +870,12 @@ immediate, and restoring brings back all of it.
   meeting recorded twice, and segmenting keeps what it read but takes no excerpt. The deletion takes the same lock, so
   no excerpt of a deleted meeting is ever on a timeline. Done reviewing a deleted meeting is refused (`409
   meeting_deleted`), as every change is. A run held for its person (an approval, or the same meeting twice) stays held,
-  and a meeting with no run yet starts none. The inbox item already asking its person to approve its corrected
-  transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`), so nothing asks them to
-  review what they deleted; the `deleted` entry names it and where it stood, and restoring returns that item there, to
-  the inbox it was raised in or to open (`action_item::return_to`, as a changeset's undo returns an item), while the
-  copy still waits and the item is still dismissed (`correct::return_review`). One the person dealt with by hand
-  meanwhile stays as they left it. A step running when the meeting was deleted finishes its attempt, and the step after
+  and a meeting with no run yet starts none. The inbox items already asking its person something about it (to approve
+  its corrected transcript while the copy waits, and whether to open it once its correction kept it private) are
+  dismissed, as whoever deletes it, in the deletion's transaction (`deletion::dismiss_asks`), so nothing asks anyone
+  about a meeting that is deleted; the `deleted` entry names each and where it stood (`dismissedItems`), and restoring
+  returns each still dismissed there, to the inbox it was raised in or to open (`action_item::return_to`, as a
+  changeset's undo returns an item). One the person dealt with by hand meanwhile stays as they left it. A step running when the meeting was deleted finishes its attempt, and the step after
   it stops.
 - **Never read again.** Its captures stay, so its connector's next listing finds each one known
   (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
@@ -1175,8 +1175,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept, moved onto new words, and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
 | `attached`, `detached` | A file or frame put on the meeting or taken off: the attachment, its kind and name, and the pins that went with it | Takes it off with its pins, or puts it back with them, while it is still as that change left it |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
-| `deleted`             | Its person deleted it: how many excerpts' records went with it (`excerpts`), the connector it was removed with, if it was, and the review item it dismissed (`dismissedItemId`) and the state it left (`dismissedItemFrom`), if it did | None: restoring brings it back |
-| `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`excerpts`), whether the run that deletion stopped went on, and the review item it returned to where it stood (`returnedItemId`), if it did | None: deleting takes it again |
+| `deleted`             | Its owner or an admin deleted it: how many excerpts' records went with it (`excerpts`), the connector it was removed with, if it was, and each inbox item asking about it that it dismissed, with the state it left (`dismissedItems`) | None: restoring brings it back |
+| `restored`            | Its owner or an admin restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`excerpts`), whether the run that deletion stopped went on, and the items it returned to where they stood (`returnedItemIds`) | None: deleting takes it again |
 
 ## Comments
 

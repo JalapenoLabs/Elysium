@@ -23,11 +23,12 @@
 //! - **Its run stops.** Every meeting step fails for good on a deleted meeting with [`STOPPED`], at
 //!   its start and again under the meeting's lock where it would settle words, raise an inbox item,
 //!   or take its excerpts, so a deleted meeting asks nothing of its person, puts nothing on a
-//!   timeline, and indexes nothing. The inbox item it raised already, asking to approve its
-//!   corrected transcript, is dismissed as the person deleting it (`correct::dismiss_review`), the
-//!   `deleted` entry naming it, and restoring returns that item to where it stood, the inbox or
-//!   open, while it still waits (`correct::return_review`), so a connector's removal that fails and
-//!   restores what it deleted leaves the asks as they were too. Restoring retries the step that
+//!   timeline, and indexes nothing. The inbox items it raised already, asking its person something
+//!   about it (to approve its corrected transcript, and whether to open it once its correction kept
+//!   it private), are dismissed as whoever deletes it ([`dismiss_asks`]), the `deleted` entry naming
+//!   each and where it stood, and restoring returns each still dismissed there, the inbox or open
+//!   ([`return_asks`]), so a connector's removal that fails and restores what it deleted leaves the
+//!   asks as they were too. Restoring retries the step that
 //!   stopped: the failed step of the meeting's newest run of each meeting workflow that failed
 //!   after the deletion, whatever it failed with, since nobody saw a meeting that was listed
 //!   nowhere. A run that failed before the deletion waits for its person as it did, and a held run
@@ -61,12 +62,14 @@ use uuid::Uuid;
 
 use super::access::{self, Need};
 use super::excerpts::{self, MeetingText};
-use super::{correct, workflow};
-use crate::models::action_item::{ActionItem, ActionItemState};
+use super::workflow;
+use crate::action_items::{Actor as ItemActor, Transition, WorkError};
+use crate::models::action_item::{self, ActionItem, ActionItemState};
 use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::knowledge_document::{self, KnowledgeSource};
 use crate::models::meeting::{self, Meeting};
+use crate::models::meeting_correction;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::timeline_record::{self, TimelineRecord};
@@ -158,9 +161,19 @@ pub struct Changed {
     pub records: Vec<TimelineRecord>,
     /// The runs restoring it carried on.
     pub runs: Vec<Settled>,
-    /// The inbox item asking to approve its corrected transcript, which deleting it dismissed or
-    /// restoring it returned to where it stood.
-    pub item: Option<Recorded<ActionItem>>,
+    /// The inbox items asking its person something about it, which deleting it dismissed or
+    /// restoring it returned to where they stood.
+    pub items: Vec<Recorded<ActionItem>>,
+}
+
+/// An inbox item a deletion dismissed, and where it stood: the inbox, where it was raised, or open,
+/// once its person accepted it. The `deleted` entry records each (`dismissedItems`), and restoring
+/// returns each there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DismissedItem {
+    id: Uuid,
+    from: ActionItemState,
 }
 
 /// What a change did.
@@ -281,11 +294,10 @@ async fn delete_one(
         .expect("a meeting just deleted has its deleted_at");
     let records = timeline_record::delete_of_meeting(connection, meeting_id, stamp).await?;
     knowledge_document::remove(connection, &KnowledgeSource::Meeting { id: meeting_id }).await?;
-    // Nothing asks its person to review what they deleted; a run held for it stays held. The entry
-    // names the item and where it stood, so restoring returns exactly the one this deletion
-    // dismissed, to the inbox it was raised in or to open.
-    let dismissed =
-        correct::dismiss_review(connection, meeting_id, author.user_id, author.at).await?;
+    // Nothing asks its person about what was deleted; a run held for its approval stays held. The
+    // entry names each item and where it stood, so restoring returns exactly the ones this deletion
+    // dismissed, to the inbox they were raised in or to open.
+    let (dismissed, items) = dismiss_asks(connection, locked, author).await?;
     let entry = meeting_event::record(
         connection,
         Change {
@@ -296,8 +308,7 @@ async fn delete_one(
             data: json!({
                 "excerpts": records.len(),
                 "connectorId": removed_with,
-                "dismissedItemId": dismissed.as_ref().map(|review| review.item.record.id),
-                "dismissedItemFrom": dismissed.as_ref().map(|review| review.from),
+                "dismissedItems": dismissed,
             }),
             undid: None,
         },
@@ -308,7 +319,7 @@ async fn delete_one(
         entry,
         records,
         runs: Vec::new(),
-        item: dismissed.map(|review| review.item),
+        items,
     })
 }
 
@@ -330,20 +341,8 @@ async fn restore_one(
     let text = MeetingText::load(connection, meeting_id).await?;
     excerpts::index_transcript(connection, &restored, &text).await?;
     let runs = carry_on(connection, meeting_id, deleted_at, author).await?;
-    let returned = match dismissed_by_deletion(connection, meeting_id).await? {
-        Some((item_id, from)) => {
-            correct::return_review(
-                connection,
-                meeting_id,
-                item_id,
-                from,
-                author.user_id,
-                author.at,
-            )
-            .await?
-        }
-        None => None,
-    };
+    let dismissed = dismissed_by_deletion(connection, meeting_id).await?;
+    let returned = return_asks(connection, &dismissed, author).await?;
     let entry = meeting_event::record(
         connection,
         Change {
@@ -355,7 +354,7 @@ async fn restore_one(
                 "deletedAt": deleted_at,
                 "excerpts": records.len(),
                 "runRetried": !runs.is_empty(),
-                "returnedItemId": returned.as_ref().map(|item| item.record.id),
+                "returnedItemIds": returned.iter().map(|item| item.record.id).collect::<Vec<_>>(),
             }),
             undid: None,
         },
@@ -366,44 +365,123 @@ async fn restore_one(
         entry,
         records,
         runs,
-        item: returned,
+        items: returned,
     })
 }
 
-/// The review item meeting `meeting_id`'s newest deletion dismissed and the state it left, as its
-/// `deleted` entry names them (`dismissedItemId`, `dismissedItemFrom`), if it dismissed one.
+/// The inbox items asking `meeting`'s person something about it that are still waiting for them:
+/// its correction's review while the corrected copy waits for approval, and the item saying its
+/// correction kept it private. One already resolved or dismissed is left as its person left it.
+async fn asks_of(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+) -> Result<Vec<ActionItem>, DieselError> {
+    let review = meeting_correction::find(connection, meeting.id)
+        .await?
+        .filter(|correction| correction.approved_at.is_none())
+        .and_then(|correction| correction.review_item_id);
+    let mut asks = Vec::new();
+    for item_id in review.into_iter().chain(meeting.visibility_item_id) {
+        match action_item::find(connection, item_id).await {
+            Ok(item)
+                if item.deleted_at.is_none()
+                    && matches!(item.state, ActionItemState::Inbox | ActionItemState::Open) =>
+            {
+                asks.push(item);
+            }
+            Ok(_) | Err(DieselError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(asks)
+}
+
+/// Dismisses, as `author`, every item [`asks_of`] finds for `locked`, the meeting being deleted,
+/// under the lock every change to it takes: nothing asks its person about a meeting that is
+/// deleted. Answers each dismissed with where it stood, for the `deleted` entry, and as written.
+async fn dismiss_asks(
+    connection: &mut AsyncPgConnection,
+    locked: &Meeting,
+    author: Author<'_>,
+) -> Result<(Vec<DismissedItem>, Vec<Recorded<ActionItem>>), DieselError> {
+    let mut dismissed = Vec::new();
+    let mut written = Vec::new();
+    let actor = ItemActor::User(author.user_id);
+    for ask in asks_of(connection, locked).await? {
+        match action_item::transition(connection, ask.id, Transition::Dismiss, actor, author.at)
+            .await
+        {
+            Ok(item) => {
+                dismissed.push(DismissedItem {
+                    id: ask.id,
+                    from: ask.state,
+                });
+                written.push(item);
+            }
+            Err(WorkError::Database(error)) => return Err(error),
+            // Changed in the instant since it was read: it stays as that change left it.
+            Err(_refused) => {}
+        }
+    }
+    Ok((dismissed, written))
+}
+
+/// Returns, as `author`, each of `dismissed` that is still dismissed to where it stood, the inbox
+/// or open, as a changeset's undo returns an item (`action_item::return_to`). Nothing changes a
+/// deleted meeting, so what each asked still waits; one its person dealt with by hand meanwhile is
+/// theirs, and stays as they left it. Answers each returned.
+async fn return_asks(
+    connection: &mut AsyncPgConnection,
+    dismissed: &[DismissedItem],
+    author: Author<'_>,
+) -> Result<Vec<Recorded<ActionItem>>, DieselError> {
+    let mut returned = Vec::new();
+    let actor = ItemActor::User(author.user_id);
+    for ask in dismissed {
+        match action_item::find(connection, ask.id).await {
+            Ok(item) if item.state == ActionItemState::Dismissed && item.deleted_at.is_none() => {}
+            Ok(_) | Err(DieselError::NotFound) => continue,
+            Err(error) => return Err(error),
+        }
+        match action_item::return_to(connection, ask.id, ask.from, actor, author.at).await {
+            Ok(item) => returned.push(item),
+            Err(WorkError::Database(error)) => return Err(error),
+            // Changed in the instant since it was read: it stays as that change left it.
+            Err(_refused) => {}
+        }
+    }
+    Ok(returned)
+}
+
+/// The items meeting `meeting_id`'s newest deletion dismissed, as its `deleted` entry names them
+/// (`dismissedItems`). An entry whose list does not read is logged and returns nothing.
 async fn dismissed_by_deletion(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
-) -> Result<Option<(Uuid, ActionItemState)>, DieselError> {
+) -> Result<Vec<DismissedItem>, DieselError> {
     let deletions = meeting_event::of_kind(connection, meeting_id, EventKind::Deleted).await?;
     let Some(deletion) = deletions.last() else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
-    let item_id = deletion
+    let listed = deletion
         .data
-        .get("dismissedItemId")
-        .and_then(serde_json::Value::as_str)
-        .and_then(|item_id| item_id.parse().ok());
-    let from = deletion
-        .data
-        .get("dismissedItemFrom")
-        .and_then(|from| serde_json::from_value(from.clone()).ok());
-    match (item_id, from) {
-        (Some(item_id), Some(from)) => Ok(Some((item_id, from))),
-        (None, _) => Ok(None),
-        (Some(item_id), None) => {
-            // Every deletion that dismissed an item names where it stood; one that does not was
-            // written by hand or by a broken version, and leaves the item as it is.
+        .get("dismissedItems")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    match serde_json::from_value(listed) {
+        Ok(dismissed) => Ok(dismissed),
+        Err(error) => {
+            // Every deletion writes the list; one that does not read was written by hand or by a
+            // broken version, and leaves its items as they are.
             event!(
                 name: "meetings.deletion.unreadable",
                 Level::WARN,
                 meeting.id = %meeting_id,
                 meeting_event.id = %deletion.id,
-                action_item.id = %item_id,
-                "a deletion names the review item it dismissed but not where it stood",
+                error.message = %error,
+                "a deletion's dismissed items do not read; none is returned",
             );
-            Ok(None)
+            Ok(Vec::new())
         }
     }
 }
@@ -487,7 +565,7 @@ pub async fn announce(
             workflows::announce(events, settled);
             carried_on = true;
         }
-        items.extend(changed.item);
+        items.extend(changed.items);
         meetings.push(changed.meeting);
     }
     if carried_on {

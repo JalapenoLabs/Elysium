@@ -78,13 +78,13 @@ pub enum EventKind {
     /// pins being the marks it took away with it, which its undo puts back.
     Detached,
     /// Its owner or an admin deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
-    /// dismissedItemId, dismissedItemFrom }`, how many excerpts went with it, the connector it was
-    /// removed with (`null` when it went alone), and the review item it dismissed and the state it
-    /// left (`inbox` or `open`), or `null`.
+    /// dismissedItems }`, how many excerpts went with it, the connector it was removed with (`null`
+    /// when it went alone), and each inbox item asking its person about it that it dismissed,
+    /// `{ id, from }` with the state it left (`inbox` or `open`).
     Deleted,
-    /// Its owner or an admin restored it: `{ deletedAt, excerpts, runRetried, returnedItemId }`,
+    /// Its owner or an admin restored it: `{ deletedAt, excerpts, runRetried, returnedItemIds }`,
     /// the deletion it reversed, how many excerpts came back, whether the run that deletion stopped
-    /// went on, and the review item it returned to where it stood, or `null`.
+    /// went on, and the items that deletion dismissed that it returned to where they stood.
     Restored,
 }
 

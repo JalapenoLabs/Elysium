@@ -66,9 +66,10 @@ export function MeetingActions(props: Props) {
   // restored.
   const isMergedAway = Boolean(meeting.mergedInto)
   const isDeleted = Boolean(meeting.deletedAt)
-  const isOwn = !isMergedAway && !isDeleted
-  const runsIt = isOwner && isOwn
-  const canDelete = meeting.canManage && isOwn
+  // Holding its own captures and not deleted: what anything here but its run needs.
+  const isLive = !isMergedAway && !isDeleted
+  const runsIt = isOwner && isLive
+  const canDelete = meeting.canManage && isLive
   const canApprove = runsIt && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
   // Segmented once, and no run of it going, held, or failed.

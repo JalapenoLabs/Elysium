@@ -367,8 +367,7 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
         json!({
             "excerpts": 2,
             "connectorId": null,
-            "dismissedItemId": null,
-            "dismissedItemFrom": null,
+            "dismissedItems": [],
         })
     );
 
@@ -406,7 +405,7 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
             "deletedAt": deleted_at,
             "excerpts": 2,
             "runRetried": false,
-            "returnedItemId": null,
+            "returnedItemIds": [],
         })
     );
 }
@@ -631,6 +630,32 @@ async fn waiting_for_review(connection: &mut AsyncPgConnection, meeting: &Meetin
     review.record.id
 }
 
+/// Raises the inbox item telling `meeting`'s person its correction kept it private, as
+/// `visibility::decide` raises one, and names it on the meeting. Answers the item's id.
+async fn kept_private(connection: &mut AsyncPgConnection, meeting: &Meeting) -> Uuid {
+    let told = action_item::create(
+        connection,
+        NewActionItem {
+            title: "Elysia kept a meeting private".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Inbox,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        },
+        Actor::System,
+        Utc::now(),
+    )
+    .await
+    .expect("an item");
+    meeting::set_visibility_item(connection, meeting.id, told.record.id)
+        .await
+        .expect("names it");
+    told.record.id
+}
+
 async fn item_state(connection: &mut AsyncPgConnection, item_id: Uuid) -> ActionItemState {
     action_item::find(connection, item_id)
         .await
@@ -638,43 +663,54 @@ async fn item_state(connection: &mut AsyncPgConnection, item_id: Uuid) -> Action
         .state
 }
 
-// A deleted meeting asks nothing of its person, so the item already asking them to approve its
-// corrected transcript is dismissed with it; restoring asks again where it asked before, in the
-// inbox, as the correction still waits.
+// A deleted meeting asks nothing of its person, so the items already asking them something about
+// it are dismissed with it: to approve its corrected transcript, and whether to open it once its
+// correction kept it private. Restoring asks again where each asked before, in the inbox, as the
+// correction still waits.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript() {
+async fn deleting_a_meeting_dismisses_the_items_asking_its_person_about_it() {
     let (_url, mut connection) = migrated_database().await;
     let (held, _) = stored(&mut connection).await;
     let review_id = waiting_for_review(&mut connection, &held).await;
+    let kept_private_id = kept_private(&mut connection, &held).await;
 
     let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
-    let dismissed = deleted.changed[0].item.as_ref().expect("dismissed");
-    assert_eq!(dismissed.record.id, review_id);
+    let mut dismissed: Vec<Uuid> = deleted.changed[0]
+        .items
+        .iter()
+        .map(|item| item.record.id)
+        .collect();
+    dismissed.sort_unstable();
+    let mut both = vec![review_id, kept_private_id];
+    both.sort_unstable();
+    assert_eq!(dismissed, both);
+    for item_id in [review_id, kept_private_id] {
+        assert_eq!(
+            item_state(&mut connection, item_id).await,
+            ActionItemState::Dismissed
+        );
+    }
     assert_eq!(
-        item_state(&mut connection, review_id).await,
-        ActionItemState::Dismissed
-    );
-    assert_eq!(
-        deleted.changed[0].entry.data["dismissedItemId"],
-        json!(review_id)
-    );
-    assert_eq!(
-        deleted.changed[0].entry.data["dismissedItemFrom"],
-        json!("inbox")
+        deleted.changed[0].entry.data["dismissedItems"],
+        json!([
+            { "id": review_id, "from": "inbox" },
+            { "id": kept_private_id, "from": "inbox" },
+        ])
     );
 
     let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
-    let returned = restored.changed[0].item.as_ref().expect("returned");
-    assert_eq!(returned.record.id, review_id);
+    assert_eq!(restored.changed[0].items.len(), 2);
+    for item_id in [review_id, kept_private_id] {
+        assert_eq!(
+            item_state(&mut connection, item_id).await,
+            ActionItemState::Inbox,
+            "back in the inbox it was raised in, not opened"
+        );
+    }
     assert_eq!(
-        item_state(&mut connection, review_id).await,
-        ActionItemState::Inbox,
-        "back in the inbox it was raised in, not opened"
-    );
-    assert_eq!(
-        restored.changed[0].entry.data["returnedItemId"],
-        json!(review_id)
+        restored.changed[0].entry.data["returnedItemIds"],
+        json!([review_id, kept_private_id])
     );
     let correction = meeting_correction::find(&mut connection, held.id)
         .await
@@ -702,8 +738,8 @@ async fn restoring_returns_an_accepted_review_item_to_open() {
 
     let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
     assert_eq!(
-        deleted.changed[0].entry.data["dismissedItemFrom"],
-        json!("open")
+        deleted.changed[0].entry.data["dismissedItems"],
+        json!([{ "id": review_id, "from": "open" }])
     );
     change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
     assert_eq!(
@@ -740,7 +776,7 @@ async fn restoring_leaves_a_review_item_the_person_resolved_meanwhile() {
     .expect("resolved by hand");
 
     let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
-    assert!(restored.changed[0].item.is_none());
+    assert!(restored.changed[0].items.is_empty());
     assert_eq!(
         item_state(&mut connection, review_id).await,
         ActionItemState::Resolved
@@ -754,13 +790,10 @@ async fn deleting_a_meeting_with_no_review_dismisses_nothing() {
     let (held, _) = stored(&mut connection).await;
 
     let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
-    assert!(deleted.changed[0].item.is_none());
-    assert_eq!(
-        deleted.changed[0].entry.data["dismissedItemId"],
-        Value::Null
-    );
+    assert!(deleted.changed[0].items.is_empty());
+    assert_eq!(deleted.changed[0].entry.data["dismissedItems"], json!([]));
     let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
-    assert!(restored.changed[0].item.is_none());
+    assert!(restored.changed[0].items.is_empty());
 }
 
 /// One attempt at the run's next step, the fetch, which answers how it failed; recorded as the
