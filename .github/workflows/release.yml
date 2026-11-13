@@ -33,7 +33,7 @@ concurrency:
 jobs:
   release:
     name: Cut release
-    runs-on: [ self-hosted, linux, rocky9, docker ]
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

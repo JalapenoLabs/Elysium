@@ -33,27 +33,15 @@ runs:
         rustup show active-toolchain
         rustc --version
 
-    # A GitHub-hosted runner starts every job on a fresh machine, so the crate's dependencies
-    # come from the Actions cache instead. Only dependencies are kept: the crate itself changes
-    # with every commit. It is keyed by the installed toolchains, the lockfiles, and the Cargo
-    # and Rust environment variables, so it runs after the toolchain is installed. A job whose
-    # tests fail still saves it: its dependencies compiled all the same.
+    # A job that compiles the crate restores its compiled dependencies from the Actions cache,
+    # so a fresh machine starts from them. Only dependencies are kept: the crate itself changes
+    # with every commit. The cache is keyed by the installed toolchains, the lockfiles, and the
+    # Cargo and Rust environment variables, so it runs after the toolchain is installed. A job
+    # whose tests fail still saves it: its dependencies compiled all the same.
     - name: Restore the compiled dependencies
-      if: runner.environment == 'github-hosted' && inputs.cache != ''
+      if: inputs.cache != ''
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         workspaces: ${{ inputs.crate }}
         shared-key: ${{ inputs.cache }}
         cache-on-failure: 'true'
-
-    # A self-hosted runner is persistent instead, but actions/checkout runs `git clean -ffdx`,
-    # which deletes a target directory inside the checkout at the start of every job. One
-    # beside the checkout survives, so the runner compiles only what changed since its last
-    # run. It is per crate, and each runner has its own workspace, so no two jobs ever share
-    # one at the same time. Deleting it is always safe; the next run rebuilds it.
-    - name: Use a persistent target directory
-      if: runner.environment == 'self-hosted'
-      shell: bash
-      env:
-        CRATE: ${{ inputs.crate }}
-      run: echo "CARGO_TARGET_DIR=${RUNNER_WORKSPACE}/cargo-target/${CRATE}" >> "${GITHUB_ENV}"
