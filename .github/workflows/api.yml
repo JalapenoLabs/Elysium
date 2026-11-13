@@ -252,8 +252,8 @@ jobs:
         with:
           driver-opts: image=${{ env.BUILDKIT_IMAGE }}
 
-      # The `app` stage, from the repository root, exactly as the publish workflow
-      # builds it, loaded into Docker for the checks below rather than pushed. Its
+      # The `app` stage, from the repository root, the stage and context the publish
+      # workflow builds, loaded into Docker for the checks below rather than pushed. Its
       # layers come from the Actions cache, so a commit that changes no dependency
       # starts from the compiled dependencies (cargo-chef's cook layer) and the web
       # app's installed packages, and compiles only the crate. Only pushes to main

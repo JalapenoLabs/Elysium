@@ -47,13 +47,15 @@ cache nothing: each builds from nothing in under three minutes, the Whisper and 
 the frontend jobs: a cold `yarn install` takes under a minute, and Yarn's cache would be about 820 MB of the 10 GB for
 half of that.
 
-The Free plan runs at most 20 GitHub-hosted jobs at once across the organization, and one push to Elysium starts 19.
-Back-to-back pushes queue at GitHub rather than on a machine of ours. Each workflow's concurrency group cancels the
-run a newer push to the same ref supersedes, and merge groups never share a ref, so every queued pull request's checks
-run in full.
+The Free plan runs at most 20 GitHub-hosted jobs at once across the organization. A push to a pull request starts
+the 19 checks; a push to `main` also starts publishing, four images at once and the API's after them, so it asks for
+23 and some wait for others. Every push queues at GitHub rather than on a machine of ours, beside the organization's
+other repositories. Each workflow's concurrency group cancels the run a newer push to the same ref supersedes, and
+merge groups never share a ref, so every queued pull request's checks run in full.
 
-Image builds pull their base images from Docker Hub anonymously, which allows each runner's shared address 100 pulls
-an hour; one job pulls a handful. No check logs in, since no check reads a secret.
+Image builds pull their base images from Docker Hub anonymously. Measured from a hosted runner on 2026-11-13, Docker
+Hub answered `ratelimit-limit: 100;w=3600`, 100 pulls an hour for the runner's address, which other GitHub users share;
+one job pulls a handful. No check logs in, since no check reads a secret.
 
 **Every build and test run is capped at 4 cores.** Several agents build in parallel on one development machine, and
 an uncapped build takes every core; a hosted runner has 4 vCPUs, so the cap costs CI nothing. `api/.cargo/config.toml`
@@ -100,7 +102,8 @@ reporting `Clippy` could not be told apart.
 
 Elysium is public, so anyone can open a pull request whose code CI runs with the repository's token. Every job runs
 on a GitHub-hosted machine that is discarded afterwards, so nothing it does outlives it, and these rules keep what the
-token and the run can reach to a minimum.
+token and the run can reach to a minimum. The one workflow on org hardware is `pull-review.yml`, on the self-hosted
+`reviewer` runner, which never checks out a fork (`docs/infrastructure.md`, Automated pull request review).
 
 - The repository requires approval before any outside contributor's workflow runs.
 - Workflows trigger on `pull_request`, never `pull_request_target`, so a pull request runs with a read-only token and
@@ -138,7 +141,7 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Compose            | the docker CLI image in `updater/Dockerfile`, by digest | checksum, version (`Compose config`) |
 | Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
-| Runner image       | `ubuntu-24.04` in each hosted job's `runs-on`        |                                   |
+| Runner image       | `ubuntu-24.04` in each job's `runs-on`               |                                   |
 | `actions/checkout` | a commit SHA in each workflow                        |                                   |
 | `Swatinem/rust-cache` | a commit SHA in `.github/actions/rust-toolchain`  |                                   |
 | `docker/setup-buildx-action`, `docker/build-push-action` | a commit SHA in `api.yml` |                       |
@@ -209,7 +212,7 @@ digest), since Docker's built-in builder cannot keep layers in the Actions cache
 the checks. Its layers come from the cache's `api-image` scope, so a commit that changes no dependency starts from
 cargo-chef's compiled dependencies and the web app's installed packages and compiles only the crate. Only pushes to
 `main` save the cache, with every stage's layers (`mode=max`): the layer a commit's own compile makes is never reused,
-and saving one from every pull request would evict the Rust jobs' caches. The cache takes about 5 minutes off a cold
+and saving one from every pull request would evict the Rust jobs' caches. The cache takes about 4 minutes off a cold
 build of about 20; the rest is the crate's release build, link-time optimised over one codegen unit, which no cache
 can skip.
 

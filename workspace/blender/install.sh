@@ -40,10 +40,30 @@ install_libraries() {
     rm -rf /var/lib/apt/lists/*
 }
 
+# download.blender.org now and then refuses a datacenter address with a 403, a GitHub-hosted runner's
+# among them, so two of Blender's official mirrors follow it. The checksum, not the host, is what
+# is trusted: whichever source answers, the archive must match it.
+BLENDER_SOURCES="
+https://download.blender.org/release
+https://mirrors.ocf.berkeley.edu/blender/release
+https://ftp.nluug.nl/pub/graphics/blender/release
+"
+
 install_blender() {
     series=$(echo "$BLENDER_VERSION" | cut -d. -f1,2)
-    curl -fsSLo /tmp/blender.tar.xz \
-        "https://download.blender.org/release/Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+    archive="Blender${series}/blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+    fetched=""
+    for source in $BLENDER_SOURCES; do
+        if curl -fsSLo /tmp/blender.tar.xz "$source/$archive"; then
+            fetched="$source"
+            break
+        fi
+        echo "==> $source did not serve Blender $BLENDER_VERSION; trying the next source" >&2
+    done
+    if [ -z "$fetched" ]; then
+        echo "==> no source served Blender $BLENDER_VERSION" >&2
+        exit 1
+    fi
     echo "${BLENDER_SHA256}  /tmp/blender.tar.xz" | sha256sum --check --quiet
     mkdir -p /opt/blender
     tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 --no-same-owner
