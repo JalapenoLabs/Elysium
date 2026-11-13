@@ -34,7 +34,7 @@ use crate::tools::{CallScope, ElysiaScope, ProjectManagerScope, elysia, project_
 
 /// A sessions queue whose runner is never reached: settling and looking at an empty queue touch
 /// only Postgres. Nothing listens on the Docker address, so a call that did reach it would fail.
-fn queue(database: &Pool, grants: Grants) -> TurnQueue {
+pub(super) fn queue(database: &Pool, grants: Grants) -> TurnQueue {
     let cipher = Arc::new(cipher());
     let docker = Docker::connect_with_http("http://127.0.0.1:9", 5, API_DEFAULT_VERSION)
         .expect("a client, which connects only when called");

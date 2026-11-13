@@ -23,7 +23,9 @@
 //!   recorded like any other. A pool worker reads pages and changes or suggests nothing.
 //!
 //! Every call first checks, in the database, that the turn may read the knowledge base at all
-//! ([`reader`]), as the routes check every request.
+//! ([`reader`]), as the routes check every request. Before a call answers with what it found, the
+//! turn keeps every meeting that came from ([`keep_documents_read`]), so what it writes is held to
+//! them (`models::meeting_reads`).
 
 use std::any::Any;
 
@@ -36,7 +38,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{
-    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, keep_read,
+    parse_arguments,
 };
 use crate::agent_guidance::Audience;
 use crate::company_doc::{self, ProposeRequest};
@@ -50,6 +53,7 @@ use crate::mcp::pages::{
 use crate::models::agent::{Agent, Author};
 use crate::models::coding_session;
 use crate::models::company_doc::Section;
+use crate::models::meeting_reads;
 use crate::models::page_suggestion;
 use crate::models::user::{self, CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::routes::v1::knowledge::{
@@ -371,6 +375,15 @@ async fn run_search(
     let found = knowledge::search(&context.knowledge, &context.database, reader, request)
         .await
         .map_err(|error| tool_error(scope, "knowledge.search", error))?;
+    let documents: Vec<Uuid> = found
+        .results
+        .iter()
+        .flat_map(|result| {
+            let copies = result.also_recorded_by.iter().map(|copy| copy.document_id);
+            copies.chain([result.citation.document_id])
+        })
+        .collect();
+    keep_documents_read(context, scope, &documents).await?;
     Ok(json!(found))
 }
 
@@ -385,6 +398,7 @@ async fn run_get(
     let document = knowledge::open(&context.database, reader, id, &span)
         .await
         .map_err(|error| tool_error(scope, "knowledge.open", error))?;
+    keep_documents_read(context, scope, &[document.citation.document_id]).await?;
     Ok(json!({ "document": document }))
 }
 
@@ -398,7 +412,34 @@ async fn run_meetings(
     let meetings = knowledge::list_meetings(&context.database, reader, request)
         .await
         .map_err(|error| tool_error(scope, "knowledge.meetings", error))?;
+    let documents: Vec<Uuid> = meetings
+        .iter()
+        .flat_map(|meeting| meeting.topics.iter().map(|topic| topic.document_id))
+        .collect();
+    keep_documents_read(context, scope, &documents).await?;
     Ok(json!({ "meetings": meetings }))
+}
+
+/// Keeps that the turn `scope` names read the meetings the documents `document_ids` come from
+/// (`models::meeting_reads`), before it is answered with them.
+async fn keep_documents_read(
+    context: &ToolContext,
+    scope: &CallScope,
+    document_ids: &[Uuid],
+) -> Result<(), ToolError> {
+    // A worker's reading is kept nowhere, so there is nothing to look up for it.
+    if scope.reading_turn().is_none() || document_ids.is_empty() {
+        return Ok(());
+    }
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let meetings = meeting_reads::of_documents(&mut connection, document_ids)
+        .await
+        .map_err(|error| internal(scope, "meeting_reads.documents", &error))?;
+    keep_read(&mut connection, scope, &meetings).await
 }
 
 async fn run_read(

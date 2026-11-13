@@ -2,7 +2,8 @@
 
 //! `GET /api/v1/timeline/{id}`: one of the signed-in person's records, or one of the
 //! workspace's (a Project Manager's), with its attributions, which their pages load when
-//! `timelineRecord.created` names it.
+//! `timelineRecord.created` names it. A record naming a meeting the person may not read answers
+//! `404`, as if it were not there (`models::meeting_reads`).
 
 use anyhow::Context;
 use axum::Json;
@@ -14,6 +15,7 @@ use uuid::Uuid;
 use super::TimelineRecordResponse;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::timeline_record;
 use crate::state::AppState;
 
@@ -31,7 +33,7 @@ pub async fn handle(
     let (record, attributions) = timeline_record::find_readable(
         &mut connection,
         id,
-        current.id(),
+        Reader::of(&current.0),
         current.0.is_company_member(),
     )
     .await?;

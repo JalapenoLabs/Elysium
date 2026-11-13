@@ -262,6 +262,7 @@ mod tests {
     use secrecy::ExposeSecret;
     use serde_json::json;
     use tower::ServiceExt as _;
+    use uuid::Uuid;
 
     use crate::routes;
     use crate::runner::{McpServer, WorkspacePath};
@@ -322,6 +323,7 @@ mod tests {
             .grant(
                 &CallScope::Session(SessionScope {
                     session_id: 1,
+                    turn_id: Uuid::now_v7(),
                     project_id: None,
                     action_item_id: None,
                     directory: WorkspacePath::new("sessions/1").expect("a path"),

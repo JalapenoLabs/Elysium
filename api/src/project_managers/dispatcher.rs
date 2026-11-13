@@ -44,6 +44,7 @@ use crate::elysia::prompt::read_back;
 use crate::elysia::runner::{ElysiaOutcome, RunnerError};
 use crate::meetings::attachments;
 use crate::models::attribution::ELYSIA_ACTOR;
+use crate::models::meeting_reads;
 use crate::models::project::Project;
 use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
 use crate::models::promise::{self, PromiseState, Work};
@@ -339,12 +340,17 @@ async fn load_context(
     } = sort_wakes(wakes, &names);
     let assignments = load_assignments(connection, turn.project_id, &assigned_ids, &names).await?;
     let tasks = tasks::load(connection, turn.project_id, &task_ids, &names).await?;
+    // Every meeting whose words the prompt carries, which everything the turn writes is held to.
+    let mut read: Vec<Uuid> = tasks.iter().map(|task| task.meeting_id).collect();
 
     // A record taken off the project since it woke it is left out: it is no longer news here.
     let attributed =
         timeline_record::attributed_among(connection, turn.project_id, &record_ids).await?;
+    let attributed =
+        meeting_reads::for_agent(connection, attributed, |(record, _attribution)| record).await?;
     let mut records: Vec<PromptRecord> = Vec::with_capacity(attributed.len());
-    for (record, attribution) in attributed {
+    for ((record, attribution), meetings) in attributed {
+        read.extend(meetings);
         // What is pinned in a meeting's excerpt travels with it here.
         let pinned = attachments::pinned_in(connection, &record)
             .await?
@@ -374,8 +380,12 @@ async fn load_context(
                 .push(waiting.id);
         }
     }
-    let batches = work_batch::find_many(connection, &batch_ids)
-        .await?
+    let woken = work_batch::find_many(connection, &batch_ids).await?;
+    // A batch carries what the turn that submitted it read, in its title and its worker's result.
+    let listed: Vec<&work_batch::WorkBatch> = woken.iter().collect();
+    let submitted_from = meeting_reads::of_batches(connection, &listed).await?;
+    read.extend(submitted_from.into_values().flatten());
+    let batches = woken
         .into_iter()
         .map(|batch| PromptBatch {
             waiting_promises: waiting_by_batch.remove(&batch.id).unwrap_or_default(),
@@ -388,7 +398,11 @@ async fn load_context(
             result: batch.result,
         })
         .collect();
-    let promises = load_promises(connection, turn.project_id, promise_ids, &names).await?;
+    let (promises, promised_in) =
+        load_promises(connection, turn.project_id, promise_ids, &names).await?;
+    read.extend(promised_in);
+    let reading = meeting_reads::Turn::ProjectManager(turn.id);
+    meeting_reads::keep(connection, reading, &read).await?;
 
     // Wakes from before the project's previous turn started, which that turn failed without
     // doing, were handed back to this one.
@@ -562,14 +576,16 @@ async fn prompt_project(
 }
 
 /// The promises a turn acts on: those that woke it, and every one of the project's still owed a
-/// follow-up, each with where it was made and the work it waits on. A promise the person already
-/// decided on, or one taken off the project, is left out.
+/// follow-up, each with where it was made and the work it waits on, and the meetings the records
+/// they were made in name and the batches they wait on were written from. A promise the person
+/// already decided on, one taken off the project, and one made in an excerpt naming no meeting
+/// are left out.
 async fn load_promises(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
     mut ids: Vec<Uuid>,
     names: &HashMap<Uuid, String>,
-) -> anyhow::Result<Vec<PromptPromise>> {
+) -> anyhow::Result<(Vec<PromptPromise>, Vec<Uuid>)> {
     let owed = promise::list_for_project(
         connection,
         project_id,
@@ -589,12 +605,14 @@ async fn load_promises(
     found.sort_by_key(|candidate| candidate.id);
 
     let record_ids: Vec<Uuid> = found.iter().map(|made| made.timeline_record_id).collect();
-    let records: HashMap<Uuid, timeline_record::TimelineRecord> =
-        timeline_record::find_many(connection, &record_ids)
-            .await?
-            .into_iter()
-            .map(|record| (record.id, record))
-            .collect();
+    let made_in = timeline_record::find_many(connection, &record_ids).await?;
+    let made_in = meeting_reads::for_agent(connection, made_in, |record| record).await?;
+    let mut read = Vec::new();
+    let mut records: HashMap<Uuid, timeline_record::TimelineRecord> = HashMap::new();
+    for (record, meetings) in made_in {
+        read.extend(meetings);
+        records.insert(record.id, record);
+    }
     let mut batch_ids = Vec::new();
     let mut item_ids = Vec::new();
     for made in &found {
@@ -605,7 +623,11 @@ async fn load_promises(
         }
     }
     let mut works: HashMap<Uuid, PromptWork> = HashMap::new();
-    for batch in work_batch::find_many(connection, &batch_ids).await? {
+    let waited_on = work_batch::find_many(connection, &batch_ids).await?;
+    let listed: Vec<&work_batch::WorkBatch> = waited_on.iter().collect();
+    let submitted_from = meeting_reads::of_batches(connection, &listed).await?;
+    read.extend(submitted_from.into_values().flatten());
+    for batch in waited_on {
         works.insert(
             batch.id,
             PromptWork::Batch {
@@ -652,7 +674,7 @@ async fn load_promises(
             work: work_id.and_then(|id| works.get(&id).cloned()),
         });
     }
-    Ok(promises)
+    Ok((promises, read))
 }
 
 /// Where the project's issues file, as its prompt says it, or why there is nowhere.

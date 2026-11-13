@@ -57,6 +57,8 @@ use crate::action_items::Actor;
 use crate::database::schema::{work_batch_events, work_batches};
 use crate::models::action_item::ActionItem;
 use crate::models::action_item_event::Recorded;
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::project_autonomy;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::{project_manager, promise};
@@ -530,6 +532,25 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<W
         .select(WorkBatch::as_select())
         .first(connection)
         .await
+}
+
+/// Batch `id`, when `reader` may read it: written from no meeting they may not read
+/// (`models::meeting_reads`).
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] for an unknown batch, or one written from a meeting
+/// `reader` may not read, which answers as if it were not there; any other database error.
+pub async fn find_readable(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    reader: Reader,
+) -> QueryResult<WorkBatch> {
+    let batch = find(connection, id).await?;
+    let readable = meeting_reads::readable_batches(connection, &[&batch], reader).await?;
+    if !readable.contains(&batch.id) {
+        return Err(diesel::result::Error::NotFound);
+    }
+    Ok(batch)
 }
 
 /// The batches among `ids`, in no particular order.

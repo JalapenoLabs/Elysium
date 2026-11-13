@@ -17,6 +17,7 @@ use validator::Validate;
 use super::ProjectManagerResponse;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::project;
 use crate::project_managers;
 use crate::routes::v1::action_items::validate_not_blank;
@@ -53,7 +54,8 @@ pub async fn handle(
         member.id(),
     )
     .await?;
-    let snapshot = project_managers::snapshot(&mut connection, project_id).await?;
+    let snapshot =
+        project_managers::snapshot(&mut connection, project_id, Reader::of(&member.0)).await?;
     Ok((
         StatusCode::CREATED,
         Json(json!({ "projectManager": ProjectManagerResponse::from(snapshot) })),

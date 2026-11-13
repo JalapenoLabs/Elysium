@@ -84,8 +84,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/meeting-uploads/{id}/{kind}/parts/{index}` | `200` `{ upload }`; the part's bytes as the body with their length, `409` (`meeting_upload_part_ahead`) past the next |
 | POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before; an attachment's answers `201` `{ attachment, entry }` and starts the run that stores it, `200` `{ attachment }` when finished before |
 | DELETE | `/api/v1/meeting-uploads/{id}`        | `204`; stops an unfinished upload and removes its parts |
-| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
-| GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
+| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first, leaving out a record naming a meeting the caller may not read |
+| GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`; `404` for one naming a meeting the caller may not read |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage a range at a time, as a capture's recording is; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller attributes it to a project |
 | DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller takes it off a project |
@@ -153,7 +153,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/elysia/settings`             | `200` `{ elysia }`; admins: `paused`, `availability`, `resumeUsage` |
 | GET    | `/api/v1/elysia/messages`             | `200` `{ messages }`, newest first; `before`, `limit` |
 | POST   | `/api/v1/elysia/messages`             | `201` `{ message }`; queues a turn                  |
-| GET    | `/api/v1/elysia/turns`                | `200` `{ turns }`, newest first; `limit`            |
+| GET    | `/api/v1/elysia/turns`                | `200` `{ turns }`, newest first; `limit`; leaves out a turn that read a meeting the caller may not read |
+| GET    | `/api/v1/elysia/turns/{id}`           | `200` `{ turn }`; `404` for a turn that read a meeting the caller may not read |
 | POST   | `/api/v1/elysia/turns/{id}/cancel`    | `200` `{ turn }`; `409 turn_not_queued` once started |
 | POST   | `/api/v1/elysia/questions/{id}/answer` | `200` `{ question }`; queues a turn; `409 question_not_open` |
 | POST   | `/api/v1/elysia/questions/{id}/dismiss` | `200` `{ question }`; `409 question_not_open`     |
@@ -296,7 +297,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/projects/{id}/project-manager/tracker` | `200` `{ projectManager }`; follows the precedent again; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/destinations?provider=&credentialId=` | `200` `{ destinations: [{ reference, name }] }`; members only |
 | POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
-| GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
+| GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only; `404` for a turn that read a meeting the caller may not read |
 | GET    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`: its repositories and tools script |
 | PUT    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`; replaces the whole setup   |
 | GET    | `/api/v1/promises?followUpItemId=`    | `200` `{ promises: Promise[] }`: the one promise an item follows up, or none; members only |
@@ -318,7 +319,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; clones its repositories        |
 | PATCH  | `/api/v1/coding-sessions/{id}`        | `200` `{ session }`; renames                        |
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
-| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
+| GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated, summaries }`, the latest events; with `afterSequence`, those after it, earliest first, `truncated` saying more followed; a turn that read a meeting the caller may not read has neither events nor a summary here |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
 | GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
@@ -619,7 +620,9 @@ a change publishes `projectWorkerSetup.changed`; the next worker that starts use
 `GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
 (`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
-first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
+first, every batch of its `proposed`, newest first, up to 200, and its latest 100 `promises`, newest first. A turn that
+read a meeting the caller may not read, a batch such a turn submitted, and a promise made in an excerpt of one, are left
+out, while `status` reads every turn (`docs/knowledge.md`, What agents write from a meeting). A turn has `id`, `status` (`running`, `succeeded`, `failed`),
 `summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
 timelineRecordId, workBatchId, promiseId, pageVersion, body, createdBy, createdAt }`, `kind` being `record`, `batch`,
 `message`, `promise`, or `brief` (someone else published the project's brief, as version `pageVersion`). A batch has
@@ -657,7 +660,10 @@ the project as it is when there is nothing to remove or restore, so an Undo afte
 ### `/api/v1/work-queue` and `/api/v1/work-batches`
 
 The worker pool and the batches it runs (`docs/engine.md`, Workers and the pool). A batch quotes what was ingested, so
-every route answers admins and members, and a guest `403 members_only`.
+every route answers admins and members, and a guest `403 members_only`. A batch submitted by a Project Manager's turn
+that read a meeting the caller may not read is left out of the work queue's lists, though `pool.inUse` still counts
+its slot, and every route of its own answers `404`, as for a batch that is not there (`docs/knowledge.md`, What agents
+write from a meeting).
 
 `GET /work-queue` answers `{ workQueue: { pool, inSlots, next, scheduled, paused, proposed } }`. `pool` is `{ size,
 configuredSize, defaultSize, cpuCount, inUse, usageHeldUntil }`: `size` is what is in force, `configuredSize` an
@@ -678,7 +684,8 @@ batch exists), each link tagged by `kind`: `finding` `{ id, title, acceptedById,
 documentId }` with `excerpt` its first 600 characters and `documentId` the knowledge base's document a member opens it
 by (`null` before it is indexed), `issue` `{ actionItemId, provider, key, url, title }`, `item` `{ id, title, state }`,
 `batch` `{ id, projectId, title }`, and `pullRequest` `{ id, repository, number, url, title, state }`, leaving out
-anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`; and its
+anything gone since, and the batches it was planned from, each `{ id, title, state, generation }`, leaving out one the
+caller may not read; and its
 history oldest first, each entry `{ id, kind, data, createdBy, createdAt }`
 (`docs/engine.md`, Work batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
@@ -1074,7 +1081,8 @@ project leads, or one resolved, dismissed, or deleted, answers `409`. `DELETE` t
 turn has taken it, and answers unchanged for an item not assigned. `GET` answers `{ plan }`: `{ projectId, assignedAt,
 assignedBy, stage, turnId, batches }`, where `stage` is `waiting`, `planning`, `planned`, or `failed`, `turnId` is the
 turn that took the assignment once one did, and `batches` are the lead project's latest ten naming the item, newest
-first, each `{ id, title, state, createdAt }`; `plan` is null while the item is not assigned. All three answer guests
+first, each `{ id, title, state, createdAt }`, leaving out one the caller may not read (`docs/knowledge.md`, What
+agents write from a meeting); `plan` is null while the item is not assigned. All three answer guests
 `403`, since Project Managers and batches are the company's members' (`docs/action-items.md`, Assigning to a Project
 Manager). Each write publishes the item and `projectManager.changed` for the lead project.
 

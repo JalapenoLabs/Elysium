@@ -10,7 +10,8 @@
 //!
 //! Each call checks, in the database, that the turn reads for someone who may read its meeting
 //! (`docs/meeting-review.md`, Who sees a meeting), as only they find the excerpts it is pinned in.
-//! Anything else answers as if there were no such attachment.
+//! Anything else answers as if there were no such attachment. The turn keeps the meeting as one it
+//! read before it is answered, so what it writes is held to it (`models::meeting_reads`).
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -22,7 +23,9 @@ use crate::meetings::attachments::agent_view;
 use crate::models::meeting::{self, Reader};
 use crate::models::meeting_attachment::{self, AttachmentKind};
 use crate::models::{storage_location, user};
-use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments, with_image};
+use crate::tools::{
+    CallScope, ToolContext, ToolError, internal, keep_read, parse_arguments, with_image,
+};
 
 /// The tool's description, which the agent reads.
 pub const DESCRIPTION: &str = "Opens one file or frame pinned in a meeting's excerpt, by the \
@@ -93,6 +96,7 @@ pub async fn run(
         Err(diesel::result::Error::NotFound) => return Err(unknown()),
         Err(error) => return Err(internal(scope, "knowledge.attachment.meeting", &error)),
     }
+    keep_read(&mut connection, scope, &[attachment.meeting_id]).await?;
     let Some(path) = attachment.storage_path.clone() else {
         return Err(ToolError::NotFound(
             "that file is still being stored; open it again in a minute".to_owned(),

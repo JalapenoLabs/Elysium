@@ -9,12 +9,18 @@
 //! and attributed to the batch's project as certain by the batch's worker (`worker:<batch>`),
 //! which wakes the project's Project Manager (`crate::models::attribution`). Elysia's intake
 //! leaves it out, as it does every agent's record: the Project Manager is the one it is news for.
+//!
+//! Its title is the worker's, written from its batch, so it names the meetings the batch came from
+//! (`crate::models::meeting_reads`): those the Project Manager's turn that submitted it had read,
+//! and those of the records it names, the excerpts its worker read among them. Only whoever may
+//! read every one of them reads it.
 
 use diesel_async::AsyncPgConnection;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::models::attribution::{self, Attributor};
+use crate::models::meeting_reads::{self, Turn};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::user::CODING_AGENT_USER_ID;
 use crate::models::work_batch::WorkBatch;
@@ -85,6 +91,15 @@ pub async fn record_merge(
     let stored = timeline_record::insert_new(connection, record)
         .await?
         .ok_or(diesel::result::Error::NotFound)?;
+    let mut came_from: Vec<Uuid> = meeting_reads::of_records(connection, &batch.source_records())
+        .await?
+        .into_values()
+        .flatten()
+        .collect();
+    if let Some(turn_id) = batch.turn_id {
+        came_from.extend(meeting_reads::of_turn(connection, Turn::ProjectManager(turn_id)).await?);
+    }
+    meeting_reads::name_on_record(connection, stored.id, &came_from).await?;
     attribution::attribute(
         connection,
         stored.id,

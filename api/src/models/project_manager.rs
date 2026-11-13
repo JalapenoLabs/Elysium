@@ -26,6 +26,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::schema::{project_manager_turns, project_manager_wakes, project_managers};
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 
 /// How many turns one page of a Project Manager's turns holds at most.
@@ -651,18 +653,42 @@ pub async fn list_turns(
         .await
 }
 
-/// Turn `turn_id` of `project_id`, with its log.
+/// `project_id`'s latest turns that `reader` may read, newest first: a turn that read a meeting
+/// they may not read is held back (`models::meeting_reads`).
 ///
 /// # Errors
-/// `NotFound` when the project has no such turn; any other database error.
+/// Propagates any database error.
+pub async fn readable_turns(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    reader: Reader,
+    limit: i64,
+) -> QueryResult<Vec<Turn>> {
+    project_manager_turns::table
+        .filter(project_manager_turns::project_id.eq(project_id))
+        .filter(meeting_reads::readable_manager_turns(reader))
+        .select(Turn::as_select())
+        .order(project_manager_turns::id.desc())
+        .limit(limit.clamp(1, MAX_TURN_PAGE))
+        .load(connection)
+        .await
+}
+
+/// Turn `turn_id` of `project_id`, with its log, when `reader` may read it.
+///
+/// # Errors
+/// `NotFound` when the project has no such turn, or it read a meeting `reader` may not read; any
+/// other database error.
 pub async fn find_turn(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
     turn_id: Uuid,
+    reader: Reader,
 ) -> QueryResult<(Turn, String)> {
     project_manager_turns::table
         .find(turn_id)
         .filter(project_manager_turns::project_id.eq(project_id))
+        .filter(meeting_reads::readable_manager_turns(reader))
         .select((Turn::as_select(), project_manager_turns::log))
         .first(connection)
         .await

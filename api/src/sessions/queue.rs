@@ -35,6 +35,7 @@ use super::{Sessions, desktop};
 use crate::agent_models::{self, Agent};
 use crate::models::coding_session::{self, CodingSession};
 use crate::models::environment_variable::{self, TurnVariable};
+use crate::models::meeting_reads;
 use crate::models::session_turn::{self, SessionTurn};
 use crate::models::storage_location;
 use crate::passwords::Passwords;
@@ -277,6 +278,11 @@ impl TurnQueue {
                 .await
                 .context("cannot read the session's model setting")?
                 .choice;
+        // The turn resumes the session's earlier turns, so it carries the meetings they read, and
+        // its summary is held to them (`models::meeting_reads`).
+        meeting_reads::carry_session(&mut connection, turn.id)
+            .await
+            .context("cannot carry the session's reading of meetings into its turn")?;
         drop(connection);
 
         let (environment, secrets) = turn_environment(variables, github.as_ref());
@@ -287,6 +293,7 @@ impl TurnQueue {
             .grant(
                 &CallScope::Session(SessionScope {
                     session_id: session.id,
+                    turn_id: turn.id,
                     project_id: session.project_id,
                     action_item_id: session.action_item_id,
                     directory: directory.clone(),

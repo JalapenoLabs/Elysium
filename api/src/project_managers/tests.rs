@@ -29,6 +29,8 @@ use crate::models::action_item_attribution;
 use crate::models::agent::{Agent, Author};
 use crate::models::attribution::{self, Attributor};
 use crate::models::changeset::{self, ChangesetDecision};
+use crate::models::meeting::{Reach, Reader};
+use crate::models::meeting_reads;
 use crate::models::page::{self, PageEdit, PageError};
 use crate::models::page_project;
 use crate::models::project::{self, NewProject};
@@ -93,8 +95,22 @@ async fn publish_brief(
     page::publish(connection, brief.id, edit, brief.current_version, author).await
 }
 
-/// A meeting segment on the test person's timeline, not yet on any project.
+/// A segment of a meeting every member reads, on the test person's timeline, not yet on any
+/// project.
 async fn segment(connection: &mut AsyncPgConnection, title: &str) -> Uuid {
+    let (meeting, _capture) = crate::models::meeting::tests::stored(connection).await;
+    crate::models::meeting::set_visibility(
+        connection,
+        meeting.id,
+        crate::models::meeting::Visibility::Public,
+    )
+    .await
+    .expect("opened");
+    segment_of(connection, meeting.id, title).await
+}
+
+/// A segment of meeting `meeting_id` on the test person's timeline, not yet on any project.
+async fn segment_of(connection: &mut AsyncPgConnection, meeting_id: Uuid, title: &str) -> Uuid {
     timeline_record::insert_new(
         connection,
         NewTimelineRecord {
@@ -108,7 +124,10 @@ async fn segment(connection: &mut AsyncPgConnection, title: &str) -> Uuid {
             body: format!("[0:01] Ada: {title}."),
             url: None,
             media: None,
-            metadata: json!({ "summary": format!("Ada asked for {title}.") }),
+            metadata: json!({
+                "meetingId": meeting_id,
+                "summary": format!("Ada asked for {title}."),
+            }),
             created_by: TEST_PERSON_ID,
         },
     )
@@ -365,7 +384,10 @@ async fn assert_shared_on_timeline(
     record_id: Uuid,
 ) -> TimelineRecord {
     let someone_else = TimelineQuery {
-        owner: Uuid::now_v7(),
+        reader: Reader {
+            id: Uuid::now_v7(),
+            reach: Reach::Public,
+        },
         shared: true,
         project_id: Some(project_id),
         action_item_id: None,
@@ -384,6 +406,10 @@ async fn assert_shared_on_timeline(
     assert_eq!(record.created_by, PROJECT_MANAGER_USER_ID);
     assert_eq!(attributions[0].project_id, project_id);
     let a_guest = TimelineQuery {
+        reader: Reader {
+            reach: Reach::Shared,
+            ..someone_else.reader
+        },
         shared: false,
         ..someone_else
     };
@@ -481,6 +507,80 @@ async fn a_burst_of_segments_is_one_turn_that_lands_on_the_timeline_and_keeps_it
             .prompt
             .contains("Ship the pricing change this week.")
     );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_private_meetings_excerpt_wakes_its_project_manager_and_holds_back_what_it_writes() {
+    let (context, script, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+        result: Some("Planned it.\nSummary: Planned the team's move.".to_owned()),
+        session_id: Some("session-1".to_owned()),
+    }])
+    .await;
+    let launch = project_named(&mut connection, "Launch").await;
+    // The test person's one-to-one, which they never opened to anyone.
+    let (one_to_one, _capture) = crate::models::meeting::tests::stored(&mut connection).await;
+    let excerpt = segment_of(&mut connection, one_to_one.id, "the team's move").await;
+    attribution::attribute(&mut connection, excerpt, launch, 0.9, Attributor::Elysia)
+        .await
+        .expect("attributes");
+    go_quiet(&mut connection).await;
+    dispatch_once(&context).await;
+
+    // It still reached the Project Manager, which read it.
+    let turns = asked(&script);
+    assert_eq!(turns.len(), 1, "the excerpt woke it");
+    assert!(turns[0].prompt.contains("the team's move"));
+    let turn = project_manager::list_turns(&mut connection, launch, 1)
+        .await
+        .expect("turns")
+        .remove(0);
+    assert_eq!(
+        meeting_reads::of_turn(
+            &mut connection,
+            meeting_reads::Turn::ProjectManager(turn.id)
+        )
+        .await
+        .expect("read"),
+        [one_to_one.id]
+    );
+
+    // What it wrote is the meeting's readers' alone: its owner reads it, another member does not.
+    let record_id = turn.timeline_record_id.expect("a record of the turn");
+    let as_reader = |reader: Reader| TimelineQuery {
+        reader,
+        shared: true,
+        project_id: Some(launch),
+        action_item_id: None,
+        meeting_id: None,
+        before: None,
+        limit: 50,
+    };
+    let owner = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let someone_else = Reader {
+        id: Uuid::now_v7(),
+        reach: Reach::Public,
+    };
+    let listed_for = async |connection: &mut AsyncPgConnection, reader: Reader| {
+        timeline_record::list(connection, as_reader(reader))
+            .await
+            .expect("listed")
+            .into_iter()
+            .any(|(record, _attributions)| record.id == record_id)
+    };
+    assert!(listed_for(&mut connection, owner).await);
+    assert!(!listed_for(&mut connection, someone_else).await);
+    let turns_for = async |connection: &mut AsyncPgConnection, reader: Reader| {
+        project_manager::readable_turns(connection, launch, reader, 10)
+            .await
+            .expect("turns")
+            .len()
+    };
+    assert_eq!(turns_for(&mut connection, owner).await, 1);
+    assert_eq!(turns_for(&mut connection, someone_else).await, 0);
 }
 
 #[tokio::test]
@@ -605,7 +705,11 @@ async fn a_usage_limit_holds_the_project_and_keeps_what_woke_it() {
     // Held: the next look starts nothing.
     dispatch_once(&context).await;
     assert_eq!(script.lock().expect("script").asked.len(), 1);
-    let snapshot = super::snapshot(&mut connection, launch)
+    let reader = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let snapshot = super::snapshot(&mut connection, launch, reader)
         .await
         .expect("reads");
     assert_eq!(snapshot.status, super::status::Status::Held);

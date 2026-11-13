@@ -74,6 +74,10 @@ roadmap.
   found only by the people who can read it. Every other source stays as it is (`docs/knowledge.md`, Who sees what).
 - **Excerpts still flow.** An excerpt of a private meeting (Excerpts, below) goes to its projects as any excerpt does,
   since it is on their topic; the rest of the meeting stays private.
+- **What agents write from it stays with it.** A Project Manager's turn, a session's turn summary, or Elysia's answer in
+  its thread can say what the meeting said, so what an agent wrote after reading a meeting is read only by whoever may
+  read that meeting, and by whoever may read every one when it read several. Opening the meeting opens it, and making it
+  private again closes it at the next request (`docs/knowledge.md`, Who sees what, What agents write from a meeting).
 - **Who changes it.** Any member who can read a meeting edits it: its words, its excerpts, its black-outs, its pins, and
   its attachments. Every change is in its history with who made it, and undoable. Only its owner and admins change
   its privacy, merge or split its captures, or delete it. Its processing (holding it for approval, approving its

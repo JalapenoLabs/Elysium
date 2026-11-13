@@ -13,13 +13,14 @@ use uuid::Uuid;
 use super::ProjectManagerResponse;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
+use crate::models::meeting::Reader;
 use crate::models::project;
 use crate::project_managers;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    member: MemberUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(project_id) = path?;
@@ -29,7 +30,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     project::find(&mut connection, project_id).await?;
-    let snapshot = project_managers::snapshot(&mut connection, project_id).await?;
+    let snapshot =
+        project_managers::snapshot(&mut connection, project_id, Reader::of(&member.0)).await?;
     Ok(Json(json!({
         "projectManager": ProjectManagerResponse::from(snapshot),
     })))

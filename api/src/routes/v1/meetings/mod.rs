@@ -45,6 +45,8 @@ mod tasks;
 #[cfg(test)]
 mod tests;
 mod threads;
+#[cfg(test)]
+mod written_from_tests;
 
 use std::collections::HashMap;
 

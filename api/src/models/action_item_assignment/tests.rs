@@ -10,9 +10,10 @@ use super::*;
 use crate::models::action_item::{ActionItemPriority, NewActionItem, Owner};
 use crate::models::action_item_attribution;
 use crate::models::action_item_event::list_for_item;
+use crate::models::meeting::Reach;
 use crate::models::project::{self, NewProject};
 use crate::models::project_manager::Finished;
-use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::user::{PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::work_batch::{self, NewWorkBatch, Priority};
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database, person_rooted};
 
@@ -32,6 +33,25 @@ fn a_plan_stands_where_its_assignments_wake_does() {
         PlanStage::Failed
     );
     assert_eq!(stage(None), PlanStage::Planned, "nothing waits for it");
+}
+
+/// Makes Project Manager turn `turn_id` have read a private meeting of the system user's, which
+/// nobody shared with the test person.
+async fn read_a_private_meeting(connection: &mut AsyncPgConnection, turn_id: Uuid) {
+    let (meeting, _capture) = crate::models::meeting::tests::stored(connection).await;
+    diesel::sql_query("UPDATE meetings SET created_by = $1, visibility = 'private' WHERE id = $2")
+        .bind::<diesel::sql_types::Uuid, _>(SYSTEM_USER_ID)
+        .bind::<diesel::sql_types::Uuid, _>(meeting.id)
+        .execute(connection)
+        .await
+        .expect("made private");
+    meeting_reads::keep(
+        connection,
+        meeting_reads::Turn::ProjectManager(turn_id),
+        &[meeting.id],
+    )
+    .await
+    .expect("kept");
 }
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -228,7 +248,7 @@ async fn taking_an_item_back_drops_the_wake_no_turn_took() {
             .is_empty()
     );
     assert_eq!(
-        plan(&mut connection, &unassigned.record)
+        plan(&mut connection, &unassigned.record, Reader::ANY_MEMBER)
             .await
             .expect("reads"),
         None
@@ -371,7 +391,7 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
     .expect("assigned")
     .record;
 
-    let waiting = plan(&mut connection, &assigned)
+    let waiting = plan(&mut connection, &assigned, Reader::ANY_MEMBER)
         .await
         .expect("reads")
         .expect("assigned");
@@ -386,7 +406,7 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
         .expect("starts")
         .expect("the assignment woke it");
     assert_eq!(taken.len(), 1);
-    let planning = plan(&mut connection, &assigned)
+    let planning = plan(&mut connection, &assigned, Reader::ANY_MEMBER)
         .await
         .expect("reads")
         .expect("assigned");
@@ -424,7 +444,7 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
         .await
         .expect("finished");
 
-    let planned = plan(&mut connection, &assigned)
+    let planned = plan(&mut connection, &assigned, Reader::ANY_MEMBER)
         .await
         .expect("reads")
         .expect("assigned");
@@ -438,6 +458,28 @@ async fn a_plan_follows_its_wake_through_a_turn_to_the_batches_naming_the_item()
         [(batch.id, BatchState::Proposed)],
         "the batch waits for a person, and no worker started"
     );
+
+    // Once the turn that proposed it read a meeting nobody shared with the person, the batch is
+    // left out of the plan they read, and an admin, who reads every meeting, still reads it.
+    read_a_private_meeting(&mut connection, turn.id).await;
+    let member = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let held = plan(&mut connection, &assigned, member)
+        .await
+        .expect("reads")
+        .expect("assigned");
+    assert!(held.batches.is_empty(), "{:?}", held.batches);
+    let admin = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Every,
+    };
+    let read = plan(&mut connection, &assigned, admin)
+        .await
+        .expect("reads")
+        .expect("assigned");
+    assert_eq!(read.batches.len(), 1);
 }
 
 #[tokio::test]
@@ -477,7 +519,7 @@ async fn deleting_an_item_takes_it_from_its_project_manager() {
         .await
         .expect("restored");
     assert_eq!(
-        plan(&mut connection, &restored.record)
+        plan(&mut connection, &restored.record, Reader::ANY_MEMBER)
             .await
             .expect("reads"),
         None,
@@ -531,7 +573,7 @@ async fn finishing_an_item_ends_its_assignment_so_reopening_it_reads_unassigned(
     .await
     .expect("reopened");
     assert_eq!(
-        plan(&mut connection, &reopened.record)
+        plan(&mut connection, &reopened.record, Reader::ANY_MEMBER)
             .await
             .expect("reads"),
         None,

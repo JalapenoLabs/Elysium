@@ -283,6 +283,10 @@ new meeting is private to its owner until its correction reads it and decides.
   again, however many meetings there are (`docs/knowledge.md`, Who sees what). An excerpt that names no meeting is
   indexed for nobody. Its excerpts' records stay their owner's, and still go to their projects and wake their Project
   Managers, since they are on their projects.
+- **What agents write from it.** Each excerpt's record names its meeting (`timeline_record_meetings`), and each agent's
+  turn keeps the meetings that reached it, so a Project Manager's turn and record, a session's turn summary, Elysia's
+  turn, a worker's merged pull request, and a promise made in an excerpt are read only by whoever may read every
+  meeting they came from (`docs/knowledge.md`, Who sees what, What agents write from a meeting).
 - **Events.** `meeting.changed` carries a meeting's id, state, and the entry a person's change made, never its owner
   or who reads it: every client loads it by id, and one that may not read it is answered `404` and drops it.
 

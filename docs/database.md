@@ -417,6 +417,28 @@ Every write goes through `models::attribution`, which records it in `timeline_re
 by Elysia or a person wakes the project's Project Manager (`project_manager_wakes`) in the same transaction; what a
 Project Manager or a session's agent attributes wakes nothing.
 
+### `timeline_record_meetings`
+
+The meetings a record's words come from: an excerpt's own meeting, named from its metadata as it is stored, and every
+meeting the agent that wrote a record had read (`models::meeting_reads`, `docs/knowledge.md`, What agents write from a
+meeting). A record is read only by whoever may read every meeting it names, asked inside each query that lists, opens,
+or searches records. Primary key `(timeline_record_id, meeting_id)`; `timeline_record_meetings_of_meeting` on
+`meeting_id`.
+
+| Column               | Type   | Notes                                                                           |
+|----------------------|--------|---------------------------------------------------------------------------------|
+| `timeline_record_id` | `UUID` | References `timeline_records`, cascading                                        |
+| `meeting_id`         | `UUID` | References `meetings`, refusing its deletion: a row gone with it would open what it held back |
+
+`project_manager_turn_meetings` (`turn_id` referencing `project_manager_turns`) and `elysia_turn_meetings` (`turn_id`
+referencing `elysia_turns`) are the same shape: the meetings that reached each agent's turn, kept before its prompt or
+a tool hands their words over, each cascading with its turn, which takes what it holds back with it, and refusing its
+meeting's deletion. `session_turn_meetings` is keyed as `turn_summaries` is, by `session_id` (referencing
+`coding_sessions`, cascading) and `turn_id` (no key of its own), so what holds a summary back goes with the session
+that holds the summary and never with its turn's row alone. A session's turn starts with every meeting its session's
+turns read so far, read by the session (`session_turn_meetings_of_session` on `session_id`), as its conversation's
+holds are.
+
 ### `timeline_record_events`
 
 The history of what records are attributed to, one row per change, shaped like `page_events`; see

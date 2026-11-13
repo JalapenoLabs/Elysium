@@ -20,6 +20,7 @@ use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::action_item;
 use crate::models::action_item_assignment::{self, Plan, PlanBatch, PlanStage};
+use crate::models::meeting::Reader;
 use crate::state::AppState;
 
 /// An item's plan as clients see it.
@@ -51,7 +52,7 @@ impl From<Plan> for PlanResponse {
 
 pub async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    MemberUser(member): MemberUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -62,7 +63,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let item = action_item::find(&mut connection, id).await?;
-    let plan = action_item_assignment::plan(&mut connection, &item)
+    let plan = action_item_assignment::plan(&mut connection, &item, Reader::of(&member))
         .await?
         .map(PlanResponse::from);
 

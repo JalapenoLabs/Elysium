@@ -16,6 +16,7 @@ use super::with_history;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::meeting::Reader;
+use crate::models::work_batch;
 use crate::state::AppState;
 use crate::worker_pool::actions;
 
@@ -48,9 +49,11 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
+    let reader = Reader::of(&member);
+    // A batch written from a meeting the person may not read answers 404, as its `GET` does
+    // (`models::meeting_reads`).
+    work_batch::find_readable(&mut connection, id, reader).await?;
     let batch =
         actions::cancel(&mut connection, &state.events, id, None, reason, member.id).await?;
-    Ok(Json(
-        with_history(&mut connection, batch, Reader::of(&member)).await?,
-    ))
+    Ok(Json(with_history(&mut connection, batch, reader).await?))
 }

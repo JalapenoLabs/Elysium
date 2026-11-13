@@ -14,6 +14,10 @@
 //! listed to everyone. Only a record's own owner changes what it is attributed to, so nobody
 //! moves those.
 //!
+//! A record names the meetings its words come from: an excerpt its own meeting, and an agent's
+//! record every meeting its writer had read (`models::meeting_reads`). Whoever lists or opens
+//! records reads only those whose every meeting they may read, whoever owns them.
+//!
 //! A record deleted with what it came from (`deleted_at`), today a meeting's excerpt taken with
 //! its meeting ([`delete_of_meeting`]), is on no timeline, no Project Manager reads it, and it is
 //! out of the knowledge index, while it keeps its attributions and their history. Every reader
@@ -37,9 +41,11 @@ use crate::database::schema::{meeting_marks, timeline_record_projects, timeline_
 use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::knowledge_document::{self, KnowledgeSource};
+use crate::models::meeting::Reader;
 use crate::models::meeting_attachment::{self, IndexedAttachment};
 use crate::models::meeting_comment;
 use crate::models::meeting_mark::MarkKind;
+use crate::models::meeting_reads;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// The meeting a meeting's record names, as SQL, spelled exactly as the index
@@ -164,6 +170,7 @@ pub async fn insert_new(
                 .await
                 .optional()?;
             if let Some(stored) = &stored {
+                name_its_meeting(connection, stored).await?;
                 index(connection, stored).await?;
             }
             Ok(stored)
@@ -171,8 +178,8 @@ pub async fn insert_new(
         .await
 }
 
-/// Stores `record` as the record of excerpt `mark_id`, and indexes it ([`index`]) in the same
-/// transaction. The mark is new, so the record is too.
+/// Stores `record` as the record of excerpt `mark_id`, naming its meeting ([`name_its_meeting`]),
+/// and indexes it ([`index`]) in the same transaction. The mark is new, so the record is too.
 ///
 /// # Errors
 /// Propagates any database error, including a unique violation for a mark that has a record.
@@ -191,10 +198,37 @@ pub async fn insert_excerpt(
                 .returning(TimelineRecord::as_returning())
                 .get_result(connection)
                 .await?;
+            name_its_meeting(connection, &stored).await?;
             index(connection, &stored).await?;
             Ok(stored)
         })
         .await
+}
+
+/// Names the meeting `record` is an excerpt of, as its metadata says (`meetingId`), on the record
+/// (`models::meeting_reads`), so it is read only by whoever may read that meeting. Any other record
+/// names nothing of its own. An excerpt naming no meeting names none, and is logged: it is indexed
+/// for nobody and handed to no agent, since nobody could be told may read it.
+async fn name_its_meeting(
+    connection: &mut AsyncPgConnection,
+    record: &TimelineRecord,
+) -> QueryResult<()> {
+    if record.source_kind != SEGMENT_SOURCE_KIND {
+        return Ok(());
+    }
+    let meeting_id = record.metadata["meetingId"]
+        .as_str()
+        .and_then(|meeting_id| meeting_id.parse::<Uuid>().ok());
+    let Some(meeting_id) = meeting_id else {
+        tracing::event!(
+            name: "timeline.excerpt.unplaced",
+            tracing::Level::WARN,
+            record.id = %record.id,
+            "an excerpt's record names no meeting, so it names none to read it by",
+        );
+        return Ok(());
+    };
+    meeting_reads::name_on_record(connection, record.id, &[meeting_id]).await
 }
 
 /// Gives excerpt record `id` what its words read now, and answers it as it then reads. The caller
@@ -478,21 +512,24 @@ pub async fn find_by_external_id(
         .optional()
 }
 
-/// Up to `limit` records of every owner, in the order they were ingested: after position
-/// `after` (an ingestion instant and id, from an earlier read), ingested no earlier than
-/// `since` and no later than `through`. For a reader of everything ingested, such as the
-/// company doc's review, which reads for the whole company (`docs/knowledge.md`, Who sees what).
+/// Up to `limit` records of every owner that `reader` may read, in the order they were ingested:
+/// after position `after` (an ingestion instant and id, from an earlier read), ingested no earlier
+/// than `since` and no later than `through`. For a reader of everything ingested, such as the
+/// company doc's review, which reads for the whole company as any member does
+/// (`docs/knowledge.md`, Who sees what).
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn ingested_between(
     connection: &mut AsyncPgConnection,
+    reader: Reader,
     after: Option<(DateTime<Utc>, Uuid)>,
     since: DateTime<Utc>,
     through: DateTime<Utc>,
     limit: i64,
 ) -> QueryResult<Vec<TimelineRecord>> {
     let mut query = timeline_records::table
+        .filter(meeting_reads::readable_records(reader))
         .filter(timeline_records::deleted_at.is_null())
         .filter(timeline_records::created_at.ge(since))
         .filter(timeline_records::created_at.le(through))
@@ -578,7 +615,9 @@ pub async fn set_action_item(
 /// What to list from the timeline.
 #[derive(Debug, Clone, Copy)]
 pub struct TimelineQuery {
-    pub owner: Uuid,
+    /// Whose timeline it is, and who reads it: their own records, and none naming a meeting they
+    /// may not read.
+    pub reader: Reader,
     /// Whether the workspace's records ([`SHARED_OWNERS`]) are read too: for the company's
     /// members, never a guest, since they quote what was ingested.
     pub shared: bool,
@@ -593,16 +632,18 @@ pub struct TimelineQuery {
     pub limit: i64,
 }
 
-/// `owner`'s records, and the workspace's when `query.shared`, that `query` narrows to, on
-/// every page: its project and action item, but not its paging. A page and the total it is
-/// counted against share this one filter, so they never disagree about what the timeline holds.
+/// The reader's records, and the workspace's when `query.shared`, that `query` narrows to, on
+/// every page: its project and action item, but not its paging, and never a record naming a
+/// meeting the reader may not read. A page and the total it is counted against share this one
+/// filter, so they never disagree about what the timeline holds.
 fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> {
-    let mut readable = vec![query.owner];
+    let mut owners = vec![query.reader.id];
     if query.shared {
-        readable.extend(SHARED_OWNERS);
+        owners.extend(SHARED_OWNERS);
     }
     let mut statement = timeline_records::table
-        .filter(timeline_records::created_by.eq_any(readable))
+        .filter(timeline_records::created_by.eq_any(owners))
+        .filter(meeting_reads::readable_records(query.reader))
         .filter(timeline_records::deleted_at.is_null())
         .into_boxed();
     if let Some(project_id) = query.project_id {
@@ -967,23 +1008,24 @@ pub async fn attributed_among(
 }
 
 /// The record `id` with its attributions, when `reader` may read it: their own, or, when
-/// `shared`, the workspace's ([`SHARED_OWNERS`]).
+/// `shared`, the workspace's ([`SHARED_OWNERS`]), and naming no meeting they may not read.
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when it does not exist or `reader` may not read it.
 pub async fn find_readable(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-    reader: Uuid,
+    reader: Reader,
     shared: bool,
 ) -> QueryResult<(TimelineRecord, Vec<Attribution>)> {
     let owner = timeline_records::table
         .find(id)
+        .filter(meeting_reads::readable_records(reader))
         .select(timeline_records::created_by)
         .first::<Uuid>(connection)
         .await?;
     let is_shared = shared && SHARED_OWNERS.contains(&owner);
-    if owner != reader && !is_shared {
+    if owner != reader.id && !is_shared {
         return Err(diesel::result::Error::NotFound);
     }
     find_owned(connection, id, owner).await
@@ -1124,7 +1166,10 @@ mod tests {
             .expect("new");
 
         let first_page = TimelineQuery {
-            owner: TEST_PERSON_ID,
+            reader: Reader {
+                id: TEST_PERSON_ID,
+                reach: crate::models::meeting::Reach::Public,
+            },
             shared: false,
             project_id: Some(launch.id),
             action_item_id: None,

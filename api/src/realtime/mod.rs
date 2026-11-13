@@ -249,6 +249,11 @@ pub enum ServerEvent {
     /// One of her turns was queued, started, ended, or cancelled.
     #[serde(rename = "elysiaTurn.upserted")]
     ElysiaTurnUpserted(TurnResponse),
+    /// One of her turns that read a meeting ended: its id alone, since what it says is
+    /// held to that meeting's readers (`models::meeting_reads`). Every client loads it by id, and
+    /// one that may not read it is answered `404`.
+    #[serde(rename = "elysiaTurn.changed")]
+    ElysiaTurnChanged { id: Uuid },
     /// A project's Project Manager changed: something woke it, a turn started or ended, or a
     /// batch of its was submitted or moved on. The project's id alone, since its turns quote what
     /// they read; its page loads it by id.
@@ -316,9 +321,20 @@ pub enum ServerEvent {
     SessionDeleted { id: i64 },
     #[serde(rename = "session.event")]
     SessionEvent(Box<SessionEvent>),
+    /// A session's turn that read a meeting reported an event, already recorded: its ids alone,
+    /// since what it says can quote the meeting, which only its readers read
+    /// (`models::meeting_reads`). A client showing the session's conversation loads its history
+    /// again, which answers the turn to those readers alone.
+    #[serde(rename = "session.eventHeld")]
+    SessionEventHeld { session_id: i64, sequence: u64 },
     /// A finished turn's summary was written.
     #[serde(rename = "session.summary")]
     TurnSummarized(TurnSummaryView),
+    /// The summary of a turn that read a meeting was written: its ids alone, since it is held to
+    /// that meeting's readers (`models::meeting_reads`). A client showing the session's
+    /// conversation loads its summaries again, which answer it only to those who may read it.
+    #[serde(rename = "session.summaryChanged")]
+    TurnSummaryChanged { session_id: i64, turn_id: Uuid },
     /// An item was created, renamed, pinned, or restored, or its files changed its
     /// thumbnail or counts.
     #[serde(rename = "studioItem.upserted")]

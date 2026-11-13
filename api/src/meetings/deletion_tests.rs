@@ -227,7 +227,11 @@ async fn is_transcript_indexed(connection: &mut AsyncPgConnection, meeting_id: U
 /// The ids of the records on project `project_id`'s timeline, as its Timeline tab lists them.
 async fn on_timeline(connection: &mut AsyncPgConnection, project_id: Uuid) -> Vec<Uuid> {
     let query = TimelineQuery {
-        owner: TEST_PERSON_ID,
+        // The test person is the workspace's admin, who reads every meeting.
+        reader: Reader {
+            id: TEST_PERSON_ID,
+            reach: Reach::Every,
+        },
         shared: true,
         project_id: Some(project_id),
         action_item_id: None,

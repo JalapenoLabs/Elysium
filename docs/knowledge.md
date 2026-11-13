@@ -19,8 +19,8 @@ turn (MCP, below); asking it for a written answer, every claim citing a passage,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
 their place in the index, finding them by title and text, and the edits agents suggest to them, reviewed on the page,
 with learnings and the company doc among them (Pages, below); and the meetings the reader may read in that tree,
-under the Meetings page and each project's brief (Pages, The tree), a private meeting's documents found by its readers
-alone (Who sees what, below).
+under the Meetings page and each project's brief (Pages, The tree), a private meeting's documents, and what agents
+wrote from it, found by its readers alone (Who sees what, below).
 
 ## What is indexed
 
@@ -66,7 +66,60 @@ by a predicate inside each query
 (`models::meeting::readable_meeting_sql`, the SQL twin of the rule its routes read by, which a test holds to the same
 answers), so who reads a meeting changes what the next search finds with nothing indexed again, and it costs the same
 however many meetings there are. An excerpt that names no meeting is indexed for nobody. Every other source stays
-everyone's, as above.
+everyone's, as above, but for what agents write from a meeting (below).
+
+### What agents write from a meeting
+
+An agent that reads a meeting can say what it read in whatever it writes next: a Project Manager's turn, a session's
+turn summary, Elysia's activity. So what an agent writes is read only by whoever may read every meeting it read
+(`api/src/models/meeting_reads.rs`). A private meeting still reaches its projects and wakes their Project Managers, and
+every agent reads what its work needs; only what it writes is held back.
+
+- **Every meeting counts, and all of them.** A meeting counts whatever its visibility when it was read, and the rule is
+  asked on every request, as the meeting's own is: making a meeting public opens what agents wrote from it, and making
+  it private again closes it from the next request, with nothing written or indexed again. Something written from
+  several meetings is read only by someone who may read every one of them. Something that names no meeting is every
+  member's, as before.
+- **What a record names.** A timeline record names the meetings its words come from (`timeline_record_meetings`): an
+  excerpt its own meeting, and an agent's record every meeting its writer had read when it wrote it. The timeline lists
+  and opens a record, the knowledge base finds and opens its document, a batch's chain shows it, and the company doc's
+  review reads it only for a reader who may read every meeting it names, inside each query: by the meeting's own rule
+  in Diesel, and by its SQL twin (`meeting_reads::readable_record_sql`) in the index's queries, which a test holds to
+  the same answers.
+- **What a turn read.** Each agent's turn keeps the meetings that reached it, in the transaction that hands them over:
+  - a Project Manager's turn (`project_manager_turn_meetings`), as it starts, those of what woke it: each record's, each
+    task's meeting, the record each promise it carries was made in, and what each batch it is told of was written from;
+  - Elysia's turn (`elysia_turn_meetings`), the meeting whose comment thread asked her;
+  - a coding or Studio session's turn (`session_turn_meetings`), as it starts, every meeting its session's earlier turns
+    read, since each turn resumes the one before and a session is one person's one piece of work;
+  - and every turn, what its tools hand it: a search's results, a document opened, the meetings listed, a file or frame
+    pinned in an excerpt, a Project Manager's records, promises, and batches, and a batch Elysia changes or cancels,
+    each batch carrying what the turn that submitted it read. A tool keeps what it read before it answers, so nothing
+    reaches an agent unkept. Elysia's listing of the work queue names a batch from a meeting not every member may read
+    without its title, as `manager_timeline` names such a record, so browsing it holds nothing back.
+- **What it holds back.** A Project Manager's turn, its record, and every batch it submits are held to what the turn
+  had read by then, and each change it makes to its cause (the task's meeting, or what the record it names names). A
+  batch held back is left out of the Project Manager tab, the work queue (whose count of slots in use still counts it),
+  an item's plan, and the chain of every batch planned from it, and its page, its worker's log, its pull requests, and
+  every decision on it answer not found. A session's turn is held to what it read, its events and its summary alike,
+  and so is Elysia's turn in her activity. A worker's merged pull request is held to what its batch came from, which
+  its worker read: the meetings the turn that submitted it read, and those the records it names name. A promise is held
+  to the record it was made in. The Project Manager tab, Elysia's panel, and a session's conversation list and open only
+  what their reader may read, and a held turn's live event carries its ids alone, for each client to load what it may.
+- **A Project Manager reads its project.** It reads every record on its project's timeline. Its listing
+  (`manager_timeline`) names an excerpt of a meeting that is not public without its words, so browsing its timeline
+  holds nothing back; `manager_record` reads one whole, which does. Its own batches it reads whole, in its prompt and
+  through `manager_batches`, since it plans, answers, and cancels them by what they say: once it proposes a batch from
+  a private meeting, each later turn that reads that batch, as most turns woken by its progress do, is held to the
+  meeting until it opens.
+- **Unsure, unread.** An excerpt that names no meeting, which nobody could be told may read what an agent wrote from
+  it, is never handed to an agent, as it is indexed for nobody.
+- **The company doc reads as any member.** The doc is everyone's, so its review reads only the records every member may
+  read: a private meeting's excerpts, and what agents wrote from one, never reach a suggestion.
+- **Carried in a session.** A Project Manager's session and Elysia's run indefinitely, each turn resuming the one before,
+  so a turn after one that read a private meeting can still recall it. Each of their turns is held to what it read
+  itself: carrying every meeting forward would hold back nearly all they write from most people. How far to carry it is
+  on the roadmap (Pages, Roadmap).
 
 ### The index is shared; records stay their owner's
 
@@ -80,7 +133,8 @@ Two things carry the same text under different rules:
 - **The knowledge index** is the company's: passages made from those records' text, served to every member.
 
 A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge page), which answers any member for
-anything indexed (but a private meeting's documents, for its readers alone), never through the owner's timeline route,
+anything indexed (but a private meeting's documents, and what agents wrote from one, for its readers alone), never
+through the owner's timeline route,
 which answers anyone else not found. The index holds text: a segment's clip stays with its record and plays for its
 owner alone, and a meeting's recordings play on the meeting's own page for whoever may read it. Removing a connector stops
 its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
@@ -96,8 +150,9 @@ on, not who may read it.
 
 The rule is applied in the query itself, by leaving the owner out of it: search, `knowledge_get`, `knowledge_ask`,
 summaries, and citations carry no per-owner predicate on knowledge-base content. The one filter on who reads is a
-private meeting's (A private meeting, above): each query leaves out the documents of the meetings its reader may not
-read, by the same rule the meeting's own routes read it by. Each passage keeps whose record it
+private meeting's (A private meeting, and What agents write from a meeting, above): each query leaves out the documents
+of the meetings its reader may not read, and of the records naming one, by the same rule the meeting's own routes read
+it by. Each passage keeps whose record it
 came from (`created_by`), for the `person` filter, for citing who said it, and for removing it with its record. The
 `person` filter is a narrowing the caller asks for, never access control.
 
@@ -282,6 +337,8 @@ agents' work beside its meetings and messages, and a search finds what an agent 
   owned by the coding agent's machine user, and every company member reads it on the project's timeline, as they read a
   Project Manager's records (`timeline_record::SHARED_OWNERS`). A guest reads only their own records, as for every
   shared record. In the index it is attributed to that machine user, so the `person` filter names no person for it.
+- **Held to what its turn read.** The record names every meeting its turn read, so only whoever may read every one of
+  them lists, opens, or finds it (Who sees what, What agents write from a meeting).
 - **Its text.** The title is the summary, the actor the session (`Session 12`), and the body empty, so its document is
   the summary and `From Session 12`. Its metadata names the session, the turn, and the Studio item when the session is
   one's, which the timeline opens the session's conversation at.
@@ -674,7 +731,9 @@ under the same names, descriptions, and argument schemas.
   whoever started the session, read from the database on every call: a company member passes, and so does one of
   Elysium's own machines, while a guest or a person disabled since is refused with a message saying the knowledge base
   is for the company's members alone. Elysia's turns read as herself. The company doc's tools in a turn
-  are checked the same way.
+  are checked the same way. Before a turn's `knowledge_search`, `knowledge_get`, `meetings_list`, or
+  `meeting_attachment_get` answers, the turn keeps every meeting what it hands over comes from, so what the turn writes
+  is held to them (Who sees what, What agents write from a meeting).
 - **Citations open in the knowledge base.** Every result is a `Citation`, `documentId` first, which `knowledge_get`
   opens, never the owner's timeline route. The MCP server's instructions tell a client where a person opens one:
   `https://<host>/knowledge/documents/<documentId>`, the Knowledge page's document.
@@ -1371,6 +1430,16 @@ page's history restores it afterwards.
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call
   (`upload_attachment::upload_file`, `remove`, `restore`), each taking an `Author`.
+- **What a long session carries.** A Project Manager's session and Elysia's resume every turn, so a turn after one that
+  read a private meeting can recall it, and each of their turns is held to what it read itself (Who sees what, What
+  agents write from a meeting). Holding later turns too, for a while or for good, or answering a private meeting in a
+  fork of the session that nothing resumes, is to be decided.
+- **What agents make from a meeting beyond records, turns, and batches.** An action item made from a private meeting's
+  task, a changeset's reason and quote, a finding, Elysia's conversation and work, and the pages agents write, a
+  project's brief among them, are read as they are today, by every member; holding them to the meetings they came from
+  follows the same rule (Who sees what, What agents write from a meeting). A worker's pull request is titled and
+  described on GitHub, where whoever reads the repository reads it; its description's chain already withholds a private
+  meeting (`docs/engine.md`, Why a batch exists).
 
 ## Onyx
 

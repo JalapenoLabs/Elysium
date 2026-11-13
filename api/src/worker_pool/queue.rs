@@ -58,6 +58,35 @@ pub struct Queue {
     pub proposed: Vec<WorkBatch>,
 }
 
+impl Queue {
+    /// Every batch it lists, list by list.
+    pub fn batches(&self) -> impl Iterator<Item = &WorkBatch> {
+        [
+            &self.in_slots,
+            &self.next,
+            &self.scheduled,
+            &self.paused,
+            &self.proposed,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    /// Keeps the batches `keep` answers true for, each list in its order. The pool is left as it
+    /// was, so its count of slots in use still counts a batch left out.
+    pub fn retain(&mut self, keep: impl Fn(&WorkBatch) -> bool) {
+        for list in [
+            &mut self.in_slots,
+            &mut self.next,
+            &mut self.scheduled,
+            &mut self.paused,
+            &mut self.proposed,
+        ] {
+            list.retain(&keep);
+        }
+    }
+}
+
 /// Reads the work queue at `now`.
 ///
 /// # Errors

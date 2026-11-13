@@ -9,13 +9,21 @@
 //! `SHARED_OWNERS`), attributed to its project as certain, and indexed for search like every
 //! record. Its external id names the turn, batch, or changeset operation, so it is recorded
 //! once.
+//!
+//! Each names the meetings it was written from (`crate::models::meeting_reads`), so only whoever
+//! may read every one of them reads it: a turn and the batches it submits name every meeting the
+//! turn had read, and a change names its cause's, the task's meeting or what the record it names
+//! names.
 
 use chrono::{DateTime, Utc};
-use diesel_async::AsyncPgConnection;
+use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::database::schema::meeting_tasks;
 use crate::models::attribution::{self, Attributor};
+use crate::models::meeting_reads::{self, Turn};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
 use crate::models::work_batch::{Priority, WorkBatch};
@@ -30,7 +38,8 @@ pub const ACTOR: &str = "Project Manager";
 const TITLE_MAX_CHARACTERS: usize = 300;
 
 /// A finished turn of `project_id`'s Project Manager, as a record: headed by its summary, holding
-/// its reply. Call it in the transaction that finishes the turn.
+/// its reply, and naming every meeting the turn read. Call it in the transaction that finishes the
+/// turn.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -56,12 +65,14 @@ pub async fn record_turn(
         metadata: json!({ "kind": "turn", "turnId": turn_id }),
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    store(connection, project_id, record).await
+    let read = meeting_reads::of_turn(connection, Turn::ProjectManager(turn_id)).await?;
+    store(connection, project_id, record, &read).await
 }
 
 /// Batch `batch` as it was submitted, as a record: its title, priority, the goal in the brief it
 /// serves, and its goal, said to come from `actor`, its Project Manager ([`ACTOR`]) or the person
-/// who accepted the finding it was made from. Call it in the transaction that submits the batch.
+/// who accepted the finding it was made from, and naming every meeting the turn that submitted it
+/// had read by then. Call it in the transaction that submits the batch.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -96,7 +107,12 @@ pub async fn record_batch(
         }),
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    store(connection, batch.project_id, record).await
+    let read = match batch.turn_id {
+        Some(turn_id) => meeting_reads::of_turn(connection, Turn::ProjectManager(turn_id)).await?,
+        // A person accepting a finding submitted it, and no turn read anything for it.
+        None => Vec::new(),
+    };
+    store(connection, batch.project_id, record, &read).await
 }
 
 /// One change a Project Manager made, as its record tells it.
@@ -124,8 +140,9 @@ pub struct Write<'write> {
 }
 
 /// A change a Project Manager made, as a record: headed by what it did, holding why, and naming
-/// the record that caused it, so the project's timeline shows each write beside its cause. Call
-/// it in the transaction that applies the change.
+/// the record that caused it, so the project's timeline shows each write beside its cause, and the
+/// meetings its cause comes from, whose words its quote and reason carry. Call it in the
+/// transaction that applies the change.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -160,20 +177,36 @@ pub async fn record_write(
         }),
         created_by: PROJECT_MANAGER_USER_ID,
     };
-    store(connection, write.project_id, record).await
+    let mut caused_by: Vec<Uuid> = match write.meeting_task_id {
+        Some(task_id) => {
+            meeting_tasks::table
+                .find(task_id)
+                .select(meeting_tasks::meeting_id)
+                .load(connection)
+                .await?
+        }
+        None => Vec::new(),
+    };
+    if let Some(record_id) = write.cause_record_id {
+        let named = meeting_reads::of_records(connection, &[record_id]).await?;
+        caused_by.extend(named.into_values().flatten());
+    }
+    store(connection, write.project_id, record, &caused_by).await
 }
 
-/// Stores `record` and attributes it to `project_id`, which wakes nothing: it is the Project
-/// Manager's own.
+/// Stores `record`, naming `read`, the meetings it was written from, and attributes it to
+/// `project_id`, which wakes nothing: it is the Project Manager's own.
 async fn store(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
     record: NewTimelineRecord,
+    read: &[Uuid],
 ) -> diesel::QueryResult<TimelineRecord> {
     // Its connector is none, so no earlier record conflicts with it; one always comes back.
     let stored = timeline_record::insert_new(connection, record)
         .await?
         .ok_or(diesel::result::Error::NotFound)?;
+    meeting_reads::name_on_record(connection, stored.id, read).await?;
     attribution::attribute(
         connection,
         stored.id,

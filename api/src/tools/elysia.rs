@@ -141,7 +141,8 @@ const TOOLS: [Tool; 12] = [
             many are busy, whether a usage limit holds it, the batches in its slots, and every \
             batch waiting, in the order the pool hands out slots, then those scheduled for \
             later, those paused, and those proposed, which wait for a person's approval. Each \
-            names its project.",
+            names its project. A batch written from a private meeting is listed without its \
+            title (fromPrivateMeeting); changing or cancelling it answers it whole.",
         input_schema: work_queue::queue_schema,
         run: |context, scope, arguments| work_queue::run_queue(context, scope, arguments).boxed(),
     },
@@ -758,6 +759,7 @@ mod tests {
 
         let session = CallScope::Session(SessionScope {
             session_id: 3,
+            turn_id: Uuid::now_v7(),
             project_id: None,
             action_item_id: None,
             directory: WorkspacePath::new("sessions/3").expect("a path"),

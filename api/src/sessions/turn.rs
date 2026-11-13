@@ -20,6 +20,7 @@ use super::queue::TurnQueue;
 use super::scrub::Scrubber;
 use super::summary::{self, Digest};
 use super::views::SessionEvent;
+use crate::models::meeting_reads;
 use crate::models::session_event::{self, StoredEvent};
 use crate::models::{coding_session, session_turn};
 use crate::realtime::{ServerEvent, Signal};
@@ -45,13 +46,15 @@ impl Follower {
     /// Records and publishes `events` until the turn's last.
     pub async fn follow(self, mut events: mpsc::Receiver<RunnerEvent>) {
         let mut digest = Digest::default();
+        // Whether the turn has read a meeting, which only grows (`Self::record`).
+        let mut held_back = false;
         while let Some(runner_event) = events.recv().await {
             let runner_event = self.scrubber.scrub(runner_event);
             digest.observe(&runner_event);
             match &runner_event {
                 RunnerEvent::TurnStarted { .. } => self.started().await,
                 RunnerEvent::Finished(outcome) => {
-                    self.record(runner_event.clone()).await;
+                    self.record(runner_event.clone(), &mut held_back).await;
                     self.finished(outcome).await;
                     let Self {
                         queue,
@@ -73,7 +76,7 @@ impl Follower {
                 }
                 _ => {}
             }
-            self.record(runner_event).await;
+            self.record(runner_event, &mut held_back).await;
         }
         // The runner always sends `Finished` last; a channel that closes without it means the
         // runner itself went away, which only a panic inside it can cause.
@@ -92,7 +95,12 @@ impl Follower {
         self.grant.revoke().await;
     }
 
-    async fn record(&self, runner_event: RunnerEvent) {
+    /// Records `runner_event`, then announces it: whole, or by its ids alone once the turn has read
+    /// a meeting (`held_back`), since what it says and what its tools handed it can quote the
+    /// meeting, which only its readers read, and every client hears every event
+    /// (`models::meeting_reads`). Each client showing the conversation then loads its history,
+    /// which answers the turn to the meeting's readers alone.
+    async fn record(&self, runner_event: RunnerEvent, held_back: &mut bool) {
         let sequence = self.next_sequence().await;
         let occurred_at = Utc::now();
         let stored = StoredEvent {
@@ -102,10 +110,22 @@ impl Follower {
             event: runner_event,
         };
         let recorded = match self.queue.inner.sessions.inner.database.get().await {
-            Ok(mut connection) => session_event::record(&mut connection, self.session_id, &stored)
-                .await
-                .map_err(|error| error.to_string()),
-            Err(error) => Err(error.to_string()),
+            Ok(mut connection) => {
+                // A tool keeps what it read before it answers, so a turn is held from the event
+                // that carries a meeting's words, or from its start when it carries its
+                // session's earlier reading.
+                if !*held_back {
+                    *held_back = self.has_read_a_meeting(&mut connection).await;
+                }
+                session_event::record(&mut connection, self.session_id, &stored)
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+            Err(error) => {
+                // Nothing can tell whether the turn read a meeting, so it is held back.
+                *held_back = true;
+                Err(error.to_string())
+            }
         };
         if let Err(message) = recorded {
             event!(
@@ -117,19 +137,44 @@ impl Follower {
                 "could not record a session's event; it is shown live but missing from history",
             );
         }
-        let view = SessionEvent::new(
-            self.session_id,
-            sequence,
-            Some(self.turn_id),
-            occurred_at,
-            &stored.event,
-        );
-        self.queue
-            .inner
-            .sessions
-            .inner
-            .events
-            .publish(&ServerEvent::SessionEvent(Box::new(view)));
+        let announced = if *held_back {
+            ServerEvent::SessionEventHeld {
+                session_id: self.session_id,
+                sequence,
+            }
+        } else {
+            ServerEvent::SessionEvent(Box::new(SessionEvent::new(
+                self.session_id,
+                sequence,
+                Some(self.turn_id),
+                occurred_at,
+                &stored.event,
+            )))
+        };
+        self.queue.inner.sessions.inner.events.publish(&announced);
+    }
+
+    /// Whether the turn has read a meeting (`models::meeting_reads`). A database that cannot say
+    /// answers yes, so nothing is announced that may quote one.
+    async fn has_read_a_meeting(&self, connection: &mut diesel_async::AsyncPgConnection) -> bool {
+        let reading = meeting_reads::Turn::Session {
+            session_id: self.session_id,
+            turn_id: self.turn_id,
+        };
+        match meeting_reads::of_turn(connection, reading).await {
+            Ok(read) => !read.is_empty(),
+            Err(error) => {
+                event!(
+                    name: "sessions.event.reading_unknown",
+                    Level::WARN,
+                    session.id = self.session_id,
+                    turn.id = %self.turn_id,
+                    error.message = %error,
+                    "could not read whether a turn read a meeting; its events are announced by id",
+                );
+                true
+            }
+        }
     }
 
     /// The session's next sequence. The first turn after the API starts reads where the
@@ -263,3 +308,6 @@ impl Follower {
         artifacts::collect(services, source).await;
     }
 }
+
+#[cfg(test)]
+mod tests;

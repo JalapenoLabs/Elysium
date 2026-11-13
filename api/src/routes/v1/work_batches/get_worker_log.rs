@@ -13,12 +13,13 @@ use uuid::Uuid;
 
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::work_batch::worker;
+use crate::models::meeting::Reader;
+use crate::models::work_batch::{self, worker};
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
-    _member: MemberUser,
+    MemberUser(member): MemberUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -27,6 +28,9 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
+    // The log quotes the batch, so one written from a meeting the person may not read answers 404
+    // (`models::meeting_reads`).
+    work_batch::find_readable(&mut connection, id, Reader::of(&member)).await?;
     let log = worker::log(&mut connection, id).await?;
     Ok(Json(json!({ "log": log })))
 }

@@ -22,7 +22,12 @@ import {
   connectorUpserted,
 } from '../store/connectorsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
-import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
+import {
+  elysiaMessageCreated,
+  elysiaTurnRemoved,
+  elysiaTurnUpserted,
+  elysiaUpdated,
+} from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
@@ -44,7 +49,12 @@ import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { backupsStatusUpdated } from '../store/backupsSlice'
 import { eventStreamLost, eventStreamOpened, eventStreamStopped } from '../store/realtimeSlice'
 import { runLoaded, selectRunById, selectStepLog, stepLogLoaded } from '../store/runsSlice'
-import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
+import {
+  selectSessionTimeline,
+  sessionEventReceived,
+  sessionHistoryLoaded,
+  turnSummaryReceived,
+} from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
@@ -60,6 +70,8 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
+import { getSessionEventsKey, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { getElysiaTurn } from '../api/routes/elysiaRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { AGENT_GUIDANCE_KEY } from '../api/routes/agentGuidanceRoutes'
@@ -125,6 +137,54 @@ function readRunningBuild() {
   getVersion()
     .then((version) => store.dispatch(buildRead(version.builtAt)))
     .catch((error: unknown) => console.debug('The running build could not be read', { error }))
+}
+
+// How long a session's conversation waits before it reads what a turn held back to a meeting's
+// readers reported, so a turn reporting many events is read a few times, not once each.
+const HELD_SESSION_RELOAD_DELAY_MS = 1_000
+
+// The sessions whose conversations are about to catch up.
+const heldSessionReloads = new Set<number>()
+
+// Catches session `sessionId`'s conversation up soon, once however many held events arrive
+// meanwhile. Its loader answers each turn only to whoever may read every meeting it read.
+function reloadHeldSessionSoon(sessionId: number) {
+  if (heldSessionReloads.has(sessionId)) {
+    // A read is already on its way, which reads this event too.
+    return
+  }
+  heldSessionReloads.add(sessionId)
+  window.setTimeout(() => {
+    heldSessionReloads.delete(sessionId)
+    void catchUpSession(sessionId)
+  }, HELD_SESSION_RELOAD_DELAY_MS)
+}
+
+// Reads what session `sessionId`'s open conversation lacks: the events after the last one it holds,
+// and the summaries, merged as its history is. One not open reads it all when it opens, and one
+// holding no event yet loads its history whole.
+async function catchUpSession(sessionId: number) {
+  const timeline = selectSessionTimeline(store.getState(), sessionId)
+  if (!timeline?.isHistoryLoaded) {
+    console.debug('No open conversation to catch up; it reads its history when it opens', { sessionId })
+    return
+  }
+  const lastHeld = timeline.events.at(-1)
+  if (!lastHeld) {
+    void mutate(getSessionEventsKey(sessionId))
+    return
+  }
+  try {
+    const history = await listSessionEvents(sessionId, lastHeld.sequence)
+    // `truncated` here says more followed, not that older events were left out.
+    store.dispatch(sessionHistoryLoaded({ sessionId, history: { ...history, truncated: false }}))
+    if (history.truncated) {
+      reloadHeldSessionSoon(sessionId)
+    }
+  }
+  catch (error) {
+    console.debug('A conversation could not catch up on its held events', { sessionId, error })
+  }
 }
 
 // Whether the next `hello` reloads what is on screen. Events sent while no stream listened are
@@ -464,6 +524,20 @@ const handlers: Handlers = {
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
   'elysiaMessage.created': (event) => store.dispatch(elysiaMessageCreated(event.data)),
   'elysiaTurn.upserted': (event) => store.dispatch(elysiaTurnUpserted(event.data)),
+  // A turn that read a meeting, whose summary only that meeting's readers read: loaded by id, and
+  // dropped when this person may not read it.
+  'elysiaTurn.changed': (event) => {
+    const turnId = event.data.id
+    getElysiaTurn(turnId)
+      .then((response) => store.dispatch(elysiaTurnUpserted(response.turn)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(elysiaTurnRemoved(turnId))
+          return
+        }
+        console.debug('A changed Elysia turn could not be loaded', { error, turnId })
+      })
+  },
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),
@@ -491,6 +565,12 @@ const handlers: Handlers = {
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
+  // A summary only a meeting's readers read: an open conversation catches up, reading the
+  // summaries with what followed, which answer it to them alone.
+  'session.summaryChanged': (event) => reloadHeldSessionSoon(event.data.sessionId),
+  // An event of a turn that read a meeting, which only its readers read: an open conversation
+  // catches up on what followed its last event, which answers the turn to them alone.
+  'session.eventHeld': (event) => reloadHeldSessionSoon(event.data.sessionId),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

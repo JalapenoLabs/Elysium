@@ -341,6 +341,7 @@ mod tests {
     fn scope() -> CallScope {
         CallScope::Session(SessionScope {
             session_id: 7,
+            turn_id: Uuid::now_v7(),
             project_id: None,
             action_item_id: None,
             directory: WorkspacePath::new("sessions/7").expect("a path"),

@@ -3,7 +3,9 @@
 //! `GET /api/v1/work-queue`: the worker pool and every batch holding a slot or waiting for one,
 //! in the order the pool hands them slots, and every batch proposed, waiting for a person, each
 //! with what its chain starts from (`crate::models::work_batch::why`). Members only, as every
-//! batch's route is. See `crate::worker_pool::queue` and `docs/engine.md`, Workers and the pool.
+//! batch's route is, and without the batches written from a meeting they may not read
+//! (`crate::models::meeting_reads`), though the pool's count of slots in use still counts them.
+//! See `crate::worker_pool::queue` and `docs/engine.md`, Workers and the pool.
 
 use std::collections::HashMap;
 
@@ -20,6 +22,7 @@ use crate::agent_configuration::Hold;
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
 use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::work_batch::lineage::Origin;
 use crate::models::work_batch::why::{self, Link, Why};
 use crate::models::work_batch::{BatchState, Priority, WorkBatch};
@@ -39,19 +42,14 @@ async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let queue = queue::read(&mut connection, Utc::now()).await?;
-    // Every list's chains in one read, rather than a read per row.
-    let listed: Vec<&WorkBatch> = [
-        &queue.in_slots,
-        &queue.next,
-        &queue.scheduled,
-        &queue.paused,
-        &queue.proposed,
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let whys = why::read_many(&mut connection, &listed, Reader::of(&member)).await?;
+    let reader = Reader::of(&member);
+    let mut queue = queue::read(&mut connection, Utc::now()).await?;
+    // Every list's holds, then its chains, in one read each, rather than a read per row.
+    let every: Vec<&WorkBatch> = queue.batches().collect();
+    let readable = meeting_reads::readable_batches(&mut connection, &every, reader).await?;
+    queue.retain(|batch| readable.contains(&batch.id));
+    let listed: Vec<&WorkBatch> = queue.batches().collect();
+    let whys = why::read_many(&mut connection, &listed, reader).await?;
     Ok(Json(
         json!({ "workQueue": QueueResponse::new(queue, &whys) }),
     ))

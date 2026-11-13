@@ -59,6 +59,8 @@ use crate::agent_configuration::{self, Hold};
 use crate::database::Pool;
 use crate::models::action_item_link::LinkProvider;
 use crate::models::draft;
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::project_manager::{self, ProjectManager, Turn, TurnStatus, Wake};
 use crate::models::promise::{self, Promise};
 use crate::models::timeline_record::{self, TimelineRecord};
@@ -157,28 +159,42 @@ pub struct TrackerSnapshot {
     pub credential_name: String,
 }
 
-/// Reads `project_id`'s Project Manager and derives its status.
+/// Reads `project_id`'s Project Manager as `reader` sees it, and derives its status. Its turns and
+/// promises are those `reader` may read: one that read a meeting they may not read is held back
+/// (`models::meeting_reads`). Its status reads every turn, which says nothing of what one read.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn snapshot(
     connection: &mut AsyncPgConnection,
     project_id: Uuid,
+    reader: Reader,
 ) -> diesel::QueryResult<Snapshot> {
     let state = project_manager::find(connection, project_id).await?;
     let waiting = project_manager::waiting_count(connection, project_id).await?;
-    let turns = project_manager::list_turns(connection, project_id, TURNS_SHOWN).await?;
+    let latest = project_manager::list_turns(connection, project_id, TURNS_SHOWN).await?;
+    let turns =
+        project_manager::readable_turns(connection, project_id, reader, TURNS_SHOWN).await?;
     let turn_ids: Vec<Uuid> = turns.iter().map(|turn| turn.id).collect();
-    let batches = work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
-    let proposed = work_batch::list_for_project(
+    let mut batches =
+        work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
+    let mut proposed = work_batch::list_for_project(
         connection,
         project_id,
         &[BatchState::Proposed],
         work_batch::MAX_BATCH_PAGE,
     )
     .await?;
-    let made = promise::list_for_project(connection, project_id, &[], PROMISES_SHOWN).await?;
+    // A batch is held back with the turn that submitted it, whose words its title and goal carry.
+    let listed: Vec<&WorkBatch> = batches.iter().chain(&proposed).collect();
+    let readable_batches = meeting_reads::readable_batches(connection, &listed, reader).await?;
+    batches.retain(|batch| readable_batches.contains(&batch.id));
+    proposed.retain(|batch| readable_batches.contains(&batch.id));
+    let mut made = promise::list_for_project(connection, project_id, &[], PROMISES_SHOWN).await?;
     let record_ids: Vec<Uuid> = made.iter().map(|made| made.timeline_record_id).collect();
+    // A promise is what was said where it was made, so it is held back with that record.
+    let readable = meeting_reads::readable_among(connection, &record_ids, reader).await?;
+    made.retain(|made| readable.contains(&made.timeline_record_id));
     let mut records: HashMap<Uuid, TimelineRecord> =
         timeline_record::find_many(connection, &record_ids)
             .await?
@@ -201,7 +217,7 @@ pub async fn snapshot(
 
     let configuration_hold = agent_configuration::current_hold(connection).await?;
     let status = status::derive(&StatusInputs {
-        is_running: turns
+        is_running: latest
             .first()
             .is_some_and(|turn| turn.status == TurnStatus::Running),
         waiting,
@@ -209,7 +225,7 @@ pub async fn snapshot(
             .as_ref()
             .and_then(|manager| manager.usage_paused_until),
         configuration_held: configuration_hold.is_some(),
-        last_turn_failed: turns
+        last_turn_failed: latest
             .iter()
             .find(|turn| turn.status != TurnStatus::Running)
             .is_some_and(|turn| turn.status == TurnStatus::Failed),

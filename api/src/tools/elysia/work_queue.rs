@@ -10,7 +10,7 @@
 //! checked, written to the batch's history as hers, and announced exactly as a person's is. A
 //! batch she cancels wakes its Project Manager with her reason.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
@@ -18,11 +18,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::models::meeting::Reader;
+use crate::models::meeting_reads;
 use crate::models::project;
 use crate::models::user::ELYSIA_USER_ID;
 use crate::models::work_batch::{ChangeError, Changes, Priority, RESULT_MAX_CHARACTERS, WorkBatch};
-use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments};
-use crate::worker_pool::{actions, queue};
+use crate::tools::{
+    CallScope, ToolContext, ToolError, internal, keep_batches_read, parse_arguments,
+};
+use crate::worker_pool::actions;
+use crate::worker_pool::queue::{self, Queue};
 
 pub fn queue_schema() -> Value {
     json!({ "type": "object", "properties": {}, "additionalProperties": false })
@@ -116,28 +121,43 @@ pub async fn run_queue(
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    read_queue(&mut connection, Utc::now())
+    let waiting = queue::read(&mut connection, Utc::now())
+        .await
+        .map_err(|error| internal(scope, "elysia.work_queue", &error))?;
+    // A batch written from a meeting not every member may read is listed without its title, so
+    // browsing the queue holds back nothing her turn writes; changing or cancelling one answers
+    // it whole, which does (`models::meeting_reads`).
+    let listed: Vec<&WorkBatch> = waiting.batches().collect();
+    let open = meeting_reads::readable_batches(&mut connection, &listed, Reader::ANY_MEMBER)
+        .await
+        .map_err(|error| internal(scope, "elysia.work_queue.open", &error))?;
+    let whole: Vec<&WorkBatch> = listed
+        .into_iter()
+        .filter(|batch| open.contains(&batch.id))
+        .collect();
+    keep_batches_read(&mut connection, scope, &whole).await?;
+    queue_view(&mut connection, &waiting, &open)
         .await
         .map_err(|error| internal(scope, "elysia.work_queue", &error))
 }
 
-/// The queue as she reads it, for [`run_queue`].
-async fn read_queue(
+/// `waiting` as she reads it, for [`run_queue`]: each batch among `open` whole, and every other
+/// one without its title.
+async fn queue_view(
     connection: &mut AsyncPgConnection,
-    now: DateTime<Utc>,
+    waiting: &Queue,
+    open: &HashSet<Uuid>,
 ) -> diesel::QueryResult<Value> {
-    let waiting = queue::read(connection, now).await?;
     let projects: HashMap<Uuid, String> = project::list(connection)
         .await?
         .into_iter()
         .map(|project| (project.id, project.name))
         .collect();
     let view = |batch: &WorkBatch| {
-        json!({
+        let mut view = json!({
             "batchId": batch.id,
             "projectId": batch.project_id,
             "project": projects.get(&batch.project_id),
-            "title": batch.title,
             "priority": batch.priority,
             "scheduledFor": batch.scheduled_for,
             "state": batch.state,
@@ -145,7 +165,13 @@ async fn read_queue(
             "origin": batch.origin,
             "generation": batch.generation,
             "submittedAt": batch.created_at,
-        })
+        });
+        if open.contains(&batch.id) {
+            view["title"] = json!(batch.title);
+        } else {
+            view["fromPrivateMeeting"] = json!(true);
+        }
+        view
     };
     Ok(json!({
         "pool": {
@@ -200,6 +226,7 @@ pub async fn run_change(
     .map_err(|error| {
         refused_or_internal(scope, "elysia.change_batch", arguments.batch_id, error)
     })?;
+    keep_batches_read(&mut connection, scope, &[&batch]).await?;
     Ok(json!({ "batch": batch_view(&batch) }))
 }
 
@@ -227,6 +254,7 @@ pub async fn run_cancel(
     .map_err(|error| {
         refused_or_internal(scope, "elysia.cancel_batch", arguments.batch_id, error)
     })?;
+    keep_batches_read(&mut connection, scope, &[&batch]).await?;
     Ok(json!({
         "batch": batch_view(&batch),
         "note": "Cancelled. Its Project Manager is told why on its next turn.",
@@ -356,7 +384,16 @@ mod tests {
         .expect("submitted")
         .batch;
 
-        let answer = read_queue(&mut connection, Utc::now())
+        let read = queue::read(&mut connection, Utc::now())
+            .await
+            .expect("reads");
+        // The proposal stands for one written from a meeting not every member may read.
+        let open: HashSet<Uuid> = read
+            .batches()
+            .map(|batch| batch.id)
+            .filter(|id| *id != waiting.id)
+            .collect();
+        let answer = queue_view(&mut connection, &read, &open)
             .await
             .expect("reads");
         assert_eq!(answer["next"][0]["batchId"], json!(ids[1]), "ASAP first");
@@ -365,6 +402,9 @@ mod tests {
         assert_eq!(answer["inSlots"], json!([]));
         assert_eq!(answer["proposed"][0]["batchId"], json!(waiting.id));
         assert_eq!(answer["proposed"][0]["state"], "proposed");
+        assert_eq!(answer["proposed"][0]["fromPrivateMeeting"], true);
+        assert!(answer["proposed"][0].get("title").is_none());
+        assert!(answer["next"][0]["title"].is_string());
         assert_eq!(answer["next"].as_array().map(Vec::len), Some(2));
     }
 }
