@@ -9,8 +9,8 @@
 //! `404` for a meeting they may not read, `403` `owner_only` for anyone but its owner; `409`
 //! `meeting_processing` while a run of it is going
 //! or held, `meeting_run_failed` while one failed and waits for its person,
-//! `meeting_not_segmented` before its first segmenting, and `meeting_merged` for one merged into
-//! another.
+//! `meeting_not_segmented` before its first segmenting, `meeting_merged` for one merged into
+//! another, and `meeting_deleted` while it is deleted.
 
 use anyhow::Context;
 use axum::Json;
@@ -19,7 +19,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, merged_refusal, open, response};
+use super::{MeetingEventResponse, announce, deleted_refusal, merged_refusal, open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -51,6 +51,7 @@ pub async fn handle(
                 message: "This meeting is segmented for the first time once its run gets there.",
             },
             ReviewError::Merged => merged_refusal(),
+            ReviewError::Deleted => deleted_refusal(),
             ReviewError::Input(error) => ApiError::Internal(error),
             ReviewError::Database(error) => error.into(),
         })?;

@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce_lined_up, open};
+use super::{MeetingEventResponse, announce_lined_up, deleted_refusal, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -65,6 +65,7 @@ pub async fn handle(
             code: "offset_out_of_range",
             message: "An offset is at most twelve hours either way.".to_owned(),
         },
+        NudgeError::Deleted => deleted_refusal(),
         NudgeError::Database(database) => database.into(),
         NudgeError::Transcript(other) => other.into(),
     })?;

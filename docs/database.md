@@ -345,7 +345,9 @@ Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connec
 item is recorded once per connector, and on `(turn_summary_session_id, turn_summary_turn_id)`, so a turn summary is
 one record. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was ingested, as the company
 doc's review does. A meeting's excerpts, and so the projects a meeting's excerpts are on, which listing meetings reads,
-are found through their marks (`excerpt_mark_id`, unique).
+are found through their marks (`excerpt_mark_id`, unique). Deleting a meeting finds its records, its excerpts' and the
+topics it was cut into before excerpts that name no mark, by the meeting their metadata names
+(`timeline_records_by_meeting`, on `metadata ->> 'meetingId'` where `source_kind` is `meeting`).
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
@@ -364,6 +366,7 @@ are found through their marks (`excerpt_mark_id`, unique).
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
 | `turn_summary_session_id`, `turn_summary_turn_id` | `BIGINT`, `UUID` | Together reference `turn_summaries`, cascading: the summary a `turn_summary` record is. Set on that kind alone, both or neither (`timeline_records_turn_summary_kind`) |
 | `excerpt_mark_id`      | `UUID`        | Unique; references `meeting_marks`: the excerpt a meeting's record is (`docs/meetings.md`, Excerpts and black-outs); `NULL` for every other record, and for a meeting's record that names none of its words |
+| `deleted_at`           | `TIMESTAMPTZ` | When it was deleted with what it came from, while it is: a meeting's excerpt, stamped with its meeting's `deleted_at`. On no timeline and out of the index; restoring the meeting clears it on the records that stamp names |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
 reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,
@@ -768,6 +771,7 @@ said was kept private (`meetings_visibility_items`).
 | `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
 | `visibility`             | `TEXT`        | Who reads it besides its owner, the people it is shared with, and admins: `unchecked` (new, private until its correction decides; the default), `private`, or `public` (every member) |
 | `visibility_item_id`     | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item telling its owner its correction kept it private |
+| `deleted_at`             | `TIMESTAMPTZ` | When its owner or an admin deleted it, while it is; `NULL` once restored. Who did either is in `meeting_events` |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
@@ -927,7 +931,7 @@ meeting; `meeting_events_of_meeting` on `(meeting_id, id)` reads one meeting's h
 |-----------------------|---------------|-------------------------------------------------------------------|
 | `id`                  | `UUID`        | UUIDv7, primary key; orders entries as they were written          |
 | `meeting_id`          | `UUID`        | References `meetings`, cascading                                  |
-| `kind`                | `TEXT`        | `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, or `thread_reopened`; text, so a later kind needs no migration |
+| `kind`                | `TEXT`        | `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`, `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`, `deleted`, or `restored`; text, so a later kind needs no migration |
 | `created_by`          | `UUID`        | References `users`: who made the change, a person or the system   |
 | `agent`, `agent_name` | `TEXT`        | The agent acting for them, as on `page_events`                    |
 | `data`                | `JSONB`       | A JSON object shaped by `kind`, and `undid` for an undo           |

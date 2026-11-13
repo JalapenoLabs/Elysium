@@ -22,7 +22,8 @@ black-outs, which people change as they review, and Done reviewing reads the mee
 black-outs, and Done reviewing, below). A meeting recorded twice is merged only when its person says so (The same
 meeting twice, below). Every change to a meeting is in its history, and undoable (History, below). Every member reads
 a public meeting, and a private one is read by its owner, the people it is shared with, and admins; its correction
-decides which a new meeting is (Who reads a meeting, below).
+decides which a new meeting is (Who reads a meeting, below). Its owner or an admin deletes a meeting, one, many, or
+with its connector, softly, and restores it with everything it took (Deleting, below).
 How meetings become reviewed documents of the knowledge base is designed in `docs/meeting-review.md`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
@@ -191,12 +192,11 @@ connector read are its connector's again, so resuming it reads none of them twic
 
 Every capture a source read belongs to a connector (`connectors`), the same table mailboxes use.
 `UNIQUE (connector_id, external_id)` on both `meeting_captures` and `timeline_records` is what keeps a meeting, and each
-of its excerpts, from being recorded twice: each excerpt's record is named by its mark (`excerpt:<mark id>`), whatever
-capture its connector is. What keeps two attempts at segmenting from taking a meeting twice is that segmenting takes a
-meeting's excerpts under the meeting's lock, in the transaction that marks it done, and takes nothing for a meeting
-done. A listing that stored meetings, and a
-meeting whose excerpts were taken, is a run of its connector, and a connector is `syncing` while a meeting of its
-is fetched or segmented.
+of its excerpts, from being recorded twice, a deleted meeting included (Deleting, below): each excerpt's record is
+named by its mark (`excerpt:<mark id>`), whatever capture its connector is. What keeps two attempts at segmenting from
+taking a meeting twice is that segmenting takes a meeting's excerpts under the meeting's lock, in the transaction that
+marks it done, and takes nothing for a meeting done. A listing that stored meetings, and a meeting whose excerpts were
+taken, is a run of its connector, and a connector is `syncing` while a meeting of its is fetched or segmented.
 
 ## Meetings and captures
 
@@ -209,6 +209,10 @@ is fetched or segmented.
   removed, an undo, an approval, a hold, and Done reviewing are each refused under the meeting's lock, the lock a
   merge takes, with `409 meeting_merged`, and Elysia's edit tool is told the same. Its merge and a split of it are
   undone from the meeting kept.
+- **A meeting deleted** keeps when (`deleted_at`) until its owner or an admin restores it: it is listed only among the
+  deleted meetings they may restore, processed no further, and takes no change, each route answering `409
+  meeting_deleted` under the meeting's lock, while its own page still opens to its readers, saying so, with Restore for
+  whoever may restore it (Deleting, below).
 - **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
   Fireflies meeting, a Teams recording, a Slack huddle), or a person's upload (Uploads, below). It keeps what its source
   gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
@@ -300,9 +304,10 @@ new meeting is private to its owner until its correction reads it and decides.
   in `last_error`. The listing writes only its own `since` into the cursor, merged over what is stored
   (`connector::record_poll`), so a Teams connector's chat reader keeps its own keys beside it; the two share the
   connector's sign-in state and last error, so each read reports the latest it saw.
-- **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
-  by the system user (`workflow::run_to_start`). An upload's run is started by its person, as the upload finishes, in
-  the transaction that stores its meeting, so the loop never starts one of its own for it (Uploads, below). The same
+- **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done`, neither merged away nor deleted,
+  that needs a run gets one, started by the system user (`workflow::run_to_start`). An upload's run is started by its
+  person, as the upload finishes, in the transaction that stores its meeting, so the loop never starts one of its own
+  for it (Uploads, below). The same
   pass removes every upload no part reached for a week (`meeting_uploads::STALE_AFTER`), and what of it arrived, and
   the parts of finished uploads that no longer need them (Uploads, below).
 
@@ -818,7 +823,8 @@ them on its own (`api/src/meetings/duplicates.rs`).
   aligning for the answer, so a duplicate never publishes excerpts of its own. Items are the whole workspace's, so it
   carries each title only while its meeting is public, and nothing that was said; the item's page shows both.
 - **Only the person's own meetings** are compared; comparing everyone's, now that meetings are the company's, is on the
-  roadmap.
+  roadmap. A deleted meeting is compared with none, and a pair holding one merges into nothing (`409 meeting_deleted`)
+  until it is restored.
 - **Merge** (`POST /api/v1/meetings/duplicates/{id}/merge`) moves the meeting's captures into the other, each placed
   on its clock from when the two meetings started, after its own captures. Every edit made on the merged meeting is
   carried across with its words, the words it replaced, and its mark, the other's transcript is lined up again keeping
@@ -841,6 +847,78 @@ them on its own (`api/src/meetings/duplicates.rs`).
 - **On the item's page** (`SameMeetingPanel`, reading `GET /api/v1/meetings/duplicates?itemId=`): both meetings,
   each linking to its page, with Merge and Not the same until the person answers, and what they answered after.
 
+## Deleting
+
+A meeting's owner or an admin deletes it, one, many, or with the connector that read them, and restores it
+(`api/src/meetings/deletion.rs`, `POST /api/v1/meetings/bulk`). Nothing is deleted for good yet, so deleting is soft and
+immediate, and restoring brings back all of it.
+
+- **What it takes.** The meeting keeps when it was deleted (`meetings.deleted_at`) and leaves every list: the Meetings
+  page, the tree, every project's brief, and the knowledge base's meetings. Its excerpts' records go with it, each
+  stamped with the meeting's own `deleted_at` (`timeline_records.deleted_at`): off every project's timeline and the
+  person's own, out of every Project Manager's reading and the company doc's review, and out of the knowledge index with
+  their comment threads, each keeping its attributions and their history. So do the topics it was cut into before
+  excerpts that no word of it could anchor, which name no mark and are still on their projects; both are found by the
+  meeting their metadata names (`timeline_records_by_meeting`). An excerpt its person removed is on no project and out
+  of the index already, and stays as it is. Its whole transcript's document leaves the index too, and the backfill
+  leaves it out (`excerpts::index_transcript`), so its files and frames, which are indexed only in that document and in
+  the excerpts they are pinned over, leave search with them; nothing indexes a deleted record or a deleted meeting's
+  transcript again until it is restored (`timeline_record::index`, `excerpts::refresh`). Its tasks are nobody's to act
+  on meanwhile: no Project Manager is handed one (`meeting_task::standing_for_project`), its page lists none, and an
+  item made of one opens no task, while the items already made stand. Its recording, its clips, its transcripts, its
+  files and frames, and its marks stay where they are, as a deleted page keeps its files (`docs/knowledge.md`, Pages).
+- **Its run stops.** Every step of the meeting workflow, and of the alignment workflow a merge or a split starts, fails
+  for good on a deleted meeting with one reason, "This meeting was deleted, so its run stopped here", read at the step's
+  start and again under the meeting's lock where it would settle words, raise an inbox item, or take excerpts:
+  correction settles nothing, or keeps the copy it settled but asks nobody to review it, aligning asks nothing about a
+  meeting recorded twice, and segmenting keeps what it read but takes no excerpt. The deletion takes the same lock, so
+  no excerpt of a deleted meeting is ever on a timeline. Done reviewing a deleted meeting is refused (`409
+  meeting_deleted`), as every change is. A run held for its person (an approval, or the same meeting twice) stays held,
+  and a meeting with no run yet starts none. The inbox items already asking its own person to decide something about it
+  (to approve its corrected transcript while the copy waits, and whether to open it once its correction kept it private)
+  are dismissed, as whoever deletes it, in the deletion's transaction (`deletion::dismiss_asks`); the `deleted` entry
+  names each and where it stood (`dismissedItems`), and restoring returns each still dismissed there, to the inbox it
+  was raised in or to open (`action_item::return_to`, as a changeset's undo returns an item). One the person dealt with
+  by hand meanwhile stays as they left it. Other items about it stay: a mention is the coworker's own and opens the
+  deleted meeting read only, the item asking whether it is the same meeting as another answers Merge with
+  `meeting_deleted` and still takes Not the same, and the items made of its tasks are commitments that stand. A step
+  running when the meeting was deleted finishes its attempt, and the step after it stops.
+- **Never read again.** Its captures stay, so its connector's next listing finds each one known
+  (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
+  its key or its browser, Teams, and Slack's huddles alike. An upload is never listed; a deleted meeting takes no
+  upload of a capture, and an upload finishing into it is refused (`409 meeting_deleted`). A connector removed and added
+  again is a new connector, and reads its first two weeks again as any new one does.
+- **Restoring** clears the meeting's `deleted_at`, brings back exactly the records its deletion stamped, each indexed
+  again as it reads now, indexes its transcript again, and carries its run on: the failed step of its newest run of
+  each meeting workflow that failed after the deletion is retried as the person restoring it, whatever it failed with,
+  since nobody saw a meeting that was listed nowhere. A run that failed before the deletion waits for its person as it
+  did, so a meeting that failed and was deleted comes back failed. Its excerpts wake no Project Manager, since none is
+  newly on a project. A step that read the meeting deleted an instant before it was restored fails anyway; Retry
+  carries it on, as for any failed run.
+- **Who, and which meetings.** Deleting and restoring take what managing a meeting takes, its owner or an admin
+  (`docs/meeting-review.md`, Who sees a meeting): a meeting is opened as every meeting route opens it
+  (`access::open` with `Need::Manage`), then locked. One its reader may not read is refused as `not_found`, and one they
+  read but may not manage as `owner_or_admin`. Every reader still opens a deleted meeting they read, read only, with
+  Restore for whoever may restore it; the Deleted filter lists the deleted meetings its reader may restore, their own
+  or, for an admin, every one (`meeting::list_deleted`). A meeting merged into another is refused (`meeting_merged`):
+  it holds no captures, which live on in the meeting kept, and that is the one to delete. A meeting whose connector was
+  removed is deleted like any other.
+- **Many at once.** One change names at most 1000 meetings (`deletion::MAX_MEETINGS`), each written in a savepoint of
+  one transaction in the order of their ids, as a bulk change to action items is: one refused (not found, not theirs to
+  change, merged away, deleted already, or not deleted) is answered with its reason while the rest apply.
+- **With its connector.** Removing a connector that provides meetings may delete the meetings it listed: those whose
+  first capture it read, neither deleted nor merged away (`meeting::listed_by`), the same ones
+  `GET /api/v1/connectors/{id}/meeting-count` counts for the removal's switch. The removal reaches outside Postgres (a
+  browser's container goes with it), so the two cannot share a transaction: the meetings go first, while the connector
+  still names them, in parts of at most `MAX_MEETINGS`, each its own change; then the connector goes. A part or a
+  removal that fails restores the meetings that request deleted, so it leaves the connector and its meetings as they
+  were, to be tried again. Each is recorded as removed with it (`connectorId`), and restored like any other.
+- **History.** Deleting and restoring are each a change in the meeting's history, `deleted` and `restored`, with who
+  did it, and while it is deleted nothing changes it, its visibility and shares included (`409 meeting_deleted`). Neither is undone through the history: restoring is a deletion's undo, and deleting again a restore's.
+- **What is told.** `meeting.changed` for each meeting, naming its entry, and `timelineRecord.changed` for each record
+  that left or came back, so a timeline holding it drops it, its load by id answering `404`, or loads it again. A
+  deleted meeting's page reads each excerpt's projects from its transcript, since its record loads no more.
+
 ## Uploads
 
 A person uploads their own meetings: an OBS recording, an audio file, an old transcript. An upload is a capture like any
@@ -854,7 +932,8 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   `GET /api/v1/meeting-uploads/policy`, so the web app refuses a file before it is sent, and the API refuses again.
 - **A new meeting or a capture.** A new meeting names its title and when it started; a capture names a meeting its
   person has, whose run must be done, since a meeting holds one run at a time: `409 meeting_processing` while it is
-  going or held, and `409 meeting_run_failed` while it failed, until its person retries or skips it.
+  going or held, and `409 meeting_run_failed` while it failed, until its person retries or skips it; a deleted meeting
+  takes none (`409 meeting_deleted`), checked again under its lock as the upload finishes.
 - **Where the recording goes.** A storage location the person chooses, offered first as the one the owner already keeps
   meetings in: the meeting's first recording's for a capture, otherwise their oldest meeting source's. A transcript
   alone keeps nothing in storage.
@@ -1102,6 +1181,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept, moved onto new words, and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
 | `attached`, `detached` | A file or frame put on the meeting or taken off: the attachment, its kind and name, and the pins that went with it | Takes it off with its pins, or puts it back with them, while it is still as that change left it |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
+| `deleted`             | Its owner or an admin deleted it: how many excerpts' records went with it (`excerpts`), the connector it was removed with, if it was, and each inbox item asking about it that it dismissed, with the state it left (`dismissedItems`) | None: restoring brings it back |
+| `restored`            | Its owner or an admin restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`excerpts`), whether the run that deletion stopped went on, and the items it returned to where they stood (`returnedItemIds`) | None: deleting takes it again |
 
 ## Comments
 
@@ -1291,12 +1372,19 @@ an excerpt's clip for its record's owner.
   to its connector while there is one; its state (as its run says: failed with why, skipped, or how far it got), that
   its run waits for the person's approval, or that a finished one was published from its transcript alone; the projects
   its excerpts are on; when it started, how long it ran, and how many excerpts it has. A failed meeting of the person's
-  own has Retry, which retries its run's failed step at once. The filters live in the address
-  (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed to it (`?project=`): source
+  own has Retry, which retries its run's failed step at once. A meeting its owner or an admin may delete has Delete
+  among its row's hover actions, and selecting rows offers Delete on the floating bar (`~/.claude/docs/ux.md`, Table
+  multi-select, which the kit turns off on a phone), which leaves out and names any of the selection they may not
+  delete; either deletes at once, with Undo in its toast (Deleting, above). The Deleted filter lists the deleted meetings
+  they may restore in place of the rest (`GET /meetings?deleted=true`), each row and the bar offering Restore, each row
+  reading its state as Deleted and naming the projects its excerpts were on, which restoring puts them back on. The
+  filters live in the address (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed
+  to it (`?project=`): source
   (every kind that provides meetings, such as Fireflies, Teams, and Slack's huddles, then any other source a meeting
   came from, named as the source column names it, `meetingSourceNameKey`), state, project or none, and waiting for
-  review. The header counts the meetings waiting for review, and holds Upload a meeting, which opens the upload
-  (`/knowledge/meetings/new`, Uploads, below), and one action, which opens Settings, Meetings. With no source
+  review, and deleted meetings instead of the rest. The header counts the meetings waiting for review, and holds Upload
+  a meeting, which opens the upload (`/knowledge/meetings/new`, Uploads, below), and one action, which opens Settings,
+  Meetings. With no source
   connected, an empty page links there.
 - **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section as Meeting sources,
   `MeetingsPage`): where the person's meetings come from, and nothing else, since meetings are daily work and live in
@@ -1329,7 +1417,8 @@ an excerpt's clip for its record's owner.
     it is corrected unless its source already waits, Done reviewing once it was segmented (Done reviewing, above), and
     Add a recording or transcript (Uploading, below); and its run, for a company member. A reader who may not edit it (a
     guest it is shared with) reads it as a meeting merged away reads (below), and Undo shows on a change only to whoever
-    may undo it.
+    may undo it. Delete, last in its actions menu, for its owner and admins, deletes at once and leaves for the Meetings
+    page, its toast's Undo restoring the meeting and coming back to its page.
   - **Captures** (`MeetingCaptures`, under Recordings in the options). Each capture names its source, where it starts
     on the meeting's clock (with the meeting, so long into it, or so long before it), and how that was found: as its
     source listed it, lined up by its audio or its words, or set by hand. Move (`CaptureOffsetEditor`), for its owner,
@@ -1349,6 +1438,10 @@ an excerpt's clip for its record's owner.
     meeting it was merged into (`isReadOnly` in `MeetingWorkspace`). It holds no capture, so it lists none. The routes
     refuse the same changes (`meeting_merged`, Meetings and captures above), so a tab that had not heard of the merge is
     refused too.
+  - **A meeting deleted** opens as its own page too, to whoever reads it, read only in the same way, saying when it was
+    deleted, with Restore for its owner and admins (`DeletedMeetingNotice`); its actions keep its run alone, saying it
+    changes once restored, and by whom for anyone else; who reads it shows, changing nothing; and the routes refuse its
+    changes (`meeting_deleted`). Its recordings still play.
   - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
     at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
     paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
@@ -1467,11 +1560,11 @@ an excerpt's clip for its record's owner.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, who reads it changed, a file or frame was attached, stored, read, pinned, unpinned, or taken off, or a Project Manager said why it made no item of one of its tasks: its id and state, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, owner, transcript, comments, or who reads it |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, who reads it changed, a file or frame was attached, stored, read, pinned, unpinned, or taken off, a Project Manager said why it made no item of one of its tasks, or it was deleted or restored: its id and state, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, owner, transcript, comments, or who reads it |
 | `meetingAttachments.changed` | An admin chose the largest file a meeting takes: nothing more, and every client reads the policy again |
 | `page.changed`              | The Transcription doc learned from a correction or a person's fix, or a name was suggested to a company doc section: the page's id alone |
 | `timelineRecord.created`    | An excerpt's record was stored: segmenting took it, or a person or Elysia took a range into a project |
-| `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, an excerpt removed or put back, or a conversation segmented again |
+| `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, an excerpt removed or put back, or a conversation segmented again; or an excerpt was deleted or restored with its meeting |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |
 
 ## Roadmap

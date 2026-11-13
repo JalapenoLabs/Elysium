@@ -107,6 +107,7 @@ export function ConnectorPage() {
         label: t('actions.delete'),
         icon: LuTrash2,
         isDanger: true,
+        isPending: isRunning(connector, 'delete'),
         onAction: () => act(connector, 'delete'),
       },
     ]}

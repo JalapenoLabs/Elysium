@@ -7,7 +7,9 @@
 //! an action item was made of, for the item's page to open its words.
 //!
 //! Both answer whoever may read the meeting, as its other reading routes do
-//! (`crate::meetings::access`); `404` for a meeting they may not read. A task's share is the
+//! (`crate::meetings::access`); `404` for a meeting they may not read. A deleted meeting's tasks
+//! are nobody's to act on until it is restored, so both leave them out: its page lists none, and
+//! an item made of one opens no task. A task's share is the
 //! meeting's person's: their own tasks name them, so a reader other than its person sees whose they
 //! are.
 
@@ -102,6 +104,9 @@ pub async fn list(
         .await
         .context("no database connection available")?;
     let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
+    if found.deleted_at.is_some() {
+        return Ok(Json(json!({ "tasks": [] })));
+    }
     let tasks = meeting_task::standing_of(&mut connection, found.id).await?;
     let task_ids: Vec<Uuid> = tasks.keys().copied().collect();
     let mut items = meeting_task::items_of(&mut connection, &task_ids).await?;
@@ -204,7 +209,8 @@ pub async fn of_item(
     };
     let readable = meeting::find_readable(&mut connection, meeting_id, Reader::of(&current.0))
         .await
-        .optional()?;
+        .optional()?
+        .filter(|found| found.deleted_at.is_none());
     let task = readable.map(
         |found| json!({ "meetingId": found.id, "meetingTitle": found.title, "taskId": task_id }),
     );

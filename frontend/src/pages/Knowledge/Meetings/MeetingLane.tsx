@@ -82,8 +82,11 @@ export function MeetingLane(props: Props) {
     pinning,
     ...options
   } = props
-  // An excerpt's record is its meeting's owner's, so only they change its projects.
+  // An excerpt's record is its meeting's owner's, so only they change its projects; a deleted
+  // meeting's records are on no timeline until it is restored, so even they read its projects from
+  // its words.
   const ownsRecords = useAppSelector(selectMe)?.user.id === options.meeting.ownerId
+    && !options.meeting.deletedAt
   const selectedThread = selectedMark?.kind === 'comment'
     ? [ ...threads.open, ...threads.resolved ].find((thread) => thread.placed.mark.id === selectedMark.mark.id)
       ?? null

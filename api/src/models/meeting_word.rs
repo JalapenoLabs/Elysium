@@ -1217,6 +1217,9 @@ pub enum EditError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
 }
@@ -1230,8 +1233,8 @@ pub enum EditError {
 /// # Errors
 /// [`EditError::NotFound`], [`EditError::NotStanding`], or [`EditError::OutOfOrder`] for a range
 /// that is not one of the transcript as it reads, [`EditError::Empty`] or
-/// [`EditError::TooLong`] for the text, [`EditError::Merged`] for a meeting merged into another;
-/// any database error.
+/// [`EditError::TooLong`] for the text, [`EditError::Merged`] for a meeting merged into another,
+/// [`EditError::Deleted`] for one deleted; any database error.
 pub async fn edit(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -1250,6 +1253,8 @@ pub async fn edit(
             match meeting::lock(connection, meeting_id).await {
                 // Read under the lock a merge takes, so no edit lands on a meeting merged away.
                 Ok(locked) if locked.merged_into.is_some() => return Err(EditError::Merged),
+                // And under the lock a deletion takes, so none lands on a meeting deleted.
+                Ok(locked) if locked.deleted_at.is_some() => return Err(EditError::Deleted),
                 Ok(_) => {}
                 Err(diesel::result::Error::NotFound) => return Err(EditError::NotFound),
                 Err(error) => return Err(EditError::Database(error)),

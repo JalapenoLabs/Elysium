@@ -311,6 +311,11 @@ the Runs page.
   `meeting_attachment`, which stores it and reads its text. Segmenting a meeting with video looks at the stills where
   its screen changed most, through `elysium_meeting_frames`, handing them to subagents, and pins the ones that show
   what was discussed, near duplicates dropped. See `docs/meetings.md`, Attachments and frames.
+- Built: a meeting its owner or an admin deletes stops its run, since the queue has no cancel of its own: every meeting
+  step fails for good on a deleted meeting with one reason, read again under the meeting's lock before anything is
+  settled, raised, or taken, and restoring the meeting retries, as whoever restores it, the step that failed after the
+  deletion. A held run stays held. A deleted meeting's tasks are no Project Manager's to act on until it is restored.
+  See `docs/meetings.md`, Deleting.
 
 ## Conversations
 

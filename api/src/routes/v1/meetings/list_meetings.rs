@@ -13,6 +13,10 @@
 //! `reviewItemId` keeps the meeting whose corrected transcript an inbox item asks to review, and
 //! `keptPrivateItemId` the one an item said its correction kept private, which each item's page
 //! links to; either answers one page, the meeting or none.
+//!
+//! `deleted=true` pages through the deleted meetings the person may restore instead, their own or,
+//! for an admin, everyone's, in the same order, which the Meetings page's Deleted filter restores
+//! from; no other listing holds them.
 
 use anyhow::Context;
 use axum::Json;
@@ -41,6 +45,8 @@ const MAX_LIMIT: i64 = 200;
 pub struct Filters {
     review_item_id: Option<Uuid>,
     kept_private_item_id: Option<Uuid>,
+    #[serde(default)]
+    deleted: bool,
     limit: Option<i64>,
     /// The `startedAt` of the last meeting of the page before, with an offset.
     after_started_at: Option<DateTime<Utc>>,
@@ -85,7 +91,11 @@ pub async fn handle(
             None,
         ),
         (None, None) => {
-            let page = meeting::list_readable(&mut connection, reader, after, limit).await?;
+            let page = if filters.deleted {
+                meeting::list_deleted(&mut connection, reader, after, limit).await?
+            } else {
+                meeting::list_readable(&mut connection, reader, after, limit).await?
+            };
             // A full page may have more after it; a shorter one is the last.
             let next_cursor = page
                 .last()

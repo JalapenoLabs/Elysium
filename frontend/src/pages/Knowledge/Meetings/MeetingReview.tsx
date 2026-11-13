@@ -11,6 +11,7 @@ import { Chip, Link, Spinner } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
 import { Page } from '../../../layout/page/Page'
 import { MeetingSourceLogo } from '../../Settings/Meetings/MeetingSourceLogo'
+import { DeletedMeetingNotice } from './DeletedMeetingNotice'
 import { MeetingWorkspace } from './MeetingWorkspace'
 import { MergedIntoNotice } from './MergedIntoNotice'
 
@@ -54,14 +55,17 @@ export function MeetingReview(props: Props) {
     icon={<MeetingSourceLogo sourceKind={meeting.sourceKind} className='size-8' />}
     parents={props.parents}
     // While its run waits for the person, its processing waits too; the correction's status in
-    // the options says so, rather than a state that reads as work under way.
-    badges={!meeting.awaitingApproval && <Chip
-      size='sm'
-      variant='soft'
-      color={meetingStateChipColors[meeting.state]}
-    >{
-        t(meetingStateLabelKeys[meeting.state])
-      }</Chip>}
+    // the options says so, rather than a state that reads as work under way. A deleted meeting's
+    // excerpts are on no timeline, however far it got, so it reads as deleted.
+    badges={meeting.deletedAt
+      ? <Chip size='sm' variant='soft' color='default'>{t('delete.state')}</Chip>
+      : !meeting.awaitingApproval && <Chip
+        size='sm'
+        variant='soft'
+        color={meetingStateChipColors[meeting.state]}
+      >{
+          t(meetingStateLabelKeys[meeting.state])
+        }</Chip>}
   >
     <div className='relaxed flex flex-wrap items-center gap-x-2 gap-y-1 text-sm'>
       <DateText value={meeting.startedAt} className='opacity-70' />
@@ -79,6 +83,7 @@ export function MeetingReview(props: Props) {
     </div>
 
     {meeting.mergedInto && <MergedIntoNotice mergedInto={meeting.mergedInto} />}
+    {meeting.deletedAt && <DeletedMeetingNotice meeting={meeting} />}
 
     {review}
   </Page>

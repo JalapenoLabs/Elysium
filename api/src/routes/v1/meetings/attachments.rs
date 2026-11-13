@@ -37,7 +37,9 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, merged_refusal, open, transcript_change};
+use super::{
+    MeetingEventResponse, announce, deleted_refusal, merged_refusal, open, transcript_change,
+};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::images::{self, ImageError, MAX_FRAME_UPLOAD_BYTES};
@@ -288,6 +290,9 @@ pub async fn take_frame(
     let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     if found.merged_into.is_some() {
         return Err(merged_refusal());
+    }
+    if found.deleted_at.is_some() {
+        return Err(deleted_refusal());
     }
     let location_id = user::workspace_settings(&mut connection)
         .await?
@@ -581,6 +586,7 @@ pub(crate) fn refusal(error: AttachmentError) -> ApiError {
             ApiError::BadRequest("The range ends before it starts.".to_owned())
         }
         AttachmentError::Mark(MarkError::Merged) => merged_refusal(),
+        AttachmentError::Mark(MarkError::Deleted) => deleted_refusal(),
         AttachmentError::Mark(
             MarkError::EditsOwn | MarkError::Removed | MarkError::NotAnObject,
         )

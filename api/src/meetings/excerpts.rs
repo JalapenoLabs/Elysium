@@ -834,7 +834,9 @@ pub(crate) async fn reindex_transcript(
 /// Gives every standing excerpt of `meeting` over `span` of its clock (or every one, for `None`)
 /// what its words read now, and indexes it again with the threads over it; then indexes the
 /// meeting's whole transcript again ([`index_transcript`]). Call it in the transaction that
-/// changed its words, its black-outs, or its threads. What reads the same writes nothing.
+/// changed its words, its black-outs, or its threads. What reads the same writes nothing. A
+/// deleted meeting refreshes nothing: its excerpts and transcript are out of the index until
+/// restoring it indexes them again (`super::deletion`).
 ///
 /// # Errors
 /// Propagates any database error.
@@ -843,6 +845,16 @@ pub async fn refresh(
     meeting: &Meeting,
     span: Option<(i64, i64)>,
 ) -> QueryResult<()> {
+    if meeting.deleted_at.is_some() {
+        // Only a change that raced the deletion gets here: every other is refused under the lock.
+        tracing::event!(
+            name: "meetings.excerpts.refresh_deleted",
+            tracing::Level::DEBUG,
+            meeting.id = %meeting.id,
+            "a deleted meeting's excerpts are not refreshed",
+        );
+        return Ok(());
+    }
     let words = meeting_word::standing(connection, meeting.id).await?;
     let marks = meeting_mark::standing(connection, meeting.id).await?;
     let text = MeetingText::new(words, &marks);
@@ -892,8 +904,9 @@ fn overlaps((start, end): (i64, i64), (other_start, other_end): (i64, i64)) -> b
 }
 
 /// Puts `meeting`'s whole transcript, as `text` reads it, in the knowledge index with its threads,
-/// once segmenting published it, or takes it out once it is merged into another meeting. A
-/// meeting being segmented again keeps the document it had until it is published again.
+/// once segmenting published it, or takes it out once it is merged into another meeting or while
+/// its person has it deleted (`super::deletion`). A meeting being segmented again keeps the
+/// document it had until it is published again.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -903,7 +916,7 @@ pub async fn index_transcript(
     text: &MeetingText,
 ) -> QueryResult<()> {
     let source = KnowledgeSource::Meeting { id: meeting.id };
-    if meeting.merged_into.is_some() {
+    if meeting.merged_into.is_some() || meeting.deleted_at.is_some() {
         return knowledge_document::remove(connection, &source).await;
     }
     if meeting.state() != MeetingState::Done {
@@ -1800,6 +1813,7 @@ mod tests {
             merged_into: None,
             visibility: "public".to_owned(),
             visibility_item_id: None,
+            deleted_at: None,
         };
         let document = transcript_document(&meeting, &text, &[], &[]).expect("a document");
         let indexed = document.passages.join("\n");

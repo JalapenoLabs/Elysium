@@ -21,8 +21,9 @@ unsure, and Done reviewing reading it again, keeping what people made or changed
 default, private until its correction checks it, and shared by its owner or an admin; attachments and frames, pinned
 by people and by segmenting, carried by excerpts to their projects' Project Managers and workers; and tasks, each
 project's reaching its Project Manager, which makes their action items as its changeset under its project's level of
-autonomy, everyone else's becoming items at once, and the bar along the top counting them. What is built is described
-in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
+autonomy, everyone else's becoming items at once, and the bar along the top counting them; and deleting meetings, one,
+many, or with their connector, softly, by their owner or an admin, and restoring them. What is built is described in
+`docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
 Knowledge base milestone.
 
 ## Meetings and captures

@@ -90,6 +90,22 @@ describe('MeetingVisibility', () => {
     expect(screen.queryByRole('button', { name: 'Stop sharing with Grace Hopper' })).toBeNull()
   })
 
+  it('offers its owner no change to who reads a deleted meeting until it is restored', () => {
+    renderVisibility(makeMeeting({
+      id: 'review',
+      ownerId: 'ada',
+      visibility: 'private',
+      sharedWith: [ 'grace' ],
+      canManage: true,
+      deletedAt: '2026-11-11T09:00:00Z',
+    }))
+
+    expect(screen.getByText('Private')).toBeTruthy()
+    expect(screen.getByText('Grace Hopper')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open to everyone' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop sharing with Grace Hopper' })).toBeNull()
+  })
+
   it('opens a private meeting at once, with Undo in its toast', async () => {
     const meeting = makeMeeting({ id: 'review', ownerId: 'ada', visibility: 'unchecked', canManage: true })
     const opened = { ...meeting, visibility: 'public' as const }

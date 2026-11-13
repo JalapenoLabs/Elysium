@@ -12,9 +12,10 @@
 //! meeting's owner's, as every excerpt's does.
 //!
 //! `404` for a meeting they may not read, or a word or a mark that is not the meeting's; `403`
-//! `read_only` for a reader who may not edit it; `409`
-//! `meeting_words_changed` for a range a word of which was replaced meanwhile, and
-//! `meeting_mark_removed` for a mark removed meanwhile; `400` `meeting_excerpt_project` for no
+//! `read_only` for a reader who may not edit it; `409` `meeting_words_changed` for a range a word
+//! of which was replaced meanwhile, `meeting_mark_removed` for a mark removed meanwhile, and
+//! `meeting_merged` and `meeting_deleted` for a meeting merged away or deleted; `400`
+//! `meeting_excerpt_project` for no
 //! project or one that does not exist, `meeting_mark_kind` for a mark that is neither an excerpt
 //! nor a black-out, and for a range that ends before it starts.
 
@@ -27,7 +28,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, merged_refusal, open, transcript_change};
+use super::{
+    MeetingEventResponse, announce, deleted_refusal, merged_refusal, open, transcript_change,
+};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::access::Need;
@@ -204,6 +207,7 @@ fn refusal(error: ExcerptError) -> ApiError {
             ApiError::BadRequest("A mark's data is a JSON object.".to_owned())
         }
         ExcerptError::Mark(MarkError::Merged) => merged_refusal(),
+        ExcerptError::Mark(MarkError::Deleted) => deleted_refusal(),
         ExcerptError::NoProject | ExcerptError::UnknownProject => ApiError::CodedBadRequest {
             code: "meeting_excerpt_project",
             message: "An excerpt is on at least one project that exists.".to_owned(),

@@ -25,6 +25,7 @@
 //! | `capture_added`       | None: the capture is the meeting's once its run takes it in      |
 //! | `segmented`           | None: each excerpt and black-out it took is removed on its own   |
 //! | `review_done`         | None: segmenting it again is under way                          |
+//! | `deleted`, `restored` | None: restoring brings it back, and deleting takes it again (`super::deletion`) |
 //!
 //! A merge and a split are recorded in both meetings' histories, and undone from the history of
 //! the meeting the captures went into.
@@ -60,6 +61,9 @@ pub enum UndoError {
     /// The meeting was merged into another, which is where it changes now.
     #[error("the meeting was merged into another")]
     Merged,
+    /// The meeting is deleted, so it changes no further until it is restored.
+    #[error("the meeting is deleted")]
+    Deleted,
     /// Undoing a thread's resolve or reopen could not tell its people (`meetings::comments`).
     #[error(transparent)]
     Thread(#[from] CommentError),
@@ -86,7 +90,8 @@ pub struct Undone {
 /// [`UndoError::NotFound`] when the meeting has no such change, [`UndoError::NotUndoable`] for a
 /// kind that cannot be undone, [`UndoError::ChangedSince`] when what it changed moved on since,
 /// [`UndoError::Corrected`] for a hold once the transcript is corrected, [`UndoError::Merged`]
-/// once the meeting was merged into another; any database error.
+/// once the meeting was merged into another, [`UndoError::Deleted`] while it is deleted; any
+/// database error.
 pub async fn undo(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -104,6 +109,9 @@ pub async fn undo(
             // undone from the meeting kept, which never reads as merged.
             if current.merged_into.is_some() {
                 return Err(UndoError::Merged);
+            }
+            if current.deleted_at.is_some() {
+                return Err(UndoError::Deleted);
             }
             let undone = match meeting_event::find(connection, meeting_id, event_id).await {
                 Ok(undone) => undone,
@@ -171,7 +179,9 @@ pub async fn undo(
                     | EventKind::CorrectionApproved
                     | EventKind::CaptureAdded
                     | EventKind::Segmented
-                    | EventKind::ReviewDone,
+                    | EventKind::ReviewDone
+                    | EventKind::Deleted
+                    | EventKind::Restored,
                 )
                 | None => {
                     return Err(UndoError::NotUndoable);

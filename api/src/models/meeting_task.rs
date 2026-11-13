@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::database::schema::{
     action_items, changeset_operations, changesets, meeting_marks, meeting_task_items,
-    meeting_tasks,
+    meeting_tasks, meetings,
 };
 use crate::models::action_item::ActionItem;
 use crate::models::changeset::{ChangesetDecision, ChangesetOperation, ChangesetState};
@@ -181,7 +181,8 @@ pub async fn standing_of(
 
 /// The tasks among `ids` that are for `project_id` and whose marks still stand, oldest first (by
 /// their marks' ids, which are `UUIDv7` and so sort as the marks were made): a task read again onto
-/// another project, or no longer heard at all, is not that project's to act on.
+/// another project, or no longer heard at all, is not that project's to act on, and nor is one of
+/// a meeting deleted since (`crate::meetings::deletion`), until it is restored.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -192,9 +193,11 @@ pub async fn standing_for_project(
 ) -> QueryResult<Vec<MeetingTask>> {
     meeting_tasks::table
         .inner_join(meeting_marks::table)
+        .inner_join(meetings::table)
         .filter(meeting_tasks::mark_id.eq_any(ids))
         .filter(meeting_tasks::project_id.eq(project_id))
         .filter(meeting_marks::removed_by.is_null())
+        .filter(meetings::deleted_at.is_null())
         .order(meeting_tasks::mark_id.asc())
         .select(MeetingTask::as_select())
         .load(connection)

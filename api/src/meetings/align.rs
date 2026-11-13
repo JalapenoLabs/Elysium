@@ -169,6 +169,12 @@ impl AlignMeeting {
                 reason: "Merged into another meeting, so nothing to align".to_owned(),
             });
         }
+        // A meeting its person deleted stops its run here until they restore it. One deleted
+        // while this attempt aligns it asks nothing of its person (`duplicates::ask_about`), and
+        // the step after it stops instead.
+        if current.deleted_at.is_some() {
+            return Err(StepFailure::permanent(super::deletion::STOPPED));
+        }
 
         let fetched_media = self.place_captures(&current, &captures, log).await?;
         let words = self.line_up(current.id, log).await?;

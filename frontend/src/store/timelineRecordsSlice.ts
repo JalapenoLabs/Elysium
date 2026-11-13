@@ -20,10 +20,12 @@ export const timelineRecordsSlice = createSlice({
   reducers: {
     timelineRecordsLoaded: timelineRecordsAdapter.upsertMany,
     timelineRecordUpserted: timelineRecordsAdapter.upsertOne,
+    // A record the API no longer answers for, such as an excerpt deleted with its meeting.
+    timelineRecordRemoved: timelineRecordsAdapter.removeOne,
   },
 })
 
-export const { timelineRecordsLoaded, timelineRecordUpserted } = timelineRecordsSlice.actions
+export const { timelineRecordsLoaded, timelineRecordUpserted, timelineRecordRemoved } = timelineRecordsSlice.actions
 
 const { selectAll, selectById, selectEntities } = timelineRecordsAdapter.getSelectors(
   (state: RootState) => state.timelineRecords,

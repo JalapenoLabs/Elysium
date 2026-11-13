@@ -15,7 +15,7 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip } from '@heroui/react'
-import { LuCheck, LuCheckCheck, LuHand, LuPlay, LuUpload, LuWorkflow } from 'react-icons/lu'
+import { LuCheck, LuCheckCheck, LuHand, LuPlay, LuTrash2, LuUpload, LuWorkflow } from 'react-icons/lu'
 import { PageActions } from '../../../layout/page/PageActions'
 
 // Misc
@@ -25,12 +25,13 @@ import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 import { DateText } from '../../../format/DateText'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { toast } from '../../../toast/toast'
-import { getMeetingCaptureUploadUrl, getRunViewUrl } from '../../../urls'
+import { getMeetingCaptureUploadUrl, getRunViewUrl, UrlTree } from '../../../urls'
 import {
   correctionStatusChipColors,
   correctionStatusLabelKeys,
   correctionStatusOf,
 } from '../../Settings/Meetings/meetingsPresentation'
+import { useMeetingDeletion } from './useMeetingDeletion'
 
 type Props = {
   meeting: Meeting
@@ -39,28 +40,36 @@ type Props = {
 // The meeting's actions, at the foot of its options: where its correction stands, Approve while
 // the corrected transcript waits for it, Done reviewing once it was segmented, which segments it
 // again from its corrected words, holding it for approval by hand until it is corrected (unless
-// its source already waits), its run, and adding a recording or transcript as another capture.
-// Its processing is its owner's alone, so only they hold, approve, finish reviewing, and add a
-// capture (`crate::meetings::access`); a company member opens its run, as anyone of them opens any
-// run. A meeting merged into another offers its run alone, and says why.
+// its source already waits), its run, adding a recording or transcript as another capture, and
+// Delete, last. Its processing is its owner's alone, so only they hold, approve, finish reviewing,
+// and add a capture, while its owner and admins delete it (`crate::meetings::access`); a company
+// member opens its run, as anyone of them opens any run. A meeting merged into another offers its
+// run alone, and says why, as does one deleted, which its notice restores (`DeletedMeetingNotice`).
 export function MeetingActions(props: Props) {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const userNames = useUserNames()
+  const deletion = useMeetingDeletion()
   const meeting = props.meeting
   const source = useAppSelector((state) => meeting.connectorId
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
-  const [ acting, setActing ] = useState<'approve' | 'hold' | 'reviewed' | null>(null)
+  const [ acting, setActing ] = useState<'approve' | 'hold' | 'reviewed' | 'delete' | null>(null)
   const isOwner = useAppSelector(selectMe)?.user.id === meeting.ownerId
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
   // A meeting merged into another changes there: it holds no capture, its run goes no further,
-  // and an upload into it is refused, so it offers to approve, hold, review, or add nothing.
+  // and an upload into it is refused, so it offers to approve, hold, review, add, or delete nothing;
+  // the meeting it went into is the one to delete. A deleted one changes no further until it is
+  // restored.
   const isMergedAway = Boolean(meeting.mergedInto)
-  const runsIt = isOwner && !isMergedAway
+  const isDeleted = Boolean(meeting.deletedAt)
+  // Holding its own captures and not deleted: what anything here but its run needs.
+  const isLive = !isMergedAway && !isDeleted
+  const runsIt = isOwner && isLive
+  const canDelete = meeting.canManage && isLive
   const canApprove = runsIt && Boolean(meeting.correction && !meeting.correction.approvedAt)
   const approvedBy = meeting.correction?.approvedBy
   // Segmented once, and no run of it going, held, or failed.
@@ -122,6 +131,16 @@ export function MeetingActions(props: Props) {
     }
   }
 
+  // Soft, so at once, with Undo in its toast, which comes back here (`useMeetingDeletion`).
+  async function remove() {
+    setActing('delete')
+    const wasDeleted = await deletion.remove([ meeting ], UrlTree.knowledgeMeetings)
+    // Gone from here on success; stays to be tried again otherwise.
+    if (!wasDeleted) {
+      setActing(null)
+    }
+  }
+
   const actions: PageAction[] = []
   if (runsIt && !meeting.correction && !sourceWaits) {
     actions.push({
@@ -155,11 +174,28 @@ export function MeetingActions(props: Props) {
       href: getMeetingCaptureUploadUrl(meeting.id),
     })
   }
+  // Last, offered its owner and admins while it holds its own captures.
+  if (canDelete) {
+    actions.push({
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: LuTrash2,
+      isDanger: true,
+      isPending: acting === 'delete',
+      isDisabled: acting !== null,
+      onAction: () => void remove(),
+    })
+  }
 
   // Why nothing changes here, or before it is corrected, whether its run will wait, and why.
   let waitsNote: string | null = null
   if (isMergedAway) {
     waitsNote = t('page.mergedReadOnly')
+  }
+  else if (isDeleted) {
+    waitsNote = meeting.canManage
+      ? t('delete.readOnly')
+      : t('delete.readOnlyUntilRestored')
   }
   else if (!meeting.correction && sourceWaits) {
     waitsNote = t('correction.sourceWaits')

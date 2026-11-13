@@ -1445,6 +1445,7 @@ diesel::table! {
         merged_into -> Nullable<Uuid>,
         visibility -> Text,
         visibility_item_id -> Nullable<Uuid>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -2017,6 +2018,7 @@ diesel::table! {
         turn_summary_session_id -> Nullable<Int8>,
         turn_summary_turn_id -> Nullable<Uuid>,
         excerpt_mark_id -> Nullable<Uuid>,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 

@@ -17,6 +17,14 @@
 //! A record names the meetings its words come from: an excerpt its own meeting, and an agent's
 //! record every meeting its writer had read (`models::meeting_reads`). Whoever lists or opens
 //! records reads only those whose every meeting they may read, whoever owns them.
+//!
+//! A record deleted with what it came from (`deleted_at`), today a meeting's excerpt taken with
+//! its meeting ([`delete_of_meeting`]), is on no timeline, no Project Manager reads it, and it is
+//! out of the knowledge index, while it keeps its attributions and their history. Every reader
+//! here leaves it out but those that name records by id, or by their meeting's excerpts, for what
+//! they already hold ([`find_many`], [`find_by_external_id`], [`of_meeting`], [`of_excerpt`],
+//! [`of_excerpts`], [`projects_of_meetings`]): a deleted meeting's page and row read its excerpts
+//! as they stood. Restoring its meeting brings it back ([`restore_of_meeting`]).
 
 use std::collections::HashMap;
 
@@ -39,6 +47,11 @@ use crate::models::meeting_comment;
 use crate::models::meeting_mark::MarkKind;
 use crate::models::meeting_reads;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
+
+/// The meeting a meeting's record names, as SQL, spelled exactly as the index
+/// `timeline_records_by_meeting` is, so the planner matches it in every plan it caches; a key bound
+/// as a parameter, or spelled any other way, is a different expression to it.
+const MEETING_KEY_SQL: &str = "timeline_records.metadata ->> 'meetingId'";
 
 /// The owners whose records every reader of a timeline reads besides their own: Elysium's own
 /// agents, whose records are about a project rather than any one person's feed.
@@ -65,6 +78,9 @@ pub struct TimelineRecord {
     /// words it reads; `None` for every other record, and for a meeting's topic recorded before
     /// excerpts that no word of its meeting could anchor.
     pub excerpt_mark_id: Option<Uuid>,
+    /// When it was deleted with what it came from, its meeting, while it is (see the module's
+    /// docs); `None` for every record on a timeline.
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -333,6 +349,9 @@ pub async fn upsert_turn_summary(
 /// (`models::meeting_comment::indexed_over`), so a thread written before its meeting was
 /// segmented is indexed as its excerpts are made.
 ///
+/// A record deleted with what it came from is never indexed, whatever asks: it leaves the index
+/// as it is deleted, and restoring it indexes it again ([`restore_of_meeting`]).
+///
 /// Call it inside the transaction that stores or changes the record, or one of its threads.
 ///
 /// # Errors
@@ -342,6 +361,9 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
         id: record.id,
         kind: record.source_kind.clone(),
     };
+    if record.deleted_at.is_some() {
+        return knowledge_document::remove(connection, &source).await;
+    }
     if let Some(revision) = records::revision(record) {
         let newest = keep_newest_version(connection, &revision).await?;
         if newest != Some(record.id) {
@@ -450,7 +472,8 @@ fn starting_with(prefix: &str) -> String {
 }
 
 /// Up to `limit` records of every owner, in id order, after `after` when it is given: the walk
-/// the knowledge index's backfill takes (`crate::knowledge::backfill`).
+/// the knowledge index's backfill takes (`crate::knowledge::backfill`). A deleted record is
+/// walked past, so the walk never puts one back in the index.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -460,6 +483,7 @@ pub async fn after_id(
     limit: i64,
 ) -> QueryResult<Vec<TimelineRecord>> {
     let mut query = timeline_records::table
+        .filter(timeline_records::deleted_at.is_null())
         .order(timeline_records::id.asc())
         .limit(limit)
         .select(TimelineRecord::as_select())
@@ -506,6 +530,7 @@ pub async fn ingested_between(
 ) -> QueryResult<Vec<TimelineRecord>> {
     let mut query = timeline_records::table
         .filter(meeting_reads::readable_records(reader))
+        .filter(timeline_records::deleted_at.is_null())
         .filter(timeline_records::created_at.ge(since))
         .filter(timeline_records::created_at.le(through))
         .order((
@@ -539,6 +564,7 @@ pub async fn find_owned_record(
     timeline_records::table
         .filter(timeline_records::id.eq(id))
         .filter(timeline_records::created_by.eq(owner))
+        .filter(timeline_records::deleted_at.is_null())
         .select(TimelineRecord::as_select())
         .first(connection)
         .await
@@ -618,6 +644,7 @@ fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> 
     let mut statement = timeline_records::table
         .filter(timeline_records::created_by.eq_any(owners))
         .filter(meeting_reads::readable_records(query.reader))
+        .filter(timeline_records::deleted_at.is_null())
         .into_boxed();
     if let Some(project_id) = query.project_id {
         statement = statement.filter(
@@ -640,7 +667,8 @@ fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> 
     statement
 }
 
-/// The records among `ids` that exist, in no particular order.
+/// The records among `ids` that exist, in no particular order, deleted ones included: whatever
+/// names a record by id, such as a promise or a conversation, already holds it.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -734,7 +762,8 @@ pub async fn of_excerpts(
 /// The projects each of `meeting_ids` has an excerpt on: every project one of its standing
 /// excerpts' records is attributed to, once each, in the order of their ids. A meeting with no
 /// excerpt on a project has no entry. An excerpt's record is its meeting's owner's, so this reads
-/// nobody else's.
+/// nobody else's. A deleted meeting's are the projects its excerpts were on, which restoring puts
+/// them back on, so its row among the deleted ones says where they went.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -768,6 +797,78 @@ pub async fn projects_of_meetings(
         by_meeting.entry(meeting_id).or_default().push(project_id);
     }
     Ok(by_meeting)
+}
+
+/// Deletes meeting `meeting_id`'s records with it, stamped `at`, the meeting's own `deleted_at`,
+/// and takes each out of the knowledge index, in the caller's transaction: its standing excerpts'
+/// records, and the topics it was cut into before excerpts that no word of it could anchor, which
+/// name no mark and are still on their projects. A removed excerpt's record is already on no
+/// project and out of the index, so it is left as it is, and restoring never indexes it again.
+/// Each keeps its attributions and their history for [`restore_of_meeting`]. Answers the records
+/// it deleted.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn delete_of_meeting(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    at: DateTime<Utc>,
+) -> QueryResult<Vec<TimelineRecord>> {
+    let meeting_key = diesel::dsl::sql::<Text>(MEETING_KEY_SQL);
+    let standing = standing_excerpts_of(meeting_id).select(meeting_marks::id.nullable());
+    let deleted: Vec<TimelineRecord> = diesel::update(
+        timeline_records::table
+            .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
+            .filter(meeting_key.eq(meeting_id.to_string()))
+            .filter(
+                timeline_records::excerpt_mark_id
+                    .is_null()
+                    .or(timeline_records::excerpt_mark_id.eq_any(standing)),
+            )
+            .filter(timeline_records::deleted_at.is_null()),
+    )
+    .set(timeline_records::deleted_at.eq(at))
+    .returning(TimelineRecord::as_returning())
+    .get_results(connection)
+    .await?;
+    for record in &deleted {
+        let source = KnowledgeSource::TimelineRecord {
+            id: record.id,
+            kind: record.source_kind.clone(),
+        };
+        knowledge_document::remove(connection, &source).await?;
+    }
+    Ok(deleted)
+}
+
+/// Brings back the records meeting `meeting_id`'s deletion at `deleted_at` took
+/// ([`delete_of_meeting`]), each with the attributions it kept, and puts each in the knowledge
+/// index again as it reads now, comment threads included, in the caller's transaction. Nothing
+/// changes a deleted meeting's marks, so each is still what it was deleted as. Answers the records
+/// it restored.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn restore_of_meeting(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    deleted_at: DateTime<Utc>,
+) -> QueryResult<Vec<TimelineRecord>> {
+    let meeting_key = diesel::dsl::sql::<Text>(MEETING_KEY_SQL);
+    let restored: Vec<TimelineRecord> = diesel::update(
+        timeline_records::table
+            .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
+            .filter(meeting_key.eq(meeting_id.to_string()))
+            .filter(timeline_records::deleted_at.eq(deleted_at)),
+    )
+    .set(timeline_records::deleted_at.eq(None::<DateTime<Utc>>))
+    .returning(TimelineRecord::as_returning())
+    .get_results(connection)
+    .await?;
+    for record in &restored {
+        index(connection, record).await?;
+    }
+    Ok(restored)
 }
 
 /// How many records `query` matches across every page, ignoring `before` and `limit`.
@@ -834,7 +935,8 @@ pub async fn attributions_of(
 /// The record `id` with its attributions, when `owner` owns it.
 ///
 /// # Errors
-/// [`diesel::result::Error::NotFound`] when it does not exist or belongs to someone else.
+/// [`diesel::result::Error::NotFound`] when it does not exist, was deleted, or belongs to someone
+/// else.
 pub async fn find_owned(
     connection: &mut AsyncPgConnection,
     id: Uuid,
@@ -843,6 +945,7 @@ pub async fn find_owned(
     let record = timeline_records::table
         .filter(timeline_records::id.eq(id))
         .filter(timeline_records::created_by.eq(owner))
+        .filter(timeline_records::deleted_at.is_null())
         .select(TimelineRecord::as_select())
         .first(connection)
         .await?;
@@ -870,6 +973,7 @@ pub async fn attributed_to(
     let mut statement = timeline_records::table
         .inner_join(timeline_record_projects::table)
         .filter(timeline_record_projects::project_id.eq(project_id))
+        .filter(timeline_records::deleted_at.is_null())
         .select((TimelineRecord::as_select(), Attribution::as_select()))
         .order((
             timeline_records::occurred_at.desc(),
@@ -897,6 +1001,7 @@ pub async fn attributed_among(
         .inner_join(timeline_record_projects::table)
         .filter(timeline_record_projects::project_id.eq(project_id))
         .filter(timeline_records::id.eq_any(ids))
+        .filter(timeline_records::deleted_at.is_null())
         .select((TimelineRecord::as_select(), Attribution::as_select()))
         .load(connection)
         .await

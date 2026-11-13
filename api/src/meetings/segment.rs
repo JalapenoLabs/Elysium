@@ -247,7 +247,8 @@ impl SegmentMeeting {
     }
 
     /// The meeting `input` names and the capture it was corrected from, or `None` when its
-    /// captures were merged into another meeting, which leaves it nothing to segment.
+    /// captures were merged into another meeting, which leaves it nothing to segment. A meeting
+    /// its person deleted fails the step for good, stopping its run until they restore it.
     async fn meeting_and_capture(
         &self,
         input: &CorrectedMeeting,
@@ -264,6 +265,10 @@ impl SegmentMeeting {
             .map_err(gone)?;
         if current.merged_into.is_some() {
             return Ok(None);
+        }
+        // A meeting its person deleted stops its run here until they restore it.
+        if current.deleted_at.is_some() {
+            return Err(StepFailure::permanent(super::deletion::STOPPED));
         }
         let capture = super::capture_of(&mut connection, input.meeting_id, input.capture_id)
             .await
@@ -328,8 +333,14 @@ impl SegmentMeeting {
         let frames = self.prepare_frames(&current, &taken.frames, log).await?;
         let published = self.publish(current.id, &taken, &frames).await?;
         self.forget_unpinned(&frames, log).await;
-        let Some((took, pinned)) = published else {
-            return self.published_by_another(current.id, log).await;
+        let (took, pinned) = match published {
+            Publishing::Took { took, pinned } => (*took, pinned),
+            Publishing::ByAnother => return self.published_by_another(current.id, log).await,
+            Publishing::Deleted => {
+                // What it read is kept on the meeting, so restoring it takes the same excerpts.
+                log.line("The meeting was deleted meanwhile, so nothing was taken");
+                return Err(StepFailure::permanent(super::deletion::STOPPED));
+            }
         };
         log_took(log, &taken, &took, pinned);
         self.announce_published(&current, took).await;
@@ -796,27 +807,34 @@ impl SegmentMeeting {
 
     /// Takes `taken` into meeting `meeting_id` with its `frames` pinned, and marks it done, in one
     /// transaction under its lock, then refreshes what its excerpts and its own document read.
-    /// Answers what it took and how many frames it pinned, or `None`, taking nothing, when another
-    /// attempt marked it done first, so two attempts at once take it once.
+    /// Takes nothing when another attempt marked it done first, so two attempts at once take it
+    /// once, nor when it was deleted meanwhile: the deletion takes the same lock, so no excerpt,
+    /// task, or frame of a deleted meeting is ever taken.
     async fn publish(
         &self,
         meeting_id: Uuid,
         taken: &Taken,
         frames: &[pinning::Prepared],
-    ) -> Result<Option<(Took, usize)>, StepFailure> {
+    ) -> Result<Publishing, StepFailure> {
         let mut connection = self.connection().await?;
         connection
             .transaction(async move |connection| {
                 let locked = meeting::lock(connection, meeting_id).await?;
+                if locked.deleted_at.is_some() {
+                    return Ok(Publishing::Deleted);
+                }
                 if locked.state() == MeetingState::Done {
-                    return Ok(None);
+                    return Ok(Publishing::ByAnother);
                 }
                 let capture = meeting_capture::first_of(connection, meeting_id).await?;
                 let took = excerpts::take(connection, &locked, &capture, taken).await?;
                 let pinned = pinning::pin_frames(connection, &locked, frames).await?;
                 let done = meeting::record_done(connection, meeting_id).await?;
                 excerpts::refresh(connection, &done, None).await?;
-                Ok::<_, WorkError>(Some((took, pinned)))
+                Ok::<_, WorkError>(Publishing::Took {
+                    took: Box::new(took),
+                    pinned,
+                })
             })
             .await
             .map_err(StepFailure::retryable)
@@ -1233,6 +1251,16 @@ impl SegmentMeeting {
     }
 }
 
+/// How taking a meeting's excerpts went, decided under its lock.
+enum Publishing {
+    /// This attempt took them, and pinned this many frames.
+    Took { took: Box<Took>, pinned: usize },
+    /// Another attempt marked the meeting done first, so nothing was taken twice.
+    ByAnother,
+    /// It was deleted meanwhile, so nothing was taken and the run stops.
+    Deleted,
+}
+
 /// Every project's id now, so an attribution to one removed since the turn is left out rather
 /// than failing the whole write.
 async fn existing_projects(
@@ -1508,6 +1536,7 @@ mod tests {
             merged_into: None,
             visibility: "public".to_owned(),
             visibility_item_id: None,
+            deleted_at: None,
         }
     }
 

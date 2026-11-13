@@ -58,6 +58,9 @@ pub enum VisibilityError {
     /// anyway.
     #[error("the meeting cannot be shared with them")]
     NotShareable,
+    /// It is deleted, so it changes no further until it is restored (`super::deletion`).
+    #[error("the meeting is deleted")]
+    Deleted,
     #[error(transparent)]
     Database(diesel::result::Error),
 }
@@ -82,8 +85,9 @@ pub struct Changed {
 /// admin, whom the caller checked. Once a person chooses, its correction leaves it as they chose.
 ///
 /// # Errors
-/// [`VisibilityError::NotFound`] for no such meeting, [`VisibilityError::Unchanged`] when it is of
-/// that visibility already, and any database error.
+/// [`VisibilityError::NotFound`] for no such meeting, [`VisibilityError::Deleted`] while it is
+/// deleted, [`VisibilityError::Unchanged`] when it is of that visibility already, and any database
+/// error.
 pub async fn set(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -93,6 +97,9 @@ pub async fn set(
     connection
         .transaction(async |connection| {
             let current = meeting::lock(connection, meeting_id).await?;
+            if current.deleted_at.is_some() {
+                return Err(VisibilityError::Deleted);
+            }
             let before = current.visibility();
             if before == visibility {
                 return Err(VisibilityError::Unchanged);
@@ -120,7 +127,8 @@ pub async fn set(
 ///
 /// # Errors
 /// [`VisibilityError::NotShareable`] for anyone but an active person other than its owner,
-/// [`VisibilityError::Unchanged`] when it is shared with them already, and any database error.
+/// [`VisibilityError::Deleted`] while it is deleted, [`VisibilityError::Unchanged`] when it is
+/// shared with them already, and any database error.
 pub async fn share(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -130,6 +138,9 @@ pub async fn share(
     connection
         .transaction(async |connection| {
             let current = meeting::lock(connection, meeting_id).await?;
+            if current.deleted_at.is_some() {
+                return Err(VisibilityError::Deleted);
+            }
             if !is_shareable(connection, &current, person_id).await? {
                 return Err(VisibilityError::NotShareable);
             }
@@ -157,7 +168,8 @@ pub async fn share(
 /// the caller checked.
 ///
 /// # Errors
-/// [`VisibilityError::Unchanged`] when it is not shared with them, and any database error.
+/// [`VisibilityError::Deleted`] while it is deleted, [`VisibilityError::Unchanged`] when it is not
+/// shared with them, and any database error.
 pub async fn unshare(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
@@ -167,6 +179,9 @@ pub async fn unshare(
     connection
         .transaction(async |connection| {
             let current = meeting::lock(connection, meeting_id).await?;
+            if current.deleted_at.is_some() {
+                return Err(VisibilityError::Deleted);
+            }
             if !meeting_share::remove(connection, meeting_id, person_id).await? {
                 return Err(VisibilityError::Unchanged);
             }

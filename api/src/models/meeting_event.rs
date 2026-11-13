@@ -77,10 +77,19 @@ pub enum EventKind {
     /// A file or a frame was taken off it: `{ attachmentId, attachmentKind, fileName, pins }`, the
     /// pins being the marks it took away with it, which its undo puts back.
     Detached,
+    /// Its owner or an admin deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
+    /// dismissedItems }`, how many excerpts went with it, the connector it was removed with (`null`
+    /// when it went alone), and each inbox item asking its person about it that it dismissed,
+    /// `{ id, from }` with the state it left (`inbox` or `open`).
+    Deleted,
+    /// Its owner or an admin restored it: `{ deletedAt, excerpts, runRetried, returnedItemIds }`,
+    /// the deletion it reversed, how many excerpts came back, whether the run that deletion stopped
+    /// went on, and the items that deletion dismissed that it returned to where they stood.
+    Restored,
 }
 
 impl EventKind {
-    const ALL: [Self; 20] = [
+    const ALL: [Self; 22] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -101,6 +110,8 @@ impl EventKind {
         Self::ReviewDone,
         Self::Attached,
         Self::Detached,
+        Self::Deleted,
+        Self::Restored,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -125,6 +136,8 @@ impl EventKind {
             Self::ReviewDone => "review_done",
             Self::Attached => "attached",
             Self::Detached => "detached",
+            Self::Deleted => "deleted",
+            Self::Restored => "restored",
         }
     }
 

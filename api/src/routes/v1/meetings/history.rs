@@ -12,7 +12,8 @@
 //! `404` for a meeting they may not read or an entry that is not the meeting's; `403` for an
 //! undo that takes more than they may; `409`
 //! `meeting_change_not_undoable` for a build or an approval, `meeting_changed_since` when what it
-//! changed moved on since, and `meeting_corrected` for a hold once the transcript is corrected.
+//! changed moved on since, `meeting_corrected` for a hold once the transcript is corrected, and
+//! `meeting_deleted` while the meeting is deleted.
 
 use anyhow::Context;
 use axum::Json;
@@ -24,7 +25,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{
-    MeetingEventResponse, announce_lined_up, lines_up_again, merged_refusal, open,
+    MeetingEventResponse, announce_lined_up, deleted_refusal, lines_up_again, merged_refusal, open,
     transcript_change,
 };
 use crate::auth::CurrentUser;
@@ -119,6 +120,7 @@ fn refusal(error: UndoError) -> ApiError {
     match error {
         UndoError::NotFound => ApiError::NotFound,
         UndoError::Merged => merged_refusal(),
+        UndoError::Deleted => deleted_refusal(),
         UndoError::NotUndoable => ApiError::CodedConflict {
             code: "meeting_change_not_undoable",
             message: "This change cannot be undone.",
