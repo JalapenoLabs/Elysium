@@ -6,14 +6,16 @@
 //! `DELETE .../marks/{markId}` removes an excerpt or a black-out. An excerpt's projects change
 //! through its record (`/api/v1/timeline/{id}/projects`), as any record's do.
 //!
-//! Each answers the meeting's owner alone, as the meeting's other routes do, and each is a change
-//! in its history, so it answers its entry and the marks as they now stand, for the page to apply
-//! and offer Undo (`history/{entryId}/undo`).
+//! Each answers whoever may edit the meeting, as its words' edits do (`crate::meetings::access`),
+//! and each is a change in its history, so it answers its entry and the marks as they now stand,
+//! for the page to apply and offer Undo (`history/{entryId}/undo`). An excerpt's record stays its
+//! meeting's owner's, as every excerpt's does.
 //!
-//! `404` for a meeting that is not theirs, or a word or a mark that is not the meeting's; `409`
-//! `meeting_words_changed` for a range a word of which was replaced meanwhile,
-//! `meeting_mark_removed` for a mark removed meanwhile, and `meeting_merged` and
-//! `meeting_deleted` for a meeting merged away or deleted; `400` `meeting_excerpt_project` for no
+//! `404` for a meeting they may not read, or a word or a mark that is not the meeting's; `403`
+//! `read_only` for a reader who may not edit it; `409` `meeting_words_changed` for a range a word
+//! of which was replaced meanwhile, `meeting_mark_removed` for a mark removed meanwhile, and
+//! `meeting_merged` and `meeting_deleted` for a meeting merged away or deleted; `400`
+//! `meeting_excerpt_project` for no
 //! project or one that does not exist, `meeting_mark_kind` for a mark that is neither an excerpt
 //! nor a black-out, and for a range that ends before it starts.
 
@@ -26,14 +28,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce, deleted_refusal, merged_refusal, transcript_change};
+use super::{
+    MeetingEventResponse, announce, deleted_refusal, merged_refusal, open, transcript_change,
+};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::excerpts::{self, ExcerptError};
 use crate::meetings::segmentation::SegmentProject;
 use crate::models::agent::Author;
 use crate::models::attribution::PERSON_CONFIDENCE;
-use crate::models::meeting;
 use crate::models::meeting_mark::{MarkError, Range};
 use crate::models::timeline_record;
 use crate::realtime::{ServerEvent, Signal};
@@ -70,7 +74,7 @@ pub async fn assign(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let range = Range {
         start_word_id: body.start_word_id,
         end_word_id: body.end_word_id,
@@ -124,7 +128,7 @@ pub async fn black_out(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let range = Range {
         start_word_id: body.start_word_id,
         end_word_id: body.end_word_id,
@@ -151,7 +155,7 @@ pub async fn remove(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Edit).await?;
     let entry = excerpts::remove(&mut connection, &found, mark_id, author_of(&current))
         .await
         .map_err(refusal)?;
@@ -196,7 +200,7 @@ fn refusal(error: ExcerptError) -> ApiError {
         ExcerptError::Mark(MarkError::EditsOwn) | ExcerptError::NotAnExcerpt => {
             ApiError::CodedBadRequest {
                 code: "meeting_mark_kind",
-                message: "Only an excerpt or a black-out is removed here.".to_owned(),
+                message: "Only an excerpt, a black-out, or a pin is removed here.".to_owned(),
             }
         }
         ExcerptError::Mark(MarkError::NotAnObject) => {

@@ -1,10 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/meetings/{id}/hold` and `DELETE`: the signed-in person holds one of their
-//! meetings for their approval of its corrected transcript before it is acted on, whatever its
-//! source's setting, or stops holding it. Either is taken only before the meeting is corrected;
-//! after, `409`, since approving the copy is what lets it go on. `404` for a meeting that is
-//! not theirs.
+//! `POST /api/v1/meetings/{id}/hold` and `DELETE`: a meeting's owner holds it for their approval
+//! of its corrected transcript before it is acted on, whatever its source's setting, or stops
+//! holding it. Either is taken only before the meeting is corrected; after, `409`, since approving
+//! the copy is what lets it go on. `404` for a meeting they may not read, `403` `owner_only` for
+//! anyone but its owner.
 
 use anyhow::Context;
 use axum::Json;
@@ -13,10 +13,12 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{deleted_refusal, merged_refusal, response};
+use super::{deleted_refusal, merged_refusal, open, response};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::correct::{self, HoldError};
+use crate::models::meeting::Reader;
 use crate::state::AppState;
 
 pub async fn hold(
@@ -47,6 +49,7 @@ async fn set(
         .get()
         .await
         .context("no database connection available")?;
+    open(&mut connection, id, &current, Need::Own).await?;
     let changed = correct::hold(&mut connection, &state.events, id, current.id(), held)
         .await
         .map_err(|error| match error {
@@ -59,6 +62,6 @@ async fn set(
             },
             HoldError::Database(database) => database.into(),
         })?;
-    let answered = response(&mut connection, changed).await?;
+    let answered = response(&mut connection, changed, Reader::of(&current.0)).await?;
     Ok(Json(json!({ "meeting": answered })))
 }

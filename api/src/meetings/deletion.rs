@@ -39,11 +39,12 @@
 //!
 //! # Who, and which meetings
 //!
-//! A meeting is found as every meeting route finds it (`meeting::find_owned`), then locked, so a
-//! deletion waits for an edit, a merge, a step's publishing, or an upload's finish, and they for
-//! it. A meeting merged into another is refused (`meeting_merged`): its captures live on in the
-//! meeting kept, which is the one to delete. A meeting whose connector was removed is deleted like
-//! any other.
+//! Deleting and restoring take what managing a meeting takes, its owner or an admin
+//! (`super::access`, [`Need::Manage`]), as `docs/meeting-review.md`, Who sees a meeting, has it: a
+//! meeting is opened as every meeting route opens it, then locked, so a deletion waits for an
+//! edit, a merge, a step's publishing, or an upload's finish, and they for it. A meeting merged
+//! into another is refused (`meeting_merged`): its captures live on in the meeting kept, which is
+//! the one to delete. A meeting whose connector was removed is deleted like any other.
 //!
 //! Many meetings change in one transaction, each in a savepoint, in the order of their ids, as a
 //! bulk change to action items does (`models::action_item_bulk`): one refused is reported with
@@ -58,6 +59,7 @@ use serde_json::json;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use super::access::{self, Need};
 use super::excerpts::{self, MeetingText};
 use super::{correct, workflow};
 use crate::models::action_item::{ActionItem, ActionItemState};
@@ -68,6 +70,7 @@ use crate::models::meeting::{self, Meeting};
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::timeline_record::{self, TimelineRecord};
+use crate::models::user::User;
 use crate::models::workflow_run::{self, Actor, Settled, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_writes;
@@ -99,8 +102,10 @@ pub enum BulkChange {
 /// Why a meeting refused the change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefusalKind {
-    /// No meeting of the person's has this id.
+    /// No meeting they may read has this id.
     NotFound,
+    /// They read it, and only its owner or an admin deletes or restores it.
+    OwnerOrAdmin,
     /// It was merged into another, which holds its captures and is the one to change.
     Merged,
     /// Deleting a meeting deleted already.
@@ -114,6 +119,7 @@ impl RefusalKind {
     pub const fn code(self) -> &'static str {
         match self {
             Self::NotFound => "not_found",
+            Self::OwnerOrAdmin => "owner_or_admin",
             Self::Merged => "meeting_merged",
             Self::Deleted => "meeting_deleted",
             Self::NotDeleted => "meeting_not_deleted",
@@ -123,7 +129,8 @@ impl RefusalKind {
     /// Why, in words for the person.
     pub const fn message(self) -> &'static str {
         match self {
-            Self::NotFound => "no meeting of yours has this id",
+            Self::NotFound => "no meeting you may read has this id",
+            Self::OwnerOrAdmin => "only its owner or an admin deletes or restores a meeting",
             Self::Merged => "this meeting was merged into another, so it changes there",
             Self::Deleted => "this meeting is deleted already",
             Self::NotDeleted => "this meeting is not deleted",
@@ -176,8 +183,8 @@ impl From<DieselError> for Failure {
 }
 
 /// Applies `change` to every meeting in `meeting_ids`, at most [`MAX_MEETINGS`], as `person` at
-/// `at`. Each is changed once, in the order of their ids, so two changes over the same meetings
-/// lock them in one order. `removed_with` names the connector the meetings are deleted with, which
+/// `at`, each one they may manage. Each is changed once, in the order of their ids, so two changes
+/// over the same meetings lock them in one order. `removed_with` names the connector the meetings are deleted with, which
 /// their history records. Nothing is announced: the caller does, once it commits ([`announce`]).
 ///
 /// # Errors
@@ -187,12 +194,12 @@ pub async fn change_many(
     connection: &mut AsyncPgConnection,
     meeting_ids: &[Uuid],
     change: BulkChange,
-    person: Uuid,
+    person: &User,
     at: DateTime<Utc>,
     removed_with: Option<Uuid>,
 ) -> Result<Outcome, DieselError> {
     let author = Author {
-        user_id: person,
+        user_id: person.id,
         agent: None,
         at,
     };
@@ -204,11 +211,16 @@ pub async fn change_many(
             let mut outcome = Outcome::default();
             for meeting_id in ordered {
                 let attempt = connection
-                    .transaction(async move |connection| match change {
-                        BulkChange::Delete {} => {
-                            delete_one(connection, meeting_id, author, removed_with).await
+                    .transaction(async move |connection| {
+                        let locked = lock_changeable(connection, meeting_id, person).await?;
+                        match change {
+                            BulkChange::Delete {} => {
+                                delete_one(connection, &locked, author, removed_with).await
+                            }
+                            BulkChange::Restore {} => {
+                                restore_one(connection, &locked, author).await
+                            }
                         }
-                        BulkChange::Restore {} => restore_one(connection, meeting_id, author).await,
                     })
                     .await;
                 match attempt {
@@ -226,18 +238,20 @@ pub async fn change_many(
         .await
 }
 
-/// Meeting `meeting_id`, the person's, locked for the change, or why it refuses: not found, or
+/// Meeting `meeting_id` locked for the change, when `person` may manage it and it holds its own
+/// captures, or why it refuses: one they may not read, one they read but may not manage, or one
 /// merged into another.
 async fn lock_changeable(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
-    person: Uuid,
+    person: &User,
 ) -> Result<Meeting, Failure> {
-    // Found as every meeting route finds it, so who may change it is decided in one place.
-    match meeting::find_owned(connection, meeting_id, person).await {
+    // Opened as every meeting route opens it, so who may change it is decided in one place.
+    match access::open(connection, meeting_id, person, Need::Manage).await {
         Ok(_) => {}
-        Err(DieselError::NotFound) => return Err(Failure::Refused(RefusalKind::NotFound)),
-        Err(error) => return Err(error.into()),
+        Err(access::Refusal::NotFound) => return Err(Failure::Refused(RefusalKind::NotFound)),
+        Err(access::Refusal::Needs(_)) => return Err(Failure::Refused(RefusalKind::OwnerOrAdmin)),
+        Err(access::Refusal::Database(error)) => return Err(error.into()),
     }
     // The lock every change to a meeting takes, read again under it.
     let locked = meeting::lock(connection, meeting_id).await?;
@@ -247,15 +261,15 @@ async fn lock_changeable(
     Ok(locked)
 }
 
-/// Deletes meeting `meeting_id` with its excerpts' records and its transcript's document, as
-/// `author`, recording it.
+/// Deletes `locked`, the meeting [`lock_changeable`] locked, with its excerpts' records and its
+/// transcript's document, as `author`, recording it.
 async fn delete_one(
     connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
+    locked: &Meeting,
     author: Author<'_>,
     removed_with: Option<Uuid>,
 ) -> Result<Changed, Failure> {
-    let locked = lock_changeable(connection, meeting_id, author.user_id).await?;
+    let meeting_id = locked.id;
     if locked.deleted_at.is_some() {
         return Err(Failure::Refused(RefusalKind::Deleted));
     }
@@ -298,14 +312,15 @@ async fn delete_one(
     })
 }
 
-/// Restores meeting `meeting_id` with the excerpts' records and the transcript document its
-/// deletion took, as `author`, carries on the run the deletion stopped, and records it.
+/// Restores `locked`, the meeting [`lock_changeable`] locked, with the excerpts' records and the
+/// transcript document its deletion took, as `author`, carries on the run the deletion stopped, and
+/// records it.
 async fn restore_one(
     connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
+    locked: &Meeting,
     author: Author<'_>,
 ) -> Result<Changed, Failure> {
-    let locked = lock_changeable(connection, meeting_id, author.user_id).await?;
+    let meeting_id = locked.id;
     let Some(deleted_at) = locked.deleted_at else {
         return Err(Failure::Refused(RefusalKind::NotDeleted));
     };
@@ -460,7 +475,6 @@ pub async fn announce(
         events.publish(&ServerEvent::MeetingChanged {
             id: changed.meeting.id,
             state: changed.meeting.state.clone(),
-            created_by: changed.meeting.created_by,
             entry_id: Some(changed.entry.id),
         });
         for record in &changed.records {

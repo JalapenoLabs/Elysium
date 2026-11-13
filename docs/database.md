@@ -517,10 +517,12 @@ transcript; `source` tells a learning and a company doc section from any other p
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |
 | `created_by`         | `UUID`        | References `users`: whose record it came from, for the person filter; never access control |
+| `meeting_id`         | `UUID`        | References `meetings`, cascading: the meeting a segment's document is of, whose readers alone find it; `NULL` for every other source. Not a source of its own |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger              |
 
 `knowledge_documents_copies` on `content_sha256` finds the documents holding the same text, which two people's
 connectors reading one channel or space make (`docs/knowledge.md`, Hybrid search, The same text twice).
+`knowledge_documents_of_meeting` finds a meeting's documents (`docs/knowledge.md`, Who sees what).
 
 ### `knowledge_asks`
 
@@ -731,7 +733,8 @@ Meetings, each the one event that happened, and how far each one's processing go
 source gave is its captures' (`meeting_captures`); the meeting keeps the event's own fields and what Elysium made of
 it. Meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`), and meetings merged into
 another for finding them (`meetings_merged_into`); a person's meetings not merged away by when they started
-(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as.
+(`meetings_started_by_person`), for a meeting aligned to find one it may be the same as; and the meeting an inbox item
+said was kept private (`meetings_visibility_items`).
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
@@ -745,7 +748,9 @@ another for finding them (`meetings_merged_into`); a person's meetings not merge
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `merged_into`            | `UUID`        | References `meetings`, set to `NULL` with it: the meeting its captures were merged into, while they are; never itself (`meetings_merged_into_another`) |
-| `deleted_at`             | `TIMESTAMPTZ` | When its person deleted it, while it is; `NULL` once restored. Who did either is in `meeting_events` |
+| `visibility`             | `TEXT`        | Who reads it besides its owner, the people it is shared with, and admins: `unchecked` (new, private until its correction decides; the default), `private`, or `public` (every member) |
+| `visibility_item_id`     | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item telling its owner its correction kept it private |
+| `deleted_at`             | `TIMESTAMPTZ` | When its owner or an admin deleted it, while it is; `NULL` once restored. Who did either is in `meeting_events` |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
@@ -801,7 +806,7 @@ inbox item asking. A decision, who made it, and when are set together (`meeting_
 
 Meetings people upload, while their parts arrive and once they became a capture; see `docs/meetings.md`, Uploads. A new
 meeting's upload names its title and start, and a capture's names its meeting (`meeting_uploads_new_meeting`); a
-finished one names the capture it became (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
+finished one names the capture or the attachment it became, never both (`meeting_uploads_finished`). `meeting_uploads_unfinished` on `(created_by,
 updated_at)`, partial on what has not finished, reads a person's uploads to resume and the stale ones to sweep, and
 `meeting_uploads_parts_kept` on `finished_at`, partial on finished uploads whose parts were not removed, the finished
 ones to sweep.
@@ -815,6 +820,7 @@ ones to sweep.
 | `part_bytes`          | `INTEGER`     | How many bytes each part carries but the last, fixed when it starts         |
 | `transcript`          | `JSONB`       | The lines its transcript was read as, `{ startMs, endMs, speaker, text }` each, set when it finishes |
 | `capture_id`          | `UUID`        | References `meeting_captures`, cascading, unique: the capture it became     |
+| `attachment_id`       | `UUID`        | References `meeting_attachments`, unique: the file it attached to its meeting, which it always names (`meeting_uploads_attachment_to_a_meeting`) |
 | `finished_at`         | `TIMESTAMPTZ` | When it finished                                                            |
 | `parts_removed_at`    | `TIMESTAMPTZ` | When its staged parts were removed from the workspace; `NULL` while they may be there |
 | `created_by`          | `UUID`        | References `users`: who uploads it                                          |
@@ -822,15 +828,43 @@ ones to sweep.
 
 ### `meeting_upload_files`
 
-An upload's files, a recording, a transcript, or one of each; a child of its upload, so it has no `created_by`.
+An upload's files, a recording, a transcript, or one of each, or one file attached to a meeting; a child of its
+upload, so it has no `created_by`.
 
 | Column           | Type          | Notes                                                                            |
 |------------------|---------------|----------------------------------------------------------------------------------|
-| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording` or `transcript`         |
+| `upload_id`, `kind` | `UUID`, `TEXT` | Primary key; the upload, cascading, and `recording`, `transcript`, or `attachment` |
 | `file_name`      | `TEXT`        | Its name, cleaned, at most 200 characters                                        |
 | `size_bytes`     | `BIGINT`      | Above zero                                                                       |
 | `modified_at`    | `TIMESTAMPTZ` | When the file last changed, as the browser read it, to resume it                 |
 | `received_bytes` | `BIGINT`      | How much of it arrived, in whole parts from its start; at most its size          |
+
+### `meeting_attachments`
+
+Files people attach to a meeting and stills of its video pinned to it, each a frozen copy kept with the meeting; see
+`docs/meetings.md`, Attachments and frames. Pins are marks of kind `pin` (`meeting_marks`) naming one in their data.
+`meeting_attachments_of_meeting` on `(meeting_id, id)` lists what a meeting holds, and `meeting_attachments_location`
+finds what a location holds. A frame names its capture, moment, caption, and fingerprint, and a file none of them
+(`meeting_attachments_frame`).
+
+| Column                | Type          | Notes                                                                    |
+|-----------------------|---------------|--------------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                      |
+| `meeting_id`          | `UUID`        | References `meetings`, not cascading: the row is the only record of a file kept with a provider |
+| `kind`                | `TEXT`        | `file` or `frame`                                                        |
+| `storage_location_id` | `UUID`        | Where it went, through `meeting_attachments_storage_location`, so a location holding one stays |
+| `storage_path`, `stored_at` | `TEXT`, `TIMESTAMPTZ` | Its path in the location and when it was stored, both `NULL` while its parts wait (`meeting_attachments_stored`) |
+| `file_name`           | `TEXT`        | Its name, cleaned, at most 200 characters                                |
+| `content_type`        | `TEXT`        | The type it is served as, from its extension                             |
+| `size_bytes`          | `BIGINT`      | Above zero                                                               |
+| `capture_id`, `capture_ms` | `UUID`, `BIGINT` | A frame's capture (references `meeting_captures`) and its moment on that capture's clock |
+| `caption`             | `TEXT`        | What a frame shows, 1 to 1,000 characters                                |
+| `fingerprint`         | `BYTEA`       | A frame's 32 by 18 grey cells, 576 bytes, for finding near duplicates    |
+| `text`, `text_state`  | `TEXT`, `TEXT` | The text read from a file, set exactly when `text_state` is `read`; else `pending`, `none`, or `unreadable` |
+| `created_by`          | `UUID`        | References `users`                                                       |
+| `agent`, `agent_name` | `TEXT`        | The agent acting for its creator, as on `meeting_marks`                  |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                            |
+| `removed_by`          | `UUID`        | References `meeting_events`: the change that took it off, `NULL` while it stands |
 
 ### `meeting_transcriptions`
 
@@ -951,6 +985,19 @@ answers in the thread. Its author is the comment's.
 | `comment_id` | `UUID` | References `meeting_comments`, cascading           |
 | `user_id`    | `UUID` | References `users`: an active person, or Elysia    |
 
+### `meeting_shares`
+
+Whom a meeting is shared with: a private meeting is read by its owner and these people, and a guest reads only a meeting
+shared with them, public or not (`docs/meeting-review.md`, Who sees a meeting). `meeting_shares_of_person` finds the
+meetings shared with a person, which every listing and search of meetings asks.
+
+| Column       | Type          | Notes                                                                       |
+|--------------|---------------|-----------------------------------------------------------------------------|
+| `meeting_id` | `UUID`        | References `meetings`, cascading; with `person_id`, the primary key          |
+| `person_id`  | `UUID`        | References `users`: an active person other than its owner when shared        |
+| `created_by` | `UUID`        | References `users`: its owner, an admin, or the system for its correction's decision |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                                                |
+
 ### `meeting_thread_items`
 
 The inbox items a thread raised, one per person a mention, a reply, a resolve, or a reopen told, so an item's page
@@ -963,6 +1010,36 @@ opens the thread it is about.
 | `person_id`      | `UUID`        | References `users`: who it tells                             |
 | `created_by`     | `UUID`        | References `users`: whose change raised it                   |
 | `created_at`     | `TIMESTAMPTZ` | Set on insert                                                |
+
+### `meeting_tasks`
+
+The tasks heard in a meeting, one per mark of kind `task` (`docs/meetings.md`, Tasks): the mark anchors it to its words,
+and this row says what it is.
+
+| Column            | Type          | Notes                                                                        |
+|-------------------|---------------|------------------------------------------------------------------------------|
+| `mark_id`         | `UUID`        | Primary key; references `meeting_marks`, cascading: the task's id            |
+| `meeting_id`      | `UUID`        | References `meetings`, cascading; indexed                                    |
+| `title`           | `TEXT`        | 1 to 200 characters: what is to be done                                      |
+| `owed_by_user_id` | `UUID`        | References `users`: a person on Elysium who owes it                          |
+| `owed_by_name`    | `TEXT`        | 1 to 200 characters: someone not on Elysium who owes it, by the name heard; never beside `owed_by_user_id` (`meeting_tasks_owed_by_one`), and neither means nobody was named |
+| `project_id`      | `UUID`        | References `projects`, set null on delete: the project whose work it is; indexed while set |
+| `declined_reason` | `TEXT`        | 1 to 2,000 characters: why its Project Manager made no item of it            |
+| `declined_at`     | `TIMESTAMPTZ` | Set exactly with the reason (`meeting_tasks_declined_whole`)                 |
+| `created_by`      | `UUID`        | References `users`: who heard it, Elysia                                     |
+| `created_at`      | `TIMESTAMPTZ` | Set on insert                                                                |
+
+### `meeting_task_items`
+
+The action items a task was made into, so the meeting's bar opens them and each item's page opens its task's words.
+
+| Column           | Type          | Notes                                                                   |
+|------------------|---------------|-------------------------------------------------------------------------|
+| `action_item_id` | `UUID`        | Primary key; references `action_items`, cascading                       |
+| `task_id`        | `UUID`        | References `meeting_tasks`, cascading; indexed                          |
+| `person_id`      | `UUID`        | References `users`: whom an item made at once is for; null for a project's item, which its Project Manager made |
+| `created_by`     | `UUID`        | References `users`: Elysia for an item made at once, the proposer for a changeset's |
+| `created_at`     | `TIMESTAMPTZ` | Set on insert                                                           |
 
 ### `mail_servers`
 
@@ -1599,7 +1676,8 @@ A changeset's operations, in order. `(changeset_id, position)` is unique, and th
 | `reason`       | `TEXT`               | 1 to 2000 characters                                            |
 | `quote`        | `TEXT`               | What it came from, 1 to 2000 characters; optional               |
 | `source`       | `TEXT`               | Where that is, 1 to 500 characters; optional                    |
-| `cause_record_id` | `UUID`            | The timeline record that caused it, `ON DELETE SET NULL`; every Project Manager's operation names one |
+| `cause_record_id` | `UUID`            | The timeline record that caused it, `ON DELETE SET NULL`; every Project Manager's operation names one, a task, or both |
+| `meeting_task_id` | `UUID`            | References `meeting_tasks`, `ON DELETE SET NULL`: the meeting's task that caused a Project Manager's operation; a create naming one makes the task's item. Indexed while set |
 | `decision`     | `changeset_decision` | `pending`, `approved`, or `rejected`                            |
 | `outcome`      | `changeset_outcome`  | `pending`, `applied`, `failed`, `skipped`, or `undone`; only an approved operation is applied, fails, or is undone |
 | `error`        | `TEXT`               | Why it failed or was skipped, up to 2000 characters             |
@@ -1668,7 +1746,8 @@ One row, always present (`singleton` is its key and must be true).
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
 | `agent_configuration_github_credential_id` | `UUID` | Nullable; the GitHub token that reads it, `NULL` to read it without one. References `github_credentials`, `SET NULL`; only for a github.com repository |
 | `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
-| `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
+| `page_attachment_storage_location_id` | `UUID` | Nullable; the storage location new page and meeting attachments go to, `NULL` for none. References `storage_locations` through `workspace_settings_page_attachment_storage_location`, so a chosen location cannot be deleted |
+| `meeting_attachment_max_bytes` | `BIGINT` | The largest file a meeting takes, 1 GB by default, from 1 to 5 GiB (`workspace_settings_meeting_attachment_max_bytes`) |
 | `worker_pool_size` | `INTEGER` | Nullable; how many workers run at once, at least one with no maximum, `NULL` for the default (one per CPU core the engine sees minus two, at least one) |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |
@@ -1801,8 +1880,9 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
 `project_manager_wakes_record_waits_once` keeps one waiting wake per record and project,
-`project_manager_wakes_promise_waits_once` one per promise and project, and
-`project_manager_wakes_assignment_waits_once` one per assigned item and project. Every publish of a brief that wakes its
+`project_manager_wakes_promise_waits_once` one per promise and project,
+`project_manager_wakes_assignment_waits_once` one per assigned item and project, and
+`project_manager_wakes_task_waits_once` one per meeting task and project. Every publish of a brief that wakes its
 Project Manager is a wake of its own, so a turn names each edit. `project_manager_wakes_by_action_item` finds an item's
 newest assignment, for where its plan stands.
 
@@ -1810,7 +1890,7 @@ newest assignment, for where its plan stands.
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, `brief`, or `assignment` |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, `brief`, `assignment`, or `task` |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
@@ -1820,6 +1900,7 @@ newest assignment, for where its plan stands.
 | `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
 | `page_version`       | `INTEGER`                   | Set exactly for `brief`: the version of the project's brief someone else published |
 | `action_item_id`     | `UUID`                      | Set exactly for `assignment`: the item a person assigned it; cascading |
+| `meeting_task_id`    | `UUID`                      | Set exactly for `task`: the meeting's task for its project, new or changed; references `meeting_tasks`, cascading |
 
 ### `promises`
 

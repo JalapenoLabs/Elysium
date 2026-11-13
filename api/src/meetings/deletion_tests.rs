@@ -29,7 +29,7 @@ use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{AccountKind, ConnectorKind};
 use crate::database::Pool;
-use crate::database::schema::knowledge_documents;
+use crate::database::schema::{knowledge_documents, meetings};
 use crate::meeting_uploads::staging::Staging;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
 use crate::models::agent::Author;
@@ -37,7 +37,7 @@ use crate::models::attribution::{self, Attributor};
 use crate::models::browser_session::{self, NewBrowserSession};
 use crate::models::connector::{self, AccountRef, Connector, NewConnector};
 use crate::models::meeting::tests::{fetched_with, stored};
-use crate::models::meeting::{self, Meeting};
+use crate::models::meeting::{self, Meeting, Reach, Reader};
 use crate::models::meeting_correction::{self, NewMeetingCorrection};
 use crate::models::meeting_event::{self, EventKind};
 use crate::models::meeting_mark::Range;
@@ -46,11 +46,19 @@ use crate::models::project::{self, NewProject};
 use crate::models::step_job::{self, StepJobState, StepOutcome};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineQuery, TimelineRecord};
 use crate::models::token_account::{self, NewTokenAccount};
+use crate::models::user::{self, ELYSIA_USER_ID, User};
 use crate::models::workflow_run::{self, WorkflowRunState};
 use crate::realtime::EventBus;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 use crate::workflows::{self, Step, StepContext};
+
+/// The test person, who owns every meeting here and makes every change.
+async fn test_person(connection: &mut AsyncPgConnection) -> User {
+    user::find(connection, TEST_PERSON_ID)
+        .await
+        .expect("the test person")
+}
 
 /// Applies `change` to `meeting_ids` as the test person, as the bulk route does.
 async fn change(
@@ -59,16 +67,22 @@ async fn change(
     change: BulkChange,
 ) -> Outcome {
     meeting_ids.sort_unstable();
-    deletion::change_many(
-        connection,
-        &meeting_ids,
-        change,
-        TEST_PERSON_ID,
-        Utc::now(),
-        None,
-    )
-    .await
-    .expect("the change is written")
+    let person = test_person(connection).await;
+    deletion::change_many(connection, &meeting_ids, change, &person, Utc::now(), None)
+        .await
+        .expect("the change is written")
+}
+
+/// What the test person's Meetings page lists: the meetings they may read, or, `deleted`, the
+/// deleted ones they may restore.
+async fn meetings_page(connection: &mut AsyncPgConnection, deleted: bool) -> Vec<Meeting> {
+    let reader = Reader::of(&test_person(connection).await);
+    let page = if deleted {
+        meeting::list_deleted(connection, reader, None, 200).await
+    } else {
+        meeting::list_readable(connection, reader, None, 200).await
+    };
+    page.expect("lists")
 }
 
 /// The test person, now.
@@ -273,16 +287,14 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
     );
 
     // It leaves every list but the deleted one, and its excerpts every reader.
-    let listed: Vec<Uuid> = meeting::list_owned(&mut connection, TEST_PERSON_ID)
+    let listed: Vec<Uuid> = meetings_page(&mut connection, false)
         .await
-        .expect("lists")
         .iter()
         .map(|listed| listed.id)
         .collect();
     assert_eq!(listed, [other.id]);
-    let deleted_list: Vec<Uuid> = meeting::list_deleted(&mut connection, TEST_PERSON_ID)
+    let deleted_list: Vec<Uuid> = meetings_page(&mut connection, true)
         .await
-        .expect("lists")
         .iter()
         .map(|listed| listed.id)
         .collect();
@@ -399,6 +411,86 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
     );
 }
 
+// Restoring takes what deleting took, its owner or an admin, so the Deleted filter lists an admin
+// every deleted meeting and anyone else their own, and a member who reads someone else's deleted
+// meeting may neither delete nor restore it.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_deleted_list_holds_what_its_reader_may_restore() {
+    let (_url, mut connection) = migrated_database().await;
+    let (own, _) = stored(&mut connection).await;
+    let (theirs, _) = stored(&mut connection).await;
+    change(
+        &mut connection,
+        vec![own.id, theirs.id],
+        BulkChange::Delete {},
+    )
+    .await;
+    // Elysia's, and open to every member, so the test person reads it as a member.
+    diesel::update(meetings::table.find(theirs.id))
+        .set((
+            meetings::created_by.eq(ELYSIA_USER_ID),
+            meetings::visibility.eq("public"),
+        ))
+        .execute(&mut connection)
+        .await
+        .expect("handed to Elysia");
+
+    let ids = |listed: Vec<Meeting>| -> Vec<Uuid> {
+        let mut ids: Vec<Uuid> = listed.iter().map(|listed| listed.id).collect();
+        ids.sort_unstable();
+        ids
+    };
+    let member = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Public,
+    };
+    let admin = Reader {
+        id: TEST_PERSON_ID,
+        reach: Reach::Every,
+    };
+    let as_member = meeting::list_deleted(&mut connection, member, None, 50)
+        .await
+        .expect("lists");
+    assert_eq!(
+        ids(as_member),
+        [own.id],
+        "a member restores their own alone"
+    );
+    let as_admin = meeting::list_deleted(&mut connection, admin, None, 50)
+        .await
+        .expect("lists");
+    let mut both = vec![own.id, theirs.id];
+    both.sort_unstable();
+    assert_eq!(ids(as_admin), both, "an admin restores every one");
+
+    // The test person is a member here: Elysia's meeting refuses them as only its owner's or an
+    // admin's to restore, while their own comes back.
+    diesel::sql_query("UPDATE users SET role = 'member' WHERE id = $1")
+        .bind::<diesel::sql_types::Uuid, _>(TEST_PERSON_ID)
+        .execute(&mut connection)
+        .await
+        .expect("a member");
+    let restored = change(
+        &mut connection,
+        vec![own.id, theirs.id],
+        BulkChange::Restore {},
+    )
+    .await;
+    let changed: Vec<Uuid> = restored
+        .changed
+        .iter()
+        .map(|changed| changed.meeting.id)
+        .collect();
+    assert_eq!(changed, [own.id]);
+    let refused: Vec<(Uuid, &str)> = restored
+        .refused
+        .iter()
+        .map(|refusal| (refusal.meeting_id, refusal.code))
+        .collect();
+    assert_eq!(refused, [(theirs.id, "owner_or_admin")]);
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn many_meetings_change_at_once_and_each_one_refused_is_named() {
@@ -452,10 +544,7 @@ async fn many_meetings_change_at_once_and_each_one_refused_is_named() {
     .await;
     assert_eq!(restored.changed.len(), 2);
     assert_eq!(
-        meeting::list_owned(&mut connection, TEST_PERSON_ID)
-            .await
-            .expect("lists")
-            .len(),
+        meetings_page(&mut connection, false).await.len(),
         3,
         "both are back beside the one kept; the merged one lives on in it"
     );
@@ -957,9 +1046,8 @@ async fn every_sources_next_listing_leaves_a_deleted_meeting_deleted() {
             .expect("still there");
         assert_eq!(still.id, first.id, "{kind:?} keeps the one meeting it had");
         assert!(still.deleted_at.is_some(), "{kind:?} leaves it deleted");
-        let listed_ids: Vec<Uuid> = meeting::list_owned(&mut connection, TEST_PERSON_ID)
+        let listed_ids: Vec<Uuid> = meetings_page(&mut connection, false)
             .await
-            .expect("lists")
             .iter()
             .map(|listed| listed.id)
             .collect();
@@ -1073,9 +1161,7 @@ async fn removing_a_connector_deletes_its_meetings_only_when_asked() {
         .expect("stores");
     let (status, _) = send(Method::DELETE, format!("/api/v1/connectors/{}", kept.id)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let stays = meeting::list_owned(&mut connection, TEST_PERSON_ID)
-        .await
-        .expect("lists");
+    let stays = meetings_page(&mut connection, false).await;
     assert_eq!(stays.len(), 1, "a meeting whose connector is gone stays");
 
     // Asked, they go with it, recorded as removed with it.
@@ -1100,9 +1186,7 @@ async fn removing_a_connector_deletes_its_meetings_only_when_asked() {
     )
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let deleted = meeting::list_deleted(&mut connection, TEST_PERSON_ID)
-        .await
-        .expect("lists");
+    let deleted = meetings_page(&mut connection, true).await;
     assert_eq!(deleted.len(), 2);
     for gone in &deleted {
         let entry = meeting_event::history(&mut connection, gone.id)
@@ -1113,9 +1197,8 @@ async fn removing_a_connector_deletes_its_meetings_only_when_asked() {
         assert_eq!(entry.kind(), Some(EventKind::Deleted));
         assert_eq!(entry.data["connectorId"], json!(removed.id));
     }
-    let left: Vec<Uuid> = meeting::list_owned(&mut connection, TEST_PERSON_ID)
+    let left: Vec<Uuid> = meetings_page(&mut connection, false)
         .await
-        .expect("lists")
         .iter()
         .map(|listed| listed.id)
         .collect();
@@ -1202,9 +1285,7 @@ async fn a_removal_that_fails_restores_the_meetings_it_deleted() {
     connector::find(&mut connection, teams.id)
         .await
         .expect("the connector stays");
-    let live = meeting::list_owned(&mut connection, TEST_PERSON_ID)
-        .await
-        .expect("lists");
+    let live = meetings_page(&mut connection, false).await;
     assert_eq!(live.len(), 2, "its meetings are back");
     for back in &live {
         let kinds: Vec<Option<EventKind>> = meeting_event::history(&mut connection, back.id)

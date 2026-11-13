@@ -204,9 +204,8 @@ struct ExcerptRow {
     meeting_id: Option<Uuid>,
 }
 
-/// How many migrations come after [`EXCERPTS`], plus [`EXCERPTS`] itself, so reverting that many
-/// lands just before it however many land after it.
-fn from_the_excerpts() -> u32 {
+/// How many migrations come after [`EXCERPTS`].
+fn after_the_excerpts() -> u32 {
     let names: Vec<String> =
         diesel::migration::MigrationSource::<diesel::pg::Pg>::migrations(&MIGRATIONS)
             .expect("embedded migrations load")
@@ -217,20 +216,27 @@ fn from_the_excerpts() -> u32 {
         .iter()
         .position(|name| name == EXCERPTS)
         .expect("the migration is embedded");
-    u32::try_from(names.len() - position).expect("a handful of migrations")
+    u32::try_from(names.len() - position - 1).expect("a handful of migrations")
 }
 
+/// Applies the migrations up to [`EXCERPTS`] and no further: every pending one, then back off
+/// those after it, so what a later one changes, such as a column it adds to `meetings`, never
+/// reads as the excerpts' doing.
 async fn up(url: &SecretString) {
     migrations::execute(url.clone(), MigrationCommand::Run)
         .await
         .expect("the excerpts apply");
+    let after = after_the_excerpts();
+    if after > 0 {
+        migrations::execute(url.clone(), MigrationCommand::Revert { count: after })
+            .await
+            .expect("the migrations after the excerpts roll back");
+    }
 }
 
+/// Rolls back [`EXCERPTS`], the newest migration [`up`] leaves applied.
 async fn down(url: &SecretString) {
-    let revert = MigrationCommand::Revert {
-        count: from_the_excerpts(),
-    };
-    migrations::execute(url.clone(), revert)
+    migrations::execute(url.clone(), MigrationCommand::Revert { count: 1 })
         .await
         .expect("the excerpts roll back");
 }

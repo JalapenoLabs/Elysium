@@ -10,7 +10,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { LuGripHorizontal } from 'react-icons/lu'
+import { Button, Kbd, Tooltip } from '@heroui/react'
+import { LuGripHorizontal, LuImagePlus } from 'react-icons/lu'
 import { OptionSelect } from '../../../components/OptionSelect'
 import { PlayerWaveform } from './PlayerWaveform'
 
@@ -24,6 +25,9 @@ type Props = {
   // What it plays: the capture chosen, and its recording's address.
   capture: MeetingCapture
   src: string
+  // Pins the picture the video shows now (F); null when there is no picture to pin, or the meeting
+  // takes no change.
+  onPinFrame: (() => void) | null
 }
 
 // What the switcher calls each capture: its source, numbered when a meeting has two from one.
@@ -187,17 +191,41 @@ export function PlayerFrame(props: Props) {
           }</p>}
       </div>
 
-      {options.length > 1 && <div className={isFloating
-        ? 'mt-1.5'
-        : 'mt-2 max-w-xs'}>
-        <OptionSelect
-          id='meeting-player-capture'
-          label={t('review.player.capture')}
-          isLabelHidden={isFloating}
-          options={options}
-          value={props.capture.id}
-          onChange={player.switchCapture}
-        />
+      {(options.length > 1 || props.onPinFrame) && <div className={[
+        'flex items-end gap-2',
+        isFloating
+          ? 'mt-1.5'
+          : 'mt-2',
+      ].join(' ')}>
+        {options.length > 1 && <div className={isFloating
+          ? 'min-w-0 flex-1'
+          : 'min-w-0 max-w-xs flex-1'}>
+          <OptionSelect
+            id='meeting-player-capture'
+            label={t('review.player.capture')}
+            isLabelHidden={isFloating}
+            options={options}
+            value={props.capture.id}
+            onChange={player.switchCapture}
+          />
+        </div>}
+        {props.onPinFrame && <Tooltip delay={300}>
+          <Button
+            size='sm'
+            variant='outline'
+            isIconOnly={isFloating}
+            aria-label={t('review.files.pinFrame')}
+            className='ml-auto shrink-0'
+            onPress={props.onPinFrame}
+          >
+            <LuImagePlus className='size-4' aria-hidden />
+            {!isFloating && <span>{t('review.files.pinFrame')}</span>}
+            {!isFloating && <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+              <Kbd.Content>F</Kbd.Content>
+            </Kbd>}
+          </Button>
+          <Tooltip.Content>{t('review.files.pinFrameHint')}</Tooltip.Content>
+        </Tooltip>}
       </div>}
     </div>
   </div>

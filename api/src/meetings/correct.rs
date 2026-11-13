@@ -10,6 +10,14 @@
 //! one transaction, teaches the Transcription doc (`crate::transcription_doc`), and decides whether
 //! the run waits for its person's approval.
 //!
+//! # Who reads it
+//!
+//! The same turn judges whether the meeting is sensitive, and the transaction that settles it
+//! applies that (`super::visibility::decide`): a new meeting, private to its owner until now, opens
+//! to every member, or stays private, shared with the people the turn chose, its owner told so with
+//! an inbox item. A judgment the turn's answer does not make keeps it private. A meeting a person
+//! already made private or opened is left as they set it.
+//!
 //! # Doing it once
 //!
 //! A meeting is settled once. The raw transcripts are never written: the copy goes in
@@ -41,8 +49,9 @@
 //!
 //! # What it logs
 //!
-//! Every company member can read a run's log, and meetings are their owner's alone, so the log
-//! carries counts, line numbers, and hashes, never a word of what was said.
+//! Every company member can read a run's log, though a meeting may be private, so the log carries
+//! counts, line numbers, and hashes, never a word of what was said, nor what it decided about who
+//! reads the meeting.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,10 +63,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::correction::{self, Background, Base, Changed, Flag, Transcript, Version};
+use super::correction::{self, Background, Base, Changed, Flag, Person, Transcript, Version};
 use super::final_transcript;
 use super::segment::TranscriptToSegment;
 use super::transcribe::TranscribedMeeting;
+use super::visibility::{self, Decided, Judgment};
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::agent_models::AgentKind;
 use crate::company_doc;
@@ -77,7 +87,7 @@ use crate::models::meeting_word::{self, Origin, SettledRange, Word};
 use crate::models::model_setting::ModelChoice;
 use crate::models::page_suggestion::Suggested;
 use crate::models::step_job::{self, StepActionError, StepJobState};
-use crate::models::user::{ELYSIA_USER_ID, SYSTEM_USER_ID};
+use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::models::workflow_run::{self, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
@@ -202,12 +212,18 @@ struct Heard {
     transcription: Vec<transcription_doc::Entry>,
     doc: company_doc::CompanyDocResponse,
     speakers: Vec<String>,
+    /// Whose meeting it is, by name.
+    owner: String,
+    /// Who it can be shared with, those who took part first, its owner left out.
+    people: Vec<Person>,
 }
 
 /// What one turn's answer settles, checked.
 struct Settling {
     flags: Vec<Flag>,
     changed: Vec<Changed>,
+    /// Who it judged should read the meeting.
+    judgment: Judgment,
 }
 
 /// What storing a settlement found.
@@ -219,6 +235,8 @@ enum Stored {
         correction: MeetingCorrection,
         learned: bool,
         suggested: Vec<Suggested>,
+        /// Who reads it now, when it was this correction's to decide.
+        decided: Option<Box<Decided>>,
     },
     /// Another attempt settled it first; its copy is kept, and this one's discarded.
     ByAnother(MeetingCorrection),
@@ -319,6 +337,7 @@ impl CorrectTranscript {
                 SPEAKERS_MAX,
             )
             .await?;
+            let (owner, people) = people_for(&mut connection, &meeting, &words).await?;
             Ok(Read::Heard(Box::new(Heard {
                 meeting,
                 base,
@@ -329,6 +348,8 @@ impl CorrectTranscript {
                 transcription: transcription.entries,
                 doc,
                 speakers,
+                owner,
+                people,
             })))
         };
         read.await.map_err(StepFailure::retryable)
@@ -346,6 +367,8 @@ impl CorrectTranscript {
         let background = correction::background(Background {
             title: &heard.meeting.title,
             participants: &participants,
+            owner: &heard.owner,
+            people: &heard.people,
             transcription: &heard.transcription,
             doc: &heard.doc,
             speakers: &heard.speakers,
@@ -373,6 +396,7 @@ impl CorrectTranscript {
                 .line(&format!("Refused a flag on {named}: {refusal}"));
         }
         let changed = correction::unflagged_changes(&transcript, &checked.flags);
+        let judgment = correction::parse_judgment(&answer, &heard.people);
         context.log.line(&format!(
             "{} flags kept, {} of them changing words, and {} refused; {} runs a capture heard \
              otherwise",
@@ -388,6 +412,7 @@ impl CorrectTranscript {
         Ok(Settling {
             flags: checked.flags,
             changed,
+            judgment,
         })
     }
 
@@ -514,7 +539,11 @@ impl CorrectTranscript {
                 let correction = meeting_correction::record(connection, new)
                     .await?
                     .ok_or_else(|| anyhow!("the meeting's copy was stored under its own lock"))?;
-                let lessons = lessons_of(heard, &applied);
+                // Who reads it is decided before the Transcription doc learns from it, which names
+                // a meeting only while it is public.
+                let decided = visibility::decide(connection, &locked, &settling.judgment).await?;
+                let shown = decided.as_ref().map_or(&locked, |decided| &decided.meeting);
+                let lessons = lessons_of(heard, &applied, shown);
                 let learned = transcription_doc::learn(connection, &lessons, author).await?;
                 let suggested = transcription_doc::suggest_unknown(
                     connection,
@@ -537,6 +566,7 @@ impl CorrectTranscript {
                     correction,
                     learned,
                     suggested,
+                    decided: decided.map(Box::new),
                 })
             })
             .await
@@ -615,11 +645,20 @@ impl CorrectTranscript {
                 correction,
                 learned,
                 suggested,
+                decided,
             } => {
                 context.log.line(&format!(
                     "Stored the corrected copy, SHA-256 {}",
                     correction.transcript_hash
                 ));
+                // What it decided stays off the log, which every member reads.
+                if decided.is_some() {
+                    context.log.line("Decided who reads the meeting");
+                } else {
+                    context
+                        .log
+                        .line("Left who reads the meeting as its person set it");
+                }
                 if learned {
                     context.log.line("The Transcription doc learned from it");
                     self.inner.events.publish(&ServerEvent::PageChanged {
@@ -635,6 +674,25 @@ impl CorrectTranscript {
                 }
                 for each in suggested {
                     pages::announce_suggested(&self.inner.events, &mut connection, each).await;
+                }
+                if let Some(raised) = decided.and_then(|decided| decided.raised)
+                    && let Err(error) = publish_item_write(
+                        &self.inner.events,
+                        &mut connection,
+                        raised,
+                        &[],
+                        Utc::now(),
+                    )
+                    .await
+                {
+                    // The item is stored; clients that missed it read it on their next load.
+                    tracing::event!(
+                        name: "meetings.correction.visibility_item_unpublished",
+                        tracing::Level::WARN,
+                        meeting.id = %heard.meeting.id,
+                        error.message = %error,
+                        "the inbox item about who reads a meeting was raised but not announced",
+                    );
                 }
                 // Every page reads the settled transcript again, as after any change no page made.
                 if let Err(error) =
@@ -884,10 +942,14 @@ fn settled_ranges(words: &[Word], settling: &Settling) -> Vec<SettledRange> {
 /// What the Transcription doc learns from `applied`, the flags settled over the words they were
 /// read from: each fix of each one the agent was sure of, with the transcript and speaker its
 /// words were heard from.
-fn lessons_of(heard: &Heard, applied: &[&Flag]) -> Vec<Lesson> {
+fn lessons_of(heard: &Heard, applied: &[&Flag], shown: &Meeting) -> Vec<Lesson> {
+    // The Transcription doc is every member's page, so a private meeting teaches its fixes alone:
+    // a link with no title, and neither who spoke nor the reason the correction gave, either of
+    // which can say what made it private.
+    let public = shown.public_title().is_some();
     let meeting = MeetingLink {
-        id: heard.meeting.id,
-        title: heard.meeting.title.clone(),
+        id: shown.id,
+        title: shown.public_title().unwrap_or_default().to_owned(),
     };
     let mut lessons = Vec::new();
     for flag in applied
@@ -902,8 +964,8 @@ fn lessons_of(heard: &Heard, applied: &[&Flag]) -> Vec<Lesson> {
                 .and_then(|capture_id| heard.sources.get(&capture_id).cloned()),
             _ => None,
         };
-        let speaker = Some(first.speaker.clone()).filter(|speaker| !speaker.is_empty());
-        let why = match &flag.why {
+        let speaker = Some(first.speaker.clone()).filter(|speaker| public && !speaker.is_empty());
+        let why = match flag.why.as_ref().filter(|_| public) {
             Some(why) => format!(
                 "The meeting's correction was {} of 100 sure: {why}",
                 flag.confidence
@@ -939,6 +1001,36 @@ fn summary_of(correction: &MeetingCorrection) -> String {
         return format!("Nothing needed correcting in {lines}");
     }
     format!("Corrected {} of {lines}", correction.changed_lines)
+}
+
+/// Whose meeting `current` is, by name, and the people its correction may share it with: every
+/// active person but its owner, never a machine, those its participants or the speakers of
+/// `words` name first.
+async fn people_for(
+    connection: &mut AsyncPgConnection,
+    current: &Meeting,
+    words: &[Word],
+) -> diesel::QueryResult<(String, Vec<Person>)> {
+    let everyone = user::list(connection).await?;
+    let mut owner = String::new();
+    let mut people = Vec::new();
+    for person in everyone {
+        if person.id == current.created_by {
+            owner = person.name;
+            continue;
+        }
+        if person.is_active() && !person.is_machine() {
+            people.push(Person {
+                id: person.id,
+                name: person.name,
+                email: person.email,
+            });
+        }
+    }
+    let mut took_part: Vec<String> =
+        serde_json::from_value(current.participants.clone()).unwrap_or_default();
+    took_part.extend(words.iter().map(|word| word.speaker.clone()));
+    Ok((owner, correction::people_in_order(people, &took_part)))
 }
 
 /// Whether `current` waits for its person's approval before it is acted on: held by hand, or
@@ -981,17 +1073,16 @@ async fn unsure_ranges(
 }
 
 /// The inbox item asking `current`'s person to review its corrected transcript, saying why it
-/// waits. Items are the whole workspace's, so it carries the meeting's title, as an item a
-/// person's mail raises carries its subject (`docs/knowledge.md`, Who sees what), and nothing
-/// that was said.
+/// waits. Items are the whole workspace's, so it carries the meeting's title only while the
+/// meeting is public (`Meeting::public_title`), as an item a person's mail raises carries its
+/// subject (`docs/knowledge.md`, Who sees what), and never anything that was said.
 fn review_item(current: &Meeting, waiting: Waiting) -> NewActionItem {
-    let named = current.title.trim();
+    let named = current.public_title();
     let (title, notes) = match waiting {
         Waiting::Asked => (
-            if named.is_empty() {
-                "Approve a meeting's corrected transcript".to_owned()
-            } else {
-                format!("Approve the corrected transcript of {named}")
+            match named {
+                Some(named) => format!("Approve the corrected transcript of {named}"),
+                None => "Approve a meeting's corrected transcript".to_owned(),
             },
             "The meeting waits for your approval of its corrected transcript before Elysium \
              takes anything from it. Its page in the knowledge base, under Meetings, shows what \
@@ -999,10 +1090,9 @@ fn review_item(current: &Meeting, waiting: Waiting) -> NewActionItem {
                 .to_owned(),
         ),
         Waiting::Unsure { ranges } => (
-            if named.is_empty() {
-                "Review a meeting's transcript".to_owned()
-            } else {
-                format!("Review the transcript of {named}")
+            match named {
+                Some(named) => format!("Review the transcript of {named}"),
+                None => "Review a meeting's transcript".to_owned(),
             },
             format!(
                 "Correction could hardly make out {ranges} {places} of this meeting, so Elysium \
@@ -1155,7 +1245,6 @@ pub async fn approve(
     events.publish(&ServerEvent::MeetingChanged {
         id: current.id,
         state: current.state.clone(),
-        created_by: current.created_by,
         entry_id: None,
     });
     Ok(current)
@@ -1232,7 +1321,6 @@ pub async fn hold(
     events.publish(&ServerEvent::MeetingChanged {
         id: changed.id,
         state: changed.state.clone(),
-        created_by: changed.created_by,
         entry_id: None,
     });
     Ok(changed)
@@ -1424,13 +1512,49 @@ mod tests {
         title: &str,
     ) -> (Meeting, MeetingCapture) {
         let (stored, capture) = fetched_with(connection, json!([heard_line("Jon is here")])).await;
+        // Open, as its correction would have left it with the copy it stored, so an item may name
+        // it.
         let titled = diesel::update(crate::database::schema::meetings::table.find(stored.id))
-            .set(crate::database::schema::meetings::title.eq(title))
+            .set((
+                crate::database::schema::meetings::title.eq(title),
+                crate::database::schema::meetings::visibility.eq("public"),
+            ))
             .returning(Meeting::as_returning())
             .get_result(connection)
             .await
             .expect("titled");
         (titled, capture)
+    }
+
+    #[test]
+    fn a_review_item_names_a_meeting_only_while_it_is_public() {
+        let mut current = Meeting {
+            id: Uuid::now_v7(),
+            title: "Ada and Grace, one to one".to_owned(),
+            started_at: Utc::now(),
+            duration_ms: None,
+            organizer: String::new(),
+            participants: json!([]),
+            segments: None,
+            state: "recorded".to_owned(),
+            created_by: TEST_PERSON_ID,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            hold_for_approval: true,
+            merged_into: None,
+            visibility: "private".to_owned(),
+            visibility_item_id: None,
+            deleted_at: None,
+        };
+        assert_eq!(
+            review_item(&current, Waiting::Asked).title,
+            "Approve a meeting's corrected transcript"
+        );
+        current.visibility = "public".to_owned();
+        assert_eq!(
+            review_item(&current, Waiting::Asked).title,
+            "Approve the corrected transcript of Ada and Grace, one to one"
+        );
     }
 
     #[test]
@@ -2001,7 +2125,7 @@ mod tests {
             {"line": 1, "heard": "Ely see um", "text": "Elysium", "confidence": 60},
             {"line": 1, "heard": "ships Friday", "text": "ships Friday at noon", "confidence": 90},
             {"line": 1, "heard": "Friday", "text": "Friday", "confidence": 0}
-        ]}"#;
+        ], "visibility": {"private": false, "shareWith": [], "why": "A launch review."}}"#;
         let step = CorrectTranscript::new(CorrectTranscriptDeps {
             database: database.clone(),
             events: EventBus::in_process(),
@@ -2105,9 +2229,15 @@ mod tests {
             .await
             .expect("history");
         let kinds: Vec<&str> = history.iter().map(|entry| entry.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["built", "settled"]);
+        assert_eq!(kinds, vec!["built", "settled", "visibility_changed"]);
         assert_eq!(history[1].data["changes"].as_array().map(Vec::len), Some(2));
         assert_eq!(history[1].data["skipped"], 0);
+        // Nothing in it is sensitive, so its correction opened it to every member.
+        let opened = meeting::find(&mut connection, stored.id)
+            .await
+            .expect("found");
+        assert_eq!(opened.visibility(), meeting::Visibility::Public);
+        assert_eq!(history[2].data["correction"], true);
 
         // The copy segmenting reads: the source's lines, the settled text in place.
         let copy = corrected_lines(&mut connection, &output)
@@ -2238,6 +2368,93 @@ mod tests {
                 .filter(|entry| entry.kind == "settled")
                 .count(),
             1
+        );
+    }
+
+    /// #246: a meeting its correction reads as sensitive stays private, shared with whom it chose,
+    /// its owner told by an item that names nothing of it, and the Transcription doc, every
+    /// member's page, learns its fixes alone.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_sensitive_meeting_stays_private_and_teaches_the_transcription_doc_nothing_of_it() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
+        let grace = Uuid::now_v7();
+        diesel::sql_query(format!(
+            "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+             VALUES ('{grace}', gen_random_uuid(), 'grace@example.com', 'Grace Hopper', 'member', \
+             'active', now())"
+        ))
+        .execute(&mut connection)
+        .await
+        .expect("Grace is created");
+        let (stored, capture) = misheard_meeting(&mut connection).await;
+        let answer = format!(
+            r#"{{"flags": [
+                {{"line": 0, "heard": "Sheriff", "text": "Sharath", "confidence": 92,
+                 "why": "Grace's review names Sharath."}}
+            ], "visibility": {{"private": true, "shareWith": ["{grace}"],
+                "why": "Grace's performance review."}}}}"#
+        );
+        let step = CorrectTranscript::new(CorrectTranscriptDeps {
+            database: database.clone(),
+            events: EventBus::in_process(),
+            runner: Runner::answering(&[answer.as_str()]),
+        });
+        // A run of its own, which the name it suggests to the company doc names.
+        let run = workflows::start(
+            &mut connection,
+            &EventBus::in_process(),
+            super::super::workflow::run_for(stored.id),
+        )
+        .await
+        .expect("a run");
+        let input = TranscribedMeeting {
+            meeting_id: stored.id,
+            capture_id: Some(capture.id),
+            transcript_hash: Some("a".repeat(64)),
+            recording: None,
+            whisper_transcript_hash: Some("b".repeat(64)),
+        };
+        let mut context = StepContext::for_test::<CorrectTranscript>(database.clone());
+        context.run_id = run.settled.run.id;
+        let done = step.run(input, context).await.expect("settles");
+        assert!(matches!(done, Done::Succeeded { .. }), "{done:?}");
+
+        let kept = meeting::find(&mut connection, stored.id)
+            .await
+            .expect("found");
+        assert_eq!(kept.visibility(), meeting::Visibility::Private);
+        let shared = crate::models::meeting_share::of_meetings(&mut connection, &[stored.id])
+            .await
+            .expect("reads");
+        assert_eq!(shared.get(&stored.id), Some(&vec![grace]));
+        let item_id = kept.visibility_item_id.expect("its owner is told");
+        let item = action_item::find(&mut connection, item_id)
+            .await
+            .expect("the item");
+        assert_eq!(item.title, "Elysia kept a meeting private");
+        assert!(!item.notes.contains("Launch review") && !item.notes.contains("performance"));
+
+        // The doc learns the fix, linked to the meeting by no title, with neither who spoke nor
+        // the reason the correction gave.
+        let doc = transcription_doc::read(&mut connection)
+            .await
+            .expect("the doc");
+        let entry = &doc.entries[0];
+        assert_eq!(
+            (entry.heard.as_str(), entry.written.as_str()),
+            ("Sheriff", "Sharath")
+        );
+        assert!(entry.speakers.is_empty(), "{:?}", entry.speakers);
+        assert_eq!(entry.meetings[0].id, stored.id);
+        assert!(!doc.body.contains("Launch review"), "{}", doc.body);
+        assert!(!doc.body.contains("Grace's review"), "{}", doc.body);
+        assert!(
+            doc.body
+                .contains("The meeting's correction was 92 of 100 sure.")
         );
     }
 

@@ -44,10 +44,21 @@ function renderLane(isInDrawer: boolean) {
           onReply: async () => true,
           onSetResolved: async () => {},
           onRemove: async () => {},
+          mayRead: () => true,
         }}
         onSelectThread={() => {}}
         composing={null}
         isInDrawer={isInDrawer}
+        files={{
+          attachments: [],
+          hasFailed: false,
+          policy: null,
+          attaching: [],
+          onAttach: null,
+          onDetach: null,
+          onSelectFrame: () => {},
+        }}
+        pinning={{ attachments: [], pins: [], onPin: null }}
       />
     </Provider>,
   }])

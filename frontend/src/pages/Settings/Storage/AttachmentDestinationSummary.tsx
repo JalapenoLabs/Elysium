@@ -18,7 +18,7 @@ type Props = {
   locations: StorageLocation[]
 }
 
-// Which location page attachments go to, beside the locations it is chosen from. Changing it has a
+// Which location page and meeting attachments go to, beside the locations it is chosen from. Changing it has a
 // page of its own, since this page's list is what it is about.
 export function AttachmentDestinationSummary(props: Props) {
   const { t } = useTranslation('storage')

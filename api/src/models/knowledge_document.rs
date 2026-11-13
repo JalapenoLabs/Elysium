@@ -16,6 +16,13 @@
 //!
 //! [`get`] reads one document whole, as a citation opens it; the search that finds documents is
 //! `crate::knowledge::search`.
+//!
+//! # A meeting's documents
+//!
+//! A meeting's documents, its whole transcript and each of its excerpts, name their meeting
+//! (`access_meeting_id`), and are found only by whoever may read it: a private meeting's are left
+//! out for everyone else as a search or an opening runs, by the rule `models::meeting` keeps.
+//! Every other source is every member's (`docs/knowledge.md`, Who sees what).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -33,6 +40,7 @@ use crate::database::schema::{
 };
 use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
+use crate::models::meeting::{self, Reader};
 use crate::models::{page, page_label};
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
@@ -76,6 +84,9 @@ pub struct IndexedDocument {
     pub occurred_at: DateTime<Utc>,
     /// Whose words they are, for the person filter and the citation. Never access control.
     pub created_by: Uuid,
+    /// The meeting whose readers alone find it: the meeting itself for its whole transcript, an
+    /// excerpt's meeting for its record; `None` for every other source, which every member reads.
+    pub access_meeting_id: Option<Uuid>,
     /// Its text in order, as [`crate::knowledge::passages::split`] cuts it. Each is 1 to 20,000
     /// characters.
     pub passages: Vec<String>,
@@ -92,6 +103,8 @@ struct DocumentFields {
     occurred_at: DateTime<Utc>,
     content_sha256: String,
     created_by: Uuid,
+    #[diesel(treat_none_as_null = true)]
+    access_meeting_id: Option<Uuid>,
 }
 
 #[derive(Insertable)]
@@ -209,6 +222,7 @@ pub async fn upsert(
         occurred_at: document.occurred_at,
         content_sha256: sha256.clone(),
         created_by: document.created_by,
+        access_meeting_id: document.access_meeting_id,
     };
 
     let Some((id, indexed_sha256)) = lock(connection, &document.source).await? else {
@@ -376,6 +390,7 @@ struct DocumentRow {
     timeline_record_id: Option<Uuid>,
     page_id: Option<Uuid>,
     meeting_id: Option<Uuid>,
+    access_meeting_id: Option<Uuid>,
 }
 
 /// The passage at `position` of page `page_id`'s document, its text as the search cited it. `None`
@@ -429,16 +444,18 @@ async fn projects_of(
 
 /// The document `id` whole: its citation, what it was made from, every passage in order, its
 /// projects, and the other documents holding the same text. `None` when the index holds no such
-/// document, such as one whose source was deleted.
+/// document, such as one whose source was deleted, or when it is a segment of a meeting `reader`
+/// may not read, which answers as if it were not there; its copies leave such segments out too.
 ///
-/// It answers any document: callers check that whoever asks is one of the company's members
-/// (`docs/knowledge.md`, Who sees what).
+/// Callers check that whoever asks may read the knowledge base at all (`docs/knowledge.md`, Who
+/// sees what).
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn get(
     connection: &mut AsyncPgConnection,
     id: Uuid,
+    reader: Reader,
 ) -> QueryResult<Option<DocumentView>> {
     let row: Option<DocumentRow> = knowledge_documents::table
         .inner_join(users::table)
@@ -455,6 +472,7 @@ pub async fn get(
             knowledge_documents::timeline_record_id,
             knowledge_documents::page_id,
             knowledge_documents::meeting_id,
+            knowledge_documents::access_meeting_id,
         ))
         .first(connection)
         .await
@@ -462,6 +480,19 @@ pub async fn get(
     let Some(row) = row else {
         return Ok(None);
     };
+
+    let copies = copies_of(connection, &row).await?;
+    // The meetings of the document and of its copies, asked in one query.
+    let mut meeting_ids: Vec<Uuid> = copies
+        .iter()
+        .filter_map(|(_document_id, _person_id, _name, meeting_id)| *meeting_id)
+        .collect();
+    meeting_ids.extend(row.access_meeting_id);
+    let readable = meeting::readable_among(connection, &meeting_ids, reader).await?;
+    let reads = |meeting_id: Option<Uuid>| meeting_id.is_none_or(|id| readable.contains(&id));
+    if !reads(row.access_meeting_id) {
+        return Ok(None);
+    }
 
     let passages: Vec<Passage> = knowledge_passages::table
         .filter(knowledge_passages::document_id.eq(row.id))
@@ -476,27 +507,6 @@ pub async fn get(
         Some(page_id) => page_label::of_page(connection, page_id).await?,
         None => Vec::new(),
     };
-
-    // Through `knowledge_documents_copies`, so copies are found however large the index grows.
-    // Two pages saying the same thing are two pages, so only records have copies.
-    let copies: Vec<(Uuid, Uuid, String)> = knowledge_documents::table
-        .inner_join(users::table)
-        .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
-        .filter(knowledge_documents::source.eq(&row.source))
-        .filter(knowledge_documents::id.ne(row.id))
-        .filter(knowledge_documents::page_id.is_null())
-        .filter(knowledge_documents::meeting_id.is_null())
-        .select((
-            knowledge_documents::id,
-            knowledge_documents::created_by,
-            users::name,
-        ))
-        .order((
-            knowledge_documents::occurred_at.asc(),
-            knowledge_documents::id.asc(),
-        ))
-        .load(connection)
-        .await?;
 
     let origin = match (row.page_id, row.meeting_id) {
         (Some(page_id), _) => origin_of_page(page_id, &row.source),
@@ -525,7 +535,8 @@ pub async fn get(
         labels,
         also_recorded_by: copies
             .into_iter()
-            .map(|(document_id, person_id, name)| Copy {
+            .filter(|(_document_id, _person_id, _name, meeting_id)| reads(*meeting_id))
+            .map(|(document_id, person_id, name, _meeting_id)| Copy {
                 document_id,
                 person: Person {
                     id: person_id,
@@ -534,6 +545,35 @@ pub async fn get(
             })
             .collect(),
     }))
+}
+
+/// The other documents holding the same text as `row`, oldest first: each one's id, its person's
+/// id and name, and the meeting whose readers alone find it. Through `knowledge_documents_copies`,
+/// so copies are found however large the index grows. Two pages saying the same thing are two
+/// pages, and two meetings two meetings, so only records have copies.
+async fn copies_of(
+    connection: &mut AsyncPgConnection,
+    row: &DocumentRow,
+) -> QueryResult<Vec<(Uuid, Uuid, String, Option<Uuid>)>> {
+    knowledge_documents::table
+        .inner_join(users::table)
+        .filter(knowledge_documents::content_sha256.eq(&row.content_sha256))
+        .filter(knowledge_documents::source.eq(&row.source))
+        .filter(knowledge_documents::id.ne(row.id))
+        .filter(knowledge_documents::page_id.is_null())
+        .filter(knowledge_documents::meeting_id.is_null())
+        .select((
+            knowledge_documents::id,
+            knowledge_documents::created_by,
+            users::name,
+            knowledge_documents::access_meeting_id,
+        ))
+        .order((
+            knowledge_documents::occurred_at.asc(),
+            knowledge_documents::id.asc(),
+        ))
+        .load(connection)
+        .await
 }
 
 /// What a page's document opens as: a learning and a section stay named as such, which is how their

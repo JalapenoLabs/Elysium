@@ -1746,6 +1746,7 @@ pub(crate) async fn reindex(connection: &mut AsyncPgConnection, page: &Page) -> 
         url: None,
         occurred_at: published.created_at,
         created_by: published.created_by,
+        access_meeting_id: None,
         passages,
     };
     knowledge_document::upsert(connection, &document)

@@ -149,7 +149,8 @@ pub async fn handle(
 ///
 /// `reader` is whoever the search is for: a member, or Elysia for her own turns. Callers check
 /// that they may read the knowledge base before asking (`docs/knowledge.md`, Who sees what);
-/// nothing here limits what is found by whose record it is.
+/// nothing limits what is found by whose record it is, but for the segments of private meetings
+/// `reader` may not read, which are left out.
 ///
 /// # Errors
 /// [`ApiError::TooManyRequests`] once `reader` has spent their budget, which a request refused
@@ -174,6 +175,7 @@ pub async fn search(
     let label = request.label.as_deref().map(Label::parse).transpose()?;
 
     let request = SearchRequest {
+        reader,
         query: request.query,
         filters: SearchFilters {
             sources: request.sources,

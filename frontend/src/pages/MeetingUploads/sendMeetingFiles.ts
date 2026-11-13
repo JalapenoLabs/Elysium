@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MeetingUpload, MeetingUploadFileKind } from '../../api/routes/meetingUploadRoutes'
-import type { ChosenFiles } from './meetingUpload'
+import type { MeetingUpload, UploadedFileKind } from '../../api/routes/meetingUploadRoutes'
 
 // Utility
 import { HTTPError, NetworkError } from 'ky'
@@ -21,12 +20,14 @@ import { nextPart, partCount, retryDelay } from './meetingUpload'
 const RETRIED_STATUSES = new Set([ 408, 429, 502, 503, 504 ])
 
 // The transcript goes first: it is small, and the API reads it as its last part arrives, so one it
-// cannot read is refused before a recording of gigabytes is sent after it.
-const SEND_ORDER = [ 'transcript', 'recording' ] as const satisfies readonly MeetingUploadFileKind[]
+// cannot read is refused before a recording of gigabytes is sent after it. A file attached to a
+// meeting travels alone in its upload.
+const SEND_ORDER = [ 'transcript', 'recording', 'attachment' ] as const satisfies readonly UploadedFileKind[]
 
 type Options = {
   upload: MeetingUpload
-  files: ChosenFiles
+  // The files the upload carries, by kind: a capture's, or one attached file.
+  files: Partial<Record<UploadedFileKind, File | null>>
   signal: AbortSignal
   // Each time a part lands, with the upload as the API now counts it.
   onProgress: (upload: MeetingUpload) => void
@@ -100,7 +101,7 @@ export async function sendMeetingFiles(options: Options) {
 }
 
 // The part of `upload`'s file of `kind` it needs next.
-function partToSend(upload: MeetingUpload, kind: MeetingUploadFileKind) {
+function partToSend(upload: MeetingUpload, kind: UploadedFileKind) {
   const stored = upload.files.find((file) => file.kind === kind)
   if (!stored) {
     throw new Error(`the upload carries no ${kind}`)

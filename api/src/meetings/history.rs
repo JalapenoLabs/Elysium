@@ -16,6 +16,9 @@
 //! | `merged`              | Splits the captures back out (`super::duplicates::split`)        |
 //! | `split`               | Merges them again (`super::duplicates::merge_again`)             |
 //! | `thread_resolved`, `thread_reopened` | Opens the thread again, or resolves it again (`meetings::comments`) |
+//! | `visibility_changed`  | Puts who reads it back, while nothing changed it since (`super::visibility`); never the correction's decision |
+//! | `shared`, `unshared`  | Stops sharing it with the person, or shares it again (`super::visibility`) |
+//! | `attached`, `detached` | Takes the file or frame off with the pins it came with, or puts it back with the pins it took away (`meetings::attachments`) |
 //! | `built`               | None: what caused a build is undone, and builds it again         |
 //! | `settled`             | None: a person edits what it settled, with its alternatives      |
 //! | `correction_approved` | None: approving let the meeting's run go on                      |
@@ -45,7 +48,8 @@ pub enum UndoError {
     /// The meeting has no such change.
     #[error("not found")]
     NotFound,
-    /// Its kind cannot be undone: a build, a settlement, or an approval.
+    /// Its kind cannot be undone: a build, a settlement, an approval, or the correction deciding
+    /// who sees the meeting.
     #[error("this change cannot be undone")]
     NotUndoable,
     /// What it changed moved on since, so undoing it would overwrite the later change.
@@ -141,6 +145,10 @@ pub async fn undo(
                         None => (None, Announcement::default()),
                     }
                 }
+                Some(EventKind::Attached | EventKind::Detached) => (
+                    super::attachments::undo(connection, &current, &undone, author).await?,
+                    Announcement::default(),
+                ),
                 Some(EventKind::OffsetChanged) => (
                     Some(super::clock::undo(connection, &undone, author).await?),
                     Announcement::default(),
@@ -154,6 +162,15 @@ pub async fn undo(
                         super::duplicates::merge_again(connection, &current, &undone, author)
                             .await?,
                     ),
+                    Announcement::default(),
+                ),
+                Some(EventKind::VisibilityChanged) => (
+                    super::visibility::undo_visibility(connection, &current, &undone, author)
+                        .await?,
+                    Announcement::default(),
+                ),
+                Some(EventKind::Shared | EventKind::Unshared) => (
+                    super::visibility::undo_share(connection, &current, &undone, author).await?,
                     Announcement::default(),
                 ),
                 Some(
@@ -188,8 +205,8 @@ fn is_excerpt_or_black_out(undone: &MeetingEvent) -> bool {
 }
 
 /// Refreshes what undoing `undone` changed in what reads `current`'s words: words an edit put back,
-/// or a thread put back or taken away. An excerpt's or a black-out's undo refreshes what it
-/// changed itself; every other change leaves the index as it was.
+/// or a thread or a pin put back or taken away. An excerpt's, a black-out's, and an attachment's
+/// undo refreshes what it changed itself; every other change leaves the index as it was.
 async fn reindex_undone(
     connection: &mut AsyncPgConnection,
     current: &Meeting,
@@ -207,10 +224,7 @@ async fn reindex_undone(
                 None => Ok(()),
             }
         }
-        Some(EventKind::Marked | EventKind::Unmarked)
-            if undone.data.get("kind").and_then(Value::as_str)
-                == Some(MarkKind::Comment.as_str()) =>
-        {
+        Some(EventKind::Marked | EventKind::Unmarked) if carries_along(undone) => {
             let Some(mark_id) = undone
                 .data
                 .get("markId")
@@ -225,6 +239,13 @@ async fn reindex_undone(
         }
         _ => Ok(()),
     }
+}
+
+/// Whether `undone`, a `marked` or `unmarked` entry, is about a thread or a pin, which every
+/// excerpt over its range carries in what it indexes.
+fn carries_along(undone: &MeetingEvent) -> bool {
+    let kind = undone.data.get("kind").and_then(Value::as_str);
+    kind == Some(MarkKind::Comment.as_str()) || kind == Some(MarkKind::Pin.as_str())
 }
 
 /// Records that meeting `meeting_id`'s hold went from `before` to `after`, as `author`.

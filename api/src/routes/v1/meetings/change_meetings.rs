@@ -1,14 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/meetings/bulk`: delete or restore one or many of the signed-in person's meetings
-//! at once, `{ "meetingIds": [...], "change": { "kind": "delete" } }` or `"restore"`, as the
-//! Meetings table's selection, a row's actions, and a meeting's page ask. See
+//! `POST /api/v1/meetings/bulk`: delete or restore one or many meetings at once,
+//! `{ "meetingIds": [...], "change": { "kind": "delete" } }` or `"restore"`, as the Meetings
+//! table's selection, a row's actions, and a meeting's page ask: each one the signed-in person
+//! owns or, as an admin, any (`crate::meetings::access`, `Need::Manage`). See
 //! `crate::meetings::deletion` and `docs/meetings.md`, Deleting.
 //!
 //! Each meeting changes in its own savepoint of one transaction, recorded in its history with the
-//! person: one refused (not theirs, merged into another, deleted already, or not deleted) is
-//! answered with its reason while the rest apply, so the answer is `200` listing both, each
-//! meeting changed as it now stands.
+//! person. One refused is answered with its reason while the rest apply: `not_found` for one they
+//! may not read, `owner_or_admin` for one they read but may not delete or restore,
+//! `meeting_merged`, `meeting_deleted`, and `meeting_not_deleted`. The answer is `200` listing
+//! both, each meeting changed as it now stands.
 
 use anyhow::Context;
 use axum::Json;
@@ -23,6 +25,7 @@ use super::responses;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::deletion::{self, BulkChange, MAX_MEETINGS, Outcome};
+use crate::models::meeting::Reader;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -63,7 +66,7 @@ pub async fn handle(
         &mut connection,
         &meeting_ids,
         body.change,
-        current.id(),
+        &current.0,
         Utc::now(),
         None,
     )
@@ -71,7 +74,7 @@ pub async fn handle(
     let Outcome { changed, refused } = outcome;
     let changed = deletion::announce(&state.events, &mut connection, changed).await;
 
-    let meetings = responses(&mut connection, changed).await?;
+    let meetings = responses(&mut connection, changed, Reader::of(&current.0)).await?;
     Ok(Json(json!({ "meetings": meetings, "refused": refused })))
 }
 

@@ -167,6 +167,10 @@ pub enum ServerEvent {
     /// Nothing more: a guest hears every event and reaches no knowledge base; members load it again.
     #[serde(rename = "pageAttachments.changed")]
     PageAttachmentsChanged,
+    /// An admin chose the largest file a meeting takes. Nothing more: clients load the policy
+    /// again.
+    #[serde(rename = "meetingAttachments.changed")]
+    MeetingAttachmentsChanged,
     /// An admin saved or restored a version of the agent guidance. Nothing more: members load it
     /// again, and agents read it as their next session starts.
     #[serde(rename = "agentGuidance.changed")]
@@ -216,14 +220,14 @@ pub enum ServerEvent {
     /// Its id and writer alone, since its text is the writer's; their pages load it by id.
     #[serde(rename = "draft.changed")]
     DraftChanged { id: Uuid, created_by: Uuid },
-    /// A meeting was read, its processing moved on, or a person changed it. Never its title or
-    /// transcript, for the same reason as a record's content; its owner's pages load it by id.
+    /// A meeting was read, its processing moved on, or a person changed it, who sees it included.
+    /// Never its title, transcript, owner, or who reads it, for the same reason as a record's
+    /// content: every client loads it by id, and one that may not read it is answered `404`.
     #[serde(rename = "meeting.changed")]
     MeetingChanged {
         id: Uuid,
         /// How far its processing got: `pending`, `recorded`, `segmented`, or `done`.
         state: String,
-        created_by: Uuid,
         /// The history entry a person's change from the page recorded (an edit, an undo, or
         /// starting, resolving, reopening, or removing a thread), so the page that made it, which
         /// already applied it, need not read the transcript again; `null` for anything else, a

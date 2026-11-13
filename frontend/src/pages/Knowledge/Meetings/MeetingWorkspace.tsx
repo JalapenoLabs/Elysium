@@ -1,8 +1,15 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Meeting, MeetingTranscriptChange, MeetingWords } from '../../../api/routes/meetingRoutes'
+import type {
+  Meeting,
+  MeetingAttachment,
+  MeetingTranscriptChange,
+  MeetingWords,
+} from '../../../api/routes/meetingRoutes'
+import type { User } from '../../../api/routes/userRoutes'
 import type { MarkPill } from './TranscriptFloatingBar'
 import type { DrawnMarkKind, WordRange } from './meetingTranscript'
+import type { Still } from './useMeetingPlayer'
 
 // Core
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -10,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 
 // Redux
+import { selectMe } from '../../../store/authSlice'
 import { useAppSelector } from '../../../store/hooks'
 import { selectAllProjects, selectProjectEntities } from '../../../store/projectsSlice'
 import { selectTimelineRecordEntities } from '../../../store/timelineRecordsSlice'
@@ -23,9 +31,13 @@ import { FinalTranscript } from './FinalTranscript'
 import { MeetingLane } from './MeetingLane'
 import { FINAL_VIEW } from './MeetingOptions'
 import { MeetingPlayer } from './MeetingPlayer'
+import { MeetingTasks } from './MeetingTasks'
+import { PinFrameDialog } from './PinFrameDialog'
 
 // Misc
 import { useProjectsLoader, useUsersLoader } from '../../../hooks/useServerData'
+import { toast } from '../../../toast/toast'
+import { firstPinOf, placePins } from './meetingAttachments'
 import { PLAYER_JUMP_MS } from './meetingPlayer'
 import { markKindLabelKeys } from './meetingReviewPresentation'
 import {
@@ -41,10 +53,12 @@ import {
   summarizeRange,
   textOfRange,
 } from './meetingTranscript'
+import { useMeetingAttachmentPolicy, useMeetingAttachments } from './useMeetingAttachments'
 import { useMeetingChanges } from './useMeetingChanges'
 import { isResolvedThread, threadsOf } from './meetingThreads'
 import { useMeetingHistory } from './useMeetingHistory'
 import { useMeetingPlayer } from './useMeetingPlayer'
+import { mayRead, mayUndo } from './meetingVisibility'
 import { useMeetingThreads } from './useMeetingThreads'
 import { useReviewHotkeys } from './useReviewHotkeys'
 
@@ -71,6 +85,13 @@ type Review = {
   isExtending: boolean
 }
 
+// A still being pinned as a frame (docs/meeting-review.md, Attachments and frames), over the words
+// selected as it was taken, or with none, over the word spoken then, which the API finds.
+type PinningFrame = {
+  still: Still
+  over: { startWordId: string, endWordId: string, text: string } | null
+}
+
 const NOTHING_PICKED: Review = {
   anchorId: null,
   focusId: null,
@@ -93,19 +114,27 @@ function revealWord(index: number) {
 }
 
 // A meeting's review (docs/meeting-review.md, The meeting's page): the transcript, three quarters
-// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's player
-// and, as they are built, its tasks (#243); the moment a click picks is where the player seeks, and
-// the word it is speaking is underlined as it plays. Every change applies at once with Undo in its
-// toast, and Ctrl+Z undoes the page's last.
+// wide, and its lane beside it, which on a phone is a drawer. Along the top go the meeting's tasks
+// and its player; the moment a click picks is where the player seeks, and the word it is speaking
+// is underlined as it plays. The lane lists the meeting's files and frames, and F pins the picture
+// the player shows. Every change applies at once with Undo in its toast, and Ctrl+Z undoes the
+// page's last. A meeting merged into another, and a reader who may not change one, such as a guest
+// it is shared with, read it all and are offered no change (`isReadOnly`); Undo on a change shows
+// only to whoever may undo it (`mayUndo`), and only its owner moves a capture, while its owner and
+// admins split one out.
 export function MeetingWorkspace(props: Props) {
   const { t } = useTranslation('meetings')
   const { meeting, transcript } = props
   const words = transcript.words
+  const readerId = useAppSelector(selectMe)?.user.id
   // A meeting merged into another changes there, where its recordings went (docs/meetings.md, The
   // same meeting twice): its page reads as it stood, its words selected and copied, with nothing to
   // edit, comment on, or undo. Its actions say why (`MeetingActions`). So does a deleted meeting,
-  // until its notice restores it (`DeletedMeetingNotice`).
-  const isReadOnly = Boolean(meeting.mergedInto || meeting.deletedAt)
+  // until its notice restores it (`DeletedMeetingNotice`), and a reader who may not edit a meeting
+  // reads its page the same way.
+  const isMergedAway = Boolean(meeting.mergedInto)
+  const isDeleted = Boolean(meeting.deletedAt)
+  const isReadOnly = isMergedAway || isDeleted || !meeting.canEdit
   useUsersLoader()
   useProjectsLoader()
   const projects = useAppSelector(selectProjectEntities)
@@ -121,11 +150,15 @@ export function MeetingWorkspace(props: Props) {
   const hasOpenedLink = useRef(false)
   const changes = useMeetingChanges({
     meetingId: meeting.id,
-    isReadOnly,
+    // Only a merge can take from the page a change it made itself: a reader who may not edit
+    // makes none here, so has none of their own to undo.
+    isReadOnly: isMergedAway,
     applyChange: props.applyChange,
     reload: props.reload,
   })
   const player = useMeetingPlayer({ meetingId: meeting.id, captures: transcript.captures, words })
+  const files = useMeetingAttachments(meeting.id)
+  const { policy } = useMeetingAttachmentPolicy()
   // Read once: a phone does not become a mouse while its page is open.
   const [ isTouch ] = useState(() => window.matchMedia('(pointer: coarse)').matches)
 
@@ -134,6 +167,7 @@ export function MeetingWorkspace(props: Props) {
   const [ review, setReview ] = useState(NOTHING_PICKED)
   // Assign to a project's menu, which P opens as well as a press on it.
   const [ isAssigning, setIsAssigning ] = useState(false)
+  const [ pinningFrame, setPinningFrame ] = useState<PinningFrame | null>(null)
 
   // Everything drawn is derived once per transcript and per switch of the marks shown, so a
   // selection redraws only the paragraphs it reaches.
@@ -149,13 +183,16 @@ export function MeetingWorkspace(props: Props) {
     [ placed, threadComments.comments ],
   )
   const paragraphs = useMemo(() => paragraphsOf(words), [ words ])
+  const pins = useMemo(() => placePins(words, transcript.marks), [ words, transcript.marks ])
   const decorations = useMemo(() => decorateWords(words.length, drawn, shown), [ words.length, drawn, shown ])
   // Read only, every change stays as it is: no row of the history, nor an edit's mark, offers Undo.
+  // Otherwise Undo shows on a change only to whoever may undo it.
   const historyRows = useMemo(
-    () => isReadOnly
-      ? history.rows.map((row) => ({ ...row, canUndo: false }))
-      : history.rows,
-    [ history.rows, isReadOnly ],
+    () => history.rows.map((row) => ({
+      ...row,
+      canUndo: row.canUndo && !isReadOnly && mayUndo(meeting, readerId, row.entry.kind),
+    })),
+    [ history.rows, isReadOnly, meeting, readerId ],
   )
   const excerpts = useMemo(() => {
     const lanes = shown.has('excerpt')
@@ -274,15 +311,34 @@ export function MeetingWorkspace(props: Props) {
   const clear = () => setReview(NOTHING_PICKED)
 
   // A mark chosen from the lane, or from a link, selects its range and brings it into view.
-  const openMark = useCallback((markId: string) => {
-    const opened = placed.find((placedMark) => placedMark.mark.id === markId)
-    if (!opened) {
-      console.debug('MeetingWorkspace was asked to open a mark it does not hold', { markId })
+  // Selects the words from one id to another and brings them into view, as a task opened from the
+  // bar along the top or from its item's page.
+  const showWords = useCallback((startWordId: string, endWordId: string) => {
+    const start = indexById.get(startWordId)
+    const end = indexById.get(endWordId)
+    if (start === undefined || end === undefined || end < start) {
+      console.debug('MeetingWorkspace was asked to show words that do not stand', { startWordId, endWordId })
       return
     }
-    selectMarkById(markId)
-    revealWord(opened.start)
-  }, [ placed, selectMarkById ])
+    pickRange(start, end)
+    revealWord(start)
+  }, [ indexById, pickRange ])
+
+  const openMark = useCallback((markId: string) => {
+    const opened = placed.find((placedMark) => placedMark.mark.id === markId)
+    if (opened) {
+      selectMarkById(markId)
+      revealWord(opened.start)
+      return
+    }
+    // A task shows along the top rather than over its words, so a link to one selects them.
+    const task = transcript.marks.find((mark) => mark.id === markId && mark.kind === 'task')
+    if (task) {
+      showWords(task.startWordId, task.endWordId)
+      return
+    }
+    console.debug('MeetingWorkspace was asked to open a mark it does not hold', { markId })
+  }, [ placed, selectMarkById, showWords, transcript.marks ])
 
   // The mark a link names opens where it can be read: beside the transcript, or in the drawer
   // where the lane is one.
@@ -383,6 +439,53 @@ export function MeetingWorkspace(props: Props) {
     return applied
   }
 
+  // A frame is pinned from the picture the player shows, while it shows one and the meeting takes
+  // changes, into the location its files go. The still is taken as F is pressed, and the video
+  // pauses while its caption is written.
+  const canPinFrame = !isReadOnly && player.canTakeStill && Boolean(policy?.destinationId) && !review.isEditing
+
+  async function startPinFrame() {
+    const still = await player.takeStill()
+    if (!still) {
+      toast.danger(t('review.files.stillFailed'))
+      return
+    }
+    if (player.isPlaying) {
+      player.toggle()
+    }
+    const over = selection && view === FINAL_VIEW
+      ? {
+        startWordId: words[selection.start].id,
+        endWordId: words[selection.end].id,
+        text: textOfRange(words, selection),
+      }
+      : null
+    setPinningFrame({ still, over })
+  }
+
+  const pinFrame = canPinFrame
+    ? () => void startPinFrame()
+    : null
+
+  // A frame chosen from the lane: the player shows its moment, and the words it is pinned over are
+  // selected and brought into view.
+  function selectFrame(attachment: MeetingAttachment) {
+    if (player.capture && attachment.meetingMs !== null) {
+      player.seek(attachment.meetingMs)
+    }
+    const pin = firstPinOf(pins, attachment.id)
+    if (!pin) {
+      return
+    }
+    setView(FINAL_VIEW)
+    pickRange(pin.range.start, pin.range.end)
+    revealWord(pin.range.start)
+  }
+
+  const attachFiles = !isReadOnly && policy
+    ? (chosen: File[]) => void changes.attachFiles(chosen, policy)
+    : null
+
   useReviewHotkeys({
     onEscape: () => {
       if (!selection && moment === null) {
@@ -443,11 +546,20 @@ export function MeetingWorkspace(props: Props) {
       player.jump(step * PLAYER_JUMP_MS)
       return true
     },
+    onPinFrame: () => {
+      if (!pinFrame) {
+        return false
+      }
+      pinFrame()
+      return true
+    },
     onUndo: () => void changes.undoLast(),
     selectedText: () => selection && !review.isEditing
       ? textOfRange(words, selection)
       : null,
   })
+
+  const mayReadMeeting = useCallback((user: User) => mayRead(meeting, user), [ meeting ])
 
   const lane = (isInDrawer: boolean) => <MeetingLane
     meeting={meeting}
@@ -478,12 +590,12 @@ export function MeetingWorkspace(props: Props) {
     momentMs={moment === null
       ? null
       : words[moment].startMs}
-    onMoveCapture={isReadOnly
-      ? null
-      : changes.moveCapture}
-    onSplitCapture={isReadOnly
-      ? null
-      : changes.splitOut}
+    onMoveCapture={!isMergedAway && !isDeleted && meeting.ownerId === readerId
+      ? changes.moveCapture
+      : null}
+    onSplitCapture={!isMergedAway && !isDeleted && meeting.canManage
+      ? changes.splitOut
+      : null}
     words={words}
     selectedMark={selectedMark}
     history={{
@@ -507,6 +619,7 @@ export function MeetingWorkspace(props: Props) {
         onReply: changes.reply,
         onSetResolved: changes.setResolved,
         onRemove: changes.removeThread,
+        mayRead: mayReadMeeting,
       }}
     onSelectThread={openMark}
     composing={review.isCommenting && selection
@@ -517,6 +630,24 @@ export function MeetingWorkspace(props: Props) {
       }
       : null}
     isInDrawer={isInDrawer}
+    files={{
+      attachments: files.attachments,
+      hasFailed: files.hasFailed,
+      policy,
+      attaching: changes.attaching,
+      onAttach: attachFiles,
+      onDetach: isReadOnly
+        ? null
+        : (attachment) => void changes.detach(attachment.id, attachment.caption ?? attachment.fileName),
+      onSelectFrame: selectFrame,
+    }}
+    pinning={{
+      attachments: files.attachments ?? [],
+      pins,
+      onPin: isReadOnly
+        ? null
+        : (attachmentId, range) => void changes.pin(attachmentId, words[range.start].id, words[range.end].id),
+    }}
   />
 
   let body = <CaptureTranscript meetingId={meeting.id} captureId={view} />
@@ -569,11 +700,13 @@ export function MeetingWorkspace(props: Props) {
         ? () => pickRange(moment, moment, { isExtending: true })
         : null}
       onPlayFromHere={playFromHere}
+      onPinFrame={pinFrame}
     />
   }
 
   return <>
-    <MeetingPlayer player={player} />
+    <MeetingTasks meetingId={meeting.id} onShowWords={showWords} />
+    <MeetingPlayer player={player} onPinFrame={pinFrame} />
 
     <div className='lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(15rem,1fr)] lg:gap-8'>
       <div className='min-w-0'>
@@ -604,5 +737,19 @@ export function MeetingWorkspace(props: Props) {
         </Drawer.Dialog>
       </Drawer.Content>
     </Drawer.Backdrop>
+
+    {pinningFrame && policy && <PinFrameDialog
+      still={pinningFrame.still}
+      pinnedOver={pinningFrame.over?.text ?? null}
+      captionMaxCharacters={policy.captionMaxCharacters}
+      onPin={(caption) => changes.takeFrame({
+        captureId: pinningFrame.still.captureId,
+        captureMs: pinningFrame.still.captureMs,
+        caption,
+        startWordId: pinningFrame.over?.startWordId,
+        endWordId: pinningFrame.over?.endWordId,
+      }, pinningFrame.still.picture)}
+      onClose={() => setPinningFrame(null)}
+    />}
   </>
 }

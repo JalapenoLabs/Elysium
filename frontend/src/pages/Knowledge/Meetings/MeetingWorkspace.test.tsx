@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { meLoaded } from '../../../store/authSlice'
 import { projectsLoaded } from '../../../store/projectsSlice'
 import { usersLoaded } from '../../../store/usersSlice'
 
@@ -31,21 +32,32 @@ import { usersLoaded } from '../../../store/usersSlice'
 import { MeetingWorkspace } from './MeetingWorkspace'
 
 // Misc
+import { getMeetingAttachmentPolicy } from '../../../api/routes/meetingAttachmentRoutes'
 import {
   assignMeetingExcerpt,
   blackOutMeetingWords,
   editMeetingWords,
   getCaptureTranscript,
   getMeetingHistory,
+  getMeetingTasks,
   getMeetingThreads,
+  listMeetingAttachments,
+  pinMeetingAttachment,
   removeMeetingMark,
   setMeetingThreadResolved,
   startMeetingThread,
+  takeMeetingFrame,
   undoMeetingChange,
 } from '../../../api/routes/meetingRoutes'
 import { getTimelineRecord } from '../../../api/routes/timelineRoutes'
 import { ELYSIA_USER_ID } from '../../../constants'
-import { makeMeeting, makeProject } from '../../../testFixtures'
+import {
+  makeMeeting,
+  makeMeetingAttachment,
+  makeMeetingAttachmentPolicy,
+  makeProject,
+  makeUser,
+} from '../../../testFixtures'
 import { TestAriaRouter } from '../../../testRouter'
 import { toast } from '../../../toast/toast'
 
@@ -59,8 +71,17 @@ vi.mock('../../../api/routes/meetingRoutes', async (importOriginal) => ({
   getMeetingHistory: vi.fn(),
   getCaptureTranscript: vi.fn(),
   getMeetingThreads: vi.fn(),
+  getMeetingTasks: vi.fn(),
   startMeetingThread: vi.fn(),
   setMeetingThreadResolved: vi.fn(),
+  listMeetingAttachments: vi.fn(),
+  pinMeetingAttachment: vi.fn(),
+  takeMeetingFrame: vi.fn(),
+}))
+
+vi.mock('../../../api/routes/meetingAttachmentRoutes', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../api/routes/meetingAttachmentRoutes')>(),
+  getMeetingAttachmentPolicy: vi.fn(),
 }))
 
 vi.mock('../../../api/routes/timelineRoutes', async (importOriginal) => ({
@@ -215,9 +236,20 @@ function renderWorkspace(
   context: Context,
   shown: MeetingWords = transcript,
   address = '/',
-  { projects = [], meeting = makeMeeting({ id: 'meeting' }) }: { projects?: Project[], meeting?: Meeting } = {},
+  {
+    projects = [],
+    meeting = makeMeeting({ id: 'meeting' }),
+    readerId = meeting.ownerId,
+  }: { projects?: Project[], meeting?: Meeting, readerId?: string } = {},
 ) {
   const store = createAppStore()
+  // The reader is the meeting's owner unless a test names another.
+  store.dispatch(meLoaded({
+    user: makeUser({ id: readerId }),
+    hasSecondFactor: false,
+    mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
+  }))
   store.dispatch(usersLoaded(people))
   store.dispatch(projectsLoaded(projects))
   let show: (next: MeetingWords) => void = () => {}
@@ -296,8 +328,12 @@ describe('MeetingWorkspace', () => {
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
     vi.mocked(getCaptureTranscript).mockReset()
     vi.mocked(getMeetingThreads).mockResolvedValue({ comments: []})
+    vi.mocked(getMeetingTasks).mockResolvedValue({ tasks: []})
     vi.mocked(startMeetingThread).mockReset()
     vi.mocked(setMeetingThreadResolved).mockReset()
+    vi.mocked(pinMeetingAttachment).mockReset()
+    vi.mocked(listMeetingAttachments).mockResolvedValue({ attachments: []})
+    vi.mocked(getMeetingAttachmentPolicy).mockResolvedValue({ policy: makeMeetingAttachmentPolicy() })
     // Comment drafts are kept for the tab, which every test here shares.
     window.sessionStorage.clear()
     vi.mocked(toast.success).mockReset()
@@ -756,7 +792,78 @@ describe('MeetingWorkspace', () => {
     expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Excerpt removed')
   })
 
-  it<Context>('shows a deleted meeting\'s excerpt on the projects its words name, loading no record', (context) => {
+  it<Context>('pins a file over an excerpt from its detail, and unpins one there', async (context) => {
+    vi.mocked(getTimelineRecord).mockResolvedValue({ record: excerptRecord([ 'launch' ]) })
+    vi.mocked(listMeetingAttachments).mockResolvedValue({
+      attachments: [
+        makeMeetingAttachment({ id: 'roadmap' }),
+        makeMeetingAttachment({ id: 'agenda', fileName: 'Agenda.docx' }),
+      ],
+    })
+    vi.mocked(pinMeetingAttachment).mockResolvedValue({
+      entry: { ...entry('pinned', 'marked'), data: { kind: 'pin' }},
+      change: { removedWordIds: [], words: [], marks: []},
+    })
+    vi.mocked(removeMeetingMark).mockResolvedValue({
+      entry: { ...entry('unpinned', 'unmarked'), data: { kind: 'pin' }},
+      change: { removedWordIds: [], words: [], marks: []},
+    })
+    const pinned: MeetingWords = {
+      ...transcript,
+      marks: [
+        {
+          ...mark('launch', 'excerpt', 'w0', 'w1'),
+          excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+        },
+        // Over a word of the excerpt, so the excerpt carries it.
+        mark('pin', 'pin', 'w1', 'w1', { attachmentId: 'roadmap' }),
+      ],
+    }
+    renderWorkspace(context, pinned, '/', { projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ]})
+
+    // The lane lists the meeting's files, each downloading as it is.
+    expect(await screen.findByRole('link', { name: 'Agenda.docx' })).toBeTruthy()
+    fireEvent.click(wordPiece('Launch'))
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(within(detail).getByText('Roadmap.pdf')).toBeTruthy()
+
+    // The menu offers only what the excerpt does not carry yet.
+    fireEvent.click(within(detail).getByRole('button', { name: /Pin a file or frame/ }))
+    expect(screen.queryByRole('menuitem', { name: 'Roadmap.pdf' })).toBeNull()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Agenda.docx' }))
+    await waitFor(() => expect(pinMeetingAttachment).toHaveBeenCalledWith('meeting', {
+      attachmentId: 'agenda',
+      startWordId: 'w0',
+      endWordId: 'w1',
+    }))
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toBe('Pinned')
+
+    fireEvent.click(within(detail).getByRole('button', { name: 'Unpin Roadmap.pdf' }))
+    await waitFor(() => expect(removeMeetingMark).toHaveBeenCalledWith('meeting', 'pin'))
+    expect(vi.mocked(toast.success).mock.calls[1][0]).toBe('Unpinned')
+  })
+
+  it<Context>('shows a reader whose record it is not the projects an excerpt is on, reading no record', (context) => {
+    const excerpted: MeetingWords = {
+      ...transcript,
+      marks: [{
+        ...mark('launch', 'excerpt', 'w0', 'w1'),
+        excerpt: { recordId: 'record', title: 'The launch moves', projectIds: [ 'launch' ]},
+      }],
+    }
+    renderWorkspace(context, excerpted, '/', {
+      projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+      readerId: 'another-member',
+    })
+
+    fireEvent.click(wordPiece('Launch'))
+
+    const detail = screen.getByRole('region', { name: 'Excerpt' })
+    expect(within(within(detail).getByRole('list', { name: 'Its projects' })).getByText('Launch site')).toBeTruthy()
+    expect(getTimelineRecord).not.toHaveBeenCalled()
+  })
+
+  it<Context>('shows a deleted meeting\'s owner each excerpt\'s projects, reading no record', (context) => {
     const excerpted: MeetingWords = {
       ...transcript,
       marks: [{
@@ -772,10 +879,9 @@ describe('MeetingWorkspace', () => {
     fireEvent.click(wordPiece('Launch'))
 
     const detail = screen.getByRole('region', { name: 'Excerpt' })
-    expect(within(detail).getByText('Launch site')).toBeTruthy()
+    expect(within(within(detail).getByRole('list', { name: 'Its projects' })).getByText('Launch site')).toBeTruthy()
     // Its record is on no timeline until the meeting is restored, and nothing here changes it.
     expect(getTimelineRecord).not.toHaveBeenCalled()
-    expect(within(detail).queryByText('Its projects could not be loaded.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Remove excerpt' })).toBeNull()
   })
 
@@ -826,6 +932,117 @@ describe('MeetingWorkspace', () => {
       Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
     }
   })
+
+  it<Context>('opens the words of a task a link names, from the item made of it', (context) => {
+    const tasked: MeetingWords = {
+      ...transcript,
+      marks: [ ...transcript.marks, mark('date', 'task', 'w2', 'w3') ],
+    }
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      renderWorkspace(context, tasked, '/?mark=date')
+
+      // A task is drawn along the top, not over its words, so its words are selected instead.
+      expect(wordPiece('Fryday.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Agreed.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Launch').hasAttribute('data-selected')).toBe(false)
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
+  })
+
+  it<Context>('counts its tasks along the top, each group opening its tasks and their items', async (context) => {
+    const meeting = makeMeeting({ id: 'meeting', ownerId: 'person' })
+    vi.mocked(getMeetingTasks).mockResolvedValue({
+      tasks: [
+        {
+          id: 'date',
+          title: 'Pick the launch date',
+          startWordId: 'w2',
+          endWordId: 'w3',
+          startMs: 2000,
+          share: { kind: 'project', projectId: 'launch' },
+          items: [],
+          deletedItems: 0,
+          proposals: [ 'changeset' ],
+          declined: null,
+        },
+        {
+          id: 'deck',
+          title: 'Send Ada the deck',
+          startWordId: 'w0',
+          endWordId: 'w1',
+          startMs: 0,
+          share: { kind: 'own', userId: 'person', name: 'Ada Lovelace' },
+          items: [{ id: 'item', title: 'Send Ada the deck', state: 'inbox' }],
+          deletedItems: 0,
+          proposals: [],
+          declined: null,
+        },
+      ],
+    })
+    Element.prototype.scrollIntoView = vi.fn()
+    try {
+      renderWorkspace(context, transcript, '/', {
+        projects: [ makeProject({ id: 'launch', name: 'Launch site' }) ],
+        meeting,
+      })
+
+      const tasks = within(await screen.findByRole('region', { name: 'Tasks' }))
+      expect(tasks.getByRole('button', { name: 'Yours: 1 task' })).toBeTruthy()
+      fireEvent.click(tasks.getByRole('button', { name: 'Launch site: 1 task' }))
+
+      const opened = within(await screen.findByRole('dialog'))
+      expect(opened.getByText('Pick the launch date')).toBeTruthy()
+      const proposal = opened.getByText('Proposed, waiting for approval').closest('a')
+      expect(proposal?.getAttribute('href')).toBe('/action-items/changesets/changeset')
+      const showWords = opened
+        .getAllByRole('button', { name: 'Show in the transcript' })
+        .find((element) => element.tagName === 'BUTTON')
+      fireEvent.click(showWords ?? document.body)
+
+      expect(wordPiece('Fryday.').hasAttribute('data-selected')).toBe(true)
+      expect(wordPiece('Agreed.').hasAttribute('data-selected')).toBe(true)
+    }
+    finally {
+      Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+    }
+  })
+
+  it<Context>('names the person\'s own tasks by their name to anyone else who reads it', async (context) => {
+    const meeting = makeMeeting({ id: 'meeting', ownerId: 'person' })
+    const task = {
+      startWordId: 'w0',
+      endWordId: 'w1',
+      startMs: 0,
+      items: [],
+      deletedItems: 0,
+      proposals: [],
+      declined: null,
+    }
+    vi.mocked(getMeetingTasks).mockResolvedValue({
+      tasks: [
+        {
+          ...task,
+          id: 'deck',
+          title: 'Send Ada the deck',
+          share: { kind: 'own', userId: 'person', name: 'Ada Lovelace' },
+        },
+        {
+          ...task,
+          id: 'notes',
+          title: 'Write the release notes',
+          share: { kind: 'coworker', userId: 'grace', name: 'Grace Hopper' },
+        },
+      ],
+    })
+    renderWorkspace(context, transcript, '/', { meeting, readerId: 'grace' })
+
+    const tasks = within(await screen.findByRole('region', { name: 'Tasks' }))
+    expect(tasks.getByRole('button', { name: 'Ada Lovelace: 1 task' })).toBeTruthy()
+    expect(tasks.getByRole('button', { name: 'Yours: 1 task' })).toBeTruthy()
+  })
 })
 
 // The same meeting with an audio and a video recording, the audio's clock five seconds along the
@@ -875,6 +1092,9 @@ describe('MeetingWorkspace player', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
     context.applyChange = vi.fn()
     vi.mocked(getMeetingHistory).mockResolvedValue({ entries: []})
+    vi.mocked(takeMeetingFrame).mockReset()
+    vi.mocked(listMeetingAttachments).mockResolvedValue({ attachments: []})
+    vi.mocked(getMeetingAttachmentPolicy).mockResolvedValue({ policy: makeMeetingAttachmentPolicy() })
   })
 
   afterEach(() => {
@@ -960,6 +1180,63 @@ describe('MeetingWorkspace player', () => {
     fireEvent.click(screen.getByRole('button', { name: /Play from here/ }))
     expect(media.currentTime).toBe(1)
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2)
+  })
+
+  it<Context>('pins the picture the video shows with F, captioned, over the words selected', async (context) => {
+    const still = new Blob([ 'webp' ], { type: 'image/webp' })
+    const drawImage = vi.fn()
+    // jsdom draws nothing, so the still's drawing is what the page asks for.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation((() => ({ drawImage })) as unknown as HTMLCanvasElement['getContext'])
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(still))
+    URL.createObjectURL = vi.fn(() => 'blob:still')
+    URL.revokeObjectURL = vi.fn()
+    vi.mocked(takeMeetingFrame).mockResolvedValue({
+      entry: entry('framed', 'attached'),
+      change: { removedWordIds: [], words: [], marks: []},
+      attachment: makeMeetingAttachment({ id: 'frame', kind: 'frame' }),
+    })
+    renderWorkspace(context, recorded)
+    const media = playerMedia()
+    Object.defineProperty(media, 'videoWidth', { configurable: true, value: 1280 })
+    Object.defineProperty(media, 'videoHeight', { configurable: true, value: 720 })
+    fireEvent.loadedMetadata(media)
+    // Pin a frame is offered once the video shows a picture and the policy names where frames go.
+    expect(await screen.findByRole('button', { name: /Pin a frame/ })).toBeTruthy()
+
+    fireEvent.click(wordPiece('is'))
+    fireEvent.click(wordPiece('Fryday.'), { shiftKey: true })
+    press('f')
+
+    const dialog = await screen.findByRole('dialog', { name: 'Pin the frame at 0:01' })
+    expect(drawImage).toHaveBeenCalledWith(media, 0, 0, 1280, 720)
+    expect(within(dialog).getByText('Over “is Fryday.”')).toBeTruthy()
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'What it shows' }), {
+      target: { value: 'The launch checklist' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Pin' }))
+
+    await waitFor(() => expect(takeMeetingFrame).toHaveBeenCalledWith('meeting', {
+      captureId: 'video',
+      captureMs: 1_000,
+      caption: 'The launch checklist',
+      startWordId: 'w1',
+      endWordId: 'w2',
+    }, still))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockRestore()
+    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockRestore()
+  })
+
+  it<Context>('pins no frame from a meeting with no picture, leaving F to the page', async (context) => {
+    renderWorkspace(context)
+    // The policy has arrived, so nothing but the missing picture holds Pin a frame back.
+    expect(await screen.findByText('Files up to 1 GB')).toBeTruthy()
+
+    fireEvent.click(wordPiece('is'))
+
+    expect(screen.queryByRole('button', { name: /Pin a frame/ })).toBeNull()
+    expect(fireEvent.keyDown(document.activeElement ?? document.body, { key: 'f' })).toBe(true)
   })
 
   it<Context>('underlines the word being spoken once the player has moved', (context) => {

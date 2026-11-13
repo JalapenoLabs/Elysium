@@ -32,6 +32,7 @@ use crate::connectors::kinds;
 use crate::errors::ApiError;
 use crate::meetings::deletion::{self, BulkChange, MAX_MEETINGS};
 use crate::models::meeting;
+use crate::models::user::User;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -53,13 +54,13 @@ pub async fn handle(
     let Query(options) = query?;
     let stored = visible(&state, id, current.id()).await?;
     let deleted = if options.delete_meetings {
-        delete_meetings_of(&state, id, current.id()).await?
+        delete_meetings_of(&state, id, &current.0).await?
     } else {
         Vec::new()
     };
 
     if let Err(error) = kinds::remove(&state, &stored).await {
-        restore(&state, &deleted, current.id()).await;
+        restore(&state, &deleted, &current.0).await;
         return Err(error);
     }
     state.events.publish(&ServerEvent::ConnectorDeleted { id });
@@ -75,14 +76,14 @@ pub async fn handle(
 async fn delete_meetings_of(
     state: &AppState,
     connector_id: Uuid,
-    person: Uuid,
+    person: &User,
 ) -> Result<Vec<Uuid>, ApiError> {
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let listed = meeting::listed_by(&mut connection, connector_id, person).await?;
+    let listed = meeting::listed_by(&mut connection, connector_id, person.id).await?;
     let mut deleted = Vec::with_capacity(listed.len());
     for part in listed.chunks(MAX_MEETINGS) {
         let changed = deletion::change_many(
@@ -119,7 +120,7 @@ async fn delete_meetings_of(
 /// Restores `meeting_ids`, deleted for a removal that then failed, as `person`, so the removal
 /// changes nothing. A restore that fails is logged: those meetings stay deleted, restorable from
 /// the Meetings page, and the removal's own error is what the person is answered.
-async fn restore(state: &AppState, meeting_ids: &[Uuid], person: Uuid) {
+async fn restore(state: &AppState, meeting_ids: &[Uuid], person: &User) {
     if meeting_ids.is_empty() {
         return;
     }

@@ -12,6 +12,7 @@ import {
   LuChevronDown,
   LuEyeOff,
   LuFolderPlus,
+  LuImagePlus,
   LuMessageSquarePlus,
   LuPencil,
   LuPlay,
@@ -42,8 +43,8 @@ type Props = {
   selectedMarkId: string | null
   onSelectMark: (markId: string) => void
   // Whether words are selected, which Edit, Comment, Assign to a project, and Black out act on.
-  // Each is null where the meeting takes no change, as one merged into another does; the words
-  // can still be selected and copied.
+  // Each is null where the meeting takes no change, as one merged into another does, or for a
+  // reader who may not change it; the words can still be selected and copied.
   hasSelection: boolean
   onEdit: (() => void) | null
   onComment: (() => void) | null
@@ -56,6 +57,9 @@ type Props = {
   isExtending: boolean
   // Plays the meeting from what is picked, while it has a recording to play.
   onPlayFromHere: (() => void) | null
+  // Pins the picture the player shows now as a frame over the words selected, or the word spoken
+  // then, while it shows one and the meeting takes changes.
+  onPinFrame: (() => void) | null
 }
 
 type Position = {
@@ -146,7 +150,7 @@ function AssignMenu({ assign }: { assign: AssignControl }) {
 // The bar beside what is picked in a meeting's transcript (docs/meeting-review.md, Clicking,
 // selecting, and acting): the marks under the word clicked as pills, which Tab moves between, then
 // what can be done to the words selected, each with its key, and Play from here while the meeting
-// has a recording. Pin a frame joins it with frames (#250).
+// has a recording, and Pin a frame while its video shows a picture.
 export function TranscriptFloatingBar(props: Props) {
   const { t } = useTranslation('meetings')
   const [ position, setPosition ] = useState<Position | null>(null)
@@ -228,6 +232,14 @@ export function TranscriptFloatingBar(props: Props) {
       <span>{t('review.bar.playFromHere')}</span>
       <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
         <Kbd.Content>{t('review.bar.spaceKey')}</Kbd.Content>
+      </Kbd>
+    </Button>}
+
+    {props.onPinFrame && <Button size='sm' variant='ghost' onPress={props.onPinFrame}>
+      <LuImagePlus className='size-4' aria-hidden />
+      <span>{t('review.files.pinFrame')}</span>
+      <Kbd className='ml-1 hidden sm:inline-flex' aria-hidden>
+        <Kbd.Content>F</Kbd.Content>
       </Kbd>
     </Button>}
 

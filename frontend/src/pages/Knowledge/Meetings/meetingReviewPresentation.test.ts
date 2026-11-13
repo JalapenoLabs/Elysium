@@ -41,6 +41,28 @@ describe('describeHistory', () => {
     expect([ rows[1].before, rows[1].after ]).toEqual([ 'Fryday.', 'Friday.' ])
   })
 
+  it('says who reads it and whom it was shared with, the correction\'s decision never undone', () => {
+    const rows = describeHistory([
+      entry('unshared', 'unshared', { personId: 'grace' }),
+      entry('shared', 'shared', { personId: 'grace' }),
+      entry('opened', 'visibility_changed', { before: 'private', after: 'public' }),
+      entry('back', 'visibility_changed', { before: 'public', after: 'unchecked' }),
+      entry('kept', 'visibility_changed', { after: 'private', correction: true, why: 'A review.' }),
+      entry('unsure', 'visibility_changed', { after: 'private', correction: true, undecided: true }),
+      entry('open', 'visibility_changed', { after: 'public', correction: true }),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.entry.id, row.sentence, row.canUndo, row.personId ])).toEqual([
+      [ 'unshared', 'unshared', true, 'grace' ],
+      [ 'shared', 'shared', true, 'grace' ],
+      [ 'opened', 'opened', true, null ],
+      [ 'back', 'leftToCorrection', true, null ],
+      [ 'kept', 'keptPrivateByCorrection', false, null ],
+      [ 'unsure', 'keptPrivateUndecided', false, null ],
+      [ 'open', 'openedByCorrection', false, null ],
+    ])
+  })
+
   it('says when the correction settled the transcript, which only an edit changes', () => {
     const [ settled ] = describeHistory([
       entry('settled', 'settled', { changes: [], marksAdded: [ 'mark' ], skipped: 0 }),
@@ -61,6 +83,26 @@ describe('describeHistory', () => {
       [ 'restored', false ],
       [ 'deletedWithConnector', false ],
       [ 'deleted', false ],
+    ])
+  })
+
+  it('names a file attached or taken off, and reads a pin as pinning rather than a mark', () => {
+    const rows = describeHistory([
+      entry('putBack', 'attached', { attachmentKind: 'file', fileName: 'Roadmap.pdf' }, 'detached'),
+      entry('detached', 'detached', { attachmentKind: 'file', fileName: 'Roadmap.pdf' }),
+      entry('frame', 'attached', { attachmentKind: 'frame', fileName: 'Frame at 12m04s.webp' }),
+      entry('unpinned', 'unmarked', { kind: 'pin' }),
+      entry('pinned', 'marked', { kind: 'pin' }),
+      entry('excerpt', 'marked', { kind: 'excerpt' }),
+    ], 'this')
+
+    expect(rows.map((row) => [ row.sentence, row.after, row.markKind, row.canUndo ])).toEqual([
+      [ 'attachedFile', 'Roadmap.pdf', null, true ],
+      [ 'detachedFile', 'Roadmap.pdf', null, false ],
+      [ 'attachedFrame', 'Frame at 12m04s.webp', null, true ],
+      [ 'unpinned', null, null, true ],
+      [ 'pinned', null, null, true ],
+      [ 'marked', null, 'excerpt', true ],
     ])
   })
 

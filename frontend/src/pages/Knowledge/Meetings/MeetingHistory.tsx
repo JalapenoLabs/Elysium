@@ -58,6 +58,9 @@ export function MeetingHistory(props: Props) {
         const name = author.name ?? (author.isAgent
           ? t('review.detail.unnamedAgent')
           : t('common:table.someone'))
+        const person = row.personId
+          ? users[row.personId]?.name ?? t('common:table.someone')
+          : ''
         return <li key={row.entry.id} className='flex items-start gap-2 text-sm'>
           <div className='min-w-0 flex-1'>
             <p className='break-words'>{
@@ -67,6 +70,7 @@ export function MeetingHistory(props: Props) {
                 kind: row.markKind
                   ? t(markKindLabelKeys[row.markKind])
                   : t('review.history.unknownKind'),
+                person,
               })
             }</p>
             <p className='text-xs opacity-60'>

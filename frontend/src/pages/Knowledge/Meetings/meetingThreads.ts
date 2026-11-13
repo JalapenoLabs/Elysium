@@ -99,15 +99,16 @@ export function mentionAt(text: string, caret: number): MentionQuery | null {
   return { start: at, query }
 }
 
-// Who `query` may mention, best match first: active people and Elysia, whose name starts with it
-// or has a word that does, at most `MENTION_CANDIDATES_MAX`.
-export function mentionCandidates(users: User[], query: string) {
+// Who `query` may mention, best match first: Elysia, and active people `mayRead` says may read the
+// meeting, since nobody else is told of a thread on it, whose name starts with it or has a word
+// that does, at most `MENTION_CANDIDATES_MAX`.
+export function mentionCandidates(users: User[], query: string, mayRead: (user: User) => boolean) {
   const wanted = query.toLowerCase()
   const startsName: User[] = []
   const startsWord: User[] = []
   for (const user of users) {
     const isMentionable = user.id === ELYSIA_USER_ID
-      || (user.kind === 'person' && user.status === 'active')
+      || (user.kind === 'person' && user.status === 'active' && mayRead(user))
     if (!isMentionable) {
       continue
     }

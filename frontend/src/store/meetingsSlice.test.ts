@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { createAppStore } from './index'
 import {
   deletedMeetingsLoaded,
+  meetingRemoved,
   meetingsLoaded,
   meetingsUpserted,
   meetingUpserted,
@@ -45,6 +46,20 @@ describe('meetingsSlice', () => {
     const homes = selectKnowledgeTree(store.getState()).meetingsByPage.get(MEETINGS_PAGE_ID)
     expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'kept' ])
     expect(selectMeetingById(store.getState(), 'merged')?.mergedInto).toBe('kept')
+  })
+
+  it('drops a meeting its reader may no longer read from every list and the tree', () => {
+    const store = createAppStore()
+    store.dispatch(pagesLoaded([ makePageSummary({ id: MEETINGS_PAGE_ID, title: 'Meetings', fixed: true }) ]))
+    store.dispatch(meetingsLoaded([ makeMeeting({ id: 'open' }), makeMeeting({ id: 'made-private' }) ]))
+
+    // Made private, it answers this reader 404, and leaves.
+    store.dispatch(meetingRemoved('made-private'))
+
+    expect(selectListedMeetings(store.getState()).map((meeting) => meeting.id)).toEqual([ 'open' ])
+    const homes = selectKnowledgeTree(store.getState()).meetingsByPage.get(MEETINGS_PAGE_ID)
+    expect(homes?.entries.map((entry) => entry.meetingId)).toEqual([ 'open' ])
+    expect(selectMeetingById(store.getState(), 'made-private')).toBeUndefined()
   })
 
   it('lists a meeting again once its captures are split back out', () => {

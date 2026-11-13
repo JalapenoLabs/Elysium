@@ -151,6 +151,19 @@ pub(crate) async fn meeting_topic(
     occurred_at: DateTime<Utc>,
     title: &str,
 ) -> Uuid {
+    // The meeting it is a topic of, open to every member, unless a test made it already: a topic's
+    // document names its meeting, whose readers alone find it.
+    diesel::sql_query(
+        "INSERT INTO meetings (id, title, started_at, created_by, visibility) \
+         VALUES ($1, $2, $3, $4, 'public') ON CONFLICT (id) DO NOTHING",
+    )
+    .bind::<SqlUuid, _>(meeting_id)
+    .bind::<Text, _>(meeting_title)
+    .bind::<diesel::sql_types::Timestamptz, _>(occurred_at)
+    .bind::<SqlUuid, _>(owner)
+    .execute(connection)
+    .await
+    .expect("the meeting is stored");
     let new_record = NewTimelineRecord {
         id: Uuid::now_v7(),
         source_kind: "meeting".to_owned(),
@@ -815,6 +828,102 @@ async fn meetings_are_listed_newest_first_with_their_topics_in_order_whoever_rec
         assert_eq!(status, StatusCode::OK, "{query}: {listed}");
         assert_eq!(meeting_titles(&listed), expected, "{query}");
     }
+}
+
+/// Whether the test person finds the private review's topic, `document_id`, every way into the
+/// knowledge base: by searching, by opening it, and in the meetings listing.
+async fn finds(state: &AppState, document_id: Uuid) -> (bool, bool, bool) {
+    let searched = search(state, "q=compensation&source=meeting").await;
+    let opened = format!("/api/v1/knowledge/documents/{document_id}");
+    let (status, _opened) = get(state, &opened).await;
+    let (listed_status, listed) = get(state, "/api/v1/knowledge/meetings").await;
+    assert_eq!(listed_status, StatusCode::OK, "{listed}");
+    (
+        titles(&searched).contains(&"Compensation".to_owned()),
+        status == StatusCode::OK,
+        meeting_titles(&listed).contains(&"Review".to_owned()),
+    )
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_private_meetings_topics_are_found_only_by_those_who_may_read_it() {
+    let (url, mut connection) = migrated_database().await;
+    let mut state = app_state(&url).await;
+    hold_budgets_still(&mut state);
+    // The test person is the workspace's first, and so its admin, who reads every meeting.
+    set_role(&mut connection, "member").await;
+    let jamie = coworker(&mut connection, "Jamie").await;
+    let review = Uuid::now_v7();
+    let topic = meeting_topic(
+        &mut connection,
+        jamie,
+        review,
+        "Review",
+        0,
+        at(1),
+        "Compensation",
+    )
+    .await;
+    let document_id = document_of_record(&mut connection, topic).await;
+    let standup = Uuid::now_v7();
+    meeting_topic(
+        &mut connection,
+        jamie,
+        standup,
+        "Standup",
+        0,
+        at(2),
+        "Release notes",
+    )
+    .await;
+    let made_private = format!("UPDATE meetings SET visibility = 'private' WHERE id = '{review}'");
+    diesel::sql_query(made_private)
+        .execute(&mut connection)
+        .await
+        .expect("made private");
+
+    // A member it is not shared with finds none of it, while every other meeting stays found.
+    assert_eq!(finds(&state, document_id).await, (false, false, false));
+    let (_status, listed) = get(&state, "/api/v1/knowledge/meetings").await;
+    assert_eq!(meeting_titles(&listed), ["Standup"]);
+
+    // Shared with them, they find it every way; so does an admin, and so does its owner.
+    let shared = format!(
+        "INSERT INTO meeting_shares (meeting_id, person_id, created_by) \
+         VALUES ('{review}', '{TEST_PERSON_ID}', '{jamie}')"
+    );
+    diesel::sql_query(shared)
+        .execute(&mut connection)
+        .await
+        .expect("shared");
+    assert_eq!(finds(&state, document_id).await, (true, true, true));
+    diesel::sql_query(format!(
+        "DELETE FROM meeting_shares WHERE meeting_id = '{review}'"
+    ))
+    .execute(&mut connection)
+    .await
+    .expect("unshared");
+    set_role(&mut connection, "admin").await;
+    assert_eq!(finds(&state, document_id).await, (true, true, true));
+    set_role(&mut connection, "member").await;
+    let owned =
+        format!("UPDATE meetings SET created_by = '{TEST_PERSON_ID}' WHERE id = '{review}'");
+    diesel::sql_query(owned)
+        .execute(&mut connection)
+        .await
+        .expect("now the test person's");
+    assert_eq!(finds(&state, document_id).await, (true, true, true));
+
+    // Opened to every member, it is every member's again.
+    let opened = format!(
+        "UPDATE meetings SET created_by = '{jamie}', visibility = 'public' WHERE id = '{review}'"
+    );
+    diesel::sql_query(opened)
+        .execute(&mut connection)
+        .await
+        .expect("opened");
+    assert_eq!(finds(&state, document_id).await, (true, true, true));
 }
 
 #[tokio::test]

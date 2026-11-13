@@ -19,7 +19,9 @@ import { ActionItemHistory } from './ActionItemHistory'
 import { ActionItemLinks } from './ActionItemLinks'
 import { ActionItemManagerAssignment } from './ActionItemManagerAssignment'
 import { ActionItemSessions } from './ActionItemSessions'
+import { MeetingKeptPrivateLink } from './MeetingKeptPrivateLink'
 import { MeetingReviewLink } from './MeetingReviewLink'
+import { MeetingTaskLink } from './MeetingTaskLink'
 import { MeetingThreadLink } from './MeetingThreadLink'
 import { RestoreActionItemButton } from './RestoreActionItemButton'
 import { SameMeetingPanel } from './SameMeetingPanel'
@@ -116,8 +118,10 @@ export function ActionItemView(props: Props) {
         <ActionItemLinks item={item} />
         <ActionItemManagerAssignment item={item} />
         {!isDeleted && <MeetingReviewLink itemId={item.id} />}
+        {!isDeleted && <MeetingKeptPrivateLink itemId={item.id} />}
         {!isDeleted && <SameMeetingPanel itemId={item.id} />}
         {!isDeleted && <MeetingThreadLink itemId={item.id} />}
+        {!isDeleted && <MeetingTaskLink itemId={item.id} />}
         {!isDeleted && <ActionItemReply itemId={item.id} />}
         {!isDeleted && <ActionItemFollowUp item={item} />}
         <section className='relaxed'>

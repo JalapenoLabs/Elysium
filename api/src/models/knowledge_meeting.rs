@@ -9,8 +9,9 @@
 //! it was and opens its excerpts one by one, each a citation like any other. They are answered as
 //! `topics`, the name clients already read.
 //!
-//! The `meetings` row itself (its transcript, recording, participants, and processing) stays its
-//! owner's, and nothing here reads it: what a member may read is what the index holds
+//! The `meetings` row itself (its transcript, recording, participants, and processing) is read on
+//! the meeting's own page, and nothing here reads it: what a reader finds here is what the index
+//! holds for them, every meeting's topics but those of a private meeting they may not read
 //! (`docs/knowledge.md`, Who sees what). Two people whose sources both recorded one meeting have
 //! a meeting each, segmented apart, so both are listed. A meeting's whole transcript is a document of
 //! its own (`crate::meetings::excerpts::index_transcript`), found by searching, and not listed here.
@@ -24,6 +25,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::models::knowledge_document::{Citation, Person};
+use crate::models::meeting::{Reader, readable_meeting_sql};
 
 /// What a listing narrows to. Every filter narrows, and none is access control.
 #[derive(Debug, Clone, Default)]
@@ -81,10 +83,12 @@ struct TopicRow {
     person_name: String,
 }
 
-/// Every meeting topic in the index, then the newest `$5` meetings under the filters (`$1` the
-/// person, `$2` and `$3` the period of its start, `$4` the project), then their topics in order.
-/// Excerpts are ordered by when each began, as they were said.
-const MEETINGS: &str = "
+/// Every meeting excerpt in the index of a meeting the reader may read (`$6` the reader, `$7`
+/// their reach, `models::meeting::readable_meeting_sql`), then the newest `$5` meetings under the
+/// filters (`$1` the person, `$2` and `$3` the period of its start, `$4` the project), then their
+/// excerpts in order. Excerpts are ordered by when each began, as they were said.
+const MEETINGS: &str = concat!(
+    "
     WITH topics AS (
         SELECT documents.id AS document_id, documents.source, documents.title, documents.url,
             documents.occurred_at, documents.created_by, people.name AS person_name,
@@ -102,8 +106,12 @@ const MEETINGS: &str = "
         WHERE documents.source = 'meeting'
             AND records.metadata->>'meetingId' IS NOT NULL
             AND ($1::uuid IS NULL OR documents.created_by = $1::uuid)
+            AND (documents.access_meeting_id IS NULL OR ",
+    readable_meeting_sql!("documents.access_meeting_id", "$6", "$7"),
+    "
+            )
     ),
-    meetings AS (
+    newest AS (
         SELECT meeting_key, min(occurred_at) AS started_at
         FROM topics
         GROUP BY meeting_key
@@ -113,16 +121,17 @@ const MEETINGS: &str = "
         ORDER BY started_at DESC, meeting_key DESC
         LIMIT $5
     )
-    SELECT topics.meeting_key, topics.meeting_title, topics.meeting_source, meetings.started_at,
+    SELECT topics.meeting_key, topics.meeting_title, topics.meeting_source, newest.started_at,
         topics.document_id, topics.source, topics.title, topics.url, topics.occurred_at,
         topics.created_by, topics.person_name
     FROM topics
-    JOIN meetings ON meetings.meeting_key = topics.meeting_key
-    ORDER BY meetings.started_at DESC, meetings.meeting_key DESC, topics.occurred_at,
-        topics.document_id";
+    JOIN newest ON newest.meeting_key = topics.meeting_key
+    ORDER BY newest.started_at DESC, newest.meeting_key DESC, topics.occurred_at,
+        topics.document_id"
+);
 
-/// The newest `limit` meetings in the index under `filters`, newest first, each with its
-/// excerpts in order.
+/// The newest `limit` meetings in the index under `filters` that `reader` may read, newest first,
+/// each with its excerpts in order.
 ///
 /// It answers any person's meetings: callers check that whoever asks may read the knowledge base
 /// (`docs/knowledge.md`, Who sees what).
@@ -132,6 +141,7 @@ const MEETINGS: &str = "
 pub async fn list(
     connection: &mut AsyncPgConnection,
     filters: &MeetingFilters,
+    reader: Reader,
     limit: i64,
 ) -> QueryResult<Vec<MeetingView>> {
     let rows: Vec<TopicRow> = diesel::sql_query(MEETINGS)
@@ -140,6 +150,8 @@ pub async fn list(
         .bind::<Nullable<Timestamptz>, _>(filters.started_before)
         .bind::<Nullable<SqlUuid>, _>(filters.project_id)
         .bind::<BigInt, _>(limit)
+        .bind::<SqlUuid, _>(reader.id)
+        .bind::<Text, _>(reader.reach.as_str())
         .load(connection)
         .await?;
     Ok(gather(rows))

@@ -124,12 +124,21 @@ describe('mentionCandidates', () => {
     user(ELYSIA_USER_ID, 'Elysia', { kind: 'machine', status: null, role: 'agent' }),
   ]
 
+  const everyone = () => true
+
   it('offers active people and Elysia, names that start with it before words that do', () => {
-    expect(mentionCandidates(people, 'gr').map((candidate) => candidate.id)).toEqual([ 'grace' ])
-    expect(mentionCandidates(people, 'love').map((candidate) => candidate.id)).toEqual([ 'ada' ])
-    expect(mentionCandidates(people, 'ely').map((candidate) => candidate.id)).toEqual([ ELYSIA_USER_ID ])
-    expect(mentionCandidates(people, '').map((candidate) => candidate.id))
+    expect(mentionCandidates(people, 'gr', everyone).map((candidate) => candidate.id)).toEqual([ 'grace' ])
+    expect(mentionCandidates(people, 'love', everyone).map((candidate) => candidate.id)).toEqual([ 'ada' ])
+    expect(mentionCandidates(people, 'ely', everyone).map((candidate) => candidate.id))
+      .toEqual([ ELYSIA_USER_ID ])
+    expect(mentionCandidates(people, '', everyone).map((candidate) => candidate.id))
       .toEqual([ 'grace', 'ada', ELYSIA_USER_ID ])
+  })
+
+  it('offers only the people who may read the meeting, and Elysia always', () => {
+    const graceAlone = (candidate: { id: string }) => candidate.id === 'grace'
+    expect(mentionCandidates(people, '', graceAlone).map((candidate) => candidate.id))
+      .toEqual([ 'grace', ELYSIA_USER_ID ])
   })
 })
 

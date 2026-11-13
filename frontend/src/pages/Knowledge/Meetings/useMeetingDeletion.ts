@@ -17,13 +17,18 @@ import { MEETING_BULK_MAX_MEETINGS } from '../../../constants'
 import { toast } from '../../../toast/toast'
 import { getMeetingUrl } from '../../../urls'
 
+// The refusal a meeting answers to someone who reads it but may not delete or restore it.
+const OWNER_OR_ADMIN = 'owner_or_admin'
+
 // Deleting and restoring meetings, one or a selection, from the Meetings table, a row, or a
 // meeting's own page (docs/meetings.md, Deleting). Deleting is soft, so it happens at once, with
 // Undo in its toast restoring exactly what it deleted (`~/.claude/docs/ux.md`, Delete
 // confirmations); after the toast, the Meetings page's Deleted filter and a deleted meeting's own
 // page restore it. Each sends one change through the bulk route, in parts the API accepts, and
-// files the meetings it answers in Redux (the events that follow are idempotent). A meeting the
-// change did not apply to, changed meanwhile, is named in a warning that stays until dismissed.
+// files the meetings it answers in Redux (the events that follow are idempotent). Only its owner
+// and admins delete or restore a meeting (`canManage`), so one of a selection they may not is
+// left out of the request; it, and one the change did not apply to because it changed meanwhile,
+// is named in a warning that stays until dismissed.
 export function useMeetingDeletion() {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const dispatch = useAppDispatch()
@@ -37,8 +42,18 @@ export function useMeetingDeletion() {
   // been told of anything refused. Nothing is filed in Redux here, so a caller leaving a meeting's
   // page can go before the page draws it deleted.
   async function send(meetings: Meeting[], change: MeetingBulkChange) {
-    const titlesById = new Map(meetings.map((meeting) => [ meeting.id, titleOf(meeting) ]))
-    const meetingIds = [ ...titlesById.keys() ]
+    const titlesById = new Map<string, string>()
+    const meetingIds: string[] = []
+    const notTheirs: string[] = []
+    for (const meeting of meetings) {
+      titlesById.set(meeting.id, titleOf(meeting))
+      if (meeting.canManage) {
+        meetingIds.push(meeting.id)
+      }
+      else {
+        notTheirs.push(meeting.id)
+      }
+    }
     const changed: Meeting[] = []
     const refused: MeetingRefusal[] = []
     try {
@@ -57,18 +72,44 @@ export function useMeetingDeletion() {
       return null
     }
 
-    if (refused.length) {
-      // Usually a meeting changed elsewhere since the list drew it, such as in another tab.
-      console.debug('useMeetingDeletion: meetings refused the change', { refused, change })
-      const [ first ] = refused
-      const title = titlesById.get(first.meetingId) ?? first.meetingId
-      const othersCount = refused.length - 1
-      const message = othersCount
-        ? t('delete.refusedMore', { title, count: othersCount })
-        : t('delete.refusedOne', { title })
-      toast.warning(message)
+    // One the person may not change is theirs to know of, whether the list left it out or the API
+    // refused it, a role changed meanwhile; any other was changed elsewhere since the list drew it,
+    // such as in another tab.
+    const changedMeanwhile: string[] = []
+    for (const refusal of refused) {
+      if (refusal.code === OWNER_OR_ADMIN) {
+        notTheirs.push(refusal.meetingId)
+      }
+      else {
+        changedMeanwhile.push(refusal.meetingId)
+      }
     }
+    if (refused.length) {
+      console.debug('useMeetingDeletion: meetings refused the change', { refused, change })
+    }
+    warnOf(notTheirs, titlesById, 'delete.notTheirsOne', 'delete.notTheirsMore')
+    warnOf(changedMeanwhile, titlesById, 'delete.refusedOne', 'delete.refusedMore')
     return changed
+  }
+
+  // Names the first of `meetingIds` and counts the rest in one warning, which stays until
+  // dismissed; none, no warning.
+  function warnOf(
+    meetingIds: string[],
+    titlesById: Map<string, string>,
+    oneKey: 'delete.notTheirsOne' | 'delete.refusedOne',
+    moreKey: 'delete.notTheirsMore' | 'delete.refusedMore',
+  ) {
+    const [ firstId ] = meetingIds
+    if (!firstId) {
+      return
+    }
+    const title = titlesById.get(firstId) ?? firstId
+    const othersCount = meetingIds.length - 1
+    const message = othersCount
+      ? t(moreKey, { title, count: othersCount })
+      : t(oneKey, { title })
+    toast.warning(message)
   }
 
   // Deletes `meetings`, leaving for `leaveTo` first when one is given, as a meeting's own page

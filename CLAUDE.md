@@ -128,7 +128,8 @@ Everything else follows these rules:
   Postgres server and credentials.
 - `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
   Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
-  `system`. Guests have a member's access, except the knowledge base, until roles are built out.
+  `system`. Guests have a member's access, except the knowledge base, until roles are built out; a guest reads a
+  meeting shared with them, and changes nothing of it.
 - The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
   sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
   deleted, only disabled.
@@ -301,7 +302,8 @@ Everything else follows these rules:
   project: only they list it, attribute it, and play its media. Its text is not: every record is indexed into the
   knowledge base for everyone in the workspace in the transaction that stores it (`timeline_record::insert_new`), a
   person's own mail and direct messages included, with no per-owner filter in any query, and guests never reach it.
-  The engine's backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
+  The one exception is a private meeting's segments, found by its readers alone (Meetings, below). The engine's
+  backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
   watcher. The first read baselines the mailbox without raising anything.
@@ -335,11 +337,12 @@ Everything else follows these rules:
   onto the meeting's clock. `UNIQUE (connector_id, external_id)` on captures keeps a meeting, and its segments, from
   being recorded twice. A meeting's captures are in the order they joined it, the first its clock. See
   `docs/meetings.md`, Meetings and captures.
-- A person deletes meetings, one, many, or with the connector that read them (`meetings::deletion`, `POST
-  /api/v1/meetings/bulk`), softly and at once, with Undo: a deleted meeting leaves every list, its excerpts leave every
-  timeline and the knowledge index (`timeline_records.deleted_at`, stamped with the meeting's own), and so does its
-  transcript, its run stops, and it changes no further (`409 meeting_deleted`). Its captures stay, so no source stores it again. Restoring brings all
-  of it back and retries the step its deletion stopped. See `docs/meetings.md`, Deleting.
+- A meeting's owner or an admin deletes it, one, many, or with the connector that read them (`meetings::deletion`,
+  `Need::Manage`, `POST /api/v1/meetings/bulk`), softly and at once, with Undo: a deleted meeting leaves every list, its
+  excerpts leave every timeline and the knowledge index (`timeline_records.deleted_at`, stamped with the meeting's own),
+  and so does its transcript with its files and frames, its tasks are no Project Manager's, its run stops, and it
+  changes no further (`409 meeting_deleted`). Its captures stay, so no source stores it again. Restoring brings all of
+  it back and retries the step its deletion stopped. See `docs/meetings.md`, Deleting.
 - The run's `align_meeting` step places every capture on the meeting's clock (audio cross-correlated against the
   first capture's, or words and times matched), lines their words up into the final transcript keeping every edit,
   and, for a meeting overlapping another of its person's with participants in common, holds the run with an inbox item
@@ -363,14 +366,14 @@ Everything else follows these rules:
 - A meeting's page is in the knowledge base (`/knowledge/meetings/:meetingId`): its final transcript with every mark
   drawn over it beside a lane of options, the mark selected, and its history. Whole words are selected and edited in
   place; each change applies at once with Undo in its toast, Ctrl+Z undoes the page's last, and nothing waits for a
-  Save. Its routes answer the owner alone until meetings are public by default. See `docs/meetings.md`, In the web
-  app.
+  Save. Its routes answer whoever may read the meeting (Who reads a meeting, below). See `docs/meetings.md`, In the
+  web app.
 - Comment threads sit on ranges as marks of kind `comment`, their comments in `meeting_comments`
   (`meetings::comments`). Mentions are picked user ids, never parsed from text. Each change raises an inbox item for
   each person it concerns but its maker: whoever is mentioned, and the thread's other people for a reply, a resolve,
-  or a reopen. A person mentioning Elysia queues her `meeting-comment` turn, which answers in the thread and may edit
-  the words or attribute the topics the range lies in. A thread is indexed with the segments its range overlaps. See
-  `docs/meetings.md`, Comments.
+  or a reopen, and only those who may read the meeting are mentioned or told. A person mentioning Elysia queues her
+  `meeting-comment` turn, which answers in the thread and may edit the words or attribute the topics the range lies
+  in. A thread is indexed with the segments its range overlaps. See `docs/meetings.md`, Comments.
 - Meetings are daily work, so they are listed in the knowledge base, not Settings: the fixed Meetings page lists every
   one the person can see with search and filters and is each one's home, and the tree also lists each in a Meetings
   group under the brief of every project its excerpts are on, as linked entries that move nowhere. Settings, Meetings
@@ -384,7 +387,11 @@ Everything else follows these rules:
   over its words and a timeline record attributed to its projects, overlapping and nesting freely, and black-outs,
   words that leave search and everything an agent reads while they still show and play. `ffmpeg` cuts each excerpt's
   clip in the workspace container at the words Whisper heard nearest its ends. Every excerpt and black-out a person made
-  or changed stands when a meeting is segmented again, and edits refresh the excerpts over them at once. The step
+  or changed stands when a meeting is segmented again, and edits refresh the excerpts over them at once. The same turn
+  hears its tasks, each a `task` mark and its row (`crate::meetings::tasks`): a project's wakes its Project Manager,
+  which makes the action items as its changeset under the project's level of autonomy or says why not
+  (`manager_decline_task`), and everyone else's becomes an inbox item at once, for whoever owes it or the person waiting
+  on them; a meeting read again reaches anyone only with the tasks that changed. See `docs/meetings.md`, Tasks. The step
   also takes a conversation (record ids), whose messages it attributes, which is where intake enters the workflow. The
   meetings loop only lists meetings and starts their runs; a meeting keeps how far it got, and its failure or skip is
   its run's. See `docs/meetings.md`, Processing, Segmentation, and Excerpts and black-outs.
@@ -421,8 +428,25 @@ Everything else follows these rules:
   one. Files arrive in 8 MiB parts staged in the workspace, resumable, checked as they arrive; finishing starts the
   meeting's run as the person, whose fetch streams the recording to the storage location they chose. A transcript with
   no times is a meeting in words alone, segmented by its lines. See `docs/meetings.md`, Uploads.
-- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
-  and owner, never its title or transcript.
+- A meeting keeps files and frames (`meeting_attachments`): any file a person attaches, sent in parts and stored and
+  read for search by the engine's `meeting_attachment` workflow, served as a download unless it is a proven image, and
+  stills of its video, which a person pins from the player (drawn on a canvas in the browser, encoded again by the API)
+  and segmenting pins from the stills where the screen changed most, looked at through `elysium_meeting_frames` with
+  subagents, near duplicates dropped. Each is pinned to words by a `pin` mark, so the excerpts over them carry them to
+  Project Managers and workers, who open one with `meeting_attachment_get`. They live in the attachments' storage
+  location, up to an admin's limit, 1 GB by default. See `docs/meetings.md`, Attachments and frames.
+- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id and
+  state, never its title, owner, or transcript; every client loads it by id, and one that may not read it gets `404`.
+- Who reads a meeting: every member while it is public; its owner, the people it is shared with (`meeting_shares`),
+  and admins while it is private; a guest only one shared with them. A new meeting is `unchecked`, private to its owner,
+  until its correction's one turn judges it: open, or private and shared with whom it chose, its owner told by an inbox
+  item naming nothing of it; an answer judging nothing keeps it private. `models::meeting::readable_by` is the one rule
+  and `crate::meetings::access` what a reader may do: every route asks `open` for what it needs (read; edit, a company
+  member who reads it or its owner; manage who reads it and merges or splits, its owner or an admin; its processing,
+  its owner), `404` for a meeting someone may not read. The knowledge index finds a meeting's transcript and excerpts
+  only for its readers (`knowledge_documents.access_meeting_id`, by `meeting::readable_meeting_sql` inside each query),
+  and nothing every member reads (items, the Transcription doc, a batch's chain) names a meeting that is private as it
+  is written. See `docs/meetings.md`, Who reads a meeting.
 
 ## Storage
 
@@ -433,8 +457,8 @@ Everything else follows these rules:
   does.
 - Coding agents reach their project's locations through the `elysium_storage` MCP tools at `/api/agent-tools`. Every
   call re-checks the location against the project in the database. See `api/src/tools/` and `docs/storage.md`.
-- Files attached to knowledge base pages go to one location an admin chooses, and each row keeps the location it landed
-  in. Limits and what a page takes are code constants (`api/src/page_attachments.rs`), served to the web app. They are
+- Files attached to knowledge base pages and to meetings go to one location an admin chooses, and each row keeps the
+  location it landed in. Limits and what a page takes are code constants (`api/src/page_attachments.rs`), served to the web app. They are
   served to members alone: a proven image displays, and anything else downloads and never renders on Elysium's origin.
   An attachment is no part of a version, and a page's text refers to one as plain Markdown. Nothing is deleted for good
   yet, so a deleted page keeps its files. See `docs/knowledge.md`, Pages, Attachments, and `docs/security.md`.
@@ -630,8 +654,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   provenance as it is submitted, never asserted (`work_batch::lineage`). One naming nothing, or past the generation
   limit (a code constant), is refused with a reason its Project Manager is told. See `docs/engine.md`, Origins and
   generations.
-- It is woken by a record newly attributed to its project, a batch's result, a promise, an action item a person assigned
-  it, a person, Elysia, and someone else's edit of its brief, each written as a wake in the transaction that caused it.
+- It is woken by a record newly attributed to its project, a meeting's task for its project new or changed, a batch's
+  result, a promise, an action item a person assigned it, a person, Elysia, and someone else's edit of its brief, each
+  written as a wake in the transaction that caused it.
   Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
   restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
@@ -703,9 +728,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   made it. The work queue is `/work-queue`, for members.
 - Every batch shows why it exists as one chain read from its provenance, never copied (`work_batch::why`): what asked
   for it (a message, a meeting quote, a mail, an item's issue), its items, the batch, and its pull requests, each a
-  link. Every pull request a worker records carries the chain at the end of its description
-  (`worker_pool::description`), saying only what each link is in a public repository. See `docs/engine.md`, Why a
-  batch exists.
+  link. A chain is read for its reader, withholding a segment of a meeting they may not read. Every pull request a
+  worker records carries the chain at the end of its description (`worker_pool::description`), quoting a public
+  meeting alone, and saying only what each link is in a public repository. See `docs/engine.md`, Why a batch exists.
 
 ## One event stream keeps the frontend current
 

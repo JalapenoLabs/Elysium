@@ -36,8 +36,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
-| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, every one of the caller's, newest first, but those deleted; `reviewItemId` keeps the one an inbox item asks to review; `deleted=true` lists the deleted ones instead |
-| POST   | `/api/v1/meetings/bulk`               | `200` `{ meetings, refused }`; body `{ meetingIds, change: { kind: "delete" \| "restore" } }`, at most 1000 ids, each changed in its own savepoint; each one refused is `{ meetingId, code, message }` (`not_found`, `meeting_merged`, `meeting_deleted`, `meeting_not_deleted`) |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[], nextCursor }`, a page of those the caller may read but those deleted, newest first; `limit` (1 to 200, default 100), and `afterStartedAt` with `afterId` from the last page's `nextCursor`; `reviewItemId` keeps the one an inbox item asks to review, `keptPrivateItemId` the one an item said was kept private; `deleted=true` pages through the deleted ones the caller may restore instead (their own, or every one for an admin) |
+| POST   | `/api/v1/meetings/bulk`               | `200` `{ meetings, refused }`; body `{ meetingIds, change: { kind: "delete" \| "restore" } }`, at most 1000 ids, each changed in its own savepoint by its owner or an admin; each one refused is `{ meetingId, code, message }` (`not_found`, `owner_or_admin`, `meeting_merged`, `meeting_deleted`, `meeting_not_deleted`) |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`, a deleted one included (`deletedAt`) |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/words`         | `200` `{ words, marks, captures }`: its final transcript as it reads, every mark on it (an excerpt's with `excerpt`: `{ recordId, title, projectIds }`), and its captures, each with its `offsetMs` and `offsetSource`, and `mergedFrom` (`{ meetingId, title }`) when a merge brought it |
@@ -57,6 +57,18 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}/resolved` | `200` `{ entry, change }`; opens it again, `409` (`meeting_thread_unchanged`) when it is open |
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}` | `200` `{ entry, change }`; removes it, comments and all, undoable |
 | GET    | `/api/v1/meetings/thread-items/{itemId}` | `200` `{ thread }`: `{ meetingId, threadId }` the inbox item was raised by, or `null` |
+| GET    | `/api/v1/meetings/{id}/tasks`         | `200` `{ tasks }`: every task heard in it, in the order said, each `{ id, title, startWordId, endWordId, startMs, share, items, deletedItems, proposals, declined }` |
+| GET    | `/api/v1/meetings/task-items/{itemId}` | `200` `{ task }`: `{ meetingId, meetingTitle, taskId }` the action item was made of, or `null` when none was or the caller may not read its meeting |
+| PUT    | `/api/v1/meetings/{id}/visibility`    | `200` `{ meeting, entry }`; body `{ visibility: "private" \| "public" }`, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it is so already |
+| PUT    | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; shares it with an active person other than its owner (`400` `meeting_share_person`), its owner or an admin; `409` (`meeting_visibility_unchanged`) when shared already |
+| DELETE | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; stops sharing it with them, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it was not |
+| GET    | `/api/v1/meetings/{id}/attachments`   | `200` `{ attachments: MeetingAttachment[] }`: its standing files and frames, in the order they arrived |
+| GET    | `/api/v1/meetings/{id}/attachments/{attachmentId}/{name}` | The file, streamed from storage: a proven image or a frame `inline`, anything else `attachment`; `404` while it is being stored or once taken off |
+| DELETE | `/api/v1/meetings/{id}/attachments/{attachmentId}` | `200` `{ entry, change }`; takes it off with every pin of it, `409` (`meeting_attachment_removed`) when it was already |
+| POST   | `/api/v1/meetings/{id}/frames`        | `201` `{ attachment, entry, change }`; a `multipart/form-data` form of `captureId`, `captureMs`, `caption`, and `startWordId` with `endWordId` or neither, then `still`, the picture, at most 25 MB; pinned over the range, or over the word spoken at its moment without one; `400` (`meeting_frame_not_an_image`, `meeting_frame_no_recording`), `413` (`meeting_frame_too_large`), `409` (`meeting_attachment_no_location`, `meeting_attachment_too_many`, `meeting_words_changed`) |
+| POST   | `/api/v1/meetings/{id}/pins`          | `200` `{ entry, change }`; pins `attachmentId` over `startWordId` to `endWordId`, `409` (`meeting_attachment_removed`, `meeting_words_changed`) |
+| GET    | `/api/v1/meeting-attachments`         | `200` `{ policy }`: `destinationId`, `maxBytes`, `maxBytesCeiling`, `partBytes`, `maxPerMeeting`, `frameMaxBytes`, `captionMaxCharacters`, and `textMaxCharacters` |
+| PUT    | `/api/v1/meeting-attachments/limit`   | `200` `{ policy }`; admins set `maxBytes`, from 1 to `maxBytesCeiling` |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
 | DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
@@ -67,10 +79,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/meetings/duplicates/{id}/not-the-same` | `200` `{ duplicate }`; remembers they are not the same, `409` (`duplicate_decided`) once decided |
 | GET    | `/api/v1/meeting-uploads/policy?meetingId=` | `200` `{ policy }`: `partBytes`, each kind's `maxBytes` and `extensions`, and `defaultStorageLocationId` |
 | GET    | `/api/v1/meeting-uploads`             | `200` `{ uploads: MeetingUpload[] }`, the caller's unfinished, most recently moved first |
-| POST   | `/api/v1/meeting-uploads`             | `201` `{ upload }`; a new meeting's `title` and `startedAt`, or a `meetingId`, with a `recording`, a `transcript`, or both, each `{ name, sizeBytes, modifiedAt }`, and `storageLocationId` with a recording |
+| POST   | `/api/v1/meeting-uploads`             | `201` `{ upload }`; a new meeting's `title` and `startedAt`, or a `meetingId`, with a `recording`, a `transcript`, or both, each `{ name, sizeBytes, modifiedAt }`, and `storageLocationId` with a recording; or a `meetingId` with one `attachment` alone, `413` (`meeting_attachment_too_large`), `409` (`meeting_attachment_no_location`, `meeting_attachment_too_many`) |
 | GET    | `/api/v1/meeting-uploads/{id}`        | `200` `{ upload }`, with how much of each file arrived |
 | PUT    | `/api/v1/meeting-uploads/{id}/{kind}/parts/{index}` | `200` `{ upload }`; the part's bytes as the body with their length, `409` (`meeting_upload_part_ahead`) past the next |
-| POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before |
+| POST   | `/api/v1/meeting-uploads/{id}/finish` | `201` `{ meeting }`; makes the meeting or the capture and starts its run, `200` when finished before; an attachment's answers `201` `{ attachment, entry }` and starts the run that stores it, `200` `{ attachment }` when finished before |
 | DELETE | `/api/v1/meeting-uploads/{id}`        | `204`; stops an unfinished upload and removes its parts |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's and, for a member, the workspace's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
@@ -460,12 +472,19 @@ A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durati
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `projectIds` (the projects its excerpts are on,
 in the order of their ids), `mergedInto` (the meeting its person merged its captures into, or `null`; the listing
-leaves such a meeting out), `deletedAt` (when its person deleted it, or `null`; only `deleted=true` lists such a
-meeting), `createdAt`, and `updatedAt`. `sourceKind` is
+leaves such a meeting out), `ownerId`, `visibility` (`unchecked`, `private`, or `public`), `sharedWith` (user ids, in the
+order shared), `visibilityChange` (the newest `visibility_changed` history entry, or `null`), `canEdit` and `canManage`
+(what the caller may do with it; managing is deleting and restoring it too), `deletedAt` (when it was deleted, or
+`null`; only `deleted=true` lists such a meeting), `createdAt`, and `updatedAt`. `sourceKind` is
 the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
 connector was removed.
 
-Every meeting route answers the meeting's owner alone, `404` for anyone else, until meetings are public by default
+Every meeting route names what it needs of its meeting (`crate::meetings::access`): reading it (every member reads a
+public meeting, its owner and the people it is shared with a private one, admins every one), changing it (a company
+member who reads it, or its owner; a guest reads only), managing it (who sees it, merging and splitting its captures:
+its owner or an admin), or being its owner (holding, approving, retrying, offsets, and uploading a capture). A meeting
+the caller may not read is `404`, as one that does not exist is; one they read but may not change that way is `403`
+with the code `read_only`, `owner_or_admin`, or `owner_only`. An undo takes what making the change took
 (`docs/meeting-review.md`, Who sees a meeting). `GET /meetings/{id}/words` reads one snapshot: `words` are its final
 transcript's standing words in order, each `{ id, position, text, speaker, startMs, endMs, origin, captureId }`, empty
 until it is built; `marks` are its standing marks, each `{ id, kind, startWordId, endWordId, data, createdBy, agent,
@@ -483,11 +502,27 @@ without reading the transcript again. A history entry is `{ id, kind, createdBy,
 A thread is named by its comment mark's id. A comment is `{ id, threadId, body, mentions, createdBy, agent, createdAt
 }`, `mentions` the user ids it names. Writing one takes `{ body, mentions }`, and starting a thread its range too:
 `400` with `meeting_comment_empty` for a blank body, `meeting_comment_too_long` past 20,000 characters,
-`meeting_comment_mention` for a mention of anyone but an active person or Elysia, or a range that ends before it
-starts; `409` `meeting_words_changed` for a range a word of which was replaced meanwhile. Starting, resolving,
+`meeting_comment_mention` for a mention of anyone but an active person who may read the meeting or Elysia, or a range
+that ends before it starts; `409` `meeting_words_changed` for a range a word of which was replaced meanwhile. Starting, resolving,
 reopening, and removing a thread are changes in its meeting's history, answered as an edit is. `thread-items` answers
-`null` for an item no thread of the caller's meetings raised, since every item's page asks. See `docs/meetings.md`,
+`null` for an item no thread of a meeting the caller may read raised, since every item's page asks. See `docs/meetings.md`,
 Comments.
+
+A task is named by its mark's id. Its `share` is whose it is, a project's before anyone's: `{ kind: "project",
+projectId }`, `{ kind: "own", userId, name }` for the meeting's person, `{ kind: "coworker", userId, name }`,
+`{ kind: "waiting-on", name }` for someone not on Elysium, or `{ kind: "other" }`. `items` are the live action items
+made of it, each `{ id, title, state }`, and `deletedItems` how many made of it were deleted since; `proposals` the
+changesets waiting for a person that would make one; and
+`declined` `{ reason, at }` when its Project Manager said why it made none, or `null`. Both answer whoever may read the
+meeting, and `task-items` answers `null` for an item no task of a meeting the caller may read made. See
+`docs/meetings.md`, Tasks.
+
+A `MeetingAttachment` has `id`, `kind` (`file` or `frame`), `fileName`, `contentType`, `sizeBytes`, `address` (where it
+is served, `null` while its parts are being stored), `displaysInline`, a frame's `caption`, `captureId`, `captureMs`,
+and `meetingMs` (each `null` for a file), `textState` (`pending`, `read`, `none`, or `unreadable`), `createdBy`,
+`agent`, and `createdAt`. Whoever reads the meeting lists and opens them; whoever may change it attaches, pins, and
+takes them off, and every change to a meeting merged away is refused (`meeting_merged`). See `docs/meetings.md`,
+Attachments and frames.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
@@ -1216,7 +1251,8 @@ and `project` (ids: meetings recorded by that person's sources, or with an excer
 `limit` (1 to 50, default 20). A `KnowledgeMeeting` is `{ title, source, startedAt, person, topics }`: the meeting's
 title and the source it was read from (`fireflies`), when its first excerpt began, whose source recorded it, and its
 excerpts as `Citation`s in the order they were said (`topics`), each opened with `GET /documents/{id}`. It is gathered
-from the index's meeting excerpts alone; the meeting itself stays its owner's (`docs/knowledge.md`, MCP).
+from the index's meeting excerpts alone, leaving out a private meeting the caller may not read, whose excerpts and
+transcript no search or opening finds for them either (`docs/knowledge.md`, Who sees what, and MCP).
 
 - **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address,
   shared with their MCP clients' and their sessions' searches; past it, `429` with the code

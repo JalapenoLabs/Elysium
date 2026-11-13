@@ -1,20 +1,28 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/meetings`: the signed-in person's meetings, how far each one's processing got, and
-//! the review of each on its page: its final transcript with its marks, each capture as it came
-//! and its recording for the player, edits, comment threads on its ranges, and its history with
-//! undo. See `crate::meetings` and `docs/meetings.md`.
+//! `/api/v1/meetings`: the meetings the signed-in person may read, how far each one's processing
+//! got, and the review of each on its page: its final transcript with its marks, each capture as
+//! it came and its recording for the player, edits, comment threads on its ranges, its history
+//! with undo, and who sees it. See `crate::meetings` and `docs/meetings.md`.
 //!
-//! A meeting belongs to whoever owns the account it was read from, and every route answers
-//! them alone, until meetings are public by default (`docs/meeting-review.md`, Who sees a
-//! meeting). What a meeting said reaches everyone else as its excerpts on the timeline and its
-//! transcript in the knowledge base, blacked-out words left out.
+//! Every member reads a public meeting, a private one is read by its owner and the people it is
+//! shared with, and admins read every meeting (`docs/meeting-review.md`, Who sees a meeting).
+//! Every route names what it needs of the meeting it is about ([`open`], `crate::meetings::access`):
+//! reading it, changing it, managing who sees it and its captures, or being its owner. A meeting
+//! someone may not read answers `404`, as one that does not exist does. What a meeting said
+//! reaches its readers as its excerpts on the timeline and its transcript in the knowledge base,
+//! blacked-out words left out.
 //!
-//! A meeting its person deleted (`crate::meetings::deletion`) still answers its reads, so its page
-//! reads as it stood with Restore, and every route that would change it answers `409
-//! meeting_deleted` until it is restored.
+//! A deleted meeting (`crate::meetings::deletion`) still answers its reads, so its page reads as
+//! it stood, with Restore for whoever may restore it, and every route that would change it answers
+//! `409 meeting_deleted` until it is restored.
 
+#[cfg(test)]
+mod access_tests;
 mod approve_correction;
+#[cfg(test)]
+mod attachment_tests;
+mod attachments;
 mod change_meetings;
 mod decide_duplicate;
 mod done_reviewing;
@@ -29,8 +37,11 @@ mod hold_meeting;
 mod list_meetings;
 mod retry_meeting;
 mod set_capture_offset;
+mod set_visibility;
+mod shares;
 mod split_capture;
 mod stream_capture_media;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod threads;
@@ -38,6 +49,7 @@ mod threads;
 use std::collections::HashMap;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post, put};
 use chrono::{DateTime, Utc};
 use diesel::QueryResult;
@@ -46,15 +58,18 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::auth::{AccessRefusal, CurrentUser};
 use crate::errors::ApiError;
+use crate::meetings::access::{self, Access, Need, Refusal};
 use crate::meetings::duplicates::Moved;
 use crate::meetings::workflow;
-use crate::models::meeting::{self, Meeting, MeetingState};
+use crate::models::meeting::{self, Meeting, MeetingState, Reader};
 use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_comment::WrittenComment;
 use crate::models::meeting_correction::{self, MeetingCorrection};
-use crate::models::meeting_event::{EventKind, MeetingEvent};
+use crate::models::meeting_event::{self, EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark, MarkKind};
+use crate::models::meeting_share;
 use crate::models::meeting_word::{self, Word, WordChange};
 use crate::models::timeline_record;
 use crate::models::workflow_run::{self, WorkflowRun, WorkflowRunState};
@@ -62,8 +77,28 @@ use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::learnings::AgentResponse;
 use crate::state::AppState;
 
+/// How a file or a frame is answered, wherever one is answered, such as by finishing its upload.
+pub(crate) use attachments::{
+    AttachmentResponse, MAX_FRAME_FORM_BYTES, refusal as attachment_refusal,
+};
+
+/// `attachment` as answered, its moment placed on the meeting's clock by its capture's
+/// `offset_ms` when it has one.
+pub(crate) fn attachment_response(
+    attachment: crate::models::meeting_attachment::MeetingAttachment,
+    offset_ms: Option<i64>,
+) -> AttachmentResponse {
+    AttachmentResponse::new(attachment, offset_ms)
+}
+
 pub fn router() -> Router<AppState> {
+    // A frame arrives whole, a still a browser's canvas drew in a form with its caption; nothing
+    // else here takes more than the API's ordinary limit.
+    let frames = Router::new()
+        .route("/{id}/frames", post(attachments::take_frame))
+        .layer(DefaultBodyLimit::max(MAX_FRAME_FORM_BYTES));
     Router::new()
+        .merge(frames)
         .route("/", get(list_meetings::handle))
         .route("/bulk", post(change_meetings::handle))
         .route("/{id}", get(get_meeting::handle))
@@ -82,6 +117,16 @@ pub fn router() -> Router<AppState> {
             "/{id}/captures/{capture_id}/media",
             get(stream_capture_media::handle),
         )
+        .route("/{id}/attachments", get(attachments::list))
+        .route(
+            "/{id}/attachments/{attachment_id}",
+            delete(attachments::remove),
+        )
+        .route(
+            "/{id}/attachments/{attachment_id}/{name}",
+            get(attachments::read),
+        )
+        .route("/{id}/pins", post(attachments::pin))
         .route("/{id}/history", get(history::list))
         .route("/{id}/history/{entry_id}/undo", post(history::undo))
         .route("/{id}/threads", get(threads::list).post(threads::start))
@@ -92,6 +137,13 @@ pub fn router() -> Router<AppState> {
             post(threads::resolve).delete(threads::reopen),
         )
         .route("/thread-items/{item_id}", get(threads::of_item))
+        .route("/{id}/visibility", put(set_visibility::handle))
+        .route(
+            "/{id}/shares/{person_id}",
+            put(shares::share).delete(shares::unshare),
+        )
+        .route("/{id}/tasks", get(tasks::list))
+        .route("/task-items/{item_id}", get(tasks::of_item))
         .route("/{id}/correction/approve", post(approve_correction::handle))
         .route(
             "/{id}/hold",
@@ -113,10 +165,41 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-/// A meeting as its owner sees it. Where it came from (its connector, its source, its page there,
-/// and whether a recording is kept) is its first capture's, the one it was listed with.
+/// The meeting `id`, with what `current` may do with it, when they may read it and it meets `need`:
+/// the one door every meeting route goes through.
+///
+/// # Errors
+/// [`ApiError::NotFound`] when it does not exist or they may not read it, so a private meeting's
+/// existence is no answer either; `403` with the code `read_only`, `owner_or_admin`, or
+/// `owner_only` when they read it and it takes more; and any database error.
+pub(crate) async fn open(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    current: &CurrentUser,
+    need: Need,
+) -> Result<(Meeting, Access), ApiError> {
+    access::open(connection, id, &current.0, need)
+        .await
+        .map_err(|refusal| match refusal {
+            Refusal::NotFound => ApiError::NotFound,
+            Refusal::Needs(Need::Read | Need::Edit) => {
+                ApiError::AccessRefused(AccessRefusal::ReadOnly)
+            }
+            Refusal::Needs(Need::Manage) => ApiError::AccessRefused(AccessRefusal::OwnerOrAdmin),
+            Refusal::Needs(Need::Own) => ApiError::AccessRefused(AccessRefusal::OwnerOnly),
+            Refusal::Database(error) => error.into(),
+        })
+}
+
+/// A meeting as someone who may read it sees it. Where it came from (its connector, its source,
+/// its page there, and whether a recording is kept) is its first capture's, the one it was listed
+/// with.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a wire shape: each bool is a field of its own the web app reads by name"
+)]
 pub struct MeetingResponse {
     id: Uuid,
     connector_id: Option<Uuid>,
@@ -150,8 +233,22 @@ pub struct MeetingResponse {
     /// that one, so the listing leaves it out, and a client that loads it by id, as an event names
     /// it, keeps it out of every list too.
     merged_into: Option<Uuid>,
-    /// When its person deleted it, or `null`. A deleted meeting is listed only among their deleted
-    /// ones (`?deleted=true`), and its page reads as it stood, with Restore.
+    /// Whose meeting it is: whose source read it, or who uploaded it.
+    owner_id: Uuid,
+    /// `unchecked` (private to its owner until its correction decides), `private`, or `public`.
+    visibility: &'static str,
+    /// The people it is shared with, by user id, in the order they were shared with.
+    shared_with: Vec<Uuid>,
+    /// The newest change to who reads it, with who made it and, when its correction decided, why;
+    /// `null` for a meeting nobody decided for.
+    visibility_change: Option<MeetingEventResponse>,
+    /// Whether the reader may change its words and threads.
+    can_edit: bool,
+    /// Whether the reader may change who sees it, merge or split its captures, and delete or
+    /// restore it.
+    can_manage: bool,
+    /// When it was deleted, or `null`. A deleted meeting is listed only among the deleted ones its
+    /// reader may restore (`?deleted=true`), and its page reads as it stood.
     deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -182,18 +279,37 @@ impl From<&MeetingCorrection> for CorrectionSummary {
     }
 }
 
+/// What a meeting is answered with besides itself, each read for every meeting of an answer at
+/// once.
+struct Beside<'read> {
+    capture: Option<&'read MeetingCapture>,
+    correction: Option<&'read MeetingCorrection>,
+    run: Option<&'read WorkflowRun>,
+    /// Whether that run segments it.
+    run_segments: bool,
+    /// How many excerpts stand over its words.
+    excerpt_count: usize,
+    /// The projects its excerpts are on.
+    project_ids: Vec<Uuid>,
+    shared_with: Vec<Uuid>,
+    visibility_change: Option<MeetingEvent>,
+    access: Access,
+}
+
 impl MeetingResponse {
-    /// `meeting` as answered, with its first capture, its correction, its newest run, which
-    /// segments when `run_segments`, and its standing excerpts and the projects they are on.
-    fn new(
-        meeting: Meeting,
-        capture: Option<&MeetingCapture>,
-        correction: Option<&MeetingCorrection>,
-        run: Option<&WorkflowRun>,
-        run_segments: bool,
-        excerpt_count: usize,
-        project_ids: Vec<Uuid>,
-    ) -> Self {
+    /// `meeting` as answered, with what is read beside it.
+    fn new(meeting: Meeting, beside: Beside<'_>) -> Self {
+        let Beside {
+            capture,
+            correction,
+            run,
+            run_segments,
+            excerpt_count,
+            project_ids,
+            shared_with,
+            visibility_change,
+            access,
+        } = beside;
         let processing =
             workflow::processing(meeting.state(), run.map(|run| run.state), run_segments);
         let last_error = run
@@ -216,6 +332,12 @@ impl MeetingResponse {
             hold_for_approval: meeting.hold_for_approval,
             project_ids,
             merged_into: meeting.merged_into,
+            owner_id: meeting.created_by,
+            visibility: meeting.visibility().as_str(),
+            shared_with,
+            visibility_change: visibility_change.map(MeetingEventResponse::from),
+            can_edit: access.edits,
+            can_manage: access.manages,
             deleted_at: meeting.deleted_at,
             id: meeting.id,
             connector_id: capture.and_then(|capture| capture.connector_id),
@@ -234,14 +356,16 @@ impl MeetingResponse {
     }
 }
 
-/// `meetings` as answered, in their order, each with its first capture, its correction, its newest
-/// run, and its excerpts and their projects, read in one query each rather than one per meeting.
+/// `meetings` as `reader`, who may read each, is answered them, in their order, each with its first
+/// capture, its correction, its newest run, its excerpts and their projects, and who reads it, read
+/// in one query each rather than one per meeting.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn responses(
     connection: &mut AsyncPgConnection,
     meetings: Vec<Meeting>,
+    reader: Reader,
 ) -> QueryResult<Vec<MeetingResponse>> {
     let ids: Vec<Uuid> = meetings.iter().map(|meeting| meeting.id).collect();
     let source_ids: Vec<String> = ids.iter().map(Uuid::to_string).collect();
@@ -269,38 +393,40 @@ pub async fn responses(
     let newest: Vec<&WorkflowRun> = runs.values().collect();
     let segmenting = workflow::segmenting_runs(connection, &newest).await?;
     let mut projects = timeline_record::projects_of_meetings(connection, &ids).await?;
+    let mut shares = meeting_share::of_meetings(connection, &ids).await?;
+    let mut visibility_changes =
+        meeting_event::newest_of_kind(connection, &ids, EventKind::VisibilityChanged).await?;
     let mut counts = meeting_mark::excerpt_counts(connection, &ids).await?;
     Ok(meetings
         .into_iter()
         .map(|meeting| {
-            let capture = captures.get(&meeting.id);
-            let correction = corrections.get(&meeting.id);
             let run = runs.get(&meeting.id.to_string());
-            let run_segments = run.is_some_and(|run| segmenting.contains(&run.id));
-            let excerpt_count = counts.remove(&meeting.id).unwrap_or(0);
-            let project_ids = projects.remove(&meeting.id).unwrap_or_default();
-            MeetingResponse::new(
-                meeting,
-                capture,
-                correction,
+            let beside = Beside {
+                capture: captures.get(&meeting.id),
+                correction: corrections.get(&meeting.id),
                 run,
-                run_segments,
-                excerpt_count,
-                project_ids,
-            )
+                run_segments: run.is_some_and(|run| segmenting.contains(&run.id)),
+                excerpt_count: counts.remove(&meeting.id).unwrap_or(0),
+                project_ids: projects.remove(&meeting.id).unwrap_or_default(),
+                shared_with: shares.remove(&meeting.id).unwrap_or_default(),
+                visibility_change: visibility_changes.remove(&meeting.id),
+                access: Access::of(&meeting, reader),
+            };
+            MeetingResponse::new(meeting, beside)
         })
         .collect())
 }
 
-/// One meeting as answered, with its correction and its newest run.
+/// One meeting as `reader`, who may read it, is answered it.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn response(
     connection: &mut AsyncPgConnection,
     meeting: Meeting,
+    reader: Reader,
 ) -> QueryResult<MeetingResponse> {
-    let mut answered = responses(connection, vec![meeting]).await?;
+    let mut answered = responses(connection, vec![meeting], reader).await?;
     Ok(answered.pop().expect("one meeting in, one response out"))
 }
 
@@ -470,8 +596,8 @@ impl From<WrittenComment> for CommentResponse {
 pub struct MeetingEventResponse {
     id: Uuid,
     /// `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
-    /// `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`,
-    /// `thread_reopened`, `segmented`, or `review_done`.
+    /// `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
+    /// `visibility_changed`, `shared`, `unshared`, `segmented`, or `review_done`.
     kind: String,
     created_by: Uuid,
     agent: Option<AgentResponse>,
@@ -582,7 +708,6 @@ pub(crate) async fn announce_lined_up(
         events.publish(&ServerEvent::MeetingChanged {
             id: changed.id,
             state: changed.state.clone(),
-            created_by: changed.created_by,
             entry_id: None,
         });
     }
@@ -611,12 +736,12 @@ pub(crate) fn deleted_refusal() -> ApiError {
 
 /// Tells every client that `meeting` changed by history entry `entry`, so a page holding its
 /// transcript or history reads it again, unless it made that change itself. The event carries no
-/// content, as every meeting's does.
+/// content, as every meeting's does: each client loads it by id, and one that may not read it is
+/// answered nothing.
 pub(super) fn announce(events: &EventBus, meeting: &Meeting, entry: &MeetingEvent) {
     events.publish(&ServerEvent::MeetingChanged {
         id: meeting.id,
         state: meeting.state.clone(),
-        created_by: meeting.created_by,
         entry_id: Some(entry.id),
     });
 }

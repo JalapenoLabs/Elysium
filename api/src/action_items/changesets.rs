@@ -400,9 +400,13 @@ pub struct ProposedOperation {
     pub quote: Option<String>,
     /// Where those words are, such as the meeting and a time in it, or a URL.
     pub source: Option<String>,
-    /// The timeline record that caused it, such as a meeting's segment or a message. Every
-    /// Project Manager's operation names one, and the write it makes is recorded with it.
+    /// The timeline record that caused it, such as a meeting's excerpt or a message. A Project
+    /// Manager's operation names one, a task, or both, and the write it makes is recorded with
+    /// them.
     pub cause_record_id: Option<Uuid>,
+    /// The task heard in a meeting that caused it (`crate::models::meeting_task`), a Project
+    /// Manager's alone. A create naming one makes that task's item when it applies.
+    pub meeting_task_id: Option<Uuid>,
 }
 
 /// A changeset as its proposer sends it.
@@ -688,6 +692,7 @@ mod tests {
                     quote: None,
                     source: None,
                     cause_record_id: None,
+                    meeting_task_id: None,
                 })
                 .collect(),
         }

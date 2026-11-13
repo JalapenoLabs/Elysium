@@ -1,10 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MeetingWord } from '../../../api/routes/meetingRoutes'
+import type { MeetingAttachment, MeetingExcerpt, MeetingWord } from '../../../api/routes/meetingRoutes'
 import type { ThreadActions } from './CommentThread'
+import type { PlacedPin } from './meetingAttachments'
 import type { HistoryRow } from './meetingReviewPresentation'
 import type { PlacedMark } from './meetingTranscript'
 import type { Thread } from './meetingThreads'
+import type { RemovableMarkKind } from './useMeetingChanges'
 
 // Core
 import { useState } from 'react'
@@ -18,10 +20,11 @@ import { selectTimelineRecordById } from '../../../store/timelineRecordsSlice'
 import { selectUserEntities } from '../../../store/usersSlice'
 
 // User interface
-import { Button, Spinner } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { LuEye, LuTrash2, LuUndo2 } from 'react-icons/lu'
 import { RecordProjects } from '../../Projects/RecordProjects'
 import { CommentThread } from './CommentThread'
+import { ExcerptPins } from './ExcerptPins'
 
 // Misc
 import { DateText } from '../../../format/DateText'
@@ -36,15 +39,39 @@ type Props = {
   // The meeting's history, newest first, which says what an edit replaced.
   history: HistoryRow[]
   onUndo: (entryId: string) => Promise<void>
-  // Removes an excerpt, or a black-out, which its toast's Undo puts back; null where the meeting
-  // takes no change.
-  onRemove: ((markId: string, kind: 'excerpt' | 'black_out') => Promise<void>) | null
+  // Removes an excerpt, a black-out, or a pin, which its toast's Undo puts back; null where the
+  // meeting takes no change.
+  onRemove: ((markId: string, kind: RemovableMarkKind) => Promise<void>) | null
   // A comment mark's thread, and what can be done in it; null where the meeting takes no change.
   thread: Thread | null
   threadActions: ThreadActions | null
-  // Whether its meeting is deleted, which takes its excerpts' records off every timeline until it
-  // is restored.
-  isDeleted: boolean
+  // Whether the reader owns the meeting, and so its excerpts' records, which only they change.
+  ownsRecords: boolean
+  // The meeting's files and frames and where each is pinned, which an excerpt shows the ones it
+  // carries of; `onPin` pins one over the excerpt's words, null where the meeting takes no change.
+  files: {
+    attachments: MeetingAttachment[]
+    pins: PlacedPin[]
+    onPin: ((attachmentId: string, range: { start: number, end: number }) => void) | null
+  }
+}
+
+// The projects an excerpt is on, as the meeting's words name them, for a reader whose record it is
+// not: a record is its owner's alone (docs/knowledge.md, Who sees what), so they read the projects
+// and change none. A deleted meeting's excerpts read the same way for everyone, since their records
+// are on no timeline until it is restored.
+function ExcerptProjectNames({ excerpt }: { excerpt: MeetingExcerpt }) {
+  const { t } = useTranslation('meetings')
+  useProjectsLoader()
+  const projects = useAppSelector(selectProjectEntities)
+
+  return <ul aria-label={t('review.excerpts.projects')} className='flex flex-wrap gap-1.5'>{
+    excerpt.projectIds.map((projectId) => <li key={projectId}>
+      <Chip size='sm' variant='soft'>
+        <Chip.Label>{projects[projectId]?.name ?? t('review.excerpts.unknownProject')}</Chip.Label>
+      </Chip>
+    </li>)
+  }</ul>
 }
 
 // The projects an excerpt is on, from its record, read as the excerpt opens, which change there as
@@ -61,24 +88,6 @@ function ExcerptProjects({ recordId }: { recordId: string }) {
     return <p className='text-xs text-danger'>{t('review.excerpts.loadError')}</p>
   }
   return <Spinner size='sm' aria-label={t('review.excerpts.loading')} />
-}
-
-// The projects a deleted meeting's excerpt was on, as its transcript names them: its record is on
-// no timeline until the meeting is restored, so it does not load, and nothing here changes them.
-function DeletedExcerptProjects({ projectIds }: { projectIds: string[] }) {
-  const { t } = useTranslation('meetings')
-  useProjectsLoader()
-  const projectsById = useAppSelector(selectProjectEntities)
-
-  if (!projectIds.length) {
-    return <p className='text-xs opacity-60'>{t('review.excerpts.onNoProject')}</p>
-  }
-  return <div className='flex flex-wrap items-center gap-2 text-xs'>{
-    projectIds.map((projectId) => <span
-      key={projectId}
-      className='rounded-full border border-separator px-2.5 py-0.5 font-medium'
-    >{projectsById[projectId]?.name ?? t('review.detail.unknownProject')}</span>)
-  }</div>
 }
 
 // The mark selected on a meeting's transcript, open in its lane (docs/meeting-review.md,
@@ -143,9 +152,16 @@ export function MarkDetail(props: Props) {
       }</ul>
     </div>}
 
-    {mark.excerpt && (props.isDeleted
-      ? <DeletedExcerptProjects projectIds={mark.excerpt.projectIds} />
-      : <ExcerptProjects recordId={mark.excerpt.recordId} />)}
+    {mark.excerpt && (props.ownsRecords
+      ? <ExcerptProjects recordId={mark.excerpt.recordId} />
+      : <ExcerptProjectNames excerpt={mark.excerpt} />)}
+    {placed.kind === 'excerpt' && <ExcerptPins
+      range={placed}
+      pins={props.files.pins}
+      attachments={props.files.attachments}
+      onPin={props.files.onPin && ((attachmentId) => props.files.onPin?.(attachmentId, placed))}
+      onUnpin={onRemove && ((markId) => void onRemove(markId, 'pin'))}
+    />}
     {placed.kind === 'black_out' && <p className='text-xs opacity-70'>{t('review.blackOuts.explained')}</p>}
 
     {editRow?.before && <p className='text-xs opacity-70'>{t('review.detail.replaced', { before: editRow.before })}</p>}

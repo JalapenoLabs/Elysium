@@ -1,13 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/meetings/{id}/captures/{captureId}/split`: the signed-in person splits a capture
-//! merged into their meeting back out, undoing the merge that brought it: every capture that merge
+//! `POST /api/v1/meetings/{id}/captures/{captureId}/split`: a meeting's owner or an admin splits a
+//! capture merged into it back out, undoing the merge that brought it: every capture that merge
 //! moved goes back to its own meeting, which is aligned and processed again, and both transcripts
 //! are lined up again. Answers the `split` entry, which the page's Undo undoes by merging again,
-//! and the meeting as it now stands. `404` for a meeting that is not theirs; `409`
-//! `capture_not_merged` for a capture the meeting does not hold or no merge brought, such as one
-//! split out already, and `meeting_changed` once a capture the merge moved was moved by hand since.
-//! See `crate::meetings::duplicates`.
+//! and the meeting as it now stands. `404` for a meeting they may not read, `403` `owner_or_admin`
+//! for anyone else; `409` `capture_not_merged` for a capture the meeting does not hold or no merge
+//! brought, such as one split out already, and `meeting_changed` once a capture the merge moved
+//! was moved by hand since. See `crate::meetings::duplicates`.
 
 use anyhow::Context;
 use axum::Json;
@@ -17,12 +17,16 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce_lined_up, deleted_refusal, merged_refusal, response};
+use super::{
+    MeetingEventResponse, announce_lined_up, deleted_refusal, merged_refusal, open, response,
+};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::duplicates;
 use crate::meetings::history::{self, UndoError};
 use crate::models::agent::Author;
+use crate::models::meeting::Reader;
 use crate::models::meeting_event::{self, EventKind};
 use crate::models::{meeting, meeting_capture};
 use crate::state::AppState;
@@ -38,7 +42,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let owned = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+    let (owned, _access) = open(&mut connection, meeting_id, &current, Need::Manage).await?;
     let not_merged = ApiError::CodedConflict {
         code: "capture_not_merged",
         message: "No merge brought this capture into the meeting.",
@@ -86,7 +90,7 @@ pub async fn handle(
 
     announce_lined_up(&state.events, &mut connection, &split).await?;
     let kept = meeting::find(&mut connection, owned.id).await?;
-    let answered = response(&mut connection, kept).await?;
+    let answered = response(&mut connection, kept, Reader::of(&current.0)).await?;
     Ok(Json(json!({
         "entry": MeetingEventResponse::from(split),
         "meeting": answered,

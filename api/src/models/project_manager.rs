@@ -8,8 +8,9 @@
 //! Whatever should wake a Project Manager writes a wake (`project_manager_wakes`) in the same
 //! transaction as what caused it: a record attributed to its project, a batch of its finishing,
 //! a person's or Elysia's message, a promise found on its project or its work finishing, someone
-//! else publishing its project's brief, or an action item a person assigned it. So nothing that
-//! should wake it is lost to a crash or a missed signal. A wake waits until a turn takes it.
+//! else publishing its project's brief, an action item a person assigned it, or a task heard in a
+//! meeting for its project. So nothing that should wake it is lost to a crash or a missed signal.
+//! A wake waits until a turn takes it.
 //!
 //! A turn is created as it starts ([`start_turn`]), taking every wake waiting for its project in
 //! the same transaction, so a burst of wakes is one turn, and wakes arriving while it runs wait
@@ -63,6 +64,9 @@ pub enum WakeKind {
     /// A person assigned it an action item its project leads, to plan
     /// (`crate::models::action_item_assignment`).
     Assignment,
+    /// A task heard in a meeting is for its project, new or changed since it last read it
+    /// (`crate::meetings::tasks`).
+    Task,
 }
 
 /// A project's Project Manager, once something has woken it.
@@ -110,6 +114,8 @@ pub struct Wake {
     pub page_version: Option<i32>,
     /// The action item an assignment is for.
     pub action_item_id: Option<Uuid>,
+    /// The meeting's task a task's wake is for.
+    pub meeting_task_id: Option<Uuid>,
 }
 
 /// What one waiting wake says about when its project's next turn is due: its project, its
@@ -134,6 +140,7 @@ struct NewWake<'a> {
     promise_id: Option<Uuid>,
     page_version: Option<i32>,
     action_item_id: Option<Uuid>,
+    meeting_task_id: Option<Uuid>,
     created_by: Uuid,
 }
 
@@ -149,15 +156,16 @@ impl NewWake<'_> {
             promise_id: None,
             page_version: None,
             action_item_id: None,
+            meeting_task_id: None,
             created_by,
         }
     }
 
     async fn insert(mut self, connection: &mut AsyncPgConnection) -> QueryResult<Option<Wake>> {
         self.id = Uuid::now_v7();
-        // A record, a promise, or an assigned item already waiting for this project is not woken
-        // for twice (`project_manager_wakes_record_waits_once`, `..._promise_waits_once`,
-        // `..._assignment_waits_once`); every other wake is new.
+        // A record, a promise, an assigned item, or a task already waiting for this project is
+        // not woken for twice (`project_manager_wakes_record_waits_once`, `..._promise_waits_once`,
+        // `..._assignment_waits_once`, `..._task_waits_once`); every other wake is new.
         diesel::insert_into(project_manager_wakes::table)
             .values(self)
             .on_conflict_do_nothing()
@@ -249,6 +257,23 @@ pub async fn wake_for_assignment(
 ) -> QueryResult<()> {
     let mut wake = NewWake::new(project_id, WakeKind::Assignment, by);
     wake.action_item_id = Some(item_id);
+    wake.insert(connection).await.map(drop)
+}
+
+/// Wakes `project_id`'s Project Manager for task `task_id` of a meeting, which `by` just heard for
+/// the project or heard changed. A task already waiting is not woken for twice. Call it in the
+/// transaction that takes the task.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn wake_for_task(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    task_id: Uuid,
+    by: Uuid,
+) -> QueryResult<()> {
+    let mut wake = NewWake::new(project_id, WakeKind::Task, by);
+    wake.meeting_task_id = Some(task_id);
     wake.insert(connection).await.map(drop)
 }
 
@@ -547,8 +572,8 @@ pub async fn fail_interrupted_turns(
 }
 
 /// Gives the wakes the turns `turn_ids` took back, to wait for the next turn. A record, a
-/// promise, or an item assigned again meanwhile already waits, so its taken copy is dropped
-/// rather than waiting twice, which each one's `..._waits_once` index refuses.
+/// promise, an item assigned again, or a task heard again meanwhile already waits, so its taken
+/// copy is dropped rather than waiting twice, which each one's `..._waits_once` index refuses.
 async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) -> QueryResult<()> {
     diesel::sql_query(
         "DELETE FROM project_manager_wakes AS taken \
@@ -559,7 +584,8 @@ async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) ->
                AND waiting.project_id = taken.project_id \
                AND (waiting.timeline_record_id = taken.timeline_record_id \
                     OR waiting.promise_id = taken.promise_id \
-                    OR waiting.action_item_id = taken.action_item_id) \
+                    OR waiting.action_item_id = taken.action_item_id \
+                    OR waiting.meeting_task_id = taken.meeting_task_id) \
            )",
     )
     .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(turn_ids)

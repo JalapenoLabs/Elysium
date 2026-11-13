@@ -22,10 +22,13 @@
 //! precedent decides (`crate::project_managers::trackers`); the Project Manager never chooses
 //! one. Resolving an item moves its linked issues to done, as the person resolving it would.
 //!
-//! Each change names the record it came from (`causeRecordId`), which must be on the project's
-//! timeline. A retried turn proposes what it proposed before, so an item an earlier changeset
-//! already creates from the same record under the same title is refused, naming it, rather than
-//! made twice; the filing outbox keeps a retried filing from opening a second issue.
+//! Each change names what it came from: the record (`causeRecordId`), which must be on the
+//! project's timeline, a task heard in a meeting for the project (`taskId`), or both. A create
+//! naming a task is that task's action item once it applies (`models::meeting_task`), which the
+//! meeting's page counts and links back to the words it was heard in. A retried turn proposes
+//! what it proposed before, so an item an earlier changeset already creates from the same task,
+//! or failing one the same record, under the same title is refused, naming it, rather than made
+//! twice; the filing outbox keeps a retried filing from opening a second issue.
 
 use std::collections::BTreeSet;
 
@@ -41,10 +44,12 @@ use crate::action_items::changesets::{
     FileIssue, LinkReads, OPERATIONS_MAX, Operation, ProposedOperation, Proposer, Target,
     TrackerTarget,
 };
-use crate::models::changeset::{self, ChangesetDecision, Staged, Written};
+use crate::models::changeset::{self, ChangesetDecision, CreatedFrom, Staged, Written};
 use crate::models::user::PROJECT_MANAGER_USER_ID;
-use crate::models::{action_item_issue_filing, action_item_link, project, timeline_record};
-use crate::project_managers::trackers;
+use crate::models::{
+    action_item_issue_filing, action_item_link, meeting_task, project, timeline_record,
+};
+use crate::project_managers::{tasks, trackers};
 use crate::routes::v1::changesets::{publish_changeset, publish_touched};
 use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments};
 
@@ -81,7 +86,9 @@ struct ProposedChange {
     reason: String,
     quote: Option<String>,
     source: Option<String>,
-    cause_record_id: Uuid,
+    /// What it came from: a record, a meeting's task, or both; [`prepare`] refuses neither.
+    cause_record_id: Option<Uuid>,
+    task_id: Option<Uuid>,
 }
 
 /// A `file-issue` as a Project Manager sends it: the item alone, since the project's tracker is
@@ -104,14 +111,16 @@ enum Draft {
     FileIssue { item: Target },
 }
 
-/// A change read, with why it is made and the record it came from.
+/// A change read, with why it is made and what it came from: the record, the meeting's task, or
+/// both.
 #[derive(Debug)]
 struct Drafted {
     draft: Draft,
     reason: String,
     quote: Option<String>,
     source: Option<String>,
-    cause_record_id: Uuid,
+    cause_record_id: Option<Uuid>,
+    task_id: Option<Uuid>,
 }
 
 /// Reads one change, refusing what a Project Manager may not make.
@@ -171,6 +180,7 @@ pub(in crate::tools) async fn run(
             quote: proposed.quote,
             source: proposed.source,
             cause_record_id: proposed.cause_record_id,
+            task_id: proposed.task_id,
         });
     }
 
@@ -246,9 +256,10 @@ async fn make_changes(
     Ok(Made::Applied(written))
 }
 
-/// The operations to stage: each change scoped to the project, its cause checked to be on the
-/// project's timeline, its item's issue filed in the project's tracker, and a create made before
-/// from the same record refused.
+/// The operations to stage: each change scoped to the project, what it came from checked (a
+/// record on the project's timeline, a task heard in a meeting for the project, or both), its
+/// item's issue filed in the project's tracker, and a create made before from the same task or
+/// record refused.
 async fn prepare(
     connection: &mut AsyncPgConnection,
     scope: WorkScope,
@@ -260,18 +271,7 @@ async fn prepare(
         )))
     };
 
-    let causes: Vec<Uuid> = drafts
-        .iter()
-        .map(|drafted| drafted.cause_record_id)
-        .collect::<BTreeSet<Uuid>>()
-        .into_iter()
-        .collect();
-    let on_timeline: BTreeSet<Uuid> =
-        timeline_record::attributed_among(connection, scope.project_id, &causes)
-            .await?
-            .into_iter()
-            .map(|(record, _attribution)| record.id)
-            .collect();
+    let causes = Causes::read(connection, scope.project_id, &drafts).await?;
 
     let files_issues = drafts
         .iter()
@@ -285,22 +285,14 @@ async fn prepare(
     let proposer = Proposer::ProjectManager(scope.project_id);
     let mut operations = Vec::with_capacity(drafts.len());
     for (drafted, position) in drafts.into_iter().zip(1_usize..) {
-        let cause = drafted.cause_record_id;
-        if !on_timeline.contains(&cause) {
-            return Err(refused(
-                position,
-                format!(
-                    "record {cause} is not on this project's timeline; name the segment or \
-                     message it came from, from manager_timeline"
-                ),
-            ));
-        }
+        let from = causes
+            .check(&drafted)
+            .map_err(|refusal| refused(position, refusal))?;
         let operation = match drafted.draft {
             Draft::Operation(operation) => {
                 if let Operation::CreateItem(create) = &operation
                     && let Some(earlier) =
-                        changeset::earlier_create(connection, proposer, cause, &create.title)
-                            .await?
+                        changeset::earlier_create(connection, proposer, from, &create.title).await?
                 {
                     let item = earlier
                         .item_id
@@ -308,9 +300,13 @@ async fn prepare(
                     return Err(refused(
                         position,
                         format!(
-                            "\"{}\" was already made from this record, in changeset {}{item}; \
-                             act on that item instead of making it again",
+                            "\"{}\" was already made from this {}, in changeset {}{item}; act on \
+                             that item instead of making it again",
                             create.title.trim(),
+                            match from {
+                                CreatedFrom::Task(_) => "task",
+                                CreatedFrom::Record(_) => "record",
+                            },
                             earlier.changeset_id
                         ),
                     ));
@@ -344,10 +340,82 @@ async fn prepare(
             reason: drafted.reason,
             quote: drafted.quote,
             source: drafted.source,
-            cause_record_id: Some(cause),
+            cause_record_id: drafted.cause_record_id,
+            meeting_task_id: drafted.task_id,
         });
     }
     Ok(operations)
+}
+
+/// What the changes of one call came from, as the database says: the records among them on the
+/// project's timeline, and the tasks among them heard in meetings for the project.
+struct Causes {
+    on_timeline: BTreeSet<Uuid>,
+    projects_tasks: BTreeSet<Uuid>,
+}
+
+impl Causes {
+    async fn read(
+        connection: &mut AsyncPgConnection,
+        project_id: Uuid,
+        drafts: &[Drafted],
+    ) -> diesel::QueryResult<Self> {
+        let records: Vec<Uuid> = drafts
+            .iter()
+            .filter_map(|drafted| drafted.cause_record_id)
+            .collect::<BTreeSet<Uuid>>()
+            .into_iter()
+            .collect();
+        let named_tasks: Vec<Uuid> = drafts
+            .iter()
+            .filter_map(|drafted| drafted.task_id)
+            .collect::<BTreeSet<Uuid>>()
+            .into_iter()
+            .collect();
+        let on_timeline = timeline_record::attributed_among(connection, project_id, &records)
+            .await?
+            .into_iter()
+            .map(|(record, _attribution)| record.id)
+            .collect();
+        let projects_tasks =
+            meeting_task::standing_for_project(connection, project_id, &named_tasks)
+                .await?
+                .into_iter()
+                .map(|task| task.mark_id)
+                .collect();
+        Ok(Self {
+            on_timeline,
+            projects_tasks,
+        })
+    }
+
+    /// What `drafted` came from, which an earlier create is looked for by: its task when it names
+    /// one, the more particular cause, so an item is made once per task, else its record. Refuses
+    /// a change that names neither, a record not on the project's timeline, or a task that is not
+    /// the project's.
+    fn check(&self, drafted: &Drafted) -> Result<CreatedFrom, String> {
+        if let Some(cause) = drafted.cause_record_id
+            && !self.on_timeline.contains(&cause)
+        {
+            return Err(format!(
+                "record {cause} is not on this project's timeline; name the excerpt or message it \
+                 came from, from manager_timeline"
+            ));
+        }
+        if let Some(task_id) = drafted.task_id
+            && !self.projects_tasks.contains(&task_id)
+        {
+            return Err(tasks::TaskError::NotThisProjects(task_id).to_string());
+        }
+        match (drafted.task_id, drafted.cause_record_id) {
+            (Some(task_id), _) => Ok(CreatedFrom::Task(task_id)),
+            (None, Some(record_id)) => Ok(CreatedFrom::Record(record_id)),
+            (None, None) => Err("name what it came from: causeRecordId, a record on this \
+                 project's timeline from manager_timeline, or taskId, a task your prompt lists \
+                 under Tasks heard in meetings"
+                .to_owned()),
+        }
+    }
 }
 
 /// Why an existing item of the project cannot get an issue filed, if it cannot: it already

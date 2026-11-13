@@ -123,6 +123,8 @@ pub struct ChangesetOperation {
     pub source: Option<String>,
     /// The timeline record that caused it; see `ProposedOperation::cause_record_id`.
     pub cause_record_id: Option<Uuid>,
+    /// The meeting's task that caused it; see `ProposedOperation::meeting_task_id`.
+    pub meeting_task_id: Option<Uuid>,
     pub decision: ChangesetDecision,
     pub outcome: ChangesetOutcome,
     /// Why it failed or was skipped.
@@ -142,6 +144,14 @@ impl ChangesetOperation {
     pub fn parsed(&self) -> Operation {
         serde_json::from_value(self.operation.clone())
             .expect("changeset operations are validated before they are stored")
+    }
+
+    /// The meeting's task whose item this operation makes: a create naming a task
+    /// (`docs/meetings.md`, Tasks). Any other operation naming a task only says what it came
+    /// from, and makes no item of it.
+    pub fn creates_item_of_task(&self) -> Option<Uuid> {
+        let task_id = self.meeting_task_id?;
+        matches!(self.parsed(), Operation::CreateItem(_)).then_some(task_id)
     }
 
     /// The position as the rules count it.
@@ -219,6 +229,7 @@ struct OperationRow {
     quote: Option<String>,
     source: Option<String>,
     cause_record_id: Option<Uuid>,
+    meeting_task_id: Option<Uuid>,
 }
 
 /// Stores a proposal as a pending changeset, once it passes [`changesets::validate`] and
@@ -260,6 +271,7 @@ pub async fn propose(
             quote: proposed.quote,
             source: proposed.source,
             cause_record_id: proposed.cause_record_id,
+            meeting_task_id: proposed.meeting_task_id,
         })
         .collect::<Vec<_>>();
 
@@ -426,25 +438,42 @@ pub struct EarlierCreate {
     pub item_id: Option<Uuid>,
 }
 
-/// The item a changeset of `proposer`'s already creates from `cause_record_id` titled `title`,
-/// ignoring case and surrounding space, while that changeset is pending or applied and the
-/// operation not rejected, failed, or undone. A turn retried after it was cut short proposes
-/// what it proposed before; this is how the second one is told so, rather than making the
-/// item twice.
+/// What a create came from, which [`earlier_create`] looks for an earlier one by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreatedFrom {
+    /// A timeline record, such as a meeting's excerpt or a message.
+    Record(Uuid),
+    /// A task heard in a meeting.
+    Task(Uuid),
+}
+
+/// The item a changeset of `proposer`'s already creates from `from` titled `title`, ignoring case
+/// and surrounding space, while that changeset is pending or applied and the operation not
+/// rejected, failed, or undone. A turn retried after it was cut short proposes what it proposed
+/// before; this is how the second one is told so, rather than making the item twice.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn earlier_create(
     connection: &mut AsyncPgConnection,
     proposer: changesets::Proposer,
-    cause_record_id: Uuid,
+    from: CreatedFrom,
     title: &str,
 ) -> QueryResult<Option<EarlierCreate>> {
-    let candidates: Vec<(ChangesetOperation, ChangesetState)> = changeset_operations::table
+    let mut query = changeset_operations::table
         .inner_join(changesets_table::table)
         .filter(changesets_table::proposer.eq(proposer.actor().to_string()))
         .filter(changesets_table::state.eq_any([ChangesetState::Pending, ChangesetState::Applied]))
-        .filter(changeset_operations::cause_record_id.eq(cause_record_id))
+        .into_boxed();
+    query = match from {
+        CreatedFrom::Record(record_id) => {
+            query.filter(changeset_operations::cause_record_id.eq(record_id))
+        }
+        CreatedFrom::Task(task_id) => {
+            query.filter(changeset_operations::meeting_task_id.eq(task_id))
+        }
+    };
+    let candidates: Vec<(ChangesetOperation, ChangesetState)> = query
         .filter(changeset_operations::decision.ne(ChangesetDecision::Rejected))
         .filter(
             changeset_operations::outcome

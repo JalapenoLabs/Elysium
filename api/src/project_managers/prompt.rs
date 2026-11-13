@@ -8,8 +8,9 @@
 //! batch serves), names the docs linked to it, says which of its batches and changes wait for a
 //! person, as its project's level of autonomy decides, and where its issues file ([`Writes`]), and
 //! carries everything that woke it: the messages, someone else's edits to the brief, the action
-//! items a person assigned it, the records newly on its timeline, the batches that finished, and
-//! the promises found on its project or whose work finished. Every turn also carries each promise
+//! items a person assigned it, the tasks heard in meetings for its project, the records newly on
+//! its timeline, the batches that finished, and the promises found on its project or whose work
+//! finished. Every turn also carries each promise
 //! still owed a follow-up, woken for or not, so a turn that failed never strands one. It is a plain
 //! function of its inputs, so it is tested without a runner.
 //!
@@ -33,6 +34,10 @@ pub const INSTRUCTIONS: &str = include_str!("instructions.md");
 
 /// How much of a record's body the prompt quotes, in characters.
 pub const EXCERPT_MAX_CHARACTERS: usize = 800;
+
+/// How much of a task's words the prompt quotes, in characters: a task is said in a line or two,
+/// and its excerpts carry what was said around it.
+pub const TASK_WORDS_MAX_CHARACTERS: usize = 1_200;
 
 /// How much of a project's description the prompt quotes, in characters.
 const DESCRIPTION_MAX_CHARACTERS: usize = 1_000;
@@ -122,6 +127,42 @@ pub struct PromptAssignment {
     pub links: Vec<String>,
 }
 
+/// A task heard in a meeting for its project, new or changed since a turn last read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptTask {
+    /// Its id, which a change made of it names (`taskId`).
+    pub id: Uuid,
+    pub title: String,
+    /// Who owes it, as a sentence reads it: a person on Elysium, someone not on it, or nobody.
+    pub owed_by: String,
+    pub meeting_id: Uuid,
+    /// The meeting's title while it is public, and `None` while it is private: what every member
+    /// reads, as a Project Manager's turns are, names a meeting only while it is public
+    /// (`Meeting::public_title`).
+    pub meeting_title: Option<String>,
+    /// When in the meeting it was said, as `m:ss`; `None` for a meeting in words alone.
+    pub heard_at: Option<String>,
+    /// Its words, blacked-out ones left out, as `[m:ss] Speaker: text` lines.
+    pub words: String,
+    /// The meeting's excerpts on the project its words lie in, which its changes name as their
+    /// cause.
+    pub excerpts: Vec<PromptTaskExcerpt>,
+    /// What came of it before it changed: the items made of it, each by its id, title, and state.
+    pub items: Vec<(Uuid, String, ActionItemState)>,
+    /// The changesets still waiting for a person that would make an item of it.
+    pub proposed: Vec<Uuid>,
+    /// Why a turn before made no item of it.
+    pub declined: Option<String>,
+}
+
+/// An excerpt a task's words lie in, on its project's timeline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptTaskExcerpt {
+    pub record_id: Uuid,
+    pub title: String,
+    pub summary: String,
+}
+
 /// A record newly on its project's timeline.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PromptRecord {
@@ -138,6 +179,9 @@ pub struct PromptRecord {
     pub confidence: f32,
     /// Whether a person put it on the project, rather than Elysia's reading.
     pub attributed_by_person: bool,
+    /// What is pinned in a meeting's excerpt, a line each (`crate::meetings::attachments`): the
+    /// files and frames that travel with it.
+    pub pinned: Vec<String>,
 }
 
 /// A batch of its that finished.
@@ -207,6 +251,7 @@ pub struct TurnContext {
     /// Someone else's publishes of the brief, oldest first.
     pub brief_edits: Vec<PromptBriefEdit>,
     pub assignments: Vec<PromptAssignment>,
+    pub tasks: Vec<PromptTask>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
     pub promises: Vec<PromptPromise>,
@@ -261,6 +306,23 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
         );
         for assignment in &context.assignments {
             render_assignment(&mut prompt, assignment);
+        }
+    }
+
+    if !context.tasks.is_empty() {
+        let _ = write!(
+            prompt,
+            "\n## Tasks heard in meetings ({})\n\nSomeone took these on or was asked to do them in a \
+             meeting, and segmenting read them as this project's work. Make each into the action \
+             items its work needs with manager_make_changes, a create-item naming the task by its \
+             taskId and, when it has one, the excerpt it lies in as causeRecordId; or, when it needs \
+             none (it is not this project's, it is done, or an item already covers it), say why \
+             with manager_decline_task. A task that changed since you last read it says what came of \
+             it: act on what you made rather than make it again.\n",
+            context.tasks.len()
+        );
+        for task in &context.tasks {
+            render_task(&mut prompt, task);
         }
     }
 
@@ -545,6 +607,79 @@ fn render_assignment(prompt: &mut String, assignment: &PromptAssignment) {
     }
 }
 
+fn render_task(prompt: &mut String, task: &PromptTask) {
+    let heard_at = task
+        .heard_at
+        .as_deref()
+        .map(|at| format!(" at {at}"))
+        .unwrap_or_default();
+    let meeting = match &task.meeting_title {
+        Some(title) => format!("\"{title}\""),
+        None => "a private meeting".to_owned(),
+    };
+    let _ = write!(
+        prompt,
+        "\n- \"{}\" (task {}), owed by {}; heard in {meeting} (meeting {}){heard_at}.\n",
+        task.title, task.id, task.owed_by, task.meeting_id,
+    );
+    let words = task.words.trim();
+    if !words.is_empty() {
+        let shown: String = words.chars().take(TASK_WORDS_MAX_CHARACTERS).collect();
+        let more = if shown.len() < words.len() {
+            " …"
+        } else {
+            ""
+        };
+        let _ = writeln!(
+            prompt,
+            "  What was said:\n  {}{more}",
+            shown.replace('\n', "\n  ")
+        );
+    }
+    if task.excerpts.is_empty() {
+        prompt.push_str(
+            "  It lies in no excerpt on this project: name only the task as what a change came \
+             from.\n",
+        );
+    }
+    for excerpt in &task.excerpts {
+        let summary = excerpt.summary.trim();
+        let _ = if summary.is_empty() {
+            writeln!(
+                prompt,
+                "  In the excerpt \"{}\" (record {}).",
+                excerpt.title, excerpt.record_id
+            )
+        } else {
+            writeln!(
+                prompt,
+                "  In the excerpt \"{}\" (record {}): {summary}",
+                excerpt.title, excerpt.record_id
+            )
+        };
+    }
+    for (item_id, title, state) in &task.items {
+        let _ = writeln!(
+            prompt,
+            "  Already made into \"{title}\" (item {item_id}), {}.",
+            item_state_words(*state)
+        );
+    }
+    for changeset_id in &task.proposed {
+        let _ = writeln!(
+            prompt,
+            "  Already proposed in changeset {changeset_id}, which waits for a person."
+        );
+    }
+    if let Some(reason) = &task.declined {
+        let _ = writeln!(
+            prompt,
+            "  You made no item of it before, saying: {}",
+            reason.trim()
+        );
+    }
+}
+
 fn render_record(prompt: &mut String, record: &PromptRecord) {
     let attributed = if record.attributed_by_person {
         "a person put it on the project".to_owned()
@@ -579,6 +714,13 @@ fn render_record(prompt: &mut String, record: &PromptRecord) {
             ""
         };
         let _ = writeln!(prompt, "  {}{more}", excerpt.replace('\n', "\n  "));
+    }
+    if !record.pinned.is_empty() {
+        let _ = writeln!(
+            prompt,
+            "  Pinned in it: {}. Open one with meeting_attachment_get.",
+            record.pinned.join("; ")
+        );
     }
 }
 
@@ -713,6 +855,7 @@ mod tests {
             messages: Vec::new(),
             brief_edits: Vec::new(),
             assignments: Vec::new(),
+            tasks: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
             promises: Vec::new(),
@@ -732,6 +875,7 @@ mod tests {
             body: "[0:01] Ada: Can we show annual pricing?".to_owned(),
             confidence: 0.82,
             attributed_by_person: false,
+            pinned: Vec::new(),
         }
     }
 
@@ -934,6 +1078,69 @@ mod tests {
         assert!(prompt.contains("Ada wants yearly plans on the pricing page."));
     }
 
+    #[test]
+    fn a_meetings_task_is_told_with_its_words_its_excerpts_and_what_came_of_it() {
+        let mut heard = context();
+        assert!(!render(&heard, now()).contains("Tasks heard in meetings"));
+        let task = PromptTask {
+            id: Uuid::nil(),
+            title: "Fix the login bug".to_owned(),
+            owed_by: "Grace Hopper, a person on Elysium".to_owned(),
+            meeting_id: Uuid::nil(),
+            meeting_title: Some("Weekly sync".to_owned()),
+            heard_at: Some("12:04".to_owned()),
+            words: "[12:04] Grace: I'll fix the login bug.\n".to_owned(),
+            excerpts: Vec::new(),
+            items: Vec::new(),
+            proposed: Vec::new(),
+            declined: None,
+        };
+        heard.tasks.push(task.clone());
+        heard.tasks.push(PromptTask {
+            title: "Pick the launch date".to_owned(),
+            meeting_title: None,
+            heard_at: None,
+            excerpts: vec![PromptTaskExcerpt {
+                record_id: Uuid::nil(),
+                title: "The launch".to_owned(),
+                summary: "The date is still open.".to_owned(),
+            }],
+            items: vec![(Uuid::nil(), "Pick a date".to_owned(), ActionItemState::Open)],
+            proposed: vec![Uuid::nil()],
+            declined: Some("Nobody took it on yet.".to_owned()),
+            ..task
+        });
+
+        let prompt = render(&heard, now());
+        assert!(prompt.contains("## Tasks heard in meetings (2)"));
+        assert!(prompt.contains("naming the task by its taskId"));
+        assert!(prompt.contains(&format!(
+            "\"Fix the login bug\" (task {}), owed by Grace Hopper, a person on Elysium; heard in \
+             \"Weekly sync\" (meeting {}) at 12:04.",
+            Uuid::nil(),
+            Uuid::nil()
+        )));
+        // A private meeting is named by its id alone, since its title can be what makes it private.
+        assert!(prompt.contains(&format!(
+            "\"Pick the launch date\" (task {}), owed by Grace Hopper, a person on Elysium; heard in \
+             a private meeting (meeting {}).",
+            Uuid::nil(),
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("  What was said:\n  [12:04] Grace: I'll fix the login bug."));
+        assert!(prompt.contains("It lies in no excerpt on this project"));
+        assert!(prompt.contains(&format!(
+            "In the excerpt \"The launch\" (record {}): The date is still open.",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains(&format!(
+            "Already made into \"Pick a date\" (item {}), open.",
+            Uuid::nil()
+        )));
+        assert!(prompt.contains("which waits for a person"));
+        assert!(prompt.contains("You made no item of it before, saying: Nobody took it on yet."));
+    }
+
     fn promise(state: PromiseState, work: Option<PromptWork>) -> PromptPromise {
         PromptPromise {
             id: Uuid::nil(),
@@ -1033,6 +1240,23 @@ mod tests {
         let prompt = render(&woken, now());
         assert!(prompt.contains("did not finish"));
         assert!(prompt.contains("3 more change(s) wait for your next turn"));
+    }
+
+    #[test]
+    fn what_is_pinned_in_an_excerpt_is_named_with_how_to_open_it() {
+        let mut woken = context();
+        let mut pinned = segment();
+        pinned.pinned = vec!["the frame \"The pricing table\" (attachment 7)".to_owned()];
+        woken.records.push(pinned);
+        let prompt = render(&woken, now());
+
+        assert!(prompt.contains(
+            "Pinned in it: the frame \"The pricing table\" (attachment 7). Open one with \
+             meeting_attachment_get."
+        ));
+        let mut bare = context();
+        bare.records.push(segment());
+        assert!(!render(&bare, now()).contains("Pinned in it"));
     }
 
     #[test]

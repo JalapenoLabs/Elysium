@@ -19,11 +19,11 @@ import { offsetSourceLabelKeys, offsetSourceOf, startOf } from './meetingCapture
 type Props = {
   capture: MeetingCapture
   isEditing: boolean
-  // Null while the meeting is read only, which offers no Move.
-  onEdit: (() => void) | null
+  onEdit: () => void
   onCancel: () => void
-  // Resolves whether the move applied.
-  onMove: (offsetMs: number) => Promise<boolean>
+  // Resolves whether the move applied; null where the reader may not move it, which only the
+  // meeting's owner does.
+  onMove: ((offsetMs: number) => Promise<boolean>) | null
 }
 
 // One capture in a meeting's options: where it came from, where it starts on the meeting's clock
@@ -45,7 +45,7 @@ export function CaptureRow(props: Props) {
         <p className='text-sm'>{t(meetingSourceNameKey(capture.sourceKind))}</p>
         <p className='text-xs opacity-70'>{placed}</p>
       </div>
-      {!props.isEditing && props.onEdit && <Tooltip delay={300}>
+      {props.onMove && !props.isEditing && <Tooltip delay={300}>
         <Button
           isIconOnly
           size='sm'
@@ -58,7 +58,7 @@ export function CaptureRow(props: Props) {
         <Tooltip.Content>{t('review.captures.move')}</Tooltip.Content>
       </Tooltip>}
     </div>
-    {props.isEditing && <CaptureOffsetEditor
+    {props.onMove && props.isEditing && <CaptureOffsetEditor
       captureId={capture.id}
       offsetMs={capture.offsetMs}
       onApply={props.onMove}

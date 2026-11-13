@@ -18,7 +18,8 @@ import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
 import type { KnowledgePage, KnowledgePageSummary, PageHistoryEntry, PageVersion } from './api/routes/pageRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
-import type { Meeting } from './api/routes/meetingRoutes'
+import type { MeetingAttachmentPolicy } from './api/routes/meetingAttachmentRoutes'
+import type { Meeting, MeetingAttachment } from './api/routes/meetingRoutes'
 import type { ProjectManager, WorkBatch } from './api/routes/projectManagerRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { PersonPromise } from './api/routes/promiseRoutes'
@@ -563,9 +564,53 @@ export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): 
     awaitingApproval: false,
     projectIds: [],
     mergedInto: null,
+    ownerId: CREATED_BY,
+    visibility: 'public',
+    sharedWith: [],
+    visibilityChange: null,
+    canEdit: true,
+    canManage: true,
     deletedAt: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+// A file attached to meeting `meeting`, stored and read; a frame overrides its kind and moment.
+export function makeMeetingAttachment(
+  overrides: Partial<MeetingAttachment> & Pick<MeetingAttachment, 'id'>,
+): MeetingAttachment {
+  const fileName = overrides.fileName ?? 'Roadmap.pdf'
+  return {
+    kind: 'file',
+    fileName,
+    contentType: 'application/pdf',
+    sizeBytes: 2_048,
+    address: `/api/v1/meetings/meeting/attachments/${overrides.id}/${fileName}`,
+    displaysInline: false,
+    caption: null,
+    captureId: null,
+    captureMs: null,
+    meetingMs: null,
+    textState: 'read',
+    createdBy: 'person',
+    agent: null,
+    createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeMeetingAttachmentPolicy(overrides: Partial<MeetingAttachmentPolicy> = {}): MeetingAttachmentPolicy {
+  return {
+    destinationId: 'location-1',
+    maxBytes: 1_000_000_000,
+    maxBytesCeiling: 5_368_709_120,
+    partBytes: 8_388_608,
+    maxPerMeeting: 500,
+    frameMaxBytes: 25_000_000,
+    captionMaxCharacters: 1_000,
+    textMaxCharacters: 200_000,
     ...overrides,
   }
 }

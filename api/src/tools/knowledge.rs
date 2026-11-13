@@ -11,6 +11,8 @@
 //!   functions (`routes::v1::knowledge`), with the same arguments and schemas the MCP server
 //!   takes, so a turn finds exactly what a member would. A search spends the budget of whoever
 //!   the turn reads for ([`reader`]).
+//! - `meeting_attachment_get` opens a file or frame pinned in a meeting's excerpt, which travels
+//!   with it to every agent that reads it ([`attachments`]).
 //! - `company_doc_read` answers every section with the suggestions waiting on it, as its
 //!   proposals; `company_doc_propose` is `page_suggest` for one section, through
 //!   `crate::company_doc::propose`, and nothing changes until a person accepts it.
@@ -66,7 +68,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 14] = [
+const TOOLS: [Tool; 15] = [
     Tool {
         name: "knowledge_search",
         description: SEARCH_DESCRIPTION,
@@ -84,6 +86,12 @@ const TOOLS: [Tool; 14] = [
         description: MEETINGS_DESCRIPTION,
         input_schema: schema_of::<ListMeetingsRequest>,
         run: |context, scope, arguments| run_meetings(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "meeting_attachment_get",
+        description: attachments::DESCRIPTION,
+        input_schema: attachments::schema,
+        run: |context, scope, arguments| attachments::run(context, scope, arguments).boxed(),
     },
     Tool {
         name: "company_doc_read",
@@ -245,7 +253,7 @@ fn propose_schema() -> Value {
 /// database does not answer.
 async fn reader(context: &ToolContext, scope: &CallScope) -> Result<Uuid, ToolError> {
     let session_id = match scope {
-        CallScope::Elysia(_) => return Ok(ELYSIA_USER_ID),
+        CallScope::Elysia(_) | CallScope::Segmenting(_) => return Ok(ELYSIA_USER_ID),
         CallScope::ProjectManager(_) => return Ok(PROJECT_MANAGER_USER_ID),
         // A pool worker is the coding agent at work on its batch, which a Project Manager, not
         // a person, started.
@@ -302,7 +310,7 @@ async fn writer(
         CallScope::Session(session) => Some(Agent::session(session.session_id)),
         CallScope::ProjectManager(manager) => Some(Agent::project_manager(manager.project_id)),
         CallScope::Elysia(_) => None,
-        CallScope::Worker(_) => {
+        CallScope::Worker(_) | CallScope::Segmenting(_) => {
             return Err(ToolError::WrongAgent(
                 "coding sessions, Project Managers, and Elysia; tell your Project Manager \
                  what the page should say in your worker_finish result",
@@ -372,9 +380,9 @@ async fn run_get(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let arguments: DocumentArguments = parse_arguments(arguments)?;
-    reader(context, scope).await?;
+    let reader = reader(context, scope).await?;
     let (id, span) = arguments.into_parts();
-    let document = knowledge::open(&context.database, id, &span)
+    let document = knowledge::open(&context.database, reader, id, &span)
         .await
         .map_err(|error| tool_error(scope, "knowledge.open", error))?;
     Ok(json!({ "document": document }))
@@ -386,8 +394,8 @@ async fn run_meetings(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let request: ListMeetingsRequest = parse_arguments(arguments)?;
-    reader(context, scope).await?;
-    let meetings = knowledge::list_meetings(&context.database, request)
+    let reader = reader(context, scope).await?;
+    let meetings = knowledge::list_meetings(&context.database, reader, request)
         .await
         .map_err(|error| tool_error(scope, "knowledge.meetings", error))?;
     Ok(json!({ "meetings": meetings }))
@@ -637,5 +645,6 @@ fn link_tool_error(scope: &CallScope, operation: &'static str, error: ApiError) 
     }
 }
 
+mod attachments;
 #[cfg(test)]
 mod tests;

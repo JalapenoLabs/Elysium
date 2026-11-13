@@ -20,8 +20,10 @@ alternatives, and the Transcription doc teaches every correction and transcripti
 (Correction, and The Transcription doc, below). Segmenting reads those settled words and takes its excerpts and
 black-outs, which people change as they review, and Done reviewing reads the meeting again (Segmentation, Excerpts and
 black-outs, and Done reviewing, below). A meeting recorded twice is merged only when its person says so (The same
-meeting twice, below). Every change to a meeting is in its history, and undoable (History, below). A meeting is
-deleted, one, many, or with its connector, softly, and restored with everything it took (Deleting, below).
+meeting twice, below). Every change to a meeting is in its history, and undoable (History, below). Every member reads
+a public meeting, and a private one is read by its owner, the people it is shared with, and admins; its correction
+decides which a new meeting is (Who reads a meeting, below). Its owner or an admin deletes a meeting, one, many, or
+with its connector, softly, and restores it with everything it took (Deleting, below).
 How meetings become reviewed documents of the knowledge base is designed in `docs/meeting-review.md`.
 
 Every source is read the same deterministic way: the timestamped transcript, and the recording when there is one.
@@ -207,9 +209,10 @@ taken, is a run of its connector, and a connector is `syncing` while a meeting o
   removed, an undo, an approval, a hold, and Done reviewing are each refused under the meeting's lock, the lock a
   merge takes, with `409 meeting_merged`, and Elysia's edit tool is told the same. Its merge and a split of it are
   undone from the meeting kept.
-- **A meeting deleted** keeps when (`deleted_at`) until its person restores it: it is listed only among their deleted
-  meetings, processed no further, and takes no change, each route answering `409 meeting_deleted` under the meeting's
-  lock, while its own page still opens, saying so, with Restore (Deleting, below).
+- **A meeting deleted** keeps when (`deleted_at`) until its owner or an admin restores it: it is listed only among the
+  deleted meetings they may restore, processed no further, and takes no change, each route answering `409
+  meeting_deleted` under the meeting's lock, while its own page still opens to its readers, saying so, with Restore for
+  whoever may restore it (Deleting, below).
 - **A capture** (`meeting_captures`, `models::meeting_capture`) is one record of it: a connector's meeting (a
   Fireflies meeting, a Teams recording, a Slack huddle), or a person's upload (Uploads, below). It keeps what its source
   gave, as it came: its connector, its source and the source's id for it, its page there, the transcript with its
@@ -227,6 +230,61 @@ taken, is a run of its connector, and a connector is `syncing` while a meeting o
   fetch, transcribe, and segment read the capture the run names: the meeting's own first one, or the capture an upload
   added, whose run places it on the clock and lines the transcript up again from every capture (Aligning, below).
 - A recording kept before captures were hashed has no `recording_hash`; it is never downloaded again to hash it.
+
+## Who reads a meeting
+
+Every member reads a public meeting; a private one is read by its owner and the people it is shared with; admins read
+every meeting; and a guest reads only a meeting shared with them (`docs/meeting-review.md`, Who sees a meeting). A
+new meeting is private to its owner until its correction reads it and decides.
+
+- **One rule, in one place.** Who may read a meeting is `readable_by` (`models::meeting`), the one statement of it,
+  which finding a meeting (`find_readable`), listing them (`list_readable`), and telling which of some meetings a
+  reader may read (`readable_among`) all filter by; the knowledge index's SQL asks its twin (`readable_meeting_sql`,
+  below), which a test holds to the same answers. What a reader may do with one is `crate::meetings::access`:
+  every route asks `open` for the meeting it names with what it needs, never checking an owner itself. A capture
+  merged in names the meeting it came from only to a reader who may read that meeting.
+
+| Need     | Who                                            | For                                                    |
+|----------|------------------------------------------------|--------------------------------------------------------|
+| Read     | Whoever may read it                            | The meeting, its words, each capture as it came, its media, its history, its threads, and which thread an item was raised by |
+| Edit     | A company member who reads it, and its owner   | Edits, comment threads, taking a range into a project, blacking one out, removing either, and undoing them |
+| Manage   | Its owner, or an admin                         | Who reads it and whom it is shared with, merging or splitting its captures, and the inbox item asking whether two meetings are one |
+| Own      | Its owner                                      | Holding it for approval, approving its correction, retrying its run, Done reviewing, setting a capture's offset, and uploading another capture |
+
+- **What a refusal says.** A meeting someone may not read answers `404`, as one that does not exist does, so a private
+  meeting's existence is no answer either. One they read and may not change that way answers `403` with the code
+  `read_only` (a guest), `owner_or_admin`, or `owner_only`. An undo takes what making the change took
+  (`access::need_to_undo`). The listing answers only what they may read, a page at a time.
+- **Its visibility** is `meetings.visibility`: `unchecked` for a new meeting, read as `private`; `private`; or `public`.
+  Whom it is shared with is `meeting_shares`: active people other than its owner, never a machine.
+- **Its owner or an admin** makes it private or opens it (`PUT /meetings/{id}/visibility`) and shares it or stops
+  (`PUT` and `DELETE /meetings/{id}/shares/{personId}`), each under the meeting's lock and recorded in its history
+  (`visibility_changed`, `shared`, `unshared`), and undone from there while nothing changed it since
+  (`crate::meetings::visibility`): a share is undone back only to someone it may still be shared with. Once a person
+  chooses, its correction leaves it as they chose; undoing that choice makes it `unchecked` again only while its
+  correction has yet to run, and private after, since nothing would decide again.
+- **Its correction decides.** The correction's one turn also judges whether the meeting is sensitive (Correction,
+  below) and, in the transaction that settles its transcript, opens it or keeps it private, shared with the people it
+  chose, while it is still `unchecked`. Kept private, its owner is told by an inbox item, "Elysia kept a meeting
+  private", whose notes name only whom it is for, since items are the whole workspace's; the item's page shows the
+  meeting, why, and whom it is shared with to whoever may read it (`GET /meetings?keptPrivateItemId=`). An answer that
+  judges nothing keeps it private too, saying Elysia could not tell. Its decision is never undone, since nothing would
+  decide again; its owner changes it instead. A meeting whose correction was skipped stays private until its owner
+  opens it.
+- **Where it names itself.** Anything every member reads about a meeting names it only while it is public
+  (`Meeting::public_title`): an inbox item it raises (a review, a thread, two meetings that look like one) says "a
+  meeting" in place of a private one's title, and the Transcription doc learns a private meeting's fixes alone, linking
+  it by no title, with neither who spoke nor the reason the correction gave (The Transcription doc, below). What an
+  item or the doc said while the meeting was public stays as it was written.
+- **The knowledge index** finds a private meeting's documents for its readers alone: its whole transcript's and each
+  excerpt's document name it (`knowledge_documents.access_meeting_id`), and every search, every opening of a document,
+  and the meetings listing find a meeting's documents only for a reader who may read it, by a predicate inside each
+  query (`meeting::readable_meeting_sql`), so a change of who reads it applies to the next search with nothing indexed
+  again, however many meetings there are (`docs/knowledge.md`, Who sees what). An excerpt that names no meeting is
+  indexed for nobody. Its excerpts' records stay their owner's, and still go to their projects and wake their Project
+  Managers, since they are on their projects.
+- **Events.** `meeting.changed` carries a meeting's id, state, and the entry a person's change made, never its owner
+  or who reads it: every client loads it by id, and one that may not read it is answered `404` and drops it.
 
 ## Processing
 
@@ -325,8 +383,8 @@ no step of its own. It fetches the meeting's capture, the one its source listed.
   the parts first. Once the write is kept, the parts are removed. Parts no longer in the workspace fail the step for
   good, since only the person can send them again; a workspace or a provider that does not answer is tried again. Its
   log names counts, hashes, and paths, never a file's name.
-- Every company member can read a run's log, while meetings are their owner's alone, so the log names the source,
-  counts, the hash, and storage paths, never a title, a participant, or anything said.
+- Every company member can read a run's log, though a meeting may be private, so the log names the source, counts,
+  the hash, and storage paths, never a title, a participant, or anything said.
 
 ### Transcription
 
@@ -465,10 +523,18 @@ saying "Not fetched, so nothing to correct". The raw transcripts are never writt
   How a prompt reaches the CLI), so nothing is cut to fit. A meeting too long for the model's context fails the step
   for good, giving the CLI's reason, since every attempt would read the same prompt (`TurnOutcome::prompt_too_long`);
   skipping the step on the Runs page lets segmenting go on from the transcript as heard.
-- **The answer** is `{ "flags": [{ "line", "heard", "text", "confidence", "alternatives", "why" }] }`: each flag names a
-  run of a line's words by copying them, the text it decided on, its confidence from 0 to 100, up to three other things
-  the run may have said, and why, in a sentence. A run it cannot make out is flagged at 0 with no alternatives, for a
-  person to listen to.
+- **The answer** is `{ "flags": [{ "line", "heard", "text", "confidence", "alternatives", "why" }], "visibility": {
+  "private", "shareWith", "why" } }`: each flag names a run of a line's words by copying them, the text it decided on,
+  its confidence from 0 to 100, up to three other things the run may have said, and why, in a sentence. A run it cannot
+  make out is flagged at 0 with no alternatives, for a person to listen to.
+- **Who reads it.** The same turn judges whether the meeting is sensitive: a one-to-one between a manager and someone
+  they manage, a discussion of someone's performance, pay, hiring, or leaving, or a health, family, or other personal
+  matter. Its prompt names whose meeting it is and the people it can be shared with, as `id: name <email>`, those its
+  participants or speakers name first, within 12,000 bytes (`correction::people_in_order`). Its `visibility` answer is
+  read apart from its flags (`correction::parse_judgment`), so a garbled one never costs the settlement: `private`
+  `false` opens the meeting, `true` keeps it private, shared with each person named who was offered (at most 50), and
+  why, cut to 300 characters; anything else keeps it private as undecided. It applies in the transaction that settles
+  the transcript (Who reads a meeting, above). The log says only that it decided, never what.
 - **Nothing in the answer is trusted.** A flag is kept only for a line the transcript has, over words found in that
   line exactly once (compared without regard to case or the punctuation around a word), overlapping no flag kept before
   it, and its text replaces only those words. Its text must only fix words: each change replaces at most four words
@@ -535,8 +601,9 @@ Its times are milliseconds from the recording's start, as Whisper's words are (T
   and raises an inbox item as the system, recording it on the copy in the same transaction, under the meeting's lock,
   so an attempt that runs again raises no second: "Approve the corrected transcript of" the meeting's title when its
   source or its person asked, and "Review the transcript of" it, counting the places it was unsure of, when it was
-  unsure. Items are the whole workspace's, so it carries the meeting's title, as an item a person's mail raises carries
-  its subject, and nothing that was said.
+  unsure. Items are the whole workspace's, so it carries the meeting's title only while the meeting is public, as an
+  item a person's mail raises carries its subject, and nothing that was said; the correction decides who reads it just
+  before.
 - Approving, from the meeting's page, records who approved it, resolves the item, and resumes the held run with the
   step's output saying `approved: true` (`step_job::resume_with`), in one transaction. Resume on the Runs page passes
   the held output on as it is, unapproved, and leaves the item for its person.
@@ -569,22 +636,27 @@ topics reach the projects they are about with nothing more for a workflow to do.
 
 **The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
 segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in
-projects) a project (`docs/engine.md`, Models). No tools, no settings, and nothing kept to resume. Its prompt holds
-every project's id, name, and the start of its description, and:
+projects) a project (`docs/engine.md`, Models). No tools, no settings, and nothing kept to resume. A meeting with a
+video capture is the one exception: its turn also looks at its stills, with the Task tool and the frames server alone
+(`TurnMode::TextWithSubagents`, Attachments and frames, below). Its prompt holds every project's id, name, and the
+start of its description, and:
 
 | Source       | The prompt holds                                                   | The answer names each part by |
 |--------------|--------------------------------------------------------------------|----------------------------------|
-| Meeting      | Its title, length, participants, and final transcript as `[n] [m:ss] Speaker: text` lines, numbered from 1, without the time for a meeting in words alone | Its first and last line |
+| Meeting      | Its title, length, participants, every active person on Elysium by id, name, and address with the meeting's own person marked, and final transcript as `[n] [m:ss] Speaker: text` lines, numbered from 1, without the time for a meeting in words alone | Its first and last line |
 | Conversation | Its title, the name of the person whose timeline it is on, message count, participants, and messages as `[n] [m:ss] Speaker: text` lines, timed from the first | Its first and last message, numbered from 1 |
 
 A meeting's lines are its final transcript's words as correction reads them (`correction::lines_of`): a new line where
 the speaker changes, after a pause of two seconds, and every sixty words. Each run of words a black-out already covers
 reads `[blacked out]`, so its line is still there to number and its words are not. The answer is
 `{ "excerpts": [{ firstLine, lastLine, title, summary, projects: [{ projectId, confidence }] }], "blackOuts":
-[{ firstLine, lastLine }] }`: each excerpt the lines that matter to a project, as few as still make sense on their own,
-overlapping and nesting as they need to, and each black-out lines that truly matter to nobody ("is my mic on?", "how was
-your weekend?"). Hellos, small talk, and asides are in neither: what is not blacked out stays in search, excerpt or not
-(Excerpts and black-outs, below).
+[{ firstLine, lastLine }], "tasks": [{ firstLine, lastLine, title, owedBy, projectId }] }`: each excerpt the lines that
+matter to a project, as few as still make sense on their own, overlapping and nesting as they need to; each black-out
+lines that truly matter to nobody ("is my mic on?", "how was your weekend?"); and each task something someone took on or
+was asked to do ("I'll send the deck"), by the lines that say it, what is to be done, who owes it (a person on Elysium
+by their id, anyone else by the name the meeting gives them, or nobody named), and the project whose work it is, if
+any. Hellos, small talk, and asides are in none: what is not blacked out stays in search, excerpt or not (Excerpts and
+black-outs, below).
 
 A conversation's topics are runs of messages, since a chat's topics are not stretches of time: two messages a few
 seconds apart may be two requests. Each answer segment also has a title, a summary of what was said and decided, and
@@ -605,6 +677,10 @@ as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow
 - A promise is kept only when it names one of the messages shown, once each, someone it is for (at most 200
   characters), what was promised (cut to 500), and a project that was offered. At most ten are kept, and an answer
   naming none still reads.
+- A task is kept only as a run of lines shown, with a title (cut to 200), once per run and title; at most 50 are kept.
+  Who owes it is a person who was offered, by their id, or by the one name or address of theirs it gives; any other name
+  is someone not on Elysium, and an id nobody offered names nobody. Its project is one that was offered, or none, and
+  one removed while the turn ran is none. No black-out covers a task kept.
 - An answer with no JSON, or the wrong shape, fails the attempt, which the run's backoff tries again; so does a
   conversation's with no segment left.
 
@@ -629,7 +705,8 @@ giving the CLI's reason, since every attempt would read the same prompt.
    Black-outs are taken first, so every excerpt made reads its words without them.
 4. Each excerpt with no clip, or whose words moved since its clip was cut, has its clip cut and uploaded (Clips, below),
    and the record names it. Then each new record is announced, the capture's connector records a run, and the
-   workspace's copy of the recording is removed.
+   workspace's copy of the recording is removed. The frames its answer chose are kept in storage before the
+   transaction of step 3 and pinned in it (Attachments and frames, below).
 
 **Taking an answer.** Every excerpt and black-out a person made or changed stands, whatever the answer says: one a
 person made, or an excerpt whose projects a person changed (its record's history names them). A range a person
@@ -638,8 +715,8 @@ keeps it: an excerpt keeps its record, takes the answer's title and summary, and
 (`models::attribution`), which never override a person's and wake no Project Manager for a project it was on already.
 Elysia's others the answer does not take are removed, an excerpt's record taken off her projects and out of the index.
 Everything else is made: an excerpt as a mark and its record, attributed to its projects, which wakes each project's
-Project Manager; a black-out as a mark, never over a word of a person's excerpt. It is one `segmented` change in the
-meeting's history, by Elysia, naming the marks it made, kept, and removed.
+Project Manager; a black-out as a mark, never over a word of a person's excerpt. Tasks are taken last (Tasks, below). It
+is one `segmented` change in the meeting's history, by Elysia, naming the marks it made, kept, moved, and removed.
 
 The connector shows as syncing meanwhile, and the step holds a `workflowStep` activity as every running step does, so
 auto-update waits for clips being cut.
@@ -740,20 +817,20 @@ them on its own (`api/src/meetings/duplicates.rs`).
   later of the two to be listed asks: an inbox item for its person, "Same meeting as" the other's title, raised as the
   system, and a pair in `meeting_duplicates` recording it once, whichever meeting found the other. Its run waits at
   aligning for the answer, so a duplicate never publishes excerpts of its own. Items are the whole workspace's, so it
-  carries the two titles, and nothing that was said.
-- **Only the person's own meetings** are compared, since a meeting is its owner's alone until meetings are public by
-  default (`docs/meeting-review.md`, Who sees a meeting); comparing everyone's meetings comes with that. A deleted
-  meeting is compared with none, and a pair holding one merges into nothing (`409 meeting_deleted`) until it is
-  restored.
+  carries each title only while its meeting is public, and nothing that was said; the item's page shows both.
+- **Only the person's own meetings** are compared; comparing everyone's, now that meetings are the company's, is on the
+  roadmap. A deleted meeting is compared with none, and a pair holding one merges into nothing (`409 meeting_deleted`)
+  until it is restored.
 - **Merge** (`POST /api/v1/meetings/duplicates/{id}/merge`) moves the meeting's captures into the other, each placed
   on its clock from when the two meetings started, after its own captures. Every edit made on the merged meeting is
   carried across with its words, the words it replaced, and its mark, the other's transcript is lined up again keeping
   every edit, and a `meeting_alignment` run starts, which finds each moved capture's offset. The merged meeting names
   the one it went into. Both histories record `merged`, with where each capture sat before and after.
 - **Not the same** (`POST .../not-the-same`) is remembered, so the pair is never asked about again.
-- Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. Only the meeting's
-  person answers; a pair decided answers `409 duplicate_decided`, and of two answers at once the first to be written
-  counts, the other answered that way.
+- Either resolves the item and lets the waiting run go on; a merged meeting's steps then skip it. The asking meeting's
+  owner or an admin answers, reading both meetings; anyone else is answered `null` on the item's page and `403
+  owner_or_admin` when they ask to decide; a pair decided answers `409 duplicate_decided`, and of two answers at once
+  the first to be written counts, the other answered that way.
 - **Splitting.** A merge is undone by splitting the captures back out (`POST
   /api/v1/meetings/{id}/captures/{captureId}/split`, or undoing the `merged` entry), while each capture still sits as
   the merge left it, or on an offset aligning found since; one a person set by hand since answers that it changed
@@ -768,7 +845,7 @@ them on its own (`api/src/meetings/duplicates.rs`).
 
 ## Deleting
 
-A person deletes their meetings, one, many, or with the connector that read them, and restores them
+A meeting's owner or an admin deletes it, one, many, or with the connector that read them, and restores it
 (`api/src/meetings/deletion.rs`, `POST /api/v1/meetings/bulk`). Nothing is deleted for good yet, so deleting is soft and
 immediate, and restoring brings back all of it.
 
@@ -780,8 +857,12 @@ immediate, and restoring brings back all of it.
   excerpts that no word of it could anchor, which name no mark and are still on their projects; both are found by the
   meeting their metadata names (`timeline_records_by_meeting`). An excerpt its person removed is on no project and out
   of the index already, and stays as it is. Its whole transcript's document leaves the index too, and the backfill
-  leaves it out (`excerpts::index_transcript`). Its recording, its clips, its transcripts, and its marks stay where
-  they are, as a deleted page keeps its files (`docs/knowledge.md`, Pages).
+  leaves it out (`excerpts::index_transcript`), so its files and frames, which are indexed only in that document and in
+  the excerpts they are pinned over, leave search with them; nothing indexes a deleted record or a deleted meeting's
+  transcript again until it is restored (`timeline_record::index`, `excerpts::refresh`). Its tasks are nobody's to act
+  on meanwhile: no Project Manager is handed one (`meeting_task::standing_for_project`), its page lists none, and an
+  item made of one opens no task, while the items already made stand. Its recording, its clips, its transcripts, its
+  files and frames, and its marks stay where they are, as a deleted page keeps its files (`docs/knowledge.md`, Pages).
 - **Its run stops.** Every step of the meeting workflow, and of the alignment workflow a merge or a split starts, fails
   for good on a deleted meeting with one reason, "This meeting was deleted, so its run stopped here", read at the step's
   start and again under the meeting's lock where it would settle words, raise an inbox item, or take excerpts:
@@ -808,13 +889,17 @@ immediate, and restoring brings back all of it.
   did, so a meeting that failed and was deleted comes back failed. Its excerpts wake no Project Manager, since none is
   newly on a project. A step that read the meeting deleted an instant before it was restored fails anyway; Retry
   carries it on, as for any failed run.
-- **Who, and which meetings.** A meeting is found as every meeting route finds it (`meeting::find_owned`), its owner
-  alone until meetings are public by default (`docs/meeting-review.md`, Who sees a meeting), then locked. A meeting
-  merged into another is refused (`meeting_merged`): it holds no captures, which live on in the meeting kept, and that
-  is the one to delete. A meeting whose connector was removed is deleted like any other.
+- **Who, and which meetings.** Deleting and restoring take what managing a meeting takes, its owner or an admin
+  (`docs/meeting-review.md`, Who sees a meeting): a meeting is opened as every meeting route opens it
+  (`access::open` with `Need::Manage`), then locked. One its reader may not read is refused as `not_found`, and one they
+  read but may not manage as `owner_or_admin`. Every reader still opens a deleted meeting they read, read only, with
+  Restore for whoever may restore it; the Deleted filter lists the deleted meetings its reader may restore, their own
+  or, for an admin, every one (`meeting::list_deleted`). A meeting merged into another is refused (`meeting_merged`):
+  it holds no captures, which live on in the meeting kept, and that is the one to delete. A meeting whose connector was
+  removed is deleted like any other.
 - **Many at once.** One change names at most 1000 meetings (`deletion::MAX_MEETINGS`), each written in a savepoint of
-  one transaction in the order of their ids, as a bulk change to action items is: one refused (not the person's, merged
-  away, deleted already, or not deleted) is answered with its reason while the rest apply.
+  one transaction in the order of their ids, as a bulk change to action items is: one refused (not found, not theirs to
+  change, merged away, deleted already, or not deleted) is answered with its reason while the rest apply.
 - **With its connector.** Removing a connector that provides meetings may delete the meetings it listed: those whose
   first capture it read, neither deleted nor merged away (`meeting::listed_by`), the same ones
   `GET /api/v1/connectors/{id}/meeting-count` counts for the removal's switch. The removal reaches outside Postgres (a
@@ -823,7 +908,7 @@ immediate, and restoring brings back all of it.
   removal that fails restores the meetings that request deleted, so it leaves the connector and its meetings as they
   were, to be tried again. Each is recorded as removed with it (`connectorId`), and restored like any other.
 - **History.** Deleting and restoring are each a change in the meeting's history, `deleted` and `restored`, with who
-  did it. Neither is undone through the history: restoring is a deletion's undo, and deleting again a restore's.
+  did it, and while it is deleted nothing changes it, its visibility and shares included (`409 meeting_deleted`). Neither is undone through the history: restoring is a deletion's undo, and deleting again a restore's.
 - **What is told.** `meeting.changed` for each meeting, naming its entry, and `timelineRecord.changed` for each record
   that left or came back, so a timeline holding it drops it, its load by id answering `404`, or loads it again. A
   deleted meeting's page reads each excerpt's projects from its transcript, since its record loads no more.
@@ -846,6 +931,9 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
 - **Where the recording goes.** A storage location the person chooses, offered first as the one the owner already keeps
   meetings in: the meeting's first recording's for a capture, otherwise their oldest meeting source's. A transcript
   alone keeps nothing in storage.
+- **A file for a meeting.** An upload may instead carry one file attached to a meeting, alone (`attachment`), which
+  finishing attaches rather than making a capture (Attachments and frames, below). It goes into the attachments'
+  location, and nothing else here changes for it.
 - **Parts.** Every file arrives in parts of 8 MiB (`PART_BYTES`), the last one shorter, each its own request, in order
   (`PUT .../{kind}/parts/{index}`). Each streams into the workspace, `.elysium/uploads/<upload>/<kind>/<part>`
   (`meeting_uploads::staging`), where the engine reaches it too. Each send is written under a name of its own, and
@@ -872,7 +960,8 @@ other, transcribed, corrected, and segmented by the meeting's run. The rules are
   marks the upload finished with the lines its transcript was read as, and starts the meeting's run from its fetch, as
   its person, all in one transaction; the fetch then stores the recording (Fetching, above). A new meeting's duration is
   where its transcript's last line ends, when it has times, and its participants are the speakers its transcript names.
-  Finishing again, or twice at once, answers the same meeting.
+  Finishing again, or twice at once, answers the same meeting, or the same file, while its uploader may still read
+  the meeting, and `404` once they may not.
 
 ### Reading a transcript
 
@@ -921,7 +1010,8 @@ What segmenting takes from a meeting, and what people take or leave as they revi
 - **The meeting's own document.** A meeting segmented at least once is a document of the knowledge index of its own,
   apart from its excerpts (`knowledge_documents.meeting_id`): its title, every line of its final transcript,
   blacked-out words left out, each line its own paragraph so an edit moves as few passages as it can, then its threads,
-  up to 500,000 characters. So what no excerpt took is still found. It is refreshed with every change that refreshes
+  up to 500,000 characters. So what no excerpt took is still found, by the meeting's readers alone (Who reads a
+  meeting, above). It is refreshed with every change that refreshes
   an excerpt, leaves the index when the meeting is merged into another, and comes back when it is split out. The
   knowledge index's backfill brings in the meetings segmented before it existed (`docs/knowledge.md`, The backfill).
 - **Only excerpts reach Project Managers and workers.** A Project Manager is woken by an excerpt newly on its project
@@ -946,7 +1036,49 @@ What segmenting takes from a meeting, and what people take or leave as they revi
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
 streams the clip from storage to the record's owner alone, a range at a time (Playing media, below). Each excerpt is a
 document of the knowledge index, stored with its record: its title, its summary, its words, and the comment threads
-over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records).
+over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records). Its document names its
+meeting, so a private meeting's excerpts are found by its readers alone (Who reads a meeting, above).
+
+## Tasks
+
+What segmenting hears people take on, and where each goes (`crate::meetings::tasks`, `models::meeting_task`). A task
+is a mark of kind `task` over the words that say it, which moves with every edit as any mark does, and its row in
+`meeting_tasks`: what is to be done, who owes it (`owed_by_user_id` for a person on Elysium, `owed_by_name` for anyone
+else), and its project. Its share decides where it goes, a project's before anyone's:
+
+| Share        | Is                                              | Goes                                                     |
+|--------------|-------------------------------------------------|----------------------------------------------------------|
+| A project's  | Any task with a project, whoever owes it        | A `task` wake for the project's Project Manager           |
+| The person's | On no project, owed by the meeting's person     | An inbox item for them, at once                          |
+| A coworker's | On no project, owed by another person on Elysium | An inbox item for them, at once                         |
+| Waiting on   | On no project, owed by someone not on Elysium   | An inbox item for the person, waiting on them (`waitingOn`) |
+| Other        | On no project, nobody named                     | An inbox item for the person, to decide                  |
+
+- **Items made at once** are raised by Elysia, as every item she raises is, in no project, titled as the task, and say
+  whom they are for and where the task was heard ("For Grace Hopper. Heard in Weekly sync at 12:04."), since items are
+  the whole workspace's until each person has a Next of their own (`docs/action-items.md`, Ownership). The meeting is
+  named only while it is public (`Meeting::public_title`), and a private one is "a meeting". Each is kept
+  beside its task with whom it is for (`meeting_task_items`), and a task raises one item a person, however often the
+  meeting is read again, and none beside an item its project made of it when it was a project's. They are announced
+  as every item is.
+- **A project's task** reaches its Project Manager (`docs/engine.md`, Project Managers): its turn is told what is to
+  be done, who owes it, the meeting's title while it is public (a private one is named by its id alone, as every member
+  reads a Project Manager's turns), its words, blacked-out ones left out, and the excerpts on the project its words lie
+  in, never the meeting whole. A private meeting's tasks still reach their projects, as its excerpts do. It answers each with `manager_make_changes`, a `create-item` naming the task
+  (`taskId`), which makes the task's item as its changeset under the project's level of autonomy, so at the default it
+  waits for a person; or with `manager_decline_task`, saying why it makes none, which is kept on the task
+  (`declined_reason`). A create naming a task records the item beside it once it applies, as an item made at once is.
+- **Taking an answer.** After excerpts and black-outs, each task the answer names that holds up is taken: none over a
+  range a person removed one from or holds one over, and none wholly blacked out. Each is one of Elysia's own read again,
+  or new (`tasks::read_again`, a pure function): first the one over exactly its words, then one over words it shares
+  with the same title, then the one over words it shares owed by the same and for the same project when no other task
+  of the answer shares words with it too. A task read again keeps its mark, moved onto its new words, and so keeps its
+  items, its wakes, and its proposals; it reaches anyone again only when it changed (its project, who owes it, or its
+  title beyond spacing and letter case), then as its share now says. A new task goes where its share says. Elysia's
+  tasks the answer does not read again are removed, and their items stay their people's to resolve or dismiss.
+- **Done reviewing** therefore sends a Project Manager only the tasks new or changed since it last read them, each a
+  wake that waits once (`project_manager_wakes_task_waits_once`), and a task that changed tells its turn what came of
+  it before: its items, the proposals waiting for a person, and its reason for making none.
 
 ## Done reviewing
 
@@ -1030,7 +1162,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `built`               | The captures it was lined up from with their offsets, what the first capture's words were lined up from (`source` or `whisper`), and how many words stand, were written, were replaced, and were kept at new times, and how many marks moved | None: what caused it is undone, and lines it up again |
 | `settled`             | Each range its correction changed, as an edit records its own, every confidence mark it made, and how many ranges it passed over because their words changed since it read them | None: a person edits what it settled, its alternatives offered on the meeting's page |
 | `edited`              | The words it replaced and the words it stood in their place, each mark it moved with its range before and after, the marks it made or removed, and the text before and after | Stands the replaced words up again, moves every mark it moved back where it was unless a later change moved it, moves marks made since over its words onto the words put back, and removes its own mark |
-| `marked`, `unmarked`  | The mark, its kind, and its range; for an excerpt its record and the attributions the change wrote or removed, and for a black-out the black-outs it took in or gave back | Removes the mark, or puts it back: an excerpt's record leaves its projects or goes back on each the removal took it off, and a black-out gives back what it took in, or takes it in again |
+| `marked`, `unmarked`  | The mark, its kind, and its range; for an excerpt its record and the attributions the change wrote or removed, for a black-out the black-outs it took in or gave back, and for a pin the file or frame it pins | Removes the mark, or puts it back: an excerpt's record leaves its projects or goes back on each the removal took it off, and a black-out gives back what it took in, or takes it in again |
 | `hold_changed`        | The hold before and after, by its person holding the meeting or releasing it | Sets it back, while the transcript is not yet corrected, as holding does |
 | `correction_approved` | Its person approved the corrected copy                           | None: approving let its run go on |
 | `offset_changed`      | A capture's offset and how it was found, before and after, set by hand | Puts the offset back, while nothing moved the capture since |
@@ -1038,7 +1170,10 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `split`               | In both meetings: the same, as a merge's undo                   | From the kept meeting's: merges them again |
 | `capture_added`       | Its person uploaded a capture of it: the capture, its source, and whether it holds a recording and a transcript | None: the capture is the meeting's once its run takes it in |
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
-| `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
+| `visibility_changed`  | Who reads it, before and after; for its correction's decision also `correction`, whether it was `undecided`, `why`, and whom it shared it with (`sharedWith`) | Puts it back while nothing changed it since; never the correction's decision |
+| `shared`, `unshared`  | The person it was shared with, or stopped being shared with (`personId`) | Stops sharing it with them, or shares it again, while it is still so |
+| `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept, moved onto new words, and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
+| `attached`, `detached` | A file or frame put on the meeting or taken off: the attachment, its kind and name, and the pins that went with it | Takes it off with its pins, or puts it back with them, while it is still as that change left it |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
 | `deleted`             | Its person deleted it: how many excerpts' records went with it (`excerpts`), the connector it was removed with, if it was, and the review item it dismissed (`dismissedItemId`) and the state it left (`dismissedItemFrom`), if it did | None: restoring brings it back |
 | `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`excerpts`), whether the run that deletion stopped went on, and the review item it returned to where it stood (`returnedItemId`), if it did | None: deleting takes it again |
@@ -1053,20 +1188,21 @@ oldest first, plain text up to 20,000 characters, each naming whom it mentions (
 removed keeps its comments, so an undo puts it back whole. A resolved thread still takes replies, so an answer under
 way when it was resolved lands.
 
-- **Who reads it.** On the meeting's page, everyone who can read the meeting: today its owner alone, as every meeting
-  route answers, until meetings are public by default (`docs/meeting-review.md`, Who sees a meeting). Its text is
-  in the knowledge index for every member, with the meeting's own document and the excerpts it lies in (The index,
-  below), as every timeline record's text is (`docs/knowledge.md`, Who sees what).
+- **Who reads it.** On the meeting's page, everyone who may read the meeting, and every company member among them
+  writes in it; a guest it is shared with reads only (Who reads a meeting, above). Its text is in the knowledge index
+  with the meeting's own document and the excerpts it lies in (The index, below), found by whoever may read the
+  meeting.
 - **Mentions are picked, not parsed.** A comment names the user ids it mentions beside its text, chosen as `@` is
-  typed, so a name written twice or shared by two people is never a guess. Only an active person or Elysia can be
-  mentioned.
+  typed, so a name written twice or shared by two people is never a guess. Only Elysia, and an active person who may
+  read the meeting, can be mentioned, so nobody is told of a thread on a meeting they may not read.
 - **Who is told.** Every change raises an inbox item for each person it concerns, never for whoever made it and never
   for a machine: a comment for everyone it mentions, and a reply, a resolve, or a reopen for everyone else taking part
-  in the thread, who wrote in it or was mentioned in it. Undoing a resolve or a reopen tells them too, as the reopen
+  in the thread, who wrote in it or was mentioned in it, while they may still read the meeting. Undoing a resolve or a
+  reopen tells them too, as the reopen
   or resolve it is, so nobody is left believing a change they heard of still stands. Someone mentioned in a reply
   hears of it once, as a mention. Items are the whole workspace's (`docs/action-items.md`, Ownership), so each is
-  raised by the system, says whom it is for in its notes, and carries the meeting's title and nothing written in the
-  thread. `meeting_thread_items` keeps the thread that raised each, so the item's page opens it
+  raised by the system, says whom it is for in its notes, and carries the meeting's title, while it is public, and
+  nothing written in the thread. `meeting_thread_items` keeps the thread that raised each, so the item's page opens it
   (`GET /meetings/thread-items/{itemId}`).
 - **Elysia.** A person's comment mentioning Elysia queues a `meeting-comment` turn of hers (`docs/elysia.md`,
   Triggers). She answers in the thread as herself, which tells its author, and may do what it asks: fix the words
@@ -1083,6 +1219,88 @@ way when it was resolved lands.
   the excerpts over its words and those holding a thread that quotes them, and lining the transcript up again from its
   captures (an offset set, a merge, a split) or settling it (Correction, above) every excerpt of the meeting, each with
   the meeting's own document and in its own transaction (`excerpts::refresh`).
+
+## Attachments and frames
+
+A meeting keeps the files it was about and the stills of its video that matter, each pinned to the words it goes with
+(`crate::meeting_attachments` for the policy, `meetings::attachments` for what a meeting does with them,
+`models::meeting_attachment` for the rows). Designed in `docs/meeting-review.md`, Attachments and frames.
+
+- **An attachment** is a row of `meeting_attachments`: a `file` a person attached, or a `frame`, a still of one
+  capture's video at a moment on that capture's clock, with its caption. Each is a frozen copy kept with its meeting,
+  so five meetings over one deck keep the version each discussed. A meeting holds at most 500 (`MAX_PER_MEETING`).
+- **Where they are kept.** In the storage location page attachments use (`docs/knowledge.md`, Pages, Attachments),
+  which an admin chooses under Settings, Storage, Attachments; until one is chosen a meeting takes none, and segmenting
+  pins no frame, saying so in its log. A file is kept at `meeting-attachments/<meeting>/<attachment>/<name>` and a
+  frame at `meeting-attachments/<meeting>/frames/<capture>-<ms>.webp`, so a frame taken twice is one object. Each row
+  keeps the location it landed in, and a location holding a meeting's file cannot be deleted
+  (`409 meeting_attachment_files`).
+- **Any file, never rendered.** A meeting takes any file, since what it was about can be anything; the largest is an
+  admin's setting (`workspace_settings.meeting_attachment_max_bytes`), 1 GB unless they choose another, up to what
+  storage takes in one upload (5 GiB). What a file is comes from its extension alone. Only an image proven by its first
+  bytes, and a frame Elysium encoded itself, display; everything else is served as a download, never rendered on
+  Elysium's origin, so a meeting can keep HTML or a program a page would refuse (`docs/security.md`).
+- **A pin** is a mark of kind `pin` over a range of the final transcript, its data `{ attachmentId }`, made, moved by
+  an edit, removed, and undone as every mark is (`marked`, `unmarked`). An excerpt carries every file and frame pinned
+  over its words, by the overlap a thread's indexing uses.
+- **Attaching a file** sends it in parts, as an upload of its own (`FileKind::Attachment`, Uploads, above):
+  `POST /meeting-uploads` with `{ meetingId, attachment: { name, sizeBytes, modifiedAt } }`, refused for a meeting the
+  person does not own, one merged away, a file past the limit (`meeting_attachment_too_large`), no location chosen
+  (`meeting_attachment_no_location`), or a meeting full (`meeting_attachment_too_many`). An image's first part must
+  prove its format. Finishing records the attachment, as the person, in the meeting's history (`attached`) under its
+  lock, and starts the engine's `meeting_attachment` workflow on it (`meetings::attachment_workflow`), whose
+  `store_attachment` step streams the parts into storage and removes them, and `read_attachment_text` reads its text.
+  The run is the file's, never the meeting's, so a file is attached while the meeting's own run goes on.
+- **Its text.** Plain text and Markdown, CSV, JSON, and source files are read as they are; a PDF through `pdftotext`
+  (poppler, in the workspace image); Word, PowerPoint, Excel, and OpenDocument files through a small reader of their
+  zipped XML in the workspace container. At most the first 200,000 characters are kept (`TEXT_MAX_CHARACTERS`), and a
+  file past 200 MB is not read. A row says where its text stands: `pending`, `read`, `none` (a kind with no reader,
+  such as an image or an archive), or `unreadable`.
+- **A person's frame.** Pin a frame on the meeting's page draws the picture the player shows on a canvas, from the
+  same-origin `<video>`, so the canvas is never tainted, and posts it as WebP (`POST /meetings/{id}/frames`, a form
+  of `captureId`, `captureMs`, `caption`, and the words it goes over, or none for the word spoken then, and the
+  picture last, at most 25 MB). A form, since a caption of a thousand characters in a script of three bytes a
+  character is longer than a request line may be. Drawing it in the browser rather than cutting it on the server keeps the frame exactly the
+  picture the person saw as they pressed F. The API decodes it, refusing what is not an image
+  (`meeting_frame_not_an_image`), and encodes it again itself (`images::compress_frame`: WebP at quality 88, within
+  1920 by 1080), so nothing the browser sent is ever served. A person's frame is kept even when it looks like another:
+  they chose it.
+- **Segmenting's frames.** A meeting with a video capture is offered its stills (Segmentation, above): before the turn,
+  `ffmpeg` decodes the video's key frames, at most one every five seconds, each shrunk to a 64 by 36 grey picture, and
+  `meetings::frames::changes` keeps the moments the screen changed most, at least fifteen seconds apart, up to 24, the
+  opening frame among them. The turn runs with Claude Code's Task tool and `elysium_meeting_frames`
+  (`crate::tools::frames`), whose one tool, `meeting_frame`, shows a still offered by its name, or any moment by its time
+  on the meeting's clock, as an image, from that capture alone. Its instructions ask it to judge each still against
+  what was said while it was on screen, and to hand the looking to subagents. Its answer gains
+  `frames: [{ frame, firstLine, lastLine, caption }]`, at most 12, kept only for a still it was offered or a moment
+  inside the video, over lines it was shown, with a caption. They are part of the answer stored on the meeting, so an
+  attempt that finds it stored pins the same ones.
+- **Near duplicates.** Each frame segmenting pins is taken again from the recording and encoded as a person's is, with a
+  fingerprint: its picture shrunk to 32 by 18 grey cells (`images::fingerprint`). Two frames are one picture when at
+  most three cells differ by more than 20 of 255 (`images::is_near_duplicate`), so a cursor or a ticking clock is the
+  same frame and a new line of slide text is not. A frame like one the meeting holds, a person's or an earlier
+  segmenting's, or like one pinned before it, is dropped. The frames are pinned as Elysia in the transaction that takes
+  the answer, each in a savepoint, so one whose words a person edited meanwhile is left out and the rest are pinned.
+- **Taking one off** (`DELETE /meetings/{id}/attachments/{attachmentId}`) removes it and every pin of it as one
+  `detached` change, whose undo puts both back; its file stays where it is. Undoing an `attached` change takes it off
+  again. A pin alone is removed as a mark (`DELETE .../marks/{markId}`), and one is made over an excerpt's words with
+  `POST /meetings/{id}/pins` `{ attachmentId, startWordId, endWordId }`.
+- **Who reaches them.** Whoever reads the meeting lists and opens its files and frames; whoever may change it attaches
+  a file, pins a frame, pins and unpins, and takes one off (`crate::meetings::access`, Who reads a meeting, above); and
+  every change to a meeting merged away is refused (`meeting_merged`). `GET /meetings/{id}/attachments` lists them, each with its address,
+  `/api/v1/meetings/{id}/attachments/{attachmentId}/{name}`, which streams it from storage, privately cached for an
+  hour, as a page's attachment is.
+- **In the index.** The meeting's own document carries every file's text and every frame's caption after its threads
+  (`Attached file: <name>` or `Frame shown: <caption>`, then the text), up to 300,000 characters, and an excerpt's
+  document the ones pinned over it, up to 50,000. A file's text read, a pin made or removed, and a file taken off or
+  put back refresh what they reach (`attachments::refresh_pinned`).
+- **To Project Managers and workers.** An excerpt carries its pins: a Project Manager's prompt lists each new record's
+  (`Pinned in it:`), `manager_record` answers them as `pinned`, and `worker_batch` answers the excerpts of what the
+  batch was made from, each with its `pinned`. Each names its `attachmentId`, kind, name, caption, and whether its text
+  was read, and `meeting_attachment_get` on `elysium_knowledge` opens one: a frame or an image as the picture the agent
+  sees, any other file as its text, the first 40,000 characters. Each call checks in the database that the turn reads
+  for someone who may read its meeting, as only they find the excerpts it is pinned in; anything else answers as if
+  there were no such attachment.
 
 ## The Transcription doc
 
@@ -1102,7 +1320,8 @@ and the Company page), is the one source of truth for how the company's speech i
   (`correct::TEACHING_CONFIDENCE`), add their entry or strengthen it with their source, speaker, and meeting, in the
   transaction that made them, as one version of the page by whoever taught it: the person, or the system for a
   correction. An edit that rewrites more than that, or only changes case and punctuation, teaches nothing, and undoing
-  an edit leaves what it taught.
+  an edit leaves what it taught. A private meeting teaches its fixes alone: its link carries no title, and neither who
+  spoke nor the reason a correction gave is written, since the page is every member's (Who reads a meeting, above).
 - **People's edits stay.** Elysium reads and writes only the table and the list, found by their header and heading,
   and edits their lines in place, so a person's own rows, notes, and order stay as they wrote them. A row it cannot
   read is passed over, and a table or heading a person removed comes back at the page's end the next time it learns.
@@ -1120,8 +1339,8 @@ and the Company page), is the one source of truth for how the company's speech i
 
 A capture's recording and an excerpt's clip stream from their storage location through the API, from Elysium's own
 origin, so no provider address or key reaches a browser (`routes::v1::media`). `GET
-/api/v1/meetings/{id}/captures/{captureId}/media` plays a capture's recording for its meeting's owner alone, `404` for
-anyone else, a capture of another meeting, or one with no recording kept; `GET /api/v1/timeline/{id}/media` plays
+/api/v1/meetings/{id}/captures/{captureId}/media` plays a capture's recording for whoever may read its meeting, `404`
+for anyone else, a capture of another meeting, or one with no recording kept; `GET /api/v1/timeline/{id}/media` plays
 an excerpt's clip for its record's owner.
 
 - **A range at a time.** Both answer a `Range` of one span of bytes with `206 Partial Content` and its `Content-Range`,
@@ -1138,20 +1357,23 @@ an excerpt's clip for its record's owner.
 ## In the web app
 
 - **The Meetings page** (`/knowledge/meetings`, `KnowledgeMeetingsPage` in `src/pages/Knowledge/Meetings/`), the
-  knowledge base's fixed Meetings page, is every one of the person's meetings, newest first, each one's home, those on
-  no project included (`docs/knowledge.md`, The tree, Linked entries). `GET /meetings` answers them all, with no limit,
-  each naming the projects its excerpts are on (`projectIds`, from its standing excerpts' records, found through their
-  marks) and how many excerpts it has (`excerptCount`). A table (`MeetingTable`)
-  whose search, filters, Columns, and export sit in the page's titlebar: each meeting's title, opening its page; the
-  source it came from, linking to its connector while there is one; its state (as its run says: failed with why,
-  skipped, or how far it got), that its run waits for the person's approval, or that a finished one was published from
-  its transcript alone; the projects its excerpts are on; when it started, how long it ran, and how many excerpts it
-  has. A failed meeting's row has Retry, which retries its run's failed step at once. Every row has Delete among its
-  hover actions, and selecting rows offers Delete on the floating bar (`~/.claude/docs/ux.md`, Table multi-select,
-  which the kit turns off on a phone); either deletes at once, with Undo in its toast (Deleting, above). The Deleted
-  filter lists the person's deleted meetings in place of the rest (`GET /meetings?deleted=true`), each row and the bar
-  offering Restore, and each row naming the projects its excerpts were on, which restoring puts them back on. The
-  filters live in the address (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed to it (`?project=`): source
+  knowledge base's fixed Meetings page, is every meeting the person may read, newest first, each one's home, those on
+  no project included (`docs/knowledge.md`, The tree, Linked entries). `GET /meetings` answers them a page at a time,
+  and the web app reads every page into one list, each naming the projects its excerpts are on (`projectIds`, from its
+  standing excerpts' records, found through their marks) and how many excerpts it has (`excerptCount`). A table
+  (`MeetingTable`) whose search, filters, Columns, and export sit in the page's titlebar: each meeting's title, opening
+  its page; whose it is; who reads it (everyone, private, or private until checked); the source it came from, linking
+  to its connector while there is one; its state (as its run says: failed with why, skipped, or how far it got), that
+  its run waits for the person's approval, or that a finished one was published from its transcript alone; the projects
+  its excerpts are on; when it started, how long it ran, and how many excerpts it has. A failed meeting of the person's
+  own has Retry, which retries its run's failed step at once. A meeting its owner or an admin may delete has Delete
+  among its row's hover actions, and selecting rows offers Delete on the floating bar (`~/.claude/docs/ux.md`, Table
+  multi-select, which the kit turns off on a phone), which leaves out and names any of the selection they may not
+  delete; either deletes at once, with Undo in its toast (Deleting, above). The Deleted filter lists the deleted meetings
+  they may restore in place of the rest (`GET /meetings?deleted=true`), each row and the bar offering Restore, each row
+  reading its state as Deleted and naming the projects its excerpts were on, which restoring puts them back on. The
+  filters live in the address (`meetingFilters.ts`), so a project's Meetings group in the tree opens the page narrowed
+  to it (`?project=`): source
   (every kind that provides meetings, such as Fireflies, Teams, and Slack's huddles, then any other source a meeting
   came from, named as the source column names it, `meetingSourceNameKey`), state, project or none, and waiting for
   review, and deleted meetings instead of the rest. The header counts the meetings waiting for review, and holds Upload
@@ -1171,31 +1393,37 @@ an excerpt's clip for its record's owner.
   loads its meeting again, so the groups follow.
 - **A meeting's page** is a page of the knowledge base (`/knowledge/meetings/:meetingId`, `MeetingPage` in
   `src/pages/Knowledge/Meetings/`), designed in `docs/meeting-review.md`, The meeting's page; its old address,
-  `/settings/meetings/:meetingId`, lands there with its query. Its header holds its title, source, and state, when it
-  started, how long it ran, and a link to it at its source, in a new tab. Its review follows, where its excerpts and
-  black-outs are drawn and changed; an excerpt opened in the lane reads its record (`GET /timeline/{id}`), so the lane
-  shows and changes its projects, and says so when it cannot. `?mark=` opens the page at a mark, which is how a project's timeline opens an excerpt,
-  and `?thread=` at a thread.
+  `/settings/meetings/:meetingId`, lands there with its query. A guest reads a meeting shared with them there, alone,
+  without the knowledge base around it. Its header holds its title, source, and state, when it started, how long it
+  ran, and a link to it at its source, in a new tab. Its review follows, where its excerpts and black-outs are drawn and
+  changed; an excerpt opened in the lane reads its record (`GET /timeline/{id}`), so the lane shows and changes its
+  projects, and says so when it cannot, as for anyone but the meeting's owner, whose record it is. `?mark=` opens the
+  page at a mark, which is how a project's timeline opens an excerpt, and `?thread=` at a thread.
   - **Layout** (`MeetingWorkspace`). The transcript, three quarters wide, and a lane beside it: the options box, which
     floats at its top as the page scrolls, the mark selected, then the meeting's changes. Below `lg` the lane is a
     drawer, opened by Options above the transcript. The options switch the transcript between Final and each capture's
     own (`CaptureTranscript`, `GET /meetings/{id}/captures/{captureId}/transcript`, as it came, with no marks), turn
     each kind of mark on or off, say what is selected (its span, length, and words) or the moment picked, list the
-    captures, and hold the meeting's actions: where its correction stands, Approve while the copy waits for one,
-    holding it for approval by hand until it is corrected unless its source already waits, Done reviewing once it was
-    segmented (Done reviewing, above), its run, Add a recording or transcript (Uploading, below), and Delete, last in
-    its menu, which deletes at once and leaves for the Meetings page, its toast's Undo restoring the meeting and coming
-    back to its page.
+    captures, say who reads it (`MeetingVisibility`: whose it is, everyone, private, or private until checked, why its
+    correction kept it private, and whom it is shared with, which its owner and admins change from there, making it
+    private, opening it, and sharing it, each at once with Undo in its toast), and hold the meeting's actions: where its
+    correction stands, and, for its owner, Approve while the copy waits for one, holding it for approval by hand until
+    it is corrected unless its source already waits, Done reviewing once it was segmented (Done reviewing, above), and
+    Add a recording or transcript (Uploading, below); and its run, for a company member. A reader who may not edit it (a
+    guest it is shared with) reads it as a meeting merged away reads (below), and Undo shows on a change only to whoever
+    may undo it. Delete, last in its actions menu, for its owner and admins, deletes at once and leaves for the Meetings
+    page, its toast's Undo restoring the meeting and coming back to its page.
   - **Captures** (`MeetingCaptures`, under Recordings in the options). Each capture names its source, where it starts
     on the meeting's clock (with the meeting, so long into it, or so long before it), and how that was found: as its
-    source listed it, lined up by its audio or its words, or set by hand. Move (`CaptureOffsetEditor`) opens its start
-    in place as seconds into the meeting, in tenths, below zero for one that started early, applied with Enter or Move
-    and left with Esc or Cancel; Enter is the browser's own submit from the field, after the field has taken the number
-    typed. The captures a merge brought in (`mergedFrom`) are boxed under a link to the meeting they came from, with
-    Split out, which moves all of them back (`groupCaptures`); it waits, saying why, while one of them was moved by hand
-    since, as the API would refuse it. Moving and splitting act at once with Undo in their toast and join what Ctrl+Z
-    undoes; each lines the transcript up again, so the page reads it again on the meeting's announcement rather than
-    applying a change.
+    source listed it, lined up by its audio or its words, or set by hand. Move (`CaptureOffsetEditor`), for its owner,
+    opens its start in place as seconds into the meeting, in tenths, below zero for one that started early, applied
+    with Enter or Move and left with Esc or Cancel; Enter is the browser's own submit from the field, after the field
+    has taken the number typed. The captures a merge brought in (`mergedFrom`) are boxed under a link to the meeting
+    they came from, or under "From another meeting", unlinked, for a reader who may not read it, with Split out, for
+    its owner and admins, which moves all of them back (`groupCaptures`); it waits, saying why, while one of them was
+    moved by hand since, as the API would refuse it. Moving and splitting act at once with Undo in their toast and
+    join what Ctrl+Z undoes; each lines the transcript up again, so the page reads it again on the meeting's
+    announcement rather than applying a change.
   - **A meeting merged away** opens as its own page, saying its recordings are in the meeting it went into, named and
     linked (`MergedIntoNotice`), which is where they are split out. The page reads as the meeting stood, read only: its
     words select and copy, but the bar offers no Edit, Comment, Assign to a project, or Black out, their keys do
@@ -1204,9 +1432,10 @@ an excerpt's clip for its record's owner.
     meeting it was merged into (`isReadOnly` in `MeetingWorkspace`). It holds no capture, so it lists none. The routes
     refuse the same changes (`meeting_merged`, Meetings and captures above), so a tab that had not heard of the merge is
     refused too.
-  - **A meeting deleted** opens as its own page too, read only in the same way, saying when it was deleted, with
-    Restore (`DeletedMeetingNotice`); its actions keep its run alone, saying it changes once restored, and the routes
-    refuse its changes (`meeting_deleted`). Its recordings still play.
+  - **A meeting deleted** opens as its own page too, to whoever reads it, read only in the same way, saying when it was
+    deleted, with Restore for its owner and admins (`DeletedMeetingNotice`); its actions keep its run alone, saying it
+    changes once restored, and by whom for anyone else; who reads it shows, changing nothing; and the routes refuse its
+    changes (`meeting_deleted`). Its recordings still play.
   - **The transcript** (`FinalTranscript`, `GET /meetings/{id}/words`, read through SWR alone) is cut into paragraphs
     at each change of speaker and inside a long turn (`paragraphsOf`), each memoized, so a selection redraws only the
     paragraphs it reaches. Every word and every space between two words is a piece, and each kind of mark draws in its
@@ -1217,6 +1446,16 @@ an excerpt's clip for its record's owner.
     excerpt mark answers its record and projects, `excerpt` in `GET /words`). A space is
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
+  - **The tasks** (`MeetingTasks`, `GET /meetings/{id}/tasks`, read through SWR alone), first along the top of the
+    page while the meeting has any: one button for each project with its tasks, the meeting's person's own, each
+    coworker (someone not on Elysium as Waiting on them), and Other, each with how many (`groupTasks`,
+    `meetingTasks.ts`). Whoever may read the meeting sees its bar: the person's own and a coworker's name whose they are,
+    and the reader's own read Yours. Each opens its tasks in a popover: what is to be done, Show in the transcript,
+    which selects its words, and what came of it (`taskStatus`): the items made of it, each opening its page with its
+    state, the proposal waiting for approval, opening the changeset, the Project Manager's reason for making none, that
+    its item was deleted, or that it waits for its Project Manager. `meeting.changed`, a changeset, and an item changed
+    or deleted read them again. A link to a task's mark (`?mark=`), which its item's page makes, selects its words,
+    since tasks draw along the top rather than over them.
   - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
     recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
     a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on
@@ -1239,8 +1478,18 @@ an excerpt's clip for its record's owner.
     What is picked is held by word id, so it stays on its words when the transcript is read again around it. The bar
     offers Edit (E), Comment (C), Assign to a project (P, a menu of the projects, which makes a new excerpt of the
     words on the one chosen), Black out (B), and Play from here (Space) while the meeting has a recording, and clears
-    with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Pin a frame joins
-    the bar with frames (`docs/meeting-review.md`, Attachments and frames).
+    with its X or Esc; the browser's own text selection is off, and Ctrl+C copies the words selected. Pin a frame (F)
+    joins them while the player shows a picture and an attachment location is chosen.
+  - **Files and frames** (`MeetingFiles`, `ExcerptPins`, `PinFrameDialog`, `useMeetingAttachments`, read through SWR
+    and again on `meeting.changed`). The lane lists the meeting's frames in the order they were shown, each its picture,
+    moment, author, and caption, choosing one seeking the player to it and selecting the words it is pinned over, then
+    its files, each downloading as it is and saying whether its text is being read, searchable, or kept as it is. Attach
+    files, or a file dropped on the section, sends each in parts with its progress, refused first, as the API would
+    refuse it, when it is past the limit or nothing is chosen to keep it. Pin a frame, from the player, the bar, or F
+    wherever Space plays, takes the picture the player shows at once and pauses it, then asks what it shows; it is
+    pinned over the words selected, or the word spoken then. An excerpt's detail lists what it carries, with Unpin, and
+    Pin a file or frame for the meeting's others, over the excerpt's words. Each change has Undo in its toast, and the
+    history names each (`describeHistory`).
   - **Editing** (`WordRangeEditor`) opens the range in place, its text selected, with a confidence mark's
     `data.alternatives` over exactly that range as one-click choices. Ctrl+Enter or Apply sends it
     (`POST /meetings/{id}/edits`), and the page applies what the route answers (`applyTranscriptChange`) rather than
@@ -1255,7 +1504,7 @@ an excerpt's clip for its record's owner.
     again (`describeHistory`).
   - **Comments** (`MeetingThreads`, `CommentThread`, `GET /meetings/{id}/threads`, read through SWR alone). Comment
     (C) on the words selected opens a new thread's form in the lane, in the drawer below `lg`; typing `@` offers the
-    people who can be mentioned and Elysia (`MentionTextArea`), and Ctrl+Enter posts. What is written is kept for the
+    people who may read the meeting and Elysia (`MentionTextArea`), and Ctrl+Enter posts. What is written is kept for the
     tab until it is posted. The lane lists the open threads under the options in the order their ranges start, each
     its words and first comment, then the resolved ones folded away; choosing one selects its range and brings it into
     view. A thread selected opens in the lane: its comments, a reply, Resolve or Reopen, and Remove, each change with
@@ -1272,8 +1521,12 @@ an excerpt's clip for its record's owner.
   progress beside the fields (`sendMeetingFiles`), and once it is whole opens the meeting. A transcript the API cannot
   read is let go and marked on its field. Leaving while it runs asks first, and stops it where it is, for the same files
   to resume. The source of an uploaded meeting reads Uploaded (`MeetingSourceLogo`, `meetingSourceNameKey`).
+- **An item made of a task** links to the task's words on its meeting's page, from the item's page
+  (`MeetingTaskLink`, reading `GET /meetings/task-items/{itemId}`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
+- **An item saying a meeting was kept private** shows the meeting, why its correction kept it private, and a link to its
+  page, to whoever may read it (`MeetingKeptPrivateLink`, reading `GET /meetings?keptPrivateItemId=`).
 - **An item asking whether two meetings are one** shows both, each linking to its page, with Merge and Not the same
   (`SameMeetingPanel`, The same meeting twice, above).
 - **The source's setting** is its connector's content form's switch, "Wait for my approval before acting on
@@ -1289,8 +1542,8 @@ an excerpt's clip for its record's owner.
   (`RecordHistory`, `GET /timeline/{id}/history`) lists every change, Elysia's and theirs, newest first, each with
   Undo; one changed again since says so and stays.
 - Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created`,
-  `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a
-  meeting's run, which reloads
+  `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id (a meeting that answers `404`, one
+  made private, leaves the store), and `workflowRun.changed` for a meeting's run, which reloads
   the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). `meeting.changed` also
   reads the open page's transcript and history again, so another tab's edit shows, except on the page that made that
   change, which applied it already (`entryId`, `docs/frontend.md`, Meetings). An event can name a meeting merged into
@@ -1301,7 +1554,8 @@ an excerpt's clip for its record's owner.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, or it was deleted or restored: its id, state, and owner, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent did, never its title, transcript, or comments |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, who reads it changed, a file or frame was attached, stored, read, pinned, unpinned, or taken off, a Project Manager said why it made no item of one of its tasks, or it was deleted or restored: its id and state, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, owner, transcript, comments, or who reads it |
+| `meetingAttachments.changed` | An admin chose the largest file a meeting takes: nothing more, and every client reads the policy again |
 | `page.changed`              | The Transcription doc learned from a correction or a person's fix, or a name was suggested to a company doc section: the page's id alone |
 | `timelineRecord.created`    | An excerpt's record was stored: segmenting took it, or a person or Elysia took a range into a project |
 | `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, an excerpt removed or put back, or a conversation segmented again; or an excerpt was deleted or restored with its meeting |
@@ -1309,8 +1563,11 @@ an excerpt's clip for its record's owner.
 
 ## Roadmap
 
-- Meetings as reviewed documents in the knowledge base: tasks heard in a meeting, through each project's Project
-  Manager, attachments and frames, and meetings public by default. The design is `docs/meeting-review.md`.
+- Meetings as reviewed documents in the knowledge base: people adding, changing, and removing tasks on the meeting's
+  page. The design is `docs/meeting-review.md`.
+- Attachments on the MCP server for external clients, beside `elysium_knowledge`'s `meeting_attachment_get`.
+- Comparing everyone's meetings for one recorded twice, now that meetings are the company's, rather than a person's own
+  alone (The same meeting twice, above).
 - Google Meet recordings with their transcripts, read through the person's signed-in browser (`docs/browser.md`):
   they land in Google Drive, reachable as the user, and sign in beside their source in `sources.rs` as Teams' do.
 - Teams meetings with a transcript and no recording, whose chat message names no drive item, and recordings of

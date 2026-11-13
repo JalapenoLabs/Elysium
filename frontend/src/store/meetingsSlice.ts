@@ -54,6 +54,8 @@ export const meetingsSlice = createSlice({
     meetingUpserted: meetingsAdapter.upsertOne,
     // The meetings one change to a selection answered with, filed in one update.
     meetingsUpserted: meetingsAdapter.upsertMany,
+    // A meeting the person may no longer read, such as one made private, leaves every list.
+    meetingRemoved: meetingsAdapter.removeOne,
   },
 })
 
@@ -62,6 +64,7 @@ export const {
   deletedMeetingsLoaded,
   meetingUpserted,
   meetingsUpserted,
+  meetingRemoved,
 } = meetingsSlice.actions
 
 export const {

@@ -1,10 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `PUT /api/v1/meetings/{id}/captures/{captureId}/offset`: the signed-in person sets where one
-//! capture of their meeting sits on its clock, by hand, `{ "offsetMs": 12500 }`. It is recorded
-//! in the meeting's history, the transcript is lined up again at once, and aligning never moves it
-//! after. Answers the `offset_changed` entry, which the page's Undo undoes, and the capture as it
-//! now sits. `404` for a capture that is not theirs, `400` for an offset more than twelve hours
+//! `PUT /api/v1/meetings/{id}/captures/{captureId}/offset`: a meeting's owner sets where one
+//! capture of it sits on its clock, by hand, `{ "offsetMs": 12500 }`. It is recorded in the
+//! meeting's history, the transcript is lined up again at once, and aligning never moves it after.
+//! Answers the `offset_changed` entry, which the page's Undo undoes, and the capture as it now
+//! sits. `404` for a meeting they may not read or a capture that is not its, `403` `owner_only` for
+//! anyone but its owner, `400` for an offset more than twelve hours
 //! either way. See `crate::meetings::clock`.
 
 use anyhow::Context;
@@ -16,12 +17,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{MeetingEventResponse, announce_lined_up, deleted_refusal};
+use super::{MeetingEventResponse, announce_lined_up, deleted_refusal, open};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::clock::{self, NudgeError};
 use crate::models::agent::Author;
-use crate::models::{meeting, meeting_capture};
+use crate::models::meeting_capture;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +45,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let owned = meeting::find_owned(&mut connection, meeting_id, current.id()).await?;
+    let (owned, _access) = open(&mut connection, meeting_id, &current, Need::Own).await?;
     let author = Author {
         user_id: current.id(),
         agent: None,

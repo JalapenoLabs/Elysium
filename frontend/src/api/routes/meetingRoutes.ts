@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ActionItemState } from './actionItemRoutes'
 import type { ConnectorKind } from './connectorRoutes'
 import type { LearningAgent } from './learningRoutes'
 
@@ -27,8 +28,14 @@ export type MeetingCorrection = {
   createdAt: string
 }
 
-// A meeting read from a meeting source. Its transcript is loaded on its own page
-// (`getMeetingWords`); its excerpts reach the timeline. Only its owner receives it.
+// Mirrors `Visibility` in api/src/models/meeting.rs: who reads a meeting besides its owner, the
+// people it is shared with, and admins. `unchecked` is a new meeting's, private to its owner until
+// its correction decides (docs/meeting-review.md, Who sees a meeting).
+export const MEETING_VISIBILITIES = [ 'unchecked', 'private', 'public' ] as const
+export type MeetingVisibility = typeof MEETING_VISIBILITIES[number]
+
+// A meeting read from a meeting source or uploaded. Its transcript is loaded on its own page
+// (`getMeetingWords`); its excerpts reach the timeline. Everyone who may read it receives it.
 export type Meeting = {
   id: string
   // The connector that read it, or null once that connector is removed.
@@ -63,8 +70,21 @@ export type Meeting = {
   // The meeting its person merged its captures into, or null. A merged meeting lives on in that
   // one, so it is in no list, though an event may still load it by id.
   mergedInto: string | null
-  // When its person deleted it, or null. A deleted meeting is listed only among their deleted ones
-  // (`listDeletedMeetings`), and its page reads as it stood, with Restore.
+  // Whose meeting it is: whose source read it, or who uploaded it.
+  ownerId: string
+  visibility: MeetingVisibility
+  // The people it is shared with, by user id, in the order they were shared with.
+  sharedWith: string[]
+  // The newest change to who reads it, with who made it and, when its correction decided, why;
+  // null for a meeting nobody decided for.
+  visibilityChange: MeetingHistoryEntry | null
+  // Whether the reader may change its words and threads.
+  canEdit: boolean
+  // Whether the reader may change who sees it, merge or split its captures, and delete or restore
+  // it: its owner, or an admin.
+  canManage: boolean
+  // When it was deleted, or null. A deleted meeting is listed only among the deleted ones its
+  // reader may restore (`listDeletedMeetings`), and its page reads as it stood.
   deletedAt: string | null
   createdAt: string
   updatedAt: string
@@ -150,7 +170,8 @@ export type MeetingCapture = {
   // Splitting it out makes that meeting its own again, with every capture the merge brought.
   mergedFrom: {
     meetingId: string
-    title: string
+    // Null for a reader who may not read that meeting, whom its page answers 404.
+    title: string | null
   } | null
 }
 
@@ -175,7 +196,7 @@ export type MeetingHistoryEntry = {
   id: string
   // `built`, `settled`, `edited`, `marked`, `unmarked`, `hold_changed`, `correction_approved`,
   // `offset_changed`, `merged`, `split`, `capture_added`, `thread_resolved`, `thread_reopened`,
-  // `segmented`, `review_done`, `deleted`, or `restored`.
+  // `visibility_changed`, `shared`, `unshared`, `segmented`, `review_done`, `deleted`, or `restored`.
   kind: string
   createdBy: string
   agent: LearningAgent | null
@@ -214,21 +235,30 @@ export type MeetingComment = {
   createdAt: string
 }
 
-type ListMeetingsResponse = {
-  meetings: Meeting[]
+// Where the next page of meetings starts: after the last meeting of this one.
+export type MeetingsCursor = {
+  afterStartedAt: string
+  afterId: string
 }
 
-export function listMeetings() {
+type ListMeetingsResponse = {
+  meetings: Meeting[]
+  // Null on the last page.
+  nextCursor: MeetingsCursor | null
+}
+
+// One page of the meetings the signed-in person may read, newest first, starting after `after`.
+export function listMeetings(after: MeetingsCursor | null) {
   return apiClient
-    .get('v1/meetings')
+    .get('v1/meetings', { searchParams: after ?? {}})
     .json<ListMeetingsResponse>()
 }
 
-// The person's deleted meetings, which no other listing holds, for the Meetings page's Deleted
-// filter to restore from.
-export function listDeletedMeetings() {
+// One page of the deleted meetings the signed-in person may restore, their own or, for an admin,
+// everyone's, which no other listing holds, for the Meetings page's Deleted filter.
+export function listDeletedMeetings(after: MeetingsCursor | null) {
   return apiClient
-    .get('v1/meetings', { searchParams: { deleted: true }})
+    .get('v1/meetings', { searchParams: { ...after, deleted: true }})
     .json<ListMeetingsResponse>()
 }
 
@@ -266,12 +296,45 @@ export function getMeeting(meetingId: string) {
     .json<MeetingResponse>()
 }
 
-// The meeting whose corrected transcript an inbox item asks its person to review, if it is the
-// signed-in person's.
+// The meeting whose corrected transcript an inbox item asks its person to review, if the
+// signed-in person may read it.
 export function listMeetingsReviewedBy(itemId: string) {
   return apiClient
     .get('v1/meetings', { searchParams: { reviewItemId: itemId }})
     .json<ListMeetingsResponse>()
+}
+
+// The meeting an inbox item told its owner its correction kept private, if the signed-in person
+// may read it.
+export function listMeetingsKeptPrivateBy(itemId: string) {
+  return apiClient
+    .get('v1/meetings', { searchParams: { keptPrivateItemId: itemId }})
+    .json<ListMeetingsResponse>()
+}
+
+// What a change to who sees a meeting answers: the meeting as it now reads, and its history entry,
+// whose Undo puts it back.
+export type MeetingVisibilityResponse = {
+  meeting: Meeting
+  entry: MeetingHistoryEntry
+}
+
+// Makes a meeting private or opens it to every member; its owner or an admin alone. `409
+// meeting_visibility_unchanged` when it is so already.
+export function setMeetingVisibility(meetingId: string, visibility: 'private' | 'public') {
+  return apiClient
+    .put(`v1/meetings/${meetingId}/visibility`, { json: { visibility }})
+    .json<MeetingVisibilityResponse>()
+}
+
+// Shares a meeting with a person, or stops sharing it with them; its owner or an admin alone.
+// `400 meeting_share_person` for anyone but an active person other than its owner.
+export function setMeetingShared(meetingId: string, personId: string, shared: boolean) {
+  const path = `v1/meetings/${meetingId}/shares/${personId}`
+  const request = shared
+    ? apiClient.put(path)
+    : apiClient.delete(path)
+  return request.json<MeetingVisibilityResponse>()
 }
 
 // Resumes a failed meeting from the step it failed at.
@@ -428,7 +491,8 @@ export type StartMeetingThreadResponse = MeetingChangeResponse & {
 }
 
 // `409 meeting_words_changed` when a word of the range was replaced meanwhile; `400
-// meeting_comment_mention` for a mention of anyone but an active person or Elysia.
+// meeting_comment_mention` for a mention of anyone but an active person who may read the meeting,
+// or Elysia.
 export function startMeetingThread(meetingId: string, body: StartMeetingThreadRequest) {
   return apiClient
     .post(meetingThreadsKey(meetingId), { json: body })
@@ -469,11 +533,82 @@ type ThreadOfItemResponse = {
   } | null
 }
 
-// The thread an inbox item was raised by, when one of the signed-in person's meetings raised it.
+// The thread an inbox item was raised by, when a meeting the signed-in person may read raised it.
 export function getThreadOfItem(itemId: string) {
   return apiClient
     .get(`v1/meetings/thread-items/${itemId}`)
     .json<ThreadOfItemResponse>()
+}
+
+// Mirrors `ShareResponse` in api/src/routes/v1/meetings/tasks.rs: whose a task heard in a meeting
+// is, a project's before anyone's (docs/meetings.md, Tasks). `own` is the meeting's person's, by
+// their id and name, since whoever may read the meeting reads its tasks.
+export type MeetingTaskShare =
+  | { kind: 'project', projectId: string }
+  | { kind: 'own', userId: string, name: string }
+  | { kind: 'coworker', userId: string, name: string }
+  | { kind: 'waiting-on', name: string }
+  | { kind: 'other' }
+
+// An action item a task was made into.
+export type MeetingTaskItem = {
+  id: string
+  title: string
+  state: ActionItemState
+}
+
+// Mirrors `TaskResponse`: a task heard in a meeting, its words by their first and last ids, the
+// items made of it that stand and how many were deleted, the changesets waiting for a person that
+// would make one, and why its project's Project Manager made none.
+export type MeetingTask = {
+  id: string
+  title: string
+  startWordId: string
+  endWordId: string
+  startMs: number
+  share: MeetingTaskShare
+  items: MeetingTaskItem[]
+  deletedItems: number
+  proposals: string[]
+  declined: { reason: string, at: string } | null
+}
+
+type MeetingTasksResponse = {
+  tasks: MeetingTask[]
+}
+
+export function meetingTasksKey(meetingId: string) {
+  return `v1/meetings/${meetingId}/tasks`
+}
+
+// A meeting's tasks' key, as `meetingTasksKey` makes it, and nothing deeper under a meeting.
+const MEETING_TASKS_KEY = /^v1\/meetings\/[^/]+\/tasks$/
+
+// Whether `key` is a meeting's tasks', which a changed item or changeset may move.
+export function isMeetingTasksKey(key: unknown) {
+  return typeof key === 'string' && MEETING_TASKS_KEY.test(key)
+}
+
+export function getMeetingTasks(meetingId: string) {
+  return apiClient
+    .get(meetingTasksKey(meetingId))
+    .json<MeetingTasksResponse>()
+}
+
+type TaskOfItemResponse = {
+  task: {
+    meetingId: string
+    meetingTitle: string
+    taskId: string
+  } | null
+}
+
+// The task heard in a meeting an action item was made of, when it is one of the signed-in
+// person's meetings.
+export function getTaskOfItem(itemId: string) {
+  return apiClient
+    .get(`v1/meetings/task-items/${itemId}`)
+    .json<TaskOfItemResponse>()
 }
 
 // Approves the corrected transcript, and lets a run held for it go on.
@@ -515,8 +650,8 @@ type MeetingDuplicateResponse = {
   duplicate: MeetingDuplicate | null
 }
 
-// The two meetings an inbox item asks the signed-in person about, or null when it asks about
-// none of theirs.
+// The two meetings an inbox item asks about, or null when the signed-in person may not answer it:
+// only the asking meeting's owner or an admin, reading both, does.
 export function getMeetingDuplicateAskedBy(itemId: string) {
   return apiClient
     .get('v1/meetings/duplicates', { searchParams: { itemId }})
@@ -580,4 +715,98 @@ export function splitCapture(meetingId: string, captureId: string) {
   return apiClient
     .post(`v1/meetings/${meetingId}/captures/${captureId}/split`)
     .json<SplitCaptureResponse>()
+}
+
+// Mirrors `AttachmentResponse` in api/src/routes/v1/meetings/attachments.rs: a file attached to a
+// meeting, or a still of its video pinned to it (docs/meetings.md, Attachments and frames).
+export type MeetingAttachment = {
+  id: string
+  kind: 'file' | 'frame'
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  // Where it is served once stored; null while an upload's parts are being stored.
+  address: string | null
+  // A proven image or a frame shows on the page; anything else downloads.
+  displaysInline: boolean
+  // A frame's caption, its capture, and its moment on that capture's clock and the meeting's.
+  caption: string | null
+  captureId: string | null
+  captureMs: number | null
+  meetingMs: number | null
+  // How far reading a file's text got.
+  textState: 'pending' | 'read' | 'none' | 'unreadable'
+  createdBy: string
+  agent: LearningAgent | null
+  createdAt: string
+}
+
+export function meetingAttachmentsKey(meetingId: string) {
+  return `meetings/${meetingId}/attachments`
+}
+
+type ListMeetingAttachmentsResponse = {
+  attachments: MeetingAttachment[]
+}
+
+export function listMeetingAttachments(meetingId: string) {
+  return apiClient
+    .get(`v1/meetings/${meetingId}/attachments`)
+    .json<ListMeetingAttachmentsResponse>()
+}
+
+// Where a frame is taken from, what it shows, and the words it is pinned over; with no words it
+// is pinned over the word being spoken at its moment.
+export type TakeMeetingFrameRequest = {
+  captureId: string
+  captureMs: number
+  caption: string
+  startWordId?: string
+  endWordId?: string
+}
+
+export type TakeMeetingFrameResponse = MeetingChangeResponse & {
+  attachment: MeetingAttachment
+}
+
+// Pins `still`, a picture the player's video drew, as a frame of the meeting, which the API keeps
+// as it re-encodes it. `409 meeting_attachment_no_location` until an admin chooses where page
+// attachments go. A form rather than a query string, since a long caption in a script of three
+// bytes a character would pass what a request line may hold; the browser sets its boundary.
+export function takeMeetingFrame(meetingId: string, request: TakeMeetingFrameRequest, still: Blob) {
+  const body = new FormData()
+  body.set('captureId', request.captureId)
+  body.set('captureMs', String(request.captureMs))
+  body.set('caption', request.caption)
+  if (request.startWordId && request.endWordId) {
+    body.set('startWordId', request.startWordId)
+    body.set('endWordId', request.endWordId)
+  }
+  // Last, so every field is read before the picture. The API reads what it is from its pixels,
+  // so its name says nothing.
+  body.set('still', still, 'still')
+  return apiClient
+    .post(`v1/meetings/${meetingId}/frames`, { body })
+    .json<TakeMeetingFrameResponse>()
+}
+
+export type PinMeetingAttachmentRequest = {
+  attachmentId: string
+  startWordId: string
+  endWordId: string
+}
+
+// Pins a file or frame over a range of the words, which is how one is pinned to an excerpt: over
+// its range. A pin is removed as any mark is (`removeMeetingMark`).
+export function pinMeetingAttachment(meetingId: string, body: PinMeetingAttachmentRequest) {
+  return apiClient
+    .post(`v1/meetings/${meetingId}/pins`, { json: body })
+    .json<MeetingChangeResponse>()
+}
+
+// Takes a file or frame off the meeting, with its pins; its Undo puts both back.
+export function detachMeetingAttachment(meetingId: string, attachmentId: string) {
+  return apiClient
+    .delete(`v1/meetings/${meetingId}/attachments/${attachmentId}`)
+    .json<MeetingChangeResponse>()
 }

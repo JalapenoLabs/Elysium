@@ -19,9 +19,9 @@ type Props = {
   meeting: Meeting
 }
 
-// What a deleted meeting says on its page: when it was deleted, and Restore, which brings it back
-// with its excerpts and carries on the run its deletion stopped (docs/meetings.md, Deleting). The
-// page reads as the meeting stood, changing nothing until then.
+// What a deleted meeting says on its page: when it was deleted, and, to its owner or an admin,
+// Restore, which brings it back with its excerpts and carries on the run its deletion stopped
+// (docs/meetings.md, Deleting). The page reads as the meeting stood, changing nothing until then.
 export function DeletedMeetingNotice(props: Props) {
   const { t } = useTranslation('meetings')
   const deletion = useMeetingDeletion()
@@ -47,7 +47,7 @@ export function DeletedMeetingNotice(props: Props) {
         {' '}
         <DateText value={props.meeting.deletedAt} />
       </Alert.Description>}
-      <Button
+      {props.meeting.canManage && <Button
         size='sm'
         variant='outline'
         className='mt-2 self-start'
@@ -57,7 +57,7 @@ export function DeletedMeetingNotice(props: Props) {
       >
         <LuUndo2 className='size-4' aria-hidden />
         <span>{t('delete.restore')}</span>
-      </Button>
+      </Button>}
     </Alert.Content>
   </Alert>
 }

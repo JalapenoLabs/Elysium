@@ -7,6 +7,8 @@ import { PlayerFrame } from './PlayerFrame'
 
 type Props = {
   player: MeetingPlayerState
+  // Pins the picture the video shows now, while it shows one and the meeting takes changes.
+  onPinFrame: (() => void) | null
 }
 
 // A meeting's player along the top of its page (docs/meeting-review.md, The player), while it has a
@@ -22,5 +24,6 @@ export function MeetingPlayer(props: Props) {
     player={props.player}
     capture={capture}
     src={src}
+    onPinFrame={props.onPinFrame}
   />
 }

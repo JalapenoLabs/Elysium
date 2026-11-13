@@ -19,6 +19,11 @@ type Context = {
   onSplitCapture: Mock<(captureId: string) => Promise<void>>
 }
 
+// What the captures are offered: null for a reader who may not move or split one.
+type Callbacks = {
+  [Key in keyof Context]: Context[Key] | null
+}
+
 function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCapture {
   return {
     id,
@@ -36,7 +41,7 @@ function capture(id: string, overrides: Partial<MeetingCapture> = {}): MeetingCa
 
 const fromFireflies = { meetingId: 'fireflies-meeting', title: 'Launch review' }
 
-function renderCaptures(context: Context, captures: MeetingCapture[]) {
+function renderCaptures(context: Callbacks, captures: MeetingCapture[]) {
   const router = createMemoryRouter([{
     path: '*',
     element: <TestAriaRouter>
@@ -65,27 +70,6 @@ describe('MeetingCaptures', () => {
   beforeEach<Context>((context) => {
     context.onMoveCapture = vi.fn(async () => true)
     context.onSplitCapture = vi.fn(async () => {})
-  })
-
-  // #258: a deleted meeting's page offered Move, which the API refuses until it is restored.
-  it('offers neither Move nor Split out while the meeting is read only', () => {
-    const router = createMemoryRouter([{
-      path: '*',
-      element: <TestAriaRouter>
-        <MeetingCaptures
-          captures={[ capture('teams'), capture('fireflies', { sourceKind: 'fireflies', mergedFrom: fromFireflies }) ]}
-          onMoveCapture={null}
-          onSplitCapture={null}
-        />
-      </TestAriaRouter>,
-    }])
-    render(<RouterProvider router={router} />)
-
-    expect(screen.getAllByText('Starts with the meeting, as its source listed it')).toHaveLength(2)
-    expect(screen.queryByRole('button', { name: 'Move on the meeting\'s clock' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Split out' })).toBeNull()
-    // The merge it came by still names the meeting it came from.
-    expect(screen.getByRole('link', { name: 'From “Launch review”' })).toBeTruthy()
   })
 
   it<Context>('says where each capture starts on the meeting\'s clock, and how that was found', (context) => {
@@ -198,5 +182,29 @@ describe('MeetingCaptures', () => {
     expect(split.hasAttribute('disabled')).toBe(true)
     fireEvent.click(split)
     expect(context.onSplitCapture).not.toHaveBeenCalled()
+  })
+
+  it('offers a reader who may not move or split a capture where each came from alone', () => {
+    // Moving is its owner's alone, and splitting its owner's and admins' (`crate::meetings::access`).
+    renderCaptures({ onMoveCapture: null, onSplitCapture: null }, [
+      capture('teams'),
+      capture('fireflies', { sourceKind: 'fireflies', mergedFrom: fromFireflies }),
+    ])
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'From “Launch review”' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Move on the meeting\'s clock' })).toBeNull()
+    expect(screen.queryByText('Split out')).toBeNull()
+  })
+
+  it<Context>('names a meeting merged in that its reader may not read as another, linking nowhere', (context) => {
+    renderCaptures(context, [
+      capture('teams'),
+      capture('fireflies', { sourceKind: 'fireflies', mergedFrom: { meetingId: 'private-meeting', title: null }}),
+    ])
+
+    const merged = screen.getByRole('region', { name: 'From another meeting' })
+    expect(within(merged).queryByRole('link')).toBeNull()
+    expect(within(merged).getAllByRole('listitem')).toHaveLength(1)
   })
 })

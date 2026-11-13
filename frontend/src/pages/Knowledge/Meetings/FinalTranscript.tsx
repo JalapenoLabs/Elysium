@@ -42,7 +42,8 @@ type Props = {
   onPick: (index: number, shiftKey: boolean) => void
   onDrag: (anchor: number, focus: number) => void
   onSelectMark: (markId: string) => void
-  // Null where the meeting takes no change, as one merged into another does.
+  // Null where the meeting takes no change, as one merged into another does, or for a reader who may
+  // not change it, such as a guest it is shared with.
   onEdit: (() => void) | null
   onComment: (() => void) | null
   assign: AssignControl | null
@@ -52,6 +53,7 @@ type Props = {
   onCancelEdit: () => void
   onSelectFromHere: (() => void) | null
   onPlayFromHere: (() => void) | null
+  onPinFrame: (() => void) | null
 }
 
 // The word a piece of the transcript stands for: a word itself, or the space after one.
@@ -232,6 +234,7 @@ export function FinalTranscript(props: Props) {
       onSelectFromHere={props.onSelectFromHere}
       isExtending={props.isExtending}
       onPlayFromHere={props.onPlayFromHere}
+      onPinFrame={props.onPinFrame}
     />}
   </div>
 }

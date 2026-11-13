@@ -37,6 +37,7 @@ use crate::database::schema::{meeting_marks, timeline_record_projects, timeline_
 use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::models::knowledge_document::{self, KnowledgeSource};
+use crate::models::meeting_attachment::{self, IndexedAttachment};
 use crate::models::meeting_comment;
 use crate::models::meeting_mark::MarkKind;
 use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
@@ -71,6 +72,9 @@ pub struct TimelineRecord {
     /// words it reads; `None` for every other record, and for a meeting's topic recorded before
     /// excerpts that no word of its meeting could anchor.
     pub excerpt_mark_id: Option<Uuid>,
+    /// When it was deleted with what it came from, its meeting, while it is (see the module's
+    /// docs); `None` for every record on a timeline.
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -311,6 +315,9 @@ pub async fn upsert_turn_summary(
 /// (`models::meeting_comment::indexed_over`), so a thread written before its meeting was
 /// segmented is indexed as its excerpts are made.
 ///
+/// A record deleted with what it came from is never indexed, whatever asks: it leaves the index
+/// as it is deleted, and restoring it indexes it again ([`restore_of_meeting`]).
+///
 /// Call it inside the transaction that stores or changes the record, or one of its threads.
 ///
 /// # Errors
@@ -320,19 +327,28 @@ pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) 
         id: record.id,
         kind: record.source_kind.clone(),
     };
+    if record.deleted_at.is_some() {
+        return knowledge_document::remove(connection, &source).await;
+    }
     if let Some(revision) = records::revision(record) {
         let newest = keep_newest_version(connection, &revision).await?;
         if newest != Some(record.id) {
             return knowledge_document::remove(connection, &source).await;
         }
     }
-    let threads = match segment_span(record) {
+    let (threads, pinned) = match segment_span(record) {
         Some((meeting_id, start_ms, end_ms)) => {
-            meeting_comment::indexed_over(connection, meeting_id, start_ms, end_ms).await?
+            let threads =
+                meeting_comment::indexed_over(connection, meeting_id, start_ms, end_ms).await?;
+            let pinned =
+                meeting_attachment::pinned_over(connection, meeting_id, start_ms, end_ms).await?;
+            let pinned: Vec<IndexedAttachment> =
+                pinned.into_iter().map(IndexedAttachment::from).collect();
+            (threads, pinned)
         }
-        None => Vec::new(),
+        None => (Vec::new(), Vec::new()),
     };
-    let Some(document) = records::document(record, &threads) else {
+    let Some(document) = records::document(record, &threads, &pinned) else {
         return knowledge_document::remove(connection, &source).await;
     };
     knowledge_document::upsert(connection, &document)

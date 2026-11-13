@@ -34,7 +34,7 @@ import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSl
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { draftRemoved, draftUpserted } from '../store/draftsSlice'
-import { meetingUpserted, selectAllMeetings } from '../store/meetingsSlice'
+import { meetingRemoved, meetingUpserted, selectAllMeetings } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
   passwordVaultStatusUpdated,
@@ -68,7 +68,16 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { PAGE_ATTACHMENT_POLICY_KEY } from '../api/routes/pageRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
-import { getMeeting, meetingHistoryKey, meetingThreadsKey, meetingWordsKey } from '../api/routes/meetingRoutes'
+import { MEETING_ATTACHMENT_POLICY_KEY } from '../api/routes/meetingAttachmentRoutes'
+import {
+  getMeeting,
+  isMeetingTasksKey,
+  meetingAttachmentsKey,
+  meetingHistoryKey,
+  meetingTasksKey,
+  meetingThreadsKey,
+  meetingWordsKey,
+} from '../api/routes/meetingRoutes'
 import { isOwnMeetingChange } from './meetingChangeEchoes'
 import { reloadChangedPage } from './pageChanges'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
@@ -135,10 +144,12 @@ const handlers: Handlers = {
     mustReloadOnHello = true
   },
   'resync': () => reloadEverything(),
-  // An item assigned or taken back moves where its plan stands, which its page reads again.
+  // An item assigned or taken back moves where its plan stands, which its page reads again, and an
+  // item made of a meeting's task shows its state on the meeting's open bar.
   'actionItem.upserted': (event) => {
     store.dispatch(actionItemUpserted(event.data))
     void mutate(getManagerAssignmentKey(event.data.id))
+    void mutate(isMeetingTasksKey)
   },
   // The event carries only the id, so the deleted list and the item's own page reload, each
   // only if a view shows it; the page then shows the item as deleted rather than missing.
@@ -146,6 +157,8 @@ const handlers: Handlers = {
     store.dispatch(actionItemDeleted(event.data.id))
     void mutate('v1/action-items?deleted=true')
     void mutate(`v1/action-items/${event.data.id}`)
+    // An item made of a meeting's task leaves the meeting's open bar.
+    void mutate(isMeetingTasksKey)
   },
   // What the provider says about the item's links is read live, so a changed link rereads
   // it, if a page shows it.
@@ -247,13 +260,16 @@ const handlers: Handlers = {
     }
     void mutate(LEARNING_CATEGORIES_KEY)
   },
-  // Whether a file can be attached, loaded again by the company's members only.
+  // Whether a file can be attached to a page, loaded again by the company's members only. Meetings
+  // keep their files where pages do, so whoever has a meeting open reads its policy again too.
   'pageAttachments.changed': () => {
+    void mutate(MEETING_ATTACHMENT_POLICY_KEY)
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     void mutate(PAGE_ATTACHMENT_POLICY_KEY)
   },
+  'meetingAttachments.changed': () => void mutate(MEETING_ATTACHMENT_POLICY_KEY),
   // The guidance and its versions are one answer, loaded again whole by the company's members.
   'agentGuidance.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {
@@ -411,14 +427,15 @@ const handlers: Handlers = {
         console.debug('A changed draft could not be loaded', { error, draftId: event.data.id })
       })
   },
-  // Like a record, a meeting is its owner's alone, and the event carries no content: the
-  // meeting is loaded by id, and its page's transcript, history, and threads, read only while it
-  // is open, are read again, unless the page made that change itself and applied it already.
+  // A meeting is read by whoever may read it, and the event carries no content: the meeting is
+  // loaded by id, so a meeting just opened joins every member's lists and one made private leaves
+  // the lists of those who may not read it, as its 404 says. Its page's transcript, history,
+  // threads, files, and tasks, read only while it is open, are read again, unless the page made
+  // that change itself and applied it already, which never moves its tasks. A file stored or read
+  // in the engine names no change, so its page always hears it.
   'meeting.changed': (event) => {
     const { id, entryId } = event.data
-    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
-      return
-    }
+    void mutate(meetingTasksKey(id))
     void (async () => {
       if (entryId && await isOwnMeetingChange(id, entryId)) {
         return
@@ -426,16 +443,24 @@ const handlers: Handlers = {
       void mutate(meetingWordsKey(id))
       void mutate(meetingHistoryKey(id))
       void mutate(meetingThreadsKey(id))
+      void mutate(meetingAttachmentsKey(id))
     })()
-    getMeeting(event.data.id)
+    getMeeting(id)
       .then((response) => store.dispatch(meetingUpserted(response.meeting)))
-      .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {
-        error,
-        meetingId: event.data.id,
-      }))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(meetingRemoved(id))
+          return
+        }
+        console.debug('A changed meeting could not be loaded', { error, meetingId: id })
+      })
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
-  'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
+  // A changeset may make or propose a meeting's task's item, which an open meeting's bar shows.
+  'changeset.upserted': (event) => {
+    store.dispatch(changesetUpserted(event.data))
+    void mutate(isMeetingTasksKey)
+  },
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
   'elysiaMessage.created': (event) => store.dispatch(elysiaMessageCreated(event.data)),
   'elysiaTurn.upserted': (event) => store.dispatch(elysiaTurnUpserted(event.data)),

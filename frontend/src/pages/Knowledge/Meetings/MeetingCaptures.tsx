@@ -14,36 +14,35 @@ import { MergedCaptureGroup } from './MergedCaptureGroup'
 import { usePendingAction } from '../../../hooks/usePendingAction'
 import { groupCaptures } from './meetingCaptures'
 
+// Resolves whether the capture moved.
+type MoveCapture = (captureId: string, offsetMs: number) => Promise<boolean>
+
 type Props = {
   captures: MeetingCapture[]
-  // Resolves whether the capture moved. Both are null while the meeting is read only, such as one
-  // deleted, whose captures stay where they are until it is restored.
-  onMoveCapture: ((captureId: string, offsetMs: number) => Promise<boolean>) | null
+  // Null where the reader may not move a capture, which only the meeting's owner does.
+  onMoveCapture: MoveCapture | null
+  // Null where the reader may not split one out, which only its owner and admins do.
   onSplitCapture: ((captureId: string) => Promise<void>) | null
 }
 
 // A meeting's captures in its options (docs/meeting-review.md, The meeting's page): the meeting's
 // own, then each meeting merged in, boxed with a link to it and Split out. Each capture moves on
 // the meeting's clock by hand. Both act at once with Undo in their toast, as every change on the
-// page does.
+// page does, and each is offered only to whoever may make it.
 export function MeetingCaptures(props: Props) {
   const { t } = useTranslation('meetings')
   const [ editingId, setEditingId ] = useState<string | null>(null)
   const splitting = usePendingAction<string>()
   const groups = useMemo(() => groupCaptures(props.captures), [ props.captures ])
+  const { onMoveCapture, onSplitCapture } = props
 
-  async function move(captureId: string, offsetMs: number) {
-    if (!props.onMoveCapture) {
-      console.debug('MeetingCaptures was asked to move a capture of a meeting that is read only', { captureId })
-      return false
-    }
-    const moved = await props.onMoveCapture(captureId, offsetMs)
+  async function move(onMove: MoveCapture, captureId: string, offsetMs: number) {
+    const moved = await onMove(captureId, offsetMs)
     if (moved) {
       setEditingId(null)
     }
     return moved
   }
-  const onSplitCapture = props.onSplitCapture
 
   return <section aria-label={t('review.captures.title')}>
     <p className='compact text-xs font-semibold uppercase opacity-60'>{t('review.captures.title')}</p>
@@ -54,11 +53,9 @@ export function MeetingCaptures(props: Props) {
             key={capture.id}
             capture={capture}
             isEditing={editingId === capture.id}
-            onEdit={props.onMoveCapture
-              ? () => setEditingId(capture.id)
-              : null}
+            onEdit={() => setEditingId(capture.id)}
             onCancel={() => setEditingId(null)}
-            onMove={(offsetMs) => move(capture.id, offsetMs)}
+            onMove={onMoveCapture && ((offsetMs) => move(onMoveCapture, capture.id, offsetMs))}
           />)
         }</ul>
         if (!group.from) {
@@ -74,9 +71,7 @@ export function MeetingCaptures(props: Props) {
           canSplit={group.canSplit}
           isSplitting={splitting.pendingKey === fromId}
           isDisabled={splitting.isOtherPending(fromId)}
-          onSplit={onSplitCapture
-            ? () => void splitting.run(fromId, () => onSplitCapture(first.id))
-            : null}
+          onSplit={onSplitCapture && (() => void splitting.run(fromId, () => onSplitCapture(first.id)))}
         >
           {rows}
         </MergedCaptureGroup>

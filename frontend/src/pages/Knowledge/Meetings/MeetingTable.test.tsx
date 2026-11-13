@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router'
 
 // Redux
 import { createAppStore } from '../../../store'
+import { meLoaded } from '../../../store/authSlice'
 import { meetingsLoaded } from '../../../store/meetingsSlice'
 import { projectsLoaded } from '../../../store/projectsSlice'
 
@@ -17,7 +18,7 @@ import { projectsLoaded } from '../../../store/projectsSlice'
 import { MeetingTable } from './MeetingTable'
 
 // Misc
-import { makeMeeting, makeProject } from '../../../testFixtures'
+import { makeMeeting, makeProject, makeUser } from '../../../testFixtures'
 
 // Retrying, deleting, and restoring are the network boundary; toasts are watched for what they
 // say.
@@ -42,8 +43,17 @@ vi.mock('../../../toast/toast', () => ({ toast: toasts }))
 const MINUTE = 60 * 1000
 const DELETED_AT = '2026-11-11T09:00:00Z'
 
+// The reader is the person every fixture meeting belongs to, unless a meeting names another owner.
+const READER_ID = makeMeeting({ id: 'any' }).ownerId
+
 function renderTable(meetings: Meeting[], isDeletedView = false) {
   const store = createAppStore()
+  store.dispatch(meLoaded({
+    user: makeUser({ id: READER_ID }),
+    hasSecondFactor: false,
+    mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
+  }))
   store.dispatch(meetingsLoaded(meetings))
   render(<Provider store={store}>
     <MemoryRouter>
@@ -157,10 +167,15 @@ describe('MeetingTable', () => {
     expect(screen.getByText('Transcript only')).toBeTruthy()
   })
 
-  it('offers Retry on a failed meeting alone, and keeps what the API answers', async () => {
+  it('offers Retry on a failed meeting of the reader\'s own alone, and keeps what the API answers', async () => {
     const failed = makeMeeting({ id: 'failed', title: 'Failed', state: 'failed', lastError: 'Timed out' })
     routes.retryMeeting.mockResolvedValue({ meeting: { ...failed, state: 'pending', lastError: null }})
-    const store = renderTable([ failed, makeMeeting({ id: 'done', title: 'Done' }) ])
+    const store = renderTable([
+      failed,
+      makeMeeting({ id: 'done', title: 'Done' }),
+      // Someone else's processing is theirs to retry.
+      makeMeeting({ id: 'theirs', title: 'Theirs', state: 'failed', ownerId: 'someone-else' }),
+    ])
 
     const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
     expect(retryButtons).toHaveLength(1)
@@ -228,6 +243,27 @@ describe('MeetingTable', () => {
     await waitFor(() => expect(toasts.success).toHaveBeenCalled())
     expect(toasts.success.mock.calls[0][0]).toBe('Deleted “First”.')
     expect(toasts.warning).toHaveBeenCalledWith('Left “Second” as it is, since it changed meanwhile.')
+  })
+
+  it('offers Delete only on a meeting the reader may manage, and leaves the rest of a selection out', async () => {
+    const own = makeMeeting({ id: 'own', title: 'Own sync' })
+    const theirs = makeMeeting({ id: 'theirs', title: 'Their sync', ownerId: 'someone-else', canManage: false })
+    routes.changeMeetings.mockResolvedValueOnce(answerWith([ own ], DELETED_AT))
+    renderTable([ own, theirs ])
+
+    // One Delete among the rows' actions: the reader's own meeting's.
+    expect(screen.getAllByRole('button', { name: 'Delete' })).toHaveLength(1)
+
+    for (const checkbox of screen.getAllByRole('checkbox', { name: 'Select row' })) {
+      fireEvent.click(checkbox)
+    }
+    const bar = await screen.findByRole('toolbar', { name: 'Selection' })
+    fireEvent.click(within(bar).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(routes.changeMeetings).toHaveBeenCalledWith([ 'own' ], 'delete'))
+    expect(toasts.warning).toHaveBeenCalledWith(
+      'Left “Their sync” as it is, since only its owner or an admin deletes or restores it.',
+    )
   })
 
   it('offers Restore alone on a deleted meeting', async () => {

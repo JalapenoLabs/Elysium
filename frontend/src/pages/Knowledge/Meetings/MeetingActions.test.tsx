@@ -121,4 +121,19 @@ describe('MeetingActions', () => {
     expect(routes.changeMeetings).toHaveBeenCalledWith([ 'meeting' ], 'restore')
     expect(toasts.success).toHaveBeenCalledWith('Restored “Duplicate sync”.')
   })
+
+  it('offers a reader who may not manage the meeting no Delete', () => {
+    renderPage({ ...MEETING, ownerId: 'someone-else', canManage: false })
+
+    // Nothing else is theirs to do here, so there is no actions menu at all.
+    expect(screen.queryByRole('button', { name: 'Actions' })).toBeNull()
+  })
+
+  it('tells a reader who may not restore a deleted meeting who may', () => {
+    renderPage({ ...MEETING, ownerId: 'someone-else', canManage: false, deletedAt: DELETED_AT })
+
+    expect(screen.getByText('This meeting is deleted')).toBeTruthy()
+    expect(screen.getByText('It changes once its owner or an admin restores it.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Restore' })).toBeNull()
+  })
 })

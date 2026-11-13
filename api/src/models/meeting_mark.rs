@@ -290,6 +290,24 @@ pub async fn find(
         .await
 }
 
+/// The marks of meeting `meeting_id` among `ids`, standing or removed, oldest first.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_many(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    ids: &[Uuid],
+) -> QueryResult<Vec<Mark>> {
+    meeting_marks::table
+        .filter(meeting_marks::meeting_id.eq(meeting_id))
+        .filter(meeting_marks::id.eq_any(ids))
+        .order(meeting_marks::id.asc())
+        .select(Mark::as_select())
+        .load(connection)
+        .await
+}
+
 /// Makes a mark of `kind` over `range` of meeting `meeting_id` as `author`, and records it.
 ///
 /// # Errors

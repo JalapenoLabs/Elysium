@@ -543,8 +543,10 @@ operations. Each operation is an object whose
 | `file-issue`             | `item`, `tracker`: `{ provider, credentialId, destination }`, the project's tracker when proposed |
 | `assign-item`            | `item`: assigns it to its lead project's Project Manager; Elysia's alone ([Assigning to a Project Manager](#assigning-to-a-project-manager)) |
 
-An operation may also name the timeline record that caused it (`causeRecordId`); every Project Manager's does, and its
-write is recorded on the project's timeline with it when it applies.
+An operation may also name the timeline record that caused it (`causeRecordId`), and a Project Manager's may name the
+task heard in a meeting that caused it (`taskId`); every Project Manager's names one or both, and its write is recorded
+on the project's timeline with them when it applies. A `create-item` naming a task makes that task's item
+([Tasks from meetings](#tasks-from-meetings)).
 
 An `item` or `initiative` is `{ "id": ... }` for one that exists, or `{ "operation": n }` for the one operation `n` of
 the same changeset creates, counting from 1. An operation can only name an earlier create of the right kind, and it
@@ -682,6 +684,17 @@ Every call is scoped to the session's project and re-checked against the databas
 - A pull request linked to an item resolves it when it merges, through the watcher, and the resolve then moves the
   item's other linked issues.
 
+## Tasks from meetings
+
+An item can be a task heard in a meeting (`docs/meetings.md`, Tasks). A project's task reaches its Project Manager,
+which makes its item with a `create-item` naming the task, as its changeset under the project's level of autonomy: at
+Approve every batch and Approve found work only it waits for a person's review, and approving it opens the item; at
+Full autonomy it applies at once and the item starts in the inbox. Everyone else's task becomes an inbox item at once,
+raised by Elysia in no project: the person's own, a coworker's, saying whom it is for, or the person's waiting on
+someone not on Elysium (`waitingOn`). Each item is kept beside its task (`meeting_task_items`), so its page links to
+the task's words on the meeting's page (`GET /api/v1/meetings/task-items/{itemId}`), and a meeting read again never
+raises a second item for the same task and person.
+
 ## Follow-ups
 
 An item can be the follow-up a project's Project Manager drafted to keep a promise the person made ("I'll let you know
@@ -701,8 +714,6 @@ transaction).
   item as a changeset. Today a new unread message raises an inbox item by itself, recorded as `watcher:<service>`, and
   once its conversation goes quiet, the agent handling it raises an inbox item as `elysia` for each question or
   request the person owes (`docs/engine.md`, Conversations).
-- Meetings: recordings from Slack, Teams, and others are transcribed and uploaded, and Elysia proposes one changeset
-  per meeting, citing the transcript.
 - Rules that apply trusted operations without review, loosened as Elysia's track record earns it.
 - Project memory that coding agents and Elysia read and write, so a session starts with what earlier sessions learned.
 - Users and authentication, turning `owner`, `waitingOn`, and actors into references and making Next per user.

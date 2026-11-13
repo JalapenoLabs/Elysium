@@ -56,25 +56,40 @@ pub enum EventKind {
     ThreadResolved,
     /// A resolved comment thread was opened again: `{ markId }`.
     ThreadReopened,
+    /// Who reads it changed: `{ before, after }`, each a `models::meeting::Visibility`, and, when
+    /// its correction decided, `why` in a sentence and the people it shared it with
+    /// (`sharedWith`).
+    VisibilityChanged,
+    /// It was shared with a person: `{ personId }`.
+    Shared,
+    /// It stopped being shared with a person: `{ personId }`.
+    Unshared,
     /// Segmenting took its excerpts and black-outs (`crate::meetings::excerpts::take`):
     /// `{ made, kept, removed, unanchored }`, the marks it made, the ones of its own it kept, the
     /// ones of its own it removed, and how many of the ranges it answered no longer stood.
     Segmented,
     /// Its person said they were done reviewing it, which segments it again: `{}`.
     ReviewDone,
-    /// Its person deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
+    /// A file or a frame was attached to it, or put back:
+    /// `{ attachmentId, attachmentKind, fileName, pins }`, the pins being the marks it was pinned
+    /// with, which its undo takes away with it (`crate::meetings::attachments`).
+    Attached,
+    /// A file or a frame was taken off it: `{ attachmentId, attachmentKind, fileName, pins }`, the
+    /// pins being the marks it took away with it, which its undo puts back.
+    Detached,
+    /// Its owner or an admin deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
     /// dismissedItemId, dismissedItemFrom }`, how many excerpts went with it, the connector it was
     /// removed with (`null` when it went alone), and the review item it dismissed and the state it
     /// left (`inbox` or `open`), or `null`.
     Deleted,
-    /// Its person restored it: `{ deletedAt, excerpts, runRetried, returnedItemId }`, the deletion
-    /// it reversed, how many excerpts came back, whether the run that deletion stopped went on, and
-    /// the review item it returned to where it stood, or `null`.
+    /// Its owner or an admin restored it: `{ deletedAt, excerpts, runRetried, returnedItemId }`,
+    /// the deletion it reversed, how many excerpts came back, whether the run that deletion stopped
+    /// went on, and the review item it returned to where it stood, or `null`.
     Restored,
 }
 
 impl EventKind {
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 22] = [
         Self::Built,
         Self::Settled,
         Self::Edited,
@@ -88,8 +103,13 @@ impl EventKind {
         Self::CaptureAdded,
         Self::ThreadResolved,
         Self::ThreadReopened,
+        Self::VisibilityChanged,
+        Self::Shared,
+        Self::Unshared,
         Self::Segmented,
         Self::ReviewDone,
+        Self::Attached,
+        Self::Detached,
         Self::Deleted,
         Self::Restored,
     ];
@@ -109,8 +129,13 @@ impl EventKind {
             Self::CaptureAdded => "capture_added",
             Self::ThreadResolved => "thread_resolved",
             Self::ThreadReopened => "thread_reopened",
+            Self::VisibilityChanged => "visibility_changed",
+            Self::Shared => "shared",
+            Self::Unshared => "unshared",
             Self::Segmented => "segmented",
             Self::ReviewDone => "review_done",
+            Self::Attached => "attached",
+            Self::Detached => "detached",
             Self::Deleted => "deleted",
             Self::Restored => "restored",
         }
@@ -243,6 +268,30 @@ pub async fn find(
         .select(MeetingEvent::as_select())
         .first(connection)
         .await
+}
+
+/// The newest entry of kind `kind` in the history of each of `meeting_ids`, read in one query. A
+/// meeting with none is absent.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn newest_of_kind(
+    connection: &mut AsyncPgConnection,
+    meeting_ids: &[Uuid],
+    kind: EventKind,
+) -> QueryResult<std::collections::HashMap<Uuid, MeetingEvent>> {
+    let newest: Vec<MeetingEvent> = meeting_events::table
+        .filter(meeting_events::meeting_id.eq_any(meeting_ids))
+        .filter(meeting_events::kind.eq(kind.as_str()))
+        .distinct_on(meeting_events::meeting_id)
+        .order((meeting_events::meeting_id, meeting_events::id.desc()))
+        .select(MeetingEvent::as_select())
+        .load(connection)
+        .await?;
+    Ok(newest
+        .into_iter()
+        .map(|entry| (entry.meeting_id, entry))
+        .collect())
 }
 
 /// Meeting `meeting_id`'s history, oldest first.

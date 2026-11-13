@@ -14,6 +14,12 @@
 //!
 //! Finishing a finished upload answers its meeting again, so a person whose answer was lost sees
 //! where it went.
+//!
+//! An upload of a file attached to a meeting finishes as an attachment instead: under the
+//! meeting's lock it is recorded on the meeting, as `attached` in its history, and its run of the
+//! meeting attachment workflow is started, which stores the file and reads its text
+//! (`crate::meetings::attachment_workflow`). That answers the attachment, and its history entry for
+//! the page's Undo.
 
 use anyhow::Context;
 use axum::Json;
@@ -29,13 +35,19 @@ use super::create_upload::{MEETING_DELETED, MEETING_MERGED, meeting_busy};
 use super::read_transcript;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meeting_attachments;
 use crate::meeting_uploads::{self, FileKind, transcript};
+use crate::meetings::access::Need;
+use crate::meetings::attachment_workflow::{self, AttachmentFile};
+use crate::meetings::attachments;
 use crate::meetings::source::TranscriptLine;
 use crate::meetings::workflow;
 use crate::models::agent::Author;
-use crate::models::meeting::{self, Meeting, NewMeeting};
+use crate::models::meeting::{self, Meeting, NewMeeting, Reader};
+use crate::models::meeting_attachment::{self, UploadedFile};
 use crate::models::meeting_capture::{self, NewMeetingCapture};
 use crate::models::meeting_event::{self, Change, EventKind};
+use crate::models::meeting_mark::{self, MarkError};
 use crate::models::meeting_upload::{self, MeetingUploadFile, Staged};
 use crate::models::{user, workflow_run};
 use crate::realtime::{ServerEvent, Signal};
@@ -60,13 +72,17 @@ pub async fn handle(
         .context("no database connection available")?;
     let staged = meeting_upload::find_owned(&mut connection, id, current.id()).await?;
     if let Some(capture_id) = staged.upload.capture_id {
-        return finished_before(&mut connection, capture_id).await;
+        return finished_before(&mut connection, capture_id, &current).await;
     }
     if !staged.files.iter().all(MeetingUploadFile::is_received) {
         return Err(ApiError::CodedConflict {
             code: "meeting_upload_incomplete",
             message: "some of this upload has not arrived yet",
         });
+    }
+    if staged.file(FileKind::Attachment).is_some() {
+        drop(connection);
+        return finish_attachment(&state, &current, &staged).await;
     }
     // Reading the transcript may take a moment; no connection is held while it does.
     drop(connection);
@@ -114,7 +130,7 @@ pub async fn handle(
             // Finished by another request while this one read its transcript: answer what it made.
             let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
             let capture_id = staged.upload.capture_id.ok_or(ApiError::NotFound)?;
-            return finished_before(&mut connection, capture_id).await;
+            return finished_before(&mut connection, capture_id, &current).await;
         }
         Err(error) => return Err(error),
     };
@@ -124,21 +140,139 @@ pub async fn handle(
     state.events.publish(&ServerEvent::MeetingChanged {
         id: made.id,
         state: made.state.clone(),
-        created_by: made.created_by,
         entry_id: None,
     });
-    let answered = meetings::response(&mut connection, made).await?;
+    let answered = meetings::response(&mut connection, made, Reader::of(&current.0)).await?;
     Ok((StatusCode::CREATED, Json(json!({ "meeting": answered }))))
 }
 
-/// The answer for an upload finished before, as capture `capture_id`: the meeting it became.
+/// Finishes `staged`, an upload of one file attached to its meeting: see the module's docs.
+async fn finish_attachment(
+    state: &AppState,
+    current: &CurrentUser,
+    staged: &Staged,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    if let Some(attachment_id) = staged.upload.attachment_id {
+        return attached_before(&mut connection, staged, attachment_id, current).await;
+    }
+    let upload = &staged.upload;
+    let meeting_id = upload
+        .meeting_id
+        .context("an attachment's upload names its meeting")?;
+    let file = staged
+        .file(FileKind::Attachment)
+        .context("an attachment's upload holds its file")?;
+    let storage_location_id = upload
+        .storage_location_id
+        .context("an attachment's upload names where it is kept")?;
+    let uploaded = UploadedFile {
+        id: Uuid::now_v7(),
+        meeting_id,
+        storage_location_id,
+        file_name: file.file_name.clone(),
+        content_type: meeting_attachments::content_type_of(&file.file_name).to_owned(),
+        size_bytes: file.size_bytes,
+        has_text: meeting_attachments::reader_of(&file.file_name).is_some(),
+    };
+    let (id, owner) = (upload.id, current.id());
+    let finished = connection
+        .transaction(async move |connection| {
+            meeting_upload::lock_unfinished(connection, id, owner).await?;
+            match meeting_mark::lock_meeting(connection, meeting_id).await {
+                Ok(()) => {}
+                Err(MarkError::Merged) => return Err(MEETING_MERGED),
+                Err(MarkError::Deleted) => return Err(MEETING_DELETED),
+                Err(MarkError::Database(error)) => return Err(error.into()),
+                Err(_) => return Err(ApiError::NotFound),
+            }
+            // Whoever may change the meeting attaches to it, read again under its lock.
+            let (found, _access) =
+                meetings::open(connection, meeting_id, current, Need::Edit).await?;
+            let author = Author {
+                user_id: owner,
+                agent: None,
+                at: Utc::now(),
+            };
+            let attached = attachments::attach_file(connection, &found, uploaded, author)
+                .await
+                .map_err(meetings::attachment_refusal)?;
+            meeting_upload::record_attached(connection, id, attached.attachment.id)
+                .await?
+                .ok_or(ApiError::NotFound)?;
+            let file = AttachmentFile {
+                attachment_id: attached.attachment.id,
+                upload_id: Some(id),
+            };
+            let started = workflow_run::start(
+                connection,
+                attachment_workflow::run_for(file, owner),
+                Utc::now(),
+            )
+            .await?;
+            Ok::<_, ApiError>((found, attached, started))
+        })
+        .await;
+    let (found, attached, started) = match finished {
+        Ok(finished) => finished,
+        Err(ApiError::NotFound) => {
+            // Finished by another request meanwhile: answer what it made.
+            let staged = meeting_upload::find_owned(&mut connection, id, owner).await?;
+            let attachment_id = staged.upload.attachment_id.ok_or(ApiError::NotFound)?;
+            return attached_before(&mut connection, &staged, attachment_id, current).await;
+        }
+        Err(error) => return Err(error),
+    };
+
+    workflows::announce(&state.events, &started.settled);
+    state.events.signal(&Signal::Workflows);
+    state.events.publish(&ServerEvent::MeetingChanged {
+        id: found.id,
+        state: found.state.clone(),
+        entry_id: Some(attached.entry.id),
+    });
+    let answered = meetings::attachment_response(attached.attachment, None);
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "attachment": answered,
+            "entry": meetings::MeetingEventResponse::from(attached.entry),
+        })),
+    ))
+}
+
+/// The answer for an upload of a file finished before, as attachment `attachment_id`, while its
+/// uploader may still read the meeting: one made private since, or merged into a meeting they may
+/// not read, answers `404` as any meeting route does.
+async fn attached_before(
+    connection: &mut AsyncPgConnection,
+    staged: &Staged,
+    attachment_id: Uuid,
+    current: &CurrentUser,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let meeting_id = staged.upload.meeting_id.ok_or(ApiError::NotFound)?;
+    let (found, _access) = meetings::open(connection, meeting_id, current, Need::Read).await?;
+    let attachment = meeting_attachment::find(connection, found.id, attachment_id).await?;
+    let answered = meetings::attachment_response(attachment, None);
+    Ok((StatusCode::OK, Json(json!({ "attachment": answered }))))
+}
+
+/// The answer for an upload finished before, as capture `capture_id`: the meeting it became, as
+/// its uploader sees it, while they may still read it. A capture merged since into a meeting they
+/// may not read answers `404`, as any meeting route does.
 async fn finished_before(
     connection: &mut AsyncPgConnection,
     capture_id: Uuid,
+    current: &CurrentUser,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let capture = meeting_capture::find(connection, capture_id).await?;
-    let made = meeting::find(connection, capture.meeting_id).await?;
-    let answered = meetings::response(connection, made).await?;
+    let (made, _access) =
+        meetings::open(connection, capture.meeting_id, current, Need::Read).await?;
+    let answered = meetings::response(connection, made, Reader::of(&current.0)).await?;
     Ok((StatusCode::OK, Json(json!({ "meeting": answered }))))
 }
 

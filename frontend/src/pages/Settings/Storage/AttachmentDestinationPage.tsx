@@ -17,12 +17,13 @@ import { SettingsPage } from '../SettingsPage'
 import { AttachmentDestinationForm } from './AttachmentDestinationForm'
 
 // Misc
+import { getMeetingAttachmentPolicy, MEETING_ATTACHMENT_POLICY_KEY } from '../../../api/routes/meetingAttachmentRoutes'
 import { getPageAttachmentPolicy, PAGE_ATTACHMENT_POLICY_KEY } from '../../../api/routes/pageRoutes'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 
-// `/settings/storage/attachments`: the storage location page attachments go to, on a page of its own
-// beside the list of locations. Admins only.
+// `/settings/storage/attachments`: the storage location page and meeting attachments go to, and
+// the largest file a meeting takes, on a page of its own beside the list of locations. Admins only.
 export function AttachmentDestinationPage() {
   const { t } = useTranslation('storage')
   const isAdmin = useAppSelector(selectIsAdmin)
@@ -41,18 +42,21 @@ export function AttachmentDestinationPage() {
 function DestinationForm() {
   const { t } = useTranslation('storage')
   const navigate = useNavigate()
-  const { data, error } = useSWR(PAGE_ATTACHMENT_POLICY_KEY, getPageAttachmentPolicy)
+  const pages = useSWR(PAGE_ATTACHMENT_POLICY_KEY, getPageAttachmentPolicy)
+  const meetings = useSWR(MEETING_ATTACHMENT_POLICY_KEY, getMeetingAttachmentPolicy)
   const loadLocations = useStorageLocationsLoader()
   const locations = useAppSelector(selectAllStorageLocations)
 
-  if (data && loadLocations !== 'loading') {
+  if (pages.data && meetings.data && loadLocations !== 'loading') {
     return <AttachmentDestinationForm
-      destinationId={data.policy.destinationId}
+      destinationId={pages.data.policy.destinationId}
+      meetingMaxBytes={meetings.data.policy.maxBytes}
+      meetingMaxBytesCeiling={meetings.data.policy.maxBytesCeiling}
       locations={locations}
       onSaved={() => void navigate(UrlTree.settingsStorage)}
     />
   }
-  if (error || loadLocations === 'failed') {
+  if (pages.error || meetings.error || loadLocations === 'failed') {
     return <p className='py-10 text-center text-sm text-danger'>{t('attachments.loadError')}</p>
   }
   return <div className='grid place-items-center py-16'>

@@ -94,25 +94,31 @@
     }
   },
   "attachments": {
-    "title": "Page attachments",
+    "title": "Attachments",
     "label": "Keep attachments in",
     "none": "Nowhere",
     "addLocation": "Add a storage location",
-    "summary": "Page attachments go to {{name}}",
-    "summaryNone": "Page attachments are off until a location is chosen",
+    "summary": "Attachments go to {{name}}",
+    "summaryNone": "Attachments are off until a location is chosen",
     "change": "Change",
-    "saved": "Page attachments go to {{name}}.",
-    "turnedOff": "Page attachments are off.",
+    "saved": "Attachments go to {{name}}.",
+    "turnedOff": "Attachments are off.",
     "failed": "Elysium could not reach that location.",
-    "adminOnly": "Admins choose where page attachments are kept.",
-    "loadError": "Where page attachments are kept could not be loaded."
+    "adminOnly": "Admins choose where attachments are kept.",
+    "loadError": "Where attachments are kept could not be loaded.",
+    "description": "Files attached to pages and meetings, and frames pinned from a meeting's video, go here.",
+    "meetingLimit": "Largest file a meeting takes",
+    "meetingLimitHint": "Up to {{ceiling}}. Larger files are refused before they are sent.",
+    "meetingLimitSaved": "Meetings take files up to {{size}}.",
+    "meetingLimitRequired": "Enter the largest file a meeting takes."
   },
   "delete": {
     "title": "Delete {{name}}?",
     "body": "Elysium stops saving files to {{name}}. Files it already saved stay where they are.",
     "backupDestination": "The databases are backed up here. Choose another location in Settings, Backups first.",
     "attachmentDestination": "New page attachments go here. Choose another location first.",
-    "attachmentFiles": "Pages keep attachments here, so this location stays."
+    "attachmentFiles": "Pages keep attachments here, so this location stays.",
+    "meetingAttachmentFiles": "Meetings keep files and frames here, so this location stays."
   },
   "toasts": {
     "created": "{{name}} added",

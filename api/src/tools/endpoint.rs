@@ -240,7 +240,10 @@ impl ServerHandler for AgentToolServer {
             &arguments,
         )
         .await;
-        let blocks = vec![ContentBlock::text(output.text)];
+        let mut blocks = vec![ContentBlock::text(output.text)];
+        if let Some(image) = output.image {
+            blocks.push(ContentBlock::image(image.data, image.mime_type));
+        }
         let result = if output.is_error {
             CallToolResult::error(blocks)
         } else {

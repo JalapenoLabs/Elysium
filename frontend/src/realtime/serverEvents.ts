@@ -71,6 +71,9 @@ export type ServerEvent =
   // An admin chose where page attachments go. Nothing more, for the same reason; members load it
   // again.
   | { type: 'pageAttachments.changed' }
+  // An admin chose the largest file a meeting takes. Nothing more, for the same reason; everyone
+  // loads the policy again.
+  | { type: 'meetingAttachments.changed' }
   // An admin saved or restored a version of the agent guidance. Nothing more; members load it
   // again.
   | { type: 'agentGuidance.changed' }
@@ -107,8 +110,9 @@ export type ServerEvent =
   // A draft was written, changed, discarded, or sent, or its send failed. Its id and writer
   // alone, since its text is theirs.
   | { type: 'draft.changed', data: { id: string, createdBy: string } }
-  // A meeting was read, or its processing moved on. Never its title, which its owner loads.
-  | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string, entryId: string | null } }
+  // A meeting was read, its processing moved on, or someone changed it, who sees it included. Its
+  // id alone: every client loads it, and one that may not read it is answered 404.
+  | { type: 'meeting.changed', data: { id: string, state: MeetingState, entryId: string | null } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.

@@ -27,13 +27,15 @@ use super::{
 use crate::findings::{self, FindingError};
 use crate::github::issues::IssueRef;
 use crate::github::pulls::PullRequest;
+use crate::meetings::attachments;
 use crate::models::finding::Reporter;
+use crate::models::meeting::Reader;
 use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
 use crate::models::work_batch::why::{self, Why};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
 use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, WorkBatch};
 use crate::models::worker_setup::{self, MergePolicy, WorkerSetup};
-use crate::models::{github_credential, project};
+use crate::models::{github_credential, project, timeline_record};
 use crate::routes::v1::coding_sessions::github_token;
 use crate::worker_pool::actions::announce;
 use crate::worker_pool::description;
@@ -43,9 +45,10 @@ pub const SERVER: ToolServer = ToolServer {
     name: "elysium_worker",
     instructions: Instructions::Fixed(
         "Your work batch, and how you report on it. worker_batch reads the batch: its goal, \
-        the repositories it needs, the action items it works on, the pull requests you recorded, \
-        and any answers your Project Manager gave. worker_pull_request records a pull request you \
-        opened, right after you open it: Elysium merges it in a repository that lets it, once \
+        the repositories it needs, the action items it works on, the meeting excerpts it came \
+        from with the files and frames pinned in them, the pull requests you recorded, and any \
+        answers your Project Manager gave. meeting_attachment_get opens a pinned file or frame. \
+        worker_pull_request records a pull request you opened, right after you open it: Elysium merges it in a repository that lets it, once \
         every check passed and no review is left open, and a person merges it everywhere else. \
         worker_report_finding reports work you noticed that your batch does not ask for: a bug, \
         a gap, a cleanup. A person decides whether it is done; never do it, file an issue for \
@@ -64,8 +67,9 @@ const TOOLS: [Tool; 5] = [
     Tool {
         name: "worker_batch",
         description: "Reads your work batch: its title, goal, repositories, the action items it \
-            works on, the pull requests you recorded and where each stands, what you wait on \
-            now, and the answers your Project Manager gave since you last began to wait.",
+            works on, the meeting excerpts it came from with the files and frames pinned in each, \
+            the pull requests you recorded and where each stands, what you wait on now, and the \
+            answers your Project Manager gave since you last began to wait.",
         input_schema: no_arguments_schema,
         run: |context, scope, arguments| run_batch(context, scope, arguments).boxed(),
     },
@@ -215,6 +219,9 @@ async fn run_batch(
     let recorded = pull_request::of_batch(&mut connection, batch.id)
         .await
         .map_err(|error| internal(scope, "worker.pull_requests", &error))?;
+    let excerpts = excerpts_of(&mut connection, &batch)
+        .await
+        .map_err(|error| internal(scope, "worker.excerpts", &error))?;
     let waiting = batch.waiting_on.map(
         |on| json!({ "on": on, "detail": batch.waiting_detail, "until": batch.waiting_until }),
     );
@@ -238,11 +245,36 @@ async fn run_batch(
             "goal": batch.goal,
             "repositories": batch.repositories(),
             "actionItemIds": batch.action_items(),
+            "excerpts": excerpts,
             "pullRequests": pull_requests,
             "waiting": waiting,
             "answers": answers,
         }
     }))
+}
+
+/// The meeting excerpts `batch` came from, each with the files and frames pinned in it, which
+/// travel with an excerpt to the worker its work reaches. Its other records are its Project
+/// Manager's to put in its goal.
+async fn excerpts_of(
+    connection: &mut diesel_async::AsyncPgConnection,
+    batch: &WorkBatch,
+) -> diesel::QueryResult<Vec<Value>> {
+    let records = timeline_record::find_many(connection, &batch.source_records()).await?;
+    let mut excerpts = Vec::new();
+    for record in records {
+        if record.excerpt_mark_id.is_none() {
+            continue;
+        }
+        let pinned = attachments::pinned_in(connection, &record).await?;
+        excerpts.push(json!({
+            "recordId": record.id,
+            "title": record.title,
+            "summary": record.metadata["summary"].as_str(),
+            "pinned": pinned.iter().map(attachments::agent_view).collect::<Vec<_>>(),
+        }));
+    }
+    Ok(excerpts)
 }
 
 async fn run_pull_request(
@@ -307,7 +339,9 @@ async fn run_pull_request(
 
     // Recorded first, since that is what lets it merge. The chain is read now and the connection
     // given back, so none is held across GitHub's round trips.
-    let why = why::read(&mut connection, &batch)
+    // A description is read by whoever reads the repository, never a meeting's readers, so it
+    // names a public meeting alone.
+    let why = why::read(&mut connection, &batch, Reader::ANY_MEMBER)
         .await
         .map_err(|error| internal(scope, "worker.pull_request.why", &error))?;
     drop(connection);

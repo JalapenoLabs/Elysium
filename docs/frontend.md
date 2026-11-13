@@ -288,7 +288,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/knowledge/meetings`         | `KnowledgeMeetingsPage`  | Every meeting the person can see, its filters in the address (`?project=`); the Meetings page's own address lands here |
 | `/knowledge/meetings/new`     | `UploadMeetingPage`      | Upload a meeting: a recording, a transcript, or both, in parts, resuming where it stopped |
 | `/knowledge/meetings/:meetingId/captures/new` | `UploadMeetingPage` | The same, as one more capture of the meeting |
-| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=` |
+| `/knowledge/meetings/:meetingId` | `MeetingPage`         | One meeting: its review (the transcript, its marks, and its lane), opened at a mark by `?mark=` or a thread by `?thread=`; a guest reads one shared with them here, without the knowledge base around it |
 | `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
@@ -978,21 +978,24 @@ Every route in the area nests under `KnowledgeLayout`, a workspace route, and ea
 `src/pages/Knowledge/Meetings/` is the knowledge base's Meetings page and a meeting's page (`docs/meetings.md`, In the
 web app, and `docs/meeting-review.md`, The meeting's page).
 
-- **The Meetings page** (`KnowledgeMeetingsPage`) reads the person's meetings from `meetingsSlice`, which
-  `GET /meetings` fills whole, and filters them in the browser (`filterMeetings`), from filters kept in the address
+- **The Meetings page** (`KnowledgeMeetingsPage`) reads the meetings the person may read from `meetingsSlice`, which
+  `useMeetingsLoader` fills whole, a page of `GET /meetings` at a time until its `nextCursor` is `null`, and filters them
+  in the browser (`filterMeetings`), from filters kept in the address
   (`meetingFilters.ts`), as the Initiatives list does: source, state, project or none, and waiting for review, the last
   also counted in the header whatever the filters leave. `MeetingTable` draws them, its controls in the titlebar
   (`usePageToolsContainer`), and `MeetingList` says why it is empty: the filters, no meeting yet, or no source.
 - **Deleting.** `MeetingTable` holds its selection for the kit's floating bar and row actions, both calling
   `useMeetingDeletion`, which sends the bulk route in parts of `MEETING_BULK_MAX_MEETINGS`, files what it answers, and
-  toasts with Undo. The Deleted filter swaps in `selectDeletedMeetings`, loaded by `useDeletedMeetingsLoader` only
-  while it is on, and offers Restore in place of Retry and Delete. `meetingsSlice` holds every meeting loaded:
-  `meetingsLoaded` keeps the merged-away and deleted ones it cannot name, `deletedMeetingsLoaded` replaces the deleted
-  ones alone, and `selectListedMeetings` leaves both out of every list and the tree. An excerpt deleted with its meeting
-  answers its load by id `404`, so `timelineRecord.changed` drops it from `timelineRecordsSlice`
-  (`timelineRecordRemoved`), and a deleted meeting's page shows each excerpt's projects as its transcript names them
-  rather than loading its record (`MarkDetail`). A read-only meeting's captures offer no Move or Split out (`MeetingCaptures` takes `null`
-  handlers).
+  toasts with Undo. A meeting's owner and admins alone delete and restore it (`canManage`): a row offers Delete only
+  then, the hook leaves any other of a selection out of the request and names it in a warning, as it does one the API
+  refuses as `owner_or_admin`, and `DeletedMeetingNotice` offers Restore only then. The Deleted filter swaps in
+  `selectDeletedMeetings`, loaded a page at a time by `useDeletedMeetingsLoader` only while it is on, and offers Restore
+  in place of Retry and Delete. `meetingsSlice` holds every meeting loaded: `meetingsLoaded` keeps the merged-away and
+  deleted ones it cannot name, `deletedMeetingsLoaded` replaces the deleted ones alone, and `selectListedMeetings`
+  leaves both out of every list and the tree. An excerpt deleted with its meeting answers its load by id `404`, so
+  `timelineRecord.changed` drops it from `timelineRecordsSlice` (`timelineRecordRemoved`), and a deleted meeting's
+  page shows each excerpt's projects as its words name them rather than loading its record (`MarkDetail`), and offers
+  no Move or Split out.
 - **In the tree.** `withMeetingEntries` (`pageTree.ts`) adds the meetings to the tree the panel draws
   (`selectKnowledgeTree`): every one under the Meetings page (`MEETINGS_PAGE_ID`), and a group per project under its
   brief, found by `briefProjectId`. Each branch holds its newest `MEETINGS_TREE_BRANCH_SIZE` and a total, and one holding
@@ -1006,7 +1009,9 @@ web app, and `docs/meeting-review.md`, The meeting's page).
 
 - **Data.** The transcript (`useMeetingWords`), the history (`useMeetingHistory`), and what is written in its threads
   (`useMeetingThreads`) are read through SWR alone, since no other view shows them, and `meeting.changed` revalidates
-  all three. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
+  all three. So are its tasks (`useMeetingTasks`, the bar along the top, `MeetingTasks`), which `meeting.changed`,
+  `changeset.upserted`, `actionItem.upserted`, and `actionItem.deleted` revalidate (`isMeetingTasksKey`), since an
+  approved changeset or a resolved or deleted item moves what came of a task. An edit, an undo, or starting, resolving, reopening, or removing a thread answers what it did, which the
   page applies at once (`applyTranscriptChange`) rather than reading tens of thousands of words again. Its own
   announcement names its history entry (`entryId`), which `meetingChangeEchoes` knows as the page's own, so it reads
   nothing again; it tracks each change from the moment it is sent, since the event can arrive before the answer. Another
@@ -1025,6 +1030,14 @@ web app, and `docs/meeting-review.md`, The meeting's page).
   black-out's Remove, a thread's actions, and history's Undo are `null` or off, and `MeetingActions` says why, offering
   no Done reviewing. The API refuses those changes too (`meeting_merged`), so a change sent
   before the page heard of the merge is refused with the same reason.
+- **Who reads it.** `meeting.changed` names a meeting alone, so every client loads it by id: a meeting just opened joins
+  every member's lists and tree, and one made private answers `404` to those who may not read it, which drops it from
+  their store (`meetingRemoved`). What the reader may do is the meeting's own (`canEdit`, `canManage`, `ownerId`), as the
+  API decides it; `meetingVisibility.ts` mirrors only enough to offer nothing it would refuse: who may be mentioned
+  (`mayRead`) and who sees Undo on a change (`mayUndo`). A reader who may not edit (a guest it is shared with) reads the
+  page as a merged-away meeting reads (`isReadOnly`), and only the owner holds, approves, retries, moves or adds a
+  capture, while its owner and admins split one out. `MeetingVisibility` in the options shows who reads it and, to its
+  owner and admins, makes it private, opens it, and shares it, each at once with Undo in its toast.
 - **Drawing.** Paragraphs are memoized and compare their ranges by their ends, so a selection redraws only the
   paragraphs it reaches. Marks draw from data attributes on each piece through `src/theme/meetingTranscript.css`, and a
   confidence's hue is the one style a piece sets (`--confidence-hue`), which the CSP's `style-src` allows.
@@ -1256,7 +1269,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   page, with a link to the Project Manager tab (`getProjectManagerUrl`). Its plan is read through SWR
   (`useManagerPlan`), never Redux, since only the item's page shows it, and `actionItem.upserted`,
   `projectManager.changed`, and `workBatch.changed` read it again. An assigned item carries a "With its Project Manager"
-  badge (`ActionItemBadges`). `ActionItemDetailsPanel` holds priority, due date,
+  badge (`ActionItemBadges`). An item made of a task heard in a meeting links to the task's words on the meeting's page
+  (`MeetingTaskLink`, beside `MeetingThreadLink`). `ActionItemDetailsPanel` holds priority, due date,
   projects, the lead project, and initiatives, kept by the same Save; projects and initiatives go through their per-id
   routes, one request per one joined or left (`membershipChanges.ts`). The lead is chosen from the projects picked,
   each one Elysia guessed reading with how sure she was; picking projects keeps the lead while it is still among them

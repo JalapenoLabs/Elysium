@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Meeting, MeetingsCursor } from '../api/routes/meetingRoutes'
+
 // Core
 import { useEffect } from 'react'
 import useSWR from 'swr'
@@ -305,34 +307,48 @@ export function useConnectorsLoader(): LoadStatus {
   return toLoadStatus(data !== undefined, error)
 }
 
-// The person's recent meetings and how far each one's processing got.
+// Every meeting the person may read and how far each one's processing got, read a page at a time
+// into one list, which the knowledge base's tree and Meetings page search and filter in the
+// browser. Paging and searching them on the server is on the roadmap (docs/knowledge.md, Roadmap).
 export function useMeetingsLoader(): LoadStatus {
   const dispatch = useAppDispatch()
   const { data, error } = useSWR('v1/meetings', async () => {
-    const response = await listMeetings()
-    dispatch(meetingsLoaded(response.meetings))
-    return response
+    const meetings: Meeting[] = []
+    let after: MeetingsCursor | null = null
+    do {
+      const page = await listMeetings(after)
+      meetings.push(...page.meetings)
+      after = page.nextCursor
+    } while (after)
+    dispatch(meetingsLoaded(meetings))
+    return meetings
   })
   return toLoadStatus(data !== undefined, error)
 }
 
-// The person's deleted meetings, loaded only while the Meetings page's Deleted filter shows them.
-// A deletion or a restore elsewhere reaches the store as `meeting.changed`, which loads the meeting
-// by id, so its `deletedAt` moves it between the lists.
+// The deleted meetings the person may restore, read a page at a time, loaded only while the
+// Meetings page's Deleted filter shows them. A deletion or a restore elsewhere reaches the store as
+// `meeting.changed`, which loads the meeting by id, so its `deletedAt` moves it between the lists.
 export function useDeletedMeetingsLoader(isEnabled: boolean): LoadStatus {
   const dispatch = useAppDispatch()
   const key = isEnabled
     ? 'v1/meetings?deleted=true'
     : null
   const { data, error } = useSWR(key, async () => {
-    const response = await listDeletedMeetings()
-    dispatch(deletedMeetingsLoaded(response.meetings))
-    return response
+    const meetings: Meeting[] = []
+    let after: MeetingsCursor | null = null
+    do {
+      const page = await listDeletedMeetings(after)
+      meetings.push(...page.meetings)
+      after = page.nextCursor
+    } while (after)
+    dispatch(deletedMeetingsLoaded(meetings))
+    return meetings
   })
   return toLoadStatus(data !== undefined, error)
 }
 
-// One of the person's meetings, for its page, however far back it was.
+// One meeting the person may read, for its page, however far back it was.
 export function useMeetingLoader(meetingId: string): LoadStatus {
   const dispatch = useAppDispatch()
   const { data, error } = useSWR(`v1/meetings/${meetingId}`, async () => {

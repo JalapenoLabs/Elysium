@@ -31,6 +31,13 @@
 //! and indexes them again ([`refresh`]) in its own transaction. Its clip is cut again only when
 //! the meeting is segmented again (`super::segment`).
 //!
+//! # Tasks
+//!
+//! Segmenting's answer names the tasks heard in a meeting too, taken last, in the same change: each
+//! a mark of kind `task` and its row (`models::meeting_task`), sent where its share says
+//! (`super::tasks`). A task read again keeps its mark, moved onto the words it was heard over, so
+//! only a task that changed reaches anyone again.
+//!
 //! # The meeting in the index
 //!
 //! Beside its excerpts, a meeting segmented at least once is a document of its own in the
@@ -51,19 +58,25 @@ use uuid::Uuid;
 use super::SEGMENT_SOURCE_KIND;
 use super::correction::lines_of;
 use super::segmentation::{SegmentProject, clock};
+use super::tasks::{self, Placed, Reach};
+use crate::action_items::WorkError;
 use crate::knowledge::{passages, records};
+use crate::models::action_item::ActionItem;
+use crate::models::action_item_event::Recorded;
 use crate::models::agent::Author;
 use crate::models::attribution::{self, Attributor};
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::meeting::{Meeting, MeetingState};
+use crate::models::meeting_attachment::{self, IndexedAttachment};
 use crate::models::meeting_capture::{self, MeetingCapture};
 use crate::models::meeting_comment;
 use crate::models::meeting_event::{self, Change, EventKind, MeetingEvent};
 use crate::models::meeting_mark::{self, Mark, MarkError, MarkKind, NewMark, Range};
+use crate::models::meeting_task::{self, MeetingTask, TaskReading};
 use crate::models::meeting_word::{self, Word};
 use crate::models::project;
 use crate::models::timeline_record::{self, ExcerptText, NewTimelineRecord, TimelineRecord};
-use crate::models::user::ELYSIA_USER_ID;
+use crate::models::user::{self, ELYSIA_USER_ID};
 
 /// The longest `actor` a record takes: the excerpt's speakers.
 const ACTOR_MAX_CHARACTERS: usize = 512;
@@ -81,14 +94,18 @@ pub const TRANSCRIPT_INDEXED_AS: i32 = 1;
 /// embedder for long. An hour's meeting is some 60,000.
 pub const TRANSCRIPT_MAX_CHARACTERS: usize = 500_000;
 
+/// The most of a meeting's files and frames its own document holds after its threads, in
+/// characters: a long specification whole, and the start of every other file beside it.
+pub const ATTACHMENTS_MAX_CHARACTERS: usize = 300_000;
+
 /// Why an excerpt or a black-out could not be made or removed.
 #[derive(Debug, thiserror::Error)]
 pub enum ExcerptError {
     /// The range, or the mark, cannot be marked or removed (`MarkError`).
     #[error(transparent)]
     Mark(#[from] MarkError),
-    /// The mark is neither an excerpt nor a black-out; threads have routes of their own.
-    #[error("the mark is neither an excerpt nor a black-out")]
+    /// The mark is neither an excerpt, a black-out, nor a pin; threads have routes of their own.
+    #[error("the mark is neither an excerpt, a black-out, nor a pin")]
     NotAnExcerpt,
     /// An excerpt names a project that does not exist.
     #[error("a project named does not exist")]
@@ -557,9 +574,9 @@ pub async fn black_out(
         .await
 }
 
-/// Removes excerpt or black-out `mark_id` of `meeting` as `author`, recorded so its undo puts it
-/// back: an excerpt's record leaves every project and the index, and a black-out's words read
-/// again wherever they lie.
+/// Removes excerpt, black-out, or pin `mark_id` of `meeting` as `author`, recorded so its undo
+/// puts it back: an excerpt's record leaves every project and the index, a black-out's words read
+/// again wherever they lie, and a pin's attachment leaves the excerpts it was pinned in.
 ///
 /// # Errors
 /// [`ExcerptError::Mark`] when the meeting has no such mark or it was removed already,
@@ -586,6 +603,7 @@ pub async fn remove(
                 Some(MarkKind::BlackOut) => {
                     Ok(lift(connection, meeting, &mark, &[], author, None).await?)
                 }
+                Some(MarkKind::Pin) => Ok(unpin(connection, meeting, &mark, author).await?),
                 _ => Err(ExcerptError::NotAnExcerpt),
             }
         })
@@ -646,6 +664,20 @@ pub(crate) async fn undo(
         _ => None,
     };
     Ok(undo)
+}
+
+/// Removes pin `mark`: its attachment stays on the meeting, and leaves every excerpt it was
+/// carried in through this pin alone.
+async fn unpin(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+    mark: &Mark,
+    author: Author<'_>,
+) -> QueryResult<MeetingEvent> {
+    let entry = meeting_mark::record_removed(connection, mark, author, None, json!({})).await?;
+    meeting_mark::remove_all(connection, &[mark.id], entry.id).await?;
+    refresh_over(connection, meeting, mark).await?;
+    Ok(entry)
 }
 
 /// Marks a change put back, as the change that removed them, for a black-out's removal to restore.
@@ -763,12 +795,40 @@ async fn refresh_over(
     meeting: &Meeting,
     mark: &Mark,
 ) -> QueryResult<()> {
-    let ends = [mark.start_word_id, mark.end_word_id];
-    let words = meeting_word::find_many(connection, meeting.id, &ends).await?;
+    let span = span_of(connection, meeting.id, mark.range()).await?;
+    refresh(connection, meeting, span).await
+}
+
+/// Where `range` of meeting `meeting_id`'s words lies on its clock, from its first word's start
+/// to its last word's end; `None` when neither end is one of its words.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn span_of(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+    range: Range,
+) -> QueryResult<Option<(i64, i64)>> {
+    let ends = [range.start_word_id, range.end_word_id];
+    let words = meeting_word::find_many(connection, meeting_id, &ends).await?;
     let start = words.iter().map(|word| word.start_ms).min();
     let end = words.iter().map(|word| word.end_ms).max();
-    let span = start.zip(end).map(|(start, end)| (start, end.max(start)));
-    refresh(connection, meeting, span).await
+    Ok(start.zip(end).map(|(start, end)| (start, end.max(start))))
+}
+
+/// Indexes `meeting`'s own document again ([`index_transcript`]), for a change no excerpt reads
+/// but the meeting's document does, such as a file attached and pinned nowhere.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn reindex_transcript(
+    connection: &mut AsyncPgConnection,
+    meeting: &Meeting,
+) -> QueryResult<()> {
+    let words = meeting_word::standing(connection, meeting.id).await?;
+    let marks = meeting_mark::standing(connection, meeting.id).await?;
+    let text = MeetingText::new(words, &marks);
+    index_transcript(connection, meeting, &text).await
 }
 
 /// Gives every standing excerpt of `meeting` over `span` of its clock (or every one, for `None`)
@@ -863,7 +923,13 @@ pub async fn index_transcript(
         return Ok(());
     }
     let threads = meeting_comment::indexed_over(connection, meeting.id, i64::MIN, i64::MAX).await?;
-    match transcript_document(meeting, text, &threads) {
+    let attachments: Vec<IndexedAttachment> =
+        meeting_attachment::of_meeting(connection, meeting.id)
+            .await?
+            .into_iter()
+            .map(IndexedAttachment::from)
+            .collect();
+    match transcript_document(meeting, text, &threads, &attachments) {
         Some(document) => knowledge_document::upsert(connection, &document)
             .await
             .map(drop),
@@ -873,11 +939,13 @@ pub async fn index_transcript(
 
 /// The document `meeting`'s whole transcript is indexed as: its title, then every line of `text`,
 /// blacked-out words left out, each its own paragraph so an edit moves as few passages as it can,
-/// then `threads`. `None` when nothing in it is left to search.
+/// then `threads`, then its `attachments`, every file's text and frame's caption whether or not an
+/// excerpt carries it. `None` when nothing in it is left to search.
 pub fn transcript_document(
     meeting: &Meeting,
     text: &MeetingText,
     threads: &[meeting_comment::IndexedThread],
+    attachments: &[IndexedAttachment],
 ) -> Option<IndexedDocument> {
     let body = if text.words().is_empty() {
         String::new()
@@ -885,12 +953,16 @@ pub fn transcript_document(
         text.read(0..=text.words().len() - 1).body
     };
     let body: String = body.chars().take(TRANSCRIPT_MAX_CHARACTERS).collect();
-    if body.trim().is_empty() && threads.is_empty() {
+    if body.trim().is_empty() && threads.is_empty() && attachments.is_empty() {
         return None;
     }
     let mut paragraphs: Vec<String> = vec![meeting.title.clone()];
     paragraphs.extend(body.lines().map(ToOwned::to_owned));
     paragraphs.extend(records::thread_paragraphs(threads));
+    paragraphs.extend(records::attachment_paragraphs(
+        attachments,
+        ATTACHMENTS_MAX_CHARACTERS,
+    ));
     let passages = passages::split(&paragraphs.join("\n\n"));
     if passages.is_empty() {
         return None;
@@ -901,17 +973,34 @@ pub fn transcript_document(
         url: None,
         occurred_at: meeting.started_at,
         created_by: meeting.created_by,
+        // Its readers alone find it (`docs/meetings.md`, Who reads a meeting).
+        access_meeting_id: Some(meeting.id),
         passages,
     })
 }
 
-/// What segmenting took from a meeting, as its answer is stored: each excerpt and black-out as a
-/// range of the words it read, so an attempt that finds it stored takes the same words.
+/// What segmenting took from a meeting, as its answer is stored: each excerpt, black-out, and task
+/// as a range of the words it read, so an attempt that finds it stored takes the same words.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Taken {
     pub excerpts: Vec<TakenExcerpt>,
     pub black_outs: Vec<Range>,
+    /// Missing from an answer stored before tasks were read, which takes none.
+    #[serde(default)]
+    pub tasks: Vec<TakenTask>,
+    /// The frames of the meeting's video it pinned; none in an answer stored before frames were.
+    #[serde(default)]
+    pub frames: Vec<super::segment::TakenFrame>,
+}
+
+/// One task segmenting heard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TakenTask {
+    pub range: Range,
+    #[serde(flatten)]
+    pub reading: TaskReading,
 }
 
 /// One excerpt segmenting took.
@@ -931,6 +1020,23 @@ pub struct Took {
     pub entry: MeetingEvent,
     /// The excerpts' records it made.
     pub created: Vec<TimelineRecord>,
+    /// The inbox items its tasks raised at once (`super::tasks`).
+    pub raised: Vec<Recorded<ActionItem>>,
+}
+
+/// A task the answer names, to be taken: its range, the places of its words in the transcript as
+/// it reads, and what it is.
+struct HeardTask {
+    range: Range,
+    places: RangeInclusive<usize>,
+    reading: TaskReading,
+}
+
+/// One of Elysia's own tasks standing as segmenting began, which the answer may read again.
+struct StandingTask {
+    mark_id: Uuid,
+    places: RangeInclusive<usize>,
+    reading: TaskReading,
 }
 
 /// A meeting's marks as segmenting finds them, and what taking its answer did so far.
@@ -947,16 +1053,25 @@ struct Taking<'meeting> {
     records: HashMap<Uuid, TimelineRecord>,
     /// The excerpts' records whose projects a person changed, which makes the excerpts theirs.
     changed: HashSet<Uuid>,
-    /// The ranges a person removed an excerpt, or a black-out, from, which segmenting leaves be.
+    /// The ranges a person removed an excerpt, a black-out, or a task from, which segmenting
+    /// leaves be.
     removed_excerpts: HashSet<Range>,
     removed_black_outs: HashSet<Range>,
+    removed_tasks: HashSet<Range>,
+    /// Each standing task, by its mark.
+    tasks: HashMap<Uuid, MeetingTask>,
+    /// Every user's name, for whom a task's item is.
+    names: HashMap<Uuid, String>,
     /// The marks it made, Elysia's own it kept, and every standing mark the answer took again.
     made: Vec<Uuid>,
     kept: Vec<Uuid>,
     taken_again: HashSet<Uuid>,
+    /// Elysia's own tasks it moved onto the words they were heard over again.
+    moved: Vec<Uuid>,
     /// How many ranges of the answer no longer stood.
     unanchored: usize,
     created: Vec<TimelineRecord>,
+    raised: Vec<Recorded<ActionItem>>,
 }
 
 impl<'meeting> Taking<'meeting> {
@@ -989,6 +1104,10 @@ impl<'meeting> Taking<'meeting> {
             meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Excerpt).await?;
         let removed_black_outs =
             meeting_mark::removed_by_people(connection, meeting.id, MarkKind::BlackOut).await?;
+        let removed_tasks =
+            meeting_mark::removed_by_people(connection, meeting.id, MarkKind::Task).await?;
+        let tasks = meeting_task::standing_of(connection, meeting.id).await?;
+        let names = user::names(connection).await?;
         Ok(Self {
             meeting,
             capture,
@@ -1004,11 +1123,16 @@ impl<'meeting> Taking<'meeting> {
             changed,
             removed_excerpts: removed_excerpts.iter().map(Mark::range).collect(),
             removed_black_outs: removed_black_outs.iter().map(Mark::range).collect(),
+            removed_tasks: removed_tasks.iter().map(Mark::range).collect(),
+            tasks,
+            names,
             made: Vec::new(),
             kept: Vec::new(),
             taken_again: HashSet::new(),
+            moved: Vec::new(),
             unanchored: 0,
             created: Vec::new(),
+            raised: Vec::new(),
         })
     }
 
@@ -1147,15 +1271,188 @@ impl<'meeting> Taking<'meeting> {
         attribute_as_elysia(connection, &record, &excerpt.projects, &self.projects).await
     }
 
+    /// Whether `mark`, standing as segmenting began, still stands once the answer is taken: a
+    /// person's, one the answer took again, or one it made. Elysia's others give way in
+    /// [`Self::finish`].
+    fn stays(&self, mark: &Mark) -> bool {
+        self.is_persons(mark) || self.taken_again.contains(&mark.id) || self.made.contains(&mark.id)
+    }
+
+    /// Tasks, after excerpts and black-outs: each range a person removed one from stays clear, a
+    /// person's over the same words stands, and one wholly in black-outs is no task. Every other
+    /// the answer names is one of Elysia's read again (`super::tasks::read_again`), moved onto the
+    /// words it was heard over and given what the answer says of it, or a new one. A new task, or
+    /// one that changed, goes where its share says (`super::tasks::send`); one read again as it was
+    /// reaches nobody, so a meeting read again wakes no Project Manager and raises no item twice.
+    async fn take_tasks(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        answered: &[TakenTask],
+    ) -> Result<(), WorkError> {
+        // Elysia's black-outs the answer gave up are on their way out, so they blank nothing.
+        let marks_now: Vec<Mark> = meeting_mark::standing(connection, self.meeting.id)
+            .await?
+            .into_iter()
+            .filter(|mark| mark.kind() != Some(MarkKind::BlackOut) || self.stays(mark))
+            .collect();
+        let text = MeetingText::new(self.words.clone(), &marks_now);
+        let heard = self.heard_tasks(&text, answered);
+        // Elysia's own standing tasks, which the answer may read again.
+        let before: Vec<StandingTask> = self
+            .marks
+            .iter()
+            .filter(|mark| mark.kind() == Some(MarkKind::Task) && !self.is_persons(mark))
+            .filter_map(|mark| {
+                Some(StandingTask {
+                    mark_id: mark.id,
+                    places: text.places_of(mark.range())?,
+                    reading: self.tasks.get(&mark.id)?.reading(),
+                })
+            })
+            .collect();
+        let matches = {
+            let heard_placed: Vec<Placed<'_>> = heard
+                .iter()
+                .map(|task| Placed {
+                    places: &task.places,
+                    reading: &task.reading,
+                })
+                .collect();
+            let before_placed: Vec<Placed<'_>> = before
+                .iter()
+                .map(|task| Placed {
+                    places: &task.places,
+                    reading: &task.reading,
+                })
+                .collect();
+            tasks::read_again(&heard_placed, &before_placed)
+        };
+        for (task, matched) in heard.iter().zip(matches) {
+            let changed = if let Some(index) = matched {
+                self.take_task_again(connection, &before[index], task)
+                    .await?
+            } else {
+                Some(self.make_task(connection, task).await?)
+            };
+            let Some(changed) = changed else {
+                continue;
+            };
+            let reach = Reach {
+                meeting: self.meeting,
+                names: &self.names,
+                timed: text.is_timed(),
+            };
+            let start_ms = text.words()[*task.places.start()].start_ms;
+            if let Some(raised) = tasks::send(connection, reach, &changed, start_ms).await? {
+                self.raised.push(raised);
+            }
+        }
+        Ok(())
+    }
+
+    /// The tasks `answered` names that are to be taken, by the places of their words in `text`:
+    /// none over a range a person removed one from or holds one over, none wholly blacked out, and
+    /// none on a project removed while the turn ran, which is then no project's.
+    fn heard_tasks(&mut self, text: &MeetingText, answered: &[TakenTask]) -> Vec<HeardTask> {
+        let mut heard = Vec::with_capacity(answered.len());
+        for task in answered {
+            let Some(places) = text.places_of(task.range) else {
+                self.unanchored += 1;
+                continue;
+            };
+            let persons_over_it = self.marks.iter().any(|mark| {
+                mark.kind() == Some(MarkKind::Task)
+                    && self.is_persons(mark)
+                    && mark.range() == task.range
+            });
+            if self.removed_tasks.contains(&task.range) || persons_over_it {
+                continue;
+            }
+            if places.clone().all(|place| text.is_blacked(place)) {
+                tracing::event!(
+                    name: "meetings.segment.task_blacked_out",
+                    tracing::Level::DEBUG,
+                    meeting.id = %self.meeting.id,
+                    "a task the answer named lies wholly in black-outs, so it was left out",
+                );
+                continue;
+            }
+            let mut reading = task.reading.clone();
+            if reading
+                .project_id
+                .is_some_and(|project_id| !self.projects.contains(&project_id))
+            {
+                reading.project_id = None;
+            }
+            heard.push(HeardTask {
+                range: task.range,
+                places,
+                reading,
+            });
+        }
+        heard
+    }
+
+    /// Takes Elysia's own task `before` again as `heard`: moved onto its words when they moved, and
+    /// given what the answer says of it. Answers the task when it changed, which then reaches
+    /// whoever it is for again, and `None` when it reads as it did.
+    async fn take_task_again(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        before: &StandingTask,
+        heard: &HeardTask,
+    ) -> Result<Option<MeetingTask>, WorkError> {
+        self.taken_again.insert(before.mark_id);
+        self.kept.push(before.mark_id);
+        if before.places != heard.places {
+            meeting_mark::set_range(connection, before.mark_id, heard.range).await?;
+            self.moved.push(before.mark_id);
+        }
+        if before.reading == heard.reading {
+            return Ok(None);
+        }
+        let task = meeting_task::set_reading(connection, before.mark_id, &heard.reading).await?;
+        Ok(tasks::changed(&before.reading, &heard.reading).then_some(task))
+    }
+
+    /// Makes `heard` a new task of Elysia's: its mark and its row.
+    async fn make_task(
+        &mut self,
+        connection: &mut AsyncPgConnection,
+        heard: &HeardTask,
+    ) -> Result<MeetingTask, WorkError> {
+        let new = NewMark::new(
+            self.meeting.id,
+            MarkKind::Task,
+            heard.range,
+            json!({}),
+            self.author,
+        );
+        let mark = meeting_mark::insert(connection, new).await?;
+        self.made.push(mark.id);
+        let task = meeting_task::insert(
+            connection,
+            mark.id,
+            self.meeting.id,
+            &heard.reading,
+            self.author.user_id,
+        )
+        .await?;
+        Ok(task)
+    }
+
     /// Records what it did as one change, and removes Elysia's own marks the answer did not take
-    /// again: an excerpt's record leaves her projects and the index.
+    /// again: an excerpt's record leaves her projects and the index. A task removed keeps the items
+    /// made of it, which are their people's to resolve or dismiss.
     async fn finish(self, connection: &mut AsyncPgConnection) -> QueryResult<Took> {
         let removed: Vec<Uuid> = self
             .marks
             .iter()
             .filter(|mark| {
-                let replaceable =
-                    matches!(mark.kind(), Some(MarkKind::Excerpt | MarkKind::BlackOut));
+                let replaceable = matches!(
+                    mark.kind(),
+                    Some(MarkKind::Excerpt | MarkKind::BlackOut | MarkKind::Task)
+                );
                 replaceable && !self.taken_again.contains(&mark.id) && !self.is_persons(mark)
             })
             .map(|mark| mark.id)
@@ -1170,6 +1467,7 @@ impl<'meeting> Taking<'meeting> {
                 data: json!({
                     "made": self.made,
                     "kept": self.kept,
+                    "moved": self.moved,
                     "removed": removed,
                     "unanchored": self.unanchored,
                 }),
@@ -1200,32 +1498,37 @@ impl<'meeting> Taking<'meeting> {
         Ok(Took {
             entry,
             created: self.created,
+            raised: self.raised,
         })
     }
 }
 
 /// Takes `taken`, segmenting's answer, into `meeting` as Elysia, from `capture`, the meeting's
-/// first: every excerpt and black-out a person made or changed stands, and so does every one the
-/// answer takes again; Elysia's others are removed and the answer's new ones made. An excerpt kept
-/// takes the answer's title, summary, and projects as Elysia's, which never override a person's
-/// (`models::attribution`), so only a project newly on an excerpt wakes its Project Manager. A
-/// black-out never covers a word of a person's excerpt. Recorded as one change. The caller holds
-/// the meeting's lock, marks it done, and then refreshes it ([`refresh`]).
+/// first: every excerpt, black-out, and task a person made or changed stands, and so does every
+/// one the answer takes again; Elysia's others are removed and the answer's new ones made. An
+/// excerpt kept takes the answer's title, summary, and projects as Elysia's, which never override
+/// a person's (`models::attribution`), so only a project newly on an excerpt wakes its Project
+/// Manager. A black-out never covers a word of a person's excerpt. A task new or changed goes
+/// where its share says (`super::tasks`). Recorded as one change. The caller holds the meeting's
+/// lock, marks it done, and then refreshes it ([`refresh`]), and announces the items its tasks
+/// raised.
 ///
 /// # Errors
-/// Propagates any database error.
+/// Propagates any database error, and any refusal of an item a task raises, which an item on no
+/// project never meets.
 pub(crate) async fn take(
     connection: &mut AsyncPgConnection,
     meeting: &Meeting,
     capture: &MeetingCapture,
     taken: &Taken,
-) -> QueryResult<Took> {
+) -> Result<Took, WorkError> {
     let mut taking = Taking::read(connection, meeting, capture).await?;
     taking
         .take_black_outs(connection, &taken.black_outs)
         .await?;
     taking.take_excerpts(connection, &taken.excerpts).await?;
-    taking.finish(connection).await
+    taking.take_tasks(connection, &taken.tasks).await?;
+    Ok(taking.finish(connection).await?)
 }
 
 /// Attributes `record` to each of `projects` that still exists as Elysia, and takes it off every
@@ -1297,6 +1600,61 @@ mod tests {
     use crate::models::project::NewProject;
     use crate::realtime::EventBus;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
+
+    #[test]
+    fn what_segmenting_read_is_stored_with_its_tasks_and_reads_back_without_them() {
+        use crate::models::meeting_task::OwedBy;
+
+        let range = Range {
+            start_word_id: Uuid::now_v7(),
+            end_word_id: Uuid::now_v7(),
+        };
+        let project_id = Uuid::now_v7();
+        let taken = Taken {
+            excerpts: Vec::new(),
+            black_outs: vec![range],
+            tasks: vec![
+                TakenTask {
+                    range,
+                    reading: TaskReading {
+                        title: "Send the deck".to_owned(),
+                        owed_by: OwedBy::Named {
+                            name: "Sharath".to_owned(),
+                        },
+                        project_id: Some(project_id),
+                    },
+                },
+                TakenTask {
+                    range,
+                    reading: TaskReading {
+                        title: "Ask legal".to_owned(),
+                        owed_by: OwedBy::Nobody,
+                        project_id: None,
+                    },
+                },
+            ],
+            frames: Vec::new(),
+        };
+
+        let stored = serde_json::to_value(&taken).expect("serializes");
+        assert_eq!(
+            stored["tasks"][0],
+            json!({
+                "range": range,
+                "title": "Send the deck",
+                "owedBy": { "kind": "named", "name": "Sharath" },
+                "projectId": project_id,
+            })
+        );
+        assert_eq!(stored["tasks"][1]["owedBy"], json!({ "kind": "nobody" }));
+        let read: Taken = serde_json::from_value(stored).expect("reads back");
+        assert_eq!(read, taken);
+
+        // An answer stored before tasks were read takes none.
+        let before_tasks = json!({ "excerpts": [], "blackOuts": [range] });
+        let read: Taken = serde_json::from_value(before_tasks).expect("reads");
+        assert!(read.tasks.is_empty());
+    }
 
     fn word(position: i64, speaker: &str, text: &str, start_ms: i64) -> Word {
         Word {
@@ -1453,9 +1811,11 @@ mod tests {
             updated_at: Utc::now(),
             hold_for_approval: false,
             merged_into: None,
+            visibility: "public".to_owned(),
+            visibility_item_id: None,
             deleted_at: None,
         };
-        let document = transcript_document(&meeting, &text, &[]).expect("a document");
+        let document = transcript_document(&meeting, &text, &[], &[]).expect("a document");
         let indexed = document.passages.join("\n");
         assert!(indexed.starts_with("Weekly sync"), "{indexed}");
         assert!(
@@ -1470,7 +1830,7 @@ mod tests {
         let everything = black_out_over(&words[0], &words[7]);
         let silent = MeetingText::new(words, &[everything]);
         assert!(
-            transcript_document(&meeting, &silent, &[]).is_none(),
+            transcript_document(&meeting, &silent, &[], &[]).is_none(),
             "a meeting blacked out whole has nothing to search"
         );
     }
@@ -1879,7 +2239,12 @@ mod tests {
         .await
         .expect("records")
         .expect("a new pair");
-        duplicates::merge(&mut connection, pair.id, TEST_PERSON_ID, Utc::now())
+        // The test person owns both, as only a person's own meetings are compared.
+        let owner = crate::models::meeting::Reader {
+            id: TEST_PERSON_ID,
+            reach: crate::models::meeting::Reach::Public,
+        };
+        duplicates::merge(&mut connection, pair.id, owner, Utc::now())
             .await
             .expect("merges");
         assert!(

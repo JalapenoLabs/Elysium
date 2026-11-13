@@ -1,13 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/meetings/{id}/captures/{captureId}/transcript`: one capture of one of the
-//! signed-in person's meetings, read exactly as it came, for its page's switch between the final
+//! `GET /api/v1/meetings/{id}/captures/{captureId}/transcript`: one capture of a meeting the
+//! signed-in person may read, read exactly as it came, for its page's switch between the final
 //! transcript and each capture's own.
 //!
 //! A capture's own is its source's lines, or Whisper's segments for a source that sent none
 //! (`basedOn`); `null` while nothing was heard. Its times are moved onto the meeting's clock by
-//! the capture's offset, the clock everything else on the page is on. `404` for a meeting that is
-//! not theirs, or a capture that is not the meeting's.
+//! the capture's offset, the clock everything else on the page is on. `404` for a meeting they may
+//! not read, or a capture that is not the meeting's.
 
 use anyhow::Context;
 use axum::Json;
@@ -18,9 +18,11 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::meetings::access::Need;
 use crate::meetings::correction;
 use crate::meetings::source::TranscriptLine;
-use crate::models::{meeting, meeting_capture, meeting_transcription};
+use crate::models::{meeting_capture, meeting_transcription};
+use crate::routes::v1::meetings::open;
 use crate::state::AppState;
 use crate::whisper::WhisperTranscript;
 
@@ -35,7 +37,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let found = meeting::find_owned(&mut connection, id, current.id()).await?;
+    let (found, _access) = open(&mut connection, id, &current, Need::Read).await?;
     let capture = meeting_capture::find(&mut connection, capture_id).await?;
     if capture.meeting_id != found.id {
         return Err(ApiError::NotFound);

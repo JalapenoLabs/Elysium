@@ -27,7 +27,9 @@
     "projects": "Projects",
     "started": "Started",
     "duration": "Duration",
-    "excerpts": "Excerpts"
+    "excerpts": "Excerpts",
+    "visibility": "Who reads it",
+    "owner": "Owner"
   },
   "filters": {
     "project": "Project",
@@ -45,7 +47,7 @@
   },
   "page": {
     "missingTitle": "Meeting not found",
-    "missing": "This meeting is gone, or it is someone else's.",
+    "missing": "This meeting is gone, or it is private and not shared with you.",
     "openAtSource": "Open in {{source}}",
     "openRun": "Open its run",
     "approve": "Approve",
@@ -117,7 +119,8 @@
       "assigned": "Taken into {{project}}",
       "loading": "Loading its projects",
       "loadError": "Its projects could not be loaded.",
-      "onNoProject": "On no project",
+      "projects": "Its projects",
+      "unknownProject": "A project",
       "remove": "Remove excerpt",
       "removed": "Excerpt removed"
     },
@@ -248,13 +251,67 @@
         "addedTranscript": "Added a transcript",
         "threadResolved": "Resolved a comment thread",
         "threadReopened": "Reopened a comment thread",
+        "opened": "Opened it to everyone",
+        "madePrivate": "Made it private",
+        "leftToCorrection": "Left who reads it to Elysia’s check",
+        "openedByCorrection": "Opened it to everyone: nothing in it reads as sensitive",
+        "keptPrivateByCorrection": "Kept it private as sensitive",
+        "keptPrivateUndecided": "Kept it private, unable to tell whether it is sensitive",
+        "shared": "Shared it with {{person}}",
+        "unshared": "Stopped sharing it with {{person}}",
         "segmented": "Took its excerpts and black-outs",
         "reviewDone": "Finished reviewing it, so it is read again",
+        "attachedFile": "Attached “{{after}}”",
+        "attachedFrame": "Pinned a frame of the video",
+        "detachedFile": "Took “{{after}}” off the meeting",
+        "detachedFrame": "Took a frame off the meeting",
+        "pinned": "Pinned a file or frame over its words",
+        "unpinned": "Unpinned a file or frame",
         "deleted": "Deleted the meeting",
         "deletedWithConnector": "Deleted the meeting with its connector",
         "restored": "Restored the meeting",
         "changed": "Changed the meeting"
       }
+    },
+    "files": {
+      "title": "Files and frames",
+      "attach": "Attach files",
+      "attaching": "Attaching {{name}}",
+      "attached": "Attached “{{name}}”",
+      "detached": "Took “{{name}}” off",
+      "detachFile": "Take {{name}} off the meeting",
+      "detachFrame": "Take this frame off the meeting",
+      "download": "Download {{name}}",
+      "empty": "No files or frames yet. Attach a file, or press F on the player to pin what it shows.",
+      "loadError": "Its files and frames could not be loaded.",
+      "noDestination": "Files and frames need a storage location. An admin chooses one in Settings, Storage, Attachments.",
+      "limit": "Files up to {{size}}",
+      "storing": "Storing",
+      "textPending": "Reading its text",
+      "textRead": "Searchable",
+      "textNone": "Kept as it is",
+      "textUnreadable": "Its text could not be read",
+      "frameAlt": "A frame of the meeting's video",
+      "refused": "{{name}} was not attached",
+      "refusedEmpty": "The file is empty.",
+      "refusedTooLarge": "Meetings take files up to {{size}}.",
+      "refusedNowhere": "An admin has not chosen where files go yet.",
+      "pinFrame": "Pin a frame",
+      "pinFrameHint": "Pin what the video shows now, with a caption (F)",
+      "pinTitle": "Pin the frame at {{moment}}",
+      "stillAlt": "The frame being pinned",
+      "stillFailed": "The video's picture could not be taken. Try again once it has loaded.",
+      "pinnedOverWords": "Over “{{words}}”",
+      "caption": "What it shows",
+      "pin": "Pin",
+      "framePinned": "Frame pinned",
+      "pinned": "Pinned",
+      "unpinned": "Unpinned",
+      "pinnedHere": "Files and frames pinned here, which go with it to its projects",
+      "nothingPinned": "Nothing pinned here yet.",
+      "pinHere": "Pin a file or frame",
+      "pinHereLabel": "Files and frames to pin over this excerpt",
+      "unpin": "Unpin {{name}}"
     }
   },
   "delete": {
@@ -265,11 +322,15 @@
     "refusedOne": "Left “{{title}}” as it is, since it changed meanwhile.",
     "refusedMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since they changed meanwhile.",
     "refusedMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since they changed meanwhile.",
+    "notTheirsOne": "Left “{{title}}” as it is, since only its owner or an admin deletes or restores it.",
+    "notTheirsMore_one": "Left “{{title}}” and {{count, compact}} more as they are, since only each one's owner or an admin deletes or restores it.",
+    "notTheirsMore_other": "Left “{{title}}” and {{count, compact}} more as they are, since only each one's owner or an admin deletes or restores it.",
     "restore": "Restore",
     "state": "Deleted",
     "deletedTitle": "This meeting is deleted",
     "deletedOn": "Deleted on",
-    "readOnly": "Restore it to change it."
+    "readOnly": "Restore it to change it.",
+    "readOnlyUntilRestored": "It changes once its owner or an admin restores it."
   },
   "sameMeeting": {
     "heading": "Same meeting?",
@@ -285,6 +346,27 @@
   "threadLink": {
     "heading": "Comment thread",
     "open": "Open the thread"
+  },
+  "tasks": {
+    "heading": "Tasks",
+    "own": "Yours",
+    "other": "Other",
+    "waitingOn": "Waiting on {{name}}",
+    "unknownProject": "A project",
+    "groupLabel_one": "{{name}}: {{formattedCount}} task",
+    "groupLabel_other": "{{name}}: {{formattedCount}} tasks",
+    "showWords": "Show in the transcript",
+    "status": {
+      "proposed": "Proposed, waiting for approval",
+      "declined": "No item: {{reason}}",
+      "waiting": "Waiting for its Project Manager",
+      "removed": "Its item was deleted"
+    }
+  },
+  "taskLink": {
+    "heading": "From a meeting",
+    "open": "Open in {{title}}",
+    "openUntitled": "Open in the meeting"
   },
   "upload": {
     "action": "Upload a meeting",
@@ -340,6 +422,34 @@
       "label": "Upload progress",
       "sending": "Sending {{received}} of {{total}}",
       "finishing": "Starting on the meeting"
+    }
+  },
+  "visibility": {
+    "heading": "Who reads it",
+    "unchecked": "Private until checked",
+    "private": "Private",
+    "public": "Everyone",
+    "owner": "{{owner}}’s meeting",
+    "sharedWith": "Shared with",
+    "open": "Open to everyone",
+    "makePrivate": "Make private",
+    "opened": "Meeting opened to everyone",
+    "madePrivate": "Meeting made private",
+    "share": "Share with…",
+    "nobodyToShareWith": "Nobody else to share it with",
+    "shared": "Shared with {{person}}",
+    "stopSharing": "Stop sharing with {{person}}",
+    "stoppedSharing": "Stopped sharing with {{person}}",
+    "alreadySo": "Someone made that change already.",
+    "decisions": {
+      "opened": "Elysia opened it: nothing in it reads as sensitive.",
+      "keptPrivate": "Elysia kept it private as sensitive.",
+      "keptPrivateBecause": "Elysia kept it private: {{why}}",
+      "undecided": "Elysia could not tell whether it is sensitive, so it stays private."
+    },
+    "keptPrivateItem": {
+      "heading": "The meeting kept private",
+      "open": "Open the meeting"
     }
   }
 }
