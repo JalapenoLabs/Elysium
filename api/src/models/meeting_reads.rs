@@ -164,20 +164,20 @@ pub async fn of_turn(connection: &mut AsyncPgConnection, turn: Turn) -> QueryRes
     }
 }
 
-/// Gives session turn `turn_id` every meeting the earlier turns of its session read: each turn
-/// resumes the one before, so it carries what they read, and a session is one person's one piece
-/// of work. Call it as the turn starts, before anything it writes.
+/// Gives session turn `turn_id` every meeting its session's turns read so far: each turn resumes
+/// the one before, so it carries what they read, and a session is one person's one piece of work.
+/// Call it as the turn starts, before anything it writes. A session runs one turn at a time, so
+/// all it read so far came before this turn; reading it by the session rather than by its turns'
+/// rows means a turn's row being gone never lets the next one start unheld.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn carry_session(connection: &mut AsyncPgConnection, turn_id: Uuid) -> QueryResult<()> {
     diesel::sql_query(
         "INSERT INTO session_turn_meetings (session_id, turn_id, meeting_id)
-         SELECT DISTINCT this.session_id, this.id, earlier_read.meeting_id
+         SELECT DISTINCT this.session_id, this.id, session_read.meeting_id
          FROM session_turns this
-         JOIN session_turns earlier
-             ON earlier.session_id = this.session_id AND earlier.queued_at < this.queued_at
-         JOIN session_turn_meetings earlier_read ON earlier_read.turn_id = earlier.id
+         JOIN session_turn_meetings session_read ON session_read.session_id = this.session_id
          WHERE this.id = $1
          ON CONFLICT DO NOTHING",
     )

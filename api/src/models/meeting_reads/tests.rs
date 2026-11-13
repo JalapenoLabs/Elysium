@@ -245,7 +245,11 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
     .await
     .expect("a session");
     let mut turns = Vec::new();
-    for prompt in ["Read the one-to-one.", "Now write the plan."] {
+    for prompt in [
+        "Read the one-to-one.",
+        "Now write the plan.",
+        "Then the summary.",
+    ] {
         let turn = session_turn::queue(
             &mut connection,
             &NewSessionTurn {
@@ -262,10 +266,11 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
     }
 
     // The first turn read the meeting through a tool; the second starts afterwards.
+    let session_id = session.id;
     keep(
         &mut connection,
         Turn::Session {
-            session_id: session.id,
+            session_id,
             turn_id: turns[0],
         },
         &[private],
@@ -276,37 +281,50 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
         .await
         .expect("carried");
     assert_eq!(
-        of_turn(
-            &mut connection,
-            Turn::Session {
-                session_id: session.id,
-                turn_id: turns[1],
-            }
-        )
-        .await
-        .expect("read"),
+        session_read(&mut connection, session_id, turns[1]).await,
         [private],
         "it resumes the turn that read the meeting, so it carries it"
     );
-    // Carrying again changes nothing, and a turn carries nothing of its own later turns.
+    // Carrying again changes nothing.
     carry_session(&mut connection, turns[1])
         .await
         .expect("carried");
-    carry_session(&mut connection, turns[0])
+    assert_eq!(
+        session_read(&mut connection, session_id, turns[1]).await,
+        [private]
+    );
+
+    // With the turns that read it gone from the queue, the next one still carries the meeting:
+    // what holds it back is the session's, which it resumes.
+    diesel::sql_query("DELETE FROM session_turns WHERE id = ANY($1)")
+        .bind::<Array<SqlUuid>, _>(&turns[..2])
+        .execute(&mut connection)
+        .await
+        .expect("the earlier turns' rows are gone");
+    carry_session(&mut connection, turns[2])
         .await
         .expect("carried");
     assert_eq!(
-        of_turn(
-            &mut connection,
-            Turn::Session {
-                session_id: session.id,
-                turn_id: turns[0],
-            }
-        )
-        .await
-        .expect("read"),
+        session_read(&mut connection, session_id, turns[2]).await,
         [private]
     );
+}
+
+/// What turn `turn_id` of session `session_id` read.
+async fn session_read(
+    connection: &mut AsyncPgConnection,
+    session_id: i64,
+    turn_id: Uuid,
+) -> Vec<Uuid> {
+    of_turn(
+        connection,
+        Turn::Session {
+            session_id,
+            turn_id,
+        },
+    )
+    .await
+    .expect("read")
 }
 
 #[tokio::test]

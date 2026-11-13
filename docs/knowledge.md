@@ -108,7 +108,10 @@ every agent reads what its work needs; only what it writes is held back.
   what their reader may read, and a held turn's live event carries its ids alone, for each client to load what it may.
 - **A Project Manager reads its project.** It reads every record on its project's timeline. Its listing
   (`manager_timeline`) names an excerpt of a meeting that is not public without its words, so browsing its timeline
-  holds nothing back; `manager_record` reads one whole, which does.
+  holds nothing back; `manager_record` reads one whole, which does. Its own batches it reads whole, in its prompt and
+  through `manager_batches`, since it plans, answers, and cancels them by what they say: once it proposes a batch from
+  a private meeting, each later turn that reads that batch, as most turns woken by its progress do, is held to the
+  meeting until it opens.
 - **Unsure, unread.** An excerpt that names no meeting, which nobody could be told may read what an agent wrote from
   it, is never handed to an agent, as it is indexed for nobody.
 - **The company doc reads as any member.** The doc is everyone's, so its review reads only the records every member may
