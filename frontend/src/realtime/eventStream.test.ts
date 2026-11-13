@@ -260,12 +260,12 @@ describe('a session turn that read a meeting', () => {
 
   it<SessionContext>('loads the conversation again once for each burst of held events', (context) => {
     const sessionReloads = () => context.reloads.mock.calls
-      .filter(([key]) => key === 'v1/coding-sessions/7/events')
+      .filter(([ key ]) => key === 'v1/coding-sessions/7/events')
 
     context.eventStream.startEventStream()
     stream().open()
     stream().send({ type: 'hello' })
-    for (const sequence of [4, 5, 6]) {
+    for (const sequence of [ 4, 5, 6 ]) {
       stream().send({ type: 'session.eventHeld', data: { sessionId: 7, sequence }})
     }
     stream().send({ type: 'session.summaryChanged', data: { sessionId: 7, turnId: 'a' }})
