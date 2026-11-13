@@ -870,13 +870,15 @@ immediate, and restoring brings back all of it.
   meeting recorded twice, and segmenting keeps what it read but takes no excerpt. The deletion takes the same lock, so
   no excerpt of a deleted meeting is ever on a timeline. Done reviewing a deleted meeting is refused (`409
   meeting_deleted`), as every change is. A run held for its person (an approval, or the same meeting twice) stays held,
-  and a meeting with no run yet starts none. The inbox items already asking its person something about it (to approve
-  its corrected transcript while the copy waits, and whether to open it once its correction kept it private) are
-  dismissed, as whoever deletes it, in the deletion's transaction (`deletion::dismiss_asks`), so nothing asks anyone
-  about a meeting that is deleted; the `deleted` entry names each and where it stood (`dismissedItems`), and restoring
-  returns each still dismissed there, to the inbox it was raised in or to open (`action_item::return_to`, as a
-  changeset's undo returns an item). One the person dealt with by hand meanwhile stays as they left it. A step running when the meeting was deleted finishes its attempt, and the step after
-  it stops.
+  and a meeting with no run yet starts none. The inbox items already asking its own person to decide something about it
+  (to approve its corrected transcript while the copy waits, and whether to open it once its correction kept it private)
+  are dismissed, as whoever deletes it, in the deletion's transaction (`deletion::dismiss_asks`); the `deleted` entry
+  names each and where it stood (`dismissedItems`), and restoring returns each still dismissed there, to the inbox it
+  was raised in or to open (`action_item::return_to`, as a changeset's undo returns an item). One the person dealt with
+  by hand meanwhile stays as they left it. Other items about it stay: a mention is the coworker's own and opens the
+  deleted meeting read only, the item asking whether it is the same meeting as another answers Merge with
+  `meeting_deleted` and still takes Not the same, and the items made of its tasks are commitments that stand. A step
+  running when the meeting was deleted finishes its attempt, and the step after it stops.
 - **Never read again.** Its captures stay, so its connector's next listing finds each one known
   (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
   its key or its browser, Teams, and Slack's huddles alike. An upload is never listed; a deleted meeting takes no

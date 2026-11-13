@@ -22,17 +22,20 @@
 //!   and indexes each again as it reads now.
 //! - **Its run stops.** Every meeting step fails for good on a deleted meeting with [`STOPPED`], at
 //!   its start and again under the meeting's lock where it would settle words, raise an inbox item,
-//!   or take its excerpts, so a deleted meeting asks nothing of its person, puts nothing on a
-//!   timeline, and indexes nothing. The inbox items it raised already, asking its person something
-//!   about it (to approve its corrected transcript, and whether to open it once its correction kept
-//!   it private), are dismissed as whoever deletes it ([`dismiss_asks`]), the `deleted` entry naming
-//!   each and where it stood, and restoring returns each still dismissed there, the inbox or open
-//!   ([`return_asks`]), so a connector's removal that fails and restores what it deleted leaves the
-//!   asks as they were too. Restoring retries the step that
-//!   stopped: the failed step of the meeting's newest run of each meeting workflow that failed
-//!   after the deletion, whatever it failed with, since nobody saw a meeting that was listed
-//!   nowhere. A run that failed before the deletion waits for its person as it did, and a held run
-//!   stays held, its meeting's row and page saying it waits.
+//!   or take its excerpts, so a deleted meeting raises no new inbox item, puts nothing on a
+//!   timeline, and indexes nothing. The items it raised already asking its own person to decide
+//!   something about it (to approve its corrected transcript, and whether to open it once its
+//!   correction kept it private) are dismissed as whoever deletes it ([`dismiss_asks`]), the
+//!   `deleted` entry naming each and where it stood, and restoring returns each still dismissed
+//!   there, the inbox or open ([`return_asks`]), so a connector's removal that fails and restores
+//!   what it deleted leaves those as they were too. Other items about it stay where they are: a
+//!   mention is the coworker's own, and opens the deleted meeting read only; the item asking
+//!   whether it is the same meeting as another answers Merge with `meeting_deleted` and still takes
+//!   Not the same; and the items made of its tasks are commitments that stand. Restoring retries
+//!   the step that stopped: the failed step of the meeting's newest run of each meeting workflow
+//!   that failed after the deletion, whatever it failed with, since nobody saw a meeting that was
+//!   listed nowhere. A run that failed before the deletion waits for its person as it did, and a
+//!   held run stays held, its meeting's row and page saying it waits.
 //!
 //! Each deletion and restore is in the meeting's history (`deleted`, `restored`) with who did it.
 //! Neither is undone through the history: restoring is the undo of deleting, and deleting again
@@ -168,9 +171,10 @@ pub struct Changed {
 
 /// An inbox item a deletion dismissed, and where it stood: the inbox, where it was raised, or open,
 /// once its person accepted it. The `deleted` entry records each (`dismissedItems`), and restoring
-/// returns each there.
+/// returns each there. It is read back from history rather than a request, so it takes fields it
+/// does not know: an entry a later version wrote still returns its items under this one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 struct DismissedItem {
     id: Uuid,
     from: ActionItemState,
@@ -197,8 +201,9 @@ impl From<DieselError> for Failure {
 
 /// Applies `change` to every meeting in `meeting_ids`, at most [`MAX_MEETINGS`], as `person` at
 /// `at`, each one they may manage. Each is changed once, in the order of their ids, so two changes
-/// over the same meetings lock them in one order. `removed_with` names the connector the meetings are deleted with, which
-/// their history records. Nothing is announced: the caller does, once it commits ([`announce`]).
+/// over the same meetings lock them in one order. `removed_with` names the connector the meetings
+/// are deleted with, which their history records. Nothing is announced: the caller does, once it
+/// commits ([`announce`]).
 ///
 /// # Errors
 /// Propagates any database error, which writes nothing. A meeting refused is reported in
@@ -397,8 +402,9 @@ async fn asks_of(
 }
 
 /// Dismisses, as `author`, every item [`asks_of`] finds for `locked`, the meeting being deleted,
-/// under the lock every change to it takes: nothing asks its person about a meeting that is
-/// deleted. Answers each dismissed with where it stood, for the `deleted` entry, and as written.
+/// under the lock every change to it takes: nothing asks its person to decide something about a
+/// meeting that is deleted. Answers each dismissed with where it stood, for the `deleted` entry,
+/// and as written.
 async fn dismiss_asks(
     connection: &mut AsyncPgConnection,
     locked: &Meeting,
