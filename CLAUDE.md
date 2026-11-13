@@ -816,8 +816,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 ## CI
 
-- GitHub Actions on the org's self-hosted runners (`[ self-hosted, linux, rocky9, docker ]`). The runners are
-  persistent and warm, so workflows never use `actions/cache`. See `docs/ci.md`.
+- GitHub Actions. `API migrations` runs on GitHub-hosted `ubuntu-24.04` (pinned, never `ubuntu-latest`) and restores
+  the crate's compiled dependencies with `Swatinem/rust-cache`. Every other job runs on the org's self-hosted runners
+  (`[ self-hosted, linux, rocky9, docker ]`), which are persistent and warm and use no `actions/cache`, until #271
+  moves them. See `docs/ci.md`.
 - Every build and test run uses at most 4 cores: `jobs = 4` and `RUST_TEST_THREADS = "4"` in each crate's
   `.cargo/config.toml`, and `--maxWorkers=4` in the frontend's `yarn test`. Run one Docker image build at a time,
   with `--build-arg CARGO_BUILD_JOBS=4`.
