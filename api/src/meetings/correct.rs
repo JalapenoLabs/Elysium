@@ -1256,11 +1256,19 @@ async fn resolve_review_item(
     }
 }
 
-/// Dismisses, as `person` at `now`, the open inbox item asking them to approve meeting
-/// `meeting_id`'s corrected copy, for a meeting they deleted: nothing asks its person to review
-/// what they deleted (`super::deletion`). A run held for the approval stays held, so the meeting's
-/// row and page still say it waits once it is restored, and Approve there lets it go on. Answers
-/// the item dismissed, if one was.
+/// The review item deleting a meeting dismissed ([`dismiss_review`]), and where it stood before:
+/// the inbox, where correction raises it, or open, once its person accepted it. Restoring the
+/// meeting returns it there ([`return_review`]).
+pub(crate) struct DismissedReview {
+    pub item: Recorded<ActionItem>,
+    pub from: ActionItemState,
+}
+
+/// Dismisses, as `person` at `now`, the inbox item asking them to approve meeting `meeting_id`'s
+/// corrected copy, while it is in the inbox or open, for a meeting they deleted: nothing asks its
+/// person to review what they deleted (`super::deletion`). A run held for the approval stays held,
+/// so the meeting's row and page still say it waits once it is restored, and Approve there lets it
+/// go on. Answers the item dismissed and where it stood, if one was.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -1269,7 +1277,7 @@ pub(crate) async fn dismiss_review(
     meeting_id: Uuid,
     person: Uuid,
     now: chrono::DateTime<Utc>,
-) -> diesel::QueryResult<Option<Recorded<ActionItem>>> {
+) -> diesel::QueryResult<Option<DismissedReview>> {
     let Some(correction) = meeting_correction::find(connection, meeting_id).await? else {
         return Ok(None);
     };
@@ -1279,27 +1287,39 @@ pub(crate) async fn dismiss_review(
     else {
         return Ok(None);
     };
+    // Read under the meeting's lock the deletion holds, which every change to its review takes.
+    let from = match action_item::find(connection, item_id).await {
+        Ok(item) if item.deleted_at.is_none() => item.state,
+        Ok(_) | Err(diesel::result::Error::NotFound) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    // Resolved or dismissed already: the person dealt with it first.
+    if !matches!(from, ActionItemState::Inbox | ActionItemState::Open) {
+        return Ok(None);
+    }
     let dismissing = Actor::User(person);
     match action_item::transition(connection, item_id, Transition::Dismiss, dismissing, now).await {
-        Ok(dismissed) => Ok(Some(dismissed)),
+        Ok(item) => Ok(Some(DismissedReview { item, from })),
         Err(WorkError::Database(diesel::result::Error::NotFound)) => Ok(None),
         Err(WorkError::Database(error)) => Err(error),
-        // Already resolved or dismissed, or deleted: the person dealt with it first.
+        // Changed in the instant since it was read: it stays as that change left it.
         Err(_refused) => Ok(None),
     }
 }
 
-/// Reopens, as `person` at `now`, review item `item_id` that deleting meeting `meeting_id`
-/// dismissed ([`dismiss_review`]), as the meeting is restored, while its corrected copy still waits
-/// for approval and the item is still dismissed. It reopens as `open`, the one way back an item
-/// has. Answers the item reopened, if it was.
+/// Returns, as `person` at `now`, review item `item_id` that deleting meeting `meeting_id`
+/// dismissed ([`dismiss_review`]) to `from`, where it stood before, as the meeting is restored,
+/// while its corrected copy still waits for approval and the item is still dismissed: one raised
+/// in the inbox goes back to the inbox, as a changeset's undo returns an item
+/// (`action_item::return_to`). Answers the item returned, if it was.
 ///
 /// # Errors
 /// Propagates any database error.
-pub(crate) async fn reopen_review(
+pub(crate) async fn return_review(
     connection: &mut AsyncPgConnection,
     meeting_id: Uuid,
     item_id: Uuid,
+    from: ActionItemState,
     person: Uuid,
     now: chrono::DateTime<Utc>,
 ) -> diesel::QueryResult<Option<Recorded<ActionItem>>> {
@@ -1315,9 +1335,9 @@ pub(crate) async fn reopen_review(
     if !waits || !still_dismissed {
         return Ok(None);
     }
-    let reopening = Actor::User(person);
-    match action_item::transition(connection, item_id, Transition::Reopen, reopening, now).await {
-        Ok(reopened) => Ok(Some(reopened)),
+    let returning = Actor::User(person);
+    match action_item::return_to(connection, item_id, from, returning, now).await {
+        Ok(returned) => Ok(Some(returned)),
         Err(WorkError::Database(error)) => Err(error),
         // Changed in the instant since it was read: it stays as that change left it.
         Err(_refused) => Ok(None),

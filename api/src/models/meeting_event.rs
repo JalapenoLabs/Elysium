@@ -63,12 +63,13 @@ pub enum EventKind {
     /// Its person said they were done reviewing it, which segments it again: `{}`.
     ReviewDone,
     /// Its person deleted it (`crate::meetings::deletion`): `{ excerpts, connectorId,
-    /// dismissedItemId }`, how many excerpts went with it, the connector it was removed with
-    /// (`null` when it went alone), and the review item it dismissed, or `null`.
+    /// dismissedItemId, dismissedItemFrom }`, how many excerpts went with it, the connector it was
+    /// removed with (`null` when it went alone), and the review item it dismissed and the state it
+    /// left (`inbox` or `open`), or `null`.
     Deleted,
-    /// Its person restored it: `{ deletedAt, excerpts, runRetried, reopenedItemId }`, the deletion
+    /// Its person restored it: `{ deletedAt, excerpts, runRetried, returnedItemId }`, the deletion
     /// it reversed, how many excerpts came back, whether the run that deletion stopped went on, and
-    /// the review item it reopened, or `null`.
+    /// the review item it returned to where it stood, or `null`.
     Restored,
 }
 

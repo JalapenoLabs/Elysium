@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::responses;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::meetings::deletion::{self, BulkChange, MAX_MEETINGS};
+use crate::meetings::deletion::{self, BulkChange, MAX_MEETINGS, Outcome};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -68,13 +68,8 @@ pub async fn handle(
         None,
     )
     .await?;
-    let changed = outcome
-        .changed
-        .iter()
-        .map(|changed| changed.meeting.clone())
-        .collect();
-    let refused = outcome.refused.clone();
-    deletion::announce(&state.events, &mut connection, outcome).await;
+    let Outcome { changed, refused } = outcome;
+    let changed = deletion::announce(&state.events, &mut connection, changed).await;
 
     let meetings = responses(&mut connection, changed).await?;
     Ok(Json(json!({ "meetings": meetings, "refused": refused })))

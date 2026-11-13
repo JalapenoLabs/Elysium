@@ -40,8 +40,8 @@ const ASKED_CONFIDENCE: f32 = 0.9;
 
 /// What both tools answer for a meeting its person deleted, which changes no further until they
 /// restore it.
-const DELETED_REFUSAL: &str = "this meeting was deleted, so nothing changes it until its person restores it; nothing was \
-     changed";
+const DELETED_REFUSAL: &str =
+    "this meeting was deleted, so nothing changes it until its person restores it; nothing changed";
 
 pub fn edit_schema() -> Value {
     json!({

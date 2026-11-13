@@ -2,8 +2,9 @@
 
 //! Deleting meetings and restoring them, end to end against Postgres (#258): one or many at once,
 //! each refusal named; a meeting's excerpts and its transcript leaving every timeline and the
-//! knowledge index and coming back with their attributions, a removed excerpt staying removed; its run stopping and carrying on; every source's next
-//! listing leaving a deleted meeting deleted; and nothing changing it meanwhile. See
+//! knowledge index and coming back with their attributions, a removed excerpt staying removed; its
+//! review item dismissed and returned to where it stood; its run stopping and carrying on; every
+//! source's next listing leaving a deleted meeting deleted; and nothing changing it meanwhile. See
 //! `docs/meetings.md`, Deleting.
 
 use std::sync::Arc;
@@ -351,7 +352,12 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
     assert_eq!(entry.created_by, TEST_PERSON_ID, "who deleted it is kept");
     assert_eq!(
         entry.data,
-        json!({ "excerpts": 2, "connectorId": null, "dismissedItemId": null })
+        json!({
+            "excerpts": 2,
+            "connectorId": null,
+            "dismissedItemId": null,
+            "dismissedItemFrom": null,
+        })
     );
 
     let restored = change(&mut connection, vec![launch.id], BulkChange::Restore {}).await;
@@ -388,7 +394,7 @@ async fn a_deleted_meetings_excerpts_leave_every_timeline_and_the_index_and_rest
             "deletedAt": deleted_at,
             "excerpts": 2,
             "runRetried": false,
-            "reopenedItemId": null,
+            "returnedItemId": null,
         })
     );
 }
@@ -544,7 +550,8 @@ async fn item_state(connection: &mut AsyncPgConnection, item_id: Uuid) -> Action
 }
 
 // A deleted meeting asks nothing of its person, so the item already asking them to approve its
-// corrected transcript is dismissed with it; restoring asks again, as the correction still waits.
+// corrected transcript is dismissed with it; restoring asks again where it asked before, in the
+// inbox, as the correction still waits.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript() {
@@ -563,19 +570,57 @@ async fn deleting_a_meeting_dismisses_the_item_asking_to_approve_its_transcript(
         deleted.changed[0].entry.data["dismissedItemId"],
         json!(review_id)
     );
+    assert_eq!(
+        deleted.changed[0].entry.data["dismissedItemFrom"],
+        json!("inbox")
+    );
 
     let restored = change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
-    let reopened = restored.changed[0].item.as_ref().expect("reopened");
-    assert_eq!(reopened.record.id, review_id);
+    let returned = restored.changed[0].item.as_ref().expect("returned");
+    assert_eq!(returned.record.id, review_id);
     assert_eq!(
         item_state(&mut connection, review_id).await,
-        ActionItemState::Open
+        ActionItemState::Inbox,
+        "back in the inbox it was raised in, not opened"
+    );
+    assert_eq!(
+        restored.changed[0].entry.data["returnedItemId"],
+        json!(review_id)
     );
     let correction = meeting_correction::find(&mut connection, held.id)
         .await
         .expect("reads")
         .expect("kept");
     assert_eq!(correction.approved_at, None);
+}
+
+// A review item its person accepted before deleting the meeting comes back accepted.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn restoring_returns_an_accepted_review_item_to_open() {
+    let (_url, mut connection) = migrated_database().await;
+    let (held, _) = stored(&mut connection).await;
+    let review_id = waiting_for_review(&mut connection, &held).await;
+    action_item::transition(
+        &mut connection,
+        review_id,
+        crate::action_items::Transition::Accept,
+        Actor::User(TEST_PERSON_ID),
+        Utc::now(),
+    )
+    .await
+    .expect("accepted");
+
+    let deleted = change(&mut connection, vec![held.id], BulkChange::Delete {}).await;
+    assert_eq!(
+        deleted.changed[0].entry.data["dismissedItemFrom"],
+        json!("open")
+    );
+    change(&mut connection, vec![held.id], BulkChange::Restore {}).await;
+    assert_eq!(
+        item_state(&mut connection, review_id).await,
+        ActionItemState::Open
+    );
 }
 
 // An item the person dealt with by hand while the meeting was deleted stays as they left it.

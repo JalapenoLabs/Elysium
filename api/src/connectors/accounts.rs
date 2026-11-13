@@ -87,9 +87,9 @@ pub async fn summaries(
     Ok(summaries)
 }
 
-/// How many things each connector has recorded: timeline records for those that ingest, but for
-/// those deleted with their meeting, and linked issues and pull requests for Jira and GitHub. By
-/// connector id.
+/// How many things each connector has recorded: timeline records for those that ingest, leaving
+/// out those deleted with their meeting, and linked issues and pull requests for Jira and GitHub.
+/// By connector id.
 ///
 /// # Errors
 /// Propagates any database error.

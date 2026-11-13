@@ -783,18 +783,19 @@ immediate, and restoring brings back all of it.
   leaves it out (`excerpts::index_transcript`). Its recording, its clips, its transcripts, and its marks stay where
   they are, as a deleted page keeps its files (`docs/knowledge.md`, Pages).
 - **Its run stops.** Every step of the meeting workflow, and of the alignment workflow a merge or a split starts, fails
-  for good on a deleted meeting with one reason, "This meeting was deleted, so its run stopped here", read at the
-  step's start and again under the meeting's lock where it would settle words, raise an inbox item, or take excerpts:
+  for good on a deleted meeting with one reason, "This meeting was deleted, so its run stopped here", read at the step's
+  start and again under the meeting's lock where it would settle words, raise an inbox item, or take excerpts:
   correction settles nothing, or keeps the copy it settled but asks nobody to review it, aligning asks nothing about a
-  meeting recorded twice, and segmenting keeps what it read but takes no excerpt. The deletion takes the same lock, so no excerpt of a deleted
-  meeting is ever on a timeline. Done reviewing a deleted meeting is refused (`409 meeting_deleted`), as every change
-  is. A run held for its person (an approval, or the same meeting twice)
-  stays held, and a meeting with no run yet starts none. The inbox item already asking its person to approve its
-  corrected transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`), so nothing
-  asks them to review what they deleted; the `deleted` entry names it, and restoring reopens that item while the copy
-  still waits and the item is still dismissed (`correct::reopen_review`), as `open`, the one way back an item has. One
-  the person dealt with by hand meanwhile stays as they left it. A step running when the meeting was deleted finishes
-  its attempt, and the step after it stops.
+  meeting recorded twice, and segmenting keeps what it read but takes no excerpt. The deletion takes the same lock, so
+  no excerpt of a deleted meeting is ever on a timeline. Done reviewing a deleted meeting is refused (`409
+  meeting_deleted`), as every change is. A run held for its person (an approval, or the same meeting twice) stays held,
+  and a meeting with no run yet starts none. The inbox item already asking its person to approve its corrected
+  transcript is dismissed, as them, in the deletion's transaction (`correct::dismiss_review`), so nothing asks them to
+  review what they deleted; the `deleted` entry names it and where it stood, and restoring returns that item there, to
+  the inbox it was raised in or to open (`action_item::return_to`, as a changeset's undo returns an item), while the
+  copy still waits and the item is still dismissed (`correct::return_review`). One the person dealt with by hand
+  meanwhile stays as they left it. A step running when the meeting was deleted finishes its attempt, and the step after
+  it stops.
 - **Never read again.** Its captures stay, so its connector's next listing finds each one known
   (`meeting_capture::known_external_ids`) and stores nothing: every source lists through that one store, Fireflies by
   its key or its browser, Teams, and Slack's huddles alike. An upload is never listed; a deleted meeting takes no
@@ -1039,8 +1040,8 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
 | `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
-| `deleted`             | Its person deleted it: how many excerpts' records went with it (`segments`), the connector it was removed with, if it was, and the review item it dismissed (`dismissedItemId`), if it did | None: restoring brings it back |
-| `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`segments`), whether the run that deletion stopped went on, and the review item it reopened (`reopenedItemId`), if it did | None: deleting takes it again |
+| `deleted`             | Its person deleted it: how many excerpts' records went with it (`excerpts`), the connector it was removed with, if it was, and the review item it dismissed (`dismissedItemId`) and the state it left (`dismissedItemFrom`), if it did | None: restoring brings it back |
+| `restored`            | Its person restored it: the deletion it reversed (`deletedAt`), how many excerpts' records came back (`excerpts`), whether the run that deletion stopped went on, and the review item it returned to where it stood (`returnedItemId`), if it did | None: deleting takes it again |
 
 ## Comments
 

@@ -111,7 +111,7 @@ async fn delete_meetings_of(
             );
         }
         deleted.extend(outcome.changed.iter().map(|changed| changed.meeting.id));
-        deletion::announce(&state.events, &mut connection, outcome).await;
+        deletion::announce(&state.events, &mut connection, outcome.changed).await;
     }
     Ok(deleted)
 }
@@ -139,7 +139,7 @@ async fn restore(state: &AppState, meeting_ids: &[Uuid], person: Uuid) {
                 None,
             )
             .await?;
-            deletion::announce(&state.events, &mut connection, outcome).await;
+            deletion::announce(&state.events, &mut connection, outcome.changed).await;
         }
         anyhow::Ok(())
     }

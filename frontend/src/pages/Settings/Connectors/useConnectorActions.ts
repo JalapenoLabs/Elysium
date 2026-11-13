@@ -45,10 +45,6 @@ type Options = {
   onDeleted?: () => void
 }
 
-// Every action is tracked while it works. Delete works only while it counts the meetings its
-// dialog offers to delete; the dialog then shows the removal working.
-type RunningAction = ConnectorAction
-
 // What the hub's gear menu does, shared by the list and a connector's page. Each action that
 // is running is tracked by connector, so its button or menu trigger can show it working
 // (`~/.claude/docs/ux.md`, Buttons). Connectors are independent, so one connector's action
@@ -70,7 +66,9 @@ export function useConnectorActions(options: Options = {}) {
     }
   }
 
-  async function track(connector: Connector, action: RunningAction, work: () => Promise<void>) {
+  // Every action is tracked while it works. Delete works only while it counts the meetings its
+  // dialog offers to delete; the dialog then shows the removal working.
+  async function track(connector: Connector, action: ConnectorAction, work: () => Promise<void>) {
     const key = `${connector.id}:${action}`
     if (runningKeys.has(key)) {
       console.debug('A connector action is already running', { action, connectorId: connector.id })
@@ -161,7 +159,7 @@ export function useConnectorActions(options: Options = {}) {
   }
 
   // Whether this action runs for the connector, or with no action named, whether any does.
-  function isRunning(connector: Connector, action?: RunningAction) {
+  function isRunning(connector: Connector, action?: ConnectorAction) {
     if (action) {
       return runningKeys.has(`${connector.id}:${action}`)
     }
