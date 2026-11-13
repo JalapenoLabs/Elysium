@@ -102,8 +102,10 @@ reporting `Clippy` could not be told apart.
 
 Elysium is public, so anyone can open a pull request whose code CI runs with the repository's token. Every job runs
 on a GitHub-hosted machine that is discarded afterwards, so nothing it does outlives it, and these rules keep what the
-token and the run can reach to a minimum. The one workflow on org hardware is `pull-review.yml`, on the self-hosted
-`reviewer` runner, which never checks out a fork (`docs/infrastructure.md`, Automated pull request review).
+token and the run can reach to a minimum. They cover every workflow but `pull-review.yml`, the org's standard review
+file and the one workflow on org hardware, the self-hosted `reviewer` runner. It is an exception to them by design: it
+triggers on `pull_request_target`, writes its reviews, and never checks out a fork (`docs/infrastructure.md`,
+Automated pull request review).
 
 - The repository requires approval before any outside contributor's workflow runs.
 - Workflows trigger on `pull_request`, never `pull_request_target`, so a pull request runs with a read-only token and
