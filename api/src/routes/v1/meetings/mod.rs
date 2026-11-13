@@ -36,6 +36,7 @@ mod set_visibility;
 mod shares;
 mod split_capture;
 mod stream_capture_media;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod threads;
@@ -135,6 +136,8 @@ pub fn router() -> Router<AppState> {
             "/{id}/shares/{person_id}",
             put(shares::share).delete(shares::unshare),
         )
+        .route("/{id}/tasks", get(tasks::list))
+        .route("/task-items/{item_id}", get(tasks::of_item))
         .route("/{id}/correction/approve", post(approve_correction::handle))
         .route(
             "/{id}/hold",

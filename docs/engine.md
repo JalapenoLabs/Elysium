@@ -299,11 +299,13 @@ the Runs page.
   person takes a range into a project, changes an excerpt's projects, blacks a range out, or removes either from the
   meeting's page, every change recorded in history and undoable, and Elysia never overrides them. A meeting whose
   correction is unsure of a range waits for its person first, and Done reviewing segments a meeting again, keeping
-  what people made or changed and waking only a project whose share changed. Its input also takes a conversation, records already on a person's timeline, and the
-  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. It
-  takes an action item too, which it puts on its projects without topics, and the assigned issue workflow is that alone
-  (`docs/action-items.md`, Projects and the lead). See `docs/meetings.md`, Segmentation, Excerpts and black-outs, and
-  Done reviewing.
+  what people made or changed and waking only a project whose share changed. The same turn hears the meeting's tasks:
+  a project's reaches its Project Manager as a `task` wake (Project Managers, below), and everyone else's becomes an
+  inbox item at once, for whoever owes it or the person waiting on them. Its input also takes a conversation, records
+  already on a person's timeline, and the request workflow starts at this step (Conversations, below); a
+  conversation's topics attribute its messages. It takes an action item too, which it puts on its projects without
+  topics, and the assigned issue workflow is that alone (`docs/action-items.md`, Projects and the lead). See
+  `docs/meetings.md`, Segmentation, Excerpts and black-outs, Tasks, and Done reviewing.
 - Built: a meeting keeps the files it was about and the stills of its video that matter, each pinned to its words and
   carried by the excerpts over them to their Project Managers and workers. A file a person attaches is a run of
   `meeting_attachment`, which stores it and reads its text. Segmenting a meeting with video looks at the stills where
@@ -466,7 +468,7 @@ trackers (Its writes, below), and its tabs on the project's page.
   (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
   its own runner conversation, working in `project-managers/<project id>` in the workspace, so its files persist. The
   session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
-- **What wakes it.** Seven things, each written as a wake (`project_manager_wakes`) in the same transaction as what
+- **What wakes it.** Eight things, each written as a wake (`project_manager_wakes`) in the same transaction as what
   caused it, so no crash or lost signal loses one:
   - **a record newly on its project**: segmenting a meeting or a conversation attributing an excerpt or a message to it,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
@@ -490,6 +492,10 @@ trackers (Its writes, below), and its tabs on the project's page.
     `project_brief::wakes_its_manager`). A person's edit is the direction it follows, and an agent acting for a person,
     Elysia, or another project's Project Manager is someone else too. Each publish is a wake of its own, naming its
     version, so the turn names everyone who edited it;
+  - **a meeting's task**: one segmenting heard for its project, new or changed since its last turn read it
+    (`crate::meetings::tasks`, `docs/meetings.md`, Tasks). A task waits once however often its meeting is read again
+    meanwhile, so Done reviewing reaches it with only the tasks that changed, and a turn leaves out a task read onto
+    another project since or no longer heard;
   - **an assignment**: an action item its project leads that a person assigned it to plan, themselves or by accepting
     Elysia's suggestion (`crate::models::action_item_assignment`, `docs/action-items.md`, Assigning to a Project
     Manager). The wake names the item, and the person as who woke it. An item waits once however often it is assigned
@@ -524,7 +530,10 @@ trackers (Its writes, below), and its tabs on the project's page.
   project's brief whole (The project brief, below), names the project's other docs, the knowledge base pages linked
   to it, up to 50 of them newest published first, and carries what woke it: each message with the id a batch names
   it by, who published the brief and as which version, each item assigned to it with who assigned it, its notes, and
-  its links, under "Assigned to you", each record's kind, title, summary, attribution, and an excerpt, each batch's
+  its links, under "Assigned to you", each meeting task under "Tasks heard in meetings" with what is to be done, who
+  owes it, its meeting, its words, the excerpts on the project its words lie in, and what came of it before (its items,
+  the changesets waiting for a person, its reason for making none; `project_managers::tasks`), each record's kind,
+  title, summary, attribution, and an excerpt, each batch's
   result with the promises still waiting on one that failed, and
   each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
   and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
@@ -536,7 +545,8 @@ trackers (Its writes, below), and its tabs on the project's page.
   proposed ones included, `manager_submit_batch` proposes one, `manager_cancel_batch` withdraws one no worker has
   started on, `manager_report_finding` reports work nobody asked for as a finding (Findings, below),
   `manager_answer_batch` answers the question a running batch's worker waits on, and
-  `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
+  `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below),
+  `manager_decline_task` says why a meeting's task needs no item, which the meeting's bar shows beside it, and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
   `elysium_work`, scoped to its project, to read items and initiatives, and `elysium_knowledge`, whose pages it edits
   as its machine user, naming its project (`docs/knowledge.md`, Who changes pages). Every call is checked
@@ -601,13 +611,16 @@ to done, through the same outbox as a person's own writes (`docs/action-items.md
   `api/src/models/action_item_issue_filing.rs`); one that fails keeps the provider's answer on the item, is retried each
   pass, and can be cancelled from the item's page. An item resolved, dismissed, or deleted before it is filed drops
   its filing.
-- **Never two issues.** A retried turn proposes what it proposed before, so a create from the same record with the same
-  title as one an earlier changeset of the project's Project Manager still holds, pending or applied, is refused
-  naming that changeset and item. A filing records each attempt before it calls the tracker, and an attempt after the
+- **Never two issues.** A retried turn proposes what it proposed before, so a create from the same task, or failing one
+  the same record, with the same title as one an earlier changeset of the project's Project Manager still holds,
+  pending or applied, is refused naming that changeset and item. A filing records each attempt before it calls the tracker, and an attempt after the
   first looks for the issue its predecessor may have opened (one its account opened there since, with exactly its
   title) before it opens another, so a crash between the tracker answering and Elysium recording it never leaves two.
-- **Its cause.** Every change names the timeline record it came from (`causeRecordId`, `changeset_operations.cause_record_id`),
-  which must be on the project's timeline: a meeting's segment, a message, a mail. Each change that applies is a
+- **Its cause.** Every change names what it came from: the timeline record (`causeRecordId`,
+  `changeset_operations.cause_record_id`), which must be on the project's timeline (a meeting's excerpt, a message, a
+  mail); a task heard in a meeting for the project (`taskId`, `changeset_operations.meeting_task_id`), standing and
+  still the project's; or both. A `create-item` naming a task is that task's item: applying it records the item beside
+  the task (`meeting_task_items`), so the meeting's bar counts it and the item's page opens the task's words. Each change that applies is a
   timeline record of kind `project_manager` (`metadata.kind` `write`), titled with what it did ("Filed in Jira ELY:
   Annual pricing"), holding the reason and the quote, and naming its changeset, operation, item, and cause; the record of
   a filing links to the issue once it is filed. Proposals that wait record nothing until a person applies them.

@@ -1007,6 +1007,36 @@ opens the thread it is about.
 | `created_by`     | `UUID`        | References `users`: whose change raised it                   |
 | `created_at`     | `TIMESTAMPTZ` | Set on insert                                                |
 
+### `meeting_tasks`
+
+The tasks heard in a meeting, one per mark of kind `task` (`docs/meetings.md`, Tasks): the mark anchors it to its words,
+and this row says what it is.
+
+| Column            | Type          | Notes                                                                        |
+|-------------------|---------------|------------------------------------------------------------------------------|
+| `mark_id`         | `UUID`        | Primary key; references `meeting_marks`, cascading: the task's id            |
+| `meeting_id`      | `UUID`        | References `meetings`, cascading; indexed                                    |
+| `title`           | `TEXT`        | 1 to 200 characters: what is to be done                                      |
+| `owed_by_user_id` | `UUID`        | References `users`: a person on Elysium who owes it                          |
+| `owed_by_name`    | `TEXT`        | 1 to 200 characters: someone not on Elysium who owes it, by the name heard; never beside `owed_by_user_id` (`meeting_tasks_owed_by_one`), and neither means nobody was named |
+| `project_id`      | `UUID`        | References `projects`, set null on delete: the project whose work it is; indexed while set |
+| `declined_reason` | `TEXT`        | 1 to 2,000 characters: why its Project Manager made no item of it            |
+| `declined_at`     | `TIMESTAMPTZ` | Set exactly with the reason (`meeting_tasks_declined_whole`)                 |
+| `created_by`      | `UUID`        | References `users`: who heard it, Elysia                                     |
+| `created_at`      | `TIMESTAMPTZ` | Set on insert                                                                |
+
+### `meeting_task_items`
+
+The action items a task was made into, so the meeting's bar opens them and each item's page opens its task's words.
+
+| Column           | Type          | Notes                                                                   |
+|------------------|---------------|-------------------------------------------------------------------------|
+| `action_item_id` | `UUID`        | Primary key; references `action_items`, cascading                       |
+| `task_id`        | `UUID`        | References `meeting_tasks`, cascading; indexed                          |
+| `person_id`      | `UUID`        | References `users`: whom an item made at once is for; null for a project's item, which its Project Manager made |
+| `created_by`     | `UUID`        | References `users`: Elysia for an item made at once, the proposer for a changeset's |
+| `created_at`     | `TIMESTAMPTZ` | Set on insert                                                           |
+
 ### `mail_servers`
 
 The mail server Elysium runs, with the administrator Stalwart issued when it was created; see `docs/mail.md`. At most
@@ -1642,7 +1672,8 @@ A changeset's operations, in order. `(changeset_id, position)` is unique, and th
 | `reason`       | `TEXT`               | 1 to 2000 characters                                            |
 | `quote`        | `TEXT`               | What it came from, 1 to 2000 characters; optional               |
 | `source`       | `TEXT`               | Where that is, 1 to 500 characters; optional                    |
-| `cause_record_id` | `UUID`            | The timeline record that caused it, `ON DELETE SET NULL`; every Project Manager's operation names one |
+| `cause_record_id` | `UUID`            | The timeline record that caused it, `ON DELETE SET NULL`; every Project Manager's operation names one, a task, or both |
+| `meeting_task_id` | `UUID`            | References `meeting_tasks`, `ON DELETE SET NULL`: the meeting's task that caused a Project Manager's operation; a create naming one makes the task's item. Indexed while set |
 | `decision`     | `changeset_decision` | `pending`, `approved`, or `rejected`                            |
 | `outcome`      | `changeset_outcome`  | `pending`, `applied`, `failed`, `skipped`, or `undone`; only an approved operation is applied, fails, or is undone |
 | `error`        | `TEXT`               | Why it failed or was skipped, up to 2000 characters             |
@@ -1845,8 +1876,9 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
 `project_manager_wakes_record_waits_once` keeps one waiting wake per record and project,
-`project_manager_wakes_promise_waits_once` one per promise and project, and
-`project_manager_wakes_assignment_waits_once` one per assigned item and project. Every publish of a brief that wakes its
+`project_manager_wakes_promise_waits_once` one per promise and project,
+`project_manager_wakes_assignment_waits_once` one per assigned item and project, and
+`project_manager_wakes_task_waits_once` one per meeting task and project. Every publish of a brief that wakes its
 Project Manager is a wake of its own, so a turn names each edit. `project_manager_wakes_by_action_item` finds an item's
 newest assignment, for where its plan stands.
 
@@ -1854,7 +1886,7 @@ newest assignment, for where its plan stands.
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, `brief`, or `assignment` |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, `promise`, `brief`, `assignment`, or `task` |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
@@ -1864,6 +1896,7 @@ newest assignment, for where its plan stands.
 | `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
 | `page_version`       | `INTEGER`                   | Set exactly for `brief`: the version of the project's brief someone else published |
 | `action_item_id`     | `UUID`                      | Set exactly for `assignment`: the item a person assigned it; cascading |
+| `meeting_task_id`    | `UUID`                      | Set exactly for `task`: the meeting's task for its project, new or changed; references `meeting_tasks`, cascading |
 
 ### `promises`
 

@@ -96,6 +96,7 @@ fn from_elysia(operations: Vec<Operation>) -> Proposal {
                 quote: Some("Can we get that done this week?".to_owned()),
                 source: Some("Planning, 00:12:03".to_owned()),
                 cause_record_id: None,
+                meeting_task_id: None,
             })
             .collect(),
     }

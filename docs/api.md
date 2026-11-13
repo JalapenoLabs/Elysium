@@ -55,6 +55,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}/resolved` | `200` `{ entry, change }`; opens it again, `409` (`meeting_thread_unchanged`) when it is open |
 | DELETE | `/api/v1/meetings/{id}/threads/{threadId}` | `200` `{ entry, change }`; removes it, comments and all, undoable |
 | GET    | `/api/v1/meetings/thread-items/{itemId}` | `200` `{ thread }`: `{ meetingId, threadId }` the inbox item was raised by, or `null` |
+| GET    | `/api/v1/meetings/{id}/tasks`         | `200` `{ tasks }`: every task heard in it, in the order said, each `{ id, title, startWordId, endWordId, startMs, share, items, deletedItems, proposals, declined }` |
+| GET    | `/api/v1/meetings/task-items/{itemId}` | `200` `{ task }`: `{ meetingId, meetingTitle, taskId }` the action item was made of, or `null` when none was or the caller may not read its meeting |
 | PUT    | `/api/v1/meetings/{id}/visibility`    | `200` `{ meeting, entry }`; body `{ visibility: "private" \| "public" }`, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it is so already |
 | PUT    | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; shares it with an active person other than its owner (`400` `meeting_share_person`), its owner or an admin; `409` (`meeting_visibility_unchanged`) when shared already |
 | DELETE | `/api/v1/meetings/{id}/shares/{personId}` | `200` `{ meeting, entry }`; stops sharing it with them, its owner or an admin; `409` (`meeting_visibility_unchanged`) when it was not |
@@ -502,6 +504,15 @@ that ends before it starts; `409` `meeting_words_changed` for a range a word of 
 reopening, and removing a thread are changes in its meeting's history, answered as an edit is. `thread-items` answers
 `null` for an item no thread of a meeting the caller may read raised, since every item's page asks. See `docs/meetings.md`,
 Comments.
+
+A task is named by its mark's id. Its `share` is whose it is, a project's before anyone's: `{ kind: "project",
+projectId }`, `{ kind: "own", userId, name }` for the meeting's person, `{ kind: "coworker", userId, name }`,
+`{ kind: "waiting-on", name }` for someone not on Elysium, or `{ kind: "other" }`. `items` are the live action items
+made of it, each `{ id, title, state }`, and `deletedItems` how many made of it were deleted since; `proposals` the
+changesets waiting for a person that would make one; and
+`declined` `{ reason, at }` when its Project Manager said why it made none, or `null`. Both answer whoever may read the
+meeting, and `task-items` answers `null` for an item no task of a meeting the caller may read made. See
+`docs/meetings.md`, Tasks.
 
 A `MeetingAttachment` has `id`, `kind` (`file` or `frame`), `fileName`, `contentType`, `sizeBytes`, `address` (where it
 is served, `null` while its parts are being stored), `displaysInline`, a frame's `caption`, `captureId`, `captureMs`,

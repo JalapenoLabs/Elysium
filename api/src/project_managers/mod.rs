@@ -4,9 +4,10 @@
 //! its project, decides what work comes next, and submits that work as batches for the engine's
 //! worker pool. See `docs/engine.md`, Project Managers.
 //!
-//! It is woken by records attributed to its project (a meeting's or a conversation's topics, or a
-//! record a person put there), by the results of its batches, by its promises, by action items a
-//! person assigned it to plan, by a person, and by Elysia. Each of
+//! It is woken by records attributed to its project (a meeting's excerpts, a conversation's
+//! messages, or a record a person put there), by the tasks heard in meetings for its project
+//! ([`tasks`]), by the results of its batches, by its promises, by action items a person assigned
+//! it to plan, by a person, and by Elysia. Each of
 //! those writes a wake in the transaction that caused it (`crate::models::project_manager`), and
 //! the engine's [`dispatcher`] turns a project's wakes into one turn once they go quiet
 //! ([`queue`]). Every turn resumes the project's one session (`claude -p --resume`), relying on
@@ -23,17 +24,21 @@
 //! - [`prompt`]: its standing instructions and each turn's prompt.
 //! - [`runner`]: the seam to the host runner, and each turn's log.
 //! - [`batches`]: submitting and withdrawing work batches.
+//! - [`tasks`]: what a turn is told of a meeting's tasks for its project, and why it made none.
 //! - [`timeline`]: what it puts on its project's timeline.
 //! - [`trackers`]: where its project's issues file, and through which credential.
 //! - [`status`]: what its project's page shows at a glance.
 
 pub mod batches;
 pub mod dispatcher;
+#[cfg(test)]
+mod meeting_task_tests;
 pub mod promises;
 pub mod prompt;
 pub mod queue;
 pub mod runner;
 pub mod status;
+pub mod tasks;
 #[cfg(test)]
 mod tests;
 pub mod timeline;

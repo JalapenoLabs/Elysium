@@ -113,6 +113,8 @@ pub struct Write<'write> {
     pub quote: Option<&'write str>,
     /// The segment or message that caused it.
     pub cause_record_id: Option<Uuid>,
+    /// The task heard in a meeting that caused it.
+    pub meeting_task_id: Option<Uuid>,
     /// The item it wrote, when it wrote one.
     pub item_id: Option<Uuid>,
     /// Whether a person approved it before it applied, rather than the project letting its
@@ -153,6 +155,7 @@ pub async fn record_write(
             "operationId": write.operation_id,
             "itemId": write.item_id,
             "causeRecordId": write.cause_record_id,
+            "meetingTaskId": write.meeting_task_id,
             "reviewed": write.reviewed,
         }),
         created_by: PROJECT_MANAGER_USER_ID,

@@ -118,6 +118,7 @@ fn proposed_operation(operation: Operation) -> ProposedOperation {
         quote: None,
         source: Some("src/auth.rs:12".to_owned()),
         cause_record_id: None,
+        meeting_task_id: None,
     }
 }
 

@@ -85,6 +85,7 @@ pub(super) async fn run(
             quote: proposed.quote,
             source: proposed.source,
             cause_record_id: None,
+            meeting_task_id: None,
         });
     }
 
@@ -177,6 +178,7 @@ mod tests {
                 quote: None,
                 source: None,
                 cause_record_id: None,
+                meeting_task_id: None,
             }],
         )
         .await
@@ -202,6 +204,7 @@ mod tests {
                 quote: None,
                 source: None,
                 cause_record_id: None,
+                meeting_task_id: None,
             }],
         )
         .await;

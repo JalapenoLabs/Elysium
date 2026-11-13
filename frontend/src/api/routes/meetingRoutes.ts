@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ActionItemState } from './actionItemRoutes'
 import type { ConnectorKind } from './connectorRoutes'
 import type { LearningAgent } from './learningRoutes'
 
@@ -501,6 +502,77 @@ export function getThreadOfItem(itemId: string) {
   return apiClient
     .get(`v1/meetings/thread-items/${itemId}`)
     .json<ThreadOfItemResponse>()
+}
+
+// Mirrors `ShareResponse` in api/src/routes/v1/meetings/tasks.rs: whose a task heard in a meeting
+// is, a project's before anyone's (docs/meetings.md, Tasks). `own` is the meeting's person's, by
+// their id and name, since whoever may read the meeting reads its tasks.
+export type MeetingTaskShare =
+  | { kind: 'project', projectId: string }
+  | { kind: 'own', userId: string, name: string }
+  | { kind: 'coworker', userId: string, name: string }
+  | { kind: 'waiting-on', name: string }
+  | { kind: 'other' }
+
+// An action item a task was made into.
+export type MeetingTaskItem = {
+  id: string
+  title: string
+  state: ActionItemState
+}
+
+// Mirrors `TaskResponse`: a task heard in a meeting, its words by their first and last ids, the
+// items made of it that stand and how many were deleted, the changesets waiting for a person that
+// would make one, and why its project's Project Manager made none.
+export type MeetingTask = {
+  id: string
+  title: string
+  startWordId: string
+  endWordId: string
+  startMs: number
+  share: MeetingTaskShare
+  items: MeetingTaskItem[]
+  deletedItems: number
+  proposals: string[]
+  declined: { reason: string, at: string } | null
+}
+
+type MeetingTasksResponse = {
+  tasks: MeetingTask[]
+}
+
+export function meetingTasksKey(meetingId: string) {
+  return `v1/meetings/${meetingId}/tasks`
+}
+
+// A meeting's tasks' key, as `meetingTasksKey` makes it, and nothing deeper under a meeting.
+const MEETING_TASKS_KEY = /^v1\/meetings\/[^/]+\/tasks$/
+
+// Whether `key` is a meeting's tasks', which a changed item or changeset may move.
+export function isMeetingTasksKey(key: unknown) {
+  return typeof key === 'string' && MEETING_TASKS_KEY.test(key)
+}
+
+export function getMeetingTasks(meetingId: string) {
+  return apiClient
+    .get(meetingTasksKey(meetingId))
+    .json<MeetingTasksResponse>()
+}
+
+type TaskOfItemResponse = {
+  task: {
+    meetingId: string
+    meetingTitle: string
+    taskId: string
+  } | null
+}
+
+// The task heard in a meeting an action item was made of, when it is one of the signed-in
+// person's meetings.
+export function getTaskOfItem(itemId: string) {
+  return apiClient
+    .get(`v1/meetings/task-items/${itemId}`)
+    .json<TaskOfItemResponse>()
 }
 
 // Approves the corrected transcript, and lets a run held for it go on.

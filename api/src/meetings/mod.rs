@@ -59,6 +59,7 @@ pub mod segment;
 pub mod segmentation;
 pub mod source;
 pub mod sources;
+pub mod tasks;
 pub mod transcribe;
 pub mod visibility;
 pub mod workflow;

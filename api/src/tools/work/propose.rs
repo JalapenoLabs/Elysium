@@ -211,6 +211,7 @@ pub(super) async fn run(
             quote: drafted.quote,
             source: drafted.source,
             cause_record_id: None,
+            meeting_task_id: None,
         });
     }
 
@@ -358,9 +359,39 @@ pub(super) fn schema() -> Value {
 /// The tool's arguments as a JSON Schema: a summary and the operations, each a change with
 /// its reason and, where there is one, the quote and source it came from.
 pub(in crate::tools) fn schema_for(proposing: Proposing) -> Value {
-    let mut required = vec!["change", "reason"];
+    let mut operation = json!({
+        "type": "object",
+        "properties": {
+            "change": { "oneOf": change_schemas(proposing) },
+            "reason": text_schema(2000, "Why the user should make this change."),
+            "quote": text_schema(
+                2000,
+                "The words it came from, if any, quoted exactly.",
+            ),
+            "source": text_schema(
+                500,
+                "Where those words are, such as a file and line.",
+            ),
+            "causeRecordId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Project Managers only: the record on the project's timeline this \
+                    change came from, such as a meeting's excerpt or a message, from \
+                    manager_timeline. The write is recorded on the timeline with it. Each of a \
+                    Project Manager's changes names this, a taskId, or both.",
+            },
+        },
+        "required": ["change", "reason"],
+        "additionalProperties": false,
+    });
     if proposing == Proposing::ProjectManager {
-        required.push("causeRecordId");
+        operation["properties"]["taskId"] = json!({
+            "type": "string",
+            "format": "uuid",
+            "description": "A task heard in a meeting for this project, from your prompt's Tasks \
+                heard in meetings, that this change came from. A create-item naming one is that \
+                task's action item, linked to the words it was heard in.",
+        });
     }
     json!({
         "type": "object",
@@ -371,31 +402,7 @@ pub(in crate::tools) fn schema_for(proposing: Proposing) -> Value {
                 "minItems": 1,
                 "maxItems": OPERATIONS_MAX,
                 "description": "The changes, applied in this order once approved.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "change": { "oneOf": change_schemas(proposing) },
-                        "reason": text_schema(2000, "Why the user should make this change."),
-                        "quote": text_schema(
-                            2000,
-                            "The words it came from, if any, quoted exactly.",
-                        ),
-                        "source": text_schema(
-                            500,
-                            "Where those words are, such as a file and line.",
-                        ),
-                        "causeRecordId": {
-                            "type": "string",
-                            "format": "uuid",
-                            "description": "Project Managers only, and required for them: the \
-                                record on the project's timeline this change came from, such as \
-                                a meeting's segment or a message, from manager_timeline. The \
-                                write is recorded on the timeline with it.",
-                        },
-                    },
-                    "required": required,
-                    "additionalProperties": false,
-                },
+                "items": operation,
             },
         },
         "required": ["summary", "operations"],

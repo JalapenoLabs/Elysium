@@ -114,7 +114,8 @@ fn drafted(change: Value, cause_record_id: Uuid) -> Drafted {
         reason: "Ada asked for it in the pricing meeting.".to_owned(),
         quote: Some("Can we show annual pricing on the page?".to_owned()),
         source: None,
-        cause_record_id,
+        cause_record_id: Some(cause_record_id),
+        task_id: None,
     }
 }
 

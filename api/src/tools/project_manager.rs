@@ -31,6 +31,8 @@ use crate::findings::{self, FindingError, Report};
 use crate::meetings::attachments;
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
 use crate::models::finding::Reporter;
+use crate::models::meeting;
+use crate::models::meeting_task::DECLINE_REASON_MAX_CHARACTERS;
 use crate::models::page_project;
 use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
@@ -39,7 +41,8 @@ use crate::models::work_batch::worker as batch_worker;
 use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::project_managers::batches::{self, BatchError, Submission};
 use crate::project_managers::promises::{self, PromiseError};
-use crate::realtime::Signal;
+use crate::project_managers::tasks::{self, TaskError};
+use crate::realtime::{ServerEvent, Signal};
 use crate::tools::work::manager_changes;
 use crate::worker_pool::actions::announce;
 
@@ -69,13 +72,15 @@ pub const SERVER: ToolServer = ToolServer {
         once that work is done. A follow-up is never sent until the person sends it. \
         manager_make_changes changes the project's action items (create, update, resolve, \
         dismiss, comment, move between initiatives) and files an item's own issue in the \
-        project's tracker, each change naming the record it came from; the turn's prompt says \
-        whether your changes apply at once or wait for a person.",
+        project's tracker, each change naming the record or the meeting's task it came from; the \
+        turn's prompt says whether your changes apply at once or wait for a person. A task heard \
+        in a meeting for the project is answered with a create naming it, or with \
+        manager_decline_task saying why it needs no item.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 13] = [
+const TOOLS: [Tool; 14] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -192,13 +197,24 @@ const TOOLS: [Tool; 13] = [
             item's own issue in the project's tracker (file-issue), as one changeset: \
             creating, updating, resolving, dismissing, or commenting on items, moving them into \
             or out of initiatives, and creating initiatives. A comment is posted to the item's \
-            linked issue, and resolving moves its issues to done. Every change names the \
-            timeline record it came from (causeRecordId). A change can act on what an earlier \
-            one creates by naming {\"operation\": n}. When this project lets you write, it \
+            linked issue, and resolving moves its issues to done. Every change names what it \
+            came from: the timeline record (causeRecordId), a task heard in a meeting for this \
+            project (taskId), or both; a create naming a task is that task's item, linked to the \
+            words it was heard in. A change can act on what an earlier one creates by naming \
+            {\"operation\": n}. When this project lets you write, it \
             applies at once and answers how each change ended; otherwise it waits for a \
             person's approval and answers the staged changeset.",
         input_schema: manager_changes::schema,
         run: |context, scope, arguments| manager_changes::run(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_decline_task",
+        description: "Says why you make no action item of a task heard in a meeting for this \
+            project, from your prompt's Tasks heard in meetings: it is not this project's, it is \
+            done, an item already covers it, or it needs none. The person reads the reason beside \
+            the task on the meeting's page. Saying it again replaces it. Answers the task.",
+        input_schema: decline_task_schema,
+        run: |context, scope, arguments| run_decline_task(context, scope, arguments).boxed(),
     },
     Tool {
         name: "manager_answer_batch",
@@ -497,6 +513,24 @@ fn promises_schema() -> Value {
     })
 }
 
+fn decline_task_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "taskId": id_property("The task, from your prompt's Tasks heard in meetings."),
+            "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": DECLINE_REASON_MAX_CHARACTERS,
+                "description": "Why it needs no action item, in a sentence or two the person reads \
+                    beside the task.",
+            },
+        },
+        "required": ["taskId", "reason"],
+        "additionalProperties": false,
+    })
+}
+
 fn tie_schema() -> Value {
     json!({
         "type": "object",
@@ -569,6 +603,13 @@ struct CancelArguments {
 struct PromisesArguments {
     #[serde(default)]
     states: Vec<PromiseState>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DeclineTaskArguments {
+    task_id: Uuid,
+    reason: String,
 }
 
 #[expect(
@@ -948,6 +989,50 @@ async fn run_draft_follow_up(
         "promise": promise_view(&follow_up.promise, None),
         "actionItem": { "id": follow_up.item.id, "title": follow_up.item.title },
         "message": "The follow-up waits in the person's inbox; nothing is sent until they send it.",
+    }))
+}
+
+/// Records why the turn's Project Manager makes no item of a task, and tells the meeting's open
+/// page, whose bar shows the reason.
+async fn run_decline_task(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: DeclineTaskArguments = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let declined = tasks::decline(
+        &mut connection,
+        manager.project_id,
+        arguments.task_id,
+        &arguments.reason,
+    )
+    .await
+    .map_err(|error| match error {
+        TaskError::Database(error) => internal(scope, "manager.decline_task", &error),
+        refused @ (TaskError::NotThisProjects(_) | TaskError::Reason) => {
+            ToolError::Invalid(refused.to_string())
+        }
+    })?;
+    let found = meeting::find(&mut connection, declined.meeting_id)
+        .await
+        .map_err(|error| internal(scope, "manager.decline_task", &error))?;
+    context.events.publish(&ServerEvent::MeetingChanged {
+        id: found.id,
+        state: found.state.clone(),
+        entry_id: None,
+    });
+    Ok(json!({
+        "task": {
+            "id": declined.mark_id,
+            "title": declined.title,
+            "declined": declined.declined_reason,
+        },
     }))
 }
 

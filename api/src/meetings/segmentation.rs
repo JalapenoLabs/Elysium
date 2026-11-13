@@ -16,10 +16,13 @@
 //! Manager to follow up (`docs/engine.md`, Follow-ups).
 //! An action item that arrived in no project is read the same way, without segments: its answer
 //! names the projects it belongs to, surest first ([`parse_item_answer`]), the surest to lead it.
+//! A meeting's answer also names the tasks heard in it, each by its lines, with who owes it (a
+//! person on Elysium by their id, or anyone else by name) and the project it is for, which
+//! `super::tasks` turns into action items.
 //! Nothing either answer says is taken on trust: only lines and messages that were shown are
-//! kept, only attributions to projects that were offered, and only promises made in a message that
-//! was shown, so a model's mistake can drop an excerpt or a promise but never invent a project, a
-//! line, or a message.
+//! kept, only attributions to projects that were offered, only people who were offered, and only
+//! promises made in a message that was shown, so a model's mistake can drop an excerpt, a task, or
+//! a promise but never invent a project, a person, a line, or a message.
 //!
 //! # Size
 //!
@@ -43,6 +46,7 @@ use uuid::Uuid;
 use super::frames::Candidate;
 use super::source::TranscriptLine;
 use crate::meeting_attachments::MAX_CAPTION_CHARACTERS;
+use crate::models::meeting_task::{self, OwedBy, TaskReading};
 use crate::models::promise::{RECIPIENT_MAX_CHARACTERS, SUMMARY_MAX_CHARACTERS};
 use crate::whisper::WhisperWord;
 
@@ -60,6 +64,10 @@ pub const MAX_EXCERPTS: usize = 80;
 /// The most black-outs one meeting's answer keeps.
 pub const MAX_BLACK_OUTS: usize = 200;
 
+/// The most tasks one meeting's answer keeps. Each raises an action item or wakes a Project
+/// Manager, and a long meeting hands out dozens of things to do, not hundreds.
+pub const MAX_TASKS: usize = 50;
+
 /// The longest title and summary kept.
 const TITLE_CHARACTERS: usize = 200;
 const SUMMARY_CHARACTERS: usize = 1_000;
@@ -76,15 +84,17 @@ const MIN_CONFIDENCE: f32 = 0.3;
 /// speech on the other side of a silence Whisper skipped, so the transcript's time is kept.
 const SNAP_TOLERANCE_MS: i64 = 3_000;
 
-/// The meeting's segmentation turn's instructions: excerpts and black-outs as runs of its
+/// The meeting's segmentation turn's instructions: excerpts, black-outs, and tasks as runs of its
 /// numbered lines.
 pub const EXCERPTS_SYSTEM_PROMPT: &str = "\
-You read a meeting's transcript and take from it only what matters to the listed projects, and \
-black out what matters to nobody. Its lines are numbered from 1. Answer with one JSON object and \
-nothing else: \
+You read a meeting's transcript and take from it only what matters to the listed projects, black \
+out what matters to nobody, and name the tasks people took on. Its lines are numbered from 1. \
+Answer with one JSON object and nothing else: \
 {\"excerpts\": [{\"firstLine\": number, \"lastLine\": number, \"title\": string, \
 \"summary\": string, \"projects\": [{\"projectId\": string, \"confidence\": number}]}], \
-\"blackOuts\": [{\"firstLine\": number, \"lastLine\": number}]}. \
+\"blackOuts\": [{\"firstLine\": number, \"lastLine\": number}], \
+\"tasks\": [{\"firstLine\": number, \"lastLine\": number, \"title\": string, \
+\"owedBy\": string, \"projectId\": string}]}. \
 An excerpt is the lines that matter to a project, as few as still make sense on their own: a \
 decision, a request, a problem, a plan, or news of the project's work, not the stretch of \
 meeting around it. Excerpts may overlap and nest: one line can be an excerpt on one project \
@@ -95,8 +105,16 @@ id, with a confidence from 0 to 1; what no listed project is about is no excerpt
 A black-out is lines that truly matter to nobody, such as \"is my mic on?\", \"can you see my \
 screen?\", or \"how was your weekend?\"; anything someone might search for later is not one, \
 and when unsure, leave it. A black-out never covers a line of an excerpt. A line reading \
-[blacked out] was blacked out by a person; leave it as it is. Answer with empty lists when \
-nothing in the meeting matters to a project.";
+[blacked out] was blacked out by a person; leave it as it is. \
+A task is something to be done that someone takes on or is asked to do, such as \"I'll send \
+the deck tomorrow\" or \"can you look at the login bug?\"; an idea, a wish, or work already done \
+is not one. Its lines are the ones that say it, as few as make sense. The title is what is to be \
+done, as a short phrase starting with a verb, such as \"Send Ada the deck\". owedBy is who owes \
+it: the id of a person from the People list when it is one of them, their name as the meeting \
+gives it when it is anyone else, or empty when nobody was named. projectId is the listed \
+project whose work it is, by its id, or empty when it is no listed project's. A task never lies \
+in a black-out. Answer with empty lists when nothing in the meeting matters to a project and \
+nobody took anything on.";
 
 /// The most frames one segmenting pins. Each is a still a person reads beside the excerpt it is
 /// pinned in, so a few that show what was discussed beat many that repeat it.
@@ -161,6 +179,23 @@ pub struct FoundExcerpt {
     pub projects: Vec<SegmentProject>,
 }
 
+/// A person on Elysium the model may name as owing a task: their id, their name, and their address,
+/// since a source names a participant by either.
+#[derive(Debug, Clone)]
+pub struct PersonChoice {
+    pub id: Uuid,
+    pub name: String,
+    pub email: Option<String>,
+}
+
+/// One task a meeting's answer found: a run of its lines, and what is to be done, by whom, for
+/// which project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundTask {
+    pub lines: LineRun,
+    pub reading: TaskReading,
+}
+
 /// The video a meeting's segmenting is offered stills of: where its capture sits on the meeting's
 /// clock, how long it runs when that is known, and the stills where its screen changes most.
 #[derive(Debug, Clone, Copy)]
@@ -179,11 +214,12 @@ pub struct FoundFrame {
     pub caption: String,
 }
 
-/// What a meeting's answer holds that holds up: its excerpts, and its black-outs.
+/// What a meeting's answer holds that holds up: its excerpts, its black-outs, and its tasks.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MeetingReading {
     pub excerpts: Vec<FoundExcerpt>,
     pub black_outs: Vec<LineRun>,
+    pub tasks: Vec<FoundTask>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -229,6 +265,8 @@ pub struct MeetingContext<'meeting> {
     pub title: &'meeting str,
     pub duration_ms: i64,
     pub participants: &'meeting [String],
+    /// Whose meeting it is: the person Elysia works for, one of the people offered.
+    pub person_id: Uuid,
 }
 
 /// One line of a meeting's transcript as its segmentation turn reads it: when it starts on the
@@ -241,12 +279,14 @@ pub struct PromptLine {
 }
 
 /// The meeting's segmentation turn's prompt: its lines numbered from 1, each with its time when
-/// the meeting has a clock (`timed`), for [`parse_excerpts_answer`] to read.
+/// the meeting has a clock (`timed`), the projects an excerpt or a task may be on, and the people
+/// a task may be owed by, for [`parse_excerpts_answer`] to read.
 pub fn excerpts_prompt(
     meeting: MeetingContext<'_>,
     lines: &[PromptLine],
     timed: bool,
     projects: &[ProjectChoice],
+    people: &[PersonChoice],
 ) -> String {
     let mut prompt = String::new();
     let _ = writeln!(prompt, "Meeting: {}", meeting.title);
@@ -258,6 +298,7 @@ pub fn excerpts_prompt(
         let _ = writeln!(prompt, "Participants: {}", meeting.participants.join(", "));
     }
     push_projects(&mut prompt, projects);
+    push_people(&mut prompt, people, meeting.person_id);
     if timed {
         prompt.push_str("\nTranscript, each line numbered and starting at [minutes:seconds]:\n");
     } else {
@@ -359,6 +400,25 @@ fn push_projects(prompt: &mut String, projects: &[ProjectChoice]) {
         };
     }
     if projects.is_empty() {
+        prompt.push_str("(none)\n");
+    }
+}
+
+/// Every person on Elysium a task may be owed by, each as their id, name, and address, the person
+/// whose meeting it is marked, since a task they took on is theirs. Anyone else is named.
+fn push_people(prompt: &mut String, people: &[PersonChoice], person_id: Uuid) {
+    prompt.push_str("\nPeople on Elysium:\n");
+    for person in people {
+        let _ = write!(prompt, "- {}: {}", person.id, person.name);
+        if let Some(email) = &person.email {
+            let _ = write!(prompt, " ({email})");
+        }
+        if person.id == person_id {
+            prompt.push_str(", the person you work for, whose meeting this is");
+        }
+        prompt.push('\n');
+    }
+    if people.is_empty() {
         prompt.push_str("(none)\n");
     }
 }
@@ -520,8 +580,8 @@ pub enum AnswerError {
     Empty,
 }
 
-/// A meeting's answer: its excerpts and black-outs as runs of its lines. Either may be left out,
-/// as a meeting of small talk takes nothing.
+/// A meeting's answer: its excerpts, black-outs, and tasks as runs of its lines. Any may be left
+/// out, as a meeting of small talk takes nothing.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ExcerptsAnswer {
@@ -529,6 +589,23 @@ struct ExcerptsAnswer {
     excerpts: Vec<AnswerRun>,
     #[serde(default)]
     black_outs: Vec<AnswerRun>,
+    #[serde(default)]
+    tasks: Vec<AnswerTask>,
+}
+
+/// A task as the answer names it. Who owes it and its project may be empty, or `null`, for
+/// nobody and none.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnswerTask {
+    first_line: i64,
+    last_line: i64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    owed_by: Option<String>,
+    #[serde(default)]
+    project_id: Option<String>,
 }
 
 /// A meeting's answer's frames, when it was offered its video's stills.
@@ -687,12 +764,14 @@ fn kept_runs(
     segments
 }
 
-/// The excerpts and black-outs in a meeting's answer that hold up, among `line_count` numbered
-/// lines: runs of lines that were shown (a run reaching past the last line ends there), each
-/// excerpt once and on at least one of the projects in `offered`, at most [`MAX_EXCERPTS`]; each
-/// black-out apart from every excerpt kept, those that overlap or touch joined into one, in the
-/// order they lie, at most [`MAX_BLACK_OUTS`]. An excerpt with no title takes `untitled` of its
-/// first line, by its place from 0. An answer taking nothing reads, as a meeting of small talk.
+/// The excerpts, black-outs, and tasks in a meeting's answer that hold up, among `line_count`
+/// numbered lines: runs of lines that were shown (a run reaching past the last line ends there),
+/// each excerpt once and on at least one of the projects in `offered`, at most [`MAX_EXCERPTS`];
+/// each task as [`kept_tasks`] keeps them; and each black-out apart from every excerpt and task
+/// kept, those that overlap or touch joined into one, in the order they lie, at most
+/// [`MAX_BLACK_OUTS`].
+/// An excerpt with no title takes `untitled` of its first line, by its place from 0. An answer
+/// taking nothing reads, as a meeting of small talk.
 ///
 /// # Errors
 /// [`AnswerError`] when the answer holds no JSON object or is not the asked-for shape.
@@ -700,6 +779,7 @@ pub fn parse_excerpts_answer(
     answer: &str,
     line_count: usize,
     offered: &[ProjectChoice],
+    people: &[PersonChoice],
     untitled: impl Fn(usize) -> String,
 ) -> Result<MeetingReading, AnswerError> {
     let json = json_object(answer).ok_or(AnswerError::NoJson)?;
@@ -732,19 +812,23 @@ pub fn parse_excerpts_answer(
             projects,
         });
     }
+    // Tasks before black-outs: a task matters to whoever owes it, so no black-out covers one.
+    reading.tasks = kept_tasks(parsed.tasks, line_count, offered, people);
     let mut black_outs: Vec<LineRun> = parsed
         .black_outs
         .iter()
         .filter_map(|candidate| line_run(candidate.first_line, candidate.last_line, line_count))
         .filter(|lines| {
-            !reading
+            let over_excerpt = reading
                 .excerpts
                 .iter()
-                .any(|excerpt| excerpt.lines.overlaps(*lines))
+                .any(|excerpt| excerpt.lines.overlaps(*lines));
+            let over_task = reading.tasks.iter().any(|task| task.lines.overlaps(*lines));
+            !over_excerpt && !over_task
         })
         .collect();
     // A stretch is blacked out once: runs that overlap or touch become one, which covers no line
-    // that neither covered, so it still lies outside every excerpt.
+    // that neither covered, so it still lies outside every excerpt and task.
     black_outs.sort_by_key(|lines| lines.first);
     for lines in black_outs {
         if let Some(kept) = reading.black_outs.last_mut()
@@ -759,6 +843,80 @@ pub fn parse_excerpts_answer(
         reading.black_outs.push(lines);
     }
     Ok(reading)
+}
+
+/// The tasks among `answered` that hold up, among `line_count` numbered lines: a run of lines
+/// shown, with a title, once per run and title, at most [`MAX_TASKS`]. Who owes one is a person
+/// in `people`, named by their id, or failing that by the one name or address of theirs it gives;
+/// anyone else is named, and an id that names nobody offered names nobody. Its project is one in
+/// `offered`, or none. A task may lie in an excerpt or outside every one: a person's own errand
+/// is a task about no project.
+fn kept_tasks(
+    answered: Vec<AnswerTask>,
+    line_count: usize,
+    offered: &[ProjectChoice],
+    people: &[PersonChoice],
+) -> Vec<FoundTask> {
+    let mut tasks: Vec<FoundTask> = Vec::new();
+    for candidate in answered {
+        if tasks.len() == MAX_TASKS {
+            break;
+        }
+        let Some(lines) = line_run(candidate.first_line, candidate.last_line, line_count) else {
+            continue;
+        };
+        let title = one_line(&candidate.title, meeting_task::TITLE_MAX_CHARACTERS - 1);
+        let repeated = tasks
+            .iter()
+            .any(|kept| kept.lines == lines && kept.reading.title.eq_ignore_ascii_case(&title));
+        if title.is_empty() || repeated {
+            continue;
+        }
+        let project_id = candidate
+            .project_id
+            .as_deref()
+            .and_then(|id| Uuid::parse_str(id.trim()).ok())
+            .filter(|id| offered.iter().any(|choice| choice.id == *id));
+        tasks.push(FoundTask {
+            lines,
+            reading: TaskReading {
+                title,
+                owed_by: owed_by(candidate.owed_by.as_deref().unwrap_or_default(), people),
+                project_id,
+            },
+        });
+    }
+    tasks
+}
+
+/// Who `answered` names as owing a task, among `people`: one of them by id, or by the one name or
+/// address of theirs it matches; anyone else by the name given, on one line; and nobody for an
+/// empty answer, an id no one offered has, or a name too long to be one.
+fn owed_by(answered: &str, people: &[PersonChoice]) -> OwedBy {
+    let named = answered.split_whitespace().collect::<Vec<_>>().join(" ");
+    if named.is_empty() {
+        return OwedBy::Nobody;
+    }
+    if let Ok(id) = Uuid::parse_str(&named) {
+        if people.iter().any(|person| person.id == id) {
+            return OwedBy::Person { user_id: id };
+        }
+        return OwedBy::Nobody;
+    }
+    let mut matching = people.iter().filter(|person| {
+        person.name.eq_ignore_ascii_case(&named)
+            || person
+                .email
+                .as_deref()
+                .is_some_and(|email| email.eq_ignore_ascii_case(&named))
+    });
+    if let (Some(person), None) = (matching.next(), matching.next()) {
+        return OwedBy::Person { user_id: person.id };
+    }
+    if named.chars().count() > meeting_task::NAME_MAX_CHARACTERS {
+        return OwedBy::Nobody;
+    }
+    OwedBy::Named { name: named }
 }
 
 /// The frames in a meeting's answer that hold up, among `line_count` numbered lines of a meeting
@@ -1003,6 +1161,8 @@ fn truncated(text: &str, limit: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+
     use super::*;
 
     fn line(start_seconds: i64, speaker: &str, text: &str) -> TranscriptLine {
@@ -1035,6 +1195,7 @@ mod tests {
             title: "Weekly sync",
             duration_ms: 3_725_000,
             participants: &[],
+            person_id: Uuid::nil(),
         }
     }
 
@@ -1054,6 +1215,7 @@ mod tests {
             ],
             true,
             std::slice::from_ref(&launch),
+            &[],
         );
 
         assert!(prompt.contains("Meeting: Weekly sync"));
@@ -1085,6 +1247,7 @@ mod tests {
             ],
             false,
             &[project("Launch")],
+            &[],
         );
         assert!(
             prompt.contains("[1] Ada: Hello everyone.\n[2] Ada: Launch is Friday.\n"),
@@ -1108,7 +1271,7 @@ mod tests {
             })
             .collect();
 
-        let prompt = excerpts_prompt(weekly_sync(), &lines, true, &[project("Launch")]);
+        let prompt = excerpts_prompt(weekly_sync(), &lines, true, &[project("Launch")], &[]);
 
         assert!(prompt.len() > 3 * 128 * 1024, "{} bytes", prompt.len());
         for (line, number) in lines.iter().zip(1..) {
@@ -1135,6 +1298,7 @@ mod tests {
             &[meeting_line(0, "Ada", "Hi.")],
             true,
             &projects,
+            &[],
         );
 
         for project in &projects {
@@ -1178,7 +1342,7 @@ mod tests {
             stranger = Uuid::now_v7(),
         );
         let offered = [launch.clone(), budget.clone()];
-        let reading = parse_excerpts_answer(&answer, 10, &offered, numbered).expect("reads");
+        let reading = parse_excerpts_answer(&answer, 10, &offered, &[], numbered).expect("reads");
 
         assert_eq!(
             reading.excerpts,
@@ -1231,7 +1395,7 @@ mod tests {
             {\"firstLine\": 1, \"lastLine\": 2}, \
             {\"firstLine\": 2, \"lastLine\": 2}\
         ]}";
-        let reading = parse_excerpts_answer(answer, 6, &[], numbered).expect("reads");
+        let reading = parse_excerpts_answer(answer, 6, &[], &[], numbered).expect("reads");
 
         assert_eq!(
             reading.black_outs,
@@ -1243,19 +1407,25 @@ mod tests {
     #[test]
     fn an_answer_taking_nothing_reads_and_one_without_json_does_not() {
         assert_eq!(
-            parse_excerpts_answer("{\"excerpts\": [], \"blackOuts\": []}", 4, &[], numbered),
+            parse_excerpts_answer(
+                "{\"excerpts\": [], \"blackOuts\": []}",
+                4,
+                &[],
+                &[],
+                numbered
+            ),
             Ok(MeetingReading::default())
         );
         assert_eq!(
-            parse_excerpts_answer("{}", 4, &[], numbered),
+            parse_excerpts_answer("{}", 4, &[], &[], numbered),
             Ok(MeetingReading::default())
         );
         assert_eq!(
-            parse_excerpts_answer("Nothing here.", 4, &[], numbered),
+            parse_excerpts_answer("Nothing here.", 4, &[], &[], numbered),
             Err(AnswerError::NoJson)
         );
         assert!(matches!(
-            parse_excerpts_answer("{\"excerpts\": \"none\"}", 4, &[], numbered),
+            parse_excerpts_answer("{\"excerpts\": \"none\"}", 4, &[], &[], numbered),
             Err(AnswerError::Shape(_))
         ));
         // A meeting with no lines takes nothing, whatever the answer names.
@@ -1266,8 +1436,156 @@ mod tests {
             launch.id
         );
         assert_eq!(
-            parse_excerpts_answer(&answer, 0, std::slice::from_ref(&launch), numbered),
+            parse_excerpts_answer(&answer, 0, std::slice::from_ref(&launch), &[], numbered),
             Ok(MeetingReading::default())
+        );
+    }
+
+    fn person(name: &str, email: &str) -> PersonChoice {
+        PersonChoice {
+            id: Uuid::now_v7(),
+            name: name.to_owned(),
+            email: Some(email.to_owned()),
+        }
+    }
+
+    #[test]
+    fn the_prompt_offers_the_people_on_elysium_and_says_whose_meeting_it_is() {
+        let alex = person("Alex Navarro", "alex@example.com");
+        let ada = PersonChoice {
+            email: None,
+            ..person("Ada", "unused")
+        };
+        let prompt = excerpts_prompt(
+            MeetingContext {
+                person_id: alex.id,
+                ..weekly_sync()
+            },
+            &[meeting_line(0, "Alex", "I'll send the deck.")],
+            true,
+            &[],
+            &[alex.clone(), ada.clone()],
+        );
+
+        assert!(
+            prompt.contains(&format!(
+                "- {}: Alex Navarro (alex@example.com), the person you work for, whose meeting \
+                 this is\n",
+                alex.id
+            )),
+            "{prompt}"
+        );
+        assert!(prompt.contains(&format!("- {}: Ada\n", ada.id)), "{prompt}");
+        assert!(EXCERPTS_SYSTEM_PROMPT.contains("\"tasks\""));
+    }
+
+    #[test]
+    fn an_answers_tasks_name_only_people_and_projects_that_were_offered() {
+        let launch = project("Launch");
+        let alex = person("Alex Navarro", "alex@example.com");
+        let ada = person("Ada Lovelace", "ada@example.com");
+        let task = |first: usize, last: usize, title: &str, owed_by: &str, project: &str| {
+            json!({
+                "firstLine": first,
+                "lastLine": last,
+                "title": title,
+                "owedBy": owed_by,
+                "projectId": project,
+            })
+        };
+        let answer = json!({
+            "tasks": [
+                task(1, 1, " Send   the deck ", &alex.id.to_string(), ""),
+                task(2, 2, "Fix the login bug", "ada@example.com", &launch.id.to_string()),
+                task(3, 3, "Book the room", "Sharath", &Uuid::now_v7().to_string()),
+                task(4, 4, "Write it up", &Uuid::now_v7().to_string(), ""),
+                task(5, 5, "Ask legal", "", ""),
+                task(5, 5, "ask LEGAL", "Ada Lovelace", ""),
+                task(6, 6, "", "Ada Lovelace", ""),
+                task(0, 0, "Before the first", "", ""),
+            ],
+        })
+        .to_string();
+
+        let reading = parse_excerpts_answer(
+            &answer,
+            6,
+            std::slice::from_ref(&launch),
+            &[alex.clone(), ada.clone()],
+            numbered,
+        )
+        .expect("reads");
+
+        let found =
+            |first: usize, title: &str, owed_by: OwedBy, project_id: Option<Uuid>| FoundTask {
+                lines: LineRun { first, last: first },
+                reading: TaskReading {
+                    title: title.to_owned(),
+                    owed_by,
+                    project_id,
+                },
+            };
+        assert_eq!(
+            reading.tasks,
+            vec![
+                found(
+                    0,
+                    "Send the deck",
+                    OwedBy::Person { user_id: alex.id },
+                    None
+                ),
+                // Named by her address, which only she has.
+                found(
+                    1,
+                    "Fix the login bug",
+                    OwedBy::Person { user_id: ada.id },
+                    Some(launch.id)
+                ),
+                // Someone not on Elysium, for a project nobody offered, which is none.
+                found(
+                    2,
+                    "Book the room",
+                    OwedBy::Named {
+                        name: "Sharath".to_owned()
+                    },
+                    None
+                ),
+                // An id nobody offered names nobody.
+                found(3, "Write it up", OwedBy::Nobody, None),
+                found(4, "Ask legal", OwedBy::Nobody, None),
+            ],
+            "a repeat of the same lines and title, an untitled task, and a line 0 are dropped"
+        );
+    }
+
+    #[test]
+    fn a_black_out_never_covers_a_task_and_tasks_are_bounded() {
+        let mut tasks: Vec<Value> = (1..=MAX_TASKS + 5)
+            .map(|line| {
+                json!({ "firstLine": line, "lastLine": line, "title": format!("Task {line}") })
+            })
+            .collect();
+        tasks.push(json!({ "firstLine": 1, "lastLine": 1 }));
+        let answer = json!({
+            "tasks": tasks,
+            "blackOuts": [
+                { "firstLine": 2, "lastLine": 2 },
+                { "firstLine": MAX_TASKS + 3, "lastLine": MAX_TASKS + 3 },
+            ],
+        })
+        .to_string();
+
+        let reading =
+            parse_excerpts_answer(&answer, MAX_TASKS + 10, &[], &[], numbered).expect("reads");
+
+        assert_eq!(reading.tasks.len(), MAX_TASKS);
+        assert_eq!(
+            reading.black_outs,
+            vec![LineRun {
+                first: MAX_TASKS + 2,
+                last: MAX_TASKS + 2
+            }],
+            "the black-out over a task kept is dropped, and the one past the tasks kept stands"
         );
     }
 

@@ -324,6 +324,27 @@
     "heading": "Comment thread",
     "open": "Open the thread"
   },
+  "tasks": {
+    "heading": "Tasks",
+    "own": "Yours",
+    "other": "Other",
+    "waitingOn": "Waiting on {{name}}",
+    "unknownProject": "A project",
+    "groupLabel_one": "{{name}}: {{formattedCount}} task",
+    "groupLabel_other": "{{name}}: {{formattedCount}} tasks",
+    "showWords": "Show in the transcript",
+    "status": {
+      "proposed": "Proposed, waiting for approval",
+      "declined": "No item: {{reason}}",
+      "waiting": "Waiting for its Project Manager",
+      "removed": "Its item was deleted"
+    }
+  },
+  "taskLink": {
+    "heading": "From a meeting",
+    "open": "Open in {{title}}",
+    "openUntitled": "Open in the meeting"
+  },
   "upload": {
     "action": "Upload a meeting",
     "addCapture": "Add a recording or transcript",

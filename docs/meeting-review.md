@@ -18,10 +18,12 @@ filtering them and starting uploads, Settings keeping only their sources; settli
 confidences and alternatives, taught by the Transcription doc, which teaches itself and gives Whisper its hint words;
 excerpts and black-outs, segmenting reading the settled words, a meeting held for its person when its correction is
 unsure, and Done reviewing reading it again, keeping what people made or changed; who sees a meeting: public by
-default, private until its correction checks it, and shared by its owner or an admin; and attachments and frames,
-pinned by people and by segmenting, carried by excerpts to their projects' Project Managers and workers. What is built
-is described in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as
-issues in the Knowledge base milestone.
+default, private until its correction checks it, and shared by its owner or an admin; attachments and frames, pinned
+by people and by segmenting, carried by excerpts to their projects' Project Managers and workers; and tasks, each
+project's reaching its Project Manager, which makes their action items as its changeset under its project's level of
+autonomy, everyone else's becoming items at once, and the bar along the top counting them. What is built is described
+in `docs/meetings.md`, which this design changes where it says so; the rest is the roadmap below, as issues in the
+Knowledge base milestone.
 
 ## Meetings and captures
 
@@ -202,6 +204,8 @@ weekend?". Segmenting applies them on its own, and people add, change, and remov
 
 ## Tasks
 
+Built (`docs/meetings.md`, Tasks). People adding, changing, and removing tasks on the meeting's page is on the roadmap.
+
 - Segmenting marks each task it hears as a range, with who owes it and the project it is for.
 - **A project's tasks go to its Project Manager**, with their ranges and the excerpts around them, not the meeting.
   It makes the action items, each linked to its range, or says why it made none. They arrive as its changeset, under
@@ -251,8 +255,8 @@ The `meeting` workflow becomes:
   or when the correction left a range below a confidence the code fixes (40). An action item asks them to review it.
   Otherwise it flows on, and review comes after. Built (`docs/meetings.md`, Waiting for approval).
 - **Done reviewing** segments the meeting again from its corrected words. Every excerpt, black-out, and task a person
-  made or changed stands; what changed reaches the Project Managers it concerns, and nothing else wakes. Built for
-  excerpts and black-outs (`docs/meetings.md`, Done reviewing); tasks join it with #243.
+  made or changed stands; what changed reaches the Project Managers it concerns, and nothing else wakes. Built
+  (`docs/meetings.md`, Done reviewing, and Tasks).
 - A new capture merged into a meeting aligns and settles it again, keeping every person's edit.
 
 ## Uploads
@@ -303,7 +307,6 @@ Five lanes, in order. Each issue is whole on its own; what it depends on is name
 |-------|-------|---------------------------------------------------------------------------------------|
 | 1     | #234  | The meeting's page: layout, marks, selecting, and editing                             |
 | 1     | #236  | The player                                                                            |
-| 3     | #243  | Tasks through Project Managers                                                        |
 | 3     | #245  | Comments                                                                              |
 | 5     | #248  | Teams recordings and Slack huddle transcripts                                         |
 

@@ -638,17 +638,20 @@ start of its description, and:
 
 | Source       | The prompt holds                                                   | The answer names each part by |
 |--------------|--------------------------------------------------------------------|----------------------------------|
-| Meeting      | Its title, length, participants, and final transcript as `[n] [m:ss] Speaker: text` lines, numbered from 1, without the time for a meeting in words alone | Its first and last line |
+| Meeting      | Its title, length, participants, every active person on Elysium by id, name, and address with the meeting's own person marked, and final transcript as `[n] [m:ss] Speaker: text` lines, numbered from 1, without the time for a meeting in words alone | Its first and last line |
 | Conversation | Its title, the name of the person whose timeline it is on, message count, participants, and messages as `[n] [m:ss] Speaker: text` lines, timed from the first | Its first and last message, numbered from 1 |
 
 A meeting's lines are its final transcript's words as correction reads them (`correction::lines_of`): a new line where
 the speaker changes, after a pause of two seconds, and every sixty words. Each run of words a black-out already covers
 reads `[blacked out]`, so its line is still there to number and its words are not. The answer is
 `{ "excerpts": [{ firstLine, lastLine, title, summary, projects: [{ projectId, confidence }] }], "blackOuts":
-[{ firstLine, lastLine }] }`: each excerpt the lines that matter to a project, as few as still make sense on their own,
-overlapping and nesting as they need to, and each black-out lines that truly matter to nobody ("is my mic on?", "how was
-your weekend?"). Hellos, small talk, and asides are in neither: what is not blacked out stays in search, excerpt or not
-(Excerpts and black-outs, below).
+[{ firstLine, lastLine }], "tasks": [{ firstLine, lastLine, title, owedBy, projectId }] }`: each excerpt the lines that
+matter to a project, as few as still make sense on their own, overlapping and nesting as they need to; each black-out
+lines that truly matter to nobody ("is my mic on?", "how was your weekend?"); and each task something someone took on or
+was asked to do ("I'll send the deck"), by the lines that say it, what is to be done, who owes it (a person on Elysium
+by their id, anyone else by the name the meeting gives them, or nobody named), and the project whose work it is, if
+any. Hellos, small talk, and asides are in none: what is not blacked out stays in search, excerpt or not (Excerpts and
+black-outs, below).
 
 A conversation's topics are runs of messages, since a chat's topics are not stretches of time: two messages a few
 seconds apart may be two requests. Each answer segment also has a title, a summary of what was said and decided, and
@@ -669,6 +672,10 @@ as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow
 - A promise is kept only when it names one of the messages shown, once each, someone it is for (at most 200
   characters), what was promised (cut to 500), and a project that was offered. At most ten are kept, and an answer
   naming none still reads.
+- A task is kept only as a run of lines shown, with a title (cut to 200), once per run and title; at most 50 are kept.
+  Who owes it is a person who was offered, by their id, or by the one name or address of theirs it gives; any other name
+  is someone not on Elysium, and an id nobody offered names nobody. Its project is one that was offered, or none, and
+  one removed while the turn ran is none. No black-out covers a task kept.
 - An answer with no JSON, or the wrong shape, fails the attempt, which the run's backoff tries again; so does a
   conversation's with no segment left.
 
@@ -703,8 +710,8 @@ keeps it: an excerpt keeps its record, takes the answer's title and summary, and
 (`models::attribution`), which never override a person's and wake no Project Manager for a project it was on already.
 Elysia's others the answer does not take are removed, an excerpt's record taken off her projects and out of the index.
 Everything else is made: an excerpt as a mark and its record, attributed to its projects, which wakes each project's
-Project Manager; a black-out as a mark, never over a word of a person's excerpt. It is one `segmented` change in the
-meeting's history, by Elysia, naming the marks it made, kept, and removed.
+Project Manager; a black-out as a mark, never over a word of a person's excerpt. Tasks are taken last (Tasks, below). It
+is one `segmented` change in the meeting's history, by Elysia, naming the marks it made, kept, moved, and removed.
 
 The connector shows as syncing meanwhile, and the step holds a `workflowStep` activity as every running step does, so
 auto-update waits for clips being cut.
@@ -955,6 +962,47 @@ document of the knowledge index, stored with its record: its title, its summary,
 over its span (Comments, below), never its clip (`docs/knowledge.md`, Timeline records). Its document names its
 meeting, so a private meeting's excerpts are found by its readers alone (Who reads a meeting, above).
 
+## Tasks
+
+What segmenting hears people take on, and where each goes (`crate::meetings::tasks`, `models::meeting_task`). A task
+is a mark of kind `task` over the words that say it, which moves with every edit as any mark does, and its row in
+`meeting_tasks`: what is to be done, who owes it (`owed_by_user_id` for a person on Elysium, `owed_by_name` for anyone
+else), and its project. Its share decides where it goes, a project's before anyone's:
+
+| Share        | Is                                              | Goes                                                     |
+|--------------|-------------------------------------------------|----------------------------------------------------------|
+| A project's  | Any task with a project, whoever owes it        | A `task` wake for the project's Project Manager           |
+| The person's | On no project, owed by the meeting's person     | An inbox item for them, at once                          |
+| A coworker's | On no project, owed by another person on Elysium | An inbox item for them, at once                         |
+| Waiting on   | On no project, owed by someone not on Elysium   | An inbox item for the person, waiting on them (`waitingOn`) |
+| Other        | On no project, nobody named                     | An inbox item for the person, to decide                  |
+
+- **Items made at once** are raised by Elysia, as every item she raises is, in no project, titled as the task, and say
+  whom they are for and where the task was heard ("For Grace Hopper. Heard in Weekly sync at 12:04."), since items are
+  the whole workspace's until each person has a Next of their own (`docs/action-items.md`, Ownership). The meeting is
+  named only while it is public (`Meeting::public_title`), and a private one is "a meeting". Each is kept
+  beside its task with whom it is for (`meeting_task_items`), and a task raises one item a person, however often the
+  meeting is read again, and none beside an item its project made of it when it was a project's. They are announced
+  as every item is.
+- **A project's task** reaches its Project Manager (`docs/engine.md`, Project Managers): its turn is told what is to
+  be done, who owes it, the meeting's title while it is public (a private one is named by its id alone, as every member
+  reads a Project Manager's turns), its words, blacked-out ones left out, and the excerpts on the project its words lie
+  in, never the meeting whole. A private meeting's tasks still reach their projects, as its excerpts do. It answers each with `manager_make_changes`, a `create-item` naming the task
+  (`taskId`), which makes the task's item as its changeset under the project's level of autonomy, so at the default it
+  waits for a person; or with `manager_decline_task`, saying why it makes none, which is kept on the task
+  (`declined_reason`). A create naming a task records the item beside it once it applies, as an item made at once is.
+- **Taking an answer.** After excerpts and black-outs, each task the answer names that holds up is taken: none over a
+  range a person removed one from or holds one over, and none wholly blacked out. Each is one of Elysia's own read again,
+  or new (`tasks::read_again`, a pure function): first the one over exactly its words, then one over words it shares
+  with the same title, then the one over words it shares owed by the same and for the same project when no other task
+  of the answer shares words with it too. A task read again keeps its mark, moved onto its new words, and so keeps its
+  items, its wakes, and its proposals; it reaches anyone again only when it changed (its project, who owes it, or its
+  title beyond spacing and letter case), then as its share now says. A new task goes where its share says. Elysia's
+  tasks the answer does not read again are removed, and their items stay their people's to resolve or dismiss.
+- **Done reviewing** therefore sends a Project Manager only the tasks new or changed since it last read them, each a
+  wake that waits once (`project_manager_wakes_task_waits_once`), and a task that changed tells its turn what came of
+  it before: its items, the proposals waiting for a person, and its reason for making none.
+
 ## Done reviewing
 
 Done reviewing, among a segmented meeting's actions (`POST /api/v1/meetings/{id}/done-reviewing`,
@@ -1047,7 +1095,7 @@ whose effect still stands is undone; one moved on since answers that it changed 
 | `thread_resolved`, `thread_reopened` | A comment thread was resolved, or opened again        | Opens it again, or resolves it again, while it is still as that change left it |
 | `visibility_changed`  | Who reads it, before and after; for its correction's decision also `correction`, whether it was `undecided`, `why`, and whom it shared it with (`sharedWith`) | Puts it back while nothing changed it since; never the correction's decision |
 | `shared`, `unshared`  | The person it was shared with, or stopped being shared with (`personId`) | Stops sharing it with them, or shares it again, while it is still so |
-| `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
+| `segmented`           | Segmenting took its answer: the marks it made, Elysia's own it kept, moved onto new words, and removed, and how many ranges no longer stood | None: each excerpt and black-out is removed or put back on its own |
 | `attached`, `detached` | A file or frame put on the meeting or taken off: the attachment, its kind and name, and the pins that went with it | Takes it off with its pins, or puts it back with them, while it is still as that change left it |
 | `review_done`         | Its person was done reviewing it, which segments it again        | None: segmenting it again is under way |
 
@@ -1307,6 +1355,16 @@ an excerpt's clip for its record's owner.
     excerpt mark answers its record and projects, `excerpt` in `GET /words`). A space is
     marked only when one mark covers the words on both sides of it, so a mark draws as one box. What lies where is
     pure and tested (`meetingTranscript.ts`).
+  - **The tasks** (`MeetingTasks`, `GET /meetings/{id}/tasks`, read through SWR alone), first along the top of the
+    page while the meeting has any: one button for each project with its tasks, the meeting's person's own, each
+    coworker (someone not on Elysium as Waiting on them), and Other, each with how many (`groupTasks`,
+    `meetingTasks.ts`). Whoever may read the meeting sees its bar: the person's own and a coworker's name whose they are,
+    and the reader's own read Yours. Each opens its tasks in a popover: what is to be done, Show in the transcript,
+    which selects its words, and what came of it (`taskStatus`): the items made of it, each opening its page with its
+    state, the proposal waiting for approval, opening the changeset, the Project Manager's reason for making none, that
+    its item was deleted, or that it waits for its Project Manager. `meeting.changed`, a changeset, and an item changed
+    or deleted read them again. A link to a task's mark (`?mark=`), which its item's page makes, selects its words,
+    since tasks draw along the top rather than over them.
   - **The player** (`MeetingPlayer`, `PlayerFrame`, `useMeetingPlayer`), along the top while the meeting has a
     recording, plays one capture's recording at a time with the browser's own controls, starting on the first that is
     a video, since a picture says who is speaking, and a switcher between them when there are several, which plays on
@@ -1372,6 +1430,8 @@ an excerpt's clip for its record's owner.
   progress beside the fields (`sendMeetingFiles`), and once it is whole opens the meeting. A transcript the API cannot
   read is let go and marked on its field. Leaving while it runs asks first, and stops it where it is, for the same files
   to resume. The source of an uploaded meeting reads Uploaded (`MeetingSourceLogo`, `meetingSourceNameKey`).
+- **An item made of a task** links to the task's words on its meeting's page, from the item's page
+  (`MeetingTaskLink`, reading `GET /meetings/task-items/{itemId}`).
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **An item saying a meeting was kept private** shows the meeting, why its correction kept it private, and a link to its
@@ -1403,7 +1463,7 @@ an excerpt's clip for its record's owner.
 
 | Event                       | When                                                                     |
 |-----------------------------|--------------------------------------------------------------------------|
-| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, who reads it changed, or a file or frame was attached, stored, read, pinned, unpinned, or taken off: its id and state, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, owner, transcript, comments, or who reads it |
+| `meeting.changed`           | A meeting was read, its processing moved on, its transcript was settled and its corrected copy stored, or the copy approved, its hold changed, a capture's offset was set by hand, it was merged or split, a person edited its words, took a range into a project, blacked one out, removed an excerpt or a black-out, said they were done reviewing it, or undid a change, one of its threads was written in, resolved, reopened, or removed, who reads it changed, a file or frame was attached, stored, read, pinned, unpinned, or taken off, or a Project Manager said why it made no item of one of its tasks: its id and state, and the history entry a person's change from the page made (`entryId`), none for a reply or anything an agent or the engine did, never its title, owner, transcript, comments, or who reads it |
 | `meetingAttachments.changed` | An admin chose the largest file a meeting takes: nothing more, and every client reads the policy again |
 | `page.changed`              | The Transcription doc learned from a correction or a person's fix, or a name was suggested to a company doc section: the page's id alone |
 | `timelineRecord.created`    | An excerpt's record was stored: segmenting took it, or a person or Elysia took a range into a project |
@@ -1412,8 +1472,8 @@ an excerpt's clip for its record's owner.
 
 ## Roadmap
 
-- Meetings as reviewed documents in the knowledge base: tasks heard in a meeting, through each project's Project
-  Manager. The design is `docs/meeting-review.md`.
+- Meetings as reviewed documents in the knowledge base: people adding, changing, and removing tasks on the meeting's
+  page. The design is `docs/meeting-review.md`.
 - Attachments on the MCP server for external clients, beside `elysium_knowledge`'s `meeting_attachment_get`.
 - Comparing everyone's meetings for one recorded twice, now that meetings are the company's, rather than a person's own
   alone (The same meeting twice, above).
