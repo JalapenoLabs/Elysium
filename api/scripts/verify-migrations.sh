@@ -5,7 +5,8 @@
 #   1. src/database/schema.rs is exactly what the migrations produce (--locked-schema)
 #   2. every migration's down.sql undoes its up.sql cleanly (redo --all)
 #   3. the store-backed tests pass, including the API's own migration runner and the router
-#      driven end to end, which also needs a disposable Redis
+#      driven end to end, which also needs a disposable Redis. Those are the tests `cargo test`
+#      ignores, so only they run here: plain `cargo test` covers the rest.
 #
 # Requires docker and diesel_cli 2.3.13:
 #   cargo install diesel_cli --version 2.3.13 --no-default-features --features postgres --locked
@@ -25,8 +26,15 @@ api_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 container="elysium-verify-migrations-$$"
 redis_container="elysium-verify-redis-$$"
 
+# Removes each container this run started, with its volumes. The Postgres image declares a
+# volume at its data directory, and a container removed without `--volumes` leaves it behind.
 cleanup() {
-  docker stop "$container" "$redis_container" >/dev/null 2>&1 || true
+  for name in "$container" "$redis_container"; do
+    if docker container inspect "$name" >/dev/null 2>&1; then
+      docker rm --force --volumes "$name" >/dev/null
+      echo "==> removed $name"
+    fi
+  done
 }
 trap cleanup EXIT
 
@@ -34,13 +42,20 @@ echo "==> starting $POSTGRES_IMAGE"
 # Every store-backed test creates a database of its own on this one server, and Docker's default
 # 64 MB of /dev/shm runs out partway through the suite ("could not resize shared memory segment"),
 # failing whichever tests come last.
+#
+# The data directory stays on disk rather than a tmpfs: no test drops its database, so the suite
+# ends holding about 12 GB, more than a tmpfs on a 16 GB machine can take. Postgres never waits
+# for the disk instead. Every database here is thrown away with the container, so durability buys
+# nothing, and on a cloud disk waiting for each commit to land took the suite from 262 to 464
+# seconds.
 docker run --detach --rm --name "$container" \
   --shm-size=512m \
   --env POSTGRES_USER="$ROLE" \
   --env POSTGRES_PASSWORD="$PASSWORD" \
   --env POSTGRES_DB="$DATABASE" \
   --publish 127.0.0.1::5432 \
-  "$POSTGRES_IMAGE" >/dev/null
+  "$POSTGRES_IMAGE" \
+  -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
 
 # The image's init phase runs a socket-only server first, so a TCP probe inside the
 # container only succeeds once the real server is accepting connections.
@@ -73,6 +88,11 @@ echo "==> rolling back and re-applying every migration"
 diesel migration redo --all --locked-schema
 
 echo "==> running store-backed tests"
-cargo test --locked -- --include-ignored
+# Every store-backed test is a unit test of the library, so only the library's tests are built:
+# one compile of the crate, about 13 GB at its peak, where building every target compiles the
+# library twice at once and needs about 21 GB, more than a 16 GB machine has. The binaries hold
+# no tests and the doc examples are never compiled, so nothing is skipped. An ignored test added
+# outside the library, such as under tests/, would not run here.
+cargo test --locked --lib -- --ignored
 
 echo "==> migrations verified"

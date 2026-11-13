@@ -1,6 +1,7 @@
 # CI
 
-GitHub Actions on the org's self-hosted runners. Every check runs on pull requests to `main`, in the merge queue, on
+GitHub Actions. `API migrations` runs on a GitHub-hosted runner, and every other job on the org's self-hosted runners
+until they move too (see Roadmap). Every check runs on pull requests to `main`, in the merge queue, on
 pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/publish.yml` pushes the images to
 Docker Hub after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the
 automated review, described in `docs/infrastructure.md`, and is not part of this.
@@ -11,7 +12,32 @@ the merge queue remain for outside contributors, which is what the fork rules be
 
 ## Runners
 
-Every job targets:
+### GitHub-hosted
+
+`API migrations` targets:
+
+```yaml
+runs-on: ubuntu-24.04
+```
+
+The image is named by its Ubuntu release, never `ubuntu-latest`, so a new release is a change made here rather than
+one that arrives on its own. Elysium is public, so these runners cost nothing. Each job gets a fresh machine with 4
+vCPUs, 16 GB of memory, 3 GB of swap, and about 86 GB of free disk, and the machine is discarded when the job ends, so
+nothing a job leaves behind can pile up.
+
+A fresh machine compiles from nothing, so a Rust job restores its crate's compiled dependencies from the Actions cache
+through `.github/actions/rust-toolchain`, which runs `Swatinem/rust-cache` after installing the pinned toolchain. Only
+dependencies are cached; the crate itself changes with every commit. Jobs that compile a crate the same way share one
+cache by name, such as `api-test` for the API's `cargo test` build, which `API migrations` compiles. A cache is keyed
+by the installed toolchains, the lockfiles, and the Cargo and Rust environment variables, and a miss restores the
+newest cache of the same name, so a lockfile change recompiles only what it changed. A job whose tests fail still
+saves it. A pull request restores the caches `main` saved and saves its own only when it changed what they are keyed
+by. GitHub keeps 10 GB of cache per repository and evicts the least recently used past that; `api-test` is about
+530 MB.
+
+### Self-hosted
+
+Every other job targets:
 
 ```yaml
 runs-on: [ self-hosted, linux, rocky9, docker ]
@@ -21,12 +47,13 @@ Labels match as a set. `chipotle`, `chipotle2`, and `chipotle3` carry all four, 
 `flagship` label is left out on purpose: only `chipotle` carries it, and a runner takes one job at a time, so requiring
 it would queue every job behind the one before.
 
-**Nothing is cached with `actions/cache`.** The runners are persistent, so rustup toolchains, Cargo's registry, Yarn's
-cache, and Docker's layer cache are already warm on the machine. Uploading and restoring them would be a cache of a
-cache. The one thing a persistent runner does not keep on its own is Cargo's build output, because `actions/checkout`
-runs `git clean -ffdx` and deletes a `target/` inside the checkout. The Rust jobs therefore set `CARGO_TARGET_DIR` to
-`$RUNNER_WORKSPACE/cargo-target/<crate>`, beside the checkout, so each runner compiles only what changed. Each runner
-has its own workspace, so no two jobs share a target directory at the same time. Deleting one is always safe.
+These runners are persistent, so rustup toolchains, Cargo's registry, Yarn's cache, and Docker's layer cache are
+already warm on the machine, and nothing they run is cached with `actions/cache`. The one thing a persistent runner
+does not keep on its own is Cargo's build output, because `actions/checkout` runs `git clean -ffdx` and deletes a
+`target/` inside the checkout. On a self-hosted runner, `.github/actions/rust-toolchain` therefore sets
+`CARGO_TARGET_DIR` to `$RUNNER_WORKSPACE/cargo-target/<crate>`, beside the checkout, so each runner compiles only what
+changed. Each runner has its own workspace, so no two jobs share a target directory at the same time. Deleting one is
+always safe.
 
 Concurrent jobs on one Docker daemon never collide: image tags and container names carry the run id and attempt, and
 every published port is picked by Docker (`--publish 127.0.0.1::<port>`) and read back with `docker port`.
@@ -73,7 +100,8 @@ reporting `Clippy` could not be told apart.
 
 ## Security
 
-Elysium is public and the runners are self-hosted, so a workflow run is code execution on org hardware.
+Elysium is public, and a job on the self-hosted runners is code execution on org hardware. A GitHub-hosted job runs on
+a machine that is discarded afterwards, but it holds the same token, so the same rules apply to both.
 
 - The repository requires approval before any outside contributor's workflow runs.
 - Workflows trigger on `pull_request`, never `pull_request_target`, so a pull request runs with a read-only token and
@@ -91,8 +119,8 @@ Elysium is public and the runners are self-hosted, so a workflow run is code exe
 - `release.yml` is the one workflow whose token writes: `contents: write` to push a release tag and `actions: write`
   to start `publish.yml` on it. It reads no secret, and runs only on its schedule and by hand, never on a pull
   request.
-- Third-party actions are pinned to a full commit SHA with the version in a comment. `actions/checkout` is the only
-  one.
+- Third-party actions are pinned to a full commit SHA with the version in a comment: `actions/checkout`, and
+  `Swatinem/rust-cache` inside `.github/actions/rust-toolchain`.
 
 ## Pins
 
@@ -108,7 +136,9 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
+| Runner image       | `ubuntu-24.04` in each hosted job's `runs-on`        |                                   |
 | `actions/checkout` | a commit SHA in each workflow                        |                                   |
+| `Swatinem/rust-cache` | a commit SHA in `.github/actions/rust-toolchain`  |                                   |
 
 rustup installs exactly the channel a crate's `rust-toolchain.toml` names. rustfmt and clippy are added with
 `rustup component add` rather than listed there, because the images build from the minimal official Rust image and
@@ -126,19 +156,33 @@ Two composite actions hold the setup the jobs share: `.github/actions/rust-toolc
 ## API
 
 `RUSTFLAGS=-D warnings` applies to every Cargo command in the API and broker workflows, so a compiler warning fails the
-test build as well as clippy. `CARGO_INCREMENTAL=0` keeps the persistent target directories from filling with
-incremental artifacts CI never reuses.
+test build as well as clippy. `CARGO_INCREMENTAL=0` keeps the target directories from filling with incremental
+artifacts CI never reuses.
 
 `API test` runs the hermetic suite. The database-backed tests are `#[ignore]`d there and run in `API migrations`, which
 first checks that the Postgres image `api/scripts/verify-migrations.sh` names is, character for character, the one
 `compose.yml` runs, then calls the script exactly as a developer would (see `docs/database.md`): it starts a disposable
-Postgres on a port Docker picks, checks `schema.rs` for drift, redoes every migration, and runs the whole suite with
-`--include-ignored`. The script names its container after its own process id and removes it on exit. The workflow
-records that process id, so a cancelled run, which can kill the script before its cleanup runs, still has the container
-removed by an `always()` step. No `services:` container is used, because the script already owns its database.
+Postgres and Redis on ports Docker picks, checks `schema.rs` for drift, redoes every migration, and runs only the
+ignored tests (`cargo test --lib -- --ignored`), since `API test` already ran the rest. No `services:` container is
+used, because the script already owns its database.
 
-The Diesel CLI is the release binary rather than `cargo install`. It is built with libpq bundled, so the runners need
-no Postgres client library, and it needs glibc 2.34, which Rocky 9 ships.
+The crate is large enough that compiling it is bounded by memory. The library and the library's tests are each one
+rustc process of about 10 to 13 GB at its peak, and building every target runs both at once, about 21 GB, more than a
+hosted runner's 16 GB; a runner that runs out is shut down mid-build. Every ignored test is a unit test of the library,
+so the script builds only the library's tests (`--lib`), one compile of the crate. The binaries hold no tests and the
+doc examples are never compiled, so nothing is left out.
+
+The script names its containers after its own process id and removes them on exit with `docker rm --volumes`. The
+Postgres image declares a volume at its data directory, so a container removed without `--volumes` leaves that volume
+behind for good. The workflow records the script's process id, so a cancelled run, which can kill the script before its
+cleanup runs, still has both containers and their volumes removed by an `always()` step, which says what it removed.
+Postgres keeps its data on disk rather than a tmpfs: no test drops the database it creates, about 18 MB each once
+migrated, so the suite ends holding about 12 GB, more than the hosted runner's memory could spare. It runs with
+`fsync`, `synchronous_commit`, and `full_page_writes` off instead, since nothing in it outlives the container: on the
+hosted runner's disk that takes the tests from about 7.7 minutes to 4.4.
+
+The Diesel CLI is the release binary rather than `cargo install`. It is built with libpq bundled, so the job needs no
+Postgres client library, and it needs glibc 2.34, which Ubuntu 24.04 ships.
 
 `API image` builds the default `app` stage of `api/Dockerfile` from the repository root, as the publish workflow
 does, checks its `FROM rust:` and `FROM node:` lines against the pins, checks the image carries the web app's
@@ -235,4 +279,9 @@ Deployments running auto-update apply the release within the hour after its imag
 
 ## Roadmap
 
+- Move every other job to GitHub-hosted `ubuntu-24.04` runners (#271): the remaining Rust and frontend lanes, then the
+  image lanes, with `pull-review.yml` last, once the shared review pipeline runs on hosted runners
+  (JalapenoLabs/github-actions#7).
+- Tests that drop the database they create, so the migrations check holds one at a time and its data could sit on a
+  tmpfs.
 - A boot check for the API image against a disposable Postgres and Redis.

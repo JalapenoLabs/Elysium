@@ -73,7 +73,12 @@ checks:
 
 1. `diesel migration run --locked-schema` fails if `schema.rs` differs from what the migrations produce.
 2. `diesel migration redo --all --locked-schema` proves every `down.sql` undoes its `up.sql`.
-3. `cargo test -- --include-ignored` runs the store-backed tests, against that Postgres and a disposable Redis.
+3. `cargo test --lib -- --ignored` runs the store-backed tests, against that Postgres and a disposable Redis. They
+   are the library's unit tests plain `cargo test` ignores, so it builds only the library's tests and runs nothing
+   else.
+
+Its Postgres never waits for the disk (`fsync` off), since every database in it is thrown away, and it removes both
+containers with their volumes when it exits.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
