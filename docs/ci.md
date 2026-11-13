@@ -1,7 +1,7 @@
 # CI
 
-GitHub Actions. `API migrations` runs on a GitHub-hosted runner, and every other job on the org's self-hosted runners
-until they move too (see Roadmap). Every check runs on pull requests to `main`, in the merge queue, on
+GitHub Actions, on GitHub-hosted runners except the image builds and publishing, which run on the org's self-hosted
+runners until they move too (see Roadmap). Every check runs on pull requests to `main`, in the merge queue, on
 pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/publish.yml` pushes the images to
 Docker Hub after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the
 automated review, described in `docs/infrastructure.md`, and is not part of this.
@@ -14,7 +14,7 @@ the merge queue remain for outside contributors, which is what the fork rules be
 
 ### GitHub-hosted
 
-`API migrations` targets:
+Every job except the image builds and publishing targets:
 
 ```yaml
 runs-on: ubuntu-24.04
@@ -28,16 +28,32 @@ nothing a job leaves behind can pile up.
 A fresh machine compiles from nothing, so a Rust job restores its crate's compiled dependencies from the Actions cache
 through `.github/actions/rust-toolchain`, which runs `Swatinem/rust-cache` after installing the pinned toolchain. Only
 dependencies are cached; the crate itself changes with every commit. Jobs that compile a crate the same way share one
-cache by name, such as `api-test` for the API's `cargo test` build, which `API migrations` compiles. A cache is keyed
-by the installed toolchains, the lockfiles, and the Cargo and Rust environment variables, and a miss restores the
-newest cache of the same name, so a lockfile change recompiles only what it changed. A job whose tests fail still
-saves it. A pull request restores the caches `main` saved and saves its own only when it changed what they are keyed
-by. GitHub keeps 10 GB of cache per repository and evicts the least recently used past that; `api-test` is about
-530 MB.
+cache by name:
+
+| Cache           | Jobs                          | Build                         |
+|-----------------|-------------------------------|-------------------------------|
+| `api-clippy`    | `API clippy`                  | `cargo clippy --all-targets`  |
+| `api-test`      | `API test`, `API migrations`  | `cargo test`                  |
+| `broker-clippy` | `Broker clippy`               | `cargo clippy --all-targets`  |
+| `broker-test`   | `Broker test`                 | `cargo test`                  |
+
+The format jobs compile nothing, so they restore none. A cache is keyed by the installed toolchains, the lockfiles, and
+the Cargo and Rust environment variables, and a miss restores the newest cache of the same name, so a lockfile change
+recompiles only what it changed. A job whose tests fail still saves it. A pull request restores the caches `main` saved
+and saves its own only when it changed what they are keyed by. GitHub keeps 10 GB of cache per repository and evicts
+the least recently used past that; `api-test` is about 530 MB.
+
+The frontend jobs cache nothing: a cold `yarn install` takes under a minute, and Yarn's cache would be about 820 MB of
+the 10 GB for half of that.
+
+The Free plan runs at most 20 GitHub-hosted jobs at once across the organization, and one push to Elysium starts 12.
+Back-to-back pushes queue at GitHub rather than on a machine of ours. Each workflow's concurrency group cancels the
+run a newer push to the same ref supersedes, and merge groups never share a ref, so every queued pull request's checks
+run in full.
 
 ### Self-hosted
 
-Every other job targets:
+The image builds and `publish.yml` target:
 
 ```yaml
 runs-on: [ self-hosted, linux, rocky9, docker ]
@@ -45,32 +61,25 @@ runs-on: [ self-hosted, linux, rocky9, docker ]
 
 Labels match as a set. `chipotle`, `chipotle2`, and `chipotle3` carry all four, so up to three jobs run at once. The
 `flagship` label is left out on purpose: only `chipotle` carries it, and a runner takes one job at a time, so requiring
-it would queue every job behind the one before.
-
-These runners are persistent, so rustup toolchains, Cargo's registry, Yarn's cache, and Docker's layer cache are
-already warm on the machine, and nothing they run is cached with `actions/cache`. The one thing a persistent runner
-does not keep on its own is Cargo's build output, because `actions/checkout` runs `git clean -ffdx` and deletes a
-`target/` inside the checkout. On a self-hosted runner, `.github/actions/rust-toolchain` therefore sets
-`CARGO_TARGET_DIR` to `$RUNNER_WORKSPACE/cargo-target/<crate>`, beside the checkout, so each runner compiles only what
-changed. Each runner has its own workspace, so no two jobs share a target directory at the same time. Deleting one is
-always safe.
+it would queue every job behind the one before. These runners are persistent, so Docker's layer cache is already warm
+on the machine.
 
 Concurrent jobs on one Docker daemon never collide: image tags and container names carry the run id and attempt, and
 every published port is picked by Docker (`--publish 127.0.0.1::<port>`) and read back with `docker port`.
 
-**Every build and test run is capped at 4 cores.** Several agents build in parallel on one machine, locally and on
-the runners, and an uncapped build takes every core. `api/.cargo/config.toml` and `oauth-broker/.cargo/config.toml`
-set `jobs = 4` and `RUST_TEST_THREADS = "4"`, and the frontend's `yarn test` passes `--maxWorkers=4` to Vitest. Docker
-image builds run one at a time on a development machine, with `--build-arg CARGO_BUILD_JOBS=4`: an image builds
-from the repository rather than the crate's Cargo config, so its `ARG CARGO_BUILD_JOBS` defaults to every core.
+**Every build and test run is capped at 4 cores.** Several agents build in parallel on one development machine, and
+an uncapped build takes every core; a hosted runner has 4 vCPUs, so the cap costs CI nothing. `api/.cargo/config.toml`
+and `oauth-broker/.cargo/config.toml` set `jobs = 4` and `RUST_TEST_THREADS = "4"`, and the frontend's `yarn test`
+passes `--maxWorkers=4` to Vitest. Docker image builds run one at a time on a development machine, with
+`--build-arg CARGO_BUILD_JOBS=4`: an image builds from the repository rather than the crate's Cargo config, so its
+`ARG CARGO_BUILD_JOBS` defaults to every core.
 
 ## Required checks
 
 Every workflow runs on every pull request, merge group, and push, with no path filters. GitHub never evaluates path
 filters for `merge_group` events, and a required check whose workflow a path filter skipped on a pull request stays
-pending forever. Running everything is the simple option that cannot stall the queue; cached dependencies and warm
-runners keep an unchanged lane short. The API image is the exception, since its release build recompiles the crate on
-every commit.
+pending forever. Running everything is the simple option that cannot stall the queue; cached dependencies keep an
+unchanged lane short. The API image is the exception, since its release build recompiles the crate on every commit.
 
 Job names are the check names. Require exactly these in the `main` ruleset:
 
@@ -169,10 +178,13 @@ used, because the script already owns its database.
 
 The crate is large enough that compiling it is bounded by memory. The library and the library's tests are each one
 rustc process of about 10 to 13 GB at its peak, and building every target runs both at once, about 21 GB, more than a
-hosted runner's 16 GB; a runner that runs out is shut down mid-build. Every ignored test is a unit test of the library,
-so the script builds only the library's tests (`--lib`), one compile of the crate. The binaries hold no tests and the
-doc examples are never compiled, so nothing is left out, and the script refuses to run while any file outside the
-library holds an ignored test, which would otherwise run in neither job.
+hosted runner's 16 GB; a runner that runs out is shut down mid-build. `API test` therefore builds the library's tests
+alone first (`cargo test --lib --no-run`), and `cargo test` then has only the library and the binaries left to build,
+one large compile at a time. Every ignored test is a unit test of the library, so the script builds only the library's
+tests (`--lib`), one compile of the crate. The binaries hold no tests and the doc examples are never compiled, so
+nothing is left out, and the script refuses to run while any file outside the library holds an ignored test, which
+would otherwise run in neither job. Clippy only checks the crate, about 3 GB, so `API clippy` builds every target at
+once.
 
 The script names its containers after its own process id, starts them without `--rm`, and removes them on exit with
 `docker rm --volumes`, so its cleanup is their only removal. The Postgres image declares a volume at its data
@@ -282,9 +294,8 @@ Deployments running auto-update apply the release within the hour after its imag
 
 ## Roadmap
 
-- Move every other job to GitHub-hosted `ubuntu-24.04` runners (#271): the remaining Rust and frontend lanes, then the
-  image lanes, with `pull-review.yml` last, once the shared review pipeline runs on hosted runners
-  (JalapenoLabs/github-actions#7).
+- Move the image builds and `publish.yml` to GitHub-hosted `ubuntu-24.04` runners (#271), with `pull-review.yml` last,
+  once the shared review pipeline runs on hosted runners (JalapenoLabs/github-actions#7).
 - Tests that drop the database they create, so the migrations check holds one at a time and its data could sit on a
   tmpfs.
 - A boot check for the API image against a disposable Postgres and Redis.
