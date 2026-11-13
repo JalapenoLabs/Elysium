@@ -53,6 +53,14 @@ conversation as her reply; for a meeting comment it is posted in the thread, as 
 as any reply does; for every turn, the summary is stored for her activity log. A meeting comment turn whose thread
 she already answered after the comment that asked her, or whose thread is gone, ends with nothing to do.
 
+A turn keeps the meetings that reached it (`elysia_turn_meetings`): a meeting comment turn its thread's meeting, as it
+starts and before her prompt quotes a word of it, and every turn what her tools hand her. Her activity lists and opens
+such a turn, with its summary or error, only for whoever may read every one of those meetings, and its end is announced
+by its id alone (`elysiaTurn.changed`), for each client to load what it may (`docs/knowledge.md`, What agents write
+from a meeting). While it is queued or runs, her status shows it as every turn, with nothing it said yet. Her session
+carries what she read into later turns; how far a hold should follow it is on the roadmap (`docs/knowledge.md`, Pages,
+Roadmap).
+
 When every Claude credential has reached its usage limit, the turn fails and an identical one is queued, and nothing
 starts before the limit resets: the time Claude's rate-limit report names, or an hour when it names none. A turn
 left running when the engine stops is failed at its next start; its trigger is not lost, because the messages or work

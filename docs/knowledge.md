@@ -19,8 +19,8 @@ turn (MCP, below); asking it for a written answer, every claim citing a passage,
 Agent guidance, every version kept (Agent guidance, below); and pages, their tree, every published version, their labels,
 their place in the index, finding them by title and text, and the edits agents suggest to them, reviewed on the page,
 with learnings and the company doc among them (Pages, below); and the meetings the reader may read in that tree,
-under the Meetings page and each project's brief (Pages, The tree), a private meeting's documents found by its readers
-alone (Who sees what, below).
+under the Meetings page and each project's brief (Pages, The tree), a private meeting's documents, and what agents
+wrote from it, found by its readers alone (Who sees what, below).
 
 ## What is indexed
 
@@ -125,7 +125,8 @@ Two things carry the same text under different rules:
 - **The knowledge index** is the company's: passages made from those records' text, served to every member.
 
 A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge page), which answers any member for
-anything indexed (but a private meeting's documents, for its readers alone), never through the owner's timeline route,
+anything indexed (but a private meeting's documents, and what agents wrote from one, for its readers alone), never
+through the owner's timeline route,
 which answers anyone else not found. The index holds text: a segment's clip stays with its record and plays for its
 owner alone, and a meeting's recordings play on the meeting's own page for whoever may read it. Removing a connector stops
 its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
@@ -140,8 +141,9 @@ on, not who may read it.
 
 The rule is applied in the query itself, by leaving the owner out of it: search, `knowledge_get`, `knowledge_ask`,
 summaries, and citations carry no per-owner predicate on knowledge-base content. The one filter on who reads is a
-private meeting's (A private meeting, above): each query leaves out the documents of the meetings its reader may not
-read, by the same rule the meeting's own routes read it by. Each passage keeps whose record it
+private meeting's (A private meeting, and What agents write from a meeting, above): each query leaves out the documents
+of the meetings its reader may not read, and of the records naming one, by the same rule the meeting's own routes read
+it by. Each passage keeps whose record it
 came from (`created_by`), for the `person` filter, for citing who said it, and for removing it with its record. The
 `person` filter is a narrowing the caller asks for, never access control.
 
@@ -322,6 +324,8 @@ agents' work beside its meetings and messages, and a search finds what an agent 
   owned by the coding agent's machine user, and every company member reads it on the project's timeline, as they read a
   Project Manager's records (`timeline_record::SHARED_OWNERS`). A guest reads only their own records, as for every
   shared record. In the index it is attributed to that machine user, so the `person` filter names no person for it.
+- **Held to what its turn read.** The record names every meeting its turn read, so only whoever may read every one of
+  them lists, opens, or finds it (Who sees what, What agents write from a meeting).
 - **Its text.** The title is the summary, the actor the session (`Session 12`), and the body empty, so its document is
   the summary and `From Session 12`. Its metadata names the session, the turn, and the Studio item when the session is
   one's, which the timeline opens the session's conversation at.
@@ -714,7 +718,9 @@ under the same names, descriptions, and argument schemas.
   whoever started the session, read from the database on every call: a company member passes, and so does one of
   Elysium's own machines, while a guest or a person disabled since is refused with a message saying the knowledge base
   is for the company's members alone. Elysia's turns read as herself. The company doc's tools in a turn
-  are checked the same way.
+  are checked the same way. Before a turn's `knowledge_search`, `knowledge_get`, `meetings_list`, or
+  `meeting_attachment_get` answers, the turn keeps every meeting what it hands over comes from, so what the turn writes
+  is held to them (Who sees what, What agents write from a meeting).
 - **Citations open in the knowledge base.** Every result is a `Citation`, `documentId` first, which `knowledge_get`
   opens, never the owner's timeline route. The MCP server's instructions tell a client where a person opens one:
   `https://<host>/knowledge/documents/<documentId>`, the Knowledge page's document.
@@ -1411,6 +1417,14 @@ page's history restores it afterwards.
 - **Attachments for agents.** The page tools read a page's references to its files, but not the files, whose address
   needs a person's session, and attach nothing. Tools to fetch and attach one would call what the routes call
   (`upload_attachment::upload_file`, `remove`, `restore`), each taking an `Author`.
+- **What a long session carries.** A Project Manager's session and Elysia's resume every turn, so a turn after one that
+  read a private meeting can recall it, and each of their turns is held to what it read itself (Who sees what, What
+  agents write from a meeting). Holding later turns too, for a while or for good, or answering a private meeting in a
+  fork of the session that nothing resumes, is to be decided.
+- **What agents make from a meeting beyond records.** A batch's title and goal, an action item made from a private
+  meeting's task, a changeset's reason and quote, a finding, Elysia's conversation and work, and a session's own
+  conversation are read as they are today, by every member; holding them to the meetings they came from follows the
+  same rule (Who sees what, What agents write from a meeting).
 
 ## Onyx
 

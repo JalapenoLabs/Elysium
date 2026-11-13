@@ -453,6 +453,9 @@ What it gives (`Handled`) is the conversation, its turns and messages, and the i
   the cursor. A run still live, failed and waiting on a person, holds the next one back, as every workflow's live run
   does. People start one at once from Look for updates, on the Company page and every section in the knowledge base
   (`POST /api/v1/company-doc/review`), which answers the live run when there is one.
+- **What it reads.** The doc is every member's, so a run reads only the records any member may read
+  (`timeline_record::ingested_between` with `Reader::ANY_MEMBER`): never a private meeting's excerpts, nor what an
+  agent wrote from one (`docs/knowledge.md`, What agents write from a meeting).
 - **What it logs.** How many records it read and what it suggested to which section, never a word of the records:
   every member reads every run's log, and a record is its owner's. The suggestions themselves quote what they cite,
   which the knowledge base shares with every member (`docs/knowledge.md`, Who sees what).
@@ -540,7 +543,8 @@ trackers (Its writes, below), and its tabs on the project's page.
   one. It ends with a `Summary:` line, which
   heads it; the text before it is its reply.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
-  `manager_record` read its project's timeline, every owner's records on it, `manager_pages` and `manager_page` list and
+  `manager_record` read its project's timeline, every owner's records on it (`manager_timeline` lists a record from a
+  meeting that is not public without its words, which `manager_record` reads), `manager_pages` and `manager_page` list and
   read the pages linked to its project, a long one in parts, and refuse any other, `manager_batches` lists its batches,
   proposed ones included, `manager_submit_batch` proposes one, `manager_cancel_batch` withdraws one no worker has
   started on, `manager_report_finding` reports work nobody asked for as a finding (Findings, below),
@@ -557,11 +561,17 @@ trackers (Its writes, below), and its tabs on the project's page.
   as certain. They are the
   workspace's, owned by the Project Managers' machine user, so every member reads them on the project's timeline
   (`docs/connectors.md`, The timeline); nothing wakes on them, and Elysia's intake leaves them out.
+- **What it read.** A private meeting's excerpts and tasks still reach its projects' Project Managers and wake them.
+  Each turn keeps the meetings that reached it (`project_manager_turn_meetings`): those of the records, tasks, and
+  promises its prompt carries as it starts, and those its tools hand it. Its turn, its record, and every batch it
+  submits are held to them, and each change it makes to its cause's, so whoever may not read one of those meetings
+  never lists, opens, or finds them, on the timeline, the Project Manager tab, or in the knowledge base
+  (`docs/knowledge.md`, What agents write from a meeting). Its status still reads every turn.
 - **Its turns' logs.** Each turn keeps what it said and which tools it called, one line each, the newest 64 KiB, which
   the page reads when a turn is opened. Its full stream is Claude Code's own transcript until Activity records every
   turn (`docs/activity.md`).
 - **Who sees it.** Its turns quote what was ingested, so its routes answer the company's members alone, as the
-  knowledge base does.
+  knowledge base does, and each turn only those who may read every meeting it read.
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
 
@@ -792,9 +802,11 @@ page, at the head of its row in the work queue, and in the description of every 
   first 600 characters of what was said; for each item it works on, the issues linked to it, primary first, then the
   records that raised it not named already; the items; the batch; and its pull requests in the order its worker
   recorded them. Anything named that is gone since (a record removed with its connector, a deleted item) is left out.
-- **Read for its reader.** A chain is read for whoever is shown it (`why::read`, a `Reader`). A segment of a meeting
-  they may not read (`docs/meetings.md`, Who reads a meeting) is withheld: the link stays, saying a private meeting
-  asked, with nothing of what was said, what the topic or the meeting is called, or where its document is. A pull
+- **Read for its reader.** A chain is read for whoever is shown it (`why::read`, a `Reader`). A record naming a
+  meeting they may not read is withheld: a segment of it (`docs/meetings.md`, Who reads a meeting), or what an agent
+  wrote from it, such as a Project Manager's turn (`docs/knowledge.md`, What agents write from a meeting). The link
+  stays, saying a private meeting asked, with nothing of what was said, what the topic or the meeting is called, or
+  where its document is. A pull
   request's description is read for any member (`Reader::ANY_MEMBER`), so it quotes a public meeting alone.
 - **Where each opens.** A record opens its knowledge base document, which any member reads (`docs/knowledge.md`, Who
   sees what); one not indexed yet is named without a link. A finding opens its project's Findings tab, a message its
@@ -1083,7 +1095,9 @@ failing closed, and the record of every merge (`api/src/worker_pool/merging/`, `
   the pull request), and wakes the project's Project Manager, all in one transaction that moves the pull request from
   `open` alone, so it is recorded once however often it is read. An engine that stops between GitHub merging and that
   record finds it merged on its next look and records it then, naming whoever GitHub says merged it. Elysia's intake
-  leaves it out, as it does every agent's record.
+  leaves it out, as it does every agent's record. Its title is the worker's, written from its batch, so it names the
+  meetings its batch came from: those the turn that submitted it read, and those of the records it names, the excerpts
+  its worker read among them (`docs/knowledge.md`, What agents write from a meeting).
 - **Promises.** A promise tied to the batch becomes due when the batch succeeds, which follows its merges; one tied to
   an action item, when the item resolves, which the Project Manager the merge woke decides (Follow-ups, below).
 

@@ -139,13 +139,13 @@ UPDATE project_manager_turns SET timeline_record_id = '00000000-0000-7000-8000-0
 WHERE id = '00000000-0000-7000-8000-000000278201';
 
 INSERT INTO work_batches (id, project_id, title, goal, priority, state, turn_id,
-                          source_record_ids, created_by, started_at, finished_at, result, origin,
-                          generation)
+                          source_record_ids, created_by, assigned_at, started_at, finished_at, result,
+                          origin, generation)
 VALUES
  ('00000000-0000-7000-8000-000000278c01', '00000000-0000-7000-8000-000000278b01', 'Move the team',
   'Move the team in May.', 'normal', 'succeeded', '00000000-0000-7000-8000-000000278201',
   '["00000000-0000-7000-8000-000000278104"]', '00000000-0000-0000-0000-000000000004',
-  '2026-11-02T09:00:00Z', '2026-11-03T09:00:00Z', 'Moved.', 'human_rooted', 0);
+  '2026-11-02T08:00:00Z', '2026-11-02T09:00:00Z', '2026-11-03T09:00:00Z', 'Moved.', 'human_rooted', 0);
 INSERT INTO timeline_records (id, source_kind, occurred_at, actor, title, body, metadata,
                               created_by)
 VALUES

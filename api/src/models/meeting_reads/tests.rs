@@ -16,6 +16,7 @@ use super::*;
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::meeting::{Reach, Visibility};
 use crate::models::meeting_share;
+use crate::models::project::{self, NewProject};
 use crate::models::session_turn::{self, NewSessionTurn};
 use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::models::user::SYSTEM_USER_ID;
@@ -94,8 +95,9 @@ async fn its_sql_reads_records_as_its_query_does() {
 
     let named_nothing = record_naming(&mut connection, "project_manager", json!({}), &[]).await;
     let from_own = record_naming(&mut connection, "project_manager", json!({}), &[own]).await;
-    let from_shared = record_naming(&mut connection, "turn_summary", json!({}), &[shared]).await;
-    let from_private = record_naming(&mut connection, "turn_summary", json!({}), &[private]).await;
+    let from_shared = record_naming(&mut connection, "project_manager", json!({}), &[shared]).await;
+    let from_private =
+        record_naming(&mut connection, "project_manager", json!({}), &[private]).await;
     let from_unchecked =
         record_naming(&mut connection, "project_manager", json!({}), &[unchecked]).await;
     let from_public = record_naming(&mut connection, "project_manager", json!({}), &[public]).await;
@@ -184,7 +186,8 @@ async fn its_sql_reads_records_as_its_query_does() {
 async fn opening_a_meeting_opens_what_was_written_from_it_and_closing_it_closes_it() {
     let (_url, mut connection) = migrated_database().await;
     let private = meeting_of(&mut connection, SYSTEM_USER_ID, Visibility::Private).await;
-    let from_private = record_naming(&mut connection, "turn_summary", json!({}), &[private]).await;
+    let from_private =
+        record_naming(&mut connection, "project_manager", json!({}), &[private]).await;
 
     // Who reads it is asked as each request runs, with nothing written again.
     let member = Reader {
@@ -213,6 +216,17 @@ async fn opening_a_meeting_opens_what_was_written_from_it_and_closing_it_closes_
 async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
     let (_url, mut connection) = migrated_database().await;
     let private = meeting_of(&mut connection, SYSTEM_USER_ID, Visibility::Private).await;
+    let project_id = project::create(
+        &mut connection,
+        &NewProject {
+            created_by: TEST_PERSON_ID,
+            name: "Reorg".to_owned(),
+            description: String::new(),
+        },
+    )
+    .await
+    .expect("a project")
+    .id;
     let id = coding_session::reserve_id(&mut connection)
         .await
         .expect("a number");
@@ -220,7 +234,7 @@ async fn a_sessions_turn_carries_what_its_earlier_turns_read() {
         &mut connection,
         &NewCodingSession {
             id,
-            project_id: None,
+            project_id: Some(project_id),
             title: "Look into the reorg".to_owned(),
             github_credential_id: None,
             action_item_id: None,

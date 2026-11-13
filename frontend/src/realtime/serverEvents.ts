@@ -122,7 +122,7 @@ export type ServerEvent =
   | { type: 'elysiaMessage.created', data: ElysiaMessage }
   // One of her turns was queued, started, ended, or cancelled.
   | { type: 'elysiaTurn.upserted', data: ElysiaTurn }
-  // One of her turns that read a meeting started or ended. Its id alone, since what it says is
+  // One of her turns that read a meeting ended. Its id alone, since what it says is
   // read only by that meeting's readers; each client loads it, and one that may not is told 404.
   | { type: 'elysiaTurn.changed', data: { id: string } }
   // A project's Project Manager changed: something woke it, a turn started or ended, or a batch

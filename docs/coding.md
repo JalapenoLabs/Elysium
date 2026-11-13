@@ -327,6 +327,13 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
   member reads it on the project's Timeline tab, where it opens the session's conversation at that turn. One record per
   turn, deleted with the session; a session without a project keeps its summaries off every timeline. The summaries
   written before are put there by the knowledge base's backfill. See `docs/knowledge.md`, Turn summaries.
+- **Held to what its turn read.** A turn keeps every meeting its tools hand it (`session_turn_meetings`): a search's
+  results, a document opened, the meetings listed, a file or frame opened, each kept before the tool answers. A turn
+  starts with every meeting its session's earlier turns read, since it resumes them. Its summary, in the conversation
+  and as its record on the timeline and in the knowledge base, is read only by whoever may read every one of those
+  meetings, and is announced by its ids alone (`session.summaryChanged`), for each conversation to load what it may
+  (`docs/knowledge.md`, What agents write from a meeting). The session's own conversation is read by every member, as
+  every session is listed to everyone (`docs/knowledge.md`, Pages, Roadmap).
 - **Nothing wakes on it.** A new record on a project wakes its Project Manager (`docs/engine.md`, Project Managers),
   except what Elysium's agents put there, a summary included: a wake per turn would spend a Project Manager's turn on
   every prompt anyone types into a session of the project. The work a Project Manager dispatched reports back through

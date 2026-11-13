@@ -16,7 +16,7 @@
 //! `crate::project_managers::batches`, the one place batches are stored. See `docs/engine.md`,
 //! Project Managers and Follow-ups.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use futures_util::FutureExt as _;
@@ -954,6 +954,7 @@ async fn run_promises(
     let made_in = timeline_record::find_many(&mut connection, &record_ids)
         .await
         .map_err(|error| internal(scope, "manager.promises", &error))?;
+    let still_there: HashSet<Uuid> = made_in.iter().map(|record| record.id).collect();
     let made_in = meeting_reads::for_agent(&mut connection, made_in, |record| record)
         .await
         .map_err(|error| internal(scope, "manager.promises.meetings", &error))?;
@@ -964,12 +965,14 @@ async fn run_promises(
         records.insert(record.id, record);
     }
     keep_read(&mut connection, scope, &read).await?;
-    // A promise made in an excerpt naming no meeting is left out with it.
+    // A promise whose message is gone is listed without it; one made in an excerpt naming no
+    // meeting, which no agent is handed, is left out with it.
     let promises: Vec<Value> = listed
         .iter()
         .filter_map(|made| {
-            let record = records.get(&made.timeline_record_id)?;
-            Some(promise_view(made, Some(record)))
+            let record = records.get(&made.timeline_record_id);
+            let unplaced = record.is_none() && still_there.contains(&made.timeline_record_id);
+            (!unplaced).then(|| promise_view(made, record))
         })
         .collect();
     Ok(json!({ "promises": promises }))

@@ -136,3 +136,86 @@ describe('the running build', () => {
     expect(context.selectIsRefreshOffered(context.store.getState())).toBe(false)
   })
 })
+
+// A turn of Elysia's that read a meeting is announced by its id alone, since only the meeting's
+// readers read what it says: each client loads it, and drops it when it is answered 404.
+describe('a turn of Elysia\'s that read a meeting', () => {
+  type TurnContext = {
+    eventStream: typeof import('./eventStream')
+    store: typeof import('../store').store
+    elysiaSlice: typeof import('../store/elysiaSlice')
+  }
+
+  const readable = '01a1d60c-0000-7000-8000-000000000001'
+  const heldBack = '01a1d60c-0000-7000-8000-000000000002'
+
+  function turn(id: string, summary: string | null) {
+    return {
+      id,
+      triggerKind: 'meeting-comment',
+      triggerDetail: {},
+      status: 'succeeded' as const,
+      summary,
+      error: null,
+      createdBy: '0199a3c4-0000-7000-8000-00000000beef',
+      createdAt: '2026-11-13T09:00:00Z',
+      startedAt: '2026-11-13T09:00:01Z',
+      finishedAt: '2026-11-13T09:00:30Z',
+    }
+  }
+
+  beforeEach<TurnContext>(async (context) => {
+    vi.resetModules()
+    FakeEventSource.created = []
+    vi.stubGlobal('EventSource', FakeEventSource)
+    vi.stubGlobal('Request', PageRequest)
+    vi.stubGlobal('fetch', async (request: Request) => {
+      const headers = { 'content-type': 'application/json' }
+      const path = new URL(request.url).pathname
+      if (path === '/api/version') {
+        return new Response(JSON.stringify({ builtAt: '2026-11-04T00:00:00Z' }), { headers })
+      }
+      if (path === `/api/v1/elysia/turns/${readable}`) {
+        const body = { turn: turn(readable, 'Answered in the thread.') }
+        return new Response(JSON.stringify(body), { headers })
+      }
+      return new Response('{}', { status: 404, headers })
+    })
+
+    context.eventStream = await import('./eventStream')
+    context.store = (await import('../store')).store
+    context.elysiaSlice = await import('../store/elysiaSlice')
+  })
+
+  afterEach<TurnContext>((context) => {
+    context.eventStream.stopEventStream()
+    vi.unstubAllGlobals()
+  })
+
+  it<TurnContext>('is loaded by its id for someone who may read it', async (context) => {
+    context.store.dispatch(context.elysiaSlice.elysiaTurnUpserted(turn(readable, null)))
+    context.eventStream.startEventStream()
+    stream().open()
+    stream().send({ type: 'hello' })
+    stream().send({ type: 'elysiaTurn.changed', data: { id: readable }})
+
+    await vi.waitFor(() => {
+      const turns = context.elysiaSlice.selectElysiaTurns(context.store.getState())
+      const loaded = turns.find((candidate) => candidate.id === readable)
+      expect(loaded?.summary).toBe('Answered in the thread.')
+    })
+  })
+
+  it<TurnContext>('is dropped for someone it is answered 404', async (context) => {
+    context.store.dispatch(context.elysiaSlice.elysiaTurnUpserted(turn(heldBack, null)))
+    context.eventStream.startEventStream()
+    stream().open()
+    stream().send({ type: 'hello' })
+    stream().send({ type: 'elysiaTurn.changed', data: { id: heldBack }})
+
+    await vi.waitFor(() => {
+      const turns = context.elysiaSlice.selectElysiaTurns(context.store.getState())
+      expect(turns.some((candidate) => candidate.id === heldBack)).toBe(false)
+    })
+  })
+})

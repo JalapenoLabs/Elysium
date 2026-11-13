@@ -168,6 +168,15 @@ it is private; a new one is private until its correction decides (`docs/meetings
   may. A capture merged in names the meeting it came from only to its readers. A batch's chain, on the work queue, its
   page, and its pull requests' descriptions, withholds an excerpt of a meeting its reader may not read, saying only
   that a private meeting asked, and a description names a public meeting alone (`docs/engine.md`, Why a batch exists).
+- **What agents write from it stays with it.** Every agent's turn keeps the meetings its prompt and its tools hand it,
+  before it reads a word, and everything it writes as a record (a Project Manager's turn, record, and batches, a
+  session's turn summary, Elysia's turn, a worker's merged pull request, a promise) names them. Whoever lists, opens, or
+  searches for one reads it only if they may read every meeting it names, by a predicate inside each query, the
+  meeting's own rule in Diesel and its SQL twin in the index (`models::meeting_reads`, held to the same answers by a
+  test). Every meeting counts whatever its visibility when it was read, so making one private closes what was written
+  from it at the next request too. A held turn's live event carries its id alone. An excerpt naming no meeting is
+  handed to no agent, and the company doc's review reads only what every member may (`docs/knowledge.md`, What agents
+  write from a meeting).
 - **Private stops what comes next.** Making a meeting private closes it at once: its words, media, history, threads,
   and documents answer only its readers from the next request. What every member was already shown while it was public
   (an item's title, the Transcription doc's versions) stays as it was written, as any page's history does.

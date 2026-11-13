@@ -59,6 +59,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |
 | `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
 | `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
+| `elysiaTurn.changed` | `{ id }`                 | One of her turns that read a meeting ended; never its summary or error, which only the meeting's readers read (`docs/knowledge.md`, What agents write from a meeting). Every client loads it by id, and one that may not read it is answered `404` and drops it |
 | `projectManager.changed` | `{ projectId }`      | A project's Project Manager was woken, assigned an item or had one taken back, a turn of its started or ended, a batch of its was submitted or moved on, or a promise of its was found, tied, drafted, or moved by its work or follow-up item; members load it by id, and an open follow-up item's promise again |
 | `finding.changed`    | `{ id, projectId, state }` | A finding was reported, reported again, accepted, or dismissed; its project's Findings tab, for members, loads its list again. It never wakes Elysia |
 | `projectWorkerSetup.changed` | `{ projectId }` | A project's worker setup (the repositories it declares, its tools script) was saved; its Workers page loads it again |
@@ -74,6 +75,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A session's turn reported an event, already recorded       |
 | `session.summary`    | `TurnSummary`            | A finished turn's summary was written                      |
+| `session.summaryChanged` | `{ sessionId, turnId }` | The summary of a turn that read a meeting was written; never its text, which only the meeting's readers read. A client showing the session's conversation loads its summaries again |
 | `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, or restored    |
 | `studioItem.deleted` | `{ id }`                 | A Studio item was deleted, softly or for good              |
 | `studioAsset.created` | `StudioAsset`           | A file was pulled from a workspace into a Studio item      |

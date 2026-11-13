@@ -770,7 +770,7 @@ mod tests {
                 continue;
             }
             assert!(
-                event["data"].get("summary").is_none(),
+                event["data"]["summary"].is_null(),
                 "its summary never rides the event stream: {event}"
             );
             changed_by_id |= event["type"] == "elysiaTurn.changed";

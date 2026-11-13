@@ -249,7 +249,7 @@ pub enum ServerEvent {
     /// One of her turns was queued, started, ended, or cancelled.
     #[serde(rename = "elysiaTurn.upserted")]
     ElysiaTurnUpserted(TurnResponse),
-    /// One of her turns that read a meeting started or ended: its id alone, since what it says is
+    /// One of her turns that read a meeting ended: its id alone, since what it says is
     /// held to that meeting's readers (`models::meeting_reads`). Every client loads it by id, and
     /// one that may not read it is answered `404`.
     #[serde(rename = "elysiaTurn.changed")]

@@ -214,6 +214,12 @@ Everything else follows these rules:
 - A summary of a session with a project is a timeline record of that project in the same transaction, one per turn,
   owned by the coding agent's machine user and read by every member, indexed for search, and opening the session at
   that turn. It wakes no Project Manager. See `docs/knowledge.md`, Turn summaries.
+- What an agent writes after reading a meeting is read only by whoever may read every meeting it read
+  (`models::meeting_reads`): each turn (a session's, carrying its session's earlier turns, a Project Manager's, and
+  Elysia's) keeps the meetings its prompt and tools hand it before their words reach it, and every record it writes
+  names them in `timeline_record_meetings`, beside each excerpt's own meeting. Listing, opening, and searching filter on
+  them inside each query by the meeting's own rule, so opening or closing a meeting changes it at the next request.
+  Held turns are announced by id alone. See `docs/knowledge.md`, Who sees what, What agents write from a meeting.
 
 ## Mail
 
@@ -302,7 +308,8 @@ Everything else follows these rules:
   project: only they list it, attribute it, and play its media. Its text is not: every record is indexed into the
   knowledge base for everyone in the workspace in the transaction that stores it (`timeline_record::insert_new`), a
   person's own mail and direct messages included, with no per-owner filter in any query, and guests never reach it.
-  The one exception is a private meeting's segments, found by its readers alone (Meetings, below). The engine's
+  The one exception is a private meeting's segments, and what agents wrote from one, found by its readers alone
+  (Meetings, below). The engine's
   backfill indexes what was stored before. See `docs/knowledge.md`, Timeline records, and Who sees what.
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
@@ -654,7 +661,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   Wakes are debounced into one turn per project, one turn at a time (the database refuses a second), and a turn a
   restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
-  project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
+  project's timeline, changed by nobody, but for a turn that read a private meeting, which with its record and batches
+  is read only by that meeting's readers; a private meeting still reaches and wakes it. Its model is its kind's for the
+  project (`Agent::ProjectManager`).
 - It reads its project's docs, the knowledge base pages linked to the project (`page_projects`, `docs/knowledge.md`,
   Pages, Projects): every turn's prompt names them, and `manager_pages` and `manager_page` list and read them, refusing
   any other page. A link wakes nobody.
